@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdClean, liveWorktreeOwner, removeDeadAgentDirs } from "../src/commands/clean.ts";
 import { claimAgent, ensureHarness, insertAgent, setWorktree } from "../src/store/agent-rows.ts";
+import { insertOutboxMessage, selectOutboxMessage } from "../src/store/outbox-rows.ts";
 import { agentViewIndex, presenceById } from "../src/commands/target.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { CommandRefusal } from "../src/refusal.ts";
@@ -17,7 +18,7 @@ import { isolateHarnessSession } from "./helpers/env.ts";
 /** Capture what a refusal wrote, and put the real stream back afterwards. */
 
 describe("commands/clean", () => {
-  test("reaps dead agent dirs but preserves live pids", () => {
+  test("the forced sweep reaps dead agent dirs but preserves live pids", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-clean-"));
     const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
     try {
@@ -26,7 +27,43 @@ describe("commands/clean", () => {
       expect(removeDeadAgentDirs(true)).toEqual(["deadagent1 (pid 999999)"]);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
-    } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
+    } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
+  });
+
+  test("bare clean keeps ended agents as history and closes their queued writes", () => {
+    const root = mkdtempSync(join(tmpdir(), "orch-command-clean-bare-"));
+    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    try {
+      seedStatus(root, "deadagent1", { pid: 999999 });
+      seedStatus(root, "liveagent1", { pid: process.pid });
+      seedStatus(root, "herdr~wF~p9", { pid: process.pid });
+      insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
+      insertOutboxMessage(root, { id: "to-reaped", target: "reapedagent", payload: { action: "dispatch", text: "x" } });
+      insertOutboxMessage(root, { id: "to-live", target: "liveagent1", payload: { action: "dispatch", text: "x" } });
+
+      cmdClean(["--json"]);
+
+      expect(existsSync(join(root, "agents", "deadagent1"))).toBe(true);
+      expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
+      expect(existsSync(join(root, "agents", "herdr~wF~p9"))).toBe(false);
+      expect(selectOutboxMessage(root, "to-dead")?.state).toBe("undeliverable");
+      expect(selectOutboxMessage(root, "to-reaped")?.state).toBe("undeliverable");
+      expect(selectOutboxMessage(root, "to-live")?.state).toBe("pending");
+    } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
+  });
+
+  test("--force reaps the ended agent and closes its queued writes", () => {
+    const root = mkdtempSync(join(tmpdir(), "orch-command-clean-force-"));
+    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    try {
+      seedStatus(root, "deadagent1", { pid: 999999 });
+      insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
+
+      cmdClean(["--force", "--json"]);
+
+      expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
+      expect(selectOutboxMessage(root, "to-dead")?.state).toBe("undeliverable");
+    } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 });
 

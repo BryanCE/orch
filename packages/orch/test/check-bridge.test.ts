@@ -260,7 +260,7 @@ describe("10.8 environment branches use capabilities, not plexer/harness ids (ch
     for (const deleted of ["capabilities", "createWorkspace", "currentIdentity", "handleFor", "pruneLogs", "workspaces", "focusWorkspace", "version"]) {
       expect(ENVIRONMENT_ROLE_NAMES).not.toContain(deleted);
     }
-    for (const composed of ["placementInventory", "agentInput", "spaceHome", "identity", "handleLookup", "logPruning", "inboxSteering", "question", "modelControl", "thinking"]) {
+    for (const composed of ["placementInventory", "agentInput", "spaceHome", "identity", "handleLookup", "logPruning", "bridge", "modelControl", "thinking"]) {
       expect(ENVIRONMENT_ROLE_NAMES).toContain(composed);
     }
   });

@@ -6,6 +6,7 @@ import { getAdapter } from "../src/adapters/registry.ts";
 import { stripWorkerHeader, workerPrompt } from "../src/worker-prompt.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
+import { fakeAdapter } from "./helpers/adapter.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const orchDirs: string[] = [];
@@ -77,10 +78,10 @@ describe("worker prompt capability composition", () => {
     expect(header).not.toContain("locked machine-wide");
   });
 
-  test("the reply-to-spawner clause needs a reachable spawner, not just an inbox-steerable worker", () => {
-    // pi has capabilities.steer === "inbox", so the worker CAN receive inbox writes. That says
-    // nothing about whether whoever launched it can. Instructing the reply without a
-    // live spawner inbox is what made every worker call orch_send and get refused.
+  test("the reply-to-spawner clause needs a reachable spawner, not just a bridge-enabled worker", () => {
+    // pi has a bridge, so the worker CAN receive control mail. That says nothing
+    // about whether whoever launched it can. Instructing the reply without a live
+    // spawner bridge is what made every worker call orch_send and get refused.
     expect(workerHeaderFor(getAdapter("pi"), { spawnerRepliable: false })).not.toContain("orch_send");
     expect(workerHeaderFor(getAdapter("pi"), {})).not.toContain("orch_send");
     expect(workerHeaderFor(getAdapter("pi"), { spawnerRepliable: true })).toContain("orch_send target \"spawner\"");
@@ -99,8 +100,18 @@ describe("worker prompt capability composition", () => {
     expect(header).toContain("never relay via siblings or other agents");
   });
 
-  test("a reachable spawner still earns no clause when the worker cannot be steered by inbox", () => {
+  test("a reachable spawner still earns no clause when the worker has no bridge", () => {
     expect(workerHeaderFor(getAdapter("codex"), { spawnerRepliable: true })).not.toContain("orch_send");
+  });
+
+  test("the ask clause follows the bridge actions", () => {
+    const adapter = getAdapter("pi");
+    if (adapter === undefined) throw new Error("pi adapter missing");
+    expect(workerHeaderFor(adapter)).toContain("orch_ask");
+    const bridgeWithoutAnswer = fakeAdapter({
+      bridge: { takes: ["dispatch", "steer", "model"] },
+    });
+    expect(workerHeaderFor(bridgeWithoutAnswer)).not.toContain("orch_ask");
   });
 
   test("events strip both worker header variants", () => {

@@ -1,30 +1,48 @@
 // The running agent's orchd socket client: the only channel by which a bundled
 // harness asks orchd anything or reports anything. It knows no plexer and no store.
 //
-// At-least-once delivery: the daemon retries an unacked outbox row by
-// re-appending the SAME message id, so track acked ids to apply each message
-// once and ack once (never re-deliver, never double-append the marker).
-//
-// The daemon socket is the primary ack transport. The presence marker
-// (ack.jsonl, written by presence.ts) remains the transport-neutral fallback
-// consumed by a socket-less daemon.
+// At-least-once delivery: a lost ack costs one redelivery, not a lost message.
+// The in-memory dedupe set applies each message id once.
 import * as fs from "node:fs";
 import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
-import { readPortFile, requestJsonLine } from "../presence/socket-client.ts";
+import { isBridgeDelivery, type BridgeDelivery } from "../control/bridge-message.ts";
+import {
+  openJsonLineLink,
+  readPortFile,
+  requestJsonLine,
+  type JsonLineLink,
+} from "../presence/socket-client.ts";
+import { loadSettingsOrNull } from "../settings/read.ts";
+import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { isRecord } from "../util.ts";
 import type { ControlOutcomeReport, DaemonClient } from "../types/agent.ts";
 
 export function createDaemonClient(orchDir: string): DaemonClient {
   const ackedMessageIds = new Set<string>();
+  const pending = new Map<number, (result: unknown) => void>();
   let nextRequestId = 1;
+  let link: JsonLineLink | undefined;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let attachWanted = false;
+  let attachedKey: string | undefined;
+  let linkAttached = false;
+  let reconnectMs: number = SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
 
   function messageIdOf(parsed: unknown): string | undefined {
     if (!isRecord(parsed) || typeof parsed.id !== "string" || !parsed.id) return undefined;
     return parsed.id;
   }
 
+  function daemonEndpoints(): (string | number)[] {
+    const socketPath = daemonRuntimeFiles(orchDir).socket;
+    const endpoints: (string | number)[] = fs.existsSync(socketPath) ? [socketPath] : [];
+    const port = readPortFile(orchDir);
+    if (port !== undefined) endpoints.push(port);
+    return endpoints;
+  }
+
   async function answerFrom(endpoint: string | number, method: string, params: Record<string, unknown>): Promise<unknown> {
-    const requestId = `bridge-${method}-${process.pid}-${nextRequestId++}`;
+    const requestId = nextRequestId++;
     const line = await requestJsonLine(endpoint, { id: requestId, method, params }, 500);
     if (line === undefined) return undefined;
     try {
@@ -38,16 +56,120 @@ export function createDaemonClient(orchDir: string): DaemonClient {
 
   async function ask(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     try {
-      const socketPath = daemonRuntimeFiles(orchDir).socket;
-      if (fs.existsSync(socketPath)) {
-        const overSocket = await answerFrom(socketPath, method, params);
-        if (overSocket !== undefined) return overSocket;
+      for (const endpoint of daemonEndpoints()) {
+        const result = await answerFrom(endpoint, method, params);
+        if (result !== undefined) return result;
       }
-      const port = readPortFile(orchDir);
-      return port === undefined ? undefined : await answerFrom(port, method, params);
+      return undefined;
     } catch {
       return undefined;
     }
+  }
+
+  function resolvePending(id: unknown, result: unknown): void {
+    if (typeof id !== "number") return;
+    const resolve = pending.get(id);
+    if (resolve === undefined) return;
+    pending.delete(id);
+    resolve(result);
+  }
+
+  function handleLine(line: string, onDelivery: (delivery: BridgeDelivery) => void): void {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (!isRecord(parsed)) return;
+    if ("id" in parsed) {
+      resolvePending(parsed.id, "error" in parsed ? undefined : parsed.result);
+      return;
+    }
+    if (!isRecord(parsed.event) || parsed.event.kind !== "delivery" || !isBridgeDelivery(parsed.event)) return;
+    onDelivery({ id: parsed.event.id, message: parsed.event.message });
+  }
+
+  function sendLinkRequest(method: string, params: Record<string, unknown>): Promise<unknown> | undefined {
+    if (link === undefined) return undefined;
+    const requestId = nextRequestId++;
+    return new Promise((resolve) => {
+      pending.set(requestId, resolve);
+      if (!link?.send({ id: requestId, method, params })) {
+        pending.delete(requestId);
+        resolve(undefined);
+      }
+    });
+  }
+
+  function clearReconnectTimer(): void {
+    if (reconnectTimer === undefined) return;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+  }
+
+  function scheduleReconnect(onDelivery: (delivery: BridgeDelivery) => void): void {
+    if (!attachWanted || reconnectTimer !== undefined) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = undefined;
+      void dial(onDelivery);
+    }, reconnectMs);
+    reconnectTimer.unref?.();
+  }
+
+  async function dial(onDelivery: (delivery: BridgeDelivery) => void): Promise<void> {
+    if (!attachWanted || link !== undefined || attachedKey === undefined) return;
+    let connected: JsonLineLink | undefined;
+    const endpoints = daemonEndpoints();
+    for (const endpoint of endpoints) {
+      connected = await openJsonLineLink(endpoint, {
+        onLine: (line) => handleLine(line, onDelivery),
+        onClose: () => {
+          if (link !== connected) return;
+          link = undefined;
+          linkAttached = false;
+          for (const resolve of pending.values()) resolve(undefined);
+          pending.clear();
+          scheduleReconnect(onDelivery);
+        },
+      });
+      if (connected !== undefined) break;
+    }
+    if (connected === undefined || !attachWanted || attachedKey === undefined) {
+      scheduleReconnect(onDelivery);
+      return;
+    }
+    link = connected;
+    linkAttached = false;
+    const attachReply = sendLinkRequest("attach", { key: attachedKey });
+    void attachReply?.then((result) => {
+      if (link !== connected || !isRecord(result) || result.attached !== true) return;
+      linkAttached = true;
+    });
+  }
+
+  function attach(key: string, onDelivery: (delivery: BridgeDelivery) => void): void {
+    detach();
+    try {
+      reconnectMs = loadSettingsOrNull(orchDir)?.daemon.bridge_reconnect_ms ?? SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
+    } catch {
+      reconnectMs = SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
+    }
+    attachWanted = true;
+    attachedKey = key;
+    void dial(onDelivery);
+  }
+
+  function detach(): void {
+    attachWanted = false;
+    attachedKey = undefined;
+    linkAttached = false;
+    clearReconnectTimer();
+    const activeLink = link;
+    link = undefined;
+    for (const resolve of pending.values()) resolve(undefined);
+    pending.clear();
+    activeLink?.close();
   }
 
   const post = async (method: string, params: Record<string, unknown>): Promise<boolean> =>
@@ -60,7 +182,13 @@ export function createDaemonClient(orchDir: string): DaemonClient {
       ackedMessageIds.add(id);
     },
     ask,
-    postAck: (id: string): Promise<boolean> => post("ack", { id }),
+    attach,
+    detach,
+    attached: (): boolean => linkAttached,
+    postAck: async (id: string): Promise<boolean> => {
+      if (link?.send({ id: nextRequestId++, method: "ack", params: { id } }) === true) return true;
+      return post("ack", { id });
+    },
     postControlOutcome: (report: ControlOutcomeReport): Promise<boolean> => post("control-outcome", { ...report }),
   };
 }

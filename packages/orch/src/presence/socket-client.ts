@@ -37,6 +37,88 @@ export function readPortFile(orchDir: string): number | undefined {
   return readPortPath(daemonRuntimeFiles(orchDir).port);
 }
 
+export interface JsonLineLink {
+  /** Write one JSON line. False when the socket is gone. */
+  send(payload: unknown): boolean;
+  close(): void;
+}
+
+/** Open a newline-framed connection that remains open until either side closes it. */
+export function openJsonLineLink(
+  endpoint: string | number,
+  handlers: { onLine(line: string): void; onClose(): void },
+): Promise<JsonLineLink | undefined> {
+  return new Promise((resolve) => {
+    const socket = typeof endpoint === "string"
+      ? createConnection(endpoint)
+      : createConnection({ host: "127.0.0.1", port: endpoint });
+    let connected = false;
+    let settled = false;
+    let closed = false;
+    let buffer = "";
+
+    socket.unref();
+    socket.setEncoding("utf8");
+
+    const closeOnce = (): void => {
+      if (closed) return;
+      closed = true;
+      socket.destroy();
+      if (connected) handlers.onClose();
+    };
+
+    const link: JsonLineLink = {
+      send(payload: unknown): boolean {
+        if (!connected || closed || socket.destroyed) return false;
+        try {
+          socket.write(`${JSON.stringify(payload)}\n`);
+          return true;
+        } catch {
+          closeOnce();
+          return false;
+        }
+      },
+      close: closeOnce,
+    };
+
+    socket.on("connect", () => {
+      if (settled || closed) return;
+      connected = true;
+      settled = true;
+      resolve(link);
+    });
+    socket.on("data", (chunk: string) => {
+      buffer += chunk;
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        handlers.onLine(buffer.slice(0, newline).replace(/\r$/, ""));
+        buffer = buffer.slice(newline + 1);
+        newline = buffer.indexOf("\n");
+      }
+    });
+    socket.on("error", () => {
+      if (!connected) {
+        if (!settled) {
+          settled = true;
+          socket.destroy();
+          resolve(undefined);
+        }
+        return;
+      }
+      closeOnce();
+    });
+    socket.on("end", () => {
+      if (!connected && !settled) {
+        settled = true;
+        socket.destroy();
+        resolve(undefined);
+        return;
+      }
+      closeOnce();
+    });
+  });
+}
+
 /**
  * Connect once to a unix socket path or a `127.0.0.1` TCP port, write `payload`
  * as a single JSON line, and resolve the first response line (trailing newline

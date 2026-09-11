@@ -216,6 +216,12 @@ export interface WorkerHeaderContext {
 /** The half of a worker header that comes from settings rather than from this spawn. */
 export type WorkerRules = Pick<WorkerHeaderContext, "lockedCommands" | "verifyCommands">;
 
+/** One `--with` reference: where the agent looks for context, never what it is told. */
+export interface ContextReference {
+  path: string;
+  kind: "file" | "directory";
+}
+
 export type ExtensionName = keyof typeof EXTENSION_SOURCE_DIR;
 
 /**

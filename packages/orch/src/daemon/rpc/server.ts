@@ -2,6 +2,8 @@ import { createServer, type Server, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { readDaemonLock } from "../lifecycle.ts";
+import { attachBridge, detachBridge, attachedBridgeKeys, type BridgeLink } from "../../control/bridge-links.ts";
+import type { BridgeDelivery } from "../../control/bridge-message.ts";
 import { ensurePrivateDir, errorMessage, isRecord, osSide } from "../../util.ts";
 import type { SessionAgentIdentity } from "../../types/store.ts";
 import type { EndpointPaths, RpcEventEmitter, RpcHandlers, RpcServer, RpcServerOptions } from "../../types/daemon.ts";
@@ -12,7 +14,63 @@ import { registerSession, claimIdentity } from "./session-registry.ts";
 
 interface ConnectionState {
   identity?: SessionAgentIdentity;
+  bridge?: { key: string; link: BridgeLink };
 }
+
+function detachConnectionBridge(state: ConnectionState): void {
+  if (state.bridge === undefined) return;
+  detachBridge(state.bridge.key, state.bridge.link);
+  state.bridge = undefined;
+}
+function attachRequest(
+  socket: Socket,
+  request: { id: unknown; method: string; params: unknown },
+  state: ConnectionState,
+  onBridgeAttached?: (key: string) => void,
+): (() => void) | undefined {
+  if (request.method !== "attach") return undefined;
+  const params = isRecord(request.params) ? request.params : undefined;
+  const key = params?.key;
+  if (typeof key !== "string" || key.length === 0) {
+    lineResponse(socket, errorResponse(request.id, "INVALID_REQUEST", "attach requires key"));
+    return undefined;
+  }
+  detachConnectionBridge(state);
+  const link: BridgeLink = {
+    push: (delivery: BridgeDelivery) => lineResponse(socket, { event: { kind: "delivery", ...delivery } }),
+  };
+  attachBridge(key, link);
+  state.bridge = { key, link };
+  return () => onBridgeAttached?.(key);
+}
+
+function dispatchRequest(
+  socket: Socket,
+  request: { id: unknown; method: string; params: unknown },
+  handlers: RpcHandlers,
+  emit: RpcEventEmitter,
+  state: ConnectionState,
+  transport: "unix" | "tcp",
+  notifyBridgeAttached?: () => void,
+): void {
+  const handler = handlers[request.method];
+  if (!handler) {
+    lineResponse(socket, errorResponse(request.id, "METHOD_NOT_FOUND", `Unknown method: ${request.method}`));
+    notifyBridgeAttached?.();
+    return;
+  }
+  Promise.resolve()
+    .then(() => handler(request.params, emit, { transport, identity: state.identity }))
+    .then((result) => {
+      lineResponse(socket, { id: request.id, result });
+      notifyBridgeAttached?.();
+    })
+    .catch((error: unknown) => {
+      lineResponse(socket, errorResponse(request.id, "HANDLER_ERROR", errorMessage(error)));
+      notifyBridgeAttached?.();
+    });
+}
+
 function handleLine(
   socket: Socket,
   line: string,
@@ -23,6 +81,7 @@ function handleLine(
   transport: "unix" | "tcp",
   state: ConnectionState,
   daemonToken: string,
+  onBridgeAttached?: (key: string) => void,
 ): void {
   const request = parseRequest(line);
   if (!("method" in request)) {
@@ -53,18 +112,9 @@ function handleLine(
     }
     subscriptions.add(socket);
   }
+  const notifyBridgeAttached = attachRequest(socket, request, state, onBridgeAttached);
   const emit: RpcEventEmitter = (event) => lineResponse(socket, { event });
-  const handler = handlers[request.method];
-  if (!handler) {
-    lineResponse(socket, errorResponse(request.id, "METHOD_NOT_FOUND", `Unknown method: ${request.method}`));
-    return;
-  }
-  Promise.resolve()
-    .then(() => handler(request.params, emit, { transport, identity: state.identity }))
-    .then((result) => lineResponse(socket, { id: request.id, result }))
-    .catch((error: unknown) => {
-      lineResponse(socket, errorResponse(request.id, "HANDLER_ERROR", errorMessage(error)));
-    });
+  dispatchRequest(socket, request, handlers, emit, state, transport, notifyBridgeAttached);
 }
 
 
@@ -76,13 +126,19 @@ function attachConnection(
   orchDir: string,
   transport: "unix" | "tcp",
   daemonToken: string,
-): void {
+  onBridgeAttached?: (key: string) => void,
+): () => void {
   const state: ConnectionState = {};
+  const detach = () => {
+    subscriptions.delete(socket);
+    detachConnectionBridge(state);
+  };
   framedLineReader(socket, (line) =>
-    handleLine(socket, line.replace(/\r$/, ""), handlers, subscriptions, replayBuffer, orchDir, transport, state, daemonToken),
+    handleLine(socket, line.replace(/\r$/, ""), handlers, subscriptions, replayBuffer, orchDir, transport, state, daemonToken, onBridgeAttached),
   );
-  socket.on("close", () => subscriptions.delete(socket));
-  socket.on("error", () => subscriptions.delete(socket));
+  socket.on("close", detach);
+  socket.on("error", detach);
+  return detach;
 }
 
 /** Mark the socket path on disk after binding. A POSIX bind creates that entry
@@ -138,26 +194,31 @@ export async function startRpcServer(
   const paths = endpointPaths(orchDir);
   const subscriptions = new Set<Socket>();
   const sockets = new Set<Socket>();
+  const connectionCleanups = new Set<() => void>();
   const replayBuffer = new ReplayBuffer(orchDir);
   const daemonToken = writeDaemonToken(paths.token);
   const attachFor = (transport: "unix" | "tcp") => (socket: Socket): void => {
     sockets.add(socket);
-    attachConnection(socket, handlers, subscriptions, replayBuffer, orchDir, transport, daemonToken);
-    socket.once("close", () => sockets.delete(socket));
+    const cleanup = attachConnection(socket, handlers, subscriptions, replayBuffer, orchDir, transport, daemonToken, options.onBridgeAttached);
+    connectionCleanups.add(cleanup);
+    socket.once("close", () => {
+      sockets.delete(socket);
+      connectionCleanups.delete(cleanup);
+    });
   };
   const attachUnix = attachFor("unix");
   const attachTcp = attachFor("tcp");
   const server = createServer(attachUnix);
   if (await bindUnix(server, paths, reclaimableSocket(orchDir, options))) {
     const tcpServer = await startTcpServer(attachTcp, options, paths);
-    return makeRpcServer(server, tcpServer, sockets, subscriptions, replayBuffer, paths, "unix", tcpEndpointOf(tcpServer));
+    return makeRpcServer(server, tcpServer, sockets, connectionCleanups, subscriptions, replayBuffer, paths, "unix", tcpEndpointOf(tcpServer));
   }
   try { server.close(); } catch {}
   const tcpServer = createServer(attachTcp);
   await listen(tcpServer, { host: "127.0.0.1", port: options.tcpPort ?? 0 });
   const boundPort = boundTcpPort(tcpServer);
   writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
-  return makeRpcServer(tcpServer, undefined, sockets, subscriptions, replayBuffer, paths, "tcp", `tcp://127.0.0.1:${boundPort}`);
+  return makeRpcServer(tcpServer, undefined, sockets, connectionCleanups, subscriptions, replayBuffer, paths, "tcp", `tcp://127.0.0.1:${boundPort}`);
 }
 
 /**
@@ -244,6 +305,7 @@ function makeRpcServer(
   server: Server,
   tcpServer: Server | undefined,
   sockets: Set<Socket>,
+  connectionCleanups: Set<() => void>,
   subscriptions: Set<Socket>,
   replayBuffer: ReplayBuffer,
   paths: { socket: string; port: string; token: string },
@@ -251,6 +313,7 @@ function makeRpcServer(
   tcpEndpoint?: string,
 ): RpcServer {
   const close = async (): Promise<void> => {
+    for (const cleanup of connectionCleanups) cleanup();
     for (const socket of sockets) socket.destroy();
     await Promise.all([server, tcpServer].filter((value): value is Server => value !== undefined).map((listener) => new Promise<void>((resolve) => {
       if (!listener.listening) return resolve();
@@ -268,6 +331,7 @@ function makeRpcServer(
       for (const socket of subscriptions) lineResponse(socket, buffered);
     },
     subscriberCount: () => subscriptions.size,
+    attachedBridgeCount: () => attachedBridgeKeys().length,
     transport,
     socketPath: paths.socket,
     portFile: paths.port,

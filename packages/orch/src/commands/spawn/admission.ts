@@ -15,7 +15,7 @@ import type { PresenceEntry } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { SpawnSettings } from "./flags.ts";
 import { assertLaunchModelAllowed } from "./models.ts";
-import { computeFleetCapacity, liveSpawnCounts } from "../../policy/capacity.ts";
+import { computeFleetCapacity, liveSpawnCounts, packsUsed } from "../../policy/capacity.ts";
 
 export { liveSpawnCounts } from "../../policy/capacity.ts";
 
@@ -48,7 +48,7 @@ export function spawnPolicyError(
     packRootId: packRoot,
     packSpace: packRoot === null ? space : undefined,
   });
-  let live = capacity.pack.used;
+  let live = packsUsed(capacity);
   // The root itself counts as a live member when it holds no row of its own.
   if (packRoot === null || !views.has(packRoot)) live++;
   const cap = settings.fleet.max_agents_per_pack;
@@ -104,7 +104,7 @@ export function assertNewSpaceGranted(settings: SpawnSettings, backend: Backend,
   die(`orch is not running inside a ${backend.id} space, so this spawn would open a NEW ${backend.id} space.\n`
     + `Ask the user to approve it in another terminal:\n\n    orch grant ${request.id}\n\n`
     + `then retry this exact command. Or pass --space <id> to place the fleet in an open space,`
-    + ` or --backend headless with --prompt to launch with no space at all.`);
+    + ` or drop --backend and pass --prompt to launch headless with no space at all.`);
 }
 /** Everything that can refuse a spawn, run before it creates anything. A refused
  *  spawn leaves no handle, no worktree and no queue entry. */

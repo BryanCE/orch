@@ -11,7 +11,7 @@ import { errorMessage, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/reach.ts";
 import { selfId } from "../../identity/self.ts";
 import { agentViewIndex, presenceById } from "../target.ts";
-import { computeFleetCapacity, formatCapacityLine } from "../../policy/capacity.ts";
+import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../../policy/capacity.ts";
 import { commandLogger } from "../logging.ts";
 import type { Backend } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
@@ -124,8 +124,7 @@ export async function reportSpawnResults(settings: SpawnSettings, group: string,
       ? created.map((agent) => tryParseIdentity(agent.key)?.id).flatMap((id) => id === undefined ? [] : [views.get(id)?.rootAgentId]).find((root): root is string => root !== undefined)
       : views.get(caller)?.rootAgentId;
     const capacity = computeFleetCapacity(views, presence, settingsFile, { packRootId: callerRoot });
-    const cap = capacity.pack.cap === null ? "unlimited" : String(capacity.pack.cap);
-    process.stdout.write(`\nSpawned ${created.length} (pack now ${capacity.pack.used}/${cap}) on tab "${tabLabel}" (no focus stolen).\n`);
+    process.stdout.write(`\nSpawned ${created.length} (pack now ${packsUsed(capacity)}/${settingsFile.fleet.max_agents_per_pack}) on tab "${tabLabel}" (no focus stolen).\n`);
     process.stdout.write(`${formatCapacityLine(capacity, callerRoot)}\n`);
   }
   if (registeredAgents) {

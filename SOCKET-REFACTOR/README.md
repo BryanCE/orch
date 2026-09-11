@@ -23,6 +23,17 @@ Four transports for one fact. The bridge polls (1s) and `fs.watch`es a directory
 `/mnt/*` never fires. The daemon does directory I/O per tick. An ack that misses the socket
 lands in a file nobody reads until a daemon returns.
 
+And the dead-agent retry storm (2026-09-11). `control/dispatch.ts` throws `AgentGoneError`
+for a dead bridge; the outbox maps that to `undeliverable`; but `deliverWrite` in `orchd.ts`
+catches every throw as `"failed"` first, so the outbox never sees the type. Ten dead agents'
+writes retried every 30 s, 568 attempts each, `dispatch.undeliverable` logged zero times,
+and every new dispatch waited behind them. herdr loses the type a second way: `retryingSync`
+wraps `pane_not_found` in a plain Error before `reportGoneHandle` can read the code. The
+fixes are in P1-1 (attempts cap setting), P1-2 (`OutboxDeps.maxAttempts`), P1-6 (cap), P2-1
+(`deliverWrite` maps `AgentGoneError` to `gone`), P3-1 (herdr policy). Already on `main`:
+`reapSpawnedRecord` closes the reaped agent's open writes, and bare `orch clean` closes
+every write whose target has no live presence.
+
 ## The design
 
 Three parts. Two of them already exist.
@@ -41,6 +52,9 @@ What is new is the transport: **the link**.
 - The daemon keeps `key → link`. Socket close removes it. A second attach for the same key
   replaces the first (a restarted bridge).
 - Delivery is a push down the link. No link = the row stays `pending`, the drain retries.
+  A dead agent (`AgentGoneError`) settles the row `undeliverable` on the first attempt. A
+  row that fails `daemon.outbox_max_attempts` times settles `undeliverable` too — the
+  backstop, never the fix.
 - On `attach`, the daemon re-pushes every open row for that key. That is the reconnect
   fail-safe.
 - Every orch → agent TEXT is an outbox row: dispatch, steer, peer message,
@@ -166,6 +180,9 @@ Named here so a caller can code against them while the provider lands in the sam
 | `RpcServerOptions.onBridgeAttached(key)`, `RpcServer.attachedBridgeCount()` — `src/types/daemon.ts` | P1-2 | P2-1 |
 | `adapter.bridge: BridgeRole \| null` — `src/types/adapter.ts` | P1-3 | P1-4, P1-5 (same phase) |
 | `selectOpenOutboxForTarget(dir, target)`, `outboxMessageState(dir, id)` — `src/store/outbox-rows.ts`; `redeliverOpenRows(dir, target, deps)` — `src/daemon/outbox.ts` | P1-6 | P2-1 |
+| `daemon.outbox_max_attempts` — `src/settings/*` | P1-1 | P2-1 |
+| `OutboxDeps.maxAttempts: number` — `src/types/daemon.ts` | P1-2 | P1-6 (same phase), P2-1 |
+| `deliverWrite` returns `"gone"` for `AgentGoneError` — `src/daemon/orchd.ts` | P2-1 | P1-4 and P1-6 code against it |
 | `acceptMail(directory, from, target, text): Promise<{ id: string }>` — `src/daemon/mail.ts` | P1-7 | P2-1 |
 | `dispatch` RPC result `{ accepted: true, id, ack: "acknowledged" \| "unavailable" }` | P2-1 | P2-4 (same phase) |
 | `message` RPC `{ from, target, text }` → `{ accepted: true, id, ack }` | P2-1 | P2-7 (same phase, runtime only; tests fake the daemon) |
@@ -188,12 +205,12 @@ has landed.
 
 | Slice | Owns | Delivers |
 |---|---|---|
-| P1-1 `bridge-client` | `src/presence/socket-client.ts`, `src/agent/daemon-client.ts`, `src/types/agent.ts`, `src/types/settings.ts`, `src/settings/schema.ts`, `src/settings/registry.ts`, `test/bridge-client.test.ts` | `openJsonLineLink`; `DaemonClient.attach/detach/attached`; `daemon.bridge_reconnect_ms` |
-| P1-2 `link-server` | `src/daemon/rpc/server.ts`, `src/types/daemon.ts`, `test/bridge-link-server.test.ts` | `attach` on the server; `onBridgeAttached`; `attachedBridgeCount` |
+| P1-1 `bridge-client` | `src/presence/socket-client.ts`, `src/agent/daemon-client.ts`, `src/types/agent.ts`, `src/types/settings.ts`, `src/settings/schema.ts`, `src/settings/registry.ts`, `test/bridge-client.test.ts` | `openJsonLineLink`; `DaemonClient.attach/detach/attached`; `daemon.bridge_reconnect_ms`; `daemon.outbox_max_attempts` |
+| P1-2 `link-server` | `src/daemon/rpc/server.ts`, `src/types/daemon.ts`, `test/bridge-link-server.test.ts` | `attach` on the server; `onBridgeAttached`; `attachedBridgeCount`; `OutboxDeps.maxAttempts` |
 | P1-3 `adapter-shape` | `src/types/adapter.ts`, `src/adapters/pi.ts`, `src/adapters/omp.ts`, `src/adapters/claude.ts`, `src/adapters/codex.ts`, `test/helpers/adapter.ts`, `test/adapter-pi.test.ts` | `bridge: BridgeRole \| null`; file writers deleted from adapters |
 | P1-4 `dispatch-push` | `src/control/dispatch.ts`, `src/types/control.ts`, `test/control-dispatch.test.ts`, `test/answer-dispatch.test.ts`, `test/presence-inbox.test.ts` (delete) | `deliverControl` pushes through `bridge-links` |
 | P1-5 `role-gates` | `src/worker-prompt.ts`, `src/commands/spawn/index.ts`, `test/worker-prompt.test.ts`, `test/check-bridge.test.ts` | the readers of `inboxSteering`/`question` read `bridge` |
-| P1-6 `outbox-rows` | `src/store/outbox-rows.ts`, `src/types/store.ts`, `src/daemon/outbox.ts`, `test/outbox-ack.test.ts` | payload is `BridgeMessage`; `selectOpenOutboxForTarget`; `outboxMessageState`; `redeliverOpenRows`; ack scan deleted |
+| P1-6 `outbox-rows` | `src/store/outbox-rows.ts`, `src/types/store.ts`, `src/daemon/outbox.ts`, `test/outbox-ack.test.ts` | payload is `BridgeMessage`; `selectOpenOutboxForTarget`; `outboxMessageState`; `redeliverOpenRows`; attempts cap; ack scan deleted |
 | P1-7 `mail` | `src/daemon/mail.ts` (new), `src/daemon/result-delivery.ts`, `test/cross-pack-result-delivery.test.ts` | `acceptMail`; results travel as outbox rows |
 | P1-8 `questions` | `src/commands/results.ts`, `test/commands-results.test.ts` | `orch questions` reads `status.asking` |
 
@@ -201,7 +218,7 @@ has landed.
 
 | Slice | Owns | Delivers |
 |---|---|---|
-| P2-1 `orchd` | `src/daemon/orchd.ts`, `test/daemon-rpc.test.ts` | `deliverWrite` maps `BridgeMessage`; `acceptTextWrite`; `dispatch` waits for ack; `message`, `attach` RPCs; re-push on attach; idle count |
+| P2-1 `orchd` | `src/daemon/orchd.ts`, `test/daemon-rpc.test.ts` | `deliverWrite` maps `BridgeMessage` and returns `gone` for a dead agent; `acceptTextWrite`; `dispatch` waits for ack; `message`, `attach` RPCs; re-push on attach; idle count |
 | P2-2 `outcome` | `src/control/outcome.ts`, `src/control/dispatch.ts` | silence has one meaning; `awaitControlOutcome(id, timeoutMs)` |
 | P2-3 `spawn-wait` | `src/commands/spawn/report.ts`, `src/commands/status.ts`, `src/types/command.ts`, `src/presence/store.ts` | spawn waits for attach; `bridgeAttached` on status rows; `bridgeRegistered` deleted |
 | P2-4 `cli-dispatch` | `src/commands/control.ts` | `orch dispatch` prints delivered/queued; `orch answer` loses `--force` |
@@ -214,7 +231,7 @@ has landed.
 
 | Slice | Owns | Delivers |
 |---|---|---|
-| P3-1 `delete-files` | `src/presence/inbox.ts` (delete), `src/presence/schema.ts`, `src/presence/writer.ts`, `src/presence/roles.ts`, `src/types/backend.ts`, `src/backends/herdr/index.ts`, `src/backends/headless/index.ts`, `src/backends/tmux/index.ts` | the four filenames, `writeAnswer`, the channel role are gone |
+| P3-1 `delete-files` | `src/presence/inbox.ts` (delete), `src/presence/schema.ts`, `src/presence/writer.ts`, `src/presence/roles.ts`, `src/types/backend.ts`, `src/backends/herdr/index.ts`, `src/backends/herdr/cli.ts`, `src/backends/headless/index.ts`, `src/backends/tmux/index.ts` | the four filenames, `writeAnswer`, the channel role are gone; herdr raises `AgentGoneError` on the first `pane_not_found` |
 | P3-2 `check-bridge` | `scripts/check-bridge.ts`, `test/check-bridge.test.ts` | the static gate no longer names the deleted files |
 | P3-3 `comment-sweep` | `src/entities.ts`, `src/seat/source.ts`, `src/types/core.ts`, `src/types/policy.ts`, `src/types/seat.ts`, `src/types/daemon.ts`, `src/types/agent.ts`, `test/a-row-is-not-a-pane.test.ts` | no sentence describes the old transport |
 | P3-4 `smoke-dead` | `test/smoke.sh` | smoke fixture uses `status.asking`; `fallow:dead` report |

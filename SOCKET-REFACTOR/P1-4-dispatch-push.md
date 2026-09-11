@@ -30,10 +30,13 @@ if (adapter.bridge?.takes.includes(bridgeAction)) {
 }
 // command path and keystroke path unchanged
 ```
-`requireLiveAgent` stays as the GONE check (`AgentGoneError` → the outbox settles the row
-`undeliverable`). A live agent with no link makes `pushToBridge` throw `BridgeDetachedError`;
-the daemon's `deliverWrite` catches every throw as `failed` and the outbox retries. Do not
-catch it here. Remove the `adapter.inboxSteering.steer(...)` branch.
+`requireLiveAgent` stays as the GONE check and throws `AgentGoneError`. A live agent with
+no link makes `pushToBridge` throw `BridgeDetachedError`. Do not catch either here: both
+must reach the daemon's `deliverWrite` with their type intact. Today `deliverWrite` catches
+every throw as `failed`, so a dead agent's write retries every 30 s forever (2026-09-11:
+568 attempts per row, ten dead agents). P2-1 fixes `deliverWrite` to map `AgentGoneError`
+to `gone` and everything else to `failed`; your job is to throw the typed error and never
+wrap it. Remove the `adapter.inboxSteering.steer(...)` branch.
 
 `deliverAnswer`:
 ```ts

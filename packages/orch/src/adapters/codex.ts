@@ -8,7 +8,7 @@ import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./c
 import { detectCodexState, extractCodexResult, readCodexSessionView } from "./codex-events.ts";
 import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, AnswerRequest, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 import { commandLogger } from "../commands/logging.ts";
 
@@ -102,8 +102,7 @@ export class CodexAdapter implements AgentAdapter {
   readonly defaultModel = null;
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = null;
-  readonly question = null;
-  readonly inboxSteering = null;
+  readonly bridge = null;
   readonly presenceRegistration = null;
 
   /** Marker consumed by callers that render heuristic states with a dagger. */
@@ -140,11 +139,6 @@ export class CodexAdapter implements AgentAdapter {
         ? ["codex", "resume", sessionId, request.text]
         : ["codex", "exec", "resume", sessionId, request.text],
     };
-  }
-
-  /** Codex has no proven blocking answer protocol. */
-  answer(_request: AnswerRequest): AdapterCommand | undefined {
-    return undefined;
   }
 
   /** Read codex's own cached catalogue; codex names models by bare slug, never provider/id. */

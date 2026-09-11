@@ -1,15 +1,13 @@
 import type { AgentState } from "../agent-state.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { CheckResult } from "./doctor.ts";
+import type { BridgeAction } from "../control/bridge-message.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
 export const ADAPTER_IDS = ["pi", "omp", "claude", "codex"] as const;
 
 /** Agent CLIs supported by orch. */
 export type AdapterId = (typeof ADAPTER_IDS)[number];
-
-/** Ways an adapter can deliver a mid-run steering message. */
-export type SteerMechanism = "inbox" | "keys" | "resume" | "none";
 
 /** Session-lifecycle verbs an adapter may declare a native mechanism for. */
 export const LIFECYCLE_VERBS = ["reset", "reload", "restart"] as const;
@@ -54,7 +52,7 @@ export interface SteerRequest {
   readonly key: string;
   /** Text to deliver to the running agent. */
   readonly text: string;
-  /** Outbox id used to acknowledge lossless inbox delivery. */
+  /** Outbox id used to acknowledge delivery. */
   readonly id?: string;
   /** Session options needed by resume- or keys-based delivery. */
   readonly opts?: SpawnOpts;
@@ -68,18 +66,6 @@ export interface ModelRequest {
   readonly model: string;
   /** Dispatcher request id the agent must echo into its control outcome. */
   readonly id: string;
-}
-
-/** Request passed to an adapter when answering a blocking question. */
-export interface AnswerRequest {
-  /** Target presence key or adapter-native session identifier. */
-  readonly key: string;
-  /** Answer text to deliver to the agent. */
-  readonly text: string;
-  /** Delivery id acknowledged when the agent consumes the answer. */
-  readonly id: string;
-  /** Session options needed by the adapter's answer mechanism. */
-  readonly opts?: SpawnOpts;
 }
 
 /** A command a backend can execute on an adapter's behalf. */
@@ -196,6 +182,7 @@ export interface WorkerLaunchRole {
 }
 
 export interface ModelControlRole {
+  /** Returns the command that retargets the model, or undefined when the harness's bridge applies the model delivery instead. */
   setModel(request: ModelRequest): AdapterCommand | undefined;
 }
 
@@ -228,13 +215,10 @@ export interface ModelWarmRole {
   warmModels(): Promise<void>;
 }
 
-export interface QuestionRole {
-  /** The reader must acknowledge request.id after consuming the answer. */
-  answer(request: AnswerRequest): AdapterCommand | undefined;
-}
-
-export interface InboxSteeringRole {
-  steer(request: SteerRequest): AdapterCommand | undefined;
+/** The harness runs orch's bridge: it attaches to orchd at start and applies deliveries
+ * pushed down that link. `takes` lists the actions this bridge applies. */
+export interface BridgeRole {
+  readonly takes: readonly BridgeAction[];
 }
 
 export interface PresenceRegistrationRole {
@@ -264,8 +248,7 @@ export interface AgentAdapter {
   readonly models: ModelCatalogueRole | null;
   /** Background catalogue warm-up, absent when listing is synchronous. */
   readonly modelWarm: ModelWarmRole | null;
-  readonly question: QuestionRole | null;
-  readonly inboxSteering: InboxSteeringRole | null;
+  readonly bridge: BridgeRole | null;
   readonly presenceRegistration: PresenceRegistrationRole | null;
   /**
    * Env var this harness's interactive session exports into its subprocesses,
@@ -305,8 +288,6 @@ export interface AgentAdapter {
   detectState(input: StateDetectionInput): AgentState;
   /** Build the command or presence action used to deliver a steering message. */
   steer(request: SteerRequest): AdapterCommand | undefined;
-  /** Build the command or presence action used to answer a blocking question. */
-  answer(request: AnswerRequest): AdapterCommand | undefined;
   /** Extract the final assistant text that should be written to `results.jsonl`. */
   extractResult(input: ResultExtractionInput): string | undefined;
 }

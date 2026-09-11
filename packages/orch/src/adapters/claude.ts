@@ -12,7 +12,7 @@ import type { AgentState } from "./adapter.ts";
 import { textValue } from "../util.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, AnswerRequest, HarnessModel, ResultExtractionInput, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, HarnessModel, ResultExtractionInput, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import { commandLogger } from "../commands/logging.ts";
@@ -181,8 +181,7 @@ class ClaudeAdapter implements AgentAdapter {
   readonly defaultModel = null;
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = null;
-  readonly question = null;
-  readonly inboxSteering = null;
+  readonly bridge = null;
   readonly presenceRegistration = { isRegistered: (key: string): boolean => loadPresence().has(key) };
 
   /** State is authoritative only when the Claude settings hooks are installed. */
@@ -226,13 +225,8 @@ class ClaudeAdapter implements AgentAdapter {
     return "unknown";
   }
 
-  /** Claude has no inbox; the caller must route degraded steering via the target backend. */
+  /** Claude runs no bridge; the caller routes degraded steering through the environment. */
   steer(_request: SteerRequest): AdapterCommand | undefined {
-    return undefined;
-  }
-
-  /** Claude has no answer protocol; the caller must route via the target backend. */
-  answer(_request: AnswerRequest): AdapterCommand | undefined {
     return undefined;
   }
 

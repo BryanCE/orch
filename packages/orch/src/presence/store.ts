@@ -11,6 +11,7 @@ import { liveAgentViews } from "../store/agent-view.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { eq } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
+import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-rows.ts";
 import { agents } from "../db/schema.ts";
 import { isRecord, pidAlive, readJsonFile } from "../util.ts";
 import type { AgentView } from "../types/store.ts";
@@ -92,13 +93,29 @@ export function spawnedRecords(root = orchDir()): Map<string, AgentView> {
 }
 
 /** Reap one agent: the hub row (which cascades every satellite, lease and
- *  ending) and its presence directory. There is no second id space to clean. */
+ *  ending), its open writes, and its presence directory. There is no second id
+ *  space to clean. A reaped agent reads nothing, so a write left open would
+ *  retry on every drain tick forever. */
 export function reapSpawnedRecord(key: string, root = orchDir(), options: { agentId?: string } = {}): void {
   const agentId = options.agentId ?? tryParseIdentity(key)?.id;
   if (agentId !== undefined) {
     try { orm(root).delete(agents).where(eq(agents.id, agentId)).run(); } catch {}
   }
+  closeOutboxForTarget(root, key);
   removePresenceAgentDir(presenceAgentDir(key, root));
+}
+
+/** Close every open write whose target has no live presence, answering with how
+ *  many rows closed. The daemon retries an open write on every drain tick; a
+ *  target that is dead, or whose directory is already gone, never acks one. */
+export function closeOutboxForDeadTargets(root = orchDir()): number {
+  const presence = loadPresence(root);
+  let closed = 0;
+  for (const target of selectOpenOutboxTargets(root)) {
+    if (presence.get(target)?.alive) continue;
+    closed += closeOutboxForTarget(root, target);
+  }
+  return closed;
 }
 
 /** Return the newest valid orch timestamp recorded in an agent's presence files. */
@@ -113,17 +130,6 @@ function newestRecordedInstant(entry: PresenceEntry): number | null {
   return instants.length > 0 ? Math.max(...instants) : null;
 }
 
-/** Reap dead presence directories old enough for retention. This is the shared
- * path for daemon retention and `orch clean`; it also removes the agent rows. */
-/**
- * Remove every presence directory whose name is not a minted id.
- *
- * J4 — existing dirs are REAPED, not migrated. A pid inside such a directory is
- * not a reason to keep it: it is exactly why Rule 11's seven stale dirs with no
- * nameable owner survived. Whatever process that pid belongs to still has its
- * own presence under the id orch minted for it, or it has none and orch cannot
- * address it either way.
- */
 function presenceDirectoryNames(root: string): string[] {
   try {
     return readdirSync(presenceDir(root));
@@ -151,7 +157,17 @@ export function malformedPresenceDirs(root = orchDir()): { name: string; dir: st
   return found;
 }
 
-function reapMalformedPresenceDirs(root: string): string[] {
+/**
+ * Remove every presence directory whose name is not a minted id, answering with
+ * the names removed.
+ *
+ * J4 — existing dirs are REAPED, not migrated. A pid inside such a directory is
+ * not a reason to keep it: it is exactly why Rule 11's seven stale dirs with no
+ * nameable owner survived. Whatever process that pid belongs to still has its
+ * own presence under the id orch minted for it, or it has none and orch cannot
+ * address it either way.
+ */
+export function reapMalformedPresenceDirs(root = orchDir()): string[] {
   const removed: string[] = [];
   for (const entry of malformedPresenceDirs(root)) {
     removePresenceAgentDir(entry.dir);
@@ -160,6 +176,9 @@ function reapMalformedPresenceDirs(root: string): string[] {
   return removed;
 }
 
+/** Reap dead presence directories old enough for retention. This is the shared
+ * path for daemon retention and `orch clean --force`; it also removes the agent
+ * rows and closes their open writes. */
 export function reapDeadPresenceDirs(root = orchDir(), olderThan?: Date): DeadPresenceReapResult {
   const removed: PresenceEntry[] = [];
   const failed: { entry: PresenceEntry; error: unknown }[] = [];

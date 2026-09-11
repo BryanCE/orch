@@ -77,7 +77,7 @@ DISPATCH WORK
   orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model <model[:thinking]>] [--agent adapter]
                                  Durably accept a prompt through orchd, onto a CLEAN session.
                                  --file reads the prompt from a file, or from stdin with '-'.
-                                 --with names a path the agent works with (repeatable).
+                                 --with names a file or directory the agent opens for context on demand (repeatable).
                                  --keep-context sends onto the existing session instead.
   orch answer <target> "<text>" [--force]
                                  Answer a pending question (--force permits a missing question.json).

@@ -22,7 +22,8 @@ headroom with `orch status --capacity` before you size a fleet, not after a spaw
   `orch review`.
 - `--prompt <text>` gives every agent its first task, or repeat it once per agent.
   `--file <path>` (or `--file -`) reads that one task from disk or stdin, and `--with <path>`
-  names a path the agents work with, once per path. A spawn gets to work right away.
+  points the agents at a file or directory of context they open on demand, once per path.
+  A spawn gets to work right away.
 - `--backend headless` runs detached and needs `--prompt` or `--file`. The agent runs the
   task and exits, with nowhere to steer it.
 
@@ -73,8 +74,12 @@ sends. That is the default, so a new task never stacks on a used session and you
 pair `orch reset` with it yourself. `--keep-context` sends onto the session the agent
 already has: use it only to add to work already in flight.
 
-`--with <path>` names a path the agent works with, once per path. orch names the paths in
-the task and never opens them.
+`--with <path>` points the agent at context: a spec, a docs directory, a set of source files,
+anything it needs to do the task well. One flag per path. The agent gets the absolute path and
+an instruction to open it only when the task needs it. Nothing is inlined, so a big docs tree
+costs nothing until the agent reads a file from it. orch checks the path exists at dispatch and
+dies on a missing one; it never reads the content. Use `--with` for what the agent may need to
+look at, and put what it must know into the prompt itself.
 
 ### Quote the spec correctly. This is yours, not orch's.
 

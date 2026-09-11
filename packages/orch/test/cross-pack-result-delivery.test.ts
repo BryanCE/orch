@@ -1,29 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllStores, orm } from "../src/store/connection.ts";
-import { insertAgent } from "../src/store/agent-rows.ts";
-import { enqueueTask, insertAttempt, settleAttempt } from "../src/store/task-rows.ts";
+import { acceptMail } from "../src/daemon/mail.ts";
 import { deliverTaskResult } from "../src/daemon/result-delivery.ts";
-import { INBOX_FILE } from "../src/presence/schema.ts";
-import { presenceAgentDir, presenceFile } from "../src/presence/writer.ts";
-import { seedStatus } from "./helpers/presence.ts";
+import { isBridgeMessage } from "../src/control/bridge-message.ts";
+import { setSpace } from "../src/store/interval-rows.ts";
+import { insertAgent } from "../src/store/agent-rows.ts";
+import { enqueueTask, insertAttempt, settleAttempt, taskState } from "../src/store/task-rows.ts";
+import { selectPendingOutbox, selectOutboxMessage } from "../src/store/outbox-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 import { sql } from "drizzle-orm";
+import { closeAllStores, orm } from "../src/store/connection.ts";
 
 /**
- * Results go to the enqueuer, not the runner — cross-pack delivery is
- * orch↔orch messaging.
- *
- * The hard case the row names is the CROSS-PACK one: the agent that ran the
- * work and the orch that asked for it are in different packs, so there is no
- * shared parent to hand the result up to. Orch's own mechanism carries it —
- * `inbox.jsonl`, the same writer every steer and handoff uses (Rule 11:
- * delivery and read are ORCH's, and a pane is only an optimisation).
- *
- * Keying an event to the enqueuer is not delivery: an event stream is read by
- * whoever happens to be watching. A result must ARRIVE.
+ * Results and peer messages are mail: an outbox row pushed down the recipient's
+ * bridge link. A wall refusal is best-effort for settled task results.
  */
 
 const dirs: string[] = [];
@@ -36,78 +29,104 @@ afterEach(() => {
 });
 
 function fixture(): string {
-  const d = mkdtempSync(join(tmpdir(), "orch-cross-pack-result-"));
-  dirs.push(d);
-  process.env.ORCH_DIR = d;
-  orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
-  // Two packs. `asker` is its own root; `runner` is rooted in `otherorch`.
-  insertAgent(d, { id: "asker", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "asker", createdAt: 1 });
-  insertAgent(d, { id: "otherorch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "otherorch", createdAt: 2 });
-  insertAgent(d, { id: "runner", spawnedBy: "otherorch", harnessId: "pi", cwd: "/repo", name: "runner", createdAt: 3 });
-  return d;
+  const directory = mkdtempSync(join(tmpdir(), "orch-cross-pack-result-"));
+  dirs.push(directory);
+  process.env.ORCH_DIR = directory;
+  writeSettingsFixture(directory, { fleet: { cross_space: false } });
+  orm(directory).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
+  orm(directory).run(sql`INSERT INTO spaces(id,name,created_at) VALUES (${"ask-space"},${"Ask space"},1),(${"run-space"},${"Run space"},1)`);
+  insertAgent(directory, { id: "asker", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "asker", createdAt: 1 });
+  insertAgent(directory, { id: "otherorch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "otherorch", createdAt: 2 });
+  insertAgent(directory, { id: "runner", spawnedBy: "otherorch", harnessId: "pi", cwd: "/repo", name: "runner", createdAt: 3 });
+  return directory;
 }
 
-function inboxOf(key: string): string {
-  const file = presenceFile(presenceAgentDir(key), INBOX_FILE);
-  return existsSync(file) ? readFileSync(file, "utf8") : "";
+function mailRow(directory: string, target: string) {
+  return selectPendingOutbox(directory, Number.MAX_SAFE_INTEGER).find((row) => row.target === target);
 }
 
-describe("results go to the enqueuer across packs (Cq4)", () => {
-  test("a result reaches the FOREIGN enqueuer's inbox, not the runner's", () => {
-    const d = fixture();
-    seedStatus(d, "asker", { agent: "pi", pid: process.pid, state: "idle" });
-    seedStatus(d, "runner", { agent: "pi", pid: process.pid, state: "working" });
-    enqueueTask(d, { id: "t1", text: "survey the repo", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
-    insertAttempt(d, "t1", "runner", "d1", 6);
-    settleAttempt(d, "t1", 6, 7, "done", { result: { findings: 3 } });
+function settledTask(directory: string, outcome: "done" | "failed" = "done"): void {
+  enqueueTask(directory, { id: "t1", text: "survey the repo", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
+  insertAttempt(directory, "t1", "runner", "d1", 6);
+  if (outcome === "done") settleAttempt(directory, "t1", 6, 7, "done", { result: { findings: 3 } });
+  else settleAttempt(directory, "t1", 6, 7, "failed", { error: "the tool blew up" });
+}
 
-    deliverTaskResult(d, "t1");
+describe("results go to the enqueuer as mail", () => {
+  test("a result is an outbox row for the enqueuer, not the runner", () => {
+    const directory = fixture();
+    settledTask(directory);
 
-    // The enqueuer is in another pack, so nothing structural carries the result
-    // to it. Orch's own inbox does.
-    const inbox = inboxOf("asker");
-    expect(inbox).toContain("survey the repo");
-    expect(inbox).toContain("runner");
-    // The runner asked for nothing and must not receive its own result back.
-    expect(inboxOf("runner")).toBe("");
+    deliverTaskResult(directory, "t1");
+
+    const row = mailRow(directory, "asker");
+    expect(row).toBeDefined();
+    if (row === undefined) throw new Error("result mail row was not queued");
+    const payload = row.payload;
+    expect(isBridgeMessage(payload)).toBe(true);
+    if (!isBridgeMessage(payload) || payload.action !== "steer") throw new Error("result payload is not a steer message");
+    expect(payload.text).toContain("survey the repo");
+    expect(payload.text).toContain('"findings":3');
+    expect(payload.text).toContain("runner");
+    expect(mailRow(directory, "runner")).toBeUndefined();
   });
 
-  test("the delivered line carries the result payload, not just a notification", () => {
-    const d = fixture();
-    seedStatus(d, "asker", { agent: "pi", pid: process.pid, state: "idle" });
-    seedStatus(d, "runner", { agent: "pi", pid: process.pid, state: "working" });
-    enqueueTask(d, { id: "t1", text: "count things", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
-    insertAttempt(d, "t1", "runner", "d1", 6);
-    settleAttempt(d, "t1", 6, 7, "done", { result: { findings: 3 } });
+  test("a failed task reports its error in the mail body", () => {
+    const directory = fixture();
+    settledTask(directory, "failed");
 
-    deliverTaskResult(d, "t1");
+    deliverTaskResult(directory, "t1");
 
-    // A result the enqueuer has to go and fetch is not delivery.
-    expect(inboxOf("asker")).toContain("findings");
+    const row = mailRow(directory, "asker");
+    expect(row).toBeDefined();
+    if (row === undefined) throw new Error("failed result mail row was not queued");
+    const payload = row.payload;
+    expect(isBridgeMessage(payload)).toBe(true);
+    if (!isBridgeMessage(payload) || payload.action !== "steer") throw new Error("failed result payload is not a steer message");
+    expect(payload.text).toContain("the tool blew up");
   });
 
-  test("a FAILED task still reports back — silence is the worst outcome", () => {
-    const d = fixture();
-    seedStatus(d, "asker", { agent: "pi", pid: process.pid, state: "idle" });
-    seedStatus(d, "runner", { agent: "pi", pid: process.pid, state: "working" });
-    enqueueTask(d, { id: "t1", text: "risky work", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
-    insertAttempt(d, "t1", "runner", "d1", 6);
-    settleAttempt(d, "t1", 6, 7, "failed", { error: "the tool blew up" });
+  test("a cross-wall enqueuer gets no row and the task stays settled", () => {
+    const directory = fixture();
+    setSpace(directory, "asker", 10, "ask-space");
+    setSpace(directory, "runner", 10, "run-space");
+    settledTask(directory);
 
-    deliverTaskResult(d, "t1");
+    deliverTaskResult(directory, "t1");
 
-    expect(inboxOf("asker")).toContain("the tool blew up");
+    expect(mailRow(directory, "asker")).toBeUndefined();
+    expect(mailRow(directory, "runner")).toBeUndefined();
+    expect(taskState(directory, "t1")).toBe("done");
+  });
+});
+
+describe("acceptMail", () => {
+  test("refuses a message across the space wall by its reason", () => {
+    const directory = fixture();
+    setSpace(directory, "asker", 10, "ask-space");
+    setSpace(directory, "runner", 10, "run-space");
+
+    expect(() => acceptMail(directory, "asker", "runner", "hello"))
+      .toThrow("space wall: actor space ask-space cannot write to target space run-space (runner)");
   });
 
-  test("an enqueuer with no inbox is not an error — delivery is best-effort, the task stays settled", () => {
-    const d = fixture();
-    seedStatus(d, "runner", { agent: "pi", pid: process.pid, state: "working" });
-    enqueueTask(d, { id: "t1", text: "work", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
-    insertAttempt(d, "t1", "runner", "d1", 6);
-    settleAttempt(d, "t1", 6, 7, "done", { result: { ok: true } });
+  test("requires non-empty from, target, and text", () => {
+    const directory = fixture();
 
-    // `asker` has no presence dir at all. A result that cannot be delivered
-    // must not throw and must not undo the settlement.
-    expect(() => deliverTaskResult(d, "t1")).not.toThrow();
+    expect(() => acceptMail(directory, "", "runner", "hello")).toThrow("from is required");
+    expect(() => acceptMail(directory, "asker", "  ", "hello")).toThrow("target is required");
+    expect(() => acceptMail(directory, "asker", "runner", "\t")).toThrow("text is required");
+  });
+
+  test("queues a BridgeMessage steer payload", () => {
+    const directory = fixture();
+    const accepted = acceptMail(directory, "asker", "runner", "hello");
+    const row = selectOutboxMessage(directory, accepted.id);
+
+    expect(row).toBeDefined();
+    if (row === undefined) throw new Error("mail row was not queued");
+    expect(isBridgeMessage(row.payload)).toBe(true);
+    if (!isBridgeMessage(row.payload)) throw new Error("mail payload is not a bridge message");
+    expect(row.payload).toEqual({ action: "steer", text: "hello" });
   });
 });

@@ -39,6 +39,10 @@ close/error. Do the same for `attach`.
    test.
 6. In `src/types/daemon.ts`, rewrite the `OutboxDelivery` doc: `queued` = pushed down the
    bridge link, ack pending. Remove every `ack.jsonl` / inbox word from that file.
+7. In `src/types/daemon.ts`, `OutboxDeps` gains `readonly maxAttempts: number` — the value
+   of `daemon.outbox_max_attempts` (P1-1 adds the setting; P2-1 fills it from settings;
+   P1-6 reads it). Doc line: "A row that fails this many attempts is closed as
+   undeliverable. The gone signal is the fix for a dead agent; this is the backstop."
 
 The server passes the raw key; `bridge-links` normalizes. Do not import
 `normalize-target.ts` here.

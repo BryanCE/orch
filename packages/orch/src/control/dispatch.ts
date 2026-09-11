@@ -8,6 +8,7 @@ import { orchDir } from "../presence/writer.ts";
 import { agentView } from "../store/agent-view.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { awaitControlOutcome } from "./outcome.ts";
+import { pushToBridge } from "./bridge-links.ts";
 import { loadSettingsOrNull } from "../settings/read.ts";
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
@@ -66,21 +67,21 @@ function runAdapterCommand(command: AdapterCommand, timeoutMs: number): Promise<
 }
 
 /**
- * Refuse inbox delivery unless the agent is still running. A presence dir and its
+ * Refuse bridge delivery unless the agent is still running. A presence dir and its
  * status file both outlive the process that wrote them, so an existence-only check
- * appends work to a file nobody reads: the write is "accepted", the pane sits idle
+ * pushes work toward a dead session: the write is "accepted", the agent sits idle
  * with no task, and the only symptom is a generic RPC timeout further up. Orch owns
  * this ruling for every harness; the adapter is named in the message, never branched on.
  */
 function requireLiveAgent(target: string, adapter: AgentAdapter, action: string): void {
   const presence = loadPresence().get(target);
-  if (!presence) throw new AgentGoneError(target, `no presence dir for ${adapter.id} inbox delivery (${action})`);
+  if (!presence) throw new AgentGoneError(target, `no presence dir for ${adapter.id} bridge delivery (${action})`);
   if (!presence.status) throw new AgentGoneError(target, `${adapter.id} bridge never registered - respawn required`);
   if (!presence.alive) throw new AgentGoneError(target, `${adapter.id} bridge is disconnected (pid ${presence.status.pid ?? "unknown"} is gone) - respawn required`);
 }
 
 /**
- * A steer at an agent waiting on an answer is accepted by the inbox and then lost
+ * A steer at an agent waiting on an answer is accepted by the bridge and then lost
  * inside the harness's blocked turn — and `Steered` printed for a dropped message
  * is worse than an error, because the orchestrator believes the question is
  * answered while the pane sits in `asking` with no transition to notice. A pending
@@ -94,10 +95,10 @@ function refuseSteerWhileAsking(target: string, action: PromptAction): void {
 
 async function deliverPrompt(target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<ControlBoundaryOutcome> {
   refuseSteerWhileAsking(target, action);
-  if (adapter.inboxSteering !== null) {
+  const bridgeAction = action.kind === "run" ? "dispatch" : "steer";
+  if (adapter.bridge?.takes.includes(bridgeAction)) {
     requireLiveAgent(target, adapter, action.kind);
-    const command = adapter.inboxSteering.steer({ key: target, text: action.text, id: action.id });
-    if (command) await runAdapterCommand(command, timeoutMs);
+    pushToBridge(target, { id: action.id, message: { action: bridgeAction, text: action.text } });
     return { outcome: "invoke", ack: "expected" };
   }
   const command = adapter.steer({ key: target, text: action.text, id: action.id });
@@ -112,15 +113,14 @@ async function deliverPrompt(target: string, adapter: AgentAdapter, action: Prom
   return { outcome: "invoke", ack: "none" };
 }
 
-async function deliverAnswer(target: string, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>, timeoutMs: number): Promise<ControlBoundaryOutcome> {
-  // E14: an absence is an ANSWER to a human, not a failure path — but the answer has
-  // to be usable, so it names the target and the harness that cannot take answers.
-  if (adapter.question === null) {
+async function deliverAnswer(target: string, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>): Promise<ControlBoundaryOutcome> {
+  if (!adapter.bridge?.takes.includes("answer")) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot answer ${target}: adapter ${adapter.id} takes no answers` };
   }
   requireLiveAgent(target, adapter, "answer");
-  const command = adapter.question.answer({ key: target, text: action.text, id: action.id });
-  if (command) await runAdapterCommand(command, timeoutMs);
+  const questionId = loadPresence().get(target)?.status?.asking?.id;
+  if (questionId === undefined) return { outcome: "answer", reason: "not-asking", text: `${target} is not asking a question` };
+  pushToBridge(target, { id: action.id, message: { action: "answer", text: action.text, questionId } });
   return { outcome: "invoke", ack: "expected" };
 }
 
@@ -131,14 +131,17 @@ async function deliverAnswer(target: string, adapter: AgentAdapter, action: Extr
  * surfaces as an error instead of a false "accepted".
  */
 async function deliverModel(target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
-  if (adapter.modelControl === null) {
+  if (adapter.modelControl === null && !adapter.bridge?.takes.includes("model")) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot set the model on ${target}: adapter ${adapter.id} has no running-session model control` };
   }
   const directory = orchDir();
   assertModelAllowed(directory, adapter, model);
   requireLiveAgent(target, adapter, "set model on");
-  const command = adapter.modelControl.setModel({ key: target, model, id });
+  const command = adapter.modelControl?.setModel({ key: target, model, id });
   if (command) await runAdapterCommand(command, timeoutMs);
+  if (adapter.bridge?.takes.includes("model")) {
+    pushToBridge(target, { id, message: { action: "model", model } });
+  }
   const dir = loadPresence().get(target)?.dir;
   if (!dir) throw new Error(`cannot confirm model on ${target}: presence dir vanished`);
   await awaitControlOutcome(dir, id, timeoutMs);
@@ -190,7 +193,7 @@ export async function deliverControl(target: string, action: ControlAction): Pro
   // Return what deliverAnswer decided. Discarding it and reporting "invoke"
   // regardless turned every boundary answer into a silent success, which is the
   // one thing E14 says an absence must never become.
-  if (action.kind === "answer") return await deliverAnswer(canonicalTarget, adapter, action, timeoutMs);
+  if (action.kind === "answer") return deliverAnswer(canonicalTarget, adapter, action);
   if (action.kind === "lifecycle") return deliverLifecycle(canonicalTarget, adapter, action.verb);
   return deliverModel(canonicalTarget, adapter, action.model, action.id, timeoutMs);
 }

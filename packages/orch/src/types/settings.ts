@@ -35,7 +35,7 @@ export interface OrchSettings {
   locked_commands: string[];
   hosts: Record<string, HostSettings>;
   spaces: Record<string, string>;
-  daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number };
+  daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number };
   doctor: { unclaimed_after_ms: number };
   tiling: { first_split: TileFirstSplit };
   skills: { install: boolean; store: string; link: string[] };

@@ -45,8 +45,10 @@ Skip it, do not chase it with `--all`.
 
 ## Repair
 
-`orch doctor` diagnoses, `-y` applies every fix unattended. `orch clean` reaps dead-pid
-presence. `--worktrees` also clears orphaned worktrees, and `--force` discards unmerged work.
+`orch doctor` diagnoses, `-y` applies every fix unattended. `orch clean` removes presence
+dirs that name no agent and closes queued writes to dead agents; ended agents stay as
+history. `--force` reaps every dead agent's records and dir. `--worktrees` also clears
+orphaned worktrees, and with `--force` discards unmerged work.
 
 `$ORCH_DIR/orch.db` is the store. Liveness, leases, queue state and outcomes are rows, and
 every decision reads them. `$ORCH_DIR/agents/` is readable history beside it — status,

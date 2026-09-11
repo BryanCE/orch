@@ -2,19 +2,16 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
 import { isRecord } from "../util.ts";
-import { answerViaFile, bridgeExtensionArgv, diagnoseExtensionLink, installExtensionLink, modelSelectionArgv, PI_LIFECYCLE_TEXT, piSessionView, presenceAgentState, presenceFor, resultFromPresenceOrSession, setModelViaInbox, settingsDefaultModel, steerViaInbox, toolPolicyArgv } from "./pi.ts";
+import { bridgeExtensionArgv, diagnoseExtensionLink, installExtensionLink, modelSelectionArgv, PI_LIFECYCLE_TEXT, piSessionView, presenceAgentState, presenceFor, resultFromPresenceOrSession, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
 import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, AnswerRequest, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { ExtensionName } from "../types/core.ts";
 
 // orch's omp (oh-my-pi) integration. omp is its OWN harness: its own binary, its
-// own config root, its own extension bundle (extensions/omp/), its own settle
-// event. What it shares with pi are orch's transport primitives — the presence
-// inbox, the answer file, the session format — imported from ./pi.ts rather than
-// restated, because those are orch's own protocol and a session shape both CLIs
-// write, not per-harness behaviour.
+// own config root, its own extension bundle (extensions/omp/), and its own settle
+// event. It shares orch's presence and session helpers with pi.
 //
 // Nothing here reads a pi path or runs a pi binary, and pi.ts names nothing of
 // omp's. A machine with omp and no pi installed runs this whole file.
@@ -95,8 +92,7 @@ class OmpAdapter implements AgentAdapter {
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = { warmModels: (): Promise<void> => this.warmModels() };
-  readonly question = { answer: (request: AnswerRequest): AdapterCommand | undefined => this.answer(request) };
-  readonly inboxSteering = { steer: (request: SteerRequest): AdapterCommand | undefined => this.steer(request) };
+  readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
   readonly presenceRegistration = { isRegistered: (key: string): boolean => presenceFor(key) !== undefined };
 
   /** Start omp directly in an interactive backend session. */
@@ -129,19 +125,14 @@ class OmpAdapter implements AgentAdapter {
     return presenceAgentState(input.key);
   }
 
-  /** Append omp's steer message to its inbox.jsonl. */
-  steer(request: SteerRequest): AdapterCommand | undefined {
-    return steerViaInbox(request);
+  /** The bridge takes steers; nothing to run. */
+  steer(_request: SteerRequest): AdapterCommand | undefined {
+    return undefined;
   }
 
-  /** Write omp's blocking answer.json. */
-  answer(request: AnswerRequest): AdapterCommand | undefined {
-    return answerViaFile(request);
-  }
-
-  /** Append omp's model-switch command to its inbox.jsonl. */
-  setModel(request: ModelRequest): AdapterCommand | undefined {
-    return setModelViaInbox(request);
+  /** The bridge applies model deliveries; nothing to run. */
+  setModel(_request: ModelRequest): AdapterCommand | undefined {
+    return undefined;
   }
 
   /** Return omp's slash-command text for a lifecycle verb. */

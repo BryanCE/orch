@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveSpawnPlacement } from "../src/commands/spawn/placement.ts";
+import { resolveSpawnPlacement, spawnBackend } from "../src/commands/spawn/placement.ts";
 import { homeHandle, openHome } from "../src/store/home-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
-import { FakePanedBackend } from "./helpers/backend.ts";
+import { FakePanedBackend, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, HomeSubject, Identity, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
+import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, HomeSubject, Identity, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 /**
@@ -73,7 +73,18 @@ class RecordingHomeRole implements SpaceHomeRole<string> {
 /** A plexer that can hold a home, optionally with the calling process inside it.
  *  A SUBCLASS, not a spread: spreading a class instance drops its prototype
  *  methods and the value stops being a Backend at all. */
+/** A group role that never opens anything: `spawnBackend` only asks whether one exists. */
+const inertGroupHome: GroupHomeRole = {
+  list: () => [],
+  create: () => { throw new Error("inert group home never creates"); },
+  rename: () => {},
+  close: () => {},
+  focus: () => {},
+  move: () => {},
+};
+
 class HomedBackend extends FakePanedBackend {
+  override readonly groupHome: GroupHomeRole | null = inertGroupHome;
   override readonly spaceHome: SpaceHomeRole | null;
   override readonly identity: EnvironmentIdentityRole;
   private readonly inside: boolean;
@@ -104,6 +115,36 @@ function gate(): { asked: number; grantNewHome: () => void } {
   const state = { asked: 0, grantNewHome: (): void => { state.asked += 1; } };
   return state;
 }
+
+describe("outside every plexer, spawn is headless unless the caller names one", () => {
+  test("no --backend from a plain terminal spawns headless", () => {
+    fixture();
+    withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
+      expect(spawnBackend({ backend: "herdr", space: null, backendExplicit: false }).id).toBe("headless");
+    });
+  });
+
+  test("--backend names the plexer, so it stays selected and its home is what the human grants", () => {
+    fixture();
+    withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
+      expect(spawnBackend({ backend: "herdr", space: null, backendExplicit: true }).id).toBe("herdr");
+    });
+  });
+
+  test("a named plexer that cannot open a home still falls back to headless", () => {
+    fixture();
+    withRegisteredBackend(homedBackend(null, false), () => {
+      expect(spawnBackend({ backend: "herdr", space: null, backendExplicit: true }).id).toBe("headless");
+    });
+  });
+
+  test("a named space is placement enough: no --backend needed", () => {
+    fixture();
+    withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
+      expect(spawnBackend({ backend: "herdr", space: "team", backendExplicit: false }).id).toBe("herdr");
+    });
+  });
+});
 
 describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, E10)", () => {
   test("a named space is orch's own id, and the workspace is its RECORDED home", () => {

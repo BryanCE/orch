@@ -213,7 +213,7 @@ describe("commands/status", () => {
     expect(localRow).toEqual({ ...jsonRow, host: "local" });
     expect(jsonRow.host).toBeUndefined();
   });
-  test("capacity footer uses configured caps and groups holders by root", () => {
+  test("capacity footer uses configured caps and shows one pack per root", () => {
     const root = agentViewFixture("root", { name: "root", rootAgentId: "root", environment: { space: "main" } });
     const child = agentViewFixture("child", { name: "child", rootAgentId: "root", spawnedBy: "root", environment: { space: "main" } });
     const other = agentViewFixture("other", { name: "other", rootAgentId: "other", environment: { space: "main" } });
@@ -223,11 +223,11 @@ describe("commands/status", () => {
       fleet: { max_agents_per_pack: 10, max_depth: 3, max_agents_per_space: { main: 6 }, max_agents_total: 10, worker_peer_tools: false, cross_space: false },
       spaces: { main: "main" },
     });
-    expect(capacity.pack.holders).toEqual([
-      { id: "other", name: "other", count: 1 },
-      { id: "root", name: "root", count: 2 },
+    expect(capacity.packs).toEqual([
+      { root: { id: "other", name: "other" }, used: 1, cap: 10 },
+      { root: { id: "root", name: "root" }, used: 2, cap: 10 },
     ]);
-    expect(formatCapacityLine(capacity, "root")).toBe("pack 3/10 (you 2, other 1) - space main 3/6 - machine 3/10");
+    expect(formatCapacityLine(capacity, "root")).toBe("pack you 2/10 - pack other 1/10 - space main 3/6 - machine 3/10");
   });
 
   test("formats workspace labels and warnings", () => {

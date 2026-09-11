@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeFleetCapacity, formatCapacityLine } from "../src/policy/capacity.ts";
+import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../src/policy/capacity.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
@@ -29,7 +29,7 @@ const settings = {
 } satisfies Parameters<typeof computeFleetCapacity>[2];
 
 describe("fleet capacity", () => {
-  test("counts live agents by root holder", () => {
+  test("one pack per root, each against the per-pack cap; roots never sum into one pack", () => {
     const views = new Map([
       ["root", view("root", "you", "root", "main")],
       ["child", view("child", "child", "root", "main")],
@@ -42,11 +42,28 @@ describe("fleet capacity", () => {
     ]);
 
     const capacity = computeFleetCapacity(views, presence, settings);
-    expect(capacity.pack.used).toBe(3);
-    expect(capacity.pack.holders).toEqual([
-      { id: "foreign", name: "claude-skgrlw9n", count: 1 },
-      { id: "root", name: "you", count: 2 },
+    expect(capacity.packs).toEqual([
+      { root: { id: "foreign", name: "claude-skgrlw9n" }, used: 1, cap: 10 },
+      { root: { id: "root", name: "you" }, used: 2, cap: 10 },
     ]);
+    expect(packsUsed(capacity)).toBe(3);
+  });
+
+  test("a selected root scopes the packs to that one pack", () => {
+    const views = new Map([
+      ["root", view("root", "you", "root", "main")],
+      ["child", view("child", "child", "root", "main")],
+      ["foreign", view("foreign", "claude-skgrlw9n", "foreign", "other")],
+    ]);
+    const presence = new Map([
+      ["root", livePresence("root")],
+      ["child", livePresence("child")],
+      ["foreign", livePresence("foreign")],
+    ]);
+
+    const capacity = computeFleetCapacity(views, presence, settings, { packRootId: "root" });
+    expect(capacity.packs).toEqual([{ root: { id: "root", name: "you" }, used: 2, cap: 10 }]);
+    expect(packsUsed(capacity)).toBe(2);
   });
 
   test("reports configured per-space caps", () => {
@@ -68,7 +85,7 @@ describe("fleet capacity", () => {
     expect(computeFleetCapacity(views, presence, settings).total).toEqual({ used: 1, cap: null });
   });
 
-  test("formats holder, space, and machine capacity", () => {
+  test("formats one pack per root, the caller's first, then space and machine capacity", () => {
     const views = new Map([
       ["root", view("root", "you", "root", "main")],
       ["child", view("child", "child", "root", "main")],
@@ -85,7 +102,7 @@ describe("fleet capacity", () => {
     });
 
     expect(formatCapacityLine(capacity, "root")).toBe(
-      "pack 3/10 (you 2, claude-skgrlw9n 1) - space main 2/6 - space other 1/unlimited - machine 3/7",
+      "pack you 2/10 - pack claude-skgrlw9n 1/10 - space main 2/6 - space other 1/unlimited - machine 3/7",
     );
   });
 });

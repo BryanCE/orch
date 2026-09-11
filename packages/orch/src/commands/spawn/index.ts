@@ -90,11 +90,11 @@ async function executeHeadlessSpawn(settings: SpawnSettings, backend: Backend, s
       break;
     }
   }
-  // Same gate the placed path uses: an inbox adapter is only reachable once it has
-  // written its presence dir, so returning before that hands the caller a key it
-  // cannot dispatch to yet.
+  // Same gate the placed path uses: an adapter with a bridge is only reachable once
+  // its bridge has come up (P2-3 makes "up" mean attached), so returning before that
+  // hands the caller a key it cannot dispatch to yet.
   reportShortfall(settings.n, created.length);
-  const registered = adapter.inboxSteering ? await awaitBridgeRegistration(created, settings.json) : [];
+  const registered = adapter.bridge ? await awaitBridgeRegistration(created, settings.json) : [];
   const stalled = created.filter((agent) => !registered.some((candidate) => candidate.key === agent.key));
   if (stalled.length > 0) process.exitCode = 1;
   if (settings.json) process.stdout.write(JSON.stringify({

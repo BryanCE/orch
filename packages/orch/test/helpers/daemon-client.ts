@@ -22,6 +22,9 @@ export function stubDaemonClient(): DaemonClient {
     isAcked: () => false,
     markAcked: () => undefined,
     ask: () => Promise.resolve(undefined),
+    attach: () => undefined,
+    detach: () => undefined,
+    attached: () => false,
     postAck: () => Promise.resolve(true),
     postControlOutcome: () => Promise.resolve(true),
   };

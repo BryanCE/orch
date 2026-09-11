@@ -77,13 +77,21 @@ Behaviour:
 
 ## 3. The setting
 
-- `src/types/settings.ts`: `daemon.bridge_reconnect_ms: number`.
-- `src/settings/schema.ts`: default `1_000` in `SETTINGS_DEFAULTS.daemon`;
-  `PositiveInt.optional()` in the zod block.
+- `src/types/settings.ts`: `daemon.bridge_reconnect_ms: number` and
+  `daemon.outbox_max_attempts: number`.
+- `src/settings/schema.ts`: defaults `bridge_reconnect_ms: 1_000` and
+  `outbox_max_attempts: 120` in `SETTINGS_DEFAULTS.daemon` (the retry delay caps at 30 s,
+  so 120 is about an hour of a live agent with no link); `PositiveInt.optional()` for both
+  in the zod block.
 - `src/settings/registry.ts`: `"daemon.bridge_reconnect_ms": "How long an agent's bridge waits before it redials the daemon after the link drops, in milliseconds."`
+  `"daemon.outbox_max_attempts": "How many delivery attempts a queued write gets before the daemon closes it as undeliverable."`
   And fix `daemon.outbox_drain_ms`: "How often the daemon retries queued writes whose agent
   has no bridge link, in milliseconds."
 - Find the registry test (`grep -ln SETTINGS_DEFAULTS test/`) and run it.
+
+Why the cap exists: on 2026-09-11 the daemon retried ten dead agents' writes 568 times
+each, every 30 s, and `orch clean` did not close them. The gone signal (P2-1) is the fix;
+the cap is the backstop so no row can ever retry without a limit again.
 
 ## 4. Tests — `test/bridge-client.test.ts`
 

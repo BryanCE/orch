@@ -1,178 +1,175 @@
 import * as fs from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverControl } from "../src/control/dispatch.ts";
-import { claudeAdapter } from "../src/adapters/claude.ts";
+import { AgentGoneError } from "../src/control/agent-gone.ts";
+import {
+  attachBridge,
+  BridgeDetachedError,
+  detachBridge,
+  type BridgeLink,
+} from "../src/control/bridge-links.ts";
+import type { BridgeDelivery } from "../src/control/bridge-message.ts";
+import { settleControlOutcome } from "../src/control/outcome.ts";
+import { getBackend, registerBackend } from "../src/backends/registry.ts";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { refusalOf } from "./helpers/refusal.ts";
 import { seedAgent } from "./helpers/agent.ts";
-
-/** Above every real pid on Linux and macOS, so pidAlive is deterministically false. */
-const DEAD_PID = 0x7fffffff;
+import { FakePanedBackend } from "./helpers/backend.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: string[] = [];
+const links: { readonly key: string; readonly link: BridgeLink }[] = [];
+const DEAD_PID = 0x7fffffff;
 
-function tempDir(prefix = "orch-control-dispatch-"): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+function tempDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-control-dispatch-"));
   tempDirs.push(dir);
   return dir;
 }
 
-/** A1: an address is a minted id and NOTHING else. This helper used to build
- *  `headless~local~<id>`, which welded the plexer and an invented place called
- *  "local" into identity. The plexer is now STATED as environment through
- *  `seedAgent({ backend })` and read back through the composer. */
 function target(): string {
   return serializeIdentity({ id: mintAgentId() });
 }
 
-function presence(directory: string, key: string, agent: string): string {
-  seedStatus(directory, key, { agent, pid: process.pid });
-  return path.join(directory, "agents", key);
+function presence(directory: string, key: string, agent: string, extra: Record<string, unknown> = {}): void {
+  seedStatus(directory, key, { agent, pid: process.pid, ...extra });
+}
+
+function captureBridge(key: string, onPush?: (delivery: BridgeDelivery) => void): BridgeDelivery[] {
+  const deliveries: BridgeDelivery[] = [];
+  const link: BridgeLink = {
+    push(delivery): void {
+      deliveries.push(delivery);
+      onPush?.(delivery);
+    },
+  };
+  attachBridge(key, link);
+  links.push({ key, link });
+  return deliveries;
 }
 
 afterEach(() => {
+  for (const { key, link } of links.splice(0)) detachBridge(key, link);
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
   for (const dir of tempDirs.splice(0)) removeTempDir(dir);
 });
 
-describe("deliverControl", () => {
-  test("steers pi through its presence inbox", () => {
+describe("deliverControl bridge dispatch", () => {
+  test("pushes run and steer with their action ids", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const runTarget = target();
+    presence(directory, runTarget, "pi");
+    const run = captureBridge(runTarget);
+
+    await deliverControl(runTarget, { kind: "run", text: "start", id: "run-1" });
+    expect(run).toEqual([{ id: "run-1", message: { action: "dispatch", text: "start" } }]);
+
+    const steerTarget = target();
+    presence(directory, steerTarget, "pi");
+    const steer = captureBridge(steerTarget);
+    await deliverControl(steerTarget, { kind: "steer", text: "adjust", id: "steer-1" });
+    expect(steer).toEqual([{ id: "steer-1", message: { action: "steer", text: "adjust" } }]);
+  });
+
+  test("reports a detached bridge for a live agent", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target();
-    const dir = presence(directory, key, "pi");
+    presence(directory, key, "pi");
 
-    return deliverControl(key, { kind: "steer", text: "check the inbox" }).then(() => {
-      const line = JSON.parse(fs.readFileSync(path.join(dir, "inbox.jsonl"), "utf8")) as { text: string };
-      expect(line.text).toBe("check the inbox");
+    await expect(deliverControl(key, { kind: "steer", text: "lost", id: "steer-1" }))
+      .rejects.toBeInstanceOf(BridgeDetachedError);
+  });
+
+  test("reports a gone agent before pushing to its link", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target();
+    presence(directory, key, "pi", { pid: DEAD_PID });
+    const deliveries = captureBridge(key);
+
+    await expect(deliverControl(key, { kind: "steer", text: "lost", id: "steer-1" }))
+      .rejects.toBeInstanceOf(AgentGoneError);
+    expect(deliveries).toHaveLength(0);
+  });
+
+  test("answers only when status has no pending question", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target();
+    presence(directory, key, "pi");
+    const deliveries = captureBridge(key);
+
+    await expect(deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" }))
+      .resolves.toEqual({ outcome: "answer", reason: "not-asking", text: `${key} is not asking a question` });
+    expect(deliveries).toHaveLength(0);
+  });
+
+  test("pushes an answer with the asking question id", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target();
+    presence(directory, key, "pi", { asking: { id: "question-1", question: "ship?", ts: "now" } });
+    const deliveries = captureBridge(key);
+
+    await deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" });
+    expect(deliveries).toEqual([{
+      id: "answer-1",
+      message: { action: "answer", text: "yes", questionId: "question-1" },
+    }]);
+  });
+
+  test("pushes model changes and waits for the control outcome", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target();
+    presence(directory, key, "pi");
+    const deliveries = captureBridge(key, (delivery) => {
+      const message = delivery.message;
+      if (message.action !== "model") return;
+      const model = message.model;
+      queueMicrotask(() => settleControlOutcome({
+        key,
+        id: delivery.id,
+        command: "model",
+        requested: { model },
+      }));
     });
+
+    await deliverControl(key, { kind: "model", model: "provider/model", id: "model-1" });
+    expect(deliveries).toEqual([{ id: "model-1", message: { action: "model", model: "provider/model" } }]);
   });
 
-  test("refuses to steer a pane awaiting an answer, naming the primitive that lands", async () => {
-    const directory = tempDir();
-    process.env.ORCH_DIR = directory;
-    const key = target();
-    const dir = presence(directory, key, "pi");
-    seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "asking" });
-
-    // A steer at an asking pane is accepted by the inbox and then lost inside the
-    // harness's blocked turn. Reporting success for it is the whole defect: the
-    // orchestrator believes the question is answered, the pane stays `asking`, and
-    // nothing in `orch status` contradicts the belief because there is no transition
-    // to notice. Recovery cost two full reset + re-dispatch cycles.
-    expect(await refusalOf(deliverControl(key, { kind: "steer", text: "the answer" }))).toMatch(/orch answer/);
-    expect(fs.existsSync(path.join(dir, "inbox.jsonl"))).toBe(false);
-  });
-
-  test("still answers a pane awaiting an answer", async () => {
-    const directory = tempDir();
-    process.env.ORCH_DIR = directory;
-    const key = target();
-    const dir = presence(directory, key, "pi");
-    seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "asking" });
-
-    await deliverControl(key, { kind: "answer", text: "yes, pattern C", id: "answer-1" });
-    const answer = JSON.parse(fs.readFileSync(path.join(dir, "answer.json"), "utf8")) as { text: string };
-    expect(answer.text).toBe("yes, pattern C");
-  });
-
-  test("a run dispatch is not blocked by an asking pane", async () => {
-    const directory = tempDir();
-    process.env.ORCH_DIR = directory;
-    const key = target();
-    const dir = presence(directory, key, "pi");
-    seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "asking" });
-
-    await deliverControl(key, { kind: "run", text: "next slice" });
-    const line = JSON.parse(fs.readFileSync(path.join(dir, "inbox.jsonl"), "utf8")) as { text: string };
-    expect(line.text).toBe("next slice");
-  });
-
-  test("does not fall back from a keys strategy to the orch channel", async () => {
-    const directory = tempDir();
-    process.env.ORCH_DIR = directory;
-    const key = target();
-    const dir = presence(directory, key, "claude");
-    seedAgent(key, { adapter: "claude", backend: "headless", handle: key });
-
-    const outcome = await deliverControl(key, { kind: "steer", text: "hello claude" });
-    expect(outcome).toEqual({ outcome: "answer", reason: "not-placed", text: `${key} is placed nowhere; steer does not apply.` });
-    expect(fs.existsSync(path.join(dir, "inbox.jsonl"))).toBe(false);
-  }, 15_000);
-
-  test("a run to a keys-strategy agent with no pane is answered, never queued on the channel", async () => {
-    const directory = tempDir();
-    process.env.ORCH_DIR = directory;
-    const key = target();
-    const dir = presence(directory, key, "claude");
-    seedAgent(key, { adapter: "claude", backend: "headless", handle: key });
-
-    const outcome = await deliverControl(key, { kind: "run", text: "hello claude" });
-    expect(outcome).toEqual({ outcome: "answer", reason: "not-placed", text: `${key} is placed nowhere; run does not apply.` });
-    expect(fs.existsSync(path.join(dir, "inbox.jsonl"))).toBe(false);
-  }, 15_000);
-
-  // Claude composes neither inboxSteering nor modelControl. That absence IS the
-  // capability statement, so the dispatcher reads it from the composition — there
-  // is no flag left to mutate, which is the point.
-  test("refuses steer and model on an adapter that composes neither role", async () => {
+  test("uses the backend input path when the adapter bridge takes no steers", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target();
     presence(directory, key, "claude");
-
-    expect(claudeAdapter.inboxSteering).toBeNull();
-    expect(claudeAdapter.modelControl).toBeNull();
-
-    expect(await deliverControl(key, { kind: "steer", text: "nope" })).toEqual({
-      outcome: "answer", reason: "not-placed", text: `${key} is placed nowhere; steer does not apply.`,
+    seedAgent(key, { adapter: "claude", backend: "headless", handle: key });
+    const submitted: { handle: unknown; text: string }[] = [];
+    const backend = new FakePanedBackend();
+    const previous = getBackend("headless");
+    if (!previous) throw new Error("headless backend is not registered");
+    Object.defineProperty(backend, "agentInput", {
+      value: {
+        submit(handle: unknown, text: string): void { submitted.push({ handle, text }); },
+        sendKeys(): void {},
+        focus(): void {},
+      },
     });
-    expect(await deliverControl(key, { kind: "model", model: "provider/new-model", id: "req-1" })).toEqual({
-      // E14: an absence is an ANSWER to a human, so it has to be usable — it
-      // names the target and the harness that cannot take the verb.
-      outcome: "answer", reason: "no-environment-role",
-      text: `cannot set the model on ${key}: adapter claude has no running-session model control`,
-    });
-  });
-
-  test("requires presence for inbox delivery", () => {
-    const directory = tempDir();
-    process.env.ORCH_DIR = directory;
-    const key = target();
-    seedAgent(key, { adapter: "pi", backend: "headless", handle: key });
-
-    expect(deliverControl(key, { kind: "steer", text: "lost" })).rejects.toThrow(/no presence dir/);
-  });
-
-  // A presence dir outlives the process that wrote it. Delivering into a dead
-  // agent's inbox "succeeds", leaves the pane idle with no task, and surfaces
-  // only as a generic RPC timeout — the daemon-bounce failure mode.
-  test("refuses inbox delivery to an agent whose bridge never registered", () => {
-    const directory = tempDir();
-    process.env.ORCH_DIR = directory;
-    const key = target();
-    fs.mkdirSync(path.join(directory, "agents", key), { recursive: true });
-    seedAgent(key, { adapter: "pi", backend: "headless", handle: key });
-
-    expect(deliverControl(key, { kind: "steer", text: "lost" })).rejects.toThrow(/never registered/);
-  });
-
-  test("refuses inbox delivery to an agent whose process is gone", () => {
-    const directory = tempDir();
-    process.env.ORCH_DIR = directory;
-    const key = target();
-    seedStatus(directory, key, { agent: "pi", pid: DEAD_PID });
-    seedAgent(key, { adapter: "pi", backend: "headless", handle: key });
-
-    const dispatched = deliverControl(key, { kind: "steer", text: "lost" });
-    expect(dispatched).rejects.toThrow(/disconnected/);
-    expect(dispatched).rejects.toThrow(/respawn required/);
-    expect(fs.existsSync(path.join(directory, "agents", key, "inbox.jsonl"))).toBe(false);
+    registerBackend(backend);
+    try {
+      const deliveries = captureBridge(key);
+      await deliverControl(key, { kind: "steer", text: "hello", id: "steer-1" });
+      expect(submitted).toEqual([{ handle: key, text: "hello" }]);
+      expect(deliveries).toHaveLength(0);
+    } finally {
+      registerBackend(previous);
+    }
   });
 });

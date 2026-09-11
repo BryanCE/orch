@@ -1,9 +1,7 @@
-import * as path from "node:path";
 import { loadSettings } from "../settings/read.ts";
 import { buildEntities, collapse, resolveTarget, scopeEntitiesToSpace, spaceOf } from "../entities.ts";
-import { loadPresence, readJSON } from "../presence/store.ts";
+import { loadPresence } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
-import { QUESTION_FILE } from "../presence/schema.ts";
 import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
@@ -22,9 +20,7 @@ function resultLogger(key?: string) {
   return agentId ? commandLogger().forAgent(agentId) : commandLogger();
 }
 
-interface QuestionRow { key: string; name: string | null; age: string; question: string; space?: string; host?: string; warning?: string }
-
-interface QuestionPayload { ts?: unknown; question: string }
+interface QuestionRow { key: string; name: string | null; age: string; question: string; id?: string; ts?: string; space?: string; host?: string; warning?: string }
 
 function writeHistoricalResult(run: { result?: unknown }, json: boolean, key?: string): boolean {
   if (run.result === undefined) return false;
@@ -182,13 +178,14 @@ export async function cmdQuestions(args: string[]): Promise<void> {
   process.stdout.write(renderTable(["HOST", "ID", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
 }
 
-interface PendingQuestion { pres: PresenceEntry; question: QuestionPayload }
+type AskingQuestion = NonNullable<NonNullable<PresenceEntry["status"]>["asking"]>;
+interface PendingQuestion { pres: PresenceEntry; question: AskingQuestion }
 
 /**
- * The pending local questions (a scoped presence dir holding a valid
- * `question.json`) sorted by presence key, with the display-name map for the
- * scoped entities. The one collector behind both the `orch questions` local
- * table and the merged-with-remote row builder.
+ * The pending local questions from live, scoped presence status entries,
+ * sorted by presence key, with the display-name map for the scoped entities.
+ * The one collector behind both the `orch questions` local table and the
+ * merged-with-remote row builder.
  */
 function collectPendingQuestions(args: string[]): { pending: PendingQuestion[]; names: Map<string, string> } {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
@@ -210,8 +207,11 @@ function collectPendingQuestions(args: string[]): { pending: PendingQuestion[]; 
   // hours ago and a scripted answer loop steers targets that no longer exist.
   const pending = [...loadPresence().values()]
     .filter((pres) => pres.alive && (scopedKeys.has(pres.key) || all))
-    .map((pres) => ({ pres, question: readJSON<unknown>(path.join(pres.dir, QUESTION_FILE)) }))
-    .filter((entry): entry is PendingQuestion => isQuestionPayload(entry.question))
+    .map((pres) => {
+      const question = pres.status?.asking;
+      return question ? { pres, question } : undefined;
+    })
+    .filter((entry): entry is PendingQuestion => entry !== undefined)
     .sort((a, b) => a.pres.key.localeCompare(b.pres.key));
   return { pending, names };
 }
@@ -230,7 +230,9 @@ function cmdQuestionsLocal(args: string[]) {
       key: pres.key,
       name: names.get(pres.key) ?? null,
       age: formatAge(question.ts),
-      question: questionText(question),
+      id: question.id,
+      question: question.question,
+      ts: question.ts,
       space: spaceOf(orchDir(), pres.key) ?? "-",
     })), null, 2) + "\n");
     return;
@@ -259,19 +261,12 @@ export function formatAge(ts: unknown): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-export function isQuestionPayload(value: unknown): value is QuestionPayload {
-  return isRecord(value) && typeof value.question === "string";
-}
-
-export function questionText(value: unknown): string {
-  return isRecord(value) && typeof value.question === "string" ? value.question : "";
-}
-
 function localQuestionRows(args: string[]): QuestionRow[] {
   const { pending, names } = collectPendingQuestions(args);
   return pending.map(({ pres, question }) => ({
     key: pres.key, name: names.get(pres.key) ?? null, age: formatAge(question.ts),
-    question: questionText(question), space: spaceOf(orchDir(), pres.key) ?? "-",
+    question: question.question, id: question.id, ts: question.ts,
+    space: spaceOf(orchDir(), pres.key) ?? "-",
   }));
 }
 

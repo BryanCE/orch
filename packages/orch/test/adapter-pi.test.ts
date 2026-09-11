@@ -61,8 +61,8 @@ describe("PiAdapter", () => {
       "fix tests",
     ]);
     // Nullness IS the capability: pi composes every role.
-    expect(adapter.inboxSteering).not.toBeNull();
-    expect(adapter.question).not.toBeNull();
+    expect(adapter.bridge).not.toBeNull();
+    expect(adapter.bridge?.takes).toEqual(["dispatch", "steer", "answer", "model"]);
     expect(adapter.modelControl).not.toBeNull();
     expect(adapter.sessionView).not.toBeNull();
     expect(adapter.presenceRegistration).not.toBeNull();
@@ -86,23 +86,6 @@ describe("PiAdapter", () => {
 
     expect(adapter.detectState({ key: "pistate001" })).toBe("working");
     expect(adapter.detectState({ key: "missingag1" })).toBe("unknown");
-  });
-
-  test("appends a steer message to the presence inbox", () => {
-    writeStatus("pisteer001", "working");
-
-    adapter.steer({ key: "pisteer001", text: "run the tests" });
-
-    const lines = fs.readFileSync(path.join(storePresenceDir(), "pisteer001", "inbox.jsonl"), "utf8").trim().split("\n");
-    expect(JSON.parse(lines[0]!)).toMatchObject({ text: "run the tests" });
-  });
-
-  test("writes a blocking answer to the presence answer file", () => {
-    writeStatus("pianswer01", "blocked");
-
-    adapter.answer({ key: "pianswer01", text: "yes", id: "answer-1" });
-
-    expect(JSON.parse(fs.readFileSync(path.join(storePresenceDir(), "pianswer01", "answer.json"), "utf8"))).toMatchObject({ text: "yes" });
   });
 
   test("reads results.jsonl and falls back to the last assistant session text", () => {

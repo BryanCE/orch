@@ -2,6 +2,7 @@
 // creates no runtime edge out of the types layer.
 import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
 import type { HomeSubject, SpaceHomeRole } from "./backend.ts";
+import type { BridgeMessage } from "../control/bridge-message.ts";
 
 export type HostOs = "linux" | "windows" | "darwin";
 
@@ -164,21 +165,34 @@ export interface ProcessValues { hostId:string; pid:number; startToken?:string|n
 
 export interface TuningValues { model:string; thinking?:string|null }
 
-export interface OutboxMessageInput{id:string;target:string;payload:unknown;createdAt?:number}
+export interface OutboxMessageInput {
+  id: string;
+  target: string;
+  payload: BridgeMessage;
+  createdAt?: number;
+}
 
 /**
  * `pending`   no channel has taken it yet.
  * `awaiting`  handed to a channel whose reader acks separately; open, but sent.
  * `delivered` settled.
  * The middle state is what tells "nothing would take this write" apart from
- * "the agent has not read it yet" — collapsing them failed every inbox dispatch
- * back to the caller as unapplied.
+ * "the agent has not read it yet" — collapsing them made every write look
+ * unapplied to its caller.
  */
 /** `undeliverable` is terminal like `delivered`: the agent it was written for is
  *  gone, and no number of retries brings it back. */
 export type OutboxState = "pending" | "awaiting" | "delivered" | "undeliverable";
 
-export interface OutboxMessage{id:string;target:string;payload:unknown;state:OutboxState;attempts:number;createdAt:number;nextAttemptAt:number}
+export interface OutboxMessage {
+  id: string;
+  target: string;
+  payload: BridgeMessage;
+  state: OutboxState;
+  attempts: number;
+  createdAt: number;
+  nextAttemptAt: number;
+}
 
 /** What an agent did with one control command. `error` absent means it applied. */
 export interface ControlOutcomeRecord{id:string;agentId:string;command:string;requested:unknown;settledAt:number;error?:string}

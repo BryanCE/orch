@@ -19,6 +19,7 @@ import { dim } from "../tui/screen.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
 import {
   agentViewIndex,
+  die,
   firstNonEmptyText,
   presenceById,
   resultText,
@@ -295,12 +296,61 @@ export function displayStatusState(row: Pick<StatusRow, "state" | "alive" | "exi
   return row.exited || !row.alive ? "exited" : row.state;
 }
 
+/** `--flag=a,b`: the trimmed names after the flag, or null when the caller named none. */
+function parseNameList(args: readonly string[], flag: string): Set<string> | null {
+  const argument = args.find((candidate) => candidate.startsWith(flag));
+  if (argument === undefined) return null;
+  const names = argument.slice(flag.length).split(",").map((name) => name.trim()).filter((name) => name.length > 0);
+  return names.length === 0 ? null : new Set(names);
+}
+
 /** `--filter=done,error`: the states to keep, or null when the caller named none. */
 function parseStateFilter(args: readonly string[]): Set<string> | null {
-  const flag = args.find((argument) => argument.startsWith("--filter="));
-  if (flag === undefined) return null;
-  const states = flag.slice("--filter=".length).split(",").map((state) => state.trim()).filter((state) => state.length > 0);
-  return states.length === 0 ? null : new Set(states);
+  return parseNameList(args, "--filter=");
+}
+
+/** Every table column by its lower-cased header, with the JSON row keys that carry the same fact. */
+const STATUS_COLUMN_KEYS: Readonly<Record<string, readonly (keyof StatusRow)[]>> = {
+  host: ["host"],
+  id: ["key", "agentId"],
+  env: ["paneId"],
+  name: ["name"],
+  owner: ["owner"],
+  branch: ["branch"],
+  tab: ["tab"],
+  agent: ["agent"],
+  harness: ["agent"],
+  cwd: ["cwd"],
+  worktree: ["worktree"],
+  model: ["model", "modelShort"],
+  state: ["state", "stateFallback", "exited"],
+  cost: ["cost"],
+  ctx: ["ctxPercent"],
+  task: ["task"],
+  last: ["lastText"],
+};
+
+/** `--hide=owner,env`: the columns to drop from the table and from every JSON row. */
+function parseHiddenColumns(args: readonly string[]): Set<string> {
+  const columns = new Set([...(parseNameList(args, "--hide=") ?? [])].map((name) => name.toLowerCase()));
+  for (const column of columns) {
+    if (!(column in STATUS_COLUMN_KEYS)) die(`--hide: unknown column "${column}"; columns: ${Object.keys(STATUS_COLUMN_KEYS).join(", ")}`);
+  }
+  return columns;
+}
+
+/** One JSON row with the hidden columns' keys removed. */
+export function hideRowKeys(row: StatusRow, hide: ReadonlySet<string>): Partial<StatusRow> {
+  const visible: Partial<StatusRow> = { ...row };
+  for (const column of hide) {
+    for (const key of STATUS_COLUMN_KEYS[column] ?? []) delete visible[key];
+  }
+  return visible;
+}
+
+/** The cells (or headers, or caps) that survive `--hide`, matched by header position. */
+function visibleColumns<T>(cells: readonly T[], headers: readonly string[], hide: ReadonlySet<string>): T[] {
+  return cells.filter((_, index) => !hide.has((headers[index] ?? "").toLowerCase()));
 }
 
 function parseSpace(args: readonly string[]): string | undefined {

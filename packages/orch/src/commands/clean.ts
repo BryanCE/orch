@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { reapDeadPresenceDirs } from "../presence/store.ts";
+import { closeOutboxForDeadTargets, reapDeadPresenceDirs, reapMalformedPresenceDirs } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
 import { errorMessage } from "../util.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
@@ -83,13 +83,33 @@ function cleanWorktrees(force: boolean, json = false): number {
 function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean } {
   const worktrees = args.includes("--worktrees");
   const force = args.includes("--force");
-  if (args.some((arg) => arg !== "--worktrees" && arg !== "--force") || (force && !worktrees))
-    die("usage: orch clean [--worktrees [--force]]");
+  if (args.some((arg) => arg !== "--worktrees" && arg !== "--force"))
+    die("usage: orch clean [--force] [--worktrees]");
   return { worktrees, force };
 }
 
-/** Reap dead presence through the same spawned/ownership cleanup path as orch clean.
- * The presence store owns the directory and database cleanup; this command adds output. */
+/** Remove the presence directories that name no agent; the store owns the removal,
+ *  this command adds output. */
+export function removeMalformedAgentDirs(json = false, root = orchDir()): string[] {
+  const removed = reapMalformedPresenceDirs(root);
+  if (!json) {
+    if (removed.length) process.stdout.write("Removed malformed agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
+    else process.stdout.write("No malformed agent dirs.\n");
+  }
+  return removed;
+}
+
+/** Close the queued writes no live agent will ever read; the store owns the rows,
+ *  this command adds output. */
+export function closeDeadAgentWrites(json = false, root = orchDir()): number {
+  const closed = closeOutboxForDeadTargets(root);
+  if (!json) process.stdout.write(closed ? `Closed ${closed} queued write(s) to dead agents.\n` : "No queued writes to dead agents.\n");
+  return closed;
+}
+
+/** Reap dead presence through the same spawned/ownership cleanup path as daemon
+ *  retention. The presence store owns the directory and database cleanup; this
+ *  command adds output. */
 export function removeDeadAgentDirs(json = false, options: DeadAgentSweepOptions = {}): string[] {
   const result = reapDeadPresenceDirs(options.root ?? orchDir(), options.olderThan);
   for (const failure of result.failed) {
@@ -107,6 +127,8 @@ export function removeDeadAgentDirs(json = false, options: DeadAgentSweepOptions
   return removed;
 }
 
+/** Bare `orch clean` removes only what names no agent and closes writes nobody
+ *  will read. Ended agents are history; `--force` is the one way to reap them. */
 export function cmdClean(args: string[]) {
   // A sweep reaps records and worktrees the caller does not own, which is
   // destructive maintenance: the user's or the pack orch's call, never a
@@ -114,8 +136,10 @@ export function cmdClean(args: string[]) {
   if (callerIsSpawnedAgent()) die("orch clean is operator-only: a spawned agent never reaps records it does not own. Ask the user or your orch to run it.");
   const json = args.includes("--json");
   const options = validateCleanArgs(args.filter((arg) => arg !== "--json"));
-  const removed = removeDeadAgentDirs(json);
+  const malformed = removeMalformedAgentDirs(json);
+  const closed = closeDeadAgentWrites(json);
+  const removed = options.force ? removeDeadAgentDirs(json) : [];
   const worktrees = options.worktrees ? cleanWorktrees(options.force, json) : 0;
-  if (json) process.stdout.write(JSON.stringify({ removed, worktrees }) + "\n");
+  if (json) process.stdout.write(JSON.stringify({ malformed, closed, removed, worktrees }) + "\n");
 }
 

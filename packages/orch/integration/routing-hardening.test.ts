@@ -47,7 +47,7 @@ describe("store hardening", () => {
     const dir = tempDir("orch-routing-schema-");
     expect(() => listTasks(dir)).not.toThrow();
     const journal = row(orm(dir), sql`PRAGMA journal_mode`) as { journal_mode: string };
-    insertOutboxMessage(dir, { id: "schema-probe", target: "test", payload: {}, createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
+    insertOutboxMessage(dir, { id: "schema-probe", target: "test", payload: { action: "dispatch", text: "schema probe" }, createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
     expect(journal.journal_mode.toLowerCase()).toBe("wal");
     expect(selectPendingOutbox(dir, Number.MAX_SAFE_INTEGER)).toMatchObject([
       { id: "schema-probe", nextAttemptAt: 0 },

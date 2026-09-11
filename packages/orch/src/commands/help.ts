@@ -93,7 +93,8 @@ The target starts the work on a CLEAN session: dispatch clears the context first
 then re-pins the model, then sends. Prints the dispatch id; 'orch status --json'
 echoes it as .dispatchId once the agent runs that prompt.
   --file        Read the prompt from a file, or from stdin with '-', instead of argv.
-  --with        Name a path the agent works with. Repeat once per path.
+  --with        A file or directory the agent opens for context when the task needs it,
+                not inlined into the prompt. Must exist. Repeat once per path.
   --keep-context  Send onto the session the agent already has, without clearing it.
   --raw         Send the exact prompt, no worker header.
   --model       Pin the model (and optional thinking effort) for this dispatch.
@@ -159,11 +160,14 @@ leaves nothing behind.
   --dir         Directory the agents start in. Defaults to the spawner's own.
   --model       Pin each agent's launch model.
   --agent       Adapter id (pi, claude, codex, ...).
-  --backend     Plexer id (herdr, tmux, headless). headless needs --prompt or --file: a detached
+  --backend     Plexer id (herdr, tmux, headless). Inside a plexer the fleet lands beside you.
+                Outside every plexer the default is headless; name a plexer here to open its
+                own home, which the user grants. headless needs --prompt or --file: a detached
                 agent runs the prompt and exits.
   --prompt      One task for every agent, or repeat exactly N times for per-agent tasks.
   --file        Read the one task from a file, or from stdin with '-', instead of argv.
-  --with        Name a path the agents work with. Repeat once per path.
+  --with        A file or directory the agents open for context when the task needs it,
+                not inlined into the prompt. Must exist. Repeat once per path.
   --tasks       JSON file containing exactly N task strings (alternative to --prompt).
   --worktree    Give each agent its own git worktree.
 `,
@@ -245,9 +249,11 @@ Check the install: runtime, composition, backends, daemon, presence, sinks, host
   --fix         On a TTY, open the fix menu (plain 'doctor' does too when fixes exist).
   -y, --yes     Apply every fix unattended — how CI and non-TTY repairs run.
 `,
-  clean: `orch clean [--worktrees [--force]]
-Delete dead agent dirs.
-  --worktrees   Also clean orphaned worktrees; --force discards unmerged work.
+  clean: `orch clean [--force] [--worktrees]
+Remove agent dirs that name no agent and close queued writes to dead agents.
+Ended agents are history and stay unless forced.
+  --force       Also delete every dead agent's records and dir; with --worktrees, discard unmerged work.
+  --worktrees   Also remove orphaned worktrees that are empty or merged.
 `,
   setup: `orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--model <model[:thinking]> | --model <harness>=<model[:thinking]> ...]
            [--yes] [--no-install] [--copy] [--skills|--no-skills] [--refresh]

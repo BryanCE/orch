@@ -29,6 +29,25 @@ fill it in `fleetStatus`. P2-4 reads your `dispatch` result; P2-7 calls your `me
    that fails it, or whose action is `answer` / `model` (those never queue), is malformed:
    log `dispatch.malformed` and return `"gone"` so the outbox settles it `undeliverable`.
    Map `dispatch → run`, `steer → steer`. Delete the comment that names `ack.jsonl`.
+   THE BUG: the `catch` around `deliverControl` returns `"failed"` for every throw, so an
+   `AgentGoneError` never reaches the outbox's `gone` branch and a dead agent's write
+   retries every 30 s forever (2026-09-11: 568 attempts per row across ten dead agents,
+   `dispatch.undeliverable` logged zero times). Rewrite the catch:
+   ```ts
+   } catch (error) {
+     if (isAgentGone(error)) {
+       log.warn("dispatch.gone", { target: canonicalTarget, reason: errorMessage(error) });
+       return "gone";
+     }
+     log.error("dispatch.failed", { target: canonicalTarget, error: errorMessage(error) });
+     return "failed";
+   }
+   ```
+   Import `isAgentGone` from `src/control/agent-gone.ts`. A `BridgeDetachedError` stays
+   `"failed"` (the drain retries; attach re-pushes). Neither log line carries the message
+   text — the 2026-09-11 log repeated a full dispatch prompt 200 times per row.
+   `outboxDeps()` fills `maxAttempts: getSettings(directory).daemon.outbox_max_attempts`
+   (P1-2 added the field to `OutboxDeps`; P1-1 added the setting).
 2. `acceptWrite` → rename `acceptTextWrite(directory, action, params, id)`. After
    `deliverOutboxMessage`, read `outboxMessageState(directory, id)`:
    - `undeliverable` → throw `write ${id}: agent ${target} is gone`.
@@ -64,6 +83,9 @@ Extend, following the file's existing patterns: `dispatch` returns `ack: "acknow
 when a fake link acks (call the `ack` RPC from the test after the push arrives) and
 `ack: "unavailable"` when nothing acks within a short `dispatch_ack_ms` written into the temp
 settings; a dispatch to a live agent with no link returns accepted with the row `pending`;
+a dispatch to a DEAD agent (presence dir with a dead pid) rejects with `is gone`, leaves the
+row `undeliverable`, and a following drain tick attempts it zero times; a dispatch to a
+target with no presence dir at all does the same;
 `message` refuses across the space wall and never consults the lease (a target leased by a
 live foreign holder still receives mail); `attach` answers `{attached, open}` and triggers
 `redeliverOpenRows` (the pending row is pushed to the fake link); `status` rows carry

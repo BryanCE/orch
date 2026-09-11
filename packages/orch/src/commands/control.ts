@@ -13,9 +13,9 @@ import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel } from "./selection.ts";
-import { taskWithPaths, workerPrompt } from "../worker-prompt.ts";
+import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
 import { clearSession } from "./lifecycle/reset.ts";
-import { readPromptFile } from "./prompt-file.ts";
+import { contextReference, readPromptFile } from "./prompt-file.ts";
 import { workerHeaderContext } from "../policy/spawner.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
@@ -33,7 +33,7 @@ type DispatchFlags = AgentFlags & {
   thenNote: string;
   /** Path the prompt body is read from, or "-" for stdin. Unset means the positionals are the prompt. */
   promptFile?: string;
-  /** Paths the agent works with. Orch names them and never opens them; each `--with` adds one. */
+  /** Where the agent's context lives; each `--with` adds one. Orch checks each exists and never reads it. */
   withPaths: string[];
   /** Send the work onto the session the agent already has, instead of a clean one. */
   keepContext: boolean;
@@ -322,6 +322,6 @@ function resolveDispatchSettings(flags: DispatchFlags, settings: OrchSettings, g
   const handle = ent.paneId ?? ent.key;
   const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;
   if (flags.thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);
-  return { adapter: pickAdapter(flags, settings), model: requestedModel(flags), raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, handle, prompt: taskWithPaths(prompt, flags.withPaths), keepContext: flags.keepContext, destination };
+  return { adapter: pickAdapter(flags, settings), model: requestedModel(flags), raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, handle, prompt: taskWithReferences(prompt, flags.withPaths.map(contextReference)), keepContext: flags.keepContext, destination };
 }
 

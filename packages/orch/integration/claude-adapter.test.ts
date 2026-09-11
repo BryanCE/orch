@@ -76,8 +76,7 @@ describe("Claude adapter", () => {
     expect(claudeAdapter.presenceRegistration).not.toBeNull();
     // ...and composes NOTHING for what it cannot do. An absent role is the whole
     // capability statement: no stub, no "unsupported" return, no boolean (E13).
-    expect(claudeAdapter.inboxSteering).toBeNull();
-    expect(claudeAdapter.question).toBeNull();
+    expect(claudeAdapter.bridge).toBeNull();
     expect(claudeAdapter.modelControl).toBeNull();
     expect(claudeAdapter.lifecycleControl).toBeNull();
   });

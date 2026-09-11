@@ -227,10 +227,11 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
   }
 }
 
-function outboxDeps(): OutboxDeps {
+function outboxDeps(directory: string): OutboxDeps {
   return {
     deliver: (target, payload, id) => deliverWrite(target, payload, id),
     now: () => Date.now(),
+    maxAttempts: getSettings(directory).daemon.outbox_max_attempts,
   };
 }
 
@@ -312,7 +313,7 @@ async function acceptWrite(directory: string, action: "dispatch" | "steer", para
     // THIS write only. Draining the whole outbox here put every caller behind
     // every other orch's backlog, and one dead agent's retries then timed out
     // the RPC for a fleet that was perfectly healthy.
-    await deliverOutboxMessage(directory, id, outboxDeps());
+    await deliverOutboxMessage(directory, id, outboxDeps(directory));
     // Only a write no channel would take is a failure. A queued one is open on
     // purpose: the agent has not read its inbox yet (L7).
     if (outboxMessageUnsent(directory, id)) {
@@ -657,7 +658,7 @@ async function main(): Promise<void> {
   // meant a queued write was only ever retried when some other caller dispatched,
   // and that caller then waited out the whole backlog before its own write went.
   outboxDrain = setInterval(() => {
-    void drainOutbox(directory, outboxDeps()).catch((error: unknown) => {
+    void drainOutbox(directory, outboxDeps(directory)).catch((error: unknown) => {
       daemonLogger?.error("outbox.drain-failed", { error: errorMessage(error) });
     });
   }, getSettings(directory).daemon.outbox_drain_ms);

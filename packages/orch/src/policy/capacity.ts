@@ -3,16 +3,16 @@ import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
-export interface CapacityHolder {
+export interface CapacityRoot {
   readonly id: string;
   readonly name: string;
-  readonly count: number;
 }
 
+/** One pack: every live agent under one root, measured against the per-pack cap. */
 export interface CapacityPack {
+  readonly root: CapacityRoot;
   readonly used: number;
-  readonly cap: number | null;
-  readonly holders: readonly CapacityHolder[];
+  readonly cap: number;
 }
 
 export interface CapacitySpace {
@@ -22,9 +22,15 @@ export interface CapacitySpace {
 }
 
 export interface FleetCapacity {
-  readonly pack: CapacityPack;
+  /** The packs in scope: one when a root or space was selected, every root on the machine otherwise. */
+  readonly packs: readonly CapacityPack[];
   readonly spaces: readonly CapacitySpace[];
   readonly total: { readonly used: number; readonly cap: number | null };
+}
+
+/** Live members across every pack in scope. */
+export function packsUsed(capacity: FleetCapacity): number {
+  return capacity.packs.reduce((used, pack) => used + pack.used, 0);
 }
 
 type CapacitySettings = Pick<OrchSettings, "fleet"> & Partial<Pick<OrchSettings, "spaces">>;
@@ -51,7 +57,7 @@ export function liveSpawnCounts(
   return counts;
 }
 
-function rootAgent(view: AgentView, views: ReadonlyMap<string, AgentView>): { id: string; name: string } {
+function rootAgent(view: AgentView, views: ReadonlyMap<string, AgentView>): CapacityRoot {
   const declared = views.get(view.rootAgentId);
   if (declared) return { id: declared.id, name: declared.name };
 
@@ -87,12 +93,12 @@ export function computeFleetCapacity(
   options: { readonly packRootId?: string | null; readonly packSpace?: string | null } = {},
 ): FleetCapacity {
   const live = liveAgentViews(views, presence);
-  const pack = selectedPack(live, views, options.packRootId, options.packSpace);
-  const holderCounts = new Map<string, CapacityHolder>();
-  for (const view of pack) {
+  const cap = settings.fleet.max_agents_per_pack;
+  const packsByRoot = new Map<string, CapacityPack>();
+  for (const view of selectedPack(live, views, options.packRootId, options.packSpace)) {
     const root = rootAgent(view, views);
-    const previous = holderCounts.get(root.id);
-    holderCounts.set(root.id, { id: root.id, name: root.name, count: (previous?.count ?? 0) + 1 });
+    const used = (packsByRoot.get(root.id)?.used ?? 0) + 1;
+    packsByRoot.set(root.id, { root, used, cap });
   }
 
   const spaces = [...liveSpawnCounts(views, presence).entries()]
@@ -102,26 +108,25 @@ export function computeFleetCapacity(
       used,
       cap: settings.fleet.max_agents_per_space[id] ?? null,
     }));
-  const holders = [...holderCounts.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const packs = [...packsByRoot.values()].sort((left, right) => left.root.id.localeCompare(right.root.id));
   return {
-    pack: { used: pack.length, cap: settings.fleet.max_agents_per_pack, holders },
+    packs,
     spaces,
     total: { used: live.length, cap: settings.fleet.max_agents_total ?? null },
   };
 }
 
-/** Render the compact capacity summary used by command output. */
+/** Render the compact capacity summary used by command output: one entry per pack, the caller's first. */
 export function formatCapacityLine(capacity: FleetCapacity, selfId: string | undefined): string {
-  const holders = [...capacity.pack.holders];
-  holders.sort((left, right) => {
-    const leftSelf = left.id === selfId;
-    const rightSelf = right.id === selfId;
+  const packs = [...capacity.packs];
+  packs.sort((left, right) => {
+    const leftSelf = left.root.id === selfId;
+    const rightSelf = right.root.id === selfId;
     if (leftSelf !== rightSelf) return leftSelf ? -1 : 1;
-    return left.id.localeCompare(right.id);
+    return left.root.id.localeCompare(right.root.id);
   });
-  const holderText = holders.map((holder) => `${holder.id === selfId ? "you" : holder.name} ${holder.count}`).join(", ");
-  const pack = `pack ${capacity.pack.used}/${capacity.pack.cap ?? "unlimited"}${holderText ? ` (${holderText})` : ""}`;
+  const packLines = packs.map((pack) => `pack ${pack.root.id === selfId ? "you" : pack.root.name} ${pack.used}/${pack.cap}`);
   const spaces = capacity.spaces.map((entry) => `space ${entry.name} ${entry.used}/${entry.cap ?? "unlimited"}`);
   const total = `machine ${capacity.total.used}/${capacity.total.cap ?? "unlimited"}`;
-  return [pack, ...spaces, total].join(" - ");
+  return [...packLines, ...spaces, total].join(" - ");
 }

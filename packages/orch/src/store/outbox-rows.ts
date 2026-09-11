@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, lte, lt } from "drizzle-orm";
 import { orm } from "./connection.ts";
 import { outbox } from "../db/schema.ts";
+import { isBridgeMessage } from "../control/bridge-message.ts";
 import type { OutboxMessage, OutboxMessageInput, OutboxState } from "../types/store.ts";
 
 /** States a retry loop still owes work for. */
@@ -17,10 +18,17 @@ function isOutboxState(value: string): value is OutboxState {
 
 function toMessage(row: OutboxRow): OutboxMessage {
   if (!isOutboxState(row.state)) throw new Error(`invalid outbox state ${JSON.stringify(row.state)}`);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(row.payload);
+  } catch {
+    throw new Error(`invalid outbox payload for ${row.id}`);
+  }
+  if (!isBridgeMessage(payload)) throw new Error(`invalid outbox payload for ${row.id}`);
   return {
     id: row.id,
     target: row.target,
-    payload: JSON.parse(row.payload),
+    payload,
     state: row.state,
     attempts: Number(row.attempts),
     createdAt: row.createdAt,
@@ -47,10 +55,34 @@ export function selectPendingOutbox(directory: string, now: number): OutboxMessa
     .map(toMessage);
 }
 
+/** Every open write for a target, including rows waiting past their retry time. */
+export function selectOpenOutboxForTarget(directory: string, target: string): OutboxMessage[] {
+  return orm(directory).select().from(outbox)
+    .where(and(eq(outbox.target, target), inArray(outbox.state, [...OPEN_OUTBOX_STATES])))
+    .orderBy(asc(outbox.createdAt))
+    .all()
+    .map(toMessage);
+}
+
+/** Every target that still has an open write, once each. */
+export function selectOpenOutboxTargets(directory: string): string[] {
+  return orm(directory).selectDistinct({ target: outbox.target }).from(outbox)
+    .where(inArray(outbox.state, [...OPEN_OUTBOX_STATES]))
+    .all()
+    .map((row) => row.target);
+}
+
 /** One message by id, whatever its state, for a caller delivering only its own write. */
 export function selectOutboxMessage(directory: string, id: string): OutboxMessage | undefined {
   const row = orm(directory).select().from(outbox).where(eq(outbox.id, id)).limit(1).get();
   return row === undefined ? undefined : toMessage(row);
+}
+
+export function outboxMessageState(directory: string, id: string): OutboxState | undefined {
+  const row = orm(directory).select({ state: outbox.state }).from(outbox).where(eq(outbox.id, id)).limit(1).get();
+  if (row === undefined) return undefined;
+  if (!isOutboxState(row.state)) throw new Error(`invalid outbox state ${JSON.stringify(row.state)}`);
+  return row.state;
 }
 
 /** True while no channel has taken this write. The RPC fails on exactly this. */

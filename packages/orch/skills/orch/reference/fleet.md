@@ -34,12 +34,15 @@ sequence, and that beats three workers plus the coordination.
 Size against the capacity footer, not hope. Bare `orch status` ends with one line:
 
 ```
-pack 7/10 (you 5, claude-xyz 2) · space main 4/6 · machine 7/unlimited
+pack you 5/10 - pack claude-xyz 2/10 - space main 4/6 - machine 7/unlimited
 ```
 
-`orch status --capacity` prints it alone, `--json --capacity` for the object. Read it before
-every spawn wave. It names how many slots are free and which orchestrators hold the rest, so
-a cap refusal is never a surprise and a foreign fleet is never invisible.
+One `pack` entry per orchestrator, yours first, each against `fleet.max_agents_per_pack`.
+Packs never sum: two orchestrators at 5 and 8 are both under a cap of 10. `machine` is the
+live total against `fleet.max_agents_total`; `unlimited` means that setting is absent.
+`orch status --capacity` prints the line alone, `--json --capacity` for the object. Read it
+before every spawn wave. It names how many slots are free and which orchestrators hold the
+rest, so a cap refusal is never a surprise and a foreign fleet is never invisible.
 
 ## Slice small, dispatch fast, refill instantly
 

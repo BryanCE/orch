@@ -8,12 +8,10 @@ import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { packageRoot } from "../util.ts";
-import { appendInbox } from "../presence/inbox.ts";
-import { writeAnswer } from "../presence/writer.ts";
 import { isAgentState } from "../agent-state.ts";
 import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, AnswerRequest, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
@@ -117,34 +115,10 @@ export function presenceFor(key: string): PresenceEntry | undefined {
   return loadPresence().get(key);
 }
 
-// pi's wire format lives here and nowhere else: the bridge extension reads
-// inbox.jsonl lines and answer.json from the agent's presence dir.
-
 /** The presence state a pi-shaped harness's bridge last wrote for this agent. */
 export function presenceAgentState(key: string): AgentState {
   const presence = presenceFor(key);
   return presence ? stateFrom(statusForPresence(presence)?.state) : "unknown";
-}
-
-/** Steer a running agent by appending to the inbox its bridge drains. */
-export function steerViaInbox(request: SteerRequest): AdapterCommand | undefined {
-  const presence = presenceFor(request.key);
-  if (presence) appendInbox(presence.dir, { id: request.id, text: request.text, ts: new Date().toISOString() });
-  return undefined;
-}
-
-/** Unblock an asking agent by writing the answer file its bridge waits on. */
-export function answerViaFile(request: AnswerRequest): AdapterCommand | undefined {
-  const presence = presenceFor(request.key);
-  if (presence) writeAnswer(presence.dir, request.text, request.id);
-  return undefined;
-}
-
-/** Retarget a running agent's model through the same inbox transport as a steer. */
-export function setModelViaInbox(request: ModelRequest): AdapterCommand | undefined {
-  const presence = presenceFor(request.key);
-  if (presence) appendInbox(presence.dir, { cmd: "model", model: request.model, id: request.id, ts: new Date().toISOString() });
-  return undefined;
 }
 
 /**
@@ -406,8 +380,7 @@ export class PiAdapter implements AgentAdapter {
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = { warmModels: (): Promise<void> => this.warmModels() };
-  readonly question = { answer: (request: AnswerRequest): AdapterCommand | undefined => this.answer(request) };
-  readonly inboxSteering = { steer: (request: SteerRequest): AdapterCommand | undefined => this.steer(request) };
+  readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
   readonly presenceRegistration = { isRegistered: (key: string): boolean => presenceFor(key) !== undefined };
 
   /** Start pi directly in an interactive backend session. Worker options use the same
@@ -441,19 +414,14 @@ export class PiAdapter implements AgentAdapter {
     return presenceAgentState(input.key);
   }
 
-  /** Append pi's steer message to its inbox.jsonl. */
-  steer(request: SteerRequest): AdapterCommand | undefined {
-    return steerViaInbox(request);
+  /** The bridge takes steers; nothing to run. */
+  steer(_request: SteerRequest): AdapterCommand | undefined {
+    return undefined;
   }
 
-  /** Write pi's blocking answer.json. */
-  answer(request: AnswerRequest): AdapterCommand | undefined {
-    return answerViaFile(request);
-  }
-
-  /** Append pi's model-switch command to its inbox.jsonl. */
-  setModel(request: ModelRequest): AdapterCommand | undefined {
-    return setModelViaInbox(request);
+  /** The bridge applies model deliveries; nothing to run. */
+  setModel(_request: ModelRequest): AdapterCommand | undefined {
+    return undefined;
   }
 
   /** Return pi's slash-command text for a lifecycle verb. */

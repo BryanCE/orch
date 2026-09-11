@@ -1,5 +1,4 @@
-import { appendPeerInbox } from "../agent/peers.ts";
-import { presenceAgentDir } from "../presence/writer.ts";
+import { acceptMail } from "./mail.ts";
 import { attemptsOf, taskById, type AttemptRow } from "../store/task-rows.ts";
 import { agentById } from "../store/agent-rows.ts";
 
@@ -10,10 +9,8 @@ import { agentById } from "../store/agent-rows.ts";
  * Keying an EVENT to the enqueuer is not delivery: an event stream is read by
  * whoever happens to be watching, and a cross-pack enqueuer usually is not.
  * There is no shared parent to hand the result up through either, because the
- * two agents are in different packs by definition. So the result travels the
- * way every other orch↔orch message does — `inbox.jsonl`, through the one
- * writer that already exists (Rule 11: delivery and read are ORCH's mechanism,
- * and a pane is only an optimisation).
+ * two agents are in different packs by definition. So the result travels as an
+ * outbox row pushed down the enqueuer's bridge link.
  *
  * Best-effort on purpose: the task is already settled when this runs, and an
  * undeliverable result must never unsettle it or throw into the work loop.
@@ -38,9 +35,9 @@ export function deliverTaskResult(orchDir: string, taskId: string): void {
     : `[failed on ${runnerName}] ${task.text}\n${settled.error ?? "no error recorded"}`;
 
   try {
-    appendPeerInbox(presenceAgentDir(task.enqueuedBy, orchDir), body);
+    acceptMail(orchDir, settled.agentId, task.enqueuedBy, body);
   } catch {
-    // An enqueuer with no presence directory has nowhere to receive; that is an
-    // answer, not a failure, and the settlement stands either way.
+    // A missing or walled enqueuer has nowhere to receive; that is an answer,
+    // not a failure, and the settlement stands either way.
   }
 }

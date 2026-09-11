@@ -44,8 +44,7 @@ describe("CodexAdapter", () => {
 
     expect(codexAdapter.id).toBe("codex");
     expect(adapter.sessionView).not.toBeNull();
-    expect(adapter.inboxSteering).toBeNull();
-    expect(adapter.question).toBeNull();
+    expect(adapter.bridge).toBeNull();
     expect(adapter.modelControl).toBeNull();
     expect(adapter.presenceRegistration).toBeNull();
     expect(adapter.lifecycleControl).toBeNull();

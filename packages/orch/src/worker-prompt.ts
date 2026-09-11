@@ -5,7 +5,7 @@
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
-import type { WorkerHeaderContext, WorkerRules } from "./types/core.ts";
+import type { ContextReference, WorkerHeaderContext, WorkerRules } from "./types/core.ts";
 import type { OrchSettings } from "./types/settings.ts";
 
 /** The rules this machine puts in every worker header, whoever launched the worker. */
@@ -42,11 +42,11 @@ const WORKER_HEADER_ASK_CLAUSE =
 
 /**
  * Appended only when BOTH sides of the reply can carry it: this worker's bridge
- * has the peer tools, and the spawner is a live presence inbox that can receive
- * the write. A worker's own `capabilities.steer` says nothing about whether whoever
- * launched it has a mailbox — a Claude Code session orchestrating a pi fleet
- * never does, and telling its workers to `orch_send target "spawner"` sent every
- * one of them into a refusal they then had to reason their way out of.
+ * has the peer tools, and the spawner is live; orchd queues mail for it. A worker's
+ * own bridge says nothing about whether whoever launched it can receive mail — a
+ * Claude Code session orchestrating a pi fleet never does, and telling its workers
+ * to `orch_send target "spawner"` sent every one of them into a refusal they then
+ * had to reason their way out of.
  */
 const WORKER_HEADER_SPAWNER_CLAUSE =
   " The session orchestrating you is named in your status record (spawnedByLabel);" +
@@ -65,10 +65,10 @@ function lockedCommandsClause(lockedCommands: readonly string[]): string {
     ` Report rather than run them; the ${term("orch")} verifies.`;
 }
 
-/** Compose the worker header from the adapter's capabilities and this spawn's reachable peers. */
+/** Compose the worker header from the adapter's bridge role and this spawn's reachable peers. */
 export function workerHeaderFor(adapter: AgentAdapter | undefined, context: Partial<WorkerHeaderContext> = {}): string {
-  const ask = adapter?.question ? WORKER_HEADER_ASK_CLAUSE : "";
-  const spawner = adapter?.inboxSteering && context.spawnerRepliable
+  const ask = adapter?.bridge?.takes.includes("answer") ? WORKER_HEADER_ASK_CLAUSE : "";
+  const spawner = adapter?.bridge && context.spawnerRepliable
     ? WORKER_HEADER_SPAWNER_CLAUSE
     : context.spawnerRepliable ? "" : WORKER_HEADER_NO_SPAWNER_CLAUSE;
   return WORKER_HEADER_BASE
@@ -84,16 +84,25 @@ export function stripWorkerHeader(task: string): string {
   return separator === -1 ? "" : task.slice(separator + 2);
 }
 
+const CONTEXT_REFERENCES_LEAD =
+  "Context for this task lives at the paths below. Open a path only when the task needs it; do not read them all up front.";
+
+function contextReferenceLine(reference: ContextReference): string {
+  return reference.kind === "directory"
+    ? `- ${reference.path} (directory: list it, then open only the files that apply)`
+    : `- ${reference.path}`;
+}
+
 /**
- * The task text for one agent: the paths it works with, then the instructions.
+ * The task text for one agent: where its context lives, then the instructions.
  *
- * The paths belong to the TASK, never to the header. `stripWorkerHeader` cuts the
- * header off a stored task, and a path cut out of the record leaves a task nobody
- * can read back.
+ * The references belong to the TASK, never to the header. `stripWorkerHeader` cuts
+ * the header off a stored task, and a reference cut out of the record leaves a task
+ * nobody can read back.
  */
-export function taskWithPaths(instructions: string, paths: readonly string[]): string {
-  if (paths.length === 0) return instructions;
-  return `Work with: ${paths.join(", ")}.\n\n${instructions}`;
+export function taskWithReferences(instructions: string, references: readonly ContextReference[]): string {
+  if (references.length === 0) return instructions;
+  return `${CONTEXT_REFERENCES_LEAD}\n${references.map(contextReferenceLine).join("\n")}\n\n${instructions}`;
 }
 
 /** Normalize a dispatched task before storing it: strip the header, then truncate. */

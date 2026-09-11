@@ -10,8 +10,8 @@ import type { OrchSettings } from "../../types/settings.ts";
 import type { AgentFlags, AgentSettings } from "../../types/command.ts";
 import { adapterCommand, resolveAgentSettings } from "./models.ts";
 import { resolveSpawnNames } from "./names.ts";
-import { readPromptFile } from "../prompt-file.ts";
-import { taskWithPaths } from "../../worker-prompt.ts";
+import { contextReference, readPromptFile } from "../prompt-file.ts";
+import { taskWithReferences } from "../../worker-prompt.ts";
 
 
 export type SpawnFlags = AgentFlags & {
@@ -28,7 +28,7 @@ export type SpawnFlags = AgentFlags & {
   promptFlags: string[];
   /** Path the initial task is read from, or "-" for stdin. */
   promptFile?: string;
-  /** Paths the agents work with. Orch names them and never opens them; each `--with` adds one. */
+  /** Where the agents' context lives; each `--with` adds one. Orch checks each exists and never reads it. */
   withPaths: string[];
   tasksFile?: string;
   unknownFlags: string[];
@@ -128,7 +128,8 @@ export function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
     die(`${errorMessage(error)}\nusage: orch spawn <name> [<name>...] [--tab <label>] [--dir <path>] [--cmd <command>] [--model <model[:thinking]>] [--thinking <level>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--file <path>|-] [--with <path>]... [--worktree]`);
   }
   const n = names.length;
-  const prompts = resolveSpawnPrompts(flags, n).map((prompt) => taskWithPaths(prompt, flags.withPaths));
+  const references = flags.withPaths.map(contextReference);
+  const prompts = resolveSpawnPrompts(flags, n).map((prompt) => taskWithReferences(prompt, references));
   resolveAdapterOrDie(settings.adapter);
   const tools = workerTools(settingsFile);
   const workers = workerPolicyFrom(settingsFile);

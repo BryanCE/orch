@@ -52,6 +52,8 @@ export interface RpcServerOptions {
   tcpPort?: number;
   /** Report a TCP bind failure without taking down the unix listener. */
   onTcpError?: (error: unknown, port: number) => void;
+  /** Report a bridge attach after its RPC reply has been written. */
+  onBridgeAttached?: (key: string) => void;
 };
 
 export interface BufferedEvent {
@@ -72,6 +74,8 @@ export interface RpcServer {
   emit(event: unknown): void;
   /** How many connections currently hold a subscribe-events subscription. */
   subscriberCount(): number;
+  /** How many bridge keys currently have an attached connection. */
+  attachedBridgeCount(): number;
   readonly transport: "unix" | "tcp";
   readonly socketPath: string;
   readonly portFile: string;
@@ -182,14 +186,8 @@ export interface LeaseStatusPayload {
  * `acked`  the message reached its reader, or reached a channel that HAS no
  *          separate reader to hear from — a pane keystroke, a boundary answer.
  *          Terminal either way.
- * `queued` the message was handed to a channel whose reader acknowledges
- *          separately: the inbox. This is NOT delivery. The agent's own marker
- *          in `ack.jsonl` is what settles the row.
+ * `queued` the message was pushed down the bridge link, with its ack pending.
  * `failed` the write did not happen. Retry with backoff.
- *
- * A boolean cannot carry this: it collapses "handed to the channel" into
- * "read by the agent", which settled every inbox row at write time and made the
- * ack reader below unreachable in the daemon.
  */
 /** `failed` is worth another attempt; `gone` never is — the agent the write was
  *  addressed to no longer exists, so retrying it only costs every other write. */
@@ -198,6 +196,8 @@ export type OutboxDelivery = "acked" | "queued" | "failed" | "gone";
 export interface OutboxDeps {
   deliver(target: string, payload: unknown, id: string): Promise<OutboxDelivery>;
   now(): number;
+  /** A row that fails this many attempts is closed as undeliverable. The gone signal is the fix for a dead agent; this is the backstop. */
+  readonly maxAttempts: number;
 }
 
 /** The files one orchd instance owns while it runs. Orch defines these names, so

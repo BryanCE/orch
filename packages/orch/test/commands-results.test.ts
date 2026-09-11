@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { formatAge, isQuestionPayload, questionText, cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
+import { formatAge, cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
 import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -51,12 +51,12 @@ describe("commands/results", () => {
     const key = "questionag";
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    const dir = seedStatus(root, key, { agent: "pi", pid: process.pid, state: "blocked", label: "question-agent" });
-    writeFileSync(join(dir, "question.json"), JSON.stringify({ question: "need input", ts: new Date().toISOString() }));
+    const ts = new Date().toISOString();
+    seedStatus(root, key, { agent: "pi", pid: process.pid, state: "asking", label: "question-agent", asking: { question: "need input", id: "q1", ts } });
     try {
       const output = captureStdout(() => { void cmdQuestions(["--local", "--all", "--json"]); });
       const parsed: unknown = JSON.parse(output);
-      expect(parsed).toEqual([expect.objectContaining({ key, space: "-" })]);
+      expect(parsed).toEqual([expect.objectContaining({ key, space: "-", id: "q1", question: "need input", ts })]);
       expect(output).not.toContain("local");
       expect(output).not.toContain("workspace");
       expect(parsed).not.toHaveProperty("host");
@@ -67,11 +67,21 @@ describe("commands/results", () => {
     }
   });
 
-  test.serial("validates and extracts question payloads", () => {
-    expect(isQuestionPayload({ question: "why?" })).toBe(true);
-    expect(questionText({ question: "why?" })).toBe("why?");
-    expect(isQuestionPayload({ question: 1 })).toBe(false);
-    expect(questionText(null)).toBe("");
+  test.serial("lists only live agents with a pending status question", () => {
+    const root = mkdtempSync(join(tmpdir(), "orch-command-questions-filter-"));
+    const old = process.env.ORCH_DIR;
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    seedStatus(root, "liveques01", { agent: "pi", pid: process.pid, state: "asking", asking: { question: "live", id: "live-id", ts: "2026-09-11T00:00:00.000Z" } });
+    seedStatus(root, "deadques01", { agent: "pi", pid: 999999, state: "asking", asking: { question: "dead", id: "dead-id", ts: "2026-09-11T00:00:00.000Z" } });
+    seedStatus(root, "noques0001", { agent: "pi", pid: process.pid, state: "working" });
+    try {
+      const parsed: unknown = JSON.parse(captureStdout(() => { void cmdQuestions(["--local", "--all", "--json"]); }));
+      expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live", ts: "2026-09-11T00:00:00.000Z" })]);
+    } finally {
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
   });
   test.serial("formats invalid and recent timestamps", () => {
     expect(formatAge("not-a-date")).toBe("?");

@@ -1,6 +1,7 @@
 // Type-only: `typeof`/`ReturnType` over a runtime binding, erased at compile
 // time, so these create no runtime edge out of the types layer.
 import type { createAgentPresence } from "../agent/presence.ts";
+import type { BridgeDelivery } from "../control/bridge-message.ts";
 import type { subscribeEvents } from "../daemon/rpc/client.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { JsonRecord } from "./core.ts";
@@ -307,7 +308,7 @@ export interface ControlOutcomeReport extends ControlOutcome {
   key: string;
 }
 
-/** The agent's side of the orchd socket. */
+/** The agent's live link to orchd for requests, deliveries, and acknowledgements. */
 export interface DaemonClient {
   /** Message id carried by a parsed inbox line, when it has one. */
   messageIdOf(parsed: unknown): string | undefined;
@@ -316,7 +317,14 @@ export interface DaemonClient {
   /** Asks orchd a question; `undefined` when the daemon is absent, unreachable,
    *  or refused the call. Callers guard the answer's shape — never cast it. */
   ask(method: string, params?: Record<string, unknown>): Promise<unknown>;
-  /** Posts the ack to orchd; false means the caller should fall back to ack.jsonl. */
+  /** Open the persistent link and announce this agent. Deliveries arrive on onDelivery
+   *  until detach(). Reconnects on its own; never throws. */
+  attach(key: string, onDelivery: (delivery: BridgeDelivery) => void): void;
+  /** Close the link and stop reconnecting. */
+  detach(): void;
+  /** True while a link is open and attached. */
+  attached(): boolean;
+  /** Posts the ack to orchd; false means the caller should use the one-shot request. */
   postAck(id: string): Promise<boolean>;
   /** Reports a control outcome to orchd, which replies to whoever is waiting. */
   postControlOutcome(report: ControlOutcomeReport): Promise<boolean>;

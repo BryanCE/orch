@@ -1,8 +1,26 @@
 import * as files from "node:fs";
+import { resolve } from "node:path";
 import { errorMessage } from "../util.ts";
 import { die } from "./target.ts";
+import type { ContextReference } from "../types/core.ts";
 
 const STDIN_FD = 0;
+
+/**
+ * The reference one `--with <path>` names: absolute, so it still resolves from an
+ * agent whose cwd is a `--dir` or a worktree. A missing path dies here, at dispatch,
+ * never in the agent's transcript.
+ */
+export function contextReference(source: string): ContextReference {
+  const path = resolve(source);
+  let stat: files.Stats;
+  try {
+    stat = files.statSync(path);
+  } catch (error: unknown) {
+    die(`--with ${source}: ${errorMessage(error)}`);
+  }
+  return { path, kind: stat.isDirectory() ? "directory" : "file" };
+}
 
 /**
  * The task text `--file <path>` names, or `--file -` reads from stdin.

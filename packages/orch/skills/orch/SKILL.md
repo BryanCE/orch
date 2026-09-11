@@ -8,8 +8,8 @@ allowed-tools: Bash, Read
 
 `orch` runs coding agents (the harnesses: `pi`, `omp`, `claude`, `codex`) in panes of a
 terminal multiplexer (the plexers: `herdr`, `tmux`). Outside every plexer, `orch spawn` is
-headless unless `--backend` names a plexer. A named plexer opens its own home behind a user
-grant. A resident daemon brokers every write, so a dispatch survives restarts and state
+headless unless `--backend` names a plexer. That named plexer opens its own home behind a
+user grant. A resident daemon brokers every write, so a dispatch survives restarts and state
 changes arrive as a push stream instead of a poll.
 
 Never drive the plexer directly. `orch help <command>` is authoritative for flags. Config is

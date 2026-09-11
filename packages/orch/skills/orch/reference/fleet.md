@@ -3,7 +3,9 @@
 ## Tabs are domains, panes are workers
 
 A tab is one domain (`server`, `client`). A pane is a named worker on one subtask of that
-domain. Cap is 4 panes per tab.
+domain. Cap is 4 panes per tab (`fleet.max_agents_per_tab`). orch enforces it: a spawn or
+tile that would put a fifth agent in a tab is refused before anything opens. The human
+watches panes by eye, and a crammed tab shows nothing.
 
 First need in a domain:
 
@@ -19,7 +21,8 @@ pane is already in the wrong tab, and there pass the tab ID, never the label.
 
 Fill a tab to its 4-pane cap before creating a new one. When a domain needs more than 4,
 create an overflow tab named `<domain>-02` (then `-03`) holding more agents of the same
-domain. Never scatter one domain across misc tabs. Never label two tabs identically. A new
+domain. `orch spawn a b c d e --tab api` is refused outright: split it into `--tab api`
+and `--tab api-02` yourself. Never scatter one domain across misc tabs. Never label two tabs identically. A new
 tab is justified only when every existing tab is full and the work is a different domain.
 Reaching for `orch spawn` without `--tab` while a tab has room is wrong. Five tabs where two
 domains would fit in two is wrong.

@@ -146,6 +146,7 @@ const HELP: Readonly<Record<string, string>> = {
   "defaults.worktree": "Whether launches use worktrees by default.",
   "fleet.max_depth": "How many levels deep spawning may go. 1 = only a root spawns. Counts levels, not agents.",
   "fleet.max_agents_per_pack": "Most live agents under one root, root included. Counts agents at every depth.",
+  "fleet.max_agents_per_tab": "Most agents one tab holds. A spawn or tile that would exceed it is refused.",
   "fleet.max_agents_per_space": "Most live agents in one space, keyed by space name.",
   "fleet.max_agents_total": "Most live agents on this machine across every space and pack.",
   "fleet.worker_peer_tools": "Whether workers may use peer tools.",

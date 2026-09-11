@@ -17,16 +17,12 @@ import { detectCodexState, extractCodexResult } from "../../src/adapters/codex-e
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { launchCredential } from "../../src/identity/launch.ts";
 import { ensurePresenceAgentDir, launchStamp, parseJsonArgument, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
-import { parsePid, projectRoot } from "../../src/util.ts";
+import { projectRoot } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 import type { JsonRecord } from "../../src/types/core.ts";
 
 const AGENT_ID = "codex";
 const MAX_TEXT = 400;
-// A hook/notify program is short-lived; its parent is the long-lived codex process.
-function agentPid(): number {
-  return parsePid(process.env.CODEX_PID) ?? parsePid(process.ppid) ?? process.pid;
-}
 
 // No launch credential means a regular (non-orch) codex session — nothing to
 // record, exit silently. Only a present-but-malformed credential is a wiring error.
@@ -52,9 +48,10 @@ const resultText = extractCodexResult({ output: raw });
 // registry knows about, without ever scanning a directory for it.
 const sessionPath = textValue(process.env.ORCH_AGENT_LOG) ?? textValue(previous.sessionPath);
 
+// No pid: a notify program only ever sees the shell that ran it. Liveness is
+// the process orch recorded at spawn (Rule 11), never a guess written here.
 const status: JsonRecord = {
   ...launchStamp(previous, AGENT_ID, key),
-  pid: agentPid(),
   cwd: textValue(payload.cwd) ?? previous.cwd ?? process.cwd(),
   project: projectRoot(),
   state,

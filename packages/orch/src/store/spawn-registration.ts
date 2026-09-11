@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
 import { parseIdentity } from "../backends/identity.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
-import { agentById, ensureHarness, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
-import { setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
+import { agentById, currentHostOs, ensureHarness, ensureHost, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
+import { hostname } from "node:os";
+import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
 import { orm } from "./connection.ts";
@@ -19,9 +20,7 @@ export function registerSpawnedAgent(directory: string, input: SpawnRegistration
   const agentId = parseIdentity(input.key).id;
   const now = input.now ?? Date.now();
   const spawnerId = input.spawner && agentById(directory, input.spawner) ? input.spawner : null;
-  const tuning = splitThinkingSuffix(input.model);
-  const handle = input.handle;
-  if (input.placed && handle === undefined) throw new Error("a placed agent requires a handle");
+  if (input.placed && input.handle === undefined) throw new Error("a placed agent requires a handle");
 
   // A space is USER-CREATED (A7): a spawn naming one that does not exist is a
   // refusal, never a licence to conjure the place. This gate lived in the second
@@ -29,6 +28,8 @@ export function registerSpawnedAgent(directory: string, input: SpawnRegistration
   // space silently succeed.
   if (input.space !== undefined) requireSpace(directory, input.space);
   ensureHarness(directory, input.harnessId, input.harnessId, now);
+  const host = hostname();
+  ensureHost(directory, host, host, currentHostOs(), now);
   // The plexer is STATED, never derived from whether a pane exists: a headless
   // agent runs in the headless plexer just as truly as a herdr agent runs in
   // herdr, and a capless agent states none. Deriving it from `pane` is what
@@ -42,16 +43,7 @@ export function registerSpawnedAgent(directory: string, input: SpawnRegistration
     name: input.name,
     createdAt: now,
   });
-  if (input.backendId !== undefined) setAgentPlexer(directory, agentId, input.backendId);
-  if (handle !== undefined) setHandle(directory, agentId, now, handle);
-  // The space is an axis in its own right, on its own timeline: an agent can be
-  // moved between spaces without touching the plexer it sits in, and neither is
-  // part of the identity that named it. Writing the plexer here and leaving the
-  // space unwritten is what forced every other reader to go on parsing it back
-  // out of the key.
-  if (input.space !== undefined) setSpace(directory, agentId, now, input.space);
-  setTuning(directory, agentId, now, { model: tuning.bare, thinking: tuning.thinking });
-  if (input.worktree) setWorktree(directory, agentId, input.worktree.path, input.worktree.branch);
+  writeEnvironment(directory, agentId, now, host, input);
   // Ownership is the LAST word: `owner` is who holds the agent now, the spawner
   // only the fallback for a launch that named nobody else. An agent never holds
   // its own lease (`agent_leases_not_self`).
@@ -61,6 +53,23 @@ export function registerSpawnedAgent(directory: string, input: SpawnRegistration
     acquireLease(directory, agentId, holder, now);
   }
   return agentId;
+}
+
+/** Every environment axis a spawn states, each on its own interval table:
+ *  plexer, handle, process, space, tuning, worktree. */
+function writeEnvironment(directory: string, agentId: string, now: number, host: string, input: SpawnRegistration): void {
+  const tuning = splitThinkingSuffix(input.model);
+  if (input.backendId !== undefined) setAgentPlexer(directory, agentId, input.backendId);
+  if (input.handle !== undefined) setHandle(directory, agentId, now, input.handle);
+  recordProcess(directory, agentId, now, { hostId: host, pid: input.process.pid, startToken: input.process.startToken ?? null });
+  // The space is an axis in its own right, on its own timeline: an agent can be
+  // moved between spaces without touching the plexer it sits in, and neither is
+  // part of the identity that named it. Writing the plexer here and leaving the
+  // space unwritten is what forced every other reader to go on parsing it back
+  // out of the key.
+  if (input.space !== undefined) setSpace(directory, agentId, now, input.space);
+  setTuning(directory, agentId, now, { model: tuning.bare, thinking: tuning.thinking });
+  if (input.worktree) setWorktree(directory, agentId, input.worktree.path, input.worktree.branch);
 }
 
 /** Rule 11: an orchestrator IS an agent. A holder orch has never registered gets

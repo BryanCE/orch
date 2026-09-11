@@ -55,22 +55,17 @@ export function callerPaneHandle(): string | undefined {
   return process.env.HERDR_PANE_ID;
 }
 
-/** Workspace of the invoking pane, and ONLY of the invoking pane. A caller outside
- *  herdr has no workspace: falling back to the first listed pane spawned orch's
- *  agents into whichever workspace happened to be listed first — someone else's. */
-function callerPaneWorkspace(): string | undefined {
-  const caller = callerPaneHandle();
-  if (!caller) return undefined;
-  return herdrPanes().find((pane) => pane.pane_id === caller)?.workspace_id;
+/** The workspace holding one pane, or null when herdr no longer lists it. */
+function paneWorkspace(handle: HerdrHandle): string | null {
+  return herdrPanes().find((pane) => pane.pane_id === handle)?.workspace_id ?? null;
 }
 
-/** The workspace a pane or tab opens in: the one asked for, else the caller's
- *  own. Never herdr's focused workspace — that is whatever the human happens to
- *  be looking at, and a fleet that lands there is in someone else's project. */
+/** The workspace a pane or tab opens in is the one orch resolved and asked for.
+ *  Never herdr's focused workspace — that is whatever the human happens to be
+ *  looking at, and a fleet that lands there is in someone else's project. */
 function targetWorkspace(requested: string | undefined): string {
-  const workspace = requested ?? callerPaneWorkspace();
-  if (!workspace) throw new Error("Could not determine herdr workspace (herdr down?).");
-  return workspace;
+  if (requested === undefined) throw new Error("no herdr workspace was resolved for this placement");
+  return requested;
 }
 
 /** The pane's border label. */
@@ -195,9 +190,10 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   readonly placementInventory: PlacementInventoryRole<HerdrHandle> = {
     current: () => {
       const handle = callerPaneHandle();
-      return handle ? { handle, workspace: callerPaneWorkspace() ?? null, group: null } : null;
+      return handle ? { handle, workspace: paneWorkspace(handle), group: null } : null;
     },
     list: () => this.panesWithMetadata(),
+    coordinateOf: paneWorkspace,
   };
   /** The last visible lines of a pane's screen. Throws on failure. */
   readonly screen: ScreenRole<HerdrHandle> = {

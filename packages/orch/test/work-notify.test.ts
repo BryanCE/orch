@@ -7,6 +7,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { loadSettings } from "../src/settings/read.ts";
 import { isRecord } from "../src/util.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 const tempDirs: string[] = [];
 
@@ -51,7 +52,8 @@ describe("orch presence notifications", () => {
     process.env.ORCH_DIR = orchDir;
     const { presenceAgentDir } = await import("../src/presence/writer.ts");
     const agentsDir = presenceAgentDir(key, orchDir);
-    seedStatusInDir(agentsDir, { state: "idle", label: "Test agent", pid: process.pid });
+    seedAgent(key, { name: "Test agent" }, orchDir);
+    seedStatusInDir(agentsDir, { state: "idle", label: "Test agent" });
     writeSettingsFixture(orchDir, {
       notify: [{ id: "command", on: ["working"], command }],
     });
@@ -69,7 +71,7 @@ describe("orch presence notifications", () => {
       });
       try {
         // startPresenceWatch seeds the initial idle state during its first scan.
-        seedStatusInDir(agentsDir, { state: "working", label: "Test agent", pid: process.pid });
+        seedStatusInDir(agentsDir, { state: "working", label: "Test agent" });
         const payload: Record<string, unknown> = await waitForFile(output);
         expect(payload).toMatchObject({ space: "space", newState: "working" });
         expect(payload.title).toEqual(expect.stringContaining("WORKING [space] Test agent"));

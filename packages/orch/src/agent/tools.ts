@@ -504,7 +504,9 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     commandLocks.clear();
     if (heartbeat) clearInterval(heartbeat);
     presence.stopPresence();
-    state.state = "exited";
+    // Not `exited`: a session shutdown is also what `/new` fires, and the
+    // process is still here. Exit is the daemon's finding from the recorded
+    // process (Rule 11), never a claim the agent writes about itself.
     presence.writeStatus();
   });
 

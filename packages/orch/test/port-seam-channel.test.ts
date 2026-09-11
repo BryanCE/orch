@@ -13,6 +13,7 @@ import { deliverOutboxMessage } from "../src/daemon/outbox.ts";
 import type { OutboxDeps } from "../src/types/daemon.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 const dirs: string[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
@@ -36,7 +37,8 @@ describe("orch bridge links and capture roles", () => {
   test("headless delivery reaches the link and the ack settles its outbox row", async () => {
     const orchDir = tempOrchDir();
     const key = "workeragt1";
-    seedStatus(orchDir, key, { key, agent: "pi", pid: process.pid, state: "working" });
+    seedAgent(key, { adapter: "pi" }, orchDir);
+    seedStatus(orchDir, key, { key, agent: "pi", state: "working" });
     const deliveries: BridgeDelivery[] = [];
     const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
     attachBridge(key, link);

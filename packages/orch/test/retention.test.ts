@@ -14,6 +14,7 @@ import { ORCH_LOG_MAX_BYTES, sweepExpiredRows } from "../src/daemon/retention.ts
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedAgent } from "./helpers/agent.ts";
 import { writeResult } from "../src/presence/writer.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { RunRecord } from "../src/types/store.ts";
@@ -38,7 +39,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     runtime: "node",
     enabled: { adapters: ["pi"], backends: [] },
     defaults: { models: {}, worktree: false },
-    fleet: { max_agents_per_pack: 10, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
+    fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
     models: { allowed: {}, preferred: {} },
     workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
     queue: { max_retries: 1 },
@@ -213,7 +214,8 @@ describe("retention sweep", () => {
 
   test("never reaps a live presence dir regardless of age", () => {
     const orchDir = fixture();
-    const dir = seedStatus(orchDir, "liveagent1", { pid: process.pid });
+    seedAgent("liveagent1", {}, orchDir);
+    const dir = seedStatus(orchDir, "liveagent1", {});
     const old = new Date(NOW.getTime() - 100 * 24 * 60 * 60 * 1000);
     utimesSync(dir, old, old);
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 1 }), NOW).ended_agents).toBe(0);
@@ -228,7 +230,8 @@ describe("retention sweep", () => {
     const liveLog = join(logs, "liveagent1.log");
     writeFileSync(deadLog, "dead");
     writeFileSync(liveLog, "live");
-    seedStatus(orchDir, "liveagent1", { pid: process.pid });
+    seedAgent("liveagent1", {}, orchDir);
+    seedStatus(orchDir, "liveagent1", {});
     const old = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
     utimesSync(deadLog, old, old);
     utimesSync(liveLog, old, old);

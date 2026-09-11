@@ -63,6 +63,15 @@ export function assertSpawnPolicy(settings: Pick<OrchSettings, "fleet">, space: 
   if (refusal) throw new SpawnRefusalError(`spawn refused: ${refusal}`);
 }
 
+/** Refuse a spawn or tile that would crowd one tab past `fleet.max_agents_per_tab`.
+ *  `occupied` is what the tab holds now: a new tab holds nothing, an existing one
+ *  is counted through the environment's layout capability, never a plexer call. */
+export function assertTabCapacity(settings: Pick<OrchSettings, "fleet">, tab: string, occupied: number, requested: number): void {
+  const cap = settings.fleet.max_agents_per_tab;
+  if (occupied + requested <= cap) return;
+  throw new SpawnRefusalError(`spawn refused: would put tab ${tab} at ${occupied + requested}/${cap} agents (${occupied} placed + ${requested} requested; fleet.max_agents_per_tab). Open another tab: orch spawn <names> --tab <new-name>.`);
+}
+
 export function assertSpawnCapacity(
   settings: Pick<OrchSettings, "fleet">,
   space: string | null,

@@ -71,7 +71,7 @@ export const NOTIFY_SINK_FIELD: Readonly<Record<string, string>> = Object.fromEn
 export const NOTIFY_SIMPLE_IDS: readonly string[] = NOTIFY_IDS.filter((id) => NOTIFY_SINK_FIELD[id] === undefined);
 
 export const SETTINGS_DEFAULTS = {
-  fleet: { max_agents_per_pack: 10, max_depth: 1, worker_peer_tools: false, cross_space: false },
+  fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, worker_peer_tools: false, cross_space: false },
   queue: { max_retries: 1 },
   retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7 },
   logging: { level: "info" },
@@ -111,6 +111,9 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   }).optional(),
   fleet: z.strictObject({
     max_agents_per_pack: PositiveInt.optional(),
+    /** Most agents one tab holds. A tab is orch's word for a plexer group; the
+     *  count is the group's placements, read through the layout capability. */
+    max_agents_per_tab: PositiveInt.optional(),
     /** How deep a provenance tree may grow by spawning: 1 = only a root may spawn
      *  (a slave calling `orch spawn` is refused); N lets an agent at depth < N spawn.
      */

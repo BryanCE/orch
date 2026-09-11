@@ -1,7 +1,7 @@
 import { LocalProcessRole } from "../../src/backends/process.ts";
 import { capture } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
-import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, Placement, PlacementRequest, EnvironmentIdentityRole, GroupHomeRole, PlacementRole, PlacementInventoryRole, LabelRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
+import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, Placement, PlacementRequest, EnvironmentIdentityRole, ForegroundRole, GroupHomeRole, PlacementRole, PlacementInventoryRole, LabelRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
 import type { AgentAdapter } from "../../src/types/adapter.ts";
 
 /** One pane a fake paned environment lists. Space vocabulary is orch's own;
@@ -58,7 +58,8 @@ export class FakePanedBackend implements Backend {
   readonly placement: PlacementRole;
   readonly placementInventory: PlacementInventoryRole;
   readonly agentInput = null;
-  readonly foreground = null;
+  /** The test runner stands in for every pane shell: the one pid a fixture can prove alive. */
+  readonly foreground: ForegroundRole = { read: () => ({ shellPid: process.pid, foregroundPid: null, processes: [] }) };
   readonly screen = null;
   readonly zooming = null;
   readonly labeling: LabelRole | null = null;
@@ -96,6 +97,7 @@ export class FakePanedBackend implements Backend {
     this.placementInventory = {
       current: () => null,
       list: (): readonly BackendTarget[] => this.panes.map(paneTarget),
+      coordinateOf: (handle) => this.panes.find((pane) => pane.handle === String(handle))?.space ?? null,
     };
   }
 

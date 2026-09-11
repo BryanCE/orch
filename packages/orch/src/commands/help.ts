@@ -42,7 +42,7 @@ terminal owns none and sees the whole machine. Every flag below deviates from th
   --agent       Watch one agent by name.
   --agent-id    Watch one agent by identity key.
   --space-wide  Also the other orchs' agents in your space. Never past it.
-  --filter      Keep only these states, e.g. --filter=done,error.
+  --filter      Drop these states, e.g. --filter=working,idle. Same sense as status.
   --json        Raw event records, one per line, for a caller that parses them.
   --since-seq <n> Resume after this durable sequence; it survives daemon restarts, but
                 history is bounded by the events retention window. A pruned range is

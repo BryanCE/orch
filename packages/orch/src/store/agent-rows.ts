@@ -139,7 +139,8 @@ export function isLiveAgentIdentity(orchDir: string, value: unknown): value is S
 /** The live agent holding an OPEN process interval for this exact instance. The
  *  pair is not an identity — it is how a harness exporting no session token is
  *  recognised across one process's life. */
-function liveAgentIdByProcess(orchDir: string, pid: number, startToken: string): string | null {
+/** The live agent registered as this process instance, or null. */
+export function agentIdByProcess(orchDir: string, pid: number, startToken: string): string | null {
   const row = orm(orchDir).select({ id: agents.id }).from(agents)
     .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
@@ -221,7 +222,7 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
     const db = orm(orchDir);
     const token = input.sessionToken ?? null;
     const existing = token === null
-      ? liveAgentIdByProcess(orchDir, input.pid, input.startToken)
+      ? agentIdByProcess(orchDir, input.pid, input.startToken)
       : liveAgentId(orchDir, eq(agents.sessionToken, token));
     if (existing !== null) {
       db.update(agents).set({ label: input.label }).where(eq(agents.id, existing)).run();

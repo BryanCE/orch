@@ -79,6 +79,7 @@ function completeSettings(): Record<string, unknown> {
     },
     fleet: {
       max_agents_per_pack: 4,
+      max_agents_per_tab: 3,
       max_depth: 2,
       max_agents_total: 5,
       max_agents_per_space: { main: 2 },
@@ -124,7 +125,7 @@ describe("settings registry", () => {
   });
 
   test("fleet help explains what each limit counts", () => {
-    for (const key of ["fleet.max_depth", "fleet.max_agents_per_pack", "fleet.max_agents_per_space", "fleet.max_agents_total"]) {
+    for (const key of ["fleet.max_depth", "fleet.max_agents_per_pack", "fleet.max_agents_per_tab", "fleet.max_agents_per_space", "fleet.max_agents_total"]) {
       const setting = SETTINGS_REGISTRY.find((entry) => entry.key === key);
       expect(setting, key).toBeDefined();
       expect(setting?.help.toLowerCase()).toMatch(/agents|levels/);

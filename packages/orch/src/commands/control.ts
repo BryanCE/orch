@@ -17,6 +17,8 @@ import { clearSession } from "./lifecycle/reset.ts";
 import { contextReference, readPromptFile } from "./prompt-file.ts";
 import { workerHeaderContext } from "../policy/spawner.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
+import { getBackend } from "../backends/registry.ts";
+import { paneProcess } from "./spawn/placement.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
@@ -261,7 +263,17 @@ function recordAdoptedAgent(key: string, dispatchSettings: DispatchSettings): vo
     model: dispatchSettings.model ?? "",
     spawner: spawnerIdentity().key,
     owner: callerOwnerToken(),
+    process: adoptedProcess(dispatchSettings.ent),
   });
+}
+
+/** The process an adopted agent runs under: its pane shell, read through the
+ *  environment it already sits in. An agent in no pane has no process orch can
+ *  watch, and adopting it would register a row that reads as dead at once. */
+function adoptedProcess(ent: Entity): { pid: number; startToken?: string } {
+  const backend = ent.backend === null ? undefined : getBackend(ent.backend);
+  if (backend === undefined || ent.paneId === null) die(`cannot adopt ${ent.key}: it sits in no pane orch can read, so orch cannot watch it. Spawn it with orch instead.`);
+  return paneProcess(backend, ent.paneId);
 }
 
 export async function cmdDispatch(args: string[]) {

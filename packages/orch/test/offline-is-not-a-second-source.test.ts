@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fleetStatusRows } from "../src/commands/status.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 /**
  * The DESIGN question was whether `orch status --offline`
@@ -39,10 +40,12 @@ function fixture(): string {
   return dir;
 }
 
-function seedPresence(root: string, key: string, pid: number, state: string): void {
+/** A presence record; `alive` registers the agent with this runner as its recorded process. */
+function seedPresence(root: string, key: string, alive: boolean, state: string): void {
+  if (alive) seedAgent(key, {}, root);
   const dir = join(root, "agents", key);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state }));
+  writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, agent: "pi", state }));
 }
 
 const NO_SPACES: Parameters<typeof fleetStatusRows>[0] = {};
@@ -50,8 +53,8 @@ const NO_SPACES: Parameters<typeof fleetStatusRows>[0] = {};
 describe("--offline is a narrower view of ONE source, not a second one (M8)", () => {
   test("offline and online read the same agents from the same presence files", () => {
     const root = fixture();
-    seedPresence(root, "liveagent1", process.pid, "working");
-    seedPresence(root, "deadagent1", 999_999_99, "done");
+    seedPresence(root, "liveagent1", true, "working");
+    seedPresence(root, "deadagent1", false, "done");
 
     const offline = fleetStatusRows(NO_SPACES, { offline: true, bundleHashes: () => new Set(), orchId: () => null });
     const online = fleetStatusRows(NO_SPACES, { bundleHashes: () => new Set(), orchId: () => null });
@@ -69,7 +72,7 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
 
   test("offline reports the SAME state the agent reported, never a second opinion", () => {
     const root = fixture();
-    seedPresence(root, "liveagent1", process.pid, "working");
+    seedPresence(root, "liveagent1", true, "working");
 
     const [row] = fleetStatusRows(NO_SPACES, { offline: true, bundleHashes: () => new Set(), orchId: () => null });
 

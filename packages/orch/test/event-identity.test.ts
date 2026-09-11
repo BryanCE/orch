@@ -46,7 +46,7 @@ describe("the work loop is not a second presence-transition source", () => {
     const key = "loopagent1";
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = orchDir;
-    seedStatus(orchDir, key, { state: "idle", label: "Loop agent", pid: process.pid });
+    seedStatus(orchDir, key, { state: "idle", label: "Loop agent" });
     const published: NotifyEvent[] = [];
     const controller = new AbortController();
     try {
@@ -59,7 +59,7 @@ describe("the work loop is not a second presence-transition source", () => {
       });
       // Exactly the transition that used to be derived twice — once here and once
       // in the presence watch — for every agent in the fleet.
-      seedStatus(orchDir, key, { state: "working", label: "Loop agent", pid: process.pid });
+      seedStatus(orchDir, key, { state: "working", label: "Loop agent" });
       await new Promise((resolve) => setTimeout(resolve, 120));
       controller.abort();
       await loop;

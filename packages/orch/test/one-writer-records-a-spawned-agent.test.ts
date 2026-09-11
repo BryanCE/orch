@@ -52,7 +52,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     registerSpawnedAgent(dir, {
       key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%3",
       cwd: "/tmp", name: "solo-1", model: "openai/gpt-5.6", space: "wsOne",
-      spawner: null, owner,
+      spawner: null, owner, process: { pid: process.pid },
     });
 
     const view = agentView(dir, key);

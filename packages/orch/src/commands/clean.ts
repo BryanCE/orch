@@ -119,10 +119,10 @@ export function removeDeadAgentDirs(json = false, options: DeadAgentSweepOptions
     log.error("clean.presence-remove-failed", { path: failure.entry.dir, error: message });
     process.stdout.write(`failed to remove ${failure.entry.dir}: ${message}\n`);
   }
-  const removed = result.removed.map((entry) => `${entry.key} (pid ${entry.status?.pid ?? "?"})`);
+  const removed = result.removed.map((entry) => entry.key);
   if (!json) {
     if (removed.length) process.stdout.write("Removed dead agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
-    else process.stdout.write("Nothing to clean - all agent dirs have live pids (or none exist).\n");
+    else process.stdout.write("Nothing to clean - every agent dir belongs to a live process (or none exist).\n");
   }
   return removed;
 }

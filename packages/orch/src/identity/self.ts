@@ -1,9 +1,10 @@
 import { launchCredential } from "./launch.ts";
-import { agentIdBySessionToken } from "../store/agent-rows.ts";
+import { agentIdByProcess, agentIdBySessionToken } from "../store/agent-rows.ts";
 import { environmentOf } from "../store/agent-view.ts";
 import { callerSession } from "../adapters/session-env.ts";
 import { orchDir } from "../presence/writer.ts";
-import type { SelfIdentity } from "../types/core.ts";
+import { processStartToken } from "../process-identity.ts";
+import type { CallerSession, SelfIdentity } from "../types/core.ts";
 
 /** The id orch handed this process, or null when orch has never registered it. */
 export function selfIdentity(): SelfIdentity | null {
@@ -14,10 +15,27 @@ export function selfIdentity(): SelfIdentity | null {
   if (spawned !== null) return { id: spawned };
   // A driving session: its harness's session token is the pointer to the row
   // `register-session` minted. The token is environment; the id it resolves to is identity.
-  const token = callerSession()?.sessionId;
-  if (!token) return null;
-  const id = agentIdBySessionToken(orchDir(), token);
+  const session = callerSession();
+  const token = session?.sessionId;
+  if (token) {
+    const id = agentIdBySessionToken(orchDir(), token);
+    return id === null ? null : { id };
+  }
+  // No token: the session IS a process — the harness's own, or the shell that
+  // ran this command. Registration filed it under that process, so this
+  // resolves the same way, and a plain terminal inside a plexer has an id.
+  const pid = sessionProcessPid(session);
+  const startToken = processStartToken(pid);
+  if (startToken === undefined) return null;
+  const id = agentIdByProcess(orchDir(), pid, startToken);
   return id === null ? null : { id };
+}
+
+/** The process a driving session is: the pid its harness exports, else the
+ *  shell that ran this command. Never this CLI process — that is new on every
+ *  call and would make every `orch` invocation a different session. */
+export function sessionProcessPid(session: CallerSession | null): number {
+  return session?.pid ?? process.ppid;
 }
 
 /** The id to stamp as owner/actor on a write, or undefined when unregistered. */
@@ -49,22 +67,4 @@ export function spaceOfAgent(id: string): string | null {
 export function callerSpace(): string | null {
   const id = selfId();
   return id === undefined ? null : spaceOfAgent(id);
-}
-
-/**
- * The plexer the caller is recorded in, or null when it is in none.
- *
- * The same question as {@link callerSpace} and the same source: the row orch
- * wrote when it spawned or registered this process. A plexer's env vars say the
- * same thing a beat later and only for a process it launched itself, so reading
- * them is re-deriving a fact orch already holds.
- */
-export function callerPlexer(): string | null {
-  const id = selfId();
-  if (id === undefined) return null;
-  try {
-    return environmentOf(orchDir(), id).plexer;
-  } catch {
-    return null;
-  }
 }

@@ -36,6 +36,7 @@ function register(dir: string, overrides: Partial<Parameters<typeof registerSpaw
     name: "worker-1",
     model: "openai/gpt-5:high",
     spawner: "orch-agent",
+    process: { pid: process.pid },
     now: 10,
     ...overrides,
   });

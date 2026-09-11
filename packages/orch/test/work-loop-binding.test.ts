@@ -7,6 +7,7 @@ import { runWorkLoop, statusSpeaksForTask } from "../src/daemon/work-loop.ts";
 import { addTask, type TaskRec } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
@@ -45,7 +46,8 @@ function fleet(): string {
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('enq',NULL,'enq','pi','/repo','enq',1)`);
   db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('runner0000','enq','enq','pi','/repo','runner',1)`);
-  seedStatus(dir, RUNNER_KEY, { state: "idle", label: "Runner", pid: process.pid });
+  seedLiveProcess(dir, "runner0000");
+  seedStatus(dir, RUNNER_KEY, { state: "idle", label: "Runner" });
   writeSettingsFixture(dir);
   return dir;
 }
@@ -64,7 +66,7 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
         once: true,
         json: true,
         dispatch: () => {
-          seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner", pid: process.pid });
+          seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();
         },
         onEvent: (event) => published.push(event),

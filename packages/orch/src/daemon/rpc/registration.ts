@@ -2,6 +2,7 @@ import { hostname } from "node:os";
 import { readFileSync } from "node:fs";
 import { isRecord } from "../../util.ts";
 import { callerSession } from "../../adapters/session-env.ts";
+import { sessionProcessPid } from "../../identity/self.ts";
 import { allBackends } from "../../backends/registry.ts";
 import { endpointPaths } from "./wire.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";
@@ -53,7 +54,7 @@ export function sessionClaim(orchDir: string, label?: string): Record<string, un
   const environment = callerEnvironment();
   return {
     token,
-    pid: session?.pid ?? process.pid,
+    pid: sessionProcessPid(session),
     sessionToken,
     harness,
     cwd: process.cwd(),

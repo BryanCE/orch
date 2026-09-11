@@ -6,7 +6,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "b
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { NO_FOREGROUND } from "../src/backends/shell-ready.ts";
 import { projectRoot } from "../src/util.ts";
 import { ENVIRONMENT_ENV } from "../src/agent/environment.ts";
 
@@ -102,6 +101,8 @@ function fakeTmux(args: string[]): string {
     if (!pane) return "";
     if (field === "#{session_name}") return pane.session;
     if (field === "#{@orch_agent_key}") return pane.agentKey;
+    if (field === "#{pane_pid}") return String(process.pid);
+    if (field === "#{pane_current_command}") return "bash";
     return "";
   }
   if (cmd === "new-window" || cmd === "split-window") {
@@ -220,16 +221,16 @@ describe("TmuxBackend", () => {
     expect(backend.placement).not.toBeNull();
     expect(backend.placementInventory).not.toBeNull();
     expect(backend.agentInput).not.toBeNull();
-    expect(backend.foreground).toBeNull();
+    expect(backend.foreground).not.toBeNull();
     expect(backend.screen).not.toBeNull();
     expect(backend.logPruning).toBeNull();
     expect(backend.identity).not.toBeNull();
   });
 
-  test("does not declare pane foreground capability", () => {
+  test("reads the pane shell pid as the pane process", () => {
     const backend = new TmuxBackend();
-    expect(Object.hasOwn(backend.agentInput, "foreground")).toBe(false);
-    expect(foregroundOf(backend, "%1")).toEqual(NO_FOREGROUND);
+    panes = [orchPane({ paneId: "%1", agentKey: "tmuxpane01" })];
+    expect(foregroundOf(backend, "%1")).toEqual({ shellPid: process.pid, foregroundPid: null, processes: ["bash"] });
   });
 
   test("reports tmux availability", () => {

@@ -142,7 +142,6 @@ export type OsSideExecution<T> =
 export interface PresenceMetadata {
   name: string | null;
   tab: string | null;
-  pid?: number;
   /** Address of the session that spawned this agent. */
   spawnedBy?: string;
   /** Human description of the session that spawned this agent. */

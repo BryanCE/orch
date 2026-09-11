@@ -13,6 +13,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { endProcess } from "../src/store/interval-rows.ts";
 import { withExitCode } from "./helpers/exit-code.ts";
 
 /**
@@ -60,17 +61,19 @@ function fixture(): string {
   return dir;
 }
 
-/** Seed a live agent. `handle` absent = the pane is GONE: `agent_handles` has no
- *  open interval, which is exactly the state the reported sweep hit. */
+/** Seed an agent whose process has already ended, so close has nothing to signal.
+ *  `handle` absent = the pane is GONE: `agent_handles` has no open interval, which
+ *  is exactly the state the reported sweep hit. */
 function seedLiveAgent(dir: string, key: string, handle?: string): void {
   seedAgent(key, {
     adapter: "pi", backend: "headless", space: "space00001",
     ...(handle === undefined ? {} : { handle }),
   });
+  endProcess(dir, key, Date.now());
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key, pid: 999_999_99, agent: "pi", state: "working",
+    schema: PRESENCE_SCHEMA, key, agent: "pi", state: "working",
   }));
 }
 

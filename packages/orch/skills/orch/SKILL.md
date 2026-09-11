@@ -55,8 +55,8 @@ context itself, so there is no reset step between two tasks.
   fleet finishes and sits done while you believe it is still working, and `orch status` only
   saves you if you already suspect something.
 - **Arm the watch with no flags at all.** `orch events` bare already streams every state of
-  every agent you own, in lines complete enough to act on. A flag only ever narrows that
-  (`--filter=done,error` hides the agents working and asking) or widens it to the rest of
+  every agent you own, in lines complete enough to act on. A flag only ever drops states
+  (`--filter=working,idle` hides the transitions you never act on) or widens it to the rest of
   your space (`--space-wide`, for two orchs coordinating). Reach for one when you were told
   to observe something specific, never as standard setup.
 - **`orch spawn` already waited.** It returns only after each agent's bridge attached to

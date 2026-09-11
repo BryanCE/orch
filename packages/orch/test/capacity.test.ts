@@ -19,6 +19,7 @@ function livePresence(id: string): PresenceEntry {
 const settings = {
   fleet: {
     max_agents_per_pack: 10,
+    max_agents_per_tab: 4,
     max_depth: 1,
     max_agents_total: undefined,
     max_agents_per_space: { main: 6 },

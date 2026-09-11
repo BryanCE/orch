@@ -13,6 +13,7 @@ import {
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedAgent } from "./helpers/agent.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
@@ -48,9 +49,9 @@ function attach(key: string): BridgeDelivery[] {
 }
 
 function answerStatus(directory: string, key: string, asking?: { readonly id: string }): void {
+  seedAgent(key, { adapter: "pi" }, directory);
   seedStatus(directory, key, {
     agent: "pi",
-    pid: process.pid,
     ...(asking === undefined ? {} : { asking: { id: asking.id, question: "question", ts: "now" } }),
   });
 }
@@ -119,7 +120,8 @@ describe("answer over the bridge", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target();
-    seedStatus(directory, key, { agent: "claude", pid: process.pid });
+    seedAgent(key, { adapter: "claude" }, directory);
+    seedStatus(directory, key, { agent: "claude" });
 
     expect(await deliverControl(key, { kind: "answer", text: "yes", id: "answer-5" })).toEqual({
       outcome: "answer",

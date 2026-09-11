@@ -44,12 +44,12 @@ function storeDir(): string {
   return directory;
 }
 
-function register(directory: string, extra: { space?: string | null; plexerId?: string | null } = {}) {
+function register(directory: string, extra: { space?: string | null; plexerId?: string | null; handle?: string | null; now?: number } = {}) {
   return getOrCreateSessionAgent(directory, {
     pid: 4242, startToken: "tok", sessionToken: "sess-1", harnessId: "claude",
     cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux",
     plexerId: extra.plexerId ?? null, plexerVersion: extra.plexerId ? "1.0" : null,
-    space: extra.space ?? null, now: 1,
+    handle: extra.handle ?? null, space: extra.space ?? null, now: extra.now ?? 1,
   });
 }
 
@@ -61,6 +61,28 @@ describe("hello records the environment in full", () => {
     // host_plexers says "herdr is installed on this machine" (E17). It does not
     // say where THIS agent is, and B9 is about the agent's own environment.
     expect(agentView(directory, session.id)?.environment.plexer).toBe("herdr");
+  });
+
+  // Bug 7: with no handle on the driving session, a spawn had to sniff the
+  // plexer for where the caller sat, and a `--tab` landed in the workspace the
+  // human happened to have focused. The place is recorded at hello, like the
+  // plexer, and a spawn reads it from the store.
+  test("the place the caller occupies in its plexer is recorded at hello", () => {
+    const directory = storeDir();
+    const session = register(directory, { plexerId: "herdr", handle: "wF:p1" });
+
+    expect(agentView(directory, session.id)?.environment.handle).toBe("wF:p1");
+  });
+
+  test("a session that moved to another place re-registers with the new one, and one row stays open", () => {
+    const directory = storeDir();
+    const first = register(directory, { plexerId: "herdr", handle: "wF:p1" });
+    const second = register(directory, { plexerId: "herdr", handle: "wF:p4", now: 2 });
+
+    expect(second.id).toBe(first.id);
+    expect(agentView(directory, first.id)?.environment.handle).toBe("wF:p4");
+    const open = row(orm(directory), sql`SELECT COUNT(*) AS n FROM agent_handles WHERE agent_id = ${first.id} AND until IS NULL`);
+    expect(open).toEqual({ n: 1 });
   });
 
   test("the space the caller registered in is recorded at hello, not inferred later", () => {
@@ -109,7 +131,7 @@ describe("hello records the environment in full", () => {
     // Windows-side session is the case this repo lives with). Every fact B9
     // names travels in the claim.
     const claim = sessionClaim(directory);
-    for (const field of ["harness", "cwd", "space", "plexer", "hostName", "hostOs"]) {
+    for (const field of ["harness", "cwd", "space", "plexer", "handle", "hostName", "hostOs"]) {
       expect(Object.keys(claim)).toContain(field);
     }
     expect(claim.space).toBe("server");

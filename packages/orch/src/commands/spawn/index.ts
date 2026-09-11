@@ -12,17 +12,18 @@ import { errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
 import { rpcRegisterSession } from "../../daemon/reach.ts";
 import { die } from "../target.ts";
-import { callerPlexer, callerSpace, selfId } from "../../identity/self.ts";
+import { callerSpace, selfId } from "../../identity/self.ts";
 import { LAUNCH_ENV, launchCredential } from "../../identity/launch.ts";
 import { resolveTab } from "../panes.ts";
 import { commandLogger } from "../logging.ts";
 import type { Backend, BackendGroup, CreatedHome, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import { agentById } from "../../store/agent-rows.ts";
-import type { CreatedAgent, PreparedAgent, SpawnPlacement } from "../../types/command.ts";
+import { environmentOf } from "../../store/agent-view.ts";
+import type { CreatedAgent, PreparedAgent, SpawnPlacement, Spawner } from "../../types/command.ts";
 import { resolveSpawnSettings, parseSpawnFlags } from "./flags.ts";
 import type { SpawnSettings } from "./flags.ts";
-import { assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceGranted, admitSpawn } from "./admission.ts";
+import { assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceGranted, assertTabCapacity, admitSpawn } from "./admission.ts";
 import { assertLaunchModelAllowed, pinModels, resolveAgentSettings } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
 import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
@@ -222,13 +223,14 @@ function launchPrepared(
 function placeSpawn(
   settings: SpawnSettings,
   backend: Backend,
-  spawnerAgentId: string | null,
+  spawner: Spawner,
 ): SpawnPlacement {
   const placement = resolveSpawnPlacement({
-    directory: orchDir(), backend, space: settings.space ?? callerSpace(),
-    packRootId: spawnerAgentId === null ? null : agentById(orchDir(), spawnerAgentId)?.rootAgentId ?? null,
-    callerPlexer: callerPlexer(),
-    grantNewHome: () => { assertNewSpaceGranted(settings, backend, spawnerAgentId); },
+    directory: orchDir(), backend, space: settings.space ?? spawner.environment.space,
+    packRootId: agentById(orchDir(), spawner.id)?.rootAgentId ?? null,
+    callerPlexer: spawner.environment.plexer,
+    callerHandle: spawner.environment.handle,
+    grantNewHome: () => { assertNewSpaceGranted(settings, backend, spawner.id); },
   });
   // A7/Rule 11: no space is NULL, never "" — a sentinel string is a space name
   // nobody created, and registration rightly refuses it.
@@ -262,12 +264,13 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   await admitSpawn(settings);
   // A spawned agent already carries its id; only a driving session registers.
   const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(orchDir())).id;
-  const backend = spawnBackend(settings);
+  const spawner: Spawner = { id: spawnerAgentId, environment: environmentOf(orchDir(), spawnerAgentId) };
+  const backend = spawnBackend(settings, spawner.environment.plexer);
   // An environment that creates no group can place nothing: spawn headless.
   if (!backend.groupHome) return executeHeadlessSpawn(settings, backend, spawnerAgentId);
   const groupLayout = backend.groupLayout;
   if (!groupLayout) return answerNoGroupLayout(settings.json);
-  const placement = placeSpawn(settings, backend, spawnerAgentId);
+  const placement = placeSpawn(settings, backend, spawner);
   const { space } = placement;
   const adapter = resolveAdapterOrDie(settings.adapter);
   const names = claimSpawnNames(settings.names, space);
@@ -277,7 +280,11 @@ async function executeSpawn(settings: SpawnSettings): Promise<void> {
   // so the tab is named explicitly or it is a new one. A home not yet open holds
   // no tab to fill.
   const existing = settings.tabExplicit && placement.homeToOpen === null ? findGroupInSpace(backend, placement.workspace, settings.label) : undefined;
-  if (existing) return spawnIntoExistingTab(settings, existing, space, placement.workspace, backend, names, spawnerAgentId, groupLayout);
+  if (existing) {
+    assertTabCapacity(settings, existing.label ?? existing.id, readGroupLayout(groupLayout, existing.id).placements.length, names.length);
+    return spawnIntoExistingTab(settings, existing, space, placement.workspace, backend, names, spawnerAgentId, groupLayout);
+  }
+  assertTabCapacity(settings, settings.label, 0, names.length);
   const groupHome = backend.groupHome;
   const prepared = prepareAgents(settings, adapter, names);
   const { group, workspace } = seatFleet(backend, groupHome, placement, settings, prepared);
@@ -326,6 +333,7 @@ export async function cmdTile(args: string[]) {
   const space = callerSpace();
   const workspace = tab.workspace ?? undefined;
   assertSpawnCapacity(settingsFile, space, 1);
+  assertTabCapacity(settingsFile, tab.label ?? tab.id, layout.placements.length, 1);
   // A spawned agent already carries its id; only a driving session registers.
   const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(orchDir())).id;
   let agent: CreatedAgent;

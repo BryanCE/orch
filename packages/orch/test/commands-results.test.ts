@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { formatAge, cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
 import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedLiveProcess } from "./helpers/agent.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
@@ -28,9 +29,15 @@ function testTarget(id: string): { key: string; space: string } {
   return { key: id, space: "test" };
 }
 
-function seedAgent(root: string, key: string, space: string, harnessId = "pi"): void {
+/** A registered agent in no space, alive through this runner's process. */
+function seedLiveAgent(root: string, key: string, harnessId = "pi"): void {
   ensureHarness(root, harnessId, harnessId, 1);
   insertAgent(root, { id: key, name: key, spawnedBy: null, harnessId, cwd: root, createdAt: 1 });
+  seedLiveProcess(root, key);
+}
+
+function seedAgent(root: string, key: string, space: string, harnessId = "pi"): void {
+  seedLiveAgent(root, key, harnessId);
   orm(root).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, ${1})`);
   setSpace(root, key, 1, space);
 }
@@ -52,7 +59,8 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     const ts = new Date().toISOString();
-    seedStatus(root, key, { agent: "pi", pid: process.pid, state: "asking", label: "question-agent", asking: { question: "need input", id: "q1", ts } });
+    seedLiveAgent(root, key);
+    seedStatus(root, key, { agent: "pi", state: "asking", label: "question-agent", asking: { question: "need input", id: "q1", ts } });
     try {
       const output = captureStdout(() => { void cmdQuestions(["--local", "--all", "--json"]); });
       const parsed: unknown = JSON.parse(output);
@@ -72,9 +80,11 @@ describe("commands/results", () => {
     const old = process.env.ORCH_DIR;
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    seedStatus(root, "liveques01", { agent: "pi", pid: process.pid, state: "asking", asking: { question: "live", id: "live-id", ts: "2026-09-11T00:00:00.000Z" } });
-    seedStatus(root, "deadques01", { agent: "pi", pid: 999999, state: "asking", asking: { question: "dead", id: "dead-id", ts: "2026-09-11T00:00:00.000Z" } });
-    seedStatus(root, "noques0001", { agent: "pi", pid: process.pid, state: "working" });
+    seedLiveAgent(root, "liveques01");
+    seedLiveAgent(root, "noques0001");
+    seedStatus(root, "liveques01", { agent: "pi", state: "asking", asking: { question: "live", id: "live-id", ts: "2026-09-11T00:00:00.000Z" } });
+    seedStatus(root, "deadques01", { agent: "pi", state: "asking", asking: { question: "dead", id: "dead-id", ts: "2026-09-11T00:00:00.000Z" } });
+    seedStatus(root, "noques0001", { agent: "pi", state: "working" });
     try {
       const parsed: unknown = JSON.parse(captureStdout(() => { void cmdQuestions(["--local", "--all", "--json"]); }));
       expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live", ts: "2026-09-11T00:00:00.000Z" })]);

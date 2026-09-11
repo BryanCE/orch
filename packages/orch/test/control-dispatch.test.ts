@@ -16,13 +16,13 @@ import { getBackend, registerBackend } from "../src/backends/registry.ts";
 import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { endProcess } from "../src/store/interval-rows.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: string[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
-const DEAD_PID = 0x7fffffff;
 
 async function rejection(call: Promise<unknown>): Promise<unknown> {
   try {
@@ -43,8 +43,10 @@ function target(): string {
   return serializeIdentity({ id: mintAgentId() });
 }
 
+/** A live agent: registered with this runner as its process, plus its status. */
 function presence(directory: string, key: string, agent: string, extra: Record<string, unknown> = {}): void {
-  seedStatus(directory, key, { agent, pid: process.pid, ...extra });
+  seedAgent(key, { adapter: agent }, directory);
+  seedStatus(directory, key, { agent, ...extra });
 }
 
 function captureBridge(key: string, onPush?: (delivery: BridgeDelivery) => void): BridgeDelivery[] {
@@ -99,7 +101,8 @@ describe("deliverControl bridge dispatch", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target();
-    presence(directory, key, "pi", { pid: DEAD_PID });
+    presence(directory, key, "pi");
+    endProcess(directory, key, Date.now());
     const deliveries = captureBridge(key);
 
     expect(await rejection(deliverControl(key, { kind: "steer", text: "lost", id: "steer-1" })))
@@ -158,8 +161,8 @@ describe("deliverControl bridge dispatch", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target();
-    presence(directory, key, "claude");
     seedAgent(key, { adapter: "claude", backend: "headless", handle: key });
+    seedStatus(directory, key, { agent: "claude" });
     const submitted: { handle: unknown; text: string }[] = [];
     const backend = new FakePanedBackend();
     const previous = getBackend("headless");

@@ -19,7 +19,7 @@ import type { AgentAdapter, LifecycleVerb } from "../../types/adapter.ts";
 import type { LifecycleTarget } from "../../types/command.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 
-export function foregroundOf(backend: Backend, handle: string): ForegroundProcesses {
+export function foregroundOf(backend: Pick<Backend, "foreground">, handle: string): ForegroundProcesses {
   return backend.foreground?.read(handle) ?? NO_FOREGROUND;
 }
 

@@ -1,7 +1,7 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
-import type { AgentView } from "./store.ts";
+import type { AgentEnvironment, AgentView } from "./store.ts";
 import type { Entity, LogLevel, WorkerHeaderContext } from "./core.ts";
 export interface DeadAgentSweepOptions {
   /** Root to inspect; omitted for the operator's configured ORCH_DIR. */
@@ -293,6 +293,12 @@ export interface SpawnPlacement {
   readonly homeToOpen: HomeSubject | null;
 }
 
+/** The agent running `orch spawn`: its id and the environment recorded under it. */
+export interface Spawner {
+  readonly id: string;
+  readonly environment: AgentEnvironment;
+}
+
 /** What deciding a {@link SpawnPlacement} needs. */
 export interface SpawnPlacementRequest {
   readonly directory: string;
@@ -306,6 +312,9 @@ export interface SpawnPlacementRequest {
    *  this at spawn and at registration (Rule 11), so placement reads it as a
    *  fact and probes no process environment of its own. */
   readonly callerPlexer: string | null;
+  /** The place the caller is recorded at in that plexer, or null. The fleet
+   *  lands in the coordinate holding it. Read from the store like the plexer. */
+  readonly callerHandle: string | null;
   /** Opening a home puts a window on the human's screen, so it is asked for.
    *  Passed in rather than called here so the decision stays one function and
    *  the gate stays testable. Throws or exits when not granted. */

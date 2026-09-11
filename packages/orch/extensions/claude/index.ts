@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
 import { launchCredential } from "../../src/identity/launch.ts";
 import { ensurePresenceAgentDir, launchStamp, readJsonStdin, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
-import { isRecord, parsePid, projectRoot } from "../../src/util.ts";
+import { isRecord, projectRoot } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 import { lastAssistantFromJsonl } from "../../src/adapters/transcript.ts";
 import { prepareWorkerTask } from "../../src/worker-prompt.ts";
@@ -39,13 +39,6 @@ function readTranscript(transcriptPath: string | undefined): string | undefined 
   }
 }
 
-function agentPid(input: JsonRecord): number {
-  return parsePid(input.pid)
-    ?? parsePid(process.env.CLAUDE_PID)
-    // A hook is short-lived; its parent is the long-lived Claude process.
-    ?? parsePid(process.ppid)
-    ?? process.pid;
-}
 
 function eventName(argument: string | undefined, input: JsonRecord): string {
   const hookEventName = textValue(input.hook_event_name) ?? "";
@@ -69,7 +62,6 @@ if (key === null) process.exit(0);
 const input = readJsonStdin();
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
-const pid = agentPid(input);
 const directory = ensurePresenceAgentDir(key);
 if (!directory) process.exit(0);
 
@@ -85,9 +77,10 @@ const existingText = textValue(previous.lastText);
 const transcriptText = lastAssistantFromJsonl(readTranscript(transcriptPath ?? textValue(previous.sessionPath)));
 const lastText = truncateOptional(transcriptText ?? existingText, MAX_TEXT);
 
+// No pid: a hook only ever sees the shell that ran it. Liveness is the process
+// orch recorded at spawn (Rule 11), never a guess written here.
 const status: JsonRecord = {
   ...launchStamp(previous, AGENT_ID, key),
-  pid,
   cwd: textValue(input.cwd) ?? previous.cwd ?? process.cwd(),
   project: projectRoot(),
   model,
@@ -106,7 +99,7 @@ if (event === "sessionstart" || event === "sessionstarted") {
   delete status.blockedMessage;
 } else if (event === "notification") {
   const message = textValue(input.message ?? input.notification ?? input.question) ?? "Claude is waiting for input";
-  const askingId = textValue(input.id ?? input.request_id ?? input.requestId) ?? `claude-${pid}-${Date.now()}`;
+  const askingId = textValue(input.id ?? input.request_id ?? input.requestId) ?? `claude-${process.pid}-${Date.now()}`;
   status.state = "blocked";
   status.blockedMessage = message;
   status.asking = { question: truncateOptional(message, MAX_TASK) ?? message, id: askingId, ts: now };

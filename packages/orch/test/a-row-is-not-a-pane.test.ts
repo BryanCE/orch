@@ -9,6 +9,7 @@ import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-row
 import { setHandle } from "../src/store/interval-rows.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedLiveProcess } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 /**
@@ -55,12 +56,13 @@ function seedAgentInPane(dir: string, id: string, handle: string): void {
   setHandle(dir, id, 10, handle);
 }
 
-/** A live presence record, so the failure cannot be blamed on a dead process. */
+/** A live agent: its recorded process is this runner, so the failure cannot be blamed on a dead process. */
 function seedLivePresence(dir: string, id: string): void {
+  seedLiveProcess(dir, id);
   const directory = join(dir, "agents", id);
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key: id, pid: process.pid, agent: "pi", state: "idle",
+    schema: PRESENCE_SCHEMA, key: id, agent: "pi", state: "idle",
   }));
 }
 

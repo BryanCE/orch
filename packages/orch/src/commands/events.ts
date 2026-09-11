@@ -1,5 +1,5 @@
 import { loadSettings } from "../settings/read.ts";
-import { buildEntities, resolveTarget, spaceOf } from "../entities.ts";
+import { resolveTarget, spaceOf } from "../entities.ts";
 import { callerSpace } from "../identity/self.ts";
 import { scopeToSpace, withinSpaceCeiling } from "../policy/space.ts";
 import { agentInMineScope, agentInScope, resolveCallerScope } from "../policy/scope.ts";
@@ -14,18 +14,9 @@ import { notificationText } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { die } from "./target.ts";
 import { commandLogger } from "./logging.ts";
-import type { PresenceMetadata } from "../types/daemon.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
 import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
-
-interface WatchItem {
-  key: string;
-  dir: string;
-  name: string | null;
-  tab: string | null;
-  pid: number | undefined;
-}
 
 function looksLikePaneKey(key: string): boolean {
   return tryParseIdentity(key) !== null;
@@ -36,15 +27,13 @@ export interface EventsOptions {
   sinceSeq: number | undefined;
   once: boolean;
   scope: CallerScopeChoice;
-  /** States the caller narrowed to, or null for every state — which is the default. */
+  /** States the caller dropped, or null for every state — which is the default. */
   filter: Set<string> | null;
   targets: string[];
 }
 
 interface EventsContext {
   options: EventsOptions;
-  items: Map<string, WatchItem>;
-  metadata: (key: string) => PresenceMetadata;
   accepts: (key: string) => boolean;
   emit: (event: NotifyEvent, streamSeq: number) => boolean;
 }
@@ -81,13 +70,7 @@ export async function cmdEvents(args: string[]) {
       recordSpawnedBy: spawnedRecords().get(agentId ?? key)?.spawnedBy ?? undefined,
     });
   };
-  const context: EventsContext = {
-    options,
-    items,
-    metadata: presenceMetadata,
-    accepts,
-    emit: eventWriter(options),
-  };
+  const context: EventsContext = { options, accepts, emit: eventWriter(options) };
   // Notification delivery is orchd's, not the client's: the daemon fans every
   // transition out to the sinks configured in settings.json whether or not
   // anyone is streaming. `orch events` only renders.
@@ -207,8 +190,8 @@ function readSinceSeq(value: string | undefined): number {
   return parsed;
 }
 
-/** `--filter=done,error`, or a refusal: an empty list narrows to nothing and would
- *  arm a watch that can never fire. */
+/** `--filter=working,idle`, or a refusal: an empty list drops nothing, so the flag
+ *  was a typo. Same sense as `orch status --filter`: a named state is hidden. */
 function readStateFilter(value: string): Set<string> {
   const states = value.split(",").map((state) => state.trim()).filter((state) => state.length > 0);
   if (states.length === 0) die(EVENTS_USAGE);
@@ -237,7 +220,7 @@ function readEventsFlag(options: EventsOptions, args: string[], index: number): 
 export function parseEventsOptions(args: string[]): EventsOptions {
   // Bare `orch events` IS the monitor: every state of every agent you own, in readable
   // lines, self-contained enough to act on without a second command. Flags only ever
-  // narrow it (`--filter`) or widen it to the rest of your space (`--space-wide`).
+  // drop states from it (`--filter`) or widen it to the rest of your space (`--space-wide`).
   const options: EventsOptions = {
     json: false, sinceSeq: undefined, once: false, scope: "auto", filter: null, targets: [],
   };
@@ -245,13 +228,9 @@ export function parseEventsOptions(args: string[]): EventsOptions {
   return options;
 }
 
-function presenceMetadata(key: string): PresenceMetadata {
-  const entity = buildEntities().find((candidate) => candidate.presence?.key === key || candidate.key === key);
-  return { name: entity?.name ?? null, tab: entity?.tabLabel ?? null, pid: entity?.presence?.status?.pid };
-}
-
-function eventsItems(options: EventsOptions): Map<string, WatchItem> {
-  const items = new Map<string, WatchItem>();
+/** The presence keys a `--agent` narrowed stream accepts; every live scoped key when unnarrowed. */
+function eventsItems(options: EventsOptions): Set<string> {
+  const items = new Set<string>();
   if (!options.targets.length) {
     const presences = scopeToSpace(
       orchDir(),
@@ -260,27 +239,12 @@ function eventsItems(options: EventsOptions): Map<string, WatchItem> {
       callerSpace(),
       { all: false },
     );
-    for (const presence of presences) {
-      const metadata = presenceMetadata(presence.key);
-      items.set(presence.key, {
-        key: presence.key,
-        dir: presence.dir,
-        name: metadata.name,
-        tab: metadata.tab,
-        pid: metadata.pid,
-      });
-    }
+    for (const presence of presences) items.add(presence.key);
   }
   for (const target of options.targets) {
     const entity = resolveTarget(target, { all: false });
     if (!entity.presence) die(`Target "${target}" has no agent dir to watch.`);
-    items.set(entity.presence.key, {
-      key: entity.presence.key,
-      dir: entity.presence.dir,
-      name: entity.name,
-      tab: entity.tabLabel,
-      pid: entity.presence.status?.pid,
-    });
+    items.add(entity.presence.key);
   }
   // An empty fleet is a valid watch: workers may be spawned after this command starts.
   return items;
@@ -311,7 +275,7 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
 
 function eventWriter(options: EventsOptions): (event: NotifyEvent, streamSeq: number) => boolean {
   return (event, streamSeq): boolean => {
-    if (options.filter !== null && !options.filter.has(event.newState)) return false;
+    if (options.filter?.has(event.newState)) return false;
     const space = event.space ?? spaceOf(orchDir(), event.key);
     process.stdout.write(`${renderEvent(event, options.json, streamSeq, space)}\n`);
     return true;

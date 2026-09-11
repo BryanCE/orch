@@ -12,19 +12,20 @@ import { closeAllStores } from "../src/store/connection.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { isolateHarnessSession } from "./helpers/env.ts";
 
 /** Capture what a refusal wrote, and put the real stream back afterwards. */
 
 describe("commands/clean", () => {
-  test("the forced sweep reaps dead agent dirs but preserves live pids", () => {
+  test("the forced sweep reaps dead agent dirs but preserves live processes", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-clean-"));
     const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
     try {
-      seedStatus(root, "deadagent1", { pid: 999999 });
-      seedStatus(root, "liveagent1", { pid: process.pid });
-      expect(removeDeadAgentDirs(true)).toEqual(["deadagent1 (pid 999999)"]);
+      seedStatus(root, "deadagent1", {});
+      seedAgent("liveagent1", {}, root);
+      seedStatus(root, "liveagent1", {});
+      expect(removeDeadAgentDirs(true)).toEqual(["deadagent1"]);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
@@ -34,9 +35,10 @@ describe("commands/clean", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-clean-bare-"));
     const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
     try {
-      seedStatus(root, "deadagent1", { pid: 999999 });
-      seedStatus(root, "liveagent1", { pid: process.pid });
-      seedStatus(root, "herdr~wF~p9", { pid: process.pid });
+      seedStatus(root, "deadagent1", {});
+      seedAgent("liveagent1", {}, root);
+      seedStatus(root, "liveagent1", {});
+      seedStatus(root, "herdr~wF~p9", {});
       insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
       insertOutboxMessage(root, { id: "to-reaped", target: "reapedagent", payload: { action: "dispatch", text: "x" } });
       insertOutboxMessage(root, { id: "to-live", target: "liveagent1", payload: { action: "dispatch", text: "x" } });
@@ -56,7 +58,7 @@ describe("commands/clean", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-clean-force-"));
     const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
     try {
-      seedStatus(root, "deadagent1", { pid: 999999 });
+      seedStatus(root, "deadagent1", {});
       insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
 
       cmdClean(["--force", "--json"]);
@@ -80,8 +82,9 @@ describe("worktree ownership reads the composed environment", () => {
       insertAgent(root, { id: "dead000001", harnessId: "pi", cwd: "/repo", name: "goner", createdAt: 2 });
       setWorktree(root, "live000001", join(root, "wt-live"), "orch/keeper");
       setWorktree(root, "dead000001", join(root, "wt-dead"), "orch/goner");
-      seedStatus(root, "live000001", { key: "live000001", pid: process.pid });
-      seedStatus(root, "dead000001", { key: "dead000001", pid: 999999 });
+      seedLiveProcess(root, "live000001");
+      seedStatus(root, "live000001", { key: "live000001" });
+      seedStatus(root, "dead000001", { key: "dead000001" });
 
       const views = [...agentViewIndex(root).values()];
       const presence = presenceById();
@@ -115,7 +118,7 @@ describe("orch clean is destructive maintenance", () => {
     try {
       seedAgent(agentId, { adapter: "pi" }, root);
       expect(claimAgent(root, agentId, sessionId, 1)).toEqual({ kind: "stamped" });
-      seedStatus(root, "deadagent1", { pid: 999999 });
+      seedStatus(root, "deadagent1", {});
       // A refusal is a thrown value carrying its reason, not a process exit and
       // not a stderr side effect (src/refusal.ts): the CLI boundary renders it.
       // Asserting the reason on the thrown value is stronger than either.

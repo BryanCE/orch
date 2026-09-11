@@ -11,7 +11,7 @@ import { errorMessage } from "../../util.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { callerOwnerToken, die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
-import { callerPlexer } from "../../identity/self.ts";
+import { processStartToken } from "../../process-identity.ts";
 import { commandLogger } from "../logging.ts";
 import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import { homeHandle, openHome } from "../../store/home-rows.ts";
@@ -46,27 +46,38 @@ function homeName(cwd: string, subject: HomeSubject): string {
  * set the reachability boundary is the repo root.
  */
 export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlacement {
-  const { directory, backend, space, packRootId, callerPlexer, grantNewHome } = request;
+  const { directory, backend, space, packRootId, callerPlexer, callerHandle, grantNewHome } = request;
   // A space the user named is where the agents are FILED, whether or not this
   // plexer holds a home for it. A home recorded in another plexer is not this
   // one's to drive, so its absence here is simply no coordinate.
   if (space !== null) {
     return { space, workspace: homeHandle(directory, { kind: "space", id: space }, backend.id) ?? undefined, homeToOpen: null };
   }
-  // Whether this environment can hold a home at all is read from the COMPOSED
-  // ROLE, never from whether a method happens to exist (E13). Its absence is the
-  // answer, not a failure (E14): the plexer places the fleet on its own default.
   // Already inside this plexer: the fleet lands beside the caller, so there is no
   // window to open and nothing to ask the human for. WHERE the caller sits is an
   // environment fact orch RECORDED at spawn or registration (Rule 11). It arrives
-  // as a fact; this function probes nothing.
-  const inside = callerPlexer !== null && callerPlexer === backend.id;
-  if (backend.spaceHome === null || inside || packRootId === null) return { space: null, workspace: undefined, homeToOpen: null };
+  // as a fact; this function probes nothing. The plexer says which of its
+  // coordinates holds that place.
+  if (callerPlexer !== null && callerPlexer === backend.id) {
+    return { space: null, workspace: callerCoordinate(backend, callerHandle), homeToOpen: null };
+  }
+  // Whether this environment can hold a home at all is read from the COMPOSED
+  // ROLE, never from whether a method happens to exist (E13). Its absence is the
+  // answer, not a failure (E14): the plexer places the fleet on its own default.
+  if (backend.spaceHome === null || packRootId === null) return { space: null, workspace: undefined, homeToOpen: null };
   const subject: HomeSubject = { kind: "pack", id: packRootId };
   const existing = homeHandle(directory, subject, backend.id);
   if (existing !== null) return { space: null, workspace: existing, homeToOpen: null };
   grantNewHome();
   return { space: null, workspace: undefined, homeToOpen: subject };
+}
+
+/** The plexer coordinate holding the caller's recorded place. A caller with no
+ *  recorded place, or one the plexer no longer lists, resolves no coordinate;
+ *  the plexer then refuses to place rather than pick a workspace of its own. */
+function callerCoordinate(backend: Backend, callerHandle: string | null): string | undefined {
+  if (callerHandle === null || backend.placementInventory === null) return undefined;
+  return backend.placementInventory.coordinateOf(callerHandle) ?? undefined;
 }
 
 /** Open the home {@link resolveSpawnPlacement} said this fleet is owed. The
@@ -117,17 +128,27 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
     throw error;
   }
   // ONE writer for one record (2.1). This states every axis the agent has —
-  // harness, plexer, handle, space, model, worktree, holder — because a second
-  // writer filling in the rest is how the two came to disagree about which
-  // record was authoritative.
+  // harness, plexer, handle, space, model, worktree, holder, process — because a
+  // second writer filling in the rest is how the two came to disagree about
+  // which record was authoritative.
   registerSpawnedAgent(orchDir(), {
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, space: spec.space ?? undefined,
     spawner: spec.spawnerAgentId ?? null,
     owner: callerOwnerToken(),
     worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
+    process: paneProcess(spec.backend, handle),
   });
   return { key, handle: String(handle), name: spec.name };
+}
+
+/** The pane shell an agent runs under: the process whose death IS the agent's exit. */
+export function paneProcess(backend: Backend, handle: BackendHandle): { pid: number; startToken?: string } {
+  if (!backend.foreground) throw new Error(`environment "${backend.id}" reports no pane process, so orch cannot watch the agent`);
+  const pid = backend.foreground.read(handle).shellPid;
+  if (pid === null) throw new Error(`environment "${backend.id}" reports no shell pid for ${String(handle)}`);
+  const startToken = processStartToken(pid);
+  return startToken === undefined ? { pid } : { pid, startToken };
 }
 
 /** Add one agent to a group at the spot the planner picks for it against the
@@ -194,10 +215,10 @@ export function findGroupInSpace(backend: Backend, workspace: string | undefined
  * what the human grants. Outside every plexer, with none chosen, the default is
  * headless: a plexer orch only probed is a window nobody asked for.
  */
-export function spawnBackend(settings: Pick<SpawnSettings, "backend" | "space" | "backendChosen">): Backend {
+export function spawnBackend(settings: Pick<SpawnSettings, "backend" | "space" | "backendChosen">, callerPlexer: string | null): Backend {
   const backend = resolveBackend({ configured: settings.backend });
   if (!backend.groupHome || settings.space !== null) return backend;
-  if (callerPlexer() === backend.id) return backend;
+  if (callerPlexer === backend.id) return backend;
   if (settings.backendChosen && backend.spaceHome) return backend;
   const reason = settings.backendChosen
     ? `${backend.id} cannot open a space of its own`

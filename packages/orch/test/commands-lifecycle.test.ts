@@ -48,7 +48,7 @@ function withFleet(body: (root: string, key: string, agentId: string) => void): 
 describe("commands/lifecycle", () => {
   test("capability helpers fail closed when absent", () => {
     const backend = new FakePanedBackend();
-    expect(foregroundOf(backend, "p1")).toEqual(NO_FOREGROUND);
+    expect(foregroundOf({ foreground: null }, "p1")).toEqual(NO_FOREGROUND);
     const result = reloadAgentAndAwaitBridge(backend, "p1", "agent00001", "reload");
     expect(result.handle).toBe("p1");
     expect(result.ok).toBe(false);

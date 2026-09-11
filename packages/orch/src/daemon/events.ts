@@ -11,7 +11,8 @@ import { computeFleetCapacity, packsUsed } from "../policy/capacity.ts";
 import { loadSettings } from "../settings/read.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { upsertRun } from "../store/run-rows.ts";
-import { pidAlive, truncate } from "../util.ts";
+import { truncate } from "../util.ts";
+import { agentProcessLive } from "../store/interval-rows.ts";
 import type { AgentState } from "../adapters/adapter.ts";
 import { isAgentState } from "../agent-state.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";
@@ -54,21 +55,15 @@ function eventTokens(status: object): NotifyEvent["tokens"] | undefined {
   return normalized;
 }
 
-function statusState(status: unknown, fallbackPid?: number): AgentState | null {
-  if (!status || typeof status !== "object") {
-    if (fallbackPid === undefined) return null;
-    return pidAlive(fallbackPid) ? null : "exited";
-  }
-  const pidValue = property(status, "pid");
-  const pid = typeof pidValue === "number" ? pidValue : fallbackPid;
-  let state: AgentState | null = null;
-  if (property(status, "asking")) state = "asking";
-  else if (property(status, "state")) {
-    const candidate = String(property(status, "state"));
-    state = isAgentState(candidate) ? candidate : "unknown";
-  }
-  if (!pidAlive(pid)) state = "exited";
-  return state;
+/** The state a status claims, overruled by the recorded process: a dead process
+ *  is `exited` whatever the file says (Rule 11, one liveness source). */
+function statusState(status: unknown, processLive: boolean): AgentState | null {
+  if (!processLive) return "exited";
+  if (!status || typeof status !== "object") return null;
+  if (property(status, "asking")) return "asking";
+  const claimed = property(status, "state");
+  if (typeof claimed !== "string" || claimed.length === 0) return null;
+  return isAgentState(claimed) ? claimed : "unknown";
 }
 
 function eventTask(status: object): string | undefined {
@@ -91,12 +86,12 @@ interface PresenceTransition {
 
 /** Advance the observed state, suppressing initial and duplicate observations. */
 function nextPresenceTransition(
+  orchDir: string,
   key: string,
   status: unknown,
-  pid: number | undefined,
   states: Map<string, string>,
 ): PresenceTransition | null {
-  const state = statusState(status, pid);
+  const state = statusState(status, agentProcessLive(orchDir, key));
   if (!state) return null;
   const previous = states.get(key);
   if (previous === state) return null;
@@ -205,7 +200,7 @@ export function derivePresenceTransition(
   states: Map<string, string>,
   now = new Date(),
 ): NotifyEvent | null {
-  const transition = nextPresenceTransition(key, status, metadata.pid, states);
+  const transition = nextPresenceTransition(orchDir, key, status, states);
   if (!transition) return null;
   const value = statusObject(status);
   const identity = identityFields(orchDir, key, value, metadata);
@@ -335,7 +330,7 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
     }
     const status = readPresenceStatus(join(agentDir, STATUS_FILE));
     const knownMetadata = options.keys?.get(key);
-    const candidateState = statusState(status, knownMetadata?.pid);
+    const candidateState = statusState(status, agentProcessLive(options.orchDir, key));
     const previous = states.get(key);
     if (candidateState === undefined || candidateState === null || previous === candidateState) return;
     // Seed the initial observation without loading metadata: it is not a

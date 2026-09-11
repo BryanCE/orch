@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { loadPresence, reapDeadPresenceDirs } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedAgent } from "./helpers/agent.ts";
 
 /**
  * Presence directory names change; existing dirs are REAPED, not migrated.
@@ -30,19 +31,25 @@ function fixture(): string {
   return dir;
 }
 
-/** Write a presence directory under whatever name is given, live or dead. */
-function seedDir(root: string, name: string, pid: number): string {
+/** Write a presence directory under whatever name is given. */
+function seedDir(root: string, name: string): string {
   const dir = join(root, "agents", name);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key: name, pid, agent: "pi", state: "working" }));
+  writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key: name, agent: "pi", state: "working" }));
   return dir;
 }
 
+/** A presence directory for an agent orch registered, whose recorded process is this runner. */
+function seedLiveDir(root: string, name: string): string {
+  seedAgent(name, {}, root);
+  return seedDir(root, name);
+}
+
 describe("a presence dir in the old shape is reaped, never migrated (J4)", () => {
-  test("a composite-named dir is not presence, even with a LIVE pid", () => {
+  test("a composite-named dir is not presence, whatever its file claims", () => {
     const root = fixture();
-    seedDir(root, "headless~local~worker", process.pid);
-    seedDir(root, "liveagent1", process.pid);
+    seedDir(root, "headless~local~worker");
+    seedLiveDir(root, "liveagent1");
 
     const presence = loadPresence(root);
 
@@ -53,8 +60,8 @@ describe("a presence dir in the old shape is reaped, never migrated (J4)", () =>
 
   test("the sweep REMOVES it rather than leaving it for a migration that never comes", () => {
     const root = fixture();
-    const stale = seedDir(root, "headless~local~worker", process.pid);
-    const live = seedDir(root, "liveagent1", process.pid);
+    const stale = seedDir(root, "headless~local~worker");
+    const live = seedLiveDir(root, "liveagent1");
 
     reapDeadPresenceDirs(root);
 
@@ -66,7 +73,7 @@ describe("a presence dir in the old shape is reaped, never migrated (J4)", () =>
 
   test("nothing renames, rewrites or re-keys the old directory", () => {
     const root = fixture();
-    seedDir(root, "herdr~wF~p9", 999_999_99);
+    seedDir(root, "herdr~wF~p9");
 
     reapDeadPresenceDirs(root);
 
@@ -78,7 +85,7 @@ describe("a presence dir in the old shape is reaped, never migrated (J4)", () =>
 
   test("a dead dir in the CURRENT shape is still reaped the ordinary way", () => {
     const root = fixture();
-    const dead = seedDir(root, "deadagent1", 999_999_99);
+    const dead = seedDir(root, "deadagent1");
 
     const result = reapDeadPresenceDirs(root);
 

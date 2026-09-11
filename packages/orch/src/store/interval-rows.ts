@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
 import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
+import { tryParseIdentity } from "../backends/identity.ts";
 import { agentHandles, agentPlexers, agentProcesses, agentSpaces, agentTunings } from "../db/schema.ts";
 import type { ProcessValues, TuningValues } from "../types/store.ts";
 
@@ -107,4 +108,11 @@ export function recordedProcessIsLive(orchDir: string, agentId: string): boolean
   return row.startToken !== null && row.startToken.length > 0
     ? processInstanceMatches(row.pid, row.startToken)
     : processIsAlive(row.pid);
+}
+
+/** {@link recordedProcessIsLive} addressed by a presence key: the key wraps the
+ *  id, and a key that names no registered agent has no process and is dead. */
+export function agentProcessLive(orchDir: string, key: string): boolean {
+  const agentId = tryParseIdentity(key)?.id;
+  return agentId === undefined ? false : recordedProcessIsLive(orchDir, agentId);
 }

@@ -29,8 +29,8 @@ describe("commands/events", () => {
   test("bare events is scoped to this session's agents and renders readable lines", () => expect(parseEventsOptions([])).toEqual({ json: false, sinceSeq: undefined, once: false, scope: "auto", filter: null, targets: [] }));
   test("parses the scope flags", () => expect(parseEventsOptions(["--space-wide", "agent"])).toEqual({ json: false, sinceSeq: undefined, once: false, scope: "any", filter: null, targets: ["agent"] }));
   test("parses the wake-up flags", () => expect(parseEventsOptions(["--once", "--since-seq", "42", "--json"])).toEqual({ json: true, sinceSeq: 42, once: true, scope: "auto", filter: null, targets: [] }));
-  test("--filter narrows to named states and is never the default", () => {
-    expect(parseEventsOptions(["--filter=done,error"]).filter).toEqual(new Set(["done", "error"]));
+  test("--filter names the states to drop and is never the default", () => {
+    expect(parseEventsOptions(["--filter=working,idle"]).filter).toEqual(new Set(["working", "idle"]));
     expect(parseEventsOptions([]).filter).toBeNull();
   });
   test("includes an adopted agent whose open lease is mine", () => {
@@ -131,7 +131,7 @@ describe("commands/events space wall", () => {
   function seedAgent(root: string, space: string): string {
     const key = mintAgentId();
     seedSpace(root, space);
-    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: root, name: "recon", model: "test", space, spawner: null });
+    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: root, name: "recon", model: "test", space, spawner: null, process: { pid: process.pid } });
     return key;
   }
 

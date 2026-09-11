@@ -92,7 +92,13 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       if (bestEffortTmux(["select-window", "-t", handle]) === null || bestEffortTmux(["select-pane", "-t", handle]) === null) throw new Error(`tmux failed to focus ${handle}`);
     },
   };
-  readonly foreground: ForegroundRole<TmuxHandle> | null = null;
+  readonly foreground: ForegroundRole<TmuxHandle> = {
+    read: (handle: TmuxHandle) => {
+      const shellPid = Number(execTmux(["display-message", "-p", "-t", handle, "#{pane_pid}"]).trim());
+      const current = execTmux(["display-message", "-p", "-t", handle, "#{pane_current_command}"]).trim();
+      return { shellPid: Number.isSafeInteger(shellPid) && shellPid > 0 ? shellPid : null, foregroundPid: null, processes: current ? [current] : [] };
+    },
+  };
   readonly placement: PlacementRole<TmuxHandle> = {
     open: (request) => {
       const target = request.targetHandle ?? request.group;
@@ -129,6 +135,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       status: statusForAgentKey(pane.agentKey),
       sessionPath: null,
     })),
+    coordinateOf: (handle) => this.sessionOf(handle) || null,
   };
   /** The last visible lines of a pane's screen. Throws on failure (D7). */
   readonly screen: ScreenRole<TmuxHandle> = { read: (handle, lines) => execTmux(["capture-pane", "-p", "-t", handle, "-S", `-${lines}`]) };

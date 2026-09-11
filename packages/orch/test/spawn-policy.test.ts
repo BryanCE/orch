@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { loadSettings } from "../src/settings/read.ts";
 import { cmdSpawn } from "../src/commands/spawn/index.ts";
-import { spawnPolicyError } from "../src/commands/spawn/admission.ts";
+import { assertTabCapacity, spawnPolicyError } from "../src/commands/spawn/admission.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
 import { agentViews } from "../src/store/agent-view.ts";
@@ -128,6 +128,18 @@ describe("spawn policy caps", () => {
       spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
     })]);
     expect(spawnPolicyError(settings, "space", 1, views, presence, "root")).toContain("pack cap 2");
+  });
+
+  test("a tab holds at most fleet.max_agents_per_tab agents, counting what it already holds", () => {
+    const dir = mkdtempSync(join(tmpdir(), "orch-spawn-policy-"));
+    tempDirs.push(dir);
+    writeSettingsFixture(dir, { fleet: { max_agents_per_tab: 3 } });
+    const settings = loadSettings(dir);
+    expect(() => assertTabCapacity(settings, "api", 0, 3)).not.toThrow();
+    expect(() => assertTabCapacity(settings, "api", 2, 1)).not.toThrow();
+    expect(() => assertTabCapacity(settings, "api", 0, 4)).toThrow(/tab api at 4\/3 agents.*fleet\.max_agents_per_tab/);
+    expect(() => assertTabCapacity(settings, "api", 3, 1)).toThrow(/3 placed \+ 1 requested/);
+    expect(SETTINGS_DEFAULTS.fleet.max_agents_per_tab).toBe(4);
   });
 
   test("a refused cmdSpawn makes no name, worktree, registry, or queue mutation", async () => {

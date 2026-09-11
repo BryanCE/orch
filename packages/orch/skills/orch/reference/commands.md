@@ -11,9 +11,10 @@ orch spawn api-types api-routes api-guards --tab api
 Opens one tab of N balanced-tiled agents. Never steals focus. Every name is validated before
 any tab or pane is created, so a refused spawn leaves nothing behind.
 
-Four settings can refuse it, and the refusal names the one that fired:
-`fleet.max_agents_per_pack`, `fleet.max_agents_per_space.<space>`, `fleet.max_agents_total`,
-and `fleet.max_depth` for how deep a spawner may itself have been spawned. Read the remaining
+Five settings can refuse it, and the refusal names the one that fired:
+`fleet.max_agents_per_pack`, `fleet.max_agents_per_tab`, `fleet.max_agents_per_space.<space>`,
+`fleet.max_agents_total`, and `fleet.max_depth` for how deep a spawner may itself have been
+spawned. The tab cap counts what the tab already holds plus what you asked for. Read the remaining
 headroom with `orch status --capacity` before you size a fleet, not after a spawn burns.
 
 - The positionals name the agents, one per agent; `--tab` names the tab. There is no
@@ -167,7 +168,8 @@ status flag composes with every other. `orch wait` is the third shape: one block
   rest of your space, for two orchs coordinating, not for normal watching. Past that is the
   wall, and nothing lifts it — a human at a raw terminal sits in no space, so they alone see
   the machine, and an orch never can. `--agent=<name>` or `--agent-id=<id>` narrows to one.
-  `--filter=done,error` keeps only those states. `--once` exits after the first match.
+  `--filter=working,idle` drops those states, the same sense as `orch status --filter`.
+  `--once` exits after the first match.
 - **No dedupe needed.** The daemon suppresses an identical `(key, oldState->newState,
   dispatchId, task)` for 120s at the publish point, so a flapping status file produces one
   event, not fifteen. `seq` is that agent's transition ordinal, and `(key, seq)` identifies an

@@ -12,8 +12,9 @@ import { tryParseIdentity } from "../backends/identity.ts";
 import { eq } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-rows.ts";
+import { agentProcessLive } from "../store/interval-rows.ts";
 import { agents } from "../db/schema.ts";
-import { isRecord, pidAlive, readJsonFile } from "../util.ts";
+import { isRecord, readJsonFile } from "../util.ts";
 import type { AgentView } from "../types/store.ts";
 import type { DeadPresenceReapResult, PresenceDescription, PresenceEntry, PresenceStatus } from "../types/presence.ts";
 
@@ -142,13 +143,11 @@ function presenceDirectoryNames(root: string): string[] {
  * to REPORT them, has to see them some other way. This is that way: the raw
  * directory names, read once, with no pretence that any of them names an agent.
  */
-export function malformedPresenceDirs(root = orchDir()): { name: string; dir: string; alive: boolean }[] {
-  const found: { name: string; dir: string; alive: boolean }[] = [];
+export function malformedPresenceDirs(root = orchDir()): { name: string; dir: string }[] {
+  const found: { name: string; dir: string }[] = [];
   for (const name of presenceDirectoryNames(root)) {
     if (tryParseIdentity(name) !== null) continue;
-    const dir = join(presenceDir(root), name);
-    const status = readPresenceStatus(join(dir, STATUS_FILE));
-    found.push({ name, dir, alive: pidAlive(status?.pid) });
+    found.push({ name, dir: join(presenceDir(root), name) });
   }
   return found;
 }
@@ -226,9 +225,10 @@ export function loadPresence(root = orchDir()): Map<string, PresenceEntry> {
     const status = isPresenceStatus(statusRecord) ? statusRecord : null;
     const description = describePresenceStatus(statusRecord);
     const result = readLatestResult(dir);
-    // Liveness is derived only from the gated status. Descriptive metadata is
-    // deliberately separate, so malformed records can never enter live paths.
-    presence.set(key, { key, dir, status, description, result, alive: pidAlive(status?.pid) });
+    // Liveness is the recorded process, never a pid the agent wrote about itself
+    // (Rule 11). Descriptive metadata is separate, so malformed records can never
+    // enter live paths.
+    presence.set(key, { key, dir, status, description, result, alive: agentProcessLive(root, key) });
   }
   return presence;
 }

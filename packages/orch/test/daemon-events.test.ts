@@ -12,6 +12,7 @@ import { derivePresenceTransition, emitAndNotify, isRepeatTransition, startPrese
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { subscribeEvents } from "../src/daemon/rpc/client.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedLiveProcess } from "./helpers/agent.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { PresenceWatch, RpcServer } from "../src/types/daemon.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
@@ -30,11 +31,6 @@ function tempOrchDir(): string {
   return directory;
 }
 
-function storageKey(key: string): string {
-  // Windows forbids ':' in directory names; the event state assertions do not depend on the key text.
-  return process.platform === "win32" ? key.replaceAll(":", "_") : key;
-}
-
 /** Seed one agent through the normalized tables the composer reads.
  *  A1: identity is the minted id, and environment is a satellite of it - never a
  *  column on a wide row keyed by the pane. */
@@ -42,6 +38,7 @@ function seedAgent(orchDir: string, agentId: string, options: { harnessId?: stri
   const harnessId = options.harnessId ?? "pi";
   ensureHarness(orchDir, harnessId, harnessId);
   insertAgent(orchDir, { id: agentId, spawnedBy: null, harnessId, cwd: orchDir, name: agentId, createdAt: 1 });
+  seedLiveProcess(orchDir, agentId);
   if (options.space !== undefined) {
     orm(orchDir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${options.space}, ${options.space}, ${1})`);
     setSpace(orchDir, agentId, 1, options.space);
@@ -78,7 +75,7 @@ function notifyEvent(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
 }
 
 function writeStatus(orchDir: string, key: string, state: string, extra: object = {}): void {
-  seedStatus(orchDir, storageKey(key), { pid: process.pid, state, ...extra });
+  seedStatus(orchDir, key, { state, ...extra });
 }
 
 async function waitFor(check: () => boolean, timeoutMs = 2_000): Promise<void> {
@@ -104,21 +101,23 @@ afterEach(async () => {
 describe("daemon presence events", () => {
   test("closes every watcher when watched agent directories disappear", () => {
     const orchDir = tempOrchDir();
-    const keys = ["workspace:watch-a", "workspace:watch-b", "workspace:watch-c"];
+    const keys = [mintAgentId(), mintAgentId(), mintAgentId()];
     for (const key of keys) writeStatus(orchDir, key, "idle");
     let closed = 0;
     const watcher = startPresenceWatch({ orchDir, onEvent: () => { /* transitions are irrelevant to this test */ }, onWatcherClosed: () => { closed++; } });
     presenceWatches.push(watcher);
     watcher.scan();
     expect(watcher.watcherCount()).toBe(keys.length);
-    for (const key of keys) rmSync(join(orchDir, "agents", storageKey(key)), { recursive: true, force: true });
+    for (const key of keys) rmSync(join(orchDir, "agents", key), { recursive: true, force: true });
     watcher.scan();
     expect(watcher.watcherCount()).toBe(0);
     expect(closed).toBe(keys.length);
   });
   test("an RPC subscriber receives a presence transition", async () => {
     const orchDir = tempOrchDir();
-    writeStatus(orchDir, "workspace:p1", "working");
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
+    writeStatus(orchDir, key, "working");
     const server = await startRpcServer(orchDir, {
       "subscribe-events": () => ({ subscribed: true }),
     });
@@ -128,7 +127,7 @@ describe("daemon presence events", () => {
     const received: unknown[] = [];
     const subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event));
 
-    writeStatus(orchDir, "workspace:p1", "idle");
+    writeStatus(orchDir, key, "idle");
     await waitFor(() => received.some((event) => eventState(event) === "idle"));
     subscription.close();
     expect(eventState(received[0])).toBe("idle");
@@ -196,6 +195,7 @@ describe("daemon presence events", () => {
     const key = "runsrepeat";
     const startedAt = "2026-01-02T00:00:00.000Z";
     const events: unknown[] = [];
+    seedAgent(orchDir, key);
     writeStatus(orchDir, key, "working", { dispatchId: "dispatch-repeat", startedAt, task: "first task" });
     const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });
     presenceWatches.push(watcher);
@@ -224,6 +224,7 @@ describe("daemon presence events", () => {
     const orchDir = tempOrchDir();
     const key = "runshuman1";
     const events: unknown[] = [];
+    seedAgent(orchDir, key);
     writeStatus(orchDir, key, "working");
     const watcher = startPresenceWatch({ orchDir, onEvent: (event) => events.push(event) });
     presenceWatches.push(watcher);
@@ -235,6 +236,7 @@ describe("daemon presence events", () => {
   test("a throwing history write does not stop event delivery", async () => {
     const orchDir = tempOrchDir();
     const key = "runsbroken";
+    seedAgent(orchDir, key);
     orm(orchDir).run(sql.raw("CREATE TRIGGER fail_run_history BEFORE INSERT ON runs BEGIN SELECT RAISE(ABORT, 'history disabled'); END;"));
     const events: unknown[] = [];
     writeStatus(orchDir, key, "working", { dispatchId: "dispatch-broken", startedAt: "2026-01-04T00:00:00.000Z" });
@@ -252,6 +254,7 @@ describe("daemon presence events", () => {
     const child = mintAgentId();
     seedAgent(orchDir, root);
     insertAgent(orchDir, { id: child, spawnedBy: root, harnessId: "pi", cwd: orchDir, name: child, createdAt: 2 });
+    seedLiveProcess(orchDir, child, 2);
     writeStatus(orchDir, root, "working");
     writeStatus(orchDir, child, "working");
     const emitted: NotifyEvent[] = [];
@@ -302,12 +305,13 @@ describe("daemon presence events", () => {
 
   test("presence transitions resolve the human name before emission", () => {
     const orchDir = tempOrchDir();
-    const key = "w6:p-name";
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
     const states = new Map([[key, "working"]]);
     const event = derivePresenceTransition(
       orchDir,
       key,
-      { pid: process.pid, state: "done", agent: "Ada" },
+      { state: "done", agent: "Ada" },
       { name: null, tab: null },
       states,
     );
@@ -320,18 +324,21 @@ describe("daemon presence events", () => {
     const key = "agentrenam";
     ensureHarness(orchDir, "pi", "Pi");
     insertAgent(orchDir, { id: key, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "Before", createdAt: 1 });
+    seedLiveProcess(orchDir, key);
     expect(renameAgent(orchDir, key, "After")).toBe(true);
-    const event = derivePresenceTransition(orchDir, key, { pid: process.pid, state: "done", agent: "stale" }, { name: "stale", tab: null }, new Map([[key, "working"]]));
+    const event = derivePresenceTransition(orchDir, key, { state: "done", agent: "stale" }, { name: "stale", tab: null }, new Map([[key, "working"]]));
     expect(event?.name).toBe("After");
   });
 
   test("derivePresenceTransition preserves the complete asking transition payload", () => {
     const orchDir = tempOrchDir();
     const key = "askpayload";
+    ensureHarness(orchDir, "pi", "Pi");
+    insertAgent(orchDir, { id: key, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "Ada's worker", createdAt: 1 });
+    seedLiveProcess(orchDir, key);
     const states = new Map([[key, "working"]]);
     const now = new Date("2026-02-03T04:05:06.000Z");
     const event = derivePresenceTransition(orchDir, key, {
-      pid: process.pid,
       state: "asking",
       agent: "Ada",
       label: "Ada's worker",
@@ -372,7 +379,9 @@ describe("daemon presence events", () => {
   test("an asking transition drives command sink delivery", async () => {
     const orchDir = tempOrchDir();
     const output = join(orchDir, "notification.json");
-    writeStatus(orchDir, "workspace:p2", "working");
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
+    writeStatus(orchDir, key, "working");
     const sink: NotifyEntry = {
       id: "command",
       on: ["asking"],
@@ -384,7 +393,7 @@ describe("daemon presence events", () => {
     });
     presenceWatches.push(watcher);
 
-    writeStatus(orchDir, "workspace:p2", "working", { asking: { question: "Need input" } });
+    writeStatus(orchDir, key, "working", { asking: { question: "Need input" } });
     await waitFor(() => {
       try {
         const payload = JSON.parse(readFileSync(output, "utf8")) as { newState?: string };

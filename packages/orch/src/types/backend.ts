@@ -29,6 +29,10 @@ export interface PlacementRole<Handle = BackendHandle> {
 export interface PlacementInventoryRole<Handle = BackendHandle> {
   current(): PlacementCoordinate | null;
   list(): readonly BackendTarget<Handle>[];
+  /** The plexer's own coordinate (herdr workspace, tmux session) holding a
+   *  place, or null when the place is gone. How orch lands a fleet beside a
+   *  caller whose handle it RECORDED, without sniffing the plexer again. */
+  coordinateOf(handle: Handle): string | null;
 }
 
 export interface AgentInputRole<Handle = BackendHandle> {

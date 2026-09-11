@@ -125,6 +125,7 @@ const settingsValueExtractors = {
   }),
   fleet: (root: Partial<SettingsFile>) => ({
     max_agents_per_pack: root.fleet?.max_agents_per_pack ?? SETTINGS_DEFAULTS.fleet.max_agents_per_pack,
+    max_agents_per_tab: root.fleet?.max_agents_per_tab ?? SETTINGS_DEFAULTS.fleet.max_agents_per_tab,
     max_depth: root.fleet?.max_depth ?? SETTINGS_DEFAULTS.fleet.max_depth,
     max_agents_total: root.fleet?.max_agents_total,
     max_agents_per_space: root.fleet?.max_agents_per_space ?? {},

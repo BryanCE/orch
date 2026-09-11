@@ -277,24 +277,27 @@ describe("HerdrBackend", () => {
     ]);
   });
 
-  test("a group with no coordinate opens in the caller pane's workspace, never herdr's focused one", () => {
-    herdrArgv.length = 0;
-    const previous = process.env.HERDR_PANE_ID;
-    process.env.HERDR_PANE_ID = "w0:p2";
-    try {
-      backend.groupHome.create({ workspace: undefined, cwd: testDir, label: "fleet" });
-    } finally {
-      if (previous === undefined) delete process.env.HERDR_PANE_ID;
-      else process.env.HERDR_PANE_ID = previous;
-    }
-    expect(lastCall("tab", "create")?.slice(0, 4)).toEqual(["tab", "create", "--workspace", "ws-test"]);
-  });
-
-  test("a group with no coordinate and no caller pane is refused, not placed wherever herdr is focused", () => {
+  // Bug 7: `tab create` without `--workspace` lands in whatever workspace the
+  // human has focused, which was another project's. orch resolves the
+  // coordinate from the caller's RECORDED place; herdr never picks one.
+  test("a group with no coordinate is refused, not placed wherever herdr is focused", () => {
     herdrArgv.length = 0;
     expect(() => backend.groupHome.create({ workspace: undefined, cwd: testDir, label: "fleet" }))
-      .toThrow("Could not determine herdr workspace");
+      .toThrow("no herdr workspace was resolved");
     expect(lastCall("tab", "create")).toBeUndefined();
+  });
+
+  test("a pane with no coordinate is refused the same way", () => {
+    herdrArgv.length = 0;
+    expect(() => backend.placement.open({ workspace: undefined, cwd: testDir }))
+      .toThrow("no herdr workspace was resolved");
+    expect(lastCall("pane", "split")).toBeUndefined();
+    expect(lastCall("tab", "create")).toBeUndefined();
+  });
+
+  test("the inventory answers which workspace holds a pane, and null for one herdr no longer lists", () => {
+    expect(backend.placementInventory.coordinateOf("w0:p2")).toBe("ws-test");
+    expect(backend.placementInventory.coordinateOf("w9:p9")).toBeNull();
   });
 
   test("the pane host closes a pane through herdr", () => {

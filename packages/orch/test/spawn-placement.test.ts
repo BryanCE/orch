@@ -6,7 +6,7 @@ import { openFleetHome, resolveSpawnPlacement, spawnBackend } from "../src/comma
 import { homeHandle, openHome } from "../src/store/home-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
-import { FakePanedBackend, withRegisteredBackend } from "./helpers/backend.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, HomeSubject, Identity, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
@@ -90,7 +90,9 @@ class HomedBackend extends FakePanedBackend {
   private readonly inside: boolean;
 
   constructor(home: SpaceHomeRole | null, inside: boolean, self: Identity | null) {
-    super({ id: "herdr" });
+    // The one pane this plexer lists, sitting in its coordinate `wF`: what a
+    // caller recorded at that handle resolves to.
+    super({ id: "herdr", panes: [fakePane("wF:p1", { space: "wF" })] });
     this.spaceHome = home;
     this.inside = inside;
     this.identity = { current: (_id: string | null): Identity | null => self };
@@ -120,7 +122,7 @@ describe("outside every plexer, spawn is headless unless the human chose one", (
   test("a plexer orch only probed, from a plain terminal, spawns headless", () => {
     fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: false }).id).toBe("headless");
+      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: false }, null).id).toBe("headless");
     });
   });
 
@@ -129,21 +131,30 @@ describe("outside every plexer, spawn is headless unless the human chose one", (
   test("a chosen plexer stays selected and its home is what the human grants", () => {
     fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: true }).id).toBe("herdr");
+      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: true }, null).id).toBe("herdr");
     });
   });
 
   test("a chosen plexer that cannot open a home still falls back to headless", () => {
     fixture();
     withRegisteredBackend(homedBackend(null, false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: true }).id).toBe("headless");
+      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: true }, null).id).toBe("headless");
+    });
+  });
+
+  // The caller's plexer is read off its RECORD, so a plain terminal inside
+  // herdr — no harness marker, no launch key — is inside all the same.
+  test("a caller recorded inside the plexer stays in it, chosen or not", () => {
+    fixture();
+    withRegisteredBackend(homedBackend(new RecordingHomeRole(), true), () => {
+      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: false }, "herdr").id).toBe("herdr");
     });
   });
 
   test("a named space is placement enough: no chosen backend needed", () => {
     fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: "team", backendChosen: false }).id).toBe("herdr");
+      expect(spawnBackend({ backend: "herdr", space: "team", backendChosen: false }, null).id).toBe("herdr");
     });
   });
 });
@@ -158,7 +169,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, false), space: "space00001",
-      packRootId: seedOrch(dir, "packroot01"), callerPlexer: null, grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot01"), callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
     });
 
     // E10: the space orch reports is orch's id. The coordinate is a separate
@@ -178,14 +189,32 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, true, { id: "insideorch" }), space: null,
-      packRootId: seedOrch(dir, "packroot02"), callerPlexer: "herdr", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot02"), callerPlexer: "herdr", callerHandle: "wF:p1", grantNewHome: grant.grantNewHome,
     });
 
     // A7: a space is optional, and nothing mints one from a path.
     expect(placement.space).toBeNull();
-    // No coordinate: the plexer places the fleet where the caller already is.
-    expect(placement.workspace).toBeUndefined();
+    // The coordinate is the one holding the caller's RECORDED place, so the
+    // fleet lands beside the caller and never in whatever the human has focused
+    // (bug 7: a `--tab` opened next to another project's tabs).
+    expect(placement.workspace).toBe("wF");
+    expect(placement.homeToOpen).toBeNull();
     expect(home.created).toEqual([]);
+    expect(grant.asked).toBe(0);
+  });
+
+  test("a caller INSIDE the plexer whose recorded place is gone resolves no coordinate, never another", () => {
+    const dir = fixture();
+    const grant = gate();
+
+    const placement = resolveSpawnPlacement({
+      directory: dir, backend: homedBackend(new RecordingHomeRole(), true, { id: "insideorch" }), space: null,
+      packRootId: seedOrch(dir, "packroot02c"), callerPlexer: "herdr", callerHandle: "wZ:p9", grantNewHome: grant.grantNewHome,
+    });
+
+    // The plexer refuses to place with no coordinate; picking one for the
+    // caller is exactly the wrong-workspace landing this exists to prevent.
+    expect(placement).toEqual({ space: null, workspace: undefined, homeToOpen: null });
     expect(grant.asked).toBe(0);
   });
 
@@ -202,11 +231,11 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, true, null), space: null,
-      packRootId: seedOrch(dir, "packroot02b"), callerPlexer: "herdr", grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot02b"), callerPlexer: "herdr", callerHandle: "wF:p1", grantNewHome: grant.grantNewHome,
     });
 
     expect(placement.space).toBeNull();
-    expect(placement.workspace).toBeUndefined();
+    expect(placement.workspace).toBe("wF");
     expect(home.created).toEqual([]);
     expect(grant.asked).toBe(0);
   });
@@ -221,7 +250,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend, space: null,
-      packRootId: orch, callerPlexer: null, grantNewHome: grant.grantNewHome,
+      packRootId: orch, callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
     });
 
     // E8: allowable, but never unmarked, and never at orch's own discretion -
@@ -255,7 +284,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const backend = homedBackend(home, false);
     const request = {
       directory: dir, backend, space: null,
-      packRootId: orch, callerPlexer: null, grantNewHome: grant.grantNewHome,
+      packRootId: orch, callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
     };
 
     const subject: HomeSubject = { kind: "pack", id: orch };
@@ -277,7 +306,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(null, false), space: null,
-      packRootId: seedOrch(dir, "packroot05"), callerPlexer: null, grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot05"), callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
     });
 
     // E13/E14: `spaceHome === null` IS the capability, and orch never reaches
@@ -296,7 +325,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const placement = resolveSpawnPlacement({
       directory: dir, backend: homedBackend(home, false), space: "space00002",
-      packRootId: seedOrch(dir, "packroot06"), callerPlexer: null, grantNewHome: grant.grantNewHome,
+      packRootId: seedOrch(dir, "packroot06"), callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
     });
 
     // The user named a space, so that is where the agents are filed. The home

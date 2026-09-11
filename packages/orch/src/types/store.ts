@@ -240,6 +240,15 @@ export interface SpawnRegistration {
    */
   owner?: string;
   worktree?: { path: string; branch: string };
+  /**
+   * Environment: the OS process this agent runs in, on this host.
+   *
+   * Rule 11 — the ONE liveness source. The daemon and every presence reader ask
+   * this row whether the agent is alive; a pid an agent writes about itself is
+   * never consulted. A pane spawn records the pane shell, a headless spawn the
+   * harness process; both die with the agent.
+   */
+  process: { pid: number; startToken?: string };
   now?: number;
 }
 

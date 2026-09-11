@@ -13,6 +13,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { endProcess } from "../src/store/interval-rows.ts";
 import { withExitCode } from "./helpers/exit-code.ts";
 
 /**
@@ -57,12 +58,14 @@ function fixture(): string {
   return dir;
 }
 
-function seedAgentWithStatus(dir: string, key: string, handle: string, pid: number): void {
+/** An agent whose process already ended, so close has only its pane and row to settle. */
+function seedAgentWithStatus(dir: string, key: string, handle: string): void {
   seedAgent(key, { adapter: "pi", backend: "headless", space: "space00001", handle });
+  endProcess(dir, key, Date.now());
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working",
+    schema: PRESENCE_SCHEMA, key, agent: "pi", state: "working",
   }));
 }
 
@@ -80,8 +83,8 @@ function capture(action: () => void): Record<string, unknown> {
 describe("close reports an outcome for every target it was given (U2)", () => {
   test("--json carries a per-target outcome, not just the successes", () => {
     const dir = fixture();
-    seedAgentWithStatus(dir, "closeagt01", "w7:p2A", 999_999_99);
-    seedAgentWithStatus(dir, "closeagt02", "w7:p2B", 999_999_99);
+    seedAgentWithStatus(dir, "closeagt01", "w7:p2A");
+    seedAgentWithStatus(dir, "closeagt02", "w7:p2B");
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p2A"), fakePane("w7:p2B")] });
 
     const payload = withRegisteredBackend(backend, () => capture(() => { cmdClose(["--all", "--json"]); }));
@@ -102,7 +105,7 @@ describe("close reports an outcome for every target it was given (U2)", () => {
 
   test("a failed target reports outcome error WITH the real error text", () => {
     const dir = fixture();
-    seedAgentWithStatus(dir, "stuckagt01", "w7:p2C", 999_999_99);
+    seedAgentWithStatus(dir, "stuckagt01", "w7:p2C");
     // A plexer that lists the pane and refuses to close it: the close is asked
     // for, fails, and the row survives - exactly the reported case.
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p2C")] });
@@ -121,7 +124,7 @@ describe("close reports an outcome for every target it was given (U2)", () => {
 
   test("a pane the plexer no longer has is CLOSED, not failed", () => {
     const dir = fixture();
-    seedAgentWithStatus(dir, "goneagt001", "w7:p2D", 999_999_99);
+    seedAgentWithStatus(dir, "goneagt001", "w7:p2D");
     // U1's root cause reaching close: the recorded handle names no pane. There
     // is nothing to close, so asking the plexer to close it and calling the
     // throw a failure leaves a row nothing can ever close.
@@ -136,7 +139,7 @@ describe("close reports an outcome for every target it was given (U2)", () => {
 
   test("the exit code still reflects whether every target closed", () => {
     const dir = fixture();
-    seedAgentWithStatus(dir, "closeagt01", "w7:p2A", 999_999_99);
+    seedAgentWithStatus(dir, "closeagt01", "w7:p2A");
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p2A")] });
 
     const payload = withRegisteredBackend(backend, () => capture(() => { cmdClose(["--all", "--json"]); }));

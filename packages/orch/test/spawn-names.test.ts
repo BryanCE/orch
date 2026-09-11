@@ -8,7 +8,7 @@ import { assertNameFree, assertValidAgentName } from "../src/policy/name.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { setSpace } from "../src/store/interval-rows.ts";
+import { endProcess, setSpace } from "../src/store/interval-rows.ts";
 
 const directories: string[] = [];
 let previousOrchDir: string | undefined;
@@ -26,14 +26,14 @@ function tempOrchDir(): string {
 function seedAgent(orchDir: string, name: string, space: string): string {
   const key = mintAgentId();
   seedSpace(orchDir, space);
-  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: orchDir, name, model: "test", space, spawner: null });
+  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: orchDir, name, model: "test", space, spawner: null, process: { pid: process.pid } });
   return key;
 }
 
-/** A live named agent: a registered agent plus a presence status naming this pid. */
+/** A live named agent: a registered agent, whose recorded process is this runner, plus its status. */
 function seedLiveAgent(orchDir: string, name: string, space: string): string {
   const key = seedAgent(orchDir, name, space);
-  seedStatus(orchDir, key, { agent: "pi", pid: process.pid, state: "idle" });
+  seedStatus(orchDir, key, { agent: "pi", state: "idle" });
   return key;
 }
 
@@ -76,7 +76,8 @@ describe("a live name is claimed and a dead one is released", () => {
   test("a dead agent frees its name", () => {
     const orchDir = tempOrchDir();
     const key = seedAgent(orchDir, "recon", "w1");
-    seedStatus(orchDir, key, { agent: "pi", state: "idle" }); // no pid: process gone
+    seedStatus(orchDir, key, { agent: "pi", state: "idle" });
+    endProcess(orchDir, key, Date.now()); // the recorded process is gone
 
     expect(() => assertNameFree("recon", "w1")).not.toThrow();
   });

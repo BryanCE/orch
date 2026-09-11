@@ -7,6 +7,7 @@ import { attachBridge, detachBridge, type BridgeLink } from "../src/control/brid
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedAgent } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -43,7 +44,8 @@ describe("work reaches an agent through its link", () => {
   test("a headless agent receives a dispatch through the link", async () => {
     const directory = tempDir();
     const target = serializeIdentity({ id: "detached01" });
-    seedStatus(directory, target, { agent: "pi", pid: process.pid, state: "idle" });
+    seedAgent(target, { adapter: "pi" }, directory);
+    seedStatus(directory, target, { agent: "pi", state: "idle" });
     const deliveries = fakeLink(target);
 
     const outcome = await deliverControl(target, { kind: "run", text: "do the work", id: "dispatch-1" });
@@ -55,7 +57,8 @@ describe("work reaches an agent through its link", () => {
   test("a capless adapter still gets the not-placed boundary answer", async () => {
     const directory = tempDir();
     const target = serializeIdentity({ id: "detached02" });
-    seedStatus(directory, target, { agent: "claude", pid: process.pid, state: "idle" });
+    seedAgent(target, { adapter: "claude" }, directory);
+    seedStatus(directory, target, { agent: "claude", state: "idle" });
 
     const outcome = await deliverControl(target, { kind: "run", text: "do the work", id: "dispatch-2" });
 

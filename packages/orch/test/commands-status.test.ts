@@ -41,7 +41,7 @@ function statusRowFixture(overrides: Partial<StatusRow> = {}): StatusRow {
     model: "-", modelShort: "-", state: "unknown", stateFallback: false, exited: false, alive: true,
     cost: 0, ctxPercent: null, task: null, dispatchId: null, lastText: null, backendStatus: null,
     backend: null, capabilities: null, sessionPath: null, presenceDir: null, presenceOnly: false,
-    tokens: null, turns: null,
+    bridgeAttached: null, tokens: null, turns: null,
     ...overrides,
   };
 }
@@ -66,6 +66,19 @@ describe("commands/status", () => {
   test("a human at a terminal has no identity to narrow by and no space to be held inside", () => {
     const row = (key: string, spaceId: string): StatusRow => statusRowFixture({ key, spaceId });
     expect(scopeFleetRows([row("a", "w1"), row("b", "w2")], { spaceWide: false,allPanes: false }).map((r) => r.key)).toEqual(["a", "b"]);
+  });
+  test("--agent narrows to one row by id, key, or name, exited or not", () => {
+    const rows = [
+      statusRowFixture({ key: "k1", agentId: "id1", name: "ctx-edges", paneId: "%1" }),
+      statusRowFixture({ key: "k2", agentId: "id2", name: "gone", paneId: "%2", alive: false, exited: true }),
+    ];
+    const keys = (agent: string): string[] => scopeFleetRows(rows, { spaceWide: false, allPanes: false, agent }).map((r) => r.key);
+    expect(keys("ctx-edges")).toEqual(["k1"]);
+    expect(keys("id1")).toEqual(["k1"]);
+    expect(keys("k2")).toEqual(["k2"]);
+    expect(keys("gone")).toEqual(["k2"]);
+    expect(keys("nobody")).toEqual([]);
+    expect(scopeFleetRows(rows, { spaceWide: false, allPanes: false, agent: "gone", states: new Set(["exited"]) })).toEqual([]);
   });
 
   describe("an agent sees what it spawned, and never past its own space", () => {
@@ -188,7 +201,7 @@ describe("commands/status", () => {
     const table = formatStatusTable([
       statusRowFixture({ key: "headless-id", agentId: "headless-id", paneId: null, name: "headless" }),
       statusRowFixture({ key: "leased-id", agentId: "leased-id", paneId: "%7", name: "leased", owner: "Orchestrator" }),
-    ], { spaceWide: false,host: false });
+    ], { spaceWide: false, host: false, columns: new Set() });
     expect(table).toContain("ID");
     expect(table).toContain("ENV");
     expect(table).toContain("headless-id");
@@ -199,7 +212,7 @@ describe("commands/status", () => {
   });
 
   test("human table shows harness and working directory facts", () => {
-    const table = formatStatusTable([statusRowFixture({ name: "worker", agent: "claude", cwd: "/repo", worktree: "feature", branch: "main", owner: "Orchestrator" })], { spaceWide: false,host: false, human: true });
+    const table = formatStatusTable([statusRowFixture({ name: "worker", agent: "claude", cwd: "/repo", worktree: "feature", branch: "main", owner: "Orchestrator" })], { spaceWide: false, host: false, human: true, columns: new Set() });
     expect(table).toContain("HARNESS");
     expect(table).toContain("CWD");
     expect(table).toContain("WORKTREE");

@@ -26,7 +26,7 @@ import { assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceGranted, admitSpa
 import { assertLaunchModelAllowed, pinModels, resolveAgentSettings } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
 import { findGroupInSpace, growFleetIntoGroup, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
-import { awaitBridgeRegistration, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
+import { awaitBridgeAttach, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
 
 
 // Headless agents are launched BY THE DAEMON, not here: orchd outlives this CLI
@@ -94,7 +94,7 @@ async function executeHeadlessSpawn(settings: SpawnSettings, backend: Backend, s
   // its bridge has come up (P2-3 makes "up" mean attached), so returning before that
   // hands the caller a key it cannot dispatch to yet.
   reportShortfall(settings.n, created.length);
-  const registered = adapter.bridge ? await awaitBridgeRegistration(created, settings.json) : [];
+  const registered = adapter.bridge ? await awaitBridgeAttach(created, settings.json) : [];
   const stalled = created.filter((agent) => !registered.some((candidate) => candidate.key === agent.key));
   if (stalled.length > 0) process.exitCode = 1;
   if (settings.json) process.stdout.write(JSON.stringify({

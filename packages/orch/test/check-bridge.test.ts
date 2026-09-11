@@ -29,6 +29,17 @@ import {
 
 const repoRoot = join(import.meta.dir, "..");
 const monorepoRoot = join(import.meta.dir, "..", "..", "..");
+
+describe("presence filenames stay limited to the live protocol", () => {
+  test("inbox.jsonl is no longer a presence-filename breach", () => {
+    expect(checkCoreScopeLine('const file = "inbox.jsonl";', "src/commands/control.ts")).toBeUndefined();
+  });
+
+  test("status.json remains a presence-filename breach", () => {
+    expect(checkCoreScopeLine('const file = "status.json";', "src/commands/control.ts")).toContain("presence filename");
+  });
+});
+
 function readRepoLines(relPath: string): string[] {
   return readFileSync(join(repoRoot, relPath), "utf8").split(/\r?\n/);
 }

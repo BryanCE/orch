@@ -38,6 +38,7 @@ function statusRow(overrides: Partial<StatusRow>): StatusRow {
     sessionPath: null,
     presenceDir: null,
     presenceOnly: false,
+    bridgeAttached: null,
     tokens: null,
     turns: null,
     spaceId: null,

@@ -4,7 +4,7 @@ import { orchDir } from "../presence/writer.ts";
 import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, dim } from "../tui/screen.ts";
 import { die } from "./target.ts";
 import { formatStatusTable, readStatusResult } from "./status.ts";
-import type { StatusOptions } from "./status.ts";
+import type { StatusOptions, StatusTableOptions } from "./status.ts";
 import type { StatusRow } from "../types/command.ts";
 import type { EventSubscription } from "../types/daemon.ts";
 
@@ -74,7 +74,7 @@ export function createRefreshController(read: () => Promise<void>): RefreshContr
 
 export function renderLiveStatus(
   rows: readonly StatusRow[],
-  options: { spaceWide: boolean; host: boolean; human?: boolean },
+  options: StatusTableOptions,
   date = new Date(),
   error?: string,
 ): string {
@@ -94,6 +94,7 @@ export async function cmdStatusLive(options: StatusOptions): Promise<void> {
   const done = new Promise<void>((resolve) => { resolveDone = resolve; });
   let rows: readonly StatusRow[] = [];
   let host = false;
+  const tableOptions = (): StatusTableOptions => ({ spaceWide: options.spaceWide, host, human: options.human, columns: options.filter.columns });
   const refreshController = createRefreshController(async () => {
     if (stopped) return;
     try {
@@ -101,9 +102,9 @@ export async function cmdStatusLive(options: StatusOptions): Promise<void> {
       if (stopped) return;
       rows = result.rows;
       host = result.host;
-      process.stdout.write(renderLiveStatus(rows, { spaceWide: options.spaceWide, host, human: options.human }));
+      process.stdout.write(renderLiveStatus(rows, tableOptions()));
     } catch {
-      if (!stopped) process.stdout.write(renderLiveStatus(rows, { spaceWide: options.spaceWide, host, human: options.human }, new Date(), "daemon unreachable - retrying on next event"));
+      if (!stopped) process.stdout.write(renderLiveStatus(rows, tableOptions(), new Date(), "daemon unreachable - retrying on next event"));
     }
   });
   const refresh = (): void => refreshController.trigger();

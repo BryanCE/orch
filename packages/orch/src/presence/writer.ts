@@ -16,7 +16,7 @@
 import { homedir } from "node:os";
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ANSWER_FILE, OUTCOMES_FILE, PRESENCE_SCHEMA, RESULTS_FILE, STATUS_FILE } from "./schema.ts";
+import { OUTCOMES_FILE, PRESENCE_SCHEMA, RESULTS_FILE, STATUS_FILE } from "./schema.ts";
 import { isRecord, readJsonFile } from "../util.ts";
 import type { LaunchEnvFacts, LaunchStampable, PresenceRecord, PresenceStatus } from "../types/presence.ts";
 import type { JsonRecord } from "../types/core.ts";
@@ -188,11 +188,6 @@ export function launchStamp<T extends LaunchStampable>(previous: T, id: string, 
     tokens: previous.tokens ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     turns: typeof previous.turns === "number" ? previous.turns : 0,
   };
-}
-
-/** Write the answer to an agent's blocking question. */
-export function writeAnswer(directory: string, text: string, id: string): void {
-  atomicWrite(presenceFile(directory, ANSWER_FILE), { id, text, ts: new Date().toISOString() });
 }
 
 /** Append one line to a presence log. A log gets append-atomicity where a cell

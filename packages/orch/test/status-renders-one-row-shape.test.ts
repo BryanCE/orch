@@ -17,7 +17,7 @@ function row(overrides: Partial<StatusRow> = {}): StatusRow {
     staleExtension: false, exited: false, alive: true, cost: 0, ctxPercent: null,
     task: "Q: approve", dispatchId: null, lastText: "finished", backendStatus: null,
     backend: null, capabilities: null, sessionPath: null, presenceDir: null,
-    presenceOnly: false, tokens: null, turns: null, spaceId: null, spaceName: null,
+    presenceOnly: false, bridgeAttached: null, tokens: null, turns: null, spaceId: null, spaceName: null,
     rootAgentId: null, rootAgentName: null,
   };
   return { ...base, ...overrides };
@@ -47,7 +47,7 @@ function entityWithQuestion(): Entity {
 describe("status rendering has one row shape and one table renderer", () => {
   test("task and last text use the same spelling in the row and table cell", () => {
     const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), undefined, {}, null, "/tmp");
-    const table = renderStatusTable([statusRow], { showSpace: false, showOwner: false, showBranch: false }, { host: false });
+    const table = renderStatusTable([statusRow], { showSpace: false, showOwner: false, showBranch: false }, { host: false, columns: new Set() });
     expect(statusRow.task).toBe("Q: approve");
     expect(table).toContain("Q: approve");
     expect(statusRow.lastText).toBe("finished");
@@ -58,8 +58,8 @@ describe("status rendering has one row shape and one table renderer", () => {
     const local = row({ host: "local" });
     const remote = row({ host: "remote" });
     const flags = { showSpace: false, showOwner: false, showBranch: false };
-    const localTable = renderStatusTable([local], flags, { host: false });
-    const remoteTable = renderStatusTable([remote], flags, { host: true });
+    const localTable = renderStatusTable([local], flags, { host: false, columns: new Set() });
+    const remoteTable = renderStatusTable([remote], flags, { host: true, columns: new Set() });
     expect(localTable.split("\n")[0]).not.toContain("HOST");
     expect(remoteTable.split("\n")[0]?.startsWith("HOST")).toBe(true);
     expect(remoteTable).toContain("remote");

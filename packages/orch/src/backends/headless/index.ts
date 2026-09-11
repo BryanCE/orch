@@ -13,7 +13,7 @@ import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { LocalProcessRole } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
-import { agentChannel, capture } from "../../presence/roles.ts";
+import { capture } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
@@ -111,7 +111,6 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly logPruning: LogPruningRole = {
     prune: (cutoff: Date, liveKeys: readonly string[], orchDir?: string): number => this.pruneLogFiles(cutoff, liveKeys, orchDir),
   };
-  readonly channel = agentChannel;
   readonly capture = capture;
   readonly placement = null;
   readonly placementInventory = null;

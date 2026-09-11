@@ -208,7 +208,7 @@ export interface WorkerHeaderContext {
   /** The commands that prove a slice is finished. Empty: the header asks for
    *  whatever the repository already has, because orch was told no verb. */
   verifyCommands?: readonly string[];
-  /** The spawner's inbox is live and will accept a peer write. Default false: orch
+  /** The spawner's link is live and will accept a peer write. Default false: orch
    *  never instructs a reply it has not established the worker can actually deliver. */
   spawnerRepliable?: boolean;
 }
@@ -238,11 +238,11 @@ export type ExtensionName = keyof typeof EXTENSION_SOURCE_DIR;
 /**
  * The harness session this `orch` process runs inside, as that harness's OWN
  * adapter declares it. Orch names no harness here (Rule 9): an adapter that
- * exports a session marker owns the env vocabulary, one that declares none has
+ * exports a session token owns the env vocabulary, one that declares none has
  * no session identity, and adding a harness edits zero files outside its adapter.
  *
  * This is ENVIRONMENT — where the caller is running. The only identity it yields
- * is the token used to look up the id orch already minted.
+ * is the session token used to look up the id orch already minted.
  */
 export interface CallerSession {
   readonly harnessId: string;

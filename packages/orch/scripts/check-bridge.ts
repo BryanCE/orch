@@ -154,7 +154,7 @@ function scanPackagesSrc(check: LineCheck): number {
 }
 
 /**
- * The presence protocol filenames. orch DEFINES these — they are core
+ * The remaining presence protocol filenames. orch DEFINES these — they are core
  * vocabulary, not a third party's wire format, which is why they are not in
  * ADAPTER_WIRE_LITERALS (design D6). The compensating rule: they get exactly ONE
  * definition site. src/presence/schema.ts exports them as constants; hard-coding
@@ -164,9 +164,6 @@ function scanPackagesSrc(check: LineCheck): number {
 const PRESENCE_FILENAMES: readonly string[] = [
   "status.json",
   "results.jsonl",
-  "inbox.jsonl",
-  "answer.json",
-  "ack.jsonl",
   "outcomes.jsonl",
 ];
 
@@ -190,12 +187,6 @@ const IDENTITY_FALLBACK = new RegExp(`(?:\\?\\?|\\|\\|)\\s*["'](?:${PROVIDER_ID_
  * adding a new adapter's literal here is the only change a new adapter needs.
  */
 const ADAPTER_WIRE_LITERALS: readonly { readonly owner: string; readonly literal: string }[] = [
-  // NOTE: "inbox.jsonl"/"answer.json" are deliberately NOT here. The test is who
-  // DEFINES the string: codex's `turn.completed` and claude's `SessionStart` are
-  // foreign vocabulary orch conforms to, but the presence filenames are files
-  // orch invented for its own protocol (pi is merely the only harness that
-  // implements the mid-run half today). They are core vocabulary, same as
-  // the other presence files — guarded instead by PRESENCE_FILENAMES (design D6).
   { owner: "codex", literal: "agent-turn-complete" },
   { owner: "codex", literal: "agent_turn_complete" },
   { owner: "codex", literal: "turn.completed" },

@@ -24,8 +24,11 @@ headroom with `orch status --capacity` before you size a fleet, not after a spaw
   `--file <path>` (or `--file -`) reads that one task from disk or stdin, and `--with <path>`
   points the agents at a file or directory of context they open on demand, once per path.
   A spawn gets to work right away.
-- `--backend headless` runs detached and needs `--prompt` or `--file`. The agent runs the
-  task and exits, with nowhere to steer it.
+- Spawn waits for every bridge to attach before it returns; an unattached agent prints
+  `STALLED <handle>  <name> - bridge never attached; try: orch restart <name>` and exits 1.
+- Outside every plexer, spawn defaults to headless. `--backend <plexer>` names a plexer and
+  opens its own home behind a user grant. `--backend headless` runs detached and needs
+  `--prompt` or `--file`. The agent runs the task and exits, with nowhere to steer it.
 
 ### Spaces
 
@@ -105,10 +108,14 @@ prints a dispatch id, and `orch status --json` echoes it as `.dispatchId` once t
 actually running that prompt. That is how you prove the pane runs what this command sent
 rather than trusting that it looks busy.
 
-Ack: anything other than a transition into `working` means it never started. Redispatch once.
-
 `--model` and `--agent` pin the model or route through a different harness for one dispatch.
 `--raw` skips the composed worker contract header.
+
+`orch dispatch` prints `Delivered to <recipient> (dispatch <id>)` when the agent applied the
+prompt. It prints `Queued to <recipient> (dispatch <id>): no bridge ack within
+<timeouts.dispatch_ack_ms>ms` when the daemon accepted a durable write but no bridge ack
+arrived before the timeout. Queued writes retry on `daemon.outbox_drain_ms`; watch
+`orch events` for the state change.
 
 ## Queue
 
@@ -135,7 +142,10 @@ That is what watching a fleet means, and it is the whole of normal use.
 `orch events` and `orch status` answer the same scope question in two shapes: events pushes
 transitions as they happen, status returns a table right now with cost and context. Both
 default to what you own, both take `--space-wide` and `--filter`, and neither sees past the
-space wall. `orch wait` is the third shape: one blocking checkpoint on one agent.
+space wall. `orch status --agent=<name|id>` shows that one agent, exited or not.
+`orch status --filter=owner,env,done` filters OUT: a column name drops that column from the
+table, from `--json` rows, and from `--live`; any other name drops rows in that state. Every
+status flag composes with every other. `orch wait` is the third shape: one blocking checkpoint on one agent.
 
 - **Preflight before arming, every time.** This survives a context compaction because it reads
   the OS instead of your memory:
@@ -182,13 +192,22 @@ substitute for the stream.
 A target is an agent name (`api-types`), a pane id, or an agent key. All three resolve to the
 same agent. Names are the readable option, so keep them meaningful.
 
+## Answer
+
+```bash
+orch answer <target> "<text>"
+```
+
+Answer has no force flag. If the target is not asking, orch refuses it by name with
+`<target> is not asking a question`. Use `orch answer` for a pending question, not
+`orch steer`.
+
 ## Steering and arrangement
 
 Steer a running agent at most once with `orch steer <target> "<text>"`. It arrives mid-turn.
-A doctrine change big enough to need explaining twice is a new dispatch. An agent
-in `asking` refuses a steer and names `orch answer`: answering a pending question is a
-different operation, and a steer aimed at one is accepted by the inbox and then lost inside
-the blocked turn.
+A doctrine change big enough to need explaining twice is a new dispatch. An agent in `asking`
+refuses a steer and names `orch answer`: answering a pending question is a different operation.
+Use `orch answer` instead.
 
 `orch broadcast "<text>" [targets...|--all]` steers several and reports which refused rather
 than failing the whole fan-out. `orch abort <target>` cancels the current turn.

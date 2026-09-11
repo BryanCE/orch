@@ -40,10 +40,6 @@ export function removePresenceAgentDir(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }
 
-function presencePath(key: string, file: string): string {
-  return join(presenceAgentDir(key), file);
-}
-
 export function readJSON<T = unknown>(file: string): T | null {
   const parsed = readJsonFile(file);
   return parsed === undefined ? null : parsed as T;
@@ -241,6 +237,3 @@ export function statusForPresence(presence: PresenceEntry): PresenceStatus | nul
   return readPresenceStatus(join(presence.dir, STATUS_FILE));
 }
 
-export function bridgeRegistered(pane: string): boolean {
-  return readPresenceStatus(presencePath(pane, STATUS_FILE)) !== null;
-}

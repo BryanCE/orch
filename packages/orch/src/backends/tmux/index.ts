@@ -12,7 +12,7 @@ import { sleepMs } from "../shell-ready.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects } from "./cli.ts";
-import { agentChannel, capture } from "../../presence/roles.ts";
+import { capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit,  CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
@@ -79,7 +79,6 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly versionInfo: null = null;
   // tmux runs a server, but reports no client/server compatibility fact to read.
   readonly serverInfo: null = null;
-  readonly channel = agentChannel;
   readonly capture = capture;
   readonly agentInput = {
     submit: (handle: TmuxHandle, text: string): void => {

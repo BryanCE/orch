@@ -9,7 +9,7 @@
  * Where an agent is, reduced to what a renderer may show. A pane is a plexer
  * COORDINATE orch stores and hands back — it is never a name and never a bucket.
  * Its absence means "no shortcut to watch this agent", never "unreachable":
- * delivery is orch's own inbox mechanism and needs no screen.
+ * delivery is orchd's push down the agent's bridge link and needs no screen.
  */
 export interface AgentEnvironment {
   pane: string | null;

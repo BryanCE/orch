@@ -113,7 +113,7 @@ async function deliverPrompt(target: string, adapter: AgentAdapter, action: Prom
   return { outcome: "invoke", ack: "none" };
 }
 
-async function deliverAnswer(target: string, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>): Promise<ControlBoundaryOutcome> {
+function deliverAnswer(target: string, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>): ControlBoundaryOutcome {
   if (!adapter.bridge?.takes.includes("answer")) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot answer ${target}: adapter ${adapter.id} takes no answers` };
   }
@@ -134,17 +134,14 @@ async function deliverModel(target: string, adapter: AgentAdapter, model: string
   if (adapter.modelControl === null && !adapter.bridge?.takes.includes("model")) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot set the model on ${target}: adapter ${adapter.id} has no running-session model control` };
   }
-  const directory = orchDir();
-  assertModelAllowed(directory, adapter, model);
+  assertModelAllowed(orchDir(), adapter, model);
   requireLiveAgent(target, adapter, "set model on");
   const command = adapter.modelControl?.setModel({ key: target, model, id });
   if (command) await runAdapterCommand(command, timeoutMs);
   if (adapter.bridge?.takes.includes("model")) {
     pushToBridge(target, { id, message: { action: "model", model } });
   }
-  const dir = loadPresence().get(target)?.dir;
-  if (!dir) throw new Error(`cannot confirm model on ${target}: presence dir vanished`);
-  await awaitControlOutcome(dir, id, timeoutMs);
+  await awaitControlOutcome(id, timeoutMs);
   return { outcome: "invoke", ack: "none" };
 }
 

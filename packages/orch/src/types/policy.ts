@@ -19,7 +19,7 @@ export type SpaceResolver =
  * name, and the worker knows exactly which session is orchestrating it.
  */
 export interface SpawnerIdentity {
-  /** Reply address when the spawner has a presence inbox; null when it has none. */
+  /** Reply address when the spawner can receive mail; null when it cannot. */
   key: string | null;
   /** Human description: "lead-1 (pi)", "pi session", "claude session", "operator". */
   label: string;

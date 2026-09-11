@@ -63,3 +63,34 @@ notice.
 
 The skill text says pass `--cwd "$(git rev-parse --show-toplevel)"` on every
 spawn. `orch spawn` rejects it (`Unknown flag --cwd.`); the flag is `--dir`.
+
+## 5. Claude pane never reads as ready, so every dispatch fails at the reset step
+
+After the rebuild, `orch dispatch <claude pane> --file spec.md` fails with
+`reset did not become ready within 75s` on a freshly spawned `--agent claude
+--model opus:high` pane, twice in a row on two different panes. `orch peek`
+shows the pane sitting at an empty `❯` prompt with `auto mode on`, so the
+harness is ready; the readiness probe is what fails. `--keep-context` skips
+the reset and the same dispatch lands in seconds. Before the rebuild the same
+spawn and dispatch worked first try. A dispatch to a claude pane spawned before
+the rebuild hung for over a minute, exited 0, and never reached the pane.
+
+## 7. A new `--tab` landed in a different herdr WORKSPACE
+
+`orch spawn a b c d --tab tc-fix --dir <t3reports root>` created the `tc-fix`
+tab inside herdr workspace `1`, next to the `socket-a` / `socket-b` tabs of an
+unrelated project, not in the t3reports workspace where the orchestrator's own
+pane and every earlier tab of this session live. `orch status` shows the four
+as `wG:pA`..`wG:pD` while the rest of the session is `wF`. A later
+`orch spawn e --tab tc-fix-2` from the same orchestrator went back into `wF`.
+The agents run and report normally, so the user has no signal beyond looking
+at the wrong workspace and seeing nothing. A spawn must never cross
+workspaces: place the tab in the workspace of the caller's pane, and refuse
+with a clear error rather than pick another workspace.
+
+## 6. `--with` is a prompt line, not an ownership claim
+
+`--with a.ts,b.ts` only prepends `Work with: a.ts,b.ts` to the task. Two panes
+given overlapping `--with` paths get no warning and edit the same file. Making
+it a claim (the daemon rejects or warns when a second live dispatch names a
+path already held) would turn it into the slicing guard the fleet needs.

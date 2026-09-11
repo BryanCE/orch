@@ -181,16 +181,13 @@ export interface LeaseStatusPayload {
 }
 
 /**
- * What a channel can promise about one write.
+ * What the daemon's outbox reports for one delivery.
  *
- * `acked`  the message reached its reader, or reached a channel that HAS no
- *          separate reader to hear from — a pane keystroke, a boundary answer.
- *          Terminal either way.
+ * `acked`  the bridge received and acknowledged the message.
  * `queued` the message was pushed down the bridge link, with its ack pending.
- * `failed` the write did not happen. Retry with backoff.
+ * `failed` the delivery attempt did not complete; retry with backoff.
+ * `gone`   the target agent no longer exists, so retrying is pointless.
  */
-/** `failed` is worth another attempt; `gone` never is — the agent the write was
- *  addressed to no longer exists, so retrying it only costs every other write. */
 export type OutboxDelivery = "acked" | "queued" | "failed" | "gone";
 
 export interface OutboxDeps {

@@ -1,5 +1,5 @@
 import { LocalProcessRole } from "../../src/backends/process.ts";
-import { agentChannel, capture } from "../../src/presence/roles.ts";
+import { capture } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
 import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, Placement, PlacementRequest, EnvironmentIdentityRole, GroupHomeRole, PlacementRole, PlacementInventoryRole, LabelRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
 import type { AgentAdapter } from "../../src/types/adapter.ts";
@@ -38,8 +38,8 @@ function paneTarget(pane: FakePane): BackendTarget {
 /**
  * A complete, typed paned environment for tests that need pane roles.
  *
- * It composes exactly the roles a paned environment has: process, orch's
- * channel/capture, a pane host and a pane inventory. Every other role is absent,
+ * It composes exactly the roles a paned environment has: process, capture, a
+ * pane host and a pane inventory. Every other role is absent,
  * which is the capability itself — there is no `capabilities` object and nothing
  * here is probed for method presence.
  */
@@ -54,7 +54,6 @@ export class FakePanedBackend implements Backend {
   private openedCount = 0;
 
   readonly process: ProcessRole = new LocalProcessRole();
-  readonly channel = agentChannel;
   readonly capture = capture;
   readonly placement: PlacementRole;
   readonly placementInventory: PlacementInventoryRole;

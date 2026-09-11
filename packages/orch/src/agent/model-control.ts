@@ -1,27 +1,20 @@
-// pi's handling of orch control commands that retarget the running agent: the
-// {"cmd":"model","model":"provider/id[:effort]"} and {"cmd":"thinking","level":…}
-// messages drained from the inbox. Extracted from presence.ts (CLAUDE.md task
-// 8.6); presence owns the inbox transport and calls in here to apply a command.
-//
+// pi's model-delivery applier. Presence receives a model message from orchd;
+// this module resolves the registry model, applies its optional thinking suffix,
+// and reports the control outcome.
 // What lives here is pi's registry resolution and nothing else. Whether a model
-// is PERMITTED is orch policy, ruled on once in the control dispatcher
-// (src/policy/model.ts) before the command is ever written to the inbox — a
-// harness never re-litigates it. Orch's ladder token names a model AND a
-// thinking effort ("provider/id:medium"); the registry keys on the bare id, so
-// the suffix is split off before lookup and applied through pi's own mechanism.
-import { isThinkingLevel, splitThinkingSuffix } from "../policy/thinking.ts";
+// is PERMITTED is orch policy, ruled on once in the control dispatcher;
+// a harness never re-litigates it. Orch's ladder token names a model and a
+// thinking effort; the registry keys on the bare id, so the suffix is split off
+// before lookup and applied through pi's own mechanism.
+import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { retryingAsync } from "../retry.ts";
-import { isRecord } from "../util.ts";
-import type { ControlCommand, ControlOutcome, FindRegistryModel, ModelControlDeps, ResolvedModel } from "../types/agent.ts";
+import type { ControlOutcome, FindRegistryModel, ModelControlDeps, ResolvedModel } from "../types/agent.ts";
+import type { BridgeMessage } from "../control/bridge-message.ts";
 import type { RetryPolicy } from "../types/core.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { JsonRecord } from "../types/core.ts";
 
 export type { ThinkingLevel };
-
-export function isControlCommand(value: unknown): value is ControlCommand {
-  return isRecord(value) && typeof value.cmd === "string";
-}
 
 const DEFAULT_REGISTRY_RETRY: RetryPolicy = { attempts: 8, delayMs: 250, backoff: 1 };
 
@@ -63,39 +56,28 @@ export function createModelControl(deps: ModelControlDeps) {
   const { harness, context, recordOutcome, reportOutcome, refreshPresence } = deps;
   const findModel: FindRegistryModel = (provider, id) => context()?.modelRegistry.find(provider, id);
 
-  function applyThinkingLevel(level: unknown): void {
-    if (!isThinkingLevel(level)) throw new Error("Thinking level must be valid");
-    harness.setThinkingLevel(level);
-  }
-
   async function applyModelCommand(requestedModel: unknown): Promise<void> {
     const { model, thinking } = await resolveRegistryModel(requestedModel, findModel);
     await harness.setModel(model);
     if (thinking !== undefined) harness.setThinkingLevel(thinking);
   }
 
-  // The dispatcher blocks on the report to learn whether its command landed, so
-  // it carries back the request id it must match.
-  async function applyControlCommand(parsed: ControlCommand): Promise<void> {
-    const requested: JsonRecord = parsed.cmd === "model"
-      ? { model: parsed.model }
-      : { thinking: parsed.level };
+  // The dispatcher blocks on the report to learn whether the model landed, so
+  // the delivery id is echoed into the outcome it must match.
+  async function applyControlCommand(
+    message: Extract<BridgeMessage, { action: "model" }>,
+    id: string,
+  ): Promise<void> {
+    const requested: JsonRecord = { model: message.model };
     let error: string | undefined;
     try {
-      if (parsed.cmd === "model") {
-        await applyModelCommand(parsed.model);
-      } else {
-        applyThinkingLevel(parsed.level);
-      }
+      await applyModelCommand(message.model);
     } catch (thrown: unknown) {
       error = thrown instanceof Error ? thrown.message : String(thrown);
     }
-    recordOutcome({ id: parsed.id, requested, success: error === undefined, ts: new Date().toISOString(), ...(error === undefined ? {} : { error }) });
-    // A command with no id has no waiter to answer; its history line is the whole record.
-    if (typeof parsed.id === "string") {
-      const settled: ControlOutcome = { id: parsed.id, command: parsed.cmd, requested, ...(error === undefined ? {} : { error }) };
-      await reportOutcome(settled);
-    }
+    recordOutcome({ id, requested, success: error === undefined, ts: new Date().toISOString(), ...(error === undefined ? {} : { error }) });
+    const settled: ControlOutcome = { id, command: "model", requested, ...(error === undefined ? {} : { error }) };
+    await reportOutcome(settled);
     refreshPresence();
   }
 

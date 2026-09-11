@@ -234,6 +234,9 @@ export interface StatusRow {
   sessionPath: string | null;
   presenceDir: string | null;
   presenceOnly: boolean;
+  /** True while the agent's bridge holds a link to orchd; null when the row was built
+   * without asking the daemon (a local `orch status`). */
+  bridgeAttached: boolean | null;
   tokens: unknown;
   turns: unknown;
   /** Orch-owned space identity and display name. */

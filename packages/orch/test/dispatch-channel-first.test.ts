@@ -3,12 +3,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { deliverControl } from "../src/control/dispatch.ts";
+import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
+import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { serializeIdentity } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const dirs: string[] = [];
+const links: { readonly key: string; readonly link: BridgeLink }[] = [];
 const previousDir = process.env.ORCH_DIR;
 
 function tempDir(): string {
@@ -19,45 +22,47 @@ function tempDir(): string {
   return dir;
 }
 
+function fakeLink(key: string): BridgeDelivery[] {
+  const deliveries: BridgeDelivery[] = [];
+  const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
+  attachBridge(key, link);
+  links.push({ key, link });
+  return deliveries;
+}
+
 afterEach(() => {
+  for (const { key, link } of links.splice(0)) detachBridge(key, link);
   while (dirs.length) removeTempDir(dirs.pop()!);
   if (previousDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = previousDir;
 });
 
-// Delivery and read are ORCH's mechanism; a pane is an optimisation. inbox.jsonl
-// -> bridge -> ack.jsonl needs no screen. A capless environment is one with no
-// shortcut, NOT one orch cannot talk to.
-//
-// Answering `no-pane` to a DISPATCH is that rule inverted: it treats the missing
-// optimisation as a missing capability and drops real work on the floor. Orch's own
-// channel is tried FIRST, and the pane only ever as a shortcut.
-describe("work reaches an agent through orch's channel, with the pane only a shortcut", () => {
-  test("a headless agent receives a dispatch through the inbox, not a no-pane answer", async () => {
+// Delivery travels over the agent's attached link. A pane is only an optional
+// environment shortcut, never the condition for a dispatch to reach an agent.
+describe("work reaches an agent through its link", () => {
+  test("a headless agent receives a dispatch through the link", async () => {
     const directory = tempDir();
-    // A1: the target IS the minted id. A paneless agent has no plexer and no
-    // space — missing rows, never a `headless~local~…` key inventing both.
     const target = serializeIdentity({ id: "detached01" });
     seedStatus(directory, target, { agent: "pi", pid: process.pid, state: "idle" });
+    const deliveries = fakeLink(target);
 
     const outcome = await deliverControl(target, { kind: "run", text: "do the work", id: "dispatch-1" });
 
     expect(outcome).toEqual({ outcome: "invoke", ack: "expected" });
-    const inbox = path.join(directory, "agents", target, "inbox.jsonl");
-    expect(fs.existsSync(inbox)).toBe(true);
-    expect(fs.readFileSync(inbox, "utf8")).toContain("do the work");
+    expect(deliveries).toEqual([{ id: "dispatch-1", message: { action: "dispatch", text: "do the work" } }]);
   });
 
-  test("a steer reaches a paneless agent the same way", async () => {
+  test("a capless adapter still gets the not-placed boundary answer", async () => {
     const directory = tempDir();
     const target = serializeIdentity({ id: "detached02" });
-    seedStatus(directory, target, { agent: "pi", pid: process.pid, state: "working" });
+    seedStatus(directory, target, { agent: "claude", pid: process.pid, state: "idle" });
 
-    const outcome = await deliverControl(target, { kind: "steer", text: "adjust course", id: "steer-1" });
+    const outcome = await deliverControl(target, { kind: "run", text: "do the work", id: "dispatch-2" });
 
-    // "expected" is what stops the outbox settling the row before the bridge
-    // has read a thing; a pane shortcut would report "none" (L7).
-    expect(outcome).toEqual({ outcome: "invoke", ack: "expected" });
-    expect(fs.readFileSync(path.join(directory, "agents", target, "inbox.jsonl"), "utf8")).toContain("adjust course");
+    expect(outcome).toEqual({
+      outcome: "answer",
+      reason: "not-placed",
+      text: `${target} is placed nowhere; run does not apply.`,
+    });
   });
 });

@@ -18,7 +18,6 @@ export function daemonClientForPeerView(view: PeerView): DaemonClient {
 
 export function stubDaemonClient(): DaemonClient {
   return {
-    messageIdOf: () => undefined,
     isAcked: () => false,
     markAcked: () => undefined,
     ask: () => Promise.resolve(undefined),

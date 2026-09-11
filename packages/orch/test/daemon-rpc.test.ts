@@ -10,11 +10,12 @@ import { DaemonAbsentError, DaemonUnreachableError, RpcError } from "../src/daem
 import { ReplayBuffer } from "../src/daemon/rpc/replay.ts";
 import { isRegisterSessionResponse } from "../src/daemon/rpc/registration.ts";
 import { rpcCall, subscribeEvents } from "../src/daemon/rpc/client.ts";
+import { openJsonLineLink, readPortFile, type JsonLineLink } from "../src/presence/socket-client.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { rpcRegisterSession } from "../src/daemon/reach.ts";
 import { endAgent, ensureHarness, insertAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
-import { selectPendingOutbox } from "../src/store/outbox-rows.ts";
+import { outboxMessageState, selectOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -90,6 +91,58 @@ async function start(dir: string): Promise<RpcServer> {
   });
   servers.push(server);
   return server;
+}
+
+interface FakeBridge {
+  link: JsonLineLink;
+  attached: Promise<Record<string, unknown>>;
+  delivery: Promise<{ id: string; message: Record<string, unknown> }>;
+}
+
+async function fakeBridge(dir: string, key: string): Promise<FakeBridge> {
+  const endpoint = existsSync(daemonRuntimeFiles(dir).socket) ? daemonRuntimeFiles(dir).socket : readPortFile(dir);
+  if (endpoint === undefined) throw new Error("daemon endpoint is unavailable");
+  let resolveDelivery: ((delivery: { id: string; message: Record<string, unknown> }) => void) | undefined;
+  const delivery = new Promise<{ id: string; message: Record<string, unknown> }>((resolve) => { resolveDelivery = resolve; });
+  let resolveAttach: ((result: Record<string, unknown>) => void) | undefined;
+  const attached = new Promise<Record<string, unknown>>((resolve) => { resolveAttach = resolve; });
+  const link = await openJsonLineLink(endpoint, {
+    onLine: (line) => {
+      const parsed: unknown = JSON.parse(line);
+      if (!isRecord(parsed)) return;
+      if (parsed.id === 1 && isRecord(parsed.result)) resolveAttach?.(parsed.result);
+      if (isRecord(parsed.event) && parsed.event.kind === "delivery" && typeof parsed.event.id === "string" && isRecord(parsed.event.message)) {
+        resolveDelivery?.({ id: parsed.event.id, message: parsed.event.message });
+      }
+    },
+    onClose: () => undefined,
+  });
+  if (link === undefined) throw new Error("bridge could not connect");
+  link.send({ id: 1, method: "attach", params: { key } });
+  await attached;
+  return { link, attached, delivery };
+}
+
+async function startRealDaemon(dir: string, settings: Record<string, unknown>): Promise<() => Promise<void>> {
+  const discovery = tempOrchDir();
+  const previousDir = process.env.ORCH_DIR;
+  const previousDiscovery = process.env.ORCH_DAEMON_DISCOVERY_DIR;
+  const previousEntrypoint = process.env.ORCHD_ENTRYPOINT;
+  process.env.ORCH_DIR = dir;
+  process.env.ORCH_DAEMON_DISCOVERY_DIR = discovery;
+  process.env.ORCHD_ENTRYPOINT = join(import.meta.dir, "../src/daemon/orchd.ts");
+  writeSettingsFixture(dir, settings);
+  await rpcRegisterSession(dir);
+  return async () => {
+    const pid = provenDaemonPid(dir);
+    if (pid !== undefined && pid !== process.pid) await terminateDaemon(pid, 5_000);
+    if (previousDir === undefined) delete process.env.ORCH_DIR;
+    else process.env.ORCH_DIR = previousDir;
+    if (previousDiscovery === undefined) delete process.env.ORCH_DAEMON_DISCOVERY_DIR;
+    else process.env.ORCH_DAEMON_DISCOVERY_DIR = previousDiscovery;
+    if (previousEntrypoint === undefined) delete process.env.ORCHD_ENTRYPOINT;
+    else process.env.ORCHD_ENTRYPOINT = previousEntrypoint;
+  };
 }
 
 afterEach(async () => {
@@ -389,4 +442,63 @@ describe("daemon RPC", () => {
     writeFileSync(join(dir, "orchd.sock"), "");
     expect(await rejectionOf(rpcCall(dir, "echo"))).toBeInstanceOf(DaemonAbsentError);
   });
+
+  test("dispatch waits for and reports a bridge acknowledgement", async () => {
+    const dir = tempOrchDir();
+    const target = serializeIdentity({ id: mintAgentId() });
+    seedStatus(dir, target, { agent: "pi", pid: process.pid, state: "working" });
+    const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" }, timeouts: { dispatch_ack_ms: 100 } });
+    const bridge = await fakeBridge(dir, target);
+    try {
+      const dispatch = rpcCall(dir, "dispatch", { target, text: "hello bridge" });
+      const delivery = await bridge.delivery;
+      expect(delivery.message).toEqual({ action: "dispatch", text: "hello bridge" });
+      await Bun.sleep(25);
+      bridge.link.send({ id: 2, method: "ack", params: { id: delivery.id } });
+      expect(await dispatch).toMatchObject({ accepted: true, id: delivery.id, ack: "acknowledged" });
+    } finally {
+      bridge.link.close();
+      await stop();
+    }
+  }, 30_000);
+
+  test("dispatch reports unavailable while a live agent has no bridge", async () => {
+    const dir = tempOrchDir();
+    const target = serializeIdentity({ id: mintAgentId() });
+    seedStatus(dir, target, { agent: "pi", pid: process.pid, state: "working" });
+    const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" }, timeouts: { dispatch_ack_ms: 10 } });
+    try {
+      const result = await rpcCall(dir, "dispatch", { target, text: "queued" });
+      if (!isRecord(result) || typeof result.id !== "string") throw new Error("dispatch did not return an id");
+      expect(result).toMatchObject({ accepted: true, ack: "unavailable" });
+      expect(outboxMessageState(dir, result.id)).toBe("pending");
+    } finally {
+      await stop();
+    }
+  }, 30_000);
+
+  test("attach reports open rows and re-pushes them", async () => {
+    const dir = tempOrchDir();
+    const target = serializeIdentity({ id: mintAgentId() });
+    seedStatus(dir, target, { agent: "pi", pid: process.pid, state: "working" });
+    const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" }, timeouts: { dispatch_ack_ms: 10 } });
+    try {
+      const queued = await rpcCall(dir, "dispatch", { target, text: "before attach" });
+      if (!isRecord(queued) || typeof queued.id !== "string") throw new Error("dispatch did not return an id");
+      expect(outboxMessageState(dir, queued.id)).toBe("pending");
+      const bridge = await fakeBridge(dir, target);
+      try {
+        const attached = await bridge.attached;
+        expect(attached).toMatchObject({ attached: true, open: 1 });
+        const delivery = await bridge.delivery;
+        expect(delivery.id).toBe(queued.id);
+        await rpcCall(dir, "ack", { id: delivery.id });
+        expect(selectOutboxMessage(dir, queued.id)?.state).toBe("delivered");
+      } finally {
+        bridge.link.close();
+      }
+    } finally {
+      await stop();
+    }
+  }, 30_000);
 });

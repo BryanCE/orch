@@ -20,6 +20,15 @@ const tempDirs: string[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
 const DEAD_PID = 0x7fffffff;
 
+async function rejection(call: Promise<unknown>): Promise<unknown> {
+  try {
+    await call;
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 function tempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-answer-dispatch-"));
   tempDirs.push(dir);
@@ -61,8 +70,8 @@ describe("answer over the bridge", () => {
     answerStatus(directory, key, { id: "question-1" });
     const deliveries = attach(key);
 
-    await expect(deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" }))
-      .resolves.toEqual({ outcome: "invoke", ack: "expected" });
+    expect(await deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" }))
+      .toEqual({ outcome: "invoke", ack: "expected" });
     expect(deliveries).toEqual([{
       id: "answer-1",
       message: { action: "answer", text: "yes", questionId: "question-1" },
@@ -76,8 +85,8 @@ describe("answer over the bridge", () => {
     answerStatus(directory, key);
     const deliveries = attach(key);
 
-    await expect(deliverControl(key, { kind: "answer", text: "yes", id: "answer-2" }))
-      .resolves.toEqual({ outcome: "answer", reason: "not-asking", text: `${key} is not asking a question` });
+    expect(await deliverControl(key, { kind: "answer", text: "yes", id: "answer-2" }))
+      .toEqual({ outcome: "answer", reason: "not-asking", text: `${key} is not asking a question` });
     expect(deliveries).toHaveLength(0);
   });
 
@@ -87,8 +96,8 @@ describe("answer over the bridge", () => {
     const key = target();
     answerStatus(directory, key, { id: "question-3" });
 
-    await expect(deliverControl(key, { kind: "answer", text: "yes", id: "answer-3" }))
-      .rejects.toBeInstanceOf(BridgeDetachedError);
+    expect(await rejection(deliverControl(key, { kind: "answer", text: "yes", id: "answer-3" })))
+      .toBeInstanceOf(BridgeDetachedError);
   });
 
   test("reports a gone asking agent", async () => {
@@ -102,8 +111,8 @@ describe("answer over the bridge", () => {
     });
     attach(key);
 
-    await expect(deliverControl(key, { kind: "answer", text: "yes", id: "answer-4" }))
-      .rejects.toBeInstanceOf(AgentGoneError);
+    expect(await rejection(deliverControl(key, { kind: "answer", text: "yes", id: "answer-4" })))
+      .toBeInstanceOf(AgentGoneError);
   });
 
   test("answers with a clear absence when the adapter takes no answers", async () => {
@@ -112,11 +121,10 @@ describe("answer over the bridge", () => {
     const key = target();
     seedStatus(directory, key, { agent: "claude", pid: process.pid });
 
-    await expect(deliverControl(key, { kind: "answer", text: "yes", id: "answer-5" }))
-      .resolves.toEqual({
-        outcome: "answer",
-        reason: "no-environment-role",
-        text: `cannot answer ${key}: adapter claude takes no answers`,
-      });
+    expect(await deliverControl(key, { kind: "answer", text: "yes", id: "answer-5" })).toEqual({
+      outcome: "answer",
+      reason: "no-environment-role",
+      text: `cannot answer ${key}: adapter claude takes no answers`,
+    });
   });
 });

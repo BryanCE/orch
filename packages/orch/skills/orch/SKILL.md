@@ -7,9 +7,10 @@ allowed-tools: Bash, Read
 # orch
 
 `orch` runs coding agents (the harnesses: `pi`, `omp`, `claude`, `codex`) in panes of a
-terminal multiplexer (the plexers: `herdr`, `tmux`, detached `headless`). A resident daemon
-brokers every write, so a dispatch survives restarts and state changes arrive as a push
-stream instead of a poll.
+terminal multiplexer (the plexers: `herdr`, `tmux`). Outside every plexer, `orch spawn` is
+headless unless `--backend` names a plexer. A named plexer opens its own home behind a user
+grant. A resident daemon brokers every write, so a dispatch survives restarts and state
+changes arrive as a push stream instead of a poll.
 
 Never drive the plexer directly. `orch help <command>` is authoritative for flags. Config is
 `$ORCH_DIR/settings.json` (default `~/.orch/settings.json`), plain JSON you may edit by hand.
@@ -58,6 +59,9 @@ context itself, so there is no reset step between two tasks.
   (`--filter=done,error` hides the agents working and asking) or widens it to the rest of
   your space (`--space-wide`, for two orchs coordinating). Reach for one when you were told
   to observe something specific, never as standard setup.
+- **`orch spawn` already waited.** It returns only after each agent's bridge attached to
+  orchd (or prints `STALLED` and exits 1). Never `sleep` after a spawn. A dispatch sent before
+  attach is queued, not dropped: orchd re-pushes it the moment the bridge attaches.
 - **Arm through the Monitor tool (`persistent: true`).** Never `&`, `nohup`, or
   `run_in_background`. A stream that never exits never wakes a harness that wakes on
   completion, and the silence looks exactly like "still working".

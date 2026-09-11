@@ -1,6 +1,6 @@
 // Peer discovery: everything this agent knows about the OTHER agents sharing
 // $ORCH_DIR/agents/. Reads sibling presence directories, resolves a target key,
-// appends to a peer's inbox — and registers the pi surface built on top of that
+// and registers the pi surface built on top of that
 // (`/peers`, `/tell`, `orch_agents`, `orch_send`, `orch_read`).
 //
 // The counterpart module presence.ts owns THIS agent's own record; the split is
@@ -11,8 +11,7 @@ import { Type } from "typebox";
 import { term } from "../policy/vocabulary.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { recipientFromStatus, recipientLabel } from "../recipient.ts";
-import { INBOX_FILE } from "../presence/schema.ts";
-import { presenceAgentDir, presenceFile, presenceRoot, readLatestResult, readStatus } from "../presence/writer.ts";
+import { presenceAgentDir, presenceRoot, readLatestResult, readStatus } from "../presence/writer.ts";
 import { isRecord, optionalString, pidAlive, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
@@ -86,11 +85,11 @@ function liveSpawnerPeer(): Peer | undefined {
   if (!key) return undefined;
   const dir = presenceAgentDir(key);
   const status = readStatus(dir);
-  if (!pidAlive(status.pid) || !fs.existsSync(presenceFile(dir, INBOX_FILE))) return undefined;
+  if (!pidAlive(status.pid)) return undefined;
   return { key, dir, status };
 }
 
-/** Whether the stamped spawner has a live process and a mailbox to receive messages. */
+/** Whether the stamped spawner has a live process and status record. */
 export function spawnerReachable(): boolean {
   return liveSpawnerPeer() !== undefined;
 }
@@ -104,7 +103,7 @@ function resolveSpawnerPeer(): PeerResolution {
   if (!key) return { error: `error: no spawner address recorded for this agent${label ? ` (spawned by ${label})` : ""}.${UNREACHABLE_SPAWNER_ADVICE}` };
   const peer = liveSpawnerPeer();
   if (!peer) {
-    return { error: `error: spawner ${label ?? key} (${key}) has no live presence inbox to reply to.${UNREACHABLE_SPAWNER_ADVICE}` };
+    return { error: `error: spawner ${label ?? key} (${key}) has no live status record to reply to.${UNREACHABLE_SPAWNER_ADVICE}` };
   }
   return { peer };
 }
@@ -165,26 +164,25 @@ export async function peerSummaries(daemon: DaemonClient, ownKey: string, allSpa
   return spawner ? [spawner, ...rows] : rows;
 }
 
-/** Append one line to a peer's inbox. The only writer into another agent's
- * presence directory, so both the steer path and the handoff path share it. */
-export function appendPeerInbox(peerDir: string, text: string): void {
-  fs.appendFileSync(
-    presenceFile(peerDir, INBOX_FILE),
-    `${JSON.stringify({ text, ts: new Date().toISOString() })}\n`,
-  );
-}
-
 export async function sendPeerMessage(daemon: DaemonClient, target: string, text: string, ownKey: string, allSpaces = false): Promise<string> {
   const resolved = await resolvePeer(daemon, target, ownKey, allSpaces);
   if ("error" in resolved) return resolved.error;
   // The receiver learns the sender's NAME with the key beside it as the reply
   // address — both sides of every message carry full identity.
   const ownName = optionalString(readStatus(presenceAgentDir(ownKey)).label);
-  appendPeerInbox(resolved.peer.dir, `[from ${ownName ? `${ownName} (${ownKey})` : ownKey}] ${text}`);
+  const message = `[from ${ownName ? `${ownName} (${ownKey})` : ownKey}] ${text}`;
+  const response = await daemon.ask("message", {
+    from: ownKey,
+    target: resolved.peer.key,
+    text: message,
+  });
+  if (response === undefined) return "error: daemon unreachable; message not sent";
   // The sender knows a peer by its name and harness, not by the transport key that routed there.
   const live = await livePeers(daemon, ownKey, allSpaces);
   const space = live?.view.spaces[resolved.peer.key] ?? null;
-  return `sent to ${recipientLabel(recipientFromStatus(resolved.peer.key, space ?? "", resolved.peer.status))}`;
+  const label = recipientLabel(recipientFromStatus(resolved.peer.key, space ?? "", resolved.peer.status));
+  if (isRecord(response) && response.ack === "acknowledged") return `sent to ${label}`;
+  return `sent to ${label} (queued, not yet read)`;
 }
 
 /** Header of the orphan bucket. G9 wants unleased agents SEPARATED from live

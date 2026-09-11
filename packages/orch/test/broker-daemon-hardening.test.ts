@@ -9,7 +9,10 @@ import { drainOutbox } from "../src/daemon/outbox.ts";
 import { validateWriteParams } from "../src/daemon/orchd.ts";
 import { ReplayBuffer } from "../src/daemon/rpc/replay.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import type { BridgeMessage } from "../src/control/bridge-message.ts";
 import type { OutboxDelivery, RpcServer } from "../src/types/daemon.ts";
+
+const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
 const dirs: string[] = [];
 const servers: RpcServer[] = [];
@@ -35,7 +38,7 @@ describe("broker daemon hardening", () => {
 
   test("ack is idempotent when the same id is acknowledged twice", () => {
     const dir = fixture();
-    insertOutboxMessage(dir, { id: "ack-once", target: "agent:a", payload: "x" });
+    insertOutboxMessage(dir, { id: "ack-once", target: "agent:a", payload: message("x") });
     markOutboxDelivered(dir, "ack-once");
     expect(() => markOutboxDelivered(dir, "ack-once")).not.toThrow();
     expect(selectPendingOutbox(dir, Date.now())).toEqual([]);
@@ -43,29 +46,30 @@ describe("broker daemon hardening", () => {
 
   test("a throwing delivery is retried and does not poison later messages", async () => {
     const dir = fixture();
-    insertOutboxMessage(dir, { id: "throws", target: "a", payload: "x" });
-    insertOutboxMessage(dir, { id: "works", target: "b", payload: "y" });
+    insertOutboxMessage(dir, { id: "throws", target: "a", payload: message("x") });
+    insertOutboxMessage(dir, { id: "works", target: "b", payload: message("y") });
     const delivered: string[] = [];
     const result = await drainOutbox(dir, {
       now: () => 1_000,
+      maxAttempts: 5,
       deliver: (target) => {
         if (target === "a") return Promise.reject(new Error("backend down"));
         delivered.push(target);
         return Promise.resolve<OutboxDelivery>("acked");
       },
     });
-    expect(result).toEqual({ delivered: 1, retried: 1, awaiting: 0 });
+    expect(result).toEqual({ retried: 1, awaiting: 0 });
     expect(delivered).toEqual(["b"]);
     expect(selectPendingOutbox(dir, 1_501).map((message) => message.id)).toEqual(["throws"]);
   });
 
   test("concurrent drains do not redeliver one message id", async () => {
     const dir = fixture();
-    insertOutboxMessage(dir, { id: "single", target: "a", payload: "x" });
+    insertOutboxMessage(dir, { id: "single", target: "a", payload: message("x") });
     let deliveries = 0;
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => { release = resolve; });
-    const deps = { now: () => 0, deliver: async () => { deliveries += 1; await blocked; return "acked" as const; } };
+    const deps = { now: () => 0, maxAttempts: 5, deliver: async () => { deliveries += 1; await blocked; return "acked" as const; } };
     const first = drainOutbox(dir, deps);
     await Bun.sleep(0);
     const second = drainOutbox(dir, deps);

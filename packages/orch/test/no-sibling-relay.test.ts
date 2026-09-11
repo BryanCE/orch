@@ -72,7 +72,7 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
     }
   });
 
-  test("a spawner that is stamped but has no inbox refuses by NAME and still says to report", async () => {
+  test("a spawner that is stamped but has no live status record refuses by NAME and still says to report", async () => {
     const d = fixture();
     process.env.ORCH_SPAWNER = "deadorch01";
     process.env.ORCH_SPAWNER_LABEL = "claude session";

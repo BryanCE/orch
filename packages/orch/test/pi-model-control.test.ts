@@ -148,7 +148,7 @@ describe("createModelControl.applyControlCommand", () => {
       },
     });
 
-    await control.applyControlCommand({ cmd: "model", model: "openai-codex/gpt-5.6-luna:medium", id: "req-1" });
+    await control.applyControlCommand({ action: "model", model: "openai-codex/gpt-5.6-luna:medium" }, "req-1");
 
     expect(calls.model).toEqual(fakeModel("openai-codex", "gpt-5.6-luna"));
     expect(calls.thinking).toBe("medium");
@@ -170,30 +170,13 @@ describe("createModelControl.applyControlCommand", () => {
       refreshPresence: () => undefined,
     });
 
-    await control.applyControlCommand({ cmd: "model", model: "openrouter/bad/model" });
+    await control.applyControlCommand({ action: "model", model: "openrouter/bad/model" }, "req-2");
 
     expect(calls.model).toBeUndefined();
-    expect(outcomes.recorded[0]).toMatchObject({ success: false });
+    expect(outcomes.recorded[0]).toMatchObject({ id: "req-2", success: false });
     expect(outcomes.recorded[0]?.error).toMatch(/Model not in registry/);
-    // No request id means no waiter, so nothing is reported to orchd.
-    expect(outcomes.reported).toHaveLength(0);
-  });
-
-  test("applies a thinking command directly", async () => {
-    const { pi, calls } = makePi();
-    const outcomes = outcomeRecorder();
-    const control = createModelControl({
-      harness: pi,
-      context: () => undefined,
-      recordOutcome: outcomes.record,
-      reportOutcome: outcomes.report,
-      refreshPresence: () => undefined,
-    });
-
-    await control.applyControlCommand({ cmd: "thinking", level: "high", id: "req-2" });
-
-    expect(calls.thinking).toBe("high");
-    expect(outcomes.recorded[0]).toMatchObject({ success: true, requested: { thinking: "high" } });
-    expect(outcomes.reported[0]).toMatchObject({ command: "thinking", requested: { thinking: "high" } });
+    // The dispatcher blocks on this report, so a failure is reported under the same id.
+    expect(outcomes.reported[0]).toMatchObject({ id: "req-2", command: "model" });
+    expect(outcomes.reported[0]?.error).toMatch(/Model not in registry/);
   });
 });

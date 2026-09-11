@@ -77,10 +77,10 @@ class RecordingHomeRole implements SpaceHomeRole<string> {
 const inertGroupHome: GroupHomeRole = {
   list: () => [],
   create: () => { throw new Error("inert group home never creates"); },
-  rename: () => {},
-  close: () => {},
-  focus: () => {},
-  move: () => {},
+  rename: () => undefined,
+  close: () => undefined,
+  focus: () => undefined,
+  move: () => undefined,
 };
 
 class HomedBackend extends FakePanedBackend {

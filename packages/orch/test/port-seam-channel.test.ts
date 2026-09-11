@@ -2,45 +2,55 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
+import { deliverWrite } from "../src/daemon/orchd.ts";
+import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
+import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { appendAck, drainInbox } from "../src/presence/inbox.ts";
 import { presenceAgentDir, writeResult, writeStatus } from "../src/presence/writer.ts";
-import { createAgentChannelRole, createCaptureRole } from "../src/presence/roles.ts";
-import { insertOutboxMessage, outboxMessageOpen } from "../src/store/outbox-rows.ts";
-import { consumeOutboxAcks } from "../src/daemon/outbox.ts";
+import { createCaptureRole } from "../src/presence/roles.ts";
+import { insertOutboxMessage, markOutboxDelivered, outboxMessageState } from "../src/store/outbox-rows.ts";
+import { deliverOutboxMessage } from "../src/daemon/outbox.ts";
+import type { OutboxDeps } from "../src/types/daemon.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedStatus } from "./helpers/presence.ts";
 
 const dirs: string[] = [];
+const links: { readonly key: string; readonly link: BridgeLink }[] = [];
+const saved = process.env.ORCH_DIR;
+
 function tempOrchDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-port-seam-"));
   dirs.push(dir);
+  process.env.ORCH_DIR = dir;
   return dir;
 }
 
 afterEach(() => {
+  for (const { key, link } of links.splice(0)) detachBridge(key, link);
   for (const dir of dirs.splice(0)) removeTempDir(dir);
+  if (saved === undefined) delete process.env.ORCH_DIR;
+  else process.env.ORCH_DIR = saved;
 });
 
-describe("orch channel and capture roles", () => {
-  test("headless delivery reaches the inbox and is acknowledged without a screen", () => {
+describe("orch bridge links and capture roles", () => {
+  test("headless delivery reaches the link and the ack settles its outbox row", async () => {
     const orchDir = tempOrchDir();
     const key = "workeragt1";
-    const agentDir = presenceAgentDir(key, orchDir);
-    fs.mkdirSync(agentDir, { recursive: true });
-    writeStatus(agentDir, { schema: PRESENCE_SCHEMA, key, agent: "pi", pid: process.pid, state: "working" });
+    seedStatus(orchDir, key, { key, agent: "pi", pid: process.pid, state: "working" });
+    const deliveries: BridgeDelivery[] = [];
+    const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
+    attachBridge(key, link);
+    links.push({ key, link });
     const id = "dispatch-1";
     insertOutboxMessage(orchDir, { id, target: key, payload: { action: "dispatch", text: "hello" } });
 
-    const receipt = createAgentChannelRole(orchDir).deliver(key, { id, text: "hello" });
-    expect(receipt).toMatchObject({ id, accepted: true });
-    const inbox = drainInbox(agentDir);
-    expect(JSON.parse(inbox[0]!)).toMatchObject({ id, text: "hello" });
-    expect(inbox[1]).toBe("");
+    const deps: OutboxDeps = { deliver: deliverWrite, maxAttempts: 3, now: () => 0 };
+    await deliverOutboxMessage(orchDir, id, deps);
 
-    // This is the bridge side of inbox -> bridge -> ack. No pane or plexer is involved.
-    appendAck(agentDir, id, key);
-    expect(consumeOutboxAcks(orchDir)).toBe(1);
-    expect(outboxMessageOpen(orchDir, id)).toBe(false);
+    expect(deliveries).toEqual([{ id, message: { action: "dispatch", text: "hello" } }]);
+    expect(outboxMessageState(orchDir, id)).toBe("awaiting");
+    markOutboxDelivered(orchDir, id);
+    expect(outboxMessageState(orchDir, id)).toBe("delivered");
   });
 
   test("capture reads status and result from the orch presence record", () => {

@@ -89,7 +89,7 @@ export interface PackSourceShape {
   ownKey(): string | undefined;
   /** Presence facts for one agent, straight off disk. */
   enrich(key: string): PackEnrichment;
-  /** Steer or continue one agent through its inbox. */
+  /** Steer or continue one agent through its daemon link. */
   send(key: string, text: string): Effect.Effect<string, PackSendError>;
   /** Cancel one agent's current turn via the CLI dispatcher. */
   abort(key: string): Effect.Effect<void, PackAbortError>;

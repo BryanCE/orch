@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
@@ -7,26 +7,26 @@ import { ensureHarness, ensureHost, ensurePlexer, insertAgent } from "../src/sto
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { acquireLease, adoptLease, handoffLease, leaseHistory, releaseLease } from "../src/store/lease-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { inboxPath } from "../src/presence/inbox.ts";
+import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
+import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { outbox } from "../src/db/schema.ts";
 
 /**
- * A transfer must not disturb the agent — no reset, no re-attach, no CONTEXT
- * LOSS.
- *
- * Ownership is a lease and nothing else (A1), so handing one over is a write to
- * `agent_leases` and to nothing else. The failure this forbids is the tempting
- * one: re-attaching or resetting the agent "so the new holder gets a clean
- * session" throws away the very work the transfer existed to preserve.
+ * A transfer must not disturb the agent or its attached link. Ownership is a
+ * lease and nothing else (A1), so handing one over writes `agent_leases` and
+ * sends no control delivery down the link.
  */
 
 const dirs: string[] = [];
+const links: { readonly key: string; readonly link: BridgeLink }[] = [];
 const saved = process.env.ORCH_DIR;
 
 afterEach(() => {
+  for (const { key, link } of links.splice(0)) detachBridge(key, link);
   closeAllStores();
   if (saved === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = saved;
@@ -97,15 +97,19 @@ describe("a transfer touches the lease and nothing else", () => {
     expect(processInterval(directory)).toEqual(processBefore);
   });
 
-  test("no reset, steer or re-attach is delivered to the agent", () => {
-    const { directory } = workingAgent();
+  test("no control write is delivered to the agent", () => {
+    const { directory, worker } = workingAgent();
     const statusBefore = statusBytes(directory);
+    const deliveries: BridgeDelivery[] = [];
+    const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
+    attachBridge(worker, link);
+    links.push({ key: worker, link });
 
-    handoffLease(directory, "worker", "orch-a", "orch-b", 30);
+    handoffLease(directory, worker, "orch-a", "orch-b", 30);
 
-    // Nothing was said to the agent at all: its inbox was never even created,
-    // and its presence status is byte-identical.
-    expect(existsSync(inboxPath(join(directory, "agents", "worker")))).toBe(false);
+    const rows = orm(directory).select().from(outbox).where(eq(outbox.target, worker)).all();
+    expect(rows).toHaveLength(0);
+    expect(deliveries).toEqual([]);
     expect(statusBytes(directory)).toBe(statusBefore);
   });
 

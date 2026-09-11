@@ -217,19 +217,6 @@ export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;
 /** Plexer backends supported by orch. */
 export type BackendId = (typeof BACKEND_IDS)[number];
 
-/** One orch message delivered through an agent's presence inbox. */
-export interface AgentMessage {
-  readonly id?: string;
-  readonly text: string;
-  readonly action?: "dispatch" | "steer";
-}
-
-/** Receipt for a message appended to the orch inbox. */
-export interface DeliveryReceipt {
-  readonly id: string;
-  readonly accepted: true;
-}
-
 /** Request selecting captured orch-owned output. */
 export interface CaptureRequest {
   readonly source?: "status" | "result" | "all";
@@ -239,11 +226,6 @@ export interface CaptureRequest {
 export interface CapturedOutput {
   readonly status: unknown;
   readonly result: unknown;
-}
-
-/** The lossless orch inbox channel. This is never a plexer operation. */
-export interface AgentChannelRole {
-  deliver(agentId: string, message: AgentMessage): DeliveryReceipt;
 }
 
 /** The orch-owned captured status/result channel. */
@@ -382,8 +364,7 @@ export interface Backend<Handle = BackendHandle> {
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): Handle;
   /** Process control, always composed: every environment runs processes. */
   readonly process: ProcessRole;
-  /** Orch-owned channels composed for this environment. */
-  readonly channel: AgentChannelRole;
+  /** Read orch-owned captured status/result records; control traffic uses the daemon socket. */
   readonly capture: CaptureRole;
   /** Identity of the calling process's own target, when inside a session. */
   readonly identity: EnvironmentIdentityRole | null;

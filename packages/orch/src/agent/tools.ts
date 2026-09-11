@@ -6,20 +6,15 @@
 // All presence I/O goes through the injected AgentPresence binding and all
 // notification delivery through the injected notifier, so this module is
 // backend-agnostic.
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { Type } from "typebox";
 import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
 import { loadSettingsOrNull } from "../settings/read.ts";
 import { orchDir } from "../presence/writer.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock } from "../control/cmd-lock.ts";
-import { ANSWER_FILE, QUESTION_FILE } from "../presence/schema.ts";
-import { reportDeliveryAck } from "../presence/inbox.ts";
-import { atomicWrite, presenceFile } from "../presence/writer.ts";
 import { registerPeerTools, toolResult } from "./peers.ts";
 import { extractText, isAssistantMessageLike, HEARTBEAT_MS, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
-import { isRecord, isUnknownArray, optionalString, readJsonFile, truncate } from "../util.ts";
+import { isRecord, isUnknownArray, optionalString, truncate } from "../util.ts";
 import { prepareWorkerTask } from "../worker-prompt.ts";
 import type { AgentToolsOptions, AssistantMessageLike, BridgeNotification, BridgeToolResult, HarnessApi, HarnessContext } from "../types/agent.ts";
 import type { CommandLock } from "../types/control.ts";
@@ -91,45 +86,6 @@ function noOrchestratorAnswer(): BridgeToolResult {
   return toolResult(`no answer from ${term("orch")} (timeout) - proceed with your best judgment and note the open question in your final reply.`);
 }
 
-function waitForOrchestratorAnswer(
-  answerFile: string,
-  signal: AbortSignal | undefined,
-  reNotify: () => void,
-): Promise<{ text: string; id: string } | undefined> {
-  return new Promise((resolve) => {
-    let settled = false;
-    let lastNotificationAt = Date.now();
-    const finish = (answer?: { text: string; id: string }) => {
-      if (settled) return;
-      settled = true;
-      clearInterval(poll);
-      clearTimeout(timeout);
-      try {
-        signal?.removeEventListener("abort", onAbort);
-      } catch {}
-      resolve(answer);
-    };
-    const check = () => {
-      const answer = readJsonFile(answerFile);
-      if (isRecord(answer) && typeof answer.text === "string" && typeof answer.id === "string" && answer.id.length > 0) {
-        finish({ text: answer.text, id: answer.id });
-        return;
-      }
-      if (Date.now() - lastNotificationAt >= 60 * 1000) {
-        reNotify();
-        lastNotificationAt = Date.now();
-      }
-    };
-    const onAbort = () => finish();
-    const poll = setInterval(check, 500);
-    const timeout = setTimeout(() => finish(), 10 * 60 * 1000);
-    try {
-      signal?.addEventListener("abort", onAbort, { once: true });
-    } catch {}
-    if (signal?.aborted) onAbort();
-  });
-}
-
 /**
  * Registers this agent's own tools and lifecycle handlers, and delegates the
  * peer-facing surface to peers.ts.
@@ -166,12 +122,6 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         if (!dir) return noOrchestratorAnswer();
         const id = Math.random().toString(36).slice(2, 10);
         const ts = new Date().toISOString();
-        const questionFile = path.join(dir, QUESTION_FILE);
-        const answerFile = presenceFile(dir, ANSWER_FILE);
-        try {
-          fs.unlinkSync(answerFile);
-        } catch {}
-        atomicWrite(questionFile, { question: params.question, ts, id });
         askingPreviousState = state.state;
         state.asking = { question: truncate(params.question, 200), id, ts };
         state.state = "asking";
@@ -189,20 +139,17 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         };
         notify(notificationEvent);
 
-        const answer = await waitForOrchestratorAnswer(answerFile, signal, () => {
+        const reNotifyTimer = setInterval(() => {
           notify(notificationEvent);
-        });
-        if (answer !== undefined) {
-          try {
-            fs.unlinkSync(answerFile);
-          } catch {}
-          try {
-            fs.unlinkSync(questionFile);
-          } catch {}
-          await reportDeliveryAck(dir, answer.id, state.key, (id) => daemon.postAck(id));
+        }, 60 * 1000);
+        try {
+          const answer = await presence.answers.await(id, signal);
           return toolResult(answer.text);
+        } catch {
+          return noOrchestratorAnswer();
+        } finally {
+          clearInterval(reNotifyTimer);
         }
-        return noOrchestratorAnswer();
       } catch {
         return noOrchestratorAnswer();
       } finally {
@@ -489,9 +436,6 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     try {
       if (ctx) presence.updateContextUsage(ctx);
       if (finalText && presence.dir()) presence.writeResult(finalText);
-      if (presence.hasPendingHandoff() && finalText) {
-        void presence.deliverPendingHandoff(finalText, presence.keyOrCompute(ctx?.hasUI ?? false));
-      }
     } catch (error: unknown) {
       // A failing end-hook operation must not strand the agent as working. Keep
       // the terminal state and retain a useful error for the daemon/event row.

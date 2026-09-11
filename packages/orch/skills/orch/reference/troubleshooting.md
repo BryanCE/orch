@@ -10,6 +10,19 @@ file. A hung daemon means stop, kill the pid, start.
 After rebuilding or reinstalling orch, `orch daemon reload` re-execs the daemon on the new
 code. That is the fix for a CLI/daemon hash-skew refusal.
 
+## Queued dispatches
+
+`Queued for <agent> (dispatch <id>): no bridge ack within Nms` means the agent is live but
+its bridge holds no link. The harness is still starting, or the bridge is redialing on
+`daemon.bridge_reconnect_ms`. The write is safe in the outbox. `orch status --json` shows
+`bridgeAttached` per agent. Watch `orch events` for the delivery state change.
+
+## Stalled spawn
+
+`STALLED <handle>  <name> - bridge never attached; try: orch restart <name>` means the
+spawn attach wait expired. Spawn exits 1. Check harness startup, then retry
+`orch restart <name>`.
+
 ## Ambiguous targets
 
 After a pane's first completed dispatch, control targets can go ambiguous (`ambiguous:

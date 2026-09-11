@@ -48,18 +48,18 @@ describe("socket outbox acknowledgements", () => {
     const id = "acknowledged";
     insertOutboxMessage(dir, { id, target: "agent", payload: message("hello") });
     const calls: string[] = [];
-    const deliveryDeps = deps(3, async (_target, _payload, deliveryId) => {
+    const deliveryDeps = deps(3, (_target, _payload, deliveryId) => {
       calls.push(deliveryId);
-      return "queued";
+      return Promise.resolve<OutboxDelivery>("queued");
     });
 
     expect(await drainOutbox(dir, deliveryDeps)).toEqual({ retried: 0, awaiting: 1 });
     expect(outboxMessageState(dir, id)).toBe("awaiting");
     markOutboxDelivered(dir, id);
     expect(outboxMessageState(dir, id)).toBe("delivered");
-    await deliverOutboxMessage(dir, id, deps(3, async () => {
+    await deliverOutboxMessage(dir, id, deps(3, () => {
       calls.push("unexpected");
-      return "acked";
+      return Promise.resolve<OutboxDelivery>("acked");
     }));
 
     expect(calls).toEqual([id]);
@@ -69,9 +69,8 @@ describe("socket outbox acknowledgements", () => {
     const dir = fixture();
     const id = "detached";
     insertOutboxMessage(dir, { id, target: "agent", payload: message("hello") });
-    const result = await drainOutbox(dir, deps(3, async (target) => {
-      throw new BridgeDetachedError(target);
-    }));
+    const result = await drainOutbox(dir, deps(3, (target) =>
+      Promise.reject(new BridgeDetachedError(target))));
 
     expect(result).toEqual({ retried: 1, awaiting: 0 });
     const row = selectOutboxMessage(dir, id);
@@ -85,9 +84,8 @@ describe("socket outbox acknowledgements", () => {
     const dir = fixture();
     const id = "gone";
     insertOutboxMessage(dir, { id, target: "agent", payload: message("hello") });
-    await drainOutbox(dir, deps(3, async (target) => {
-      throw new AgentGoneError(target, "ended");
-    }));
+    await drainOutbox(dir, deps(3, (target) =>
+      Promise.reject(new AgentGoneError(target, "ended"))));
 
     expect(outboxMessageState(dir, id)).toBe("undeliverable");
     expect(selectOutboxMessage(dir, id)?.attempts).toBe(0);
@@ -101,7 +99,7 @@ describe("socket outbox acknowledgements", () => {
     bumpOutboxAttempt(dir, "at-cap", 0);
     bumpOutboxAttempt(dir, "before-cap", 0);
 
-    const result = await drainOutbox(dir, deps(3, async () => "failed"));
+    const result = await drainOutbox(dir, deps(3, () => Promise.resolve<OutboxDelivery>("failed")));
 
     expect(result).toEqual({ retried: 1, awaiting: 0 });
     expect(outboxMessageState(dir, "at-cap")).toBe("undeliverable");
@@ -121,9 +119,9 @@ describe("socket outbox acknowledgements", () => {
     bumpOutboxAttempt(dir, "other", 999_999);
     const delivered: string[] = [];
 
-    await redeliverOpenRows(dir, "target", deps(10, async (_target, _payload, id) => {
+    await redeliverOpenRows(dir, "target", deps(10, (_target, _payload, id) => {
       delivered.push(id);
-      return "failed";
+      return Promise.resolve<OutboxDelivery>("failed");
     }));
 
     expect(delivered).toEqual(["old", "new"]);

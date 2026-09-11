@@ -261,7 +261,7 @@ export interface AgentPresenceOptions {
   identity: HarnessIdentity;
   /** Bridge code hash stamped into status.json for the doctor staleness check. */
   extensionHash: string;
-  /** Daemon-socket client: inbox acks and control outcomes. */
+  /** Daemon-socket client: delivery acknowledgements and control outcomes. */
   daemon: DaemonClient;
 }
 
@@ -293,7 +293,6 @@ export interface AgentToolsOptions {
   refreshLabels: () => Promise<void>;
 }
 
-/** Ack transport + dedupe set handed to the inbox drain. */
 /** What an agent did with one control command. */
 export interface ControlOutcome {
   id: string;
@@ -310,8 +309,6 @@ export interface ControlOutcomeReport extends ControlOutcome {
 
 /** The agent's live link to orchd for requests, deliveries, and acknowledgements. */
 export interface DaemonClient {
-  /** Message id carried by a parsed inbox line, when it has one. */
-  messageIdOf(parsed: unknown): string | undefined;
   isAcked(id: string): boolean;
   markAcked(id: string): void;
   /** Asks orchd a question; `undefined` when the daemon is absent, unreachable,
@@ -331,15 +328,6 @@ export interface DaemonClient {
 }
 
 export type ResolvedModel = NonNullable<HarnessContext["model"]>;
-
-/** A raw inbox control command; `cmd` selects which of `model`/`level` is meaningful. */
-export interface ControlCommand {
-  cmd: string;
-  /** Dispatcher-minted request id, echoed into the control outcome so the waiter matches its own command. */
-  id?: unknown;
-  model?: unknown;
-  level?: unknown;
-}
 
 /** Look up a registry model by bare provider + id; a fresh value each call so a retry sees a just-loaded registry. */
 export type FindRegistryModel = (provider: string, id: string) => ResolvedModel | undefined;

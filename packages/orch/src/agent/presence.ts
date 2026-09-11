@@ -1,12 +1,10 @@
-// pi's binding to the orch presence protocol for THIS agent: its live state
-// record, its control-command channel, its inbox drain and its ack marker. Every
-// file touch goes through the shared presence writer (src/presence/writer.ts and
-// src/presence/inbox.ts) — the protocol is orch's, not pi's (CLAUDE.md Rule 10).
+// pi's binding to orch's live presence record and daemon link for THIS agent.
+// Orchd pushes dispatch, steer, model, and answer deliveries down that link;
+// this module applies them, acknowledges applied work, and writes status.
 // Peer agents are the subject of the companion module peers.ts.
 //
-// Nothing here is backend-aware: the pane id, the status sink and the daemon ack
-// transport are all injected by the composition root.
-import * as fs from "node:fs";
+// Nothing here is backend-aware: the status sink and daemon link are injected by
+// the composition root.
 import { mintAgentId } from "../backends/identity.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { PRESENCE_SCHEMA } from "../presence/schema.ts";
@@ -17,24 +15,17 @@ import {
   writeResult as writePresenceResult,
   writeStatus as writePresenceStatus,
 } from "../presence/writer.ts";
-import {
-  reportDeliveryAck,
-  drainInbox as drainPresenceInbox,
-  isInboxFilename,
-  resetInbox,
-} from "../presence/inbox.ts";
 import { isRecord, isUnknownArray, optionalString, projectRoot, sessionFilePath } from "../util.ts";
-import { createModelControl, isControlCommand } from "./model-control.ts";
+import { createModelControl } from "./model-control.ts";
 import type { AgentState } from "../adapters/adapter.ts";
-import { appendPeerInbox, resolvePeer } from "./peers.ts";
 import type { AgentPresenceOptions, AssistantMessageLike, HarnessContext, UsageLike } from "../types/agent.ts";
 import type { JsonRecord } from "../types/core.ts";
+import type { BridgeDelivery, BridgeMessage } from "../control/bridge-message.ts";
 
 export const LAST_TEXT_MAX = 400;
 /** Maximum stored task length after the worker header is removed. */
 export const TASK_MAX = 200;
 export const HEARTBEAT_MS = 3000;
-const INBOX_POLL_MS = 1000;
 
 interface TextBlockLike {
   type: unknown;
@@ -138,8 +129,6 @@ interface AgentPresenceState {
   finishedAt: string | undefined;
   updatedAt: string;
   steersReceived: number;
-  pendingHandoff: string | undefined;
-  handoffError: string | undefined;
   asking: { question: string; id: string; ts: string } | undefined;
 }
 
@@ -186,8 +175,6 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     finishedAt: undefined,
     updatedAt: new Date().toISOString(),
     steersReceived: 0,
-    pendingHandoff: undefined,
-    handoffError: undefined,
     asking: undefined,
   };
   Object.assign(state, launchStamp(state, options.identity.agentId, ""));
@@ -198,8 +185,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     lastFull: undefined,
     runFull: undefined,
   };
-  let pendingHandoff: { target: string; note?: string } | undefined;
-  /** The last inbox text delivery, kept so the run it starts can name its dispatch. */
+  /** The last pushed text delivery, kept so the run it starts can name its dispatch. */
   let delivered: { id: string; text: string } | undefined;
 
   function writeStatus() {
@@ -324,14 +310,8 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     } catch {}
   }
 
-  // ---- inbox: appended lines become steer messages ----
-  let poll: ReturnType<typeof setInterval> | undefined;
-  let watcher: fs.FSWatcher | undefined;
-
-  // Model/thinking control commands are applied by the dedicated model-control
-  // module (allowlist gate + registry resolution + ladder-suffix parsing); this
-  // layer owns the inbox transport, the outcome history and the presence
-  // refresh the applier calls back into.
+  // Model control is applied by the dedicated module (registry resolution +
+  // ladder-suffix parsing); this layer owns delivery and presence refresh.
   const modelControl = createModelControl({
     harness,
     context: () => lastCtx,
@@ -345,37 +325,6 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     },
   });
 
-  function parseInboxLine(line: string): unknown {
-    const trimmed = line.trim();
-    if (!trimmed) return undefined;
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      return parsed;
-    } catch {
-      return trimmed;
-    }
-  }
-
-  async function routeInboxCommand(parsed: unknown): Promise<boolean> {
-    if (!isRecord(parsed) || typeof parsed.cmd !== "string") return false;
-    // Control commands: {"cmd":"model","model":"provider/id"} and
-    // {"cmd":"thinking","level":"low"} — pi's real APIs, never the TUI
-    // composer (a non-matching /model string opens a selector overlay
-    // and wedges the pane).
-    if ((parsed.cmd === "model" || parsed.cmd === "thinking") && isControlCommand(parsed)) {
-      await modelControl.applyControlCommand(parsed);
-    } else if (parsed.cmd === "on_done" && typeof parsed.target === "string" && parsed.target.trim()) {
-      const target = parsed.target.trim();
-      pendingHandoff = {
-        target,
-        note: typeof parsed.note === "string" ? parsed.note : undefined,
-      };
-      state.pendingHandoff = target;
-      state.handoffError = undefined;
-    }
-    return true;
-  }
-
   function deliverSteerText(text: string): void {
     state.steersReceived += 1;
     const idle = lastCtx?.isIdle() ?? true;
@@ -386,37 +335,70 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     }
   }
 
-  async function applyInboxMessage(parsed: unknown, messageId: string | undefined): Promise<void> {
-    if (await routeInboxCommand(parsed)) return;
-    const text = typeof parsed === "string"
-      ? parsed
-      : isRecord(parsed) && typeof parsed.text === "string" ? parsed.text : undefined;
-    if (!text) return;
-    if (messageId !== undefined) delivered = { id: messageId, text };
-    deliverSteerText(text);
-  }
+  let pendingAnswer: {
+    questionId: string;
+    resolve: (answer: { deliveryId: string; text: string }) => void;
+    reject: (error: Error) => void;
+    cleanup: () => void;
+  } | undefined;
 
-  async function routeInboxLine(line: string): Promise<void> {
-    const parsed = parseInboxLine(line);
-    const messageId = daemon.messageIdOf(parsed);
-    if (messageId !== undefined && daemon.isAcked(messageId)) return;
-    await applyInboxMessage(parsed, messageId);
-    if (messageId !== undefined) {
-      daemon.markAcked(messageId);
-      if (dir) await reportDeliveryAck(dir, messageId, state.key, (id) => daemon.postAck(id));
+  const answers = {
+    await(questionId: string, signal: AbortSignal | undefined): Promise<{ deliveryId: string; text: string }> {
+      return new Promise((resolve, reject) => {
+        const previous = pendingAnswer;
+        previous?.cleanup();
+        previous?.reject(new Error("answer waiter replaced"));
+        const waiter = {
+          questionId,
+          resolve,
+          reject,
+          cleanup: () => {
+            signal?.removeEventListener("abort", onAbort);
+            if (pendingAnswer === waiter) pendingAnswer = undefined;
+          },
+        };
+        const onAbort = () => {
+          waiter.cleanup();
+          reject(new Error("answer wait aborted"));
+        };
+        pendingAnswer = waiter;
+        signal?.addEventListener("abort", onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+      });
+    },
+    settle(deliveryId: string, message: Extract<BridgeMessage, { action: "answer" }>): boolean {
+      const waiter = pendingAnswer;
+      if (!waiter || waiter.questionId !== message.questionId) return false;
+      waiter.cleanup();
+      waiter.resolve({ deliveryId, text: message.text });
+      return true;
+    },
+  };
+
+  async function routeDelivery(delivery: BridgeDelivery): Promise<void> {
+    if (daemon.isAcked(delivery.id)) {
+      void daemon.postAck(delivery.id);
+      return;
     }
-  }
-
-  // The shared drain atomically claims the inbox (rename), so lines appended
-  // mid-drain land in a fresh inbox and are never lost. It returns the raw split
-  // of the claimed file, blank lines included, which routeInboxLine expects.
-  // An empty array means the claim itself failed — another drain won the race,
-  // or there is no inbox yet — so there is nothing to report.
-  async function drainInbox(): Promise<void> {
-    if (!dir) return;
-    const lines = drainPresenceInbox(dir);
-    if (lines.length === 0) return;
-    for (const line of lines) await routeInboxLine(line);
+    switch (delivery.message.action) {
+      case "dispatch":
+      case "steer":
+        delivered = { id: delivery.id, text: delivery.message.text };
+        deliverSteerText(delivery.message.text);
+        break;
+      case "model":
+        await modelControl.applyControlCommand(delivery.message, delivery.id);
+        break;
+      case "answer":
+        if (!answers.settle(delivery.id, delivery.message)) return;
+        break;
+      default: {
+        const exhaustive: never = delivery.message;
+        return exhaustive;
+      }
+    }
+    daemon.markAcked(delivery.id);
+    void daemon.postAck(delivery.id);
     writeStatus();
   }
 
@@ -432,21 +414,11 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     // orch CLI) inherit this, so a spawn made FROM here can hand its workers
     // this session's reply address — whatever harness this happens to be.
     process.env.ORCH_SESSION_KEY = key;
-    resetInbox(dir); // ignore steers from a previous life
-    poll = setInterval(() => {
-      void drainInbox().catch(() => {
-        /* noop */
+    daemon.attach(key, (delivery) => {
+      void routeDelivery(delivery).catch(() => {
+        /* A failed apply remains unacked for daemon redelivery. */
       });
-    }, INBOX_POLL_MS);
-    poll.unref?.();
-    try {
-      watcher = fs.watch(dir, (_ev, filename) => {
-        if (isInboxFilename(filename)) void drainInbox().catch(() => {
-          /* noop */
-        });
-      });
-      watcher.unref?.();
-    } catch {}
+    });
   }
 
   function keyOrCompute(hasUI: boolean): string {
@@ -458,36 +430,8 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     return keyOrCompute(ctx.hasUI);
   }
 
-  function clearPendingHandoff(): void {
-    pendingHandoff = undefined;
-    state.pendingHandoff = undefined;
-  }
-
-  async function deliverPendingHandoff(finalText: string, ownKey: string): Promise<void> {
-    const handoff = pendingHandoff;
-    if (!handoff) return;
-    try {
-      const resolved = await resolvePeer(daemon, handoff.target, ownKey);
-      if ("error" in resolved) {
-        state.handoffError = resolved.error;
-        clearPendingHandoff();
-        return;
-      }
-      const note = handoff.note ? `${handoff.note}\n` : "";
-      const sender = state.label ? `${state.label} (${ownKey})` : ownKey;
-      appendPeerInbox(resolved.peer.dir, `[result from ${sender}] ${note}${finalText}`);
-      state.handoffError = undefined;
-      clearPendingHandoff();
-    } catch {
-      clearPendingHandoff();
-    }
-  }
-
   function stopPresence(): void {
-    if (poll) clearInterval(poll);
-    try {
-      watcher?.close();
-    } catch {}
+    daemon.detach();
   }
 
   return {
@@ -496,7 +440,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     text,
     /** Presence directory once initialised, or undefined when presence is skipped. */
     dir: (): string | undefined => dir,
-    hasPendingHandoff: (): boolean => pendingHandoff !== undefined,
+    answers,
     lastCtx: (): HarnessContext | undefined => lastCtx,
     setLastCtx: (ctx: HarnessContext): void => {
       lastCtx = ctx;
@@ -512,7 +456,6 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     updateSessionRef,
     updateModel,
     updateContextUsage,
-    deliverPendingHandoff,
     stopPresence,
   };
 }

@@ -11,21 +11,17 @@ export const HERDR_BLOCKED_EVENT = "herdr:blocked";
 
 /** What a pane in this plexer composes, as the agent inside it will read it. */
 const HERDR_ENVIRONMENT_STAMP = environmentStamp({ labels: true, blockedEvent: HERDR_BLOCKED_EVENT });
-import { HerdrCommandError, herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrServerStatus, herdrStartAgent, herdrTabs, version } from "./cli.ts";
+import { GONE_HANDLE_CODES, HERDR_INPUT_RETRY, HerdrCommandError, herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrServerStatus, herdrStartAgent, herdrTabs, version } from "./cli.ts";
 import { AgentGoneError } from "../../control/agent-gone.ts";
 import { homeLabel } from "../backend.ts";
 import { tryParseIdentity } from "../identity.ts";
-import { agentChannel, capture } from "../../presence/roles.ts";
+import { capture } from "../../presence/roles.ts";
 import { LocalProcessRole } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { HerdrHandle, HerdrPane, HerdrTab, HerdrWorkspace } from "../../types/plexer.ts";
 
 const HERDR_BACKEND: BackendId = "herdr";
-
-/** herdr's own codes for "that handle no longer exists". They stay in this
- *  adapter; what crosses the boundary is orch's AgentGoneError. */
-const GONE_HANDLE_CODES = new Set(["pane_not_found", "agent_not_found"]);
 
 /**
  * Say "gone" in orch's vocabulary when herdr says the handle is not there.
@@ -66,6 +62,15 @@ function callerPaneWorkspace(): string | undefined {
   const caller = callerPaneHandle();
   if (!caller) return undefined;
   return herdrPanes().find((pane) => pane.pane_id === caller)?.workspace_id;
+}
+
+/** The workspace a pane or tab opens in: the one asked for, else the caller's
+ *  own. Never herdr's focused workspace — that is whatever the human happens to
+ *  be looking at, and a fleet that lands there is in someone else's project. */
+function targetWorkspace(requested: string | undefined): string {
+  const workspace = requested ?? callerPaneWorkspace();
+  if (!workspace) throw new Error("Could not determine herdr workspace (herdr down?).");
+  return workspace;
 }
 
 /** The pane's border label. */
@@ -152,11 +157,10 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     supported: (): string => SUPPORTED_HERDR,
   };
   readonly serverInfo: ServerInfoRole = { running: (): ServerReport | null => this.serverReport() };
-  readonly channel = agentChannel;
   readonly capture = capture;
   readonly agentInput = {
-    submit: (handle: HerdrHandle, text: string): void => { reportGoneHandle(handle, () => herdrAck(["pane", "run", handle, text])); },
-    sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { reportGoneHandle(handle, () => herdrAck(["pane", "send-keys", handle, ...keys])); },
+    submit: (handle: HerdrHandle, text: string): void => { reportGoneHandle(handle, () => herdrAck(["pane", "run", handle, text], undefined, HERDR_INPUT_RETRY)); },
+    sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { reportGoneHandle(handle, () => herdrAck(["pane", "send-keys", handle, ...keys], undefined, HERDR_INPUT_RETRY)); },
     focus: (handle: HerdrHandle): void => { herdrAck(["agent", "focus", handle]); },
   };
   readonly foreground: ForegroundRole<HerdrHandle> = {
@@ -178,8 +182,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   };
   readonly placement: PlacementRole<HerdrHandle> = {
     open: (request: PlacementRequest<HerdrHandle>) => {
-      const workspace = request.workspace ?? callerPaneWorkspace();
-      if (!workspace) throw new Error("Could not determine herdr workspace (herdr down?).");
+      const workspace = targetWorkspace(request.workspace);
       const targetHandle = typeof request.targetHandle === "string"
         ? request.targetHandle
         : typeof request.group === "string"
@@ -220,11 +223,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   readonly groupHome: GroupHomeRole<HerdrHandle> = {
     list: () => [...herdrTabs().values()].map(groupFromTab),
     create: (opts: CreateGroupRequest): CreatedGroup<HerdrHandle> => {
-      const args = ["tab", "create"];
-      // No coordinate resolved means herdr picks its own current workspace;
-      // orch never invents one to pass (E10).
-      if (opts.workspace !== undefined) args.push("--workspace", opts.workspace);
-      args.push("--cwd", opts.cwd, "--no-focus");
+      const args = ["tab", "create", "--workspace", targetWorkspace(opts.workspace), "--cwd", opts.cwd, "--no-focus"];
       if (opts.label) args.push("--label", opts.label);
       args.push(...this.paneEnvFlags({ env: opts.env }));
       const result = herdrJSON<{ tab: HerdrTab; root_pane: HerdrPane }>(args);

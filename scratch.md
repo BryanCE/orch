@@ -1,6 +1,6 @@
 # improvements.md — status
 
-13 done, 4 half done, 3 open. Verified against the code on 2026-09-10.
+16 done, 2 half done, 2 open. Verified against the code on 2026-09-10.
 
 ## Ahead of the 20: the dispatch outage, fixed 2026-09-10
 
@@ -88,13 +88,13 @@ cluster after that.
 | 1 | Nothing tells you thinking effort is per task | ✅ |
 | 2 | Capacity is invisible until a spawn dies mid-batch | ✅ |
 | 3 | Empty replay is indistinguishable from wrong scope | 🟡 |
-| 4 | An answer can land after the agent has moved on | ❌ |
+| 4 | An answer can land after the agent has moved on | ✅ |
 | 5 | Exited agents shadow live names | ✅ |
 | 6 | A fleet can vanish with no event | 🟡 |
 | 7 | `orch result` returns the previous task's result | ✅ |
 | 8 | Steer and answer have no ack | ✅ |
-| 9 | dispatch reports accepted, never delivered | 🟡 |
-| 10 | Fresh spawn timing is undocumented | 🟡 |
+| 9 | dispatch reports accepted, never delivered | ✅ |
+| 10 | Fresh spawn timing is undocumented | ✅ |
 | 11 | The watch banner is delivered as an event | ✅ |
 | 12 | ~~Orch cannot ask whether a monitor is already armed~~ RULED OUT | — |
 | 21 | dispatch resets by default; spawn and dispatch take `--file` and `--with` | ✅ |
@@ -111,7 +111,7 @@ cluster after that.
 
 | # | Change |
 |---|---|
-| 8 | Steer and answer wait for a matching reader acknowledgement using `timeouts.dispatch_ack_ms`. Answer writers carry a delivery id; readers report consumption through orch's shared ack protocol. Timeout fails without claiming delivery was cancelled. Channels without acknowledgements say consumption is unconfirmed. Core uses ports and correlation ids, with no provider-id branches. Source tests pass; user check and publish are pending. |
+| 8 | Steer and answer wait for a matching reader acknowledgement using `timeouts.dispatch_ack_ms`. ~~Answer writers carry a delivery id; readers report consumption through orch's shared ack protocol.~~ Timeout fails without claiming delivery was cancelled. Channels without acknowledgements say consumption is unconfirmed. Core uses ports and correlation ids, with no provider-id branches. Source tests pass; user check and publish are pending. |
 | 1 | `reset` prints the level it pinned; four scattered `model:thinking` joins collapsed into one `modelSpec` in `policy/thinking.ts`. `cmdNew` split back under the cyclomatic cap. |
 | 2 | Skill cited `fleet.spawn_cap`, which does not exist; it now names the four real caps and `orch status --capacity`. The claimed mid-spawn refusal was false — admission runs before anything is created. |
 | 11 | The watch banner is suppressed whenever stdout is not a terminal, so it never reaches a watching harness as an event. |
@@ -131,14 +131,14 @@ cluster after that.
 |---|---|---|
 | 3 | A caller owning nothing is told so instead of watching a stream that cannot ever speak: `ownedAgentCount` counts what the caller owns and `emptyScopeNotice` writes the sentence. `reference/commands.md` no longer teaches "a silent stream means the scope is wrong" — it names all three causes of silence. | Replay itself still prints no count. `--since-seq 0` over an empty history and `--since-seq 0` filtered down to nothing are the same output, and a fleet that has since died replays as silence because presence reads only live views. |
 | 6 | `orch events` no longer has a default state filter at all — `options.filter` is null unless you pass `--filter`, so `exited` streams like every other state, and `daemon/events.ts` derives `exited` from pid liveness. A dead fleet now announces itself. | When the STREAM ends, nothing names the reason. `subscribeEvents` redials with bounded backoff forever on close or error; a daemon that never comes back is indistinguishable from a quiet fleet. |
-| 9 | The dispatch id is minted by the daemon, returned by the CLI, logged under one correlation id, and shows in `orch status` as `.dispatchId`. Delivery IS tracked: the outbox retries until the agent's `ack.jsonl` line arrives, then logs `dispatch.acked`. | None of that reaches the caller. `orch dispatch` prints "Dispatched to X (dispatch abc)" the instant orchd accepts it, and there is no `delivered` transition on the event stream. Delivery is known and unsaid. |
-| 10 | The behaviour is settled: for any inbox-steering adapter, `spawn` blocks up to 60s on `awaitBridgeRegistration` and prints `ok` or `STALLED` per agent (exit 1 on a stall), and an adapter that writes no presence record at start prints an UNVERIFIED warning. A dispatch is durable through the outbox, so it queues rather than drops. | The skill says none of this. Nothing tells a reader that spawn already waited, so the `sleep 5` habit has no reason to stop. |
+| 9 | The dispatch id is minted by the daemon, returned by the CLI, logged under one correlation id, and shows in `orch status` as `.dispatchId`. ~~Delivery IS tracked: the outbox retries until the agent's `ack.jsonl` line arrives, then logs `dispatch.acked`.~~ | `orch dispatch` waits for the bridge ack and prints delivered or queued; the `ack` RPC settles the row; no file is read. |
+| 10 | The behaviour is settled: for any inbox-steering adapter, `spawn` blocks up to 60s on `awaitBridgeRegistration` and prints `ok` or `STALLED` per agent (exit 1 on a stall), and an adapter that writes no presence record at start prints an UNVERIFIED warning. A dispatch is durable through the outbox, so it queues rather than drops. | The skill states the attach wait; `sleep` after spawn is ruled out. |
 
 ## Open, verified against the code
 
 | # | What the code says today |
 |---|---|
-| 4 | Answers now carry a delivery id and wait for consumption, but are not bound to the question or task they answer. A late answer can still reach a later question. |
+| 4 | The answer carries `questionId`; the bridge drops an answer for a question it is not waiting on and does not ack it, so the caller sees the miss. |
 | 21 | DONE. `dispatch` clears the session, then pins the model, then sends; `--keep-context` skips the clear. `clearSession` is exported from `lifecycle/reset.ts`. `readPromptFile` moved to `commands/prompt-file.ts` and both verbs call it. Both verbs take `--file` and `--with`, and `taskWithPaths` composes the paths into the task. Help and the published skill say so. |
 | 12 | No `subscribe` / `subscriptions` verbs exist; the daemon holds the connections and is never asked. `reference/commands.md` still teaches `pgrep -fa "orch events"` as the preflight. |
 | 16 | No `redispatch` anywhere in `src/` or `skills/`. Still blocked on your ruling below. |
@@ -155,6 +155,7 @@ cluster after that.
 | The caller's plexer is recorded at registration instead of sent as `undefined`, so placement reads it as a fact. | `daemon/rpc/registration.ts`, `identity/self.ts` |
 | A fleet's own home is named for the working directory, not for the first slice. `--tab` is no longer needed for one spawn. | `commands/spawn/placement.ts` |
 | `run-rows.ts` was hand-packed onto single lines with one-letter parameters. Rewritten as ordinary code; the insert and the conflict-update no longer repeat the same 15 columns. | `store/run-rows.ts` |
+| The control channel moved off files (`inbox.jsonl`, `ack.jsonl`, `answer.json`, `question.json`). | `SOCKET-REFACTOR/README.md` |
 
 Still hand-packed the same way: `store/outbox-rows.ts`.
 

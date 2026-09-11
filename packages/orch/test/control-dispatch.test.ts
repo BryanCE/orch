@@ -24,6 +24,15 @@ const tempDirs: string[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
 const DEAD_PID = 0x7fffffff;
 
+async function rejection(call: Promise<unknown>): Promise<unknown> {
+  try {
+    await call;
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 function tempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-control-dispatch-"));
   tempDirs.push(dir);
@@ -82,8 +91,8 @@ describe("deliverControl bridge dispatch", () => {
     const key = target();
     presence(directory, key, "pi");
 
-    await expect(deliverControl(key, { kind: "steer", text: "lost", id: "steer-1" }))
-      .rejects.toBeInstanceOf(BridgeDetachedError);
+    expect(await rejection(deliverControl(key, { kind: "steer", text: "lost", id: "steer-1" })))
+      .toBeInstanceOf(BridgeDetachedError);
   });
 
   test("reports a gone agent before pushing to its link", async () => {
@@ -93,8 +102,8 @@ describe("deliverControl bridge dispatch", () => {
     presence(directory, key, "pi", { pid: DEAD_PID });
     const deliveries = captureBridge(key);
 
-    await expect(deliverControl(key, { kind: "steer", text: "lost", id: "steer-1" }))
-      .rejects.toBeInstanceOf(AgentGoneError);
+    expect(await rejection(deliverControl(key, { kind: "steer", text: "lost", id: "steer-1" })))
+      .toBeInstanceOf(AgentGoneError);
     expect(deliveries).toHaveLength(0);
   });
 
@@ -105,8 +114,8 @@ describe("deliverControl bridge dispatch", () => {
     presence(directory, key, "pi");
     const deliveries = captureBridge(key);
 
-    await expect(deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" }))
-      .resolves.toEqual({ outcome: "answer", reason: "not-asking", text: `${key} is not asking a question` });
+    expect(await deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" }))
+      .toEqual({ outcome: "answer", reason: "not-asking", text: `${key} is not asking a question` });
     expect(deliveries).toHaveLength(0);
   });
 
@@ -158,8 +167,8 @@ describe("deliverControl bridge dispatch", () => {
     Object.defineProperty(backend, "agentInput", {
       value: {
         submit(handle: unknown, text: string): void { submitted.push({ handle, text }); },
-        sendKeys(): void {},
-        focus(): void {},
+        sendKeys: () => undefined,
+        focus: () => undefined,
       },
     });
     registerBackend(backend);

@@ -28,11 +28,6 @@ export function createDaemonClient(orchDir: string): DaemonClient {
   let linkAttached = false;
   let reconnectMs: number = SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
 
-  function messageIdOf(parsed: unknown): string | undefined {
-    if (!isRecord(parsed) || typeof parsed.id !== "string" || !parsed.id) return undefined;
-    return parsed.id;
-  }
-
   function daemonEndpoints(): (string | number)[] {
     const socketPath = daemonRuntimeFiles(orchDir).socket;
     const endpoints: (string | number)[] = fs.existsSync(socketPath) ? [socketPath] : [];
@@ -176,7 +171,6 @@ export function createDaemonClient(orchDir: string): DaemonClient {
     await ask(method, params) !== undefined;
 
   return {
-    messageIdOf,
     isAcked: (id: string): boolean => ackedMessageIds.has(id),
     markAcked: (id: string): void => {
       ackedMessageIds.add(id);

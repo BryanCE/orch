@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { drainOutbox } from "../src/daemon/outbox.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
+import type { BridgeMessage } from "../src/control/bridge-message.ts";
 import type { OutboxDelivery } from "../src/types/daemon.ts";
+
+const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
 const tempDirs: string[] = [];
 
@@ -25,13 +28,13 @@ describe("outbox restart replay", () => {
     insertOutboxMessage(orchDir, {
       id: "one",
       target: "message:one",
-      payload: { messageId: "one", text: "first" },
+      payload: message("first"),
       createdAt: Date.parse("2026-01-01T00:00:00.000Z"),
     });
     insertOutboxMessage(orchDir, {
       id: "two",
       target: "message:two",
-      payload: { messageId: "two", text: "second" },
+      payload: message("second"),
       createdAt: Date.parse("2026-01-01T00:00:01.000Z"),
     });
 
@@ -44,9 +47,10 @@ describe("outbox restart replay", () => {
         return Promise.resolve<OutboxDelivery>("failed");
       },
       now: () => now,
+      maxAttempts: 5,
     };
 
-    expect(await drainOutbox(orchDir, crashedDaemon)).toEqual({ delivered: 0, retried: 2, awaiting: 0 });
+    expect(await drainOutbox(orchDir, crashedDaemon)).toEqual({ retried: 2, awaiting: 0 });
     expect(selectPendingOutbox(orchDir, now)).toHaveLength(0);
 
     // A restarted daemon scans the same persisted SQLite outbox after backoff.
@@ -58,11 +62,12 @@ describe("outbox restart replay", () => {
         return Promise.resolve<OutboxDelivery>("acked");
       },
       now: () => now,
+      maxAttempts: 5,
     };
-    expect(await drainOutbox(orchDir, restartedDaemon)).toEqual({ delivered: 2, retried: 0, awaiting: 0 });
+    expect(await drainOutbox(orchDir, restartedDaemon)).toEqual({ retried: 0, awaiting: 0 });
     expect(deliveredIds).toEqual(["message:one", "message:two"]);
 
-    expect(await drainOutbox(orchDir, restartedDaemon)).toEqual({ delivered: 0, retried: 0, awaiting: 0 });
+    expect(await drainOutbox(orchDir, restartedDaemon)).toEqual({ retried: 0, awaiting: 0 });
     expect(selectPendingOutbox(orchDir, now)).toEqual([]);
     expect(new Set(deliveredIds).size).toBe(deliveredIds.length);
     expect(calls).toEqual(["message:one", "message:two", "message:one", "message:two"]);

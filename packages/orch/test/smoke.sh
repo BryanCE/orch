@@ -59,7 +59,8 @@ cat > "$ORCH_FIXTURE/agents/w0:p1/status.json" <<EOF_STATUS
   "schema": 1,
   "paneId": "w0:p1",
   "pid": $$,
-  "state": "working",
+  "state": "asking",
+  "asking": { "question": "Proceed with the fixture?", "id": "q-fixture", "ts": "$(date -u +%Y-%m-%dT%H:%M:%SZ)" },
   "model": { "provider": "openai-codex", "id": "gpt-5" },
   "thinking": "medium",
   "cost": 12.34,
@@ -74,10 +75,6 @@ EOF_STATUS
 cat > "$ORCH_FIXTURE/agents/w0:p1/results.jsonl" <<'EOF_RESULT'
 {"text":"Fixture result","ts":"2020-01-01T00:00:00.000Z"}
 EOF_RESULT
-cat > "$ORCH_FIXTURE/agents/w0:p1/question.json" <<EOF_QUESTION
-{"question":"Proceed with the fixture?","ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
-EOF_QUESTION
-
 sanitize() {
   # Normalize fields that may vary between runs/machines.  Some are absent
   # from a given command today, but keeping one sanitizer makes additions safe.

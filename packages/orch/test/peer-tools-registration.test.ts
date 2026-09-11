@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerPeerTools } from "../src/agent/peers.ts";
-import { INBOX_FILE } from "../src/presence/schema.ts";
 import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import { seedStatus } from "./helpers/presence.ts";
@@ -85,11 +84,10 @@ describe("peer tool registration", () => {
     expect(toolNames).not.toContain("orch_send");
   });
 
-  test("registers orch_send when the spawner has live presence and an inbox", () => {
+  test("registers orch_send when the spawner has a live status record", () => {
     const directory = tempOrchDir();
     process.env.ORCH_SPAWNER = "live-spawner";
-    const spawnerDir = seedStatus(directory, "live-spawner", { pid: process.pid });
-    writeFileSync(join(spawnerDir, INBOX_FILE), "");
+    seedStatus(directory, "live-spawner", { pid: process.pid });
     const { harness, toolNames } = fakeHarness();
 
     registerPeerTools(harness, fakePresence(harness), stubDaemonClient());

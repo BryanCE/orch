@@ -98,7 +98,7 @@ export function recipientFor(key: string, views = viewsById()): Recipient {
     harness: view?.harnessId ?? status?.agent ?? null,
     multiplexer: view?.environment.plexer ?? null,
     // A missing handle is a missing shortcut, not an unreachable agent: orch's
-    // own inbox/ack channel is addressed by the key either way.
+    // own link is addressed by the key either way.
     transportId: view?.environment.handle ?? key,
   };
 }
@@ -244,7 +244,7 @@ function entitiesFromPresence(fleet: Fleet, usedPresence: Set<string>): Entity[]
 
 /** The handle the environment confirms it still has, else null. Only an
  *  environment that answered, and did not list the handle, takes it away.
- *  An agent with no handle keeps its id and its inbox (Rule 11). */
+ *  An agent with no handle keeps its id and its link (Rule 11). */
 function confirmedHandle(census: Census, plexer: string | null, handle: string | null): string | null {
   if (handle === null) return null;
   const held = plexer === null ? undefined : census.get(plexer);

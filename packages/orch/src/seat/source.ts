@@ -5,7 +5,7 @@
  * spawning subagent processes, it taps orch's own machinery —
  *   events    → the daemon's push stream (self-healing across restarts)
  *   facts     → the presence store ($ORCH_DIR/agents/<KEY>/status.json)
- *   send      → the peer inbox (orch's delivery mechanism, needs no screen)
+ *   send      → the daemon's `message` RPC (orch's delivery mechanism, needs no screen)
  *   abort     → the orch CLI, so control traffic stays on the one dispatcher
  */
 import { execFile } from "node:child_process";

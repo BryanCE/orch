@@ -19,6 +19,16 @@ When a change needs one of these, stop, hand Bryan the command, and wait until h
 # RULE 0. THE GATE IS `bun check`. ORCHS RUN IT ON THEIR FILES. THE DELEGATOR RUNS THE ONE THAT COUNTS.
 Every orch runs `bun check` on what it touched and pastes it clean in its result. The delegator runs `bun check` once over the whole tree before every commit; that run is the gate. `bun test` scoped to touched files, always. Nothing commits on a dirty gate or a red test.
 
+# RULE 0.1. TESTS: ONLY THE FILES YOU TOUCHED, THROUGH `powershell.exe`, ONCE. SOME ARE BRYAN-ONLY.
+Bryan-only, never run by the delegator or an orch, no exceptions: `test/daemon-rpc.test.ts`, everything under `integration/` and `doctor/`, `test/smoke.sh`, and any test that starts orchd, opens a pane, a window, or a terminal, or drives a real plexer. They open terminals on Bryan's screen while he works. Running one without his say-so is a firing offence. Bryan runs them and pastes the output; you fix what is in it.
+Everything else: run the test files your change touched, once, after the edits are complete. Not before, not again, not five times in a row.
+WSL reads this repo through `/mnt/c`, which is slow enough to time out tests that pass in one second on Windows. Every `bun test` goes through the Windows side:
+```
+WINROOT=$(wslpath -w "$(git rev-parse --show-toplevel)"); powershell.exe -NoProfile -Command "cd '$WINROOT\packages\orch'; bun test <the files you touched>"
+```
+Only the test files the change touched. The full suite is Bryan's, run by Bryan, pasted to you. A timeout from a WSL run is not a finding; do not report it, do not bump a timeout, do not profile it.
+Orchs: no `git diff`, no `git status`, no `git log`, no fallow, no re-reading a file you already changed. Edit, run your touched test files plus lint and tc once, paste, report done.
+
 # RULE 1. BRYAN'S FILE IS GROUND TRUTH. NEVER ARGUE WITH IT.
 A file or output he hands you is the current state. Never call it stale, cached, a snapshot, or outdated. Never re-characterize it as "just warnings" or "only fallow". Open it. Fix every item.
 

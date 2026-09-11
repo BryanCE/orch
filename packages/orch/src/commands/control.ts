@@ -1,7 +1,6 @@
-import * as files from "node:fs";
 import * as path from "node:path";
 import { collapse, recipientFor, recipientLabel, resolveTarget } from "../entities.ts";
-import { QUESTION_FILE, STATUS_FILE } from "../presence/schema.ts";
+import { STATUS_FILE } from "../presence/schema.ts";
 import { spawnedRecords } from "../presence/store.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
@@ -10,7 +9,7 @@ import { loadSettings } from "../settings/read.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
-import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, parseTargetPrompt, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
+import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
@@ -73,12 +72,19 @@ export async function cmdSteer(args: string[]): Promise<void> {
   reportControlDelivery("steered", entity.key, result, json, ` -> ${truncate(collapse(text), 60)}`);
 }
 
-function reportControlDelivery(action: "steered" | "answered", key: string, result: unknown, json: boolean, suffix: string): void {
+function reportControlDelivery(action: "steered" | "answered" | "dispatched", key: string, result: unknown, json: boolean, suffix: string, dispatchAckMs?: number): void {
   if (!isRecord(result) || (result.ack !== "acknowledged" && result.ack !== "unavailable")) die("Daemon response missing delivery acknowledgement.");
   const confirmed = result.ack === "acknowledged";
   const recipient = recipientFor(key);
   if (json) {
     process.stdout.write(JSON.stringify({ target: key, recipient, [action]: confirmed, ...result }) + "\n");
+    return;
+  }
+  if (action === "dispatched") {
+    if (typeof result.id !== "string" || dispatchAckMs === undefined) die("Daemon response missing dispatch acknowledgement details.");
+    const status = confirmed ? "Delivered" : "Queued";
+    const detail = confirmed ? "" : `: no bridge ack within ${dispatchAckMs}ms`;
+    process.stdout.write(`${status} to ${recipientLabel(recipient)} (dispatch ${result.id})${detail}\n`);
     return;
   }
   const verb = confirmed ? (action === "steered" ? "Steered" : "Answered") : "Sent to";
@@ -157,19 +163,17 @@ export async function cmdPipe(args: string[]) {
 }
 
 export async function cmdAnswer(args: string[]): Promise<void> {
-  const force = args.includes("--force");
   const json = args.includes("--json");
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
-  const { target, prompt: text } = parseTargetPrompt(rest, "--force", 'usage: orch answer <target> "<text>" [--force] [--steal] [--cross-space] [--json]');
+  const target = rest[0];
+  const text = rest.slice(1).join(" ");
+  if (!target || !text) die('usage: orch answer <target> "<text>" [--steal] [--cross-space] [--json]');
   const remote = targetHost(target);
   if (remote) {
-    remoteWrite(remote.host, "answer", [remote.target, text, ...(force ? ["--force"] : []), ...(gov.steal ? ["--steal"] : []), ...(gov.crossSpace ? ["--cross-space"] : []), ...(json ? ["--json"] : [])]);
+    remoteWrite(remote.host, "answer", [remote.target, text, ...(gov.steal ? ["--steal"] : []), ...(gov.crossSpace ? ["--cross-space"] : []), ...(json ? ["--json"] : [])]);
     return;
   }
   const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
-  const questionPath = ent.presence ? path.join(ent.presence.dir, QUESTION_FILE) : null;
-  if (!force && (!questionPath || !files.existsSync(questionPath)))
-    die(`Target "${target}" requires a pending question. Use --force to answer anyway.`);
   if (!ent.presence) die(`Target "${target}" has no agent dir.`);
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
   // the CLI never invokes the adapter's answer strategy directly.
@@ -206,20 +210,20 @@ async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGover
 }
 
 /** Deliver a prompt through orchd's canonical dispatch path. */
-export async function dispatchToAgent(key: string, text: string, options: DispatchToAgentOptions = {}): Promise<{ dispatchId: string }> {
+export async function dispatchToAgent(key: string, text: string, options: DispatchToAgentOptions = {}): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
   const delivered = await writeRpc(
     "dispatch",
     { target: key, text: workerPrompt(text, options.raw ?? false, options.adapter, options.context ?? {}) },
     options.gov,
   );
-  if (!isRecord(delivered) || typeof delivered.id !== "string") throw new Error("dispatch response missing dispatch id");
+  if (!isRecord(delivered) || delivered.accepted !== true || typeof delivered.id !== "string" || (delivered.ack !== "acknowledged" && delivered.ack !== "unavailable")) throw new Error("dispatch response missing acceptance details");
   // The CLI end of the correlation chain. The id is minted by
   // the daemon, so this is the first moment the CLI can name the dispatch it just
   // made — without this record half the system writes nothing anywhere, ever.
   const identity = tryParseIdentity(key);
   const log = commandLogger().forCorrelation(delivered.id);
   (identity ? log.forAgent(identity.id) : log).info("dispatch.cli-accepted", { target: key });
-  return { dispatchId: delivered.id };
+  return { accepted: true, id: delivered.id, ack: delivered.ack };
 }
 
 /** Forward the whole command to the host that owns the target, and say whether it went. */
@@ -276,14 +280,11 @@ export async function cmdDispatch(args: string[]) {
   if (!dispatchSettings.keepContext) await clearSession(key, gov.steal === true);
   if (dispatchSettings.model) await setAgentModel(key, dispatchSettings.model, gov);
   const headerContext = workerHeaderContext(settings);
-  const { dispatchId } = await dispatchToAgent(key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent), context: headerContext, gov });
+  const result = await dispatchToAgent(key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent), context: headerContext, gov });
   if (!spawnedRecords().has(key)) recordAdoptedAgent(key, dispatchSettings);
-  const recipient = recipientFor(key);
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the agent runs the prompt this command sent, not some other delivery.
-  const result = { id: dispatchId };
-  if (dispatchSettings.json) process.stdout.write(JSON.stringify({ target: dispatchSettings.handle, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}${dispatchId ? ` (dispatch ${dispatchId})` : ""}.\n`);
+  reportControlDelivery("dispatched", key, result, dispatchSettings.json, "", settings.timeouts.dispatch_ack_ms);
 }
 
 export function parseDispatchFlags(args: string[]): DispatchFlags {

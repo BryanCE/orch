@@ -45,6 +45,10 @@ const DEFAULT_HERDR_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
   encoding: "utf8",
   stdio: ["ignore", "pipe", "pipe"],
 };
+
+/** herdr's own codes for "that handle no longer exists". They stay in this
+ * adapter; what crosses the boundary is orch's AgentGoneError. */
+export const GONE_HANDLE_CODES = new Set(["pane_not_found", "agent_not_found"]);
 /** The default runner goes through orch's shared tool seam, so every herdr
  *  command - not just `agent start` - rides the same backoff. A test that
  *  injects its own executor replaces this wholesale and retries nothing. */
@@ -114,11 +118,11 @@ export class HerdrCommandError extends Error {
   }
 }
 
-function herdrOutput(args: string[], timeoutMs = MUTATION_TIMEOUT_MS): string {
+function herdrOutput(args: string[], timeoutMs = MUTATION_TIMEOUT_MS, policy?: RetryPolicy): string {
   // Assume a mutation: listings must not serve pre-mutation state.
   listCache.clear();
   try {
-    return executeHerdr("herdr", args, { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return executeHerdr("herdr", args, { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
   } catch (error: unknown) {
     throw new HerdrCommandError(herdrErrorCode(error), `herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
   }
@@ -135,8 +139,8 @@ export function herdrJSON<T = unknown>(args: string[]): T {
 
 /** A herdr command whose acknowledgement is its exit code: `pane run` answers
  *  with an empty body, so demanding JSON from it fails an already-run command. */
-export function herdrAck(args: string[], timeoutMs?: number): void {
-  herdrOutput(args, timeoutMs);
+export function herdrAck(args: string[], timeoutMs?: number, policy?: RetryPolicy): void {
+  herdrOutput(args, timeoutMs, policy);
 }
 
 /** Run a herdr command and hand back what it ANSWERED. Exit code alone is not the
@@ -158,6 +162,16 @@ function herdrErrorCode(error: unknown): string | null {
     return null;
   }
 }
+
+/** Input must surface a gone handle before retrying, while ordinary failures
+ * still receive herdr's standard retry budget. */
+export const HERDR_INPUT_RETRY: RetryPolicy = {
+  ...DEFAULT_TOOL_RETRY,
+  retryable: (error) => {
+    const code = herdrErrorCode(error);
+    return code === null || !GONE_HANDLE_CODES.has(code);
+  },
+};
 
 /** A pane whose shell has not finished coming up answers `agent_pane_busy`.
  *  herdr retries that itself, but only for 2s (PANE_SHELL_READINESS_RETRY_TIMEOUT

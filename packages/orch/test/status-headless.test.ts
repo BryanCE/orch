@@ -9,7 +9,7 @@ function statusRow(overrides: Partial<StatusRow> = {}): StatusRow {
     focused: false, model: "pi/model", modelShort: "model", state: "working", stateFallback: false,
     staleExtension: false, exited: false, alive: true, cost: 0, ctxPercent: null, task: null,
     dispatchId: null, lastText: null, backendStatus: null, backend: null, capabilities: null,
-    sessionPath: null, presenceDir: null, presenceOnly: true, tokens: null, turns: null,
+    sessionPath: null, presenceDir: null, presenceOnly: true, bridgeAttached: null, tokens: null, turns: null,
     ...overrides,
   };
 }
@@ -22,9 +22,16 @@ describe("headless status visibility", () => {
     expect(scopeFleetRows([row], defaultOptions)).toEqual([]);
   });
 
-  test("--filter names the states, so it brings the dead back", () => {
+  test("--filter removes the states it names; --agent brings one dead agent back", () => {
     const row = statusRow({ key: "result-agent", state: "exited", exited: true, alive: false, lastText: "finished" });
-    expect(scopeFleetRows([row], { ...defaultOptions, filter: new Set(["exited"]) })).toEqual([row]);
+    expect(scopeFleetRows([row], { ...defaultOptions, agent: "result-agent" })).toEqual([row]);
+    expect(scopeFleetRows([row], { ...defaultOptions, agent: "result-agent", states: new Set(["exited"]) })).toEqual([]);
+  });
+
+  test("--filter drops live rows in the states it names", () => {
+    const working = statusRow({ key: "busy", state: "working" });
+    const done = statusRow({ key: "finished", state: "done" });
+    expect(scopeFleetRows([working, done], { ...defaultOptions, states: new Set(["done"]) })).toEqual([working]);
   });
 
   test("drops a dead row with no result or terminal state", () => {

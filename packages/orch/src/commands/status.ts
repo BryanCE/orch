@@ -211,6 +211,7 @@ function isStatusRow(value: unknown): value is StatusRow {
   for (const field of strings) if (typeof value[field] !== "string") return false;
   for (const field of nullableStrings) if (value[field] !== null && typeof value[field] !== "string") return false;
   for (const field of booleans) if (typeof value[field] !== "boolean") return false;
+  if (value.bridgeAttached !== null && typeof value.bridgeAttached !== "boolean") return false;
   if (typeof value.cost !== "number") return false;
   if (value.ctxPercent !== null && typeof value.ctxPercent !== "number") return false;
   // `capabilities` is a nullable composed view, not a flag bag: null means no
@@ -266,25 +267,31 @@ export function callerScope(): CallerScope {
  * "is anyone idle?" never counts another orchestrator's fleet or the asker itself.
  * `--space-wide` widens to the rest of the caller's space and stops at the wall; a human
  * sits in no space, has no wall, and sees the machine. `--all-panes` is the separate
- * question of panes orch did not spawn, and `--filter` narrows by state.
+ * question of panes orch did not spawn, and `--filter` removes the states it names.
  */
 export function scopeFleetRows(
   rows: readonly StatusRow[],
-  opts: { spaceWide: boolean; allPanes: boolean; filter?: Set<string> | null; space?: string; caller?: CallerScope },
+  opts: { spaceWide: boolean; allPanes: boolean; states?: ReadonlySet<string>; agent?: string; space?: string; caller?: CallerScope },
 ): StatusRow[] {
   const caller = opts.caller ?? { id: null, ceiling: null };
   return rows.filter((row) => {
     if (opts.space !== undefined && row.spaceId !== opts.space) return false;
+    if (opts.agent !== undefined && !statusRowMatches(row, opts.agent)) return false;
     if (!opts.allPanes && !row.managed) return false;
     if (!withinSpaceCeiling(row.spaceId, caller.ceiling)) return false;
     if (caller.id !== null && !opts.spaceWide && row.spawnedBy !== caller.id) return false;
-    if (opts.filter != null) return opts.filter.has(displayStatusState(row));
+    if (opts.states?.has(displayStatusState(row))) return false;
     // The table is the fleet as it is NOW. An agent that has exited is history —
     // `orch result` and `orch tail` still read it — and keeping every dead one
     // that ever recorded a line buried ten working agents under thirty corpses.
-    // Naming a state in `--filter` is how you ask for them back.
-    return row.alive && !row.exited;
+    // Naming one agent in `--agent` is how you ask for it back.
+    return opts.agent !== undefined || (row.alive && !row.exited);
   });
+}
+
+/** `--agent=<name|id>`: the row's minted id, presence key, name, or current handle. */
+function statusRowMatches(row: StatusRow, target: string): boolean {
+  return row.agentId === target || row.key === target || row.name === target || row.paneId === target;
 }
 
 export function formatNoRowsMessage(info: { agentsSeen: number; alive: number; backendAnswered: boolean }): string {
@@ -302,11 +309,6 @@ function parseNameList(args: readonly string[], flag: string): Set<string> | nul
   if (argument === undefined) return null;
   const names = argument.slice(flag.length).split(",").map((name) => name.trim()).filter((name) => name.length > 0);
   return names.length === 0 ? null : new Set(names);
-}
-
-/** `--filter=done,error`: the states to keep, or null when the caller named none. */
-function parseStateFilter(args: readonly string[]): Set<string> | null {
-  return parseNameList(args, "--filter=");
 }
 
 /** Every table column by its lower-cased header, with the JSON row keys that carry the same fact. */
@@ -330,34 +332,57 @@ const STATUS_COLUMN_KEYS: Readonly<Record<string, readonly (keyof StatusRow)[]>>
   last: ["lastText"],
 };
 
-/** `--hide=owner,env`: the columns to drop from the table and from every JSON row. */
-function parseHiddenColumns(args: readonly string[]): Set<string> {
-  const columns = new Set([...(parseNameList(args, "--hide=") ?? [])].map((name) => name.toLowerCase()));
-  for (const column of columns) {
-    if (!(column in STATUS_COLUMN_KEYS)) die(`--hide: unknown column "${column}"; columns: ${Object.keys(STATUS_COLUMN_KEYS).join(", ")}`);
-  }
-  return columns;
+/** What `--filter` removes: the columns it names and the rows in the states it names. */
+export interface StatusFilter {
+  columns: ReadonlySet<string>;
+  states: ReadonlySet<string>;
 }
 
-/** One JSON row with the hidden columns' keys removed. */
-export function hideRowKeys(row: StatusRow, hide: ReadonlySet<string>): Partial<StatusRow> {
+export const NO_STATUS_FILTER: StatusFilter = { columns: new Set(), states: new Set() };
+
+/** `--filter=owner,env,done`: a column name drops that column; any other name drops rows in that state. */
+function parseStatusFilter(args: readonly string[]): StatusFilter {
+  const names = [...(parseNameList(args, "--filter=") ?? [])].map((name) => name.toLowerCase());
+  return {
+    columns: new Set(names.filter((name) => name in STATUS_COLUMN_KEYS)),
+    states: new Set(names.filter((name) => !(name in STATUS_COLUMN_KEYS))),
+  };
+}
+
+/** One JSON row with the filtered columns' keys removed. */
+export function filterRowKeys(row: StatusRow, columns: ReadonlySet<string>): Partial<StatusRow> {
   const visible: Partial<StatusRow> = { ...row };
-  for (const column of hide) {
+  for (const column of columns) {
     for (const key of STATUS_COLUMN_KEYS[column] ?? []) delete visible[key];
   }
   return visible;
 }
 
-/** The cells (or headers, or caps) that survive `--hide`, matched by header position. */
-function visibleColumns<T>(cells: readonly T[], headers: readonly string[], hide: ReadonlySet<string>): T[] {
-  return cells.filter((_, index) => !hide.has((headers[index] ?? "").toLowerCase()));
+/** The cells (or headers, or caps) that survive `--filter`, matched by header position. */
+function visibleColumns<T>(cells: readonly T[], headers: readonly string[], columns: ReadonlySet<string>): T[] {
+  return cells.filter((_, index) => !columns.has((headers[index] ?? "").toLowerCase()));
+}
+
+/** `--flag value` or `--flag=value`: the value, or undefined when the caller gave neither. */
+function parseValueFlag(args: readonly string[], flag: string): string | undefined {
+  for (let index = 0; index < args.length; index++) {
+    const argument = args[index] ?? "";
+    if (argument === flag) return args[index + 1];
+    if (argument.startsWith(`${flag}=`)) return argument.slice(flag.length + 1);
+  }
+  return undefined;
 }
 
 function parseSpace(args: readonly string[]): string | undefined {
-  for (let index = 0; index < args.length; index++) {
-    if (args[index] === "--space") return args[index + 1];
-  }
-  return undefined;
+  return parseValueFlag(args, "--space");
+}
+
+/** `--agent=<name|id>`: one agent to show, whatever its state. */
+function parseAgentTarget(args: readonly string[]): string | undefined {
+  const target = parseValueFlag(args, "--agent")?.trim();
+  if (target === undefined) return undefined;
+  if (target.length === 0) die("--agent needs a name or id, e.g. --agent=ctx-edges");
+  return target;
 }
 
 export interface TableFlags {
@@ -372,13 +397,24 @@ export interface StatusOptions {
   human: boolean;
   spaceWide: boolean;
   allPanes: boolean;
-  /** States the caller narrowed to, or null for every state — which is the default. */
-  filter: Set<string> | null;
+  /** The columns and states `--filter` removes; both empty by default. */
+  filter: StatusFilter;
+  /** The one agent named with `--agent`, by name or id; undefined means the fleet. */
+  agent?: string;
   local: boolean;
   offline: boolean;
   live: boolean;
   capacity: boolean;
   space?: string;
+}
+
+/** What a table renderer needs beyond the rows. */
+export interface StatusTableOptions {
+  spaceWide: boolean;
+  host: boolean;
+  human?: boolean;
+  /** Columns `--filter` removed. */
+  columns: ReadonlySet<string>;
 }
 
 function parseStatusOptions(args: readonly string[]): StatusOptions {
@@ -388,7 +424,8 @@ function parseStatusOptions(args: readonly string[]): StatusOptions {
     human: enabled.has("--human"),
     spaceWide: enabled.has("--space-wide"),
     allPanes: enabled.has("--all-panes"),
-    filter: parseStateFilter(args),
+    filter: parseStatusFilter(args),
+    agent: parseAgentTarget(args),
     local: enabled.has("--local"),
     offline: enabled.has("--offline"),
     live: enabled.has("--live"),
@@ -515,27 +552,28 @@ function tableColumns(flags: TableFlags, host: boolean): { headers: string[]; ca
  * a row said nothing about whether the rendered table still shows it.
  */
 /** Render either local or merged rows. The merged form differs only by HOST. */
-export function renderStatusTable(rows: readonly StatusRow[], flags: TableFlags, options: { host: boolean }): string {
+export function renderStatusTable(rows: readonly StatusRow[], flags: TableFlags, options: { host: boolean; columns: ReadonlySet<string> }): string {
   if (!rows.length) return "";
   const { headers, caps } = tableColumns(flags, options.host);
-  const rendered = renderTable(headers, rows.map((row) => tableRow(row, flags, options.host)), caps).split("\n");
+  const cells = rows.map((row) => visibleColumns(tableRow(row, flags, options.host), headers, options.columns));
+  const rendered = renderTable(visibleColumns(headers, headers, options.columns), cells, visibleColumns(caps, headers, options.columns)).split("\n");
   const out: string[] = [rendered[0] ?? "", rendered[1] ?? ""];
   for (let index = 0; index < rows.length; index++) {
     const line = rendered[index + 2] ?? "";
     out.push(rows[index]?.exited ? (isTTY ? dim(line) : line) : line);
   }
   const shared = sharedOwner(rows);
-  if (!flags.showOwner && shared !== null) out.push(`owner: ${shared}`);
+  if (!flags.showOwner && !options.columns.has("owner") && shared !== null) out.push(`owner: ${shared}`);
   return out.join("\n");
 }
 
 /** Render the status table for any row set without writing to a stream. */
-export function formatStatusTable(rows: readonly StatusRow[], options: { spaceWide: boolean; host: boolean; human?: boolean }): string {
-  return renderStatusTable(rows, tableFlags(rows, options.spaceWide, options.human === true), { host: options.host });
+export function formatStatusTable(rows: readonly StatusRow[], options: StatusTableOptions): string {
+  return renderStatusTable(rows, tableFlags(rows, options.spaceWide, options.human === true), { host: options.host, columns: options.columns });
 }
 
 export function localStatusTable(visible: readonly StatusRow[], spaceWide: boolean): string {
-  return formatStatusTable(visible, { spaceWide, host: false });
+  return formatStatusTable(visible, { spaceWide, host: false, columns: NO_STATUS_FILTER.columns });
 }
 
 interface OrchNames {
@@ -628,6 +666,7 @@ export function statusRowFromEntity(
     sessionPath: entity.sessionPath,
     presenceDir: pres?.dir ?? null,
     presenceOnly: entity.presenceOnly,
+    bridgeAttached: null,
     tokens: sview?.tokens ?? pres?.status?.tokens ?? null,
     turns: pres?.status?.turns ?? sview?.turns ?? null,
     spaceId,
@@ -662,7 +701,7 @@ export function fleetStatusRows(spaces: OrchSettings["spaces"], options: FleetSt
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
 async function localStatusRows(options: StatusOptions, spaces: OrchSettings["spaces"]): Promise<FleetSnapshot> {
   const snapshot = await readFleetRows(spaces, options.offline);
-  const scoped = scopeFleetRows(snapshot.rows, { ...options, caller: callerScope() });
+  const scoped = scopeFleetRows(snapshot.rows, { ...options, states: options.filter.states, caller: callerScope() });
   return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
 
@@ -673,7 +712,7 @@ export function warningStatusRow(host: string, warning: string): StatusRow {
     focused: false, model: "", modelShort: "", state: "warning", stateFallback: false, staleExtension: false,
     exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,
     backendStatus: null, backend: null, capabilities: null, sessionPath: null, presenceDir: null, presenceOnly: false,
-    tokens: null, turns: null, host, warning,
+    bridgeAttached: null, tokens: null, turns: null, host, warning,
   };
 }
 
@@ -691,16 +730,23 @@ function validRemoteValues(result: RemoteStatusResult): StatusRow[] {
   return statusRowsFrom(result.value);
 }
 
-function remoteRowsFromResult(name: string, result: RemoteStatusResult, space?: string): StatusRow[] {
+/** The narrowing a remote host's rows still owe after they arrive: one space, one agent. */
+interface RemoteNarrowing {
+  space?: string;
+  agent?: string;
+}
+
+function remoteRowsFromResult(name: string, result: RemoteStatusResult, narrowing: RemoteNarrowing): StatusRow[] {
   if (!result.ok) return [warningStatusRow(name, result.failure.message)];
   if (!Array.isArray(result.value)) return [warningStatusRow(name, `Host "${name}" returned an invalid status payload.`)];
   return validRemoteValues(result).map((value) => normalizeStatusRow(value))
-    .filter((row) => space === undefined || row.spaceId === space)
+    .filter((row) => narrowing.space === undefined || row.spaceId === narrowing.space)
+    .filter((row) => narrowing.agent === undefined || statusRowMatches(row, narrowing.agent))
     .map((row) => ({ ...row, host: name }));
 }
 
-function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: readonly { name: string; result: RemoteStatusResult }[], space?: string): StatusRow[] {
-  return [...local, ...remoteResults.flatMap(({ name, result }) => remoteRowsFromResult(name, result, space))];
+function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: readonly { name: string; result: RemoteStatusResult }[], narrowing: RemoteNarrowing): StatusRow[] {
+  return [...local, ...remoteResults.flatMap(({ name, result }) => remoteRowsFromResult(name, result, narrowing))];
 }
 
 function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[]): { rows: StatusRow[]; alive: number; backendAnswered: boolean } {
@@ -719,7 +765,7 @@ export async function readStatusResult(options: StatusOptions): Promise<StatusRe
   }
   const localSnapshot = await localStatusRows(options, spaces);
   const remoteResults = await remoteStatusResults(hosts, options.offline);
-  const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, options.space);
+  const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, { space: options.space, agent: options.agent });
   const remote = remoteSummary(remoteResults);
   return {
     rows,
@@ -757,7 +803,7 @@ export async function cmdStatus(args: string[]): Promise<void> {
   const result = await readStatusResult(options);
   const settings = options.json ? null : loadSettingsOrNull(orchDir());
   if (options.json) {
-    process.stdout.write(JSON.stringify(result.rows, null, 2) + "\n");
+    process.stdout.write(JSON.stringify(result.rows.map((row) => filterRowKeys(row, options.filter.columns)), null, 2) + "\n");
     return;
   }
   const capacityLine = settings === null ? null : capacityOutput(settings).line;
@@ -766,6 +812,6 @@ export async function cmdStatus(args: string[]): Promise<void> {
     if (capacityLine !== null) process.stdout.write(capacityLine + "\n");
     return;
   }
-  process.stdout.write(formatStatusTable(result.rows, { spaceWide: options.spaceWide, host: result.host, human: options.human }) + "\n");
+  process.stdout.write(formatStatusTable(result.rows, { spaceWide: options.spaceWide, host: result.host, human: options.human, columns: options.filter.columns }) + "\n");
   if (capacityLine !== null) process.stdout.write(capacityLine + "\n");
 }

@@ -25,8 +25,8 @@ import { sql } from "drizzle-orm";
  * has, and orch must say so rather than hand it to a pane operation.
  *
  * The agent itself is NOT gone (Rule 11: a pane is an optimisation, work
- * survives losing one). It is an agent with no shortcut — reachable through the
- * inbox, and answered with an absence by anything that needs a screen (E14).
+ * survives losing one). It is an agent with no shortcut — reachable through its
+ * link, and answered with an absence by anything that needs a screen (E14).
  */
 
 const dirs: string[] = [];
@@ -90,7 +90,7 @@ describe("a row is not evidence that a pane exists (U1, U4)", () => {
     const entity = entityFor("goneagent1", [fakePane("w7:p9Z")]);
 
     // Rule 11: a pane is an optimisation and work survives losing one. The agent
-    // is still orch's, still listed, still addressable through its inbox.
+    // is still orch's, still listed, still addressable through its link.
     expect(entity).toBeDefined();
     expect(entity?.managed).toBe(true);
     expect(entity?.presence?.alive).toBe(true);

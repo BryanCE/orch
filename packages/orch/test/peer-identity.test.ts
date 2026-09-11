@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { allAdapters } from "../src/adapters/registry.ts";
@@ -8,8 +8,6 @@ import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../src/policy/sp
 import { getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
 import { peerSummaries, resolvePeer, sendPeerMessage } from "../src/agent/peers.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
-import { presenceAgentDir } from "../src/presence/writer.ts";
-import { INBOX_FILE } from "../src/presence/schema.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -26,6 +24,23 @@ const IDENTITY_ENV = [
 const directories: string[] = [];
 const noPeersDaemon = daemonClientForPeers([]);
 let savedEnv: Record<string, string | undefined> = {};
+
+function recordingDaemon(keys: string[], messageResponse: unknown) {
+  const daemon = daemonClientForPeers(keys);
+  const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  daemon.ask = (method, params) => {
+    calls.push({ method, params });
+    if (method === "peer-view") {
+      return Promise.resolve({
+        visible: keys,
+        spaces: Object.fromEntries(keys.map((key) => [key, null])),
+        drive: {},
+      });
+    }
+    return Promise.resolve(messageResponse);
+  };
+  return { daemon, calls };
+}
 
 function tempOrchDir(): string {
   const directory = mkdtempSync(join(tmpdir(), "orch-peer-identity-"));
@@ -166,7 +181,7 @@ describe("the spawner address invariant", () => {
     expect(stampedSpawnerAddress()).toBeUndefined();
   });
 
-  test("an address that IS stamped resolves to a live inbox", async () => {
+  test("an address that IS stamped resolves to a live status record", async () => {
     const orchDir = tempOrchDir();
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION_ID = "c0f80035-1859";
@@ -176,8 +191,7 @@ describe("the spawner address invariant", () => {
       pid: 4242, startToken: "tok", sessionToken: "c0f80035-1859", harnessId: "claude",
       cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
     });
-    const spawnerDir = seedStatus(orchDir, registered.id, { agent: "pi", pid: process.pid, state: "idle" });
-    writeFileSync(join(spawnerDir, INBOX_FILE), "");
+    seedStatus(orchDir, registered.id, { agent: "pi", pid: process.pid, state: "idle" });
 
     const address = stampedSpawnerAddress();
     expect(address).toBe(registered.id);
@@ -203,17 +217,45 @@ describe("peer identity in messaging", () => {
     expect(output).not.toContain("workspace");
   });
 
-  test("orch_send reports the peer's NAME, and stamps the sender's name on the message", async () => {
+  test("orch_send reports the peer's NAME and calls the message RPC", async () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "sweep20002";
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
+    const { daemon, calls } = recordingDaemon([ownKey, peerKey], { accepted: true, id: "mail-1", ack: "acknowledged" });
 
-    const result = await sendPeerMessage(daemonClientForPeers([ownKey, peerKey]), "sweep-2", "found it", ownKey);
+    const result = await sendPeerMessage(daemon, "sweep-2", "found it", ownKey);
     expect(result).toBe("sent to pi: sweep-2");
-    const inbox = readFileSync(join(presenceAgentDir(peerKey), INBOX_FILE), "utf8");
-    expect(inbox).toContain(`[from sweep-1 (${ownKey})] found it`);
+    expect(calls.find((call) => call.method === "message")?.params).toEqual({
+      from: ownKey,
+      target: peerKey,
+      text: `[from sweep-1 (${ownKey})] found it`,
+    });
+  });
+
+  test("orch_send reports queued when the message is not acknowledged", async () => {
+    const orchDir = tempOrchDir();
+    const ownKey = "sender0001";
+    const peerKey = "sweep20002";
+    seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
+    seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
+    const { daemon } = recordingDaemon([ownKey, peerKey], { accepted: true, id: "mail-2", ack: "unavailable" });
+
+    const result = await sendPeerMessage(daemon, "sweep-2", "found it", ownKey);
+    expect(result).toBe("sent to pi: sweep-2 (queued, not yet read)");
+  });
+
+  test("orch_send reports when the daemon is unreachable", async () => {
+    const orchDir = tempOrchDir();
+    const ownKey = "sender0001";
+    const peerKey = "sweep20002";
+    seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
+    seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
+    const { daemon } = recordingDaemon([ownKey, peerKey], undefined);
+
+    const result = await sendPeerMessage(daemon, "sweep-2", "found it", ownKey);
+    expect(result).toBe("error: daemon unreachable; message not sent");
   });
 
   test("peers resolve by display name exactly like by key", async () => {
@@ -229,21 +271,19 @@ describe("peer identity in messaging", () => {
   test("\"spawner\" reaches the stamped spawner session across fleet scoping", async () => {
     const orchDir = tempOrchDir();
     const ownKey = "worker0004";
-    const spawnerDir = seedStatus(orchDir, "session777", { agent: "pi", pid: process.pid, state: "idle" });
-    writeFileSync(join(spawnerDir, INBOX_FILE), "");
+    seedStatus(orchDir, "session777", { agent: "pi", pid: process.pid, state: "idle" });
     process.env.ORCH_SPAWNER = "session777";
     process.env.ORCH_SPAWNER_LABEL = "pi session";
 
-    const sent = await sendPeerMessage(noPeersDaemon, "spawner", "done with the sweep", ownKey);
+    const { daemon } = recordingDaemon(["session777"], { accepted: true, id: "mail-3", ack: "acknowledged" });
+    const sent = await sendPeerMessage(daemon, "spawner", "done with the sweep", ownKey);
     expect(sent).toStartWith("sent to ");
-    const inbox = readFileSync(join(presenceAgentDir("session777"), INBOX_FILE), "utf8");
-    expect(inbox).toContain("done with the sweep");
 
     const summaries = await peerSummaries(daemonClientForPeers(["session777"]), ownKey);
     expect(summaries.find((peer) => peer.key === "session777")?.isSpawner).toBe(true);
   });
 
-  test("a spawner with no inbox is refused BY NAME, not with a bare key", async () => {
+  test("a spawner with no live status record is refused BY NAME, not with a bare key", async () => {
     tempOrchDir();
     process.env.ORCH_SPAWNER = "operator01";
     process.env.ORCH_SPAWNER_LABEL = "claude session";

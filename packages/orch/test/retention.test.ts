@@ -19,6 +19,9 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { RunRecord } from "../src/types/store.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
+import type { BridgeMessage } from "../src/control/bridge-message.ts";
+
+const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
 import { row } from "./helpers/rows.ts";
 const directories: string[] = [];
@@ -99,8 +102,8 @@ describe("retention sweep", () => {
     seedQueueTask(orchDir, "queue-new", "done", "2026-01-25T00:00:00.000Z");
     seedQueueTask(orchDir, "queued-old", "queued", "2026-01-01T00:00:00.000Z");
     seedQueueTask(orchDir, "claimed-old", "claimed", "2026-01-01T00:00:00.000Z");
-    insertOutboxMessage(orchDir, { id: "out-old", target: "x", payload: {}, createdAt: Date.parse("2026-01-20T00:00:00.000Z") });
-    insertOutboxMessage(orchDir, { id: "out-new", target: "x", payload: {}, createdAt: Date.parse("2026-01-28T00:00:00.000Z") });
+    insertOutboxMessage(orchDir, { id: "out-old", target: "x", payload: message("old"), createdAt: Date.parse("2026-01-20T00:00:00.000Z") });
+    insertOutboxMessage(orchDir, { id: "out-new", target: "x", payload: message("new"), createdAt: Date.parse("2026-01-28T00:00:00.000Z") });
     markOutboxDelivered(orchDir, "out-old");
     markOutboxDelivered(orchDir, "out-new");
     appendEvent(orchDir, Date.parse("2026-01-20T00:00:00.000Z"), { id: "event-old" });

@@ -1,4 +1,4 @@
-import { bridgeRegistered } from "../../presence/store.ts";
+import { rpcCall } from "../../daemon/rpc/client.ts";
 import { orchDir } from "../../presence/writer.ts";
 import { loadSettings } from "../../settings/read.ts";
 import { maySpawnFrom } from "../../policy/spawner.ts";
@@ -7,7 +7,7 @@ import { resolveAdapterOrDie } from "../selection.ts";
 import { tryParseIdentity } from "../../backends/identity.ts";
 import { readGroupLayout } from "../../backends/tiling.ts";
 import { dispatchToAgent } from "../control.ts";
-import { errorMessage, sleep } from "../../util.ts";
+import { errorMessage, isRecord, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/reach.ts";
 import { selfId } from "../../identity/self.ts";
 import { agentViewIndex, presenceById } from "../target.ts";
@@ -25,31 +25,48 @@ export function spawnLogger(key?: string) {
   return agentId ? commandLogger().forAgent(agentId) : commandLogger();
 }
 
-/** Wait for every agent to write its bridge dir; returns only the ones that registered. */
-export async function awaitBridgeRegistration(created: { key: string; handle: string; name: string }[], json = false): Promise<CreatedAgent[]> {
+/** Return the keys whose bridge is attached in one daemon status response. */
+function attachedBridgeKeys(answer: unknown): ReadonlySet<string> {
+  if (!isRecord(answer) || !Array.isArray(answer.rows)) return new Set();
+  return new Set(answer.rows.flatMap((row) => {
+    if (!isRecord(row) || row.bridgeAttached !== true || typeof row.key !== "string") return [];
+    return [row.key];
+  }));
+}
+
+/** Wait for every agent's bridge to attach; returns only the ones that attached. */
+export async function awaitBridgeAttach(created: { key: string; handle: string; name: string }[], json = false): Promise<CreatedAgent[]> {
   const pending = new Map(created.map((c) => [c.key, c]));
-  const registered = new Map<string, CreatedAgent>();
+  const attached = new Map<string, CreatedAgent>();
   const deadline = Date.now() + 60_000;
-  if (!json) process.stdout.write("\nWaiting for agents to register:\n");
+  if (!json) process.stdout.write("\nWaiting for agents to attach:\n");
   while (pending.size && Date.now() < deadline) {
+    let answer: unknown = null;
+    try {
+      answer = await rpcCall(orchDir(), "status");
+    } catch {
+      // The daemon may be briefly unavailable while a bridge starts; keep polling
+      // until the same spawn deadline used by the old registration wait.
+    }
+    const keys = attachedBridgeKeys(answer);
     for (const [key, agent] of [...pending]) {
-      if (bridgeRegistered(key)) {
+      if (keys.has(key)) {
         pending.delete(key);
-        registered.set(key, agent);
+        attached.set(key, agent);
         if (!json) process.stdout.write(`  ok      ${agent.handle}  ${agent.name}\n`);
       }
     }
-    await sleep(500);
+    if (pending.size) await sleep(500);
   }
   // A stalled agent is a failed spawn: it holds its name and answers no control
   // traffic. Reporting it on stdout while exiting 0 is what let a scripted fleet
   // launch read as success and dispatch into agents that never came up.
   for (const agent of pending.values()) {
     spawnLogger(agent.key).error("spawn.stalled", { handle: agent.handle, name: agent.name });
-    process.stdout.write(`  STALLED ${agent.handle}  ${agent.name} - no bridge dir; try: orch restart ${agent.name}\n`);
+    process.stdout.write(`  STALLED ${agent.handle}  ${agent.name} - bridge never attached; try: orch restart ${agent.name}\n`);
   }
   if (pending.size) process.exitCode = 1;
-  return [...registered.values()];
+  return [...attached.values()];
 }
 
 /** A launch that placed fewer agents than were asked for FAILED; a warning line
@@ -65,8 +82,8 @@ export function reportShortfall(requested: number, placed: number): void {
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
 export async function confirmAgentsCameUp(adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<CreatedAgent[] | null> {
-  if (adapter.presenceRegistration) {
-    return await awaitBridgeRegistration(created, json);
+  if (adapter.bridge) {
+    return await awaitBridgeAttach(created, json);
   }
   commandLogger().warn("spawn.unverified", { adapter: adapter.id, count: created.length });
   process.stdout.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
@@ -147,7 +164,7 @@ export async function reportSpawnResults(settings: SpawnSettings, group: string,
       }
       const text = settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!;
       try {
-        const { dispatchId } = await dispatchToAgent(agent.key, text, {
+        const { id: dispatchId } = await dispatchToAgent(agent.key, text, {
           adapter: resolveAdapterOrDie(settings.adapter),
           context: { maySpawn, spawnerRepliable: true, ...workerRules(settingsFile) },
         });

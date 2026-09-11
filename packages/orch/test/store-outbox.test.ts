@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { closeAllStores } from "../src/store/connection.ts";
 import { bumpOutboxAttempt, deleteDeliveredBefore, insertOutboxMessage, markOutboxDelivered, outboxMessageUnsent, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import type { BridgeMessage } from "../src/control/bridge-message.ts";
+
+const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
 const tempDirs: string[] = [];
 
@@ -22,19 +25,19 @@ function fixture(): string {
 describe("outbox store rows", () => {
   test("inserts pending messages and orders them by creation time", () => {
     const orchDir = fixture();
-    insertOutboxMessage(orchDir, { id: "later", target: "agent-b", payload: { n: 2 }, createdAt: Date.parse("2026-01-02T00:00:00.000Z") });
-    insertOutboxMessage(orchDir, { id: "earlier", target: "agent-a", payload: [1, true], createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
+    insertOutboxMessage(orchDir, { id: "later", target: "agent-b", payload: message("later"), createdAt: Date.parse("2026-01-02T00:00:00.000Z") });
+    insertOutboxMessage(orchDir, { id: "earlier", target: "agent-a", payload: message("earlier"), createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
 
     expect(selectPendingOutbox(orchDir, 0)).toEqual([
-      { id: "earlier", target: "agent-a", payload: [1, true], state: "pending", attempts: 0, createdAt: Date.parse("2026-01-01T00:00:00.000Z"), nextAttemptAt: 0 },
-      { id: "later", target: "agent-b", payload: { n: 2 }, state: "pending", attempts: 0, createdAt: Date.parse("2026-01-02T00:00:00.000Z"), nextAttemptAt: 0 },
+      { id: "earlier", target: "agent-a", payload: message("earlier"), state: "pending", attempts: 0, createdAt: Date.parse("2026-01-01T00:00:00.000Z"), nextAttemptAt: 0 },
+      { id: "later", target: "agent-b", payload: message("later"), state: "pending", attempts: 0, createdAt: Date.parse("2026-01-02T00:00:00.000Z"), nextAttemptAt: 0 },
     ]);
   });
 
   test("reports one message's pending state", () => {
     const orchDir = fixture();
-    insertOutboxMessage(orchDir, { id: "delivered", target: "agent-a", payload: "a" });
-    insertOutboxMessage(orchDir, { id: "pending", target: "agent-b", payload: "b" });
+    insertOutboxMessage(orchDir, { id: "delivered", target: "agent-a", payload: message("a") });
+    insertOutboxMessage(orchDir, { id: "pending", target: "agent-b", payload: message("b") });
     markOutboxDelivered(orchDir, "delivered");
 
     expect(outboxMessageUnsent(orchDir, "delivered")).toBe(false);
@@ -44,7 +47,7 @@ describe("outbox store rows", () => {
 
   test("bumps attempts and hides a message until its next attempt time", () => {
     const orchDir = fixture();
-    insertOutboxMessage(orchDir, { id: "retry", target: "agent-a", payload: {} });
+    insertOutboxMessage(orchDir, { id: "retry", target: "agent-a", payload: message("retry") });
 
     bumpOutboxAttempt(orchDir, "retry", 5000);
 
@@ -57,8 +60,8 @@ describe("outbox store rows", () => {
 
   test("deletes delivered messages older than the cutoff", () => {
     const orchDir = fixture();
-    insertOutboxMessage(orchDir, { id: "old", target: "agent-a", payload: {}, createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
-    insertOutboxMessage(orchDir, { id: "new", target: "agent-a", payload: {}, createdAt: Date.parse("2026-01-02T00:00:00.000Z") });
+    insertOutboxMessage(orchDir, { id: "old", target: "agent-a", payload: message("old"), createdAt: Date.parse("2026-01-01T00:00:00.000Z") });
+    insertOutboxMessage(orchDir, { id: "new", target: "agent-a", payload: message("new"), createdAt: Date.parse("2026-01-02T00:00:00.000Z") });
     markOutboxDelivered(orchDir, "old");
     markOutboxDelivered(orchDir, "new");
 

@@ -44,7 +44,7 @@ OBSERVE
                                  Glanceable table of the fleet (default command); --human renders for people; --live re-renders full-screen
                                  from the daemon event stream (TTY only; q/esc quits; not with --json); --all-panes
                                  also lists panes orch did not spawn; --offline reads agent files only.
-  orch questions                 List pending agent questions from live agents.
+  orch questions                 Read each live agent's pending question from its status record.
   orch runs [<target>] [-n <count>] [--json]
                                  List durable dispatch history, newest first.
   orch events [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=s[,s...]] [--json]
@@ -79,8 +79,12 @@ DISPATCH WORK
                                  --file reads the prompt from a file, or from stdin with '-'.
                                  --with names a file or directory the agent opens for context on demand (repeatable).
                                  --keep-context sends onto the existing session instead.
-  orch answer <target> "<text>" [--force]
-                                 Answer a pending question (--force permits a missing question.json).
+                                 Prints 'Delivered to <recipient> (dispatch <id>)', or
+                                 'Queued to <recipient> (dispatch <id>): no bridge ack within <timeouts.dispatch_ack_ms>ms'.
+                                 A queued dispatch is durable: orchd retries every daemon.outbox_drain_ms
+                                 and re-pushes the moment the bridge attaches.
+  orch answer <target> "<text>"
+                                 Answer the question the agent is asking. Refused when it is not asking.
   orch pipe <src> <dst> ["instruction"]
                                  Send a completed result through orchd.
   orch broadcast "<text>" [target ...|--all]
@@ -89,7 +93,7 @@ DISPATCH WORK
                                  Durably accept a model change through orchd.
   orch notify test [--state <state>]
                                  Send a synthetic transition to each configured notification sink.
-  orch steer <target> <text...>    Durably accept a mid-run steer through orchd.
+  orch steer <target> <text...>    orchd pushes it down the agent's bridge link; the reply says whether the agent applied it.
   orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
                                  Block until the pane reaches a status (default done, 300000ms).
   orch result <target> [--force] [--json]
@@ -108,6 +112,11 @@ PANES (create / arrange / lifecycle - never steals focus except 'focus')
                    [--agent A] [--backend B] [--prompt T] [--file P|-] [--with P]... [--worktree]
                                  Fresh tab, one balanced-tiled pane per name (2=side-by-side,
                                  3=2+1, 4=2x2, ...). The names ARE the agents; there is no count.
+                                 Bridge-capable adapters wait up to 60 s for each agent's bridge to attach. Prints:
+                                 '  ok      <handle>  <name>'
+                                 '  STALLED <handle>  <name> - bridge never attached; try: orch restart <name>'
+                                 A stall exits 1. An adapter with no bridge prints:
+                                 "warning: <adapter> writes no presence record at session start - <count> agent(s) UNVERIFIED; check 'orch status' before dispatching"
                                  Run from outside a pane, opening a space is REFUSED until a
                                  human approves it with 'orch grant'; --space <id> uses an open one.
                                  --backend headless needs --prompt or --file: a detached agent runs it and exits.

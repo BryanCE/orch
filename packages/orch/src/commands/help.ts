@@ -11,17 +11,20 @@ const ALIASES: Record<string, string> = {
 };
 
 const TOPICS: Record<string, string> = {
-  status: `orch status [--json] [--human] [--space-wide] [--filter=<state,...>] [--all-panes] [--offline] [--live]
+  status: `orch status [--json] [--human] [--space-wide] [--agent=<name|id>] [--filter=<column|state,...>] [--all-panes] [--offline] [--live]
 Glanceable table of the fleet (the default command when none is given).
 Bare 'orch status' is the normal use: every agent this session owns, with cost and
 context. A human at a raw terminal owns none and sees the whole machine.
   --json        Machine-readable rows instead of the table.
   --human       Render named harness and directory details for a person.
   --space-wide  Also the other orchs' agents in your space. Never past it.
-  --filter      Keep only these states, e.g. --filter=done,error.
+  --agent       Show one agent by name or id, whatever its state, e.g. --agent=ctx-edges.
+  --filter      Filter out columns and states, e.g. --filter=owner,env,done. A column name drops
+                that column from the table and from --json rows; any other name drops rows in that state.
+                Columns: host id env name owner branch tab agent model state cost ctx task last (--human: harness cwd worktree).
   --all-panes   Also list panes orch did not spawn.
   --offline     Read agent presence files only; never dials or starts orchd.
-  --live        Full-screen live status re-rendered from the daemon event stream; TTY only; q/esc quits; not combinable with --json.
+  --live        Full-screen live status re-rendered on every daemon event; TTY only; q/esc quits; not combinable with --json.
 `,
   logs: `orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]
 Read structured diagnosis records; malformed JSONL lines are skipped.
@@ -52,7 +55,7 @@ Send a synthetic transition through each notification sink configured in setting
   --state       The presence state to fake (default: done).
 `,
   questions: `orch questions
-List pending agent questions from live agents. Answer one with: orch answer <target> "<text>".
+Read each live agent's pending question from its status record. Answer one with: orch answer <target> "<text>".
 `,
   runs: `orch runs [<target>] [-n <count>] [--json]
 List durable dispatch history, newest first. Without a target, lists all agents.
@@ -92,6 +95,8 @@ Durably accept a prompt through orchd: the write lands in the outbox and survive
 The target starts the work on a CLEAN session: dispatch clears the context first,
 then re-pins the model, then sends. Prints the dispatch id; 'orch status --json'
 echoes it as .dispatchId once the agent runs that prompt.
+Prints \`Delivered to <recipient> (dispatch <id>)\`, or \`Queued to <recipient> (dispatch <id>): no bridge ack within <timeouts.dispatch_ack_ms>ms\`.
+A queued dispatch is durable: orchd retries every \`daemon.outbox_drain_ms\` and re-pushes the moment the bridge attaches.
   --file        Read the prompt from a file, or from stdin with '-', instead of argv.
   --with        A file or directory the agent opens for context when the task needs it,
                 not inlined into the prompt. Must exist. Repeat once per path.
@@ -99,11 +104,10 @@ echoes it as .dispatchId once the agent runs that prompt.
   --raw         Send the exact prompt, no worker header.
   --model       Pin the model (and optional thinking effort) for this dispatch.
   --agent       Route through a specific adapter instead of the recorded one.
-Governance flags (--force, --steal, --cross-space) are operator-only; a spawned agent's are refused.
+Governance flags (--steal, --cross-space) are operator-only; a spawned agent's are refused.
 `,
-  answer: `orch answer <target> "<text>" [--force]
-Answer a target's pending question.
-  --force       Permit answering when no question.json is recorded.
+  answer: `orch answer <target> "<text>"
+Answer the question the agent is asking. Refused when it is not asking.
 `,
   pipe: `orch pipe <src> <dst> ["instruction"]
 Send a completed result from one agent to another through orchd, with an optional instruction.
@@ -116,7 +120,8 @@ Durably accept a model change through orchd. Model names use the target harness'
 see 'orch models' for what each installed harness offers.
 `,
   steer: `orch steer <target> <text...>
-Durably accept a mid-run steer through orchd; the agent reads it from its inbox mid-turn.
+Durably accept a mid-run steer through orchd; orchd pushes it down the agent's bridge link;
+the reply says whether the agent applied it.
 `,
   wait: `orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
 Block until the pane reaches a status.
@@ -149,6 +154,11 @@ Fully close the harness process and relaunch it.
           [--agent A] [--backend B] [--prompt T ...] [--file P|-] [--with P]...
           [--tasks FILE] [--worktree]
 Fresh tab, balanced-tiled (2=side-by-side, 3=2+1, 4=2x2, ...).
+Bridge-capable adapters wait up to 60 s for each agent's bridge to attach.
+  \`  ok      <handle>  <name>\`
+  \`  STALLED <handle>  <name> - bridge never attached; try: orch restart <name>\`
+A stall exits 1. An adapter with no bridge prints:
+  \`warning: <adapter> writes no presence record at session start - <count> agent(s) UNVERIFIED; check 'orch status' before dispatching\`
 NAMING AN AGENT IS PART OF CREATING IT: the positional arguments ARE the names,
 one per agent, and how many you give is how many panes you get. There is no
 default name, no prefix numbering, and no --name flag — name each pane for the

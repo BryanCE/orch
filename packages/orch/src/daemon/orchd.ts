@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { withTransaction } from "../store/connection.ts";
 import { currentLease } from "../store/lease-rows.ts";
-import { insertOutboxMessage, markOutboxDelivered, outboxMessageOpen, outboxMessageUnsent } from "../store/outbox-rows.ts";
+import { insertOutboxMessage, markOutboxDelivered, outboxMessageState, selectOpenOutboxForTarget, selectOutboxMessage } from "../store/outbox-rows.ts";
 import { insertControlOutcome } from "../store/control-outcome-rows.ts";
 import { settleControlOutcome } from "../control/outcome.ts";
 import { acknowledgeDelivery, confirmDelivery } from "../control/ack.ts";
@@ -31,10 +31,14 @@ import { agentIdOf } from "../commands/lifecycle/close.ts";
 import type { ControlOutcomeReport } from "../types/agent.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
-import { deliverOutboxMessage, drainOutbox } from "./outbox.ts";
+import { deliverOutboxMessage, drainOutbox, redeliverOpenRows } from "./outbox.ts";
+import { acceptMail } from "./mail.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { normalizeControlTarget } from "../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
+import { isAgentGone } from "../control/agent-gone.ts";
+import { bridgeAttached } from "../control/bridge-links.ts";
+import { isBridgeMessage } from "../control/bridge-message.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb } from "../adapters/adapter.ts";
 import { headlessBackend } from "../backends/registry.ts";
@@ -102,9 +106,9 @@ let lastActivityAt = Date.now();
 /** The daemon owes its own exit: with nothing to serve, staying resident only
  *  accumulates orphaned processes. Live agents, event subscribers, or recent RPC
  *  traffic each count as being in use. */
-export function idleShutdownDue(input: { idleMinutes: number; liveAgents: number; subscribers: number; msSinceActivity: number }): boolean {
+export function idleShutdownDue(input: { idleMinutes: number; liveAgents: number; connections: number; msSinceActivity: number }): boolean {
   if (input.idleMinutes <= 0) return false;
-  if (input.liveAgents > 0 || input.subscribers > 0) return false;
+  if (input.liveAgents > 0 || input.connections > 0) return false;
   return input.msSinceActivity >= input.idleMinutes * 60_000;
 }
 
@@ -133,7 +137,7 @@ function getSinks(directory: string): NotifyEntry[] {
 function fleetStatus(directory: string): { rows: StatusRow[] } {
   const rows = fleetStatusRows(getSettings(directory).spaces);
   return {
-    rows: rows.map((row) => ({ ...row, ...deriveLeasePayload(directory, row.key) })),
+    rows: rows.map((row) => ({ ...row, ...deriveLeasePayload(directory, row.key), bridgeAttached: bridgeAttached(row.key) })),
   };
 }
 
@@ -184,24 +188,23 @@ function bridgeNotifyEvent(params: Record<string, unknown>): NotifyEvent {
   return event;
 }
 
-function isWritePayload(value: unknown): value is { action?: unknown; text?: unknown } {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** Send one outbox write into its target's text channel. New work and a mid-run steer
- *  differ only in the action kind; both go through the one control dispatcher. A target
- *  with no recorded adapter is a bare pane orch never spawned, so keystrokes are all it has. */
+ *  differ only in the action kind; both go through the one control dispatcher. */
 export async function deliverWrite(target: string, payload: unknown, id: string): Promise<OutboxDelivery> {
   const canonicalTarget = normalizeControlTarget(target);
   const log = decisionLogger(orchDir()).forCorrelation(id);
-  const value = isWritePayload(payload) ? payload : {};
-  const text = requiredString(value.text, "text");
-  const kind = value.action === "dispatch" ? "run" : "steer";
+  if (!isBridgeMessage(payload) || payload.action === "answer" || payload.action === "model") {
+    log.warn("dispatch.malformed", { target: canonicalTarget });
+    return "gone";
+  }
+  const text = payload.text;
+  const kind = payload.action === "dispatch" ? "run" : "steer";
   if (!resolveTargetAdapter(canonicalTarget)) {
     const route = resolveTargetRoute(canonicalTarget);
-    if (!route?.backend.agentInput) return "failed";
-    // Raw keystrokes: nothing will ever append a marker for this, so the
-    // write itself is the whole delivery.
+    if (!route?.backend.agentInput) {
+      log.warn("dispatch.gone", { target: canonicalTarget, reason: "no delivery route" });
+      return "gone";
+    }
     route.backend.agentInput.submit(String(route.handle), text);
     return "acked";
   }
@@ -213,15 +216,15 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
         target: canonicalTarget,
         reason: outcome.reason,
       });
-      log.warn("dispatch.refused", { target: canonicalTarget, reason: outcome.reason, text: outcome.text });
-      // A boundary answer is a successful human-facing outcome, not a failed
-      // delivery. Ack it so the outbox does not retry or escalate it as error.
+      log.warn("dispatch.refused", { target: canonicalTarget, reason: outcome.reason });
       return "acked";
     }
-    // An inbox write is a handoff, not a read: the row stays pending until the
-    // bridge appends its marker to ack.jsonl.
     return outcome.ack === "expected" ? "queued" : "acked";
   } catch (error) {
+    if (isAgentGone(error)) {
+      log.warn("dispatch.gone", { target: canonicalTarget, reason: errorMessage(error) });
+      return "gone";
+    }
     log.error("dispatch.failed", { target: canonicalTarget, error: errorMessage(error) });
     return "failed";
   }
@@ -300,35 +303,52 @@ export function governWrite(directory: string, target: string, params: unknown, 
   logLeaseGrant();
 }
 
-async function acceptWrite(directory: string, action: "dispatch" | "steer", params: unknown, id = randomUUID()): Promise<{ accepted: true; id: string }> {
+async function acceptTextWrite(directory: string, action: "dispatch" | "steer", params: unknown, id: string): Promise<"none" | "expected"> {
   const { target, text } = validateWriteParams(params);
   const log = decisionLogger(directory).forCorrelation(id);
-  try {
-    withTransaction(directory, () => {
-      governWrite(directory, target, params, { correlationId: id });
-      insertOutboxMessage(directory, { id, target, payload: { action, text } });
-    });
-    log.info("dispatch.accepted", { target, action });
-    log.info("dispatch.queued", { target, action });
-    // THIS write only. Draining the whole outbox here put every caller behind
-    // every other orch's backlog, and one dead agent's retries then timed out
-    // the RPC for a fleet that was perfectly healthy.
-    await deliverOutboxMessage(directory, id, outboxDeps(directory));
-    // Only a write no channel would take is a failure. A queued one is open on
-    // purpose: the agent has not read its inbox yet (L7).
-    if (outboxMessageUnsent(directory, id)) {
-      log.error("dispatch.failed", { target, error: "no channel accepted the write" });
-      throw new Error(`write ${id} reached no channel for target ${target}`);
-    }
-    // Terminal state, and only when the row actually settled. An awaiting row is a
-    // handoff the agent has not read yet, and calling that "delivered" put a second,
-    // contradictory terminal record in the trail ahead of the bridge's own ack.
-    if (!outboxMessageOpen(directory, id)) log.info("dispatch.delivered", { target, action });
-    return { accepted: true, id };
-  } catch (error: unknown) {
-    log.error("dispatch.failed", { target, error: errorMessage(error) });
-    throw error;
+  withTransaction(directory, () => {
+    governWrite(directory, target, params, { correlationId: id });
+    insertOutboxMessage(directory, { id, target, payload: { action, text } });
+  });
+  log.info("dispatch.accepted", { target, action });
+  await deliverOutboxMessage(directory, id, outboxDeps(directory));
+  const state = outboxMessageState(directory, id);
+  if (state === "undeliverable") throw new Error(`write ${id}: agent ${target} is gone`);
+  if (state === "pending") {
+    log.info("dispatch.queued", { target, action, reason: "bridge-detached" });
+    return "none";
   }
+  if (state === "awaiting") return "expected";
+  if (state === "delivered") log.info("dispatch.delivered", { target, action });
+  return "none";
+}
+
+async function deliverAcceptedText(directory: string, id: string): Promise<"none" | "expected"> {
+  const row = selectOutboxMessage(directory, id);
+  if (row === undefined) throw new Error(`write ${id} does not exist`);
+  await deliverOutboxMessage(directory, id, outboxDeps(directory));
+  const state = outboxMessageState(directory, id);
+  if (state === "undeliverable") throw new Error(`write ${id}: agent ${row.target} is gone`);
+  if (state === "pending") {
+    decisionLogger(directory).forCorrelation(id).info("dispatch.queued", { target: row.target, action: row.payload.action, reason: "bridge-detached" });
+    return "none";
+  }
+  if (state === "awaiting") return "expected";
+  if (state === "delivered") decisionLogger(directory).forCorrelation(id).info("dispatch.delivered", { target: row.target, action: row.payload.action });
+  return "none";
+}
+
+async function confirmTextWrite(directory: string, action: "dispatch" | "steer", params: unknown): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
+  const id = randomUUID();
+  const timeoutMs = loadSettings(directory).timeouts.dispatch_ack_ms;
+  let ack: "acknowledged" | "unavailable";
+  try {
+    ack = await confirmDelivery(id, timeoutMs, () => acceptTextWrite(directory, action, params, id));
+  } catch (error: unknown) {
+    if (!errorMessage(error).includes(`delivery ${id} was not acknowledged within`)) throw error;
+    ack = outboxMessageState(directory, id) === "delivered" ? "acknowledged" : "unavailable";
+  }
+  return { accepted: true, id, ack };
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -441,13 +461,28 @@ async function applyLifecycle(directory: string, params: unknown): Promise<{ ok:
 }
 
 export async function steer(directory: string, params: unknown) {
-  const id = randomUUID();
+  return confirmTextWrite(directory, "steer", params);
+}
+
+export async function dispatch(directory: string, params: unknown) {
+  return confirmTextWrite(directory, "dispatch", params);
+}
+
+async function message(directory: string, params: unknown): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
+  const value = rpcParams(params);
+  const from = requiredString(value.from, "from");
+  const target = requiredString(value.target, "target");
+  const text = requiredString(value.text, "text");
+  const accepted = acceptMail(directory, from, target, text);
   const timeoutMs = loadSettings(directory).timeouts.dispatch_ack_ms;
-  const ack = await confirmDelivery(id, timeoutMs, async () => {
-    await acceptWrite(directory, "steer", params, id);
-    return outboxMessageOpen(directory, id) ? "expected" : "none";
-  });
-  return { accepted: true, id, ack };
+  let ack: "acknowledged" | "unavailable";
+  try {
+    ack = await confirmDelivery(accepted.id, timeoutMs, () => deliverAcceptedText(directory, accepted.id));
+  } catch (error: unknown) {
+    if (!errorMessage(error).includes(`delivery ${accepted.id} was not acknowledged within`)) throw error;
+    ack = outboxMessageState(directory, accepted.id) === "delivered" ? "acknowledged" : "unavailable";
+  }
+  return { accepted: true, id: accepted.id, ack };
 }
 
 export async function answer(directory: string, params: unknown) {
@@ -554,8 +589,13 @@ async function main(): Promise<void> {
         return { ok: true };
       },
       status: () => fleetStatus(directory),
-      dispatch: (params) => acceptWrite(directory, "dispatch", params),
+      attach: (params) => {
+        const key = requiredString(rpcParams(params).key, "key");
+        return { attached: true, open: selectOpenOutboxForTarget(directory, key).length };
+      },
+      dispatch: (params) => dispatch(directory, params),
       steer: (params) => steer(directory, params),
+      message: (params) => message(directory, params),
       "spawn-headless": (params) => spawnHeadless(directory, params),
       "set-model": (params) => setModel(directory, params),
       lifecycle: (params) => applyLifecycle(directory, params),
@@ -564,7 +604,10 @@ async function main(): Promise<void> {
       ack: (params) => {
         const value = rpcParams(params);
         const id = requiredString(value.id, "id");
+        const row = selectOutboxMessage(directory, id);
         markOutboxDelivered(directory, id);
+        if (row === undefined) decisionLogger(directory).forCorrelation(id).debug("dispatch.acked", { target: null });
+        else decisionLogger(directory).forCorrelation(id).info("dispatch.acked", { target: row.target });
         acknowledgeDelivery(id);
         return { ok: true };
       },
@@ -599,6 +642,11 @@ async function main(): Promise<void> {
       holdsDaemonLock: true,
       tcpPort,
       onTcpError: (error, port) => daemonLogger?.error("daemon.tcp-listener-failed", { port, error: errorMessage(error) }),
+      onBridgeAttached: (key) => {
+        void redeliverOpenRows(directory, key, outboxDeps(directory)).catch((error: unknown) => {
+          daemonLogger?.error("outbox.redeliver-failed", { target: key, error: errorMessage(error) });
+        });
+      },
     });
   } catch (error) {
     releaseDaemonLock(directory);
@@ -669,9 +717,10 @@ async function main(): Promise<void> {
     const liveAgents = liveAgentCount();
     if (liveAgents > 0) lastActivityAt = Date.now();
     const msSinceActivity = Date.now() - lastActivityAt;
-    if (!idleShutdownDue({ idleMinutes, liveAgents, subscribers: server?.subscriberCount() ?? 0, msSinceActivity })) return;
+    const connections = (server?.subscriberCount() ?? 0) + (server?.attachedBridgeCount() ?? 0);
+    if (!idleShutdownDue({ idleMinutes, liveAgents, connections, msSinceActivity })) return;
     clearInterval(idleCheck);
-    void shutDown(directory, `idle ${idleMinutes}m: no live agents, no subscribers`);
+    void shutDown(directory, `idle ${idleMinutes}m: no live agents, no connections`);
   }, 30_000);
 
   process.once("SIGTERM", () => void shutDown(directory, "SIGTERM"));

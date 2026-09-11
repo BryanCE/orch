@@ -101,7 +101,7 @@ the authoritative command map and `orch help <command>` carries every flag.
 `orch steer <target> "<text>"` lands a durable mid-run instruction. `orch answer <target>
 "<text>"` responds to a pending question. These are different operations and orch enforces
 it: **a steer aimed at a pane in `asking` is refused** and names `orch answer`, because the
-inbox would accept the message and the harness would lose it inside the blocked turn.
+worker would accept the message and the harness would lose it inside the blocked turn.
 `orch broadcast` steers several at once and reports which refused rather than failing the
 whole fan-out.
 
@@ -128,7 +128,7 @@ a deliberate choice, not a default. `orch_ask` is always available and is never 
 talk back.
 
 The `orch_send target "spawner"` clause is only added when the spawner actually has a
-mailbox. A Claude Code session orchestrating a pi fleet has no presence inbox, so its
+mailbox. A Claude Code session orchestrating a pi fleet has no presence mailbox, so its
 workers are never told to reply to an address that would refuse them.
 
 ## Command reference
@@ -233,15 +233,11 @@ Per-harness shipped code lives in `extensions/<harness>/`; plexer-specific code 
 
 ### orchd and presence
 
-`orchd` is the resident daemon. Every write — dispatch, steer, answer, model, queue —
-travels through it, is persisted to an outbox before delivery, and is retried until acked,
-so a daemon restart never drops an in-flight instruction. State flows the other way as a
-push stream with monotonic sequence numbers; a subscriber that reconnects replays from its
-last sequence and is told explicitly if there was a gap.
+A bridge holds one link to orchd. Every message is an outbox row pushed down that link and settled by one ack.
+State flows the other way as a push stream with monotonic sequence numbers; a subscriber that reconnects replays from its last sequence and is told explicitly if there was a gap.
 
 Agents publish presence under `$ORCH_DIR/agents/<id>/` — `status.json`, `result.json`,
-`question.json`, and `control.json` are agent records; `inbox.jsonl`, `answer.json`, and
-`ack.jsonl` carry control traffic. Every spawned agent receives its identity as
+and `control.json` are agent records; control messages travel over the bridge link. Every spawned agent receives its identity as
 `ORCH_AGENT_KEY` and nothing else; a harness shim never reads `HERDR_PANE_ID`, `TMUX_PANE`,
 or any other plexer variable.
 
@@ -436,10 +432,6 @@ $ORCH_DIR/
 └── agents/<id>/             # one directory per agent, named by its minted id
     ├── status.json          # liveness, state, and run facts
     ├── result.json          # settled-turn result
-    ├── inbox.jsonl          # orchestrator-to-agent control lines
-    ├── ack.jsonl            # delivery markers for those lines
-    ├── question.json        # agent-to-orchestrator blocking question
-    ├── answer.json          # the reply to it
     └── control.json         # outcome of a model/thinking control command
 ```
 

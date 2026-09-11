@@ -6,6 +6,8 @@ import * as path from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
+import { AgentGoneError } from "../src/control/agent-gone.ts";
+import { retryingSync } from "../src/retry.ts";
 import { projectRoot } from "../src/util.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
@@ -275,6 +277,26 @@ describe("HerdrBackend", () => {
     ]);
   });
 
+  test("a group with no coordinate opens in the caller pane's workspace, never herdr's focused one", () => {
+    herdrArgv.length = 0;
+    const previous = process.env.HERDR_PANE_ID;
+    process.env.HERDR_PANE_ID = "w0:p2";
+    try {
+      backend.groupHome.create({ workspace: undefined, cwd: testDir, label: "fleet" });
+    } finally {
+      if (previous === undefined) delete process.env.HERDR_PANE_ID;
+      else process.env.HERDR_PANE_ID = previous;
+    }
+    expect(lastCall("tab", "create")?.slice(0, 4)).toEqual(["tab", "create", "--workspace", "ws-test"]);
+  });
+
+  test("a group with no coordinate and no caller pane is refused, not placed wherever herdr is focused", () => {
+    herdrArgv.length = 0;
+    expect(() => backend.groupHome.create({ workspace: undefined, cwd: testDir, label: "fleet" }))
+      .toThrow("Could not determine herdr workspace");
+    expect(lastCall("tab", "create")).toBeUndefined();
+  });
+
   test("the pane host closes a pane through herdr", () => {
     backend.placement.close("w0:p2");
     expect(herdrArgv.at(-1)).toEqual(["pane", "close", "w0:p2"]);
@@ -354,11 +376,40 @@ describe("HerdrBackend", () => {
     expect(() => backend.groupLayout.read("t2")).toThrow("no panes on tab t2");
   });
 
-  test("pane input submits through pane run", () => {
-    herdrArgv.length = 0;
-    backend.agentInput.submit("w0:p1", "ls");
+  test("pane input reports gone handles without retrying and retries plain failures", () => {
+    const gone = Object.assign(new Error("pane is gone"), {
+      stderr: JSON.stringify({ error: { code: "pane_not_found" } }),
+    });
+    let goneCalls = 0;
+    const restoreGone = setHerdrExecutor((_command, _args, _options, policy) => {
+      const operation = (): string => {
+        goneCalls += 1;
+        throw gone;
+      };
+      return policy === undefined ? operation() : retryingSync("herdr", operation, policy);
+    });
+    try {
+      expect(() => backend.agentInput.submit("w0:p1", "ls")).toThrow(AgentGoneError);
+      expect(goneCalls).toBe(1);
+    } finally {
+      restoreGone();
+    }
 
-    expect(herdrArgv).toEqual([["pane", "run", "w0:p1", "ls"]]);
+    const failure = new Error("temporary failure");
+    let failureCalls = 0;
+    const restoreFailure = setHerdrExecutor((_command, _args, _options, policy) => {
+      const operation = (): string => {
+        failureCalls += 1;
+        throw failure;
+      };
+      return policy === undefined ? operation() : retryingSync("herdr", operation, policy);
+    });
+    try {
+      expect(() => backend.agentInput.submit("w0:p1", "ls")).toThrow("temporary failure");
+      expect(failureCalls).toBe(4);
+    } finally {
+      restoreFailure();
+    }
   });
 
   test("pane rename failure reaches the role caller", () => {

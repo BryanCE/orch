@@ -27,17 +27,20 @@ function nonEmpty(value: string | undefined): string | undefined {
 }
 
 /**
- * The plexer this process stands in, and the version it runs.
+ * The plexer this process stands in, the version it runs, and the place it
+ * occupies there.
  *
  * Registration is the moment orch WRITES an environment down (Rule 11), so it is
- * the one place that asks. The claim used to send `undefined` for both, so no
- * driving session ever got a plexer row — and every later reader had to sniff
- * the process environment again to answer a question the store should have held.
+ * the one place that asks. The claim used to send `undefined` for all of these,
+ * so no driving session ever got a plexer or handle row — and every later reader
+ * had to sniff the process environment again to answer a question the store
+ * should have held.
  */
-function callerEnvironment(): { plexer: string | undefined; plexerVersion: string | undefined } {
+function callerEnvironment(): { plexer: string | undefined; plexerVersion: string | undefined; handle: string | undefined } {
   const here = allBackends().find((backend) => backend.isAvailable() && backend.isInsideSession());
-  if (here === undefined) return { plexer: undefined, plexerVersion: undefined };
-  return { plexer: here.id, plexerVersion: here.versionInfo?.installed() ?? undefined };
+  if (here === undefined) return { plexer: undefined, plexerVersion: undefined, handle: undefined };
+  const place = here.placementInventory?.current() ?? null;
+  return { plexer: here.id, plexerVersion: here.versionInfo?.installed() ?? undefined, handle: place === null ? undefined : String(place.handle) };
 }
 
 /** Build the authenticated caller facts for session registration. */
@@ -57,6 +60,7 @@ export function sessionClaim(orchDir: string, label?: string): Record<string, un
     label,
     plexer: environment.plexer,
     plexerVersion: environment.plexerVersion,
+    handle: environment.handle,
     space: nonEmpty(process.env.ORCH_SPACE?.trim()) ?? null,
     hostName: hostname(),
     hostOs: hostOs(),

@@ -69,13 +69,14 @@ function verifiedSessionProcess(claim: Record<string, unknown>): { pid: number; 
   return { pid, startToken, harness, cwd };
 }
 
-function claimedEnvironment(claim: Record<string, unknown>): { sessionToken: string | null; label: string; host: string; plexerId: string | null; plexerVersion: string | null; space: string | null } {
+function claimedEnvironment(claim: Record<string, unknown>): { sessionToken: string | null; label: string; host: string; plexerId: string | null; plexerVersion: string | null; handle: string | null; space: string | null } {
   return {
     sessionToken: typeof claim.sessionToken === "string" && claim.sessionToken.length > 0 ? claim.sessionToken : null,
     label: typeof claim.label === "string" ? claim.label.trim() : "",
     host: typeof claim.hostName === "string" && claim.hostName.trim().length > 0 ? claim.hostName.trim() : hostname(),
     plexerId: typeof claim.plexer === "string" ? claim.plexer.trim() : null,
     plexerVersion: typeof claim.plexerVersion === "string" ? claim.plexerVersion.trim() : null,
+    handle: typeof claim.handle === "string" && claim.handle.trim().length > 0 ? claim.handle.trim() : null,
     space: typeof claim.space === "string" && claim.space.trim().length > 0 ? claim.space.trim() : null,
   };
 }
@@ -110,7 +111,8 @@ export function registerSession(orchDir: string, params: unknown, daemonToken: s
     pid: facts.pid, startToken: facts.startToken, sessionToken: facts.environment.sessionToken,
     harnessId: facts.harness, cwd: facts.cwd, label: facts.environment.label || `${facts.harness} session ${facts.pid}`,
     hostId: facts.environment.host, hostName: facts.environment.host, hostOs: facts.hostOs,
-    plexerId: facts.environment.plexerId, plexerVersion: facts.environment.plexerVersion, space: facts.environment.space, now: Date.now(),
+    plexerId: facts.environment.plexerId, plexerVersion: facts.environment.plexerVersion, handle: facts.environment.handle,
+    space: facts.environment.space, now: Date.now(),
   });
   const registrationWarning = plexerRegistrationWarning(facts.environment.plexerId, facts.environment.plexerVersion);
   return { ...identity, ...(registrationWarning ? { registrationWarning } : {}), unleased: alreadyRegistered ? [] : unleasedAgents(orchDir, identity.id) };

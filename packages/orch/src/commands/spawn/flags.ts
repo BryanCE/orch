@@ -78,9 +78,10 @@ export type SpawnSettings = AgentSettings & {
   label: string;
   /** True when --tab named a tab: an existing match is joined, not recreated. */
   tabExplicit: boolean;
-  /** True when the caller named the plexer. A configured default is not a request
-   *  to enter a plexer this process is not already in. */
-  backendExplicit: boolean;
+  /** True when the human chose the plexer: `--backend`, `ORCH_BACKEND`, or the
+   *  default in `settings.json`. A chosen plexer is one orch may open a home in.
+   *  A plexer orch only probed is not. */
+  backendChosen: boolean;
   cwd: string;
   cmd: string;
   commandFlag: boolean;
@@ -140,8 +141,8 @@ export function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   // borrows the first agent's name, but the two are never conflated.
   const tabLabel = flags.tabLabel ?? names[0] ?? flags.label;
   const prefix = names[0] ?? flags.label;
-  const backendExplicit = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? null) !== null;
-  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendExplicit, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, space: flags.space, prefix, n, worktree, prompts, names, unknownFlags: flags.unknownFlags, fleet: settingsFile.fleet, tiling: settingsFile.tiling };
+  const backendChosen = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? settingsFile.defaults.backend ?? null) !== null;
+  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendChosen, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, space: flags.space, prefix, n, worktree, prompts, names, unknownFlags: flags.unknownFlags, fleet: settingsFile.fleet, tiling: settingsFile.tiling };
 }
 
 /** Live agents per space. Both maps are keyed by the minted id: a space is an

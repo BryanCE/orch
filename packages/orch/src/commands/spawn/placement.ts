@@ -189,22 +189,23 @@ export function findGroupInSpace(backend: Backend, workspace: string | undefined
 }
 /**
  * Where the fleet runs is placement, never identity (Rule 11). Inside a plexer the
- * fleet lands beside the caller. Outside every plexer the default is headless: a
- * plexer the caller did not name is a window nobody asked for. A plexer named with
- * `--backend` opens its own home, and that opening is what the human grants.
+ * fleet lands beside the caller. A plexer the human chose — `--backend`,
+ * `ORCH_BACKEND` or `settings.json` — opens its own home, and that opening is
+ * what the human grants. Outside every plexer, with none chosen, the default is
+ * headless: a plexer orch only probed is a window nobody asked for.
  */
-export function spawnBackend(settings: Pick<SpawnSettings, "backend" | "space" | "backendExplicit">): Backend {
+export function spawnBackend(settings: Pick<SpawnSettings, "backend" | "space" | "backendChosen">): Backend {
   const backend = resolveBackend({ configured: settings.backend });
   if (!backend.groupHome || settings.space !== null) return backend;
   if (callerPlexer() === backend.id) return backend;
-  if (settings.backendExplicit && backend.spaceHome) return backend;
-  const reason = settings.backendExplicit
+  if (settings.backendChosen && backend.spaceHome) return backend;
+  const reason = settings.backendChosen
     ? `${backend.id} cannot open a space of its own`
-    : `no --backend was named`;
-  commandLogger().warn("spawn.headless-fallback", { backend: backend.id, explicit: settings.backendExplicit });
+    : `no backend was chosen`;
+  commandLogger().warn("spawn.headless-fallback", { backend: backend.id, chosen: settings.backendChosen });
   process.stdout.write(
     `orch is not running inside ${backend.id} and ${reason} - spawning headless. `
-    + `Pass --backend ${backend.id} to open a ${backend.id} home for these agents (the user grants it),`
+    + `Pass --backend ${backend.id} or set defaults.backend to open a ${backend.id} home for these agents (the user grants it),`
     + ` or --space <id> to place them in an open space.\n`,
   );
   return headlessBackend;

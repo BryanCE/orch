@@ -39,6 +39,9 @@ export interface SessionAgentInput {
   /** Plexer observed by the registering session, when it runs in one. */
   plexerId?: string | null;
   plexerVersion?: string | null;
+  /** The place the session occupies in that plexer. Recorded so a spawn lands
+   *  beside the caller by reading the store, never by sniffing the plexer. */
+  handle?: string | null;
   /** The space the caller registered in. Optional (A7): a session in no space
    *  records no row, which is an answer and not a missing value. */
   space?: string | null;

@@ -4,7 +4,7 @@ import { isRecord, osSide } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf } from "./agent-view.ts";
-import { setAgentPlexer, setSpace } from "./interval-rows.ts";
+import { setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
 import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostOs, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
 
@@ -197,6 +197,9 @@ function placeSession(orchDir: string, agentId: string, input: SessionAgentInput
   const environment = environmentOf(orchDir, agentId);
   if (input.plexerId != null && environment.plexer === null) {
     setAgentPlexer(orchDir, agentId, input.plexerId);
+  }
+  if (input.handle != null && environment.handle !== input.handle) {
+    setHandle(orchDir, agentId, input.now, input.handle);
   }
   if (input.space != null && environment.space !== input.space) {
     setSpace(orchDir, agentId, input.now, input.space);

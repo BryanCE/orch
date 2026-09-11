@@ -116,32 +116,34 @@ function gate(): { asked: number; grantNewHome: () => void } {
   return state;
 }
 
-describe("outside every plexer, spawn is headless unless the caller names one", () => {
-  test("no --backend from a plain terminal spawns headless", () => {
+describe("outside every plexer, spawn is headless unless the human chose one", () => {
+  test("a plexer orch only probed, from a plain terminal, spawns headless", () => {
     fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendExplicit: false }).id).toBe("headless");
+      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: false }).id).toBe("headless");
     });
   });
 
-  test("--backend names the plexer, so it stays selected and its home is what the human grants", () => {
+  // `--backend`, `ORCH_BACKEND` and `defaults.backend` are all the human's
+  // choice: a plexer set up in settings.json is one orch may open a home in.
+  test("a chosen plexer stays selected and its home is what the human grants", () => {
     fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendExplicit: true }).id).toBe("herdr");
+      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: true }).id).toBe("herdr");
     });
   });
 
-  test("a named plexer that cannot open a home still falls back to headless", () => {
+  test("a chosen plexer that cannot open a home still falls back to headless", () => {
     fixture();
     withRegisteredBackend(homedBackend(null, false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendExplicit: true }).id).toBe("headless");
+      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: true }).id).toBe("headless");
     });
   });
 
-  test("a named space is placement enough: no --backend needed", () => {
+  test("a named space is placement enough: no chosen backend needed", () => {
     fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: "team", backendExplicit: false }).id).toBe("herdr");
+      expect(spawnBackend({ backend: "herdr", space: "team", backendChosen: false }).id).toBe("herdr");
     });
   });
 });

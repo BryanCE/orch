@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Activity, Send, Radio, Inbox } from "lucide-react";
+import { Activity, Send, Radio, Inbox, RotateCcw, RefreshCw, Save, AlertTriangle } from "lucide-react";
 
 import { DaemonEventList } from "@/components/DaemonEventList";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,7 +20,7 @@ import {
 import { AgentCard } from "@/components/AgentCard";
 import { NotFoundPage } from "@/components/common/NotFoundPage";
 import { useFleet } from "@/hooks/use-fleet";
-import { sendToAgent } from "@/server/orch";
+import { answerAgent, controlAgent, sendToAgent, setAgentModel } from "@/server/orch";
 import { useDaemonEvents } from "@/lib/daemon-events";
 import { findSpace, partitionAgents, stateColor, type FleetAgent } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
@@ -171,7 +171,10 @@ function SpaceDetail() {
 /** Agent focus panel — monitor plus first-class steer/message control. */
 function AgentFocus({ agent }: { agent: FleetAgent }) {
   const [msg, setMsg] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [model, setModel] = useState(agent.modelShort ?? agent.model?.id ?? "");
   const [sending, setSending] = useState(false);
+  const [acting, setActing] = useState(false);
   const send = async (kind: "steer" | "message") => {
     const text = msg.trim();
     if (!text || sending) return;
@@ -185,6 +188,43 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
     }
     toast.error(`${kind} → ${agent.name} failed`, { description: result.reason });
   };
+  const answerQuestion = async () => {
+    const text = answer.trim();
+    if (!text || acting) return;
+    setActing(true);
+    const result = await answerAgent({ data: { key: agent.key, text } });
+    setActing(false);
+    if ("daemon" in result) {
+      toast.error(`answer → ${agent.name} failed`, { description: result.reason });
+      return;
+    }
+    toast.success(`answer → ${agent.name}`);
+    setAnswer("");
+  };
+  const lifecycle = async (verb: "reset" | "reload" | "restart") => {
+    if (acting) return;
+    if (verb === "reset" && !window.confirm(`Reset ${agent.name}? This discards the agent context.`)) return;
+    setActing(true);
+    const result = await controlAgent({ data: { key: agent.key, verb } });
+    setActing(false);
+    if ("daemon" in result) {
+      toast.error(`${verb} → ${agent.name} failed`, { description: result.reason });
+      return;
+    }
+    toast.success(`${verb} → ${agent.name}`);
+  };
+  const saveModel = async () => {
+    const value = model.trim();
+    if (!value || acting) return;
+    setActing(true);
+    const result = await setAgentModel({ data: { key: agent.key, model: value } });
+    setActing(false);
+    if ("daemon" in result) {
+      toast.error(`model → ${agent.name} failed`, { description: result.reason });
+      return;
+    }
+    toast.success(`model → ${result.applied}`);
+  };
 
   return (
     <>
@@ -195,9 +235,50 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-3 p-4 text-sm">
+          {agent.state === "asking" && (
+            <section className="space-y-3 rounded border-2 border-destructive bg-destructive/10 p-3 shadow-[0_0_18px_rgba(244,33,46,0.35)]">
+              <div className="flex items-center gap-2 font-semibold text-destructive">
+                <AlertTriangle className="size-4" />
+                <span>Answer required now</span>
+              </div>
+              <p className="text-sm text-foreground">{agent.lastText ?? "This agent is waiting for your answer."}</p>
+              <Textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="answer the agent…" className="min-h-16 resize-none" />
+              <Button className="w-full" disabled={acting || !answer.trim()} onClick={() => void answerQuestion()}>
+                <Send className="size-3.5" /> Answer
+              </Button>
+            </section>
+          )}
           <Field label="State">
             <span className={cn("uppercase", stateColor(agent.state))}>{agent.state}</span>
           </Field>
+          <div className="space-y-2 rounded border bg-muted/20 p-3">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Lifecycle</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              <Button size="sm" variant="outline" disabled={acting} onClick={() => void lifecycle("reset")}>
+                <RotateCcw className="size-3" /> Reset
+              </Button>
+              <Button size="sm" variant="outline" disabled={acting} onClick={() => void lifecycle("reload")}>
+                <RefreshCw className="size-3" /> Reload
+              </Button>
+              <Button size="sm" variant="outline" disabled={acting} onClick={() => void lifecycle("restart")}>
+                <RefreshCw className="size-3" /> Restart
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-2 rounded border bg-muted/20 p-3">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Model</p>
+            <div className="flex gap-2">
+              <input
+                value={model}
+                onChange={(event) => setModel(event.target.value)}
+                placeholder="model or model:level"
+                className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
+              />
+              <Button size="sm" variant="outline" disabled={acting || !model.trim()} onClick={() => void saveModel()}>
+                <Save className="size-3" /> Save
+              </Button>
+            </div>
+          </div>
           <Field label="Runtime">
             {agent.environment.pane
               ? <span className="font-mono text-xs">pane {agent.environment.pane}</span>

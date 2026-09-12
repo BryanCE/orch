@@ -7,13 +7,14 @@ import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
 import { loadSettings } from "../settings/read.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
-import { modelSpec } from "../policy/thinking.ts";
+import { modelSpec, resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
 import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
-import { pickAdapter, requestedModel } from "./selection.ts";
+import { pickAdapter, requestedModel, resolveAdapterOrDie } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
 import { clearSession } from "./lifecycle/reset.ts";
+import { assertLaunchModelAllowed, launchModel, pinModels } from "./spawn/models.ts";
 import { contextReference, readPromptFile } from "./prompt-file.ts";
 import { workerHeaderContext } from "../policy/spawner.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
@@ -289,8 +290,18 @@ export async function cmdDispatch(args: string[]) {
   const key = dispatchSettings.ent.key;
   // New work lands on a clean session unless the caller asked to keep the old one.
   // The model is pinned AFTER the clear, because a clear drops it.
+  const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
+  const model = launchModel(flags, settings, adapter);
+  const thinking = resolveThinking({
+    flag: flags.thinkingFlag,
+    modelSuffix: splitThinkingSuffix(requestedModel(flags) ?? settings.defaults.models[adapter.id] ?? "").thinking,
+    harness: adapter.id,
+    settings,
+  });
+  assertLaunchModelAllowed(adapter.id, model);
   if (!dispatchSettings.keepContext) await clearSession(key, gov.steal === true);
-  if (dispatchSettings.model) await setAgentModel(key, dispatchSettings.model, gov);
+  const pinWarnings = await pinModels([{ key, handle: dispatchSettings.handle, name: dispatchSettings.ent.name ?? dispatchSettings.handle }], model, thinking);
+  if (pinWarnings.length > 0) process.exitCode = 1;
   const headerContext = workerHeaderContext(settings);
   const result = await dispatchToAgent(key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent), context: headerContext, gov });
   if (!spawnedRecords().has(key)) recordAdoptedAgent(key, dispatchSettings);

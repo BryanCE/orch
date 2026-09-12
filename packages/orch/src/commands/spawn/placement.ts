@@ -112,11 +112,13 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   } else {
     place = spec.intoHandle;
   }
+  const thinking = spec.thinking;
+  if (thinking === undefined) throw new Error(`spawn requires a resolved thinking level for ${spec.name}`);
   let handle: BackendHandle;
   try {
     handle = spec.backend.spawn(spec.adapter, {
       key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
-      intoHandle: place, orchDir: orchDir(), model: spec.model, preferredModels: spec.preferredModels,
+      intoHandle: place, orchDir: orchDir(), model: spec.model, thinking, preferredModels: spec.preferredModels,
       tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
     });
   } catch (error: unknown) {

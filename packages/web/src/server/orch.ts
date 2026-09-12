@@ -4,6 +4,8 @@ import { daemonRpc, down, type DaemonDown, type DaemonEndpoint } from "./daemon"
 import { projectFleet, projectHistory, type AgentGroup, type Space } from "@/lib/fleet";
 import { daemonStatusRows } from "@/lib/status-row";
 import type { DaemonStatusRow } from "@orch/types/daemon.ts";
+import type { LifecycleVerb } from "@orch/types/adapter.ts";
+import type { WorkerPolicy } from "@orch/types/policy.ts";
 
 // Every export here is a server function, so the TanStack Start plugin strips this
 // module's body from the client bundle. Adding a plain exported function pulls
@@ -24,6 +26,33 @@ export interface FleetSnapshot {
   history: AgentGroup[];
 }
 type FleetResult = DaemonDown | FleetSnapshot;
+
+export type SendAck = { accepted: true; id: string; ack: "acknowledged" | "unavailable" };
+
+
+export interface AgentQuestion {
+  key: string;
+  name: string | null;
+  text: string | null;
+  askedAt: number | null;
+}
+
+interface SpawnAgentInput {
+  key: string;
+  adapter: string;
+  model: string;
+  prompt: string;
+  cwd?: string;
+  env?: Readonly<Record<string, string>>;
+  preferredModels?: readonly string[];
+  tools?: string;
+  workers?: WorkerPolicy;
+}
+
+interface SpawnAgentResult {
+  key: string;
+  pid: number;
+}
 
 /**
  * Which machine orchd sits on, relative to this web server. A unix socket is one
@@ -105,3 +134,58 @@ export const getFleet = createServerFn({ method: "GET" }).handler(async (): Prom
     return down(error);
   }
 });
+
+export const answerAgent = createServerFn({ method: "POST" })
+  .inputValidator((input: { key: string; text: string }) => input)
+  .handler(async ({ data }): Promise<SendAck | DaemonDown> => {
+    try {
+      const { result } = await daemonRpc<SendAck>("answer", { target: data.key, text: data.text });
+      return result;
+    } catch (error) {
+      return down(error);
+    }
+  });
+
+// The daemon exposes reset, reload and restart here; closing and aborting agents have
+// no daemon capability and therefore are not browser controls yet.
+export const controlAgent = createServerFn({ method: "POST" })
+  .inputValidator((input: { key: string; verb: LifecycleVerb }) => input)
+  .handler(async ({ data }): Promise<{ ok: true; verb: LifecycleVerb } | DaemonDown> => {
+    try {
+      const { result } = await daemonRpc<{ ok: true; verb: LifecycleVerb }>("lifecycle", { target: data.key, verb: data.verb });
+      return result;
+    } catch (error) {
+      return down(error);
+    }
+  });
+
+export const setAgentModel = createServerFn({ method: "POST" })
+  .inputValidator((input: { key: string; model: string }) => input)
+  .handler(async ({ data }): Promise<{ ok: true; applied: string } | DaemonDown> => {
+    try {
+      const { result } = await daemonRpc<{ ok: true; applied: string }>("set-model", { target: data.key, model: data.model });
+      return result;
+    } catch (error) {
+      return down(error);
+    }
+  });
+
+export const getQuestions = createServerFn({ method: "GET" }).handler(async (): Promise<{ daemon: "up"; questions: AgentQuestion[] } | DaemonDown> => {
+  try {
+    await daemonRpc<Record<string, unknown>>("daemon-status");
+    return { daemon: "up", questions: [] };
+  } catch (error) {
+    return down(error);
+  }
+});
+
+export const spawnAgents = createServerFn({ method: "POST" })
+  .inputValidator((input: SpawnAgentInput) => input)
+  .handler(async ({ data }): Promise<SpawnAgentResult | DaemonDown> => {
+    try {
+      const { result } = await daemonRpc<SpawnAgentResult>("spawn-headless", data);
+      return result;
+    } catch (error) {
+      return down(error);
+    }
+  });

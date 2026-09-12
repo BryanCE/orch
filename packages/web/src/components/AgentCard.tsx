@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useDaemonEvents } from "@/lib/daemon-events";
 import { stateColor, stateGlow, type FleetAgent } from "@/lib/fleet";
+import { isAgentState, type AgentState } from "@orch/agent-state.ts";
 
 /** How long the card holds full brightness before it starts decaying. */
 const FLASH_MS = 220;
@@ -14,7 +15,7 @@ const FLASH_MS = 220;
  * Light up on this agent's next transition. Returns the state that caused it, or
  * null once the card is dark — the caller reads null as "no ring".
  */
-function usePulse(agentKey: string): string | null {
+function usePulse(agentKey: string): AgentState | null {
   const { transitions } = useDaemonEvents();
   const transition = transitions[agentKey];
   const [lit, setLit] = useState(false);
@@ -29,7 +30,8 @@ function usePulse(agentKey: string): string | null {
     return () => clearTimeout(dim);
   }, [transition?.count]);
 
-  return lit && transition ? transition.state : null;
+  if (!lit || transition === undefined || !isAgentState(transition.state)) return null;
+  return transition.state;
 }
 
 /** One live agent tile — the atom of both the god-view rollup and the fleet grid. */

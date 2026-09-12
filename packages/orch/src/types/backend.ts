@@ -1,7 +1,7 @@
 import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import type { AgentAdapter } from "./adapter.ts";
 import type { HeadlessHandle } from "./plexer.ts";
-import type { WorkerPolicy } from "./policy.ts";
+import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 
 /** Where a placed agent sits, as the environment reports it. */
 export interface PlacementCoordinate {
@@ -250,6 +250,8 @@ export interface BackendSpawnOpts {
   readonly cwd?: string;
   /** Model selected for this process. */
   readonly model?: string;
+  /** Independent thinking effort selected for this process. */
+  readonly thinking?: ThinkingLevel;
   /** Model patterns the adapter should expose in its native cycle/picker, when configured. */
   readonly preferredModels?: readonly string[];
   /** ORCH_DIR override for the adapter process. */

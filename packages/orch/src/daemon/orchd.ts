@@ -31,6 +31,7 @@ import { agentIdOf } from "../commands/lifecycle/close.ts";
 import type { ControlOutcomeReport } from "../types/agent.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
+import { isThinkingLevel } from "../policy/thinking.ts";
 import { deliverOutboxMessage, drainOutbox, redeliverOpenRows } from "./outbox.ts";
 import { acceptMail } from "./mail.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
@@ -48,7 +49,7 @@ import { createLogger } from "../log.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { LifecycleVerb } from "../types/adapter.ts";
-import type { WorkerPolicy } from "../types/policy.ts";
+import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { DaemonStatusRow, LeaseStatusPayload, OutboxDelivery, OutboxDeps, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
 import type { SettingsWatch, NotifyEntry, OrchSettings } from "../types/settings.ts";
 import type { NotifyEvent } from "../types/notify.ts";
@@ -385,6 +386,11 @@ export function optionalModelSpecs(value: unknown, name: string): string[] | und
  * to do registers, finds no work, and dies before anything can be sent to it.
  * orchd owns the launch because it already owns delivery and outlives the CLI.
  */
+function requiredThinking(value: unknown, name: string): ThinkingLevel {
+  if (!isThinkingLevel(value)) throw new Error(`${name} must be a valid thinking level`);
+  return value;
+}
+
 function spawnHeadless(directory: string, params: unknown): { key: string; pid: number } {
   const value = rpcParams(params);
   const key = requiredString(value.key, "key");
@@ -395,6 +401,7 @@ function spawnHeadless(directory: string, params: unknown): { key: string; pid: 
   // defaults to, and a shorthand one gets fuzzy-matched onto whatever registry
   // entry shares a prefix. Both end with the fleet on a model nobody asked for.
   const model = requiredString(value.model, "model");
+  const thinking = requiredThinking(value.thinking, "thinking");
   assertModelAllowed(directory, adapter, model);
   const handle = headlessBackend.spawn(adapter, {
     key,
@@ -403,6 +410,7 @@ function spawnHeadless(directory: string, params: unknown): { key: string; pid: 
     cwd: optionalString(value.cwd),
     prompt: requiredString(value.prompt, "prompt"),
     model,
+    thinking,
     // The quicklist the harness's own picker gets. It is NOT a second gate: the launch model
     // was ruled on above, and a model outside this list stays launchable.
     preferredModels: optionalModelSpecs(value.preferredModels, "preferredModels"),

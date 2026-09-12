@@ -5,9 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AgentCard } from "@/components/AgentCard";
+import { QuestionsPanel } from "@/components/QuestionsPanel";
 import { useFleet } from "@/hooks/use-fleet";
 import { partitionAgents, stateColor, type AgentGroup, type FleetAgent, type Space } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
+import { AGENT_STATES, isAgentState, type AgentState } from "@orch/agent-state.ts";
 
 export const Route = createFileRoute("/")({
   staticData: { crumbs: () => [{ label: "God-view" }] },
@@ -16,10 +18,8 @@ export const Route = createFileRoute("/")({
 
 function rollup(space: Space) {
   const cost = space.agents.reduce((total, agent) => total + (agent.cost ?? 0), 0);
-  const counts = space.agents.reduce<Record<string, number>>((tally, agent) => {
-    tally[agent.state] = (tally[agent.state] ?? 0) + 1;
-    return tally;
-  }, {});
+  const counts: Partial<Record<AgentState, number>> = Object.fromEntries(AGENT_STATES.map((state) => [state, 0]));
+  for (const agent of space.agents) counts[agent.state] = (counts[agent.state] ?? 0) + 1;
   return { count: space.agents.length, cost, counts };
 }
 
@@ -48,6 +48,7 @@ function GodView() {
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
         <TabsContent value="live">
+          <QuestionsPanel />
           {!isPending && liveSpaces.length === 0 && orphans.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
               <Inbox className="size-10" />
@@ -96,11 +97,15 @@ function SpaceCard({ space }: { space: Space }) {
             <span className="ml-auto font-mono">${r.cost.toFixed(2)}</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {Object.entries(r.counts).map(([state, n]) => (
-              <Badge key={state} variant="outline" className={cn("uppercase", stateColor(state))}>
-                {n} {state}
-              </Badge>
-            ))}
+            {AGENT_STATES.map((state) => {
+              if (!isAgentState(state)) return null;
+              const n = r.counts[state] ?? 0;
+              return n === 0 ? null : (
+                <Badge key={state} variant="outline" className={cn("uppercase", stateColor(state))}>
+                  {n} {state}
+                </Badge>
+              );
+            })}
           </div>
         </CardContent>
       </Card>

@@ -165,6 +165,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       key,
       cwd: opts.cwd,
       model: opts.model,
+      thinking: opts.thinking,
       preferredModels: opts.preferredModels,
       orchDir: directory,
       env: opts.env,

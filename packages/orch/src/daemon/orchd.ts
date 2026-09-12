@@ -75,7 +75,7 @@ function leaseHolderIsAlive(directory: string, holderId: string): boolean {
 export function deriveLeasePayload(directory: string, key: string): LeaseStatusPayload {
   // An agent key IS its minted id (A1); a key that is not one names no agent and
   // stays unknown rather than being guessed at.
-  const agentId = tryParseIdentity(key)?.id ?? key;
+  const agentId = agentIdOf(key);
   if (!agentById(directory, agentId)) return { lease: null, leaseKnown: false };
   const lease = currentLease(directory, agentId);
   if (!lease) return { lease: null, leaseKnown: true };
@@ -476,13 +476,12 @@ export async function dispatch(directory: string, params: unknown) {
   return confirmTextWrite(directory, "dispatch", params);
 }
 
-function recordAgentQuestion(directory: string, params: unknown, context: { readonly identity?: { readonly id: string } }): { ok: true } {
-  if (!isAgentNotice(params)) throw new Error("question params must be an agent question notice");
-  const agentId = context.identity?.id;
-  if (agentId === undefined || agentById(directory, agentId) === null) {
-    throw new Error("question requires a registered agent identity");
-  }
-  recordQuestion(directory, { id: params.questionId, agentId, question: params.question, askedAt: params.askedAt });
+function recordAgentQuestion(directory: string, params: unknown): { ok: true } {
+  const value = rpcParams(params);
+  if (!isAgentNotice(value)) throw new Error("question params must be an agent question notice");
+  const agentId = agentIdOf(requiredString(value.agentId, "agentId"));
+  if (agentById(directory, agentId) === null) throw new Error(`question agent ${agentId} does not exist`);
+  recordQuestion(directory, { id: value.questionId, agentId, question: value.question, askedAt: value.askedAt });
   return { ok: true };
 }
 
@@ -524,7 +523,7 @@ export async function answer(directory: string, params: unknown) {
   const value = rpcParams(params);
   const target = requiredString(value.target, "target");
   const text = requiredString(value.text, "text");
-  const targetId = tryParseIdentity(target)?.id ?? target;
+  const targetId = agentIdOf(target);
   const current = pendingQuestion(directory, targetId);
   const requestedQuestionId = value.questionId === undefined ? undefined : requiredString(value.questionId, "questionId");
   if (current === undefined || (requestedQuestionId !== undefined && current.id !== requestedQuestionId)) {
@@ -646,7 +645,7 @@ async function main(): Promise<void> {
       "set-model": (params) => setModel(directory, params),
       lifecycle: (params) => applyLifecycle(directory, params),
       "agent-closed": (params) => publishClosedAgent(directory, params),
-      question: (params, _emit, context) => recordAgentQuestion(directory, params, context),
+      question: (params) => recordAgentQuestion(directory, params),
       questions: () => listPendingQuestions(directory),
       answer: (params) => answer(directory, params),
       ack: (params) => {

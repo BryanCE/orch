@@ -25,6 +25,7 @@ export function stubDaemonClient(): DaemonClient {
     detach: () => undefined,
     attached: () => false,
     postAck: () => Promise.resolve(true),
+    postQuestion: () => Promise.resolve(),
     postControlOutcome: () => Promise.resolve(true),
   };
 }

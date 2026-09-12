@@ -2,7 +2,6 @@ import { loadSettings } from "./settings/read.ts";
 import { allBackends } from "./backends/registry.ts";
 import { loadPresence } from "./presence/store.ts";
 import { orchDir } from "./presence/writer.ts";
-import { tryParseIdentity } from "./backends/identity.ts";
 import { agentById } from "./store/agent-rows.ts";
 import { checkWall, sameSpace, spaceOf } from "./policy/space.ts";
 import { errorMessage } from "./util.ts";
@@ -57,8 +56,7 @@ function viewsById(root = orchDir()): Map<string, AgentView> {
 /** Join a presence/pane key to its agent through the minted id alone. Reading
  *  the whole key as an identity is what made a MOVED agent look like a new one. */
 function viewForKey(views: ReadonlyMap<string, AgentView>, key: string): AgentView | undefined {
-  const id = tryParseIdentity(key)?.id;
-  return id === undefined ? undefined : views.get(id);
+  return views.get(key);
 }
 
 /** The address that reaches an agent: the presence key it actually has, else
@@ -71,17 +69,14 @@ function addressOf(view: AgentView, presenceById: ReadonlyMap<string, PresenceEn
 function indexPresenceById(presence: ReadonlyMap<string, PresenceEntry>): Map<string, PresenceEntry> {
   const byId = new Map<string, PresenceEntry>();
   for (const entry of presence.values()) {
-    const id = tryParseIdentity(entry.key)?.id;
-    if (id !== undefined) byId.set(id, entry);
+    byId.set(entry.key, entry);
   }
   return byId;
 }
 
 /** Resolve an identity key to the agent an operator knows. */
 function normalizedAgentName(key: string): string | null {
-  const id = tryParseIdentity(key)?.id;
-  if (!id) return null;
-  try { return agentById(orchDir(), id)?.name ?? null; } catch { return null; }
+  try { return agentById(orchDir(), key)?.name ?? null; } catch { return null; }
 }
 
 function recipientName(status: PresenceEntry["status"], space: string, key: string): string {

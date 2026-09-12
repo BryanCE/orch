@@ -1,5 +1,4 @@
 import { eq } from "drizzle-orm";
-import { parseIdentity } from "../backends/identity.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { agentById, currentHostOs, ensureHarness, ensureHost, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
 import { hostname } from "node:os";
@@ -17,7 +16,7 @@ import type { SpawnRegistration } from "../types/store.ts";
  * an agent that moves keeps the identity it was minted with.
  */
 export function registerSpawnedAgent(directory: string, input: SpawnRegistration): string {
-  const agentId = parseIdentity(input.key).id;
+  const agentId = input.key;
   const now = input.now ?? Date.now();
   const spawnerId = input.spawner && agentById(directory, input.spawner) ? input.spawner : null;
   if (input.placed && input.handle === undefined) throw new Error("a placed agent requires a handle");

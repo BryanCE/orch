@@ -8,7 +8,7 @@ import { STATUS_FILE } from "./schema.ts";
 // harness shims can bundle it without dragging in the sqlite graph.
 import { isPresenceStatus, orchDir, presenceAgentDir, presenceRoot, readLatestResult, readPresenceStatus } from "./writer.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { eq } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-rows.ts";
@@ -94,7 +94,7 @@ export function spawnedRecords(root = orchDir()): Map<string, AgentView> {
  *  space to clean. A reaped agent reads nothing, so a write left open would
  *  retry on every drain tick forever. */
 export function reapSpawnedRecord(key: string, root = orchDir(), options: { agentId?: string } = {}): void {
-  const agentId = options.agentId ?? tryParseIdentity(key)?.id;
+  const agentId = options.agentId ?? key;
   if (agentId !== undefined) {
     try { orm(root).delete(agents).where(eq(agents.id, agentId)).run(); } catch {}
   }
@@ -146,7 +146,7 @@ function presenceDirectoryNames(root: string): string[] {
 export function malformedPresenceDirs(root = orchDir()): { name: string; dir: string }[] {
   const found: { name: string; dir: string }[] = [];
   for (const name of presenceDirectoryNames(root)) {
-    if (tryParseIdentity(name) !== null) continue;
+    if (isAgentId(name)) continue;
     found.push({ name, dir: join(presenceDir(root), name) });
   }
   return found;
@@ -214,7 +214,7 @@ export function loadPresence(root = orchDir()): Map<string, PresenceEntry> {
     // a name that does not parse names NO agent - there is nothing to key the
     // four facts on. Rule 8: an old-shape record is malformed, never a second
     // shape to accept. It is reaped by `reapMalformedPresenceDirs`, not read.
-    if (tryParseIdentity(key) === null) continue;
+    if (!isAgentId(key)) continue;
     const dir = presenceAgentDir(key, root);
     try {
       if (!statSync(dir).isDirectory()) continue;

@@ -6,8 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatAge, cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
 import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
-import { seedStatus } from "./helpers/presence.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
+import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { DaemonAbsentError } from "../src/daemon/rpc/wire.ts";
+import type { PendingQuestionView } from "../src/types/daemon.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
@@ -51,22 +53,35 @@ function captureStdout(run: () => void): string {
   return output.join("");
 }
 
+async function captureStdoutAsync(run: () => Promise<void>): Promise<string> {
+  const output: string[] = [];
+  // eslint-disable-next-line typescript/unbound-method
+  const originalWrite = process.stdout.write;
+  process.stdout.write = ((chunk: string | Uint8Array) => { output.push(String(chunk)); return true; });
+  try { await run(); } finally { process.stdout.write = originalWrite; }
+  return output.join("");
+}
+
+async function withQuestionsServer(root: string, questions: PendingQuestionView[], run: () => Promise<void>): Promise<void> {
+  const server = await startRpcServer(root, { questions: () => ({ questions }) });
+  try { await run(); } finally { await server.close(); }
+}
+
 describe("commands/results", () => {
-  test.serial("renders missing space and host as absent instead of inventing local", () => {
+  test.serial("renders daemon questions with the existing JSON shape", async () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-questions-"));
     const old = process.env.ORCH_DIR;
     const key = "questionag";
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    const ts = new Date().toISOString();
     seedLiveAgent(root, key);
-    seedStatus(root, key, { agent: "pi", state: "asking", label: "question-agent", asking: { question: "need input", id: "q1", ts } });
+    const askedAt = Date.parse("2026-09-11T00:00:00.000Z");
     try {
-      const output = captureStdout(() => { void cmdQuestions(["--local", "--all", "--json"]); });
+      const output = await captureStdoutAsync(() => withQuestionsServer(root, [{ questionId: "q1", agentId: key, key, name: "question-agent", question: "need input", askedAt }], async () => {
+        await cmdQuestions(["--local", "--all", "--json"]);
+      }));
       const parsed: unknown = JSON.parse(output);
-      expect(parsed).toEqual([expect.objectContaining({ key, space: "-", id: "q1", question: "need input", ts })]);
-      expect(output).not.toContain("local");
-      expect(output).not.toContain("workspace");
+      expect(parsed).toEqual([expect.objectContaining({ key, name: "question-agent", space: "-", id: "q1", question: "need input", ts: "2026-09-11T00:00:00.000Z" })]);
       expect(parsed).not.toHaveProperty("host");
       expect(parsed).not.toHaveProperty("workspace");
     } finally {
@@ -75,19 +90,33 @@ describe("commands/results", () => {
     }
   });
 
-  test.serial("lists only live agents with a pending status question", () => {
+  test.serial("renders exactly the pending questions returned by the daemon", async () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-questions-filter-"));
     const old = process.env.ORCH_DIR;
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    seedLiveAgent(root, "liveques01");
-    seedLiveAgent(root, "noques0001");
-    seedStatus(root, "liveques01", { agent: "pi", state: "asking", asking: { question: "live", id: "live-id", ts: "2026-09-11T00:00:00.000Z" } });
-    seedStatus(root, "deadques01", { agent: "pi", state: "asking", asking: { question: "dead", id: "dead-id", ts: "2026-09-11T00:00:00.000Z" } });
-    seedStatus(root, "noques0001", { agent: "pi", state: "working" });
     try {
-      const parsed: unknown = JSON.parse(captureStdout(() => { void cmdQuestions(["--local", "--all", "--json"]); }));
-      expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live", ts: "2026-09-11T00:00:00.000Z" })]);
+      const output = await captureStdoutAsync(async () => {
+        await withQuestionsServer(root, [
+          { questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
+        ], async () => { await cmdQuestions(["--local", "--all", "--json"]); });
+      });
+      const parsed: unknown = JSON.parse(output);
+      expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live" })]);
+    } finally {
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
+  });
+
+  test.serial("surfaces a missing daemon instead of returning an empty list", async () => {
+    const root = mkdtempSync(join(tmpdir(), "orch-command-questions-down-"));
+    const old = process.env.ORCH_DIR;
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    try {
+      const error = await cmdQuestions(["--local", "--json"]).then(() => undefined, (failure: unknown) => failure);
+      expect(error).toBeInstanceOf(DaemonAbsentError);
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);

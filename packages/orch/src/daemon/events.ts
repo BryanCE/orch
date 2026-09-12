@@ -9,7 +9,7 @@ import { loadPresence } from "../presence/store.ts";
 import { agentView, agentViews } from "../store/agent-view.ts";
 import { computeFleetCapacity, packsUsed } from "../policy/capacity.ts";
 import { loadSettings } from "../settings/read.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { upsertRun } from "../store/run-rows.ts";
 import { truncate } from "../util.ts";
 import { agentProcessLive } from "../store/interval-rows.ts";
@@ -123,7 +123,7 @@ function identityFields(
   // A1: the four facts are read back together through the one composer. A key
   // that names no agent has no name and no environment - that is an answer, not
   // a row to go looking for under a second id.
-  const normalizedId = tryParseIdentity(key)?.id;
+  const normalizedId = isAgentId(key) ? key : undefined;
   const view = normalizedId === undefined ? null : agentView(orchDir, normalizedId);
   const space = view?.environment.space ?? undefined;
   const normalizedName = view?.name ?? null;
@@ -270,7 +270,7 @@ function runRecordForTransition(
   // Its SPACE is deliberately not copied here: A1 forbids a second table keeping
   // its own copy of a mutable environment fact, so a run reads it through the
   // agent whenever it is wanted.
-  const agentId = tryParseIdentity(key)?.id;
+  const agentId = isAgentId(key) ? key : undefined;
   const view = agentId === undefined ? null : agentView(orchDir, agentId);
   if (view) run.adapter = view.harnessId;
   if (status.model && typeof status.model.id === "string") run.model = status.model.id;

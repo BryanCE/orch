@@ -1,6 +1,4 @@
 import { randomBytes } from "node:crypto";
-import type { Identity } from "../types/backend.ts";
-
 /**
  * Agent identity: one minted id, and nothing else.
  *
@@ -48,30 +46,3 @@ export function isAgentId(value: unknown): value is string {
   return typeof value === "string" && ID_PATTERN.test(value);
 }
 
-/**
- * The key for an identity — which is the id itself.
- *
- * Kept as a named function rather than inlined so that "what goes in a presence
- * directory name" has exactly one answer in the codebase, and so the day
- * something wants to change it, there is one place to change.
- */
-export function serializeIdentity(id: Identity): string {
-  if (!isAgentId(id.id)) {
-    throw new Error(`identity id must be ${ID_LENGTH} lowercase alphanumerics: ${JSON.stringify(id.id)}`);
-  }
-  return id.id;
-}
-
-/** Parse a key back into an identity. Throws when the key is not a minted id. */
-export function parseIdentity(key: string): Identity {
-  if (!isAgentId(key)) {
-    throw new Error(`malformed identity key: expected ${ID_LENGTH} lowercase alphanumerics, got ${JSON.stringify(key)}`);
-  }
-  return { id: key };
-}
-
-/** Parse a key without throwing; returns null when the key is malformed. */
-export function tryParseIdentity(key: string | null | undefined): Identity | null {
-  if (key === null || key === undefined) return null;
-  return isAgentId(key) ? { id: key } : null;
-}

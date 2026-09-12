@@ -104,6 +104,15 @@ CREATE TABLE `catalogues` (
 	`stdout` text NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `control_outcomes` (
+	`id` text PRIMARY KEY,
+	`agent_id` text NOT NULL,
+	`command` text NOT NULL,
+	`requested` text NOT NULL,
+	`settled_at` integer NOT NULL,
+	`error` text
+);
+--> statement-breakpoint
 CREATE TABLE `events` (
 	`seq` integer PRIMARY KEY AUTOINCREMENT,
 	`ts` integer NOT NULL,
@@ -216,6 +225,15 @@ CREATE TABLE `plexers` (
 	`enabled_at` integer
 );
 --> statement-breakpoint
+CREATE TABLE `questions` (
+	`id` text PRIMARY KEY,
+	`agent_id` text NOT NULL,
+	`question` text NOT NULL,
+	`asked_at` integer NOT NULL,
+	`answered_at` integer,
+	`answer` text
+);
+--> statement-breakpoint
 CREATE TABLE `runs` (
 	`dispatch_id` text PRIMARY KEY,
 	`agent_key` text NOT NULL,
@@ -308,11 +326,13 @@ CREATE UNIQUE INDEX `one_tuning` ON `agent_tunings` (`agent_id`) WHERE until IS 
 CREATE INDEX `agents_by_pack` ON `agents` (`root_agent_id`);--> statement-breakpoint
 CREATE INDEX `agents_by_spawner` ON `agents` (`spawned_by`);--> statement-breakpoint
 CREATE UNIQUE INDEX `one_agent_per_session` ON `agents` (`session_token`);--> statement-breakpoint
+CREATE INDEX `control_outcomes_agent` ON `control_outcomes` (`agent_id`,`settled_at`);--> statement-breakpoint
 CREATE INDEX `grants_by_action` ON `grant_requests` (`action_hash`);--> statement-breakpoint
 CREATE UNIQUE INDEX `one_install` ON `host_plexers` (`host_id`,`plexer_id`) WHERE until IS NULL;--> statement-breakpoint
 CREATE INDEX `outbox_pending` ON `outbox` (`state`,`next_attempt_at`);--> statement-breakpoint
 CREATE UNIQUE INDEX `one_intake` ON `pack_intakes` (`pack_id`,`space_id`) WHERE until IS NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX `one_pack_home` ON `pack_plexers` (`pack_id`) WHERE until IS NULL;--> statement-breakpoint
+CREATE INDEX `questions_pending` ON `questions` (`agent_id`,`answered_at`);--> statement-breakpoint
 CREATE INDEX `runs_agent_started` ON `runs` (`agent_key`,`started_at`);--> statement-breakpoint
 CREATE UNIQUE INDEX `one_space_home` ON `space_plexers` (`space_id`) WHERE until IS NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX `one_open_attempt` ON `task_attempts` (`task_id`) WHERE until IS NULL;--> statement-breakpoint

@@ -6,7 +6,7 @@ import { agentInMineScope, agentInScope, resolveCallerScope } from "../policy/sc
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
 import { isRecord } from "../util.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { subscribeEvents } from "../daemon/rpc/client.ts";
 import { ensureDaemon } from "../daemon/reach.ts";
 import { deliver } from "../notify/router.ts";
@@ -19,7 +19,7 @@ import type { NotifyEntry } from "../types/settings.ts";
 import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 
 function looksLikePaneKey(key: string): boolean {
-  return tryParseIdentity(key) !== null;
+  return isAgentId(key);
 }
 
 export interface EventsOptions {
@@ -57,7 +57,7 @@ export async function cmdEvents(args: string[]) {
   const scope = await resolveCallerScope(options.scope, orchDir());
   const accepts = (key: string): boolean => {
     // The key IS the minted id (A1), so there is one lookup and no second id space.
-    const agentId = tryParseIdentity(key)?.id ?? null;
+    const agentId = isAgentId(key) ? key : null;
     const inScope = options.targets.length
       ? items.has(key)
       : agentId !== null && eventWithinSpaceWall(orchDir(), agentId, callerSpace());

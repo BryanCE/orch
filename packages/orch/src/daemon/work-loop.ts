@@ -16,7 +16,7 @@ import { loadPresence, statusForPresence } from "../presence/store.ts";
 import { loadSettings } from "../settings/read.ts";
 import { workerHeaderFor, workerRules } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { agentView } from "../store/agent-view.ts";
 import { sweepExpiredRows } from "./retention.ts";
@@ -41,7 +41,7 @@ interface Runner {
  *  A process with no row belongs to no pack, so no scope reaches it and no
  *  queued task may go to it. */
 function runnerOf(orchDir: string, entry: PresenceEntry): Runner | null {
-  const agentId = tryParseIdentity(entry.key)?.id;
+  const agentId = isAgentId(entry.key) ? entry.key : undefined;
   if (agentId === undefined) return null;
   const agent = agentById(orchDir, agentId);
   if (!agent || agent.ending != null) return null;
@@ -86,7 +86,7 @@ async function waitForWorking(entry: PresenceEntry, task: TaskRec, timeoutMs: nu
 async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec): Promise<void> {
   // The key is the identity; everything else about the agent is COMPOSED from
   // the tables that own each fact, never decoded out of the address.
-  const runnerId = currentAttempt(task)?.agentId ?? tryParseIdentity(entry.key)?.id;
+  const runnerId = currentAttempt(task)?.agentId ?? (isAgentId(entry.key) ? entry.key : undefined);
   const view = runnerId === undefined ? null : agentView(options.orchDir, runnerId);
   const adapterId = view?.harnessId ?? entry.status?.agent;
   const rules = workerRules(options.getSettings?.() ?? loadSettings(options.orchDir));

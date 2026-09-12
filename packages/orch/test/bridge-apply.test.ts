@@ -79,6 +79,7 @@ function fakeDaemon(): {
       acks.push(id);
       return Promise.resolve(true);
     },
+    postQuestion: () => Promise.resolve(),
     postControlOutcome: () => Promise.resolve(true),
   };
   return {

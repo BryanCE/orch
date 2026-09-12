@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "e32cc945-9741-4a3e-a5fe-1bd1ae27162e",
+  "id": "219ee6a3-9278-4fd6-9b89-5295c25d8803",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -44,6 +44,10 @@
     },
     {
       "name": "catalogues",
+      "entityType": "tables"
+    },
+    {
+      "name": "control_outcomes",
       "entityType": "tables"
     },
     {
@@ -96,6 +100,10 @@
     },
     {
       "name": "plexers",
+      "entityType": "tables"
+    },
+    {
+      "name": "questions",
       "entityType": "tables"
     },
     {
@@ -581,6 +589,66 @@
       "name": "stdout",
       "entityType": "columns",
       "table": "catalogues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "control_outcomes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "agent_id",
+      "entityType": "columns",
+      "table": "control_outcomes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "command",
+      "entityType": "columns",
+      "table": "control_outcomes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "requested",
+      "entityType": "columns",
+      "table": "control_outcomes"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "settled_at",
+      "entityType": "columns",
+      "table": "control_outcomes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "error",
+      "entityType": "columns",
+      "table": "control_outcomes"
     },
     {
       "type": "integer",
@@ -1091,6 +1159,66 @@
       "name": "enabled_at",
       "entityType": "columns",
       "table": "plexers"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "questions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "agent_id",
+      "entityType": "columns",
+      "table": "questions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "question",
+      "entityType": "columns",
+      "table": "questions"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "asked_at",
+      "entityType": "columns",
+      "table": "questions"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "answered_at",
+      "entityType": "columns",
+      "table": "questions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "answer",
+      "entityType": "columns",
+      "table": "questions"
     },
     {
       "type": "text",
@@ -2300,6 +2428,15 @@
     },
     {
       "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "control_outcomes_pk",
+      "table": "control_outcomes",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
         "seq"
       ],
       "nameExplicit": false,
@@ -2377,6 +2514,15 @@
       "nameExplicit": false,
       "name": "plexers_pk",
       "table": "plexers",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "questions_pk",
+      "table": "questions",
       "entityType": "pks"
     },
     {
@@ -2544,6 +2690,24 @@
     {
       "columns": [
         {
+          "value": "agent_id",
+          "isExpression": false
+        },
+        {
+          "value": "settled_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "control_outcomes_agent",
+      "entityType": "indexes",
+      "table": "control_outcomes"
+    },
+    {
+      "columns": [
+        {
           "value": "action_hash",
           "isExpression": false
         }
@@ -2622,6 +2786,24 @@
       "name": "one_pack_home",
       "entityType": "indexes",
       "table": "pack_plexers"
+    },
+    {
+      "columns": [
+        {
+          "value": "agent_id",
+          "isExpression": false
+        },
+        {
+          "value": "answered_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "questions_pending",
+      "entityType": "indexes",
+      "table": "questions"
     },
     {
       "columns": [

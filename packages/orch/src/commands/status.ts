@@ -1,6 +1,5 @@
 import { loadSettingsOrNull } from "../settings/read.ts";
 import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extensions.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { deriveDriveState, NO_ORCH_DRIVER } from "../agent/drive-state.ts";
@@ -60,7 +59,7 @@ export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView>
 }
 
 function currentOrchId(): string | null {
-  return tryParseIdentity(spawnerIdentity().key)?.id ?? null;
+  return spawnerIdentity().key;
 }
 
 export function formatOwnerCell(row: Pick<StatusRow, "owner">): string {
@@ -587,13 +586,11 @@ interface OrchNames {
 
 /** Read names and environment from the already-loaded normalized agent views. */
 function orchNames(key: string, views: ReadonlyMap<string, AgentView>): OrchNames {
-  const identity = tryParseIdentity(key);
-  if (!identity) return { agentId: null, agentName: null, rootAgentId: null, rootAgentName: null, spaceId: null, spaceName: null };
-  const agent = views.get(identity.id);
-  if (!agent) return { agentId: identity.id, agentName: null, rootAgentId: null, rootAgentName: null, spaceId: null, spaceName: null };
+  const agent = views.get(key);
+  if (!agent) return { agentId: key, agentName: null, rootAgentId: null, rootAgentName: null, spaceId: null, spaceName: null };
   const root = views.get(agent.rootAgentId);
   return {
-    agentId: identity.id,
+    agentId: key,
     agentName: agent.name,
     rootAgentId: agent.rootAgentId,
     rootAgentName: root?.name ?? null,

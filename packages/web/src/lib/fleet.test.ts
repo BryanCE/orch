@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { projectFleet, type FleetProjectionRow } from "./fleet";
+import type { DaemonStatusRow } from "@orch/types/daemon.ts";
+import { projectFleet, projectHistory } from "./fleet";
 
-const row = (overrides: Partial<FleetProjectionRow> = {}): FleetProjectionRow => ({
-  key: "agent-key", paneId: null, name: null, state: "idle", exited: false,
-  model: "", lastText: null, cost: 0, ctxPercent: null, tokens: null,
-  capabilities: { panes: false, focusable: false, canSendKeys: false, canPruneLogs: false },
+const row = (overrides: Partial<DaemonStatusRow> = {}): DaemonStatusRow => ({
+  key: "agent-key", agentId: null, paneId: null, managed: false, name: null,
+  tab: null, agent: null, owner: null, spawnedBy: null, spawnedByLabel: null,
+  worktree: null, branch: null, cwd: null, focused: false, model: "", modelShort: "",
+  state: "idle", stateFallback: false, exited: false, alive: true, cost: 0,
+  ctxPercent: null, task: null, dispatchId: null, lastText: null, backendStatus: null,
+  backend: null, capabilities: null, sessionPath: null, presenceDir: null,
+  presenceOnly: false, bridgeAttached: null, tokens: null, turns: null,
   lease: null, leaseKnown: false, spaceId: null, spaceName: null,
-  spawnedBy: null, spawnedByLabel: null,
+  rootAgentId: null, rootAgentName: null,
   ...overrides,
 });
 
@@ -32,10 +37,50 @@ describe("web environment projection", () => {
     expect(space?.agents[0]?.name).toBe("minted-id");
   });
 
+  test("unknown daemon states use the neutral fallback", () => {
+    const [space] = projectFleet([row({ state: "future-state" })]);
+    expect(space!.agents[0]!.state).toBe("unknown");
+    expect(space!.agents[0]!.stateFallback).toBe(false);
+  });
+
+  test("uses names from orch rows and falls back to the minted id", () => {
+    const [named, unnamed] = projectFleet([
+      row({ name: "reviewer", agentId: "agent1234" }),
+      row({ name: null, agentId: "agent5678" }),
+    ])[0]!.agents;
+    expect(named!.name).toBe("reviewer");
+    expect(unnamed!.name).toBe("agent5678");
+  });
+
+  test("uses the orch space name and id", () => {
+    const [space] = projectFleet([row({ spaceId: "space-42", spaceName: "Release" })]);
+    expect(space!.name).toBe("Release");
+    expect(space!.id).toBe("space-42");
+  });
+
+  test("history groups ended agents by provenance root", () => {
+    const history = projectHistory([
+      row({ key: "child-a", agentId: "child-a", exited: true, rootAgentId: "pack-root", rootAgentName: "Release pack", name: "child-a" }),
+      row({ key: "child-b", agentId: "child-b", exited: true, rootAgentId: "pack-root", rootAgentName: "Release pack", name: "child-b" }),
+    ]);
+    expect(history[0]!.id).toBe("pack-root");
+    expect(history[0]!.name).toBe("Release pack");
+    expect(history[0]!.agents.map((agent) => agent.key)).toEqual(["child-a", "child-b"]);
+    expect("orchs" in history[0]!).toBe(false);
+  });
+
+  test("live projection excludes ended rows", () => {
+    const live = row({ agentId: "live" });
+    const ended = row({ agentId: "ended", rootAgentId: "pack-root", exited: true });
+    expect(projectFleet([live, ended])[0]!.agents.map((agent) => agent.key)).toEqual([live.key]);
+    expect(projectHistory([live, ended]).flatMap((group) => group.agents).map((agent) => agent.key)).toEqual([ended.key]);
+  });
+
   test("renderers contain no provider-id branches or backend capability imports", async () => {
     const files = ["./fleet.ts", "../components/AgentCard.tsx", "../routes/spaces/$slug.tsx", "../routes/index.tsx", "../components/AppSidebar.tsx"];
     const source = (await Promise.all(files.map((file) => Bun.file(new URL(file, import.meta.url)).text()))).join("\\n");
-    const forbidden = ["Backend", "Capabilities", "herdr", "tmux", "headless"];
+    expect(source).toContain('label="Backend status"');
+    const forbidden = ["Capabilities", "herdr", "tmux", "headless"];
     expect(forbidden.some((word) => source.includes(word))).toBe(false);
   });
 });

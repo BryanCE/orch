@@ -49,9 +49,8 @@ import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { LifecycleVerb } from "../types/adapter.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
-import type { LeaseStatusPayload, OutboxDelivery, OutboxDeps, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
+import type { DaemonStatusRow, LeaseStatusPayload, OutboxDelivery, OutboxDeps, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
 import type { SettingsWatch, NotifyEntry, OrchSettings } from "../types/settings.ts";
-import type { StatusRow } from "../types/command.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { LogContext, LogLevel, Logger } from "../types/core.ts";
 import { agentById } from "../store/agent-rows.ts";
@@ -134,7 +133,7 @@ function getSinks(directory: string): NotifyEntry[] {
 
 /** The fleet as the daemon sees it, in orch's one status-row shape. Serving a reduced
  *  second shape here is what left the method unusable and every client reading files. */
-function fleetStatus(directory: string): { rows: StatusRow[] } {
+function fleetStatus(directory: string): { rows: DaemonStatusRow[] } {
   const rows = fleetStatusRows(getSettings(directory).spaces);
   return {
     rows: rows.map((row) => ({ ...row, ...deriveLeasePayload(directory, row.key), bridgeAttached: bridgeAttached(row.key) })),

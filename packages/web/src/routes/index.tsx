@@ -51,7 +51,7 @@ function GodView() {
           {!isPending && liveSpaces.length === 0 && orphans.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
               <Inbox className="size-10" />
-              <p className="text-sm">No agents running. Spawn a fleet and it shows up here.</p>
+              <p className="text-sm">No agents running. Start a fleet from the orch CLI and it will show up here.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">

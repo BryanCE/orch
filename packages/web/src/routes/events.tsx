@@ -11,7 +11,7 @@ export const Route = createFileRoute("/events")({
 });
 
 function Events() {
-  const { events, status } = useDaemonEvents();
+  const { events, status, gap } = useDaemonEvents();
 
   return (
     <div className="p-6">
@@ -22,6 +22,11 @@ function Events() {
           <Radio className="size-3" /> {status}
         </Badge>
       </div>
+      {gap !== null && (
+        <div className="mb-4 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+          Some events were dropped before this feed could replay them. The oldest available event is sequence {gap.oldestSeq}.
+        </div>
+      )}
       {events.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
           <Activity className="size-10" />

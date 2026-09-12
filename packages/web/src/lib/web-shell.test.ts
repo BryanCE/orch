@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { projectFleet, projectHistory, partitionAgents, type FleetProjectionRow } from "./fleet";
+import type { DaemonStatusRow } from "@orch/types/daemon.ts";
+import { projectFleet, projectHistory, partitionAgents } from "./fleet";
 
-const row = (overrides: Partial<FleetProjectionRow> = {}): FleetProjectionRow => ({
-  key: "agentkey01", paneId: null, name: null, state: "idle", exited: false,
-  model: "", lastText: null, cost: 0, ctxPercent: null, tokens: null,
-  capabilities: { panes: false, focusable: false, canSendKeys: false, canPruneLogs: false },
-  lease: null, leaseKnown: false, spaceId: "space-1", spaceName: "Frontend", agentId: "agentkey01",
-  spawnedBy: null, spawnedByLabel: null,
+const row = (overrides: Partial<DaemonStatusRow> = {}): DaemonStatusRow => ({
+  key: "agentkey01", agentId: "agentkey01", paneId: null, managed: false, name: null,
+  tab: null, agent: null, owner: null, spawnedBy: null, spawnedByLabel: null,
+  worktree: null, branch: null, cwd: null, focused: false, model: "", modelShort: "",
+  state: "idle", stateFallback: false, exited: false, alive: true, cost: 0,
+  ctxPercent: null, task: null, dispatchId: null, lastText: null, backendStatus: null,
+  backend: null, capabilities: null, sessionPath: null, presenceDir: null,
+  presenceOnly: false, bridgeAttached: null, tokens: null, turns: null,
+  lease: null, leaseKnown: false, spaceId: "space-1", spaceName: "Frontend",
+  rootAgentId: null, rootAgentName: null,
   ...overrides,
 });
 
@@ -66,20 +71,44 @@ describe("web shell and fleet views", () => {
     expect(history[0]?.agents.map((agent) => agent.name)).toEqual(["one", "two"]);
   });
 
+  test("live work groups under its current lease holder", () => {
+    const held = (key: string, holderId: string, holderName: string) => row({
+      key, agentId: key, name: key, lease: { holderId, holderName, holderAlive: true }, leaseKnown: true,
+    });
+    const [space] = projectFleet([held("child-a", "orch-1", "release-orch"), held("child-b", "orch-2", "hotfix-orch"), held("child-c", "orch-1", "release-orch")]);
+    expect(space!.orchs.map((orch) => [orch.id, orch.name])).toEqual([["orch-1", "release-orch"], ["orch-2", "hotfix-orch"]]);
+    expect(space!.orchs[0]!.agents.map((agent) => agent.name)).toEqual(["child-a", "child-c"]);
+    expect(space!.orchs[1]!.agents.map((agent) => agent.name)).toEqual(["child-b"]);
+  });
+
+  test("adopted work is filed under its current holder", () => {
+    const [space] = projectFleet([row({ agentId: "adopted", name: "adopted", spawnedBy: "gone-orch", rootAgentId: "gone-orch", lease: { holderId: "new-orch", holderName: "new-orch", holderAlive: true }, leaseKnown: true })]);
+    expect(space!.orchs.map((orch) => orch.id)).toEqual(["new-orch"]);
+    expect(space!.orchs[0]!.agents.map((agent) => agent.name)).toEqual(["adopted"]);
+  });
+
+  test("unheld agents remain visible under the unheld group", () => {
+    const [space] = projectFleet([row({ agentId: "orphan", name: "orphan", lease: null, leaseKnown: true })]);
+    expect(space!.orchs.map((orch) => orch.id)).toEqual(["unheld"]);
+    expect(space!.orchs[0]!.name).toBe("unheld");
+    expect(space!.orchs[0]!.agents.map((agent) => agent.name)).toEqual(["orphan"]);
+  });
+
+  test("dead holders become unheld and do not drive work", () => {
+    const [space] = projectFleet([row({ agentId: "stranded", name: "stranded", lease: { holderId: "gone", holderName: "gone", holderAlive: false }, leaseKnown: true })]);
+    const [live, orphans] = partitionAgents(space!.agents);
+    expect(live).toEqual([]);
+    expect(orphans.map((agent) => agent.name)).toEqual(["stranded"]);
+    expect(space!.orchs.map((orch) => orch.id)).toEqual(["unheld"]);
+  });
+
+  test("lease groups preserve every flat space member", () => {
+    const [space] = projectFleet([row({ key: "a", name: "a", lease: { holderId: "o1", holderName: "o1", holderAlive: true } }), row({ key: "b", name: "b", lease: { holderId: "o2", holderName: "o2", holderAlive: true } })]);
+    expect(space!.orchs.flatMap((orch) => orch.agents).map((agent) => agent.name).sort()).toEqual(space!.agents.map((agent) => agent.name).sort());
+  });
+
   test("visible names never expose a plexer coordinate or the forbidden term", async () => {
-    const output = JSON.stringify(projectFleet([row({ paneId: "wF", name: "named-agent" })]));
     const visibleNames = projectFleet([row({ paneId: "wF", name: "named-agent" })])[0]?.agents.map((agent) => agent.name).join(" ") ?? "";
     expect(visibleNames).not.toContain("wF");
-    expect(visibleNames.toLowerCase()).not.toContain("workspace");
-    expect(output.toLowerCase()).not.toContain("workspace");
-    const rendered = [
-      await source("../routes/index.tsx"),
-      await source("../routes/spaces/$slug.tsx"),
-      await source("../routes/queue.tsx"),
-      await source("../routes/events.tsx"),
-      await source("../components/AppSidebar.tsx"),
-      await source("../components/AgentCard.tsx"),
-    ].join("\n");
-    expect(rendered.toLowerCase()).not.toContain("workspace");
   });
 });

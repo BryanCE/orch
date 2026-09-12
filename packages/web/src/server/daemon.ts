@@ -19,6 +19,8 @@ interface RpcMessage {
   id?: number;
   event?: unknown;
   seq?: number;
+  gap?: boolean;
+  oldestSeq?: number;
   result?: unknown;
   error?: { code?: string | number; message?: string } | string;
 }
@@ -197,9 +199,13 @@ function daemonEventStream(since = 0): DaemonEventStream {
       delay = 250;
       sendLink(true);
       readLines(connected, (message) => {
+        if (message.gap === true && typeof message.oldestSeq === "number" && Number.isInteger(message.oldestSeq)) {
+          send(`event: gap\ndata: ${JSON.stringify({ oldestSeq: message.oldestSeq })}\n\n`);
+          return;
+        }
         if (message.seq !== undefined && "event" in message) {
           lastSeq = Math.max(lastSeq, message.seq);
-          send(`data: ${JSON.stringify(message.event)}\n\n`);
+          send(`id: ${message.seq}\ndata: ${JSON.stringify(message.event)}\n\n`);
         }
       });
       connected.once("error", disconnect);
@@ -228,8 +234,11 @@ function daemonEventStream(since = 0): DaemonEventStream {
 
 /** Handler used by the web route for GET /api/events. */
 export function eventsResponse(request: Request): Response {
-  const rawSince = Number(new URL(request.url).searchParams.get("since") ?? 0);
-  const bridge = daemonEventStream(Number.isInteger(rawSince) && rawSince >= 0 ? rawSince : 0);
+  const querySince = new URL(request.url).searchParams.get("since");
+  const headerSince = request.headers.get("Last-Event-ID");
+  const rawSince = Number(querySince ?? headerSince ?? 0);
+  const since = Number.isInteger(rawSince) && rawSince >= 0 ? rawSince : 0;
+  const bridge = daemonEventStream(since);
   return new Response(bridge.stream, {
     headers: {
       "Cache-Control": "no-cache, no-transform",

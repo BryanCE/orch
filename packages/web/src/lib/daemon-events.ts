@@ -16,6 +16,10 @@ interface DaemonLink {
   reason?: string;
 }
 
+export interface ReplayGap {
+  oldestSeq: number;
+}
+
 /** One agent's latest transition. `count` only ever rises, so a card can pulse on a
  *  repeat of the same state — two `working` events are two transitions, not one. */
 interface AgentTransition {
@@ -26,6 +30,7 @@ interface AgentTransition {
 interface StreamSnapshot {
   status: "connecting" | "open" | "closed";
   link: DaemonLink | null;
+  gap: ReplayGap | null;
   events: DaemonEvent[];
   transitions: Record<string, AgentTransition>;
   version: number;
@@ -59,7 +64,14 @@ function parseDaemonLink(payload: string): DaemonLink | null {
   if (typeof connected !== "boolean" || typeof endpoint !== "string") return null;
   return typeof reason === "string" ? { connected, endpoint, reason } : { connected, endpoint };
 }
-const initialSnapshot: StreamSnapshot = { status: "closed", link: null, events: [], transitions: {}, version: 0 };
+
+function parseDaemonGap(payload: string): ReplayGap | null {
+  const record = parseObject(payload);
+  if (record === null || typeof record.oldestSeq !== "number" || !Number.isInteger(record.oldestSeq) || record.oldestSeq < 0) return null;
+  return { oldestSeq: record.oldestSeq };
+}
+
+const initialSnapshot: StreamSnapshot = { status: "closed", link: null, gap: null, events: [], transitions: {}, version: 0 };
 
 function withTransition(transitions: Record<string, AgentTransition>, event: DaemonEvent): Record<string, AgentTransition> {
   if (typeof event.key !== "string") return transitions;
@@ -99,6 +111,12 @@ function start(): void {
     // A malformed frame leaves the last known link standing: EventSource stays
     // connected, and reporting "no daemon" on one bad frame would be a lie.
     if (link !== null) setSnapshot({ link });
+  });
+  source.addEventListener("gap", (message) => {
+    const payload: unknown = message.data;
+    if (typeof payload !== "string") return;
+    const gap = parseDaemonGap(payload);
+    if (gap !== null) setSnapshot({ gap });
   });
   source.onmessage = (message) => {
     // `MessageEvent.data` is typed `any` by the DOM lib; narrow it to a string

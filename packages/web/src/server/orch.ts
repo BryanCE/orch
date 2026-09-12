@@ -1,7 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { daemonRpc, down, type DaemonDown, type DaemonEndpoint } from "./daemon";
-import { projectFleet, projectHistory, type AgentGroup, type FleetProjectionRow, type Space } from "@/lib/fleet";
+import { projectFleet, projectHistory, type AgentGroup, type Space } from "@/lib/fleet";
+import { daemonStatusRows } from "@/lib/status-row";
+import type { DaemonStatusRow } from "@orch/types/daemon.ts";
 
 // Every export here is a server function, so the TanStack Start plugin strips this
 // module's body from the client bundle. Adding a plain exported function pulls
@@ -50,20 +52,40 @@ export const getDaemonStatus = createServerFn({ method: "GET" }).handler(async (
 
 /** orchd's `status` reply: the one row shape every renderer consumes. */
 interface FleetStatusResult {
-  rows: FleetProjectionRow[];
+  rows: DaemonStatusRow[];
 }
 
+interface DaemonSendAcceptedResult {
+  accepted: true;
+  id: string;
+  ack: "acknowledged" | "unavailable";
+}
+
+interface SendAcceptedResult extends DaemonSendAcceptedResult {
+  ok: true;
+}
+
+interface MessageUnavailable {
+  ok: false;
+  accepted: false;
+  reason: "message-unavailable";
+}
+
+type SendResult = SendAcceptedResult | MessageUnavailable | DaemonDown;
+
 /**
- * Send text to one agent. `steer` interrupts the current turn; `message` queues it
- * for the agent's next input. Both are existing orchd methods — the web never
- * reaches an agent by any route but the daemon.
+ * Send text to one agent. `steer` interrupts the current turn; `dispatch` deliberately
+ * clears the session before sending. `message` is unavailable here because a web
+ * request has no orch agent identity to provide as the daemon's `from` parameter.
  */
 export const sendToAgent = createServerFn({ method: "POST" })
-  .inputValidator((input: { key: string; text: string; kind: "message" | "steer" }) => input)
-  .handler(async ({ data }): Promise<{ ok: true } | DaemonDown> => {
+  .inputValidator((input: { key: string; text: string; kind: "message" | "steer" | "dispatch" }) => input)
+  .handler(async ({ data }): Promise<SendResult> => {
+    if (data.kind === "message") return { ok: false, accepted: false, reason: "message-unavailable" };
     try {
-      await daemonRpc(data.kind === "steer" ? "steer" : "dispatch", { target: data.key, text: data.text });
-      return { ok: true };
+      const method = data.kind === "steer" ? "steer" : "dispatch";
+      const { result } = await daemonRpc<DaemonSendAcceptedResult>(method, { target: data.key, text: data.text });
+      return { ok: true, ...result };
     } catch (error) {
       return down(error);
     }
@@ -73,10 +95,11 @@ export const sendToAgent = createServerFn({ method: "POST" })
 export const getFleet = createServerFn({ method: "GET" }).handler(async (): Promise<FleetResult> => {
   try {
     const { result } = await daemonRpc<FleetStatusResult>("status");
+    const rows = daemonStatusRows(result.rows);
     return {
       daemon: "up",
-      spaces: projectFleet(result.rows),
-      history: projectHistory(result.rows),
+      spaces: projectFleet(rows),
+      history: projectHistory(rows),
     };
   } catch (error) {
     return down(error);

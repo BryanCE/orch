@@ -1,9 +1,9 @@
 // Fleet types shared by the god-view, sidebar, and space detail. Data comes
 // from the real daemon via getFleet (src/server/orch.ts) — NO mock source.
 //
-// The row shape below is the subset of orchd's one status row this UI consumes.
-// There is exactly one shape (Rule 8): no legacy coordinate fields, no second
-// spelling of a field the daemon already sends.
+import type { DaemonStatusRow, LeasePayload } from "@orch/types/daemon.ts";
+import { isAgentState, type AgentState } from "@orch/agent-state.ts";
+
 
 /**
  * Where an agent is, reduced to what a renderer may show. A pane is a plexer
@@ -15,62 +15,26 @@ export interface AgentEnvironment {
   pane: string | null;
 }
 
-export interface FleetLease {
-  holderId: string;
-  holderName: string;
-  holderAlive: boolean;
-}
-
-/** The daemon's status row, narrowed to the fields this UI reads. */
-export interface FleetProjectionRow {
-  key: string;
-  /** Orch's minted id. Opaque: routing and keying only, never a display name. */
-  agentId?: string | null;
-  /** The plexer's coordinate for this agent's pane, when it has one. */
-  paneId: string | null;
-  /** The name orch holds for this agent. Spawning requires one (C4e). */
-  name: string | null;
-  state: string;
-  exited: boolean;
-  model: string;
-  lastText: string | null;
-  cost: number;
-  ctxPercent: number | null;
-  tokens: unknown;
-  /** What this agent's environment declares it can do. Absent when the daemon
-   *  had nothing to report — never inferred from a backend id (E13). */
-  capabilities?: unknown;
-  lease: FleetLease | null;
-  leaseKnown: boolean;
-  /** Orch's own grouping. A space is user-created and always carries a name;
-   *  a row with no `spaceName` is in no space, whatever coordinate `spaceId` holds. */
-  spaceId?: string | null;
-  spaceName?: string | null;
-  /** Immutable provenance: the agent that spawned this one, and its name. */
-  spawnedBy?: string | null;
-  spawnedByLabel?: string | null;
-  /** The pack: the ROOT of the provenance chain, never the immediate spawner.
-   *  A10 - every agent is in exactly one pack at any depth, so history groups on
-   *  the root; grouping on the spawner splits one pack across its own branches. */
-  rootAgentId?: string | null;
-  rootAgentName?: string | null;
-}
-
 export interface FleetAgent {
   key: string;
   /** Orch's opaque identity; never a plexer coordinate and never used as a display name. */
   id: string | null;
   environment: AgentEnvironment;
   name: string;
-  state: string;
+  state: AgentState;
+  stateFallback: boolean;
   model?: { provider?: string; id?: string };
-  currentFile?: string;
+  modelShort?: string;
   lastText?: string;
+  task?: string;
+  dispatchId?: string;
+  backendStatus?: string;
+  bridgeAttached: boolean | null;
   cost?: number;
   tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
   context?: { percent?: number };
   alive: boolean;
-  lease: FleetLease | null;
+  lease: LeasePayload | null;
   leaseKnown: boolean;
 }
 
@@ -88,7 +52,7 @@ export interface AgentGroup {
 export type OrchGroup = AgentGroup;
 
 /**
- * The live view's grouping is orch's space; "workspace" is a plexer's word
+ * The live view's grouping is orch's space; a space is a plexer's word
  * (adr/0001). A space encompasses the orchs working in it, and each orch
  * encompasses the agents it holds — `agents` stays the flat membership of the
  * space so the lease level ADDS depth without hiding anything.
@@ -115,7 +79,7 @@ function trimmed(value: string | null | undefined): string | null {
   return text.length > 0 ? text : null;
 }
 
-function environmentFor(row: FleetProjectionRow): AgentEnvironment {
+function environmentFor(row: DaemonStatusRow): AgentEnvironment {
   return { pane: row.paneId };
 }
 
@@ -135,23 +99,29 @@ function tokenFields(value: unknown): FleetAgent["tokens"] | undefined {
   return fields;
 }
 
-function projectAgent(row: FleetProjectionRow): FleetAgent {
+function projectAgent(row: DaemonStatusRow): FleetAgent {
   const tokens = tokenFields(row.tokens);
+  const slash = row.model.indexOf("/");
+  const model = slash === -1 ? { id: row.model } : { provider: row.model.slice(0, slash), id: row.model.slice(slash + 1) };
   return {
     key: row.key,
     id: row.agentId ?? null,
     environment: environmentFor(row),
-    // orch names its agents; falling back to the minted id is the last resort,
-    // and a plexer coordinate is never a candidate (adr/0001).
     name: trimmed(row.name) ?? row.agentId ?? "unnamed",
-    state: row.state,
-    ...(row.model ? { model: { id: row.model } } : {}),
+    state: isAgentState(row.state) ? row.state : "unknown",
+    stateFallback: row.stateFallback,
+    ...(row.model ? { model } : {}),
+    ...(row.modelShort ? { modelShort: row.modelShort } : {}),
     ...(row.lastText ? { lastText: row.lastText } : {}),
+    ...(row.task ? { task: row.task } : {}),
+    ...(row.dispatchId ? { dispatchId: row.dispatchId } : {}),
+    ...(row.backendStatus ? { backendStatus: row.backendStatus } : {}),
+    bridgeAttached: row.bridgeAttached,
     cost: row.cost,
     ...(tokens ? { tokens } : {}),
     ...(row.ctxPercent !== null ? { context: { percent: row.ctxPercent } } : {}),
-    alive: !row.exited,
-    lease: row.lease ?? null,
+    alive: row.alive,
+    lease: row.lease,
     leaseKnown: row.leaseKnown,
   };
 }
@@ -162,7 +132,7 @@ function projectAgent(row: FleetProjectionRow): FleetAgent {
  * under that fact — never under the plexer coordinate `spaceId` may be carrying,
  * which is exactly how `wF` once got printed as a name the user had chosen.
  */
-function liveGroup(row: FleetProjectionRow): { id: string; name: string } {
+function liveGroup(row: DaemonStatusRow): { id: string; name: string } {
   const name = trimmed(row.spaceName);
   if (name === null) return { id: UNSCOPED_ID, name: UNSCOPED_NAME };
   return { id: trimmed(row.spaceId) ?? name, name };
@@ -170,7 +140,7 @@ function liveGroup(row: FleetProjectionRow): { id: string; name: string } {
 
 /** A11: a pack is its provenance ROOT. Ownership never groups anything - a lease
  *  says who is driving right now, and a pack outlives every lease in it. */
-function historyGroup(row: FleetProjectionRow): { id: string; name: string } {
+function historyGroup(row: DaemonStatusRow): { id: string; name: string } {
   const root = trimmed(row.rootAgentId) ?? trimmed(row.spawnedBy);
   if (root === null) return { id: UNSPAWNED_ID, name: UNSPAWNED_NAME };
   return { id: root, name: trimmed(row.rootAgentName) ?? trimmed(row.spawnedByLabel) ?? UNNAMED_SPAWNER };
@@ -179,7 +149,7 @@ function historyGroup(row: FleetProjectionRow): { id: string; name: string } {
 /** C7: inside a space, live work groups by its LEASE HOLDER. An unheld agent is
  *  filed as unheld — it is adoptable, not gone, and orch never invents a holder
  *  for it (Rule 11: work survives its spawner). */
-function leaseGroup(row: FleetProjectionRow): { id: string; name: string } {
+function leaseGroup(row: DaemonStatusRow): { id: string; name: string } {
   const lease = row.lease;
   // A dead holder is not a holder (G9): it must not appear as an orch with a
   // fleet under it, or the view claims work is being driven when none is.
@@ -188,9 +158,9 @@ function leaseGroup(row: FleetProjectionRow): { id: string; name: string } {
 }
 
 function groupedRows(
-  rows: readonly FleetProjectionRow[],
+  rows: readonly DaemonStatusRow[],
   historical: boolean,
-  groupFor: (row: FleetProjectionRow) => { id: string; name: string },
+  groupFor: (row: DaemonStatusRow) => { id: string; name: string },
 ): AgentGroup[] {
   const groups = new Map<string, AgentGroup>();
   for (const row of rows) {
@@ -203,7 +173,7 @@ function groupedRows(
   return [...groups.values()];
 }
 
-export function projectFleet(rows: readonly FleetProjectionRow[]): Space[] {
+export function projectFleet(rows: readonly DaemonStatusRow[]): Space[] {
   const spaces: Space[] = [];
   for (const group of groupedRows(rows, false, liveGroup)) {
     const members = new Set(group.agents.map((agent) => agent.key));
@@ -213,7 +183,7 @@ export function projectFleet(rows: readonly FleetProjectionRow[]): Space[] {
   return spaces;
 }
 
-export function projectHistory(rows: readonly FleetProjectionRow[]): AgentGroup[] {
+export function projectHistory(rows: readonly DaemonStatusRow[]): AgentGroup[] {
   return groupedRows(rows, true, historyGroup);
 }
 
@@ -248,26 +218,38 @@ export function findSpace(list: readonly Space[], slug: string): Space | undefin
   return list.find((space) => space.slug === slug);
 }
 
-export function stateGlow(state: string): string {
+export function stateGlow(state: AgentState): string {
   switch (state) {
+    case "idle": return "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]";
     case "working": return "border-chart-2 shadow-[0_0_28px_-2px_var(--color-chart-2)]";
-    case "review":
     case "blocked": return "border-chart-4 shadow-[0_0_28px_-2px_var(--color-chart-4)]";
+    case "asking": return "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]";
     case "done": return "border-primary shadow-[0_0_28px_-2px_var(--color-primary)]";
-    case "error":
+    case "error": return "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]";
     case "aborted": return "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]";
-    default: return "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]";
+    case "exited": return "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]";
+    case "unknown": return "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]";
+    default: {
+      const exhaustive: never = state;
+      return exhaustive;
+    }
   }
 }
 
-export function stateColor(state: string): string {
+export function stateColor(state: AgentState): string {
   switch (state) {
+    case "idle": return "text-muted-foreground";
     case "working": return "text-chart-2";
-    case "review":
     case "blocked": return "text-chart-4";
+    case "asking": return "text-destructive";
     case "done": return "text-primary";
-    case "error":
+    case "error": return "text-destructive";
     case "aborted": return "text-destructive";
-    default: return "text-muted-foreground";
+    case "exited": return "text-muted-foreground";
+    case "unknown": return "text-muted-foreground";
+    default: {
+      const exhaustive: never = state;
+      return exhaustive;
+    }
   }
 }

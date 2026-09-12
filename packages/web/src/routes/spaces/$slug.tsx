@@ -203,10 +203,26 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
               ? <span className="font-mono text-xs">pane {agent.environment.pane}</span>
               : "detached — no pane"}
           </Field>
-          {agent.model?.id && <Field label="Model">{agent.model.provider}/{agent.model.id}</Field>}
+          {(agent.modelShort || agent.model?.id) && (
+            <Field label="Model">
+              {agent.modelShort ?? [agent.model?.provider, agent.model?.id].filter(Boolean).join("/")}
+            </Field>
+          )}
           <Field label="Cost">${(agent.cost ?? 0).toFixed(2)}</Field>
           {agent.context?.percent !== undefined && <Field label="Context">{agent.context.percent}%</Field>}
-          {agent.currentFile && <Field label="File"><span className="font-mono text-xs">{agent.currentFile}</span></Field>}
+          {agent.task && <Field label="Task"><span className="max-w-56 truncate text-right">{agent.task}</span></Field>}
+          {agent.dispatchId && <Field label="Dispatch ID"><span className="font-mono text-xs">{agent.dispatchId}</span></Field>}
+          {agent.backendStatus && (
+            <Field label="Backend status">
+              <span title="Multiplexer view; may lag agent state">{agent.backendStatus} (routing view)</span>
+            </Field>
+          )}
+          <Field label="State source">
+            {agent.stateFallback ? "Unconfirmed — backend/session" : "Agent presence"}
+          </Field>
+          <Field label="Bridge">
+            {agent.bridgeAttached === null ? "Unknown" : agent.bridgeAttached ? "Attached" : "Not attached"}
+          </Field>
           {agent.lastText && (
             <div>
               <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Last</p>

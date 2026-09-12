@@ -1,4 +1,5 @@
 import type { SessionAgentIdentity } from "./store.ts";
+import type { StatusRow } from "./command.ts";
 import type { NotifyEvent } from "./notify.ts";
 import type { OsSide } from "./core.ts";
 import type { OrchSettings } from "./settings.ts";
@@ -178,6 +179,14 @@ export interface LeaseStatusPayload {
   /** False means the status key has no corresponding row in agents yet. */
   readonly leaseKnown: boolean;
 }
+
+/**
+ * One row of the daemon's `status` reply: orch's status row plus the lease facts
+ * only the daemon holds. Declaring the reply as bare `StatusRow` is what let the
+ * web package hand-copy a second spelling of the row and drift from it — every
+ * client of the `status` method reads THIS type (Rule 8: one shape).
+ */
+export type DaemonStatusRow = StatusRow & LeaseStatusPayload;
 
 /**
  * What the daemon's outbox reports for one delivery.

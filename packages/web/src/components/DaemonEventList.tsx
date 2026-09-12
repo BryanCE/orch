@@ -1,10 +1,27 @@
 import type { DaemonEvent } from "@/lib/daemon-events";
 
 function DaemonEventRow({ event }: { event: DaemonEvent }) {
+  const name = typeof event.name === "string" && event.name.length > 0
+    ? event.name
+    : typeof event.agent === "string" && event.agent.length > 0
+      ? event.agent
+      : typeof event.key === "string" ? event.key : "Unknown agent";
+  const oldState = typeof event.oldState === "string" ? event.oldState : "?";
+  const newState = typeof event.newState === "string" ? event.newState : "?";
+  const timestamp = typeof event.ts === "string" ? event.ts : undefined;
+  const displayTime = timestamp === undefined ? "Unknown time" : new Date(timestamp).toLocaleString();
+
   return (
-    <pre className="overflow-x-auto rounded-md border bg-muted/30 p-3 font-mono text-xs">
-      {JSON.stringify(event, null, 2)}
-    </pre>
+    <details className="rounded-md border bg-muted/30">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-3">
+        <span className="min-w-0 truncate text-sm font-medium">{name}</span>
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+          {oldState} → {newState}
+        </span>
+        <time className="shrink-0 text-xs text-muted-foreground" dateTime={timestamp}>{displayTime}</time>
+      </summary>
+      <pre className="overflow-x-auto border-t p-3 font-mono text-xs">{JSON.stringify(event, null, 2)}</pre>
+    </details>
   );
 }
 

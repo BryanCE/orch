@@ -3,7 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { daemonRpc, down, type DaemonDown, type DaemonEndpoint } from "./daemon";
 import { projectFleet, projectHistory, type AgentGroup, type Space } from "@/lib/fleet";
 import { daemonStatusRows } from "@/lib/status-row";
-import type { DaemonStatusRow } from "@orch/types/daemon.ts";
+import type { DaemonStatusRow, PendingQuestionView } from "@orch/types/daemon.ts";
 import type { LifecycleVerb } from "@orch/types/adapter.ts";
 import type { WorkerPolicy } from "@orch/types/policy.ts";
 
@@ -136,10 +136,10 @@ export const getFleet = createServerFn({ method: "GET" }).handler(async (): Prom
 });
 
 export const answerAgent = createServerFn({ method: "POST" })
-  .inputValidator((input: { key: string; text: string }) => input)
+  .inputValidator((input: { key: string; text: string; questionId?: string }) => input)
   .handler(async ({ data }): Promise<SendAck | DaemonDown> => {
     try {
-      const { result } = await daemonRpc<SendAck>("answer", { target: data.key, text: data.text });
+      const { result } = await daemonRpc<SendAck>("answer", { target: data.key, text: data.text, questionId: data.questionId });
       return result;
     } catch (error) {
       return down(error);
@@ -170,10 +170,22 @@ export const setAgentModel = createServerFn({ method: "POST" })
     }
   });
 
+interface QuestionsResult {
+  questions: PendingQuestionView[];
+}
+
 export const getQuestions = createServerFn({ method: "GET" }).handler(async (): Promise<{ daemon: "up"; questions: AgentQuestion[] } | DaemonDown> => {
   try {
-    await daemonRpc<Record<string, unknown>>("daemon-status");
-    return { daemon: "up", questions: [] };
+    const { result } = await daemonRpc<QuestionsResult>("questions");
+    return {
+      daemon: "up",
+      questions: result.questions.map((question) => ({
+        key: question.key,
+        name: question.name,
+        text: question.question,
+        askedAt: question.askedAt,
+      })),
+    };
   } catch (error) {
     return down(error);
   }

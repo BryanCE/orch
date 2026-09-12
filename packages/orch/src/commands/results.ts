@@ -1,10 +1,11 @@
 import { loadSettings } from "../settings/read.ts";
-import { buildEntities, collapse, resolveTarget, scopeEntitiesToSpace, spaceOf } from "../entities.ts";
+import { collapse, resolveTarget, spaceOf } from "../entities.ts";
 import { loadPresence } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
 import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
+import { rpcCall } from "../daemon/rpc/client.ts";
 import { assertAgentOwned, die, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { latestRunForKey } from "./runs.ts";
@@ -12,8 +13,8 @@ import { selectRun } from "../store/run-rows.ts";
 import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
-import type { PresenceEntry } from "../types/presence.ts";
 import type { Entity } from "../types/core.ts";
+import type { PendingQuestionView } from "../types/daemon.ts";
 
 function resultLogger(key?: string) {
   const agentId = key ? tryParseIdentity(key)?.id : undefined;
@@ -147,10 +148,10 @@ export async function cmdQuestions(args: string[]): Promise<void> {
   const localOnly = enabled.has("--local");
   const hosts = loadSettings(orchDir()).hosts;
   if (localOnly || Object.keys(hosts).length === 0) {
-    cmdQuestionsLocal(args);
+    await cmdQuestionsLocal(args);
     return;
   }
-  const rows: QuestionRow[] = [...localQuestionRows(args)];
+  const rows: QuestionRow[] = [...await localQuestionRows(args)];
   const remoteResults = await Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
     name,
     result: await runRemoteAsync(name, host, ["questions"], { timeoutMs: host.timeout_ms }),
@@ -178,81 +179,67 @@ export async function cmdQuestions(args: string[]): Promise<void> {
   process.stdout.write(renderTable(["HOST", "ID", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
 }
 
-type AskingQuestion = NonNullable<NonNullable<PresenceEntry["status"]>["asking"]>;
-interface PendingQuestion { pres: PresenceEntry; question: AskingQuestion }
+interface PendingQuestion { view: PendingQuestionView }
 
-/**
- * The pending local questions from live, scoped presence status entries,
- * sorted by presence key, with the display-name map for the scoped entities.
- * The one collector behind both the `orch questions` local table and the
- * merged-with-remote row builder.
- */
-function collectPendingQuestions(args: string[]): { pending: PendingQuestion[]; names: Map<string, string> } {
-  const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
-  const all = enabled.has("--all");
-  const scopedEntities = scopeEntitiesToSpace(buildEntities(), { all });
-  const names = new Map<string, string>();
-  const scopedKeys = new Set<string>();
-  for (const ent of scopedEntities) {
-    scopedKeys.add(ent.key);
-    if (ent.presence) scopedKeys.add(ent.presence.key);
-    if (ent.name) {
-      names.set(ent.key, ent.name);
-      if (ent.paneId) names.set(ent.paneId, ent.name);
-      if (ent.presence) names.set(ent.presence.key, ent.name);
-    }
-  }
-  // A dead agent's question can never be answered — its presence dir outlives the
-  // process, so an unfiltered listing accumulates questions from panes closed
-  // hours ago and a scripted answer loop steers targets that no longer exist.
-  const pending = [...loadPresence().values()]
-    .filter((pres) => pres.alive && (scopedKeys.has(pres.key) || all))
-    .map((pres) => {
-      const question = pres.status?.asking;
-      return question ? { pres, question } : undefined;
-    })
-    .filter((entry): entry is PendingQuestion => entry !== undefined)
-    .sort((a, b) => a.pres.key.localeCompare(b.pres.key));
-  return { pending, names };
+function isPendingQuestionView(value: unknown): value is PendingQuestionView {
+  if (!isRecord(value)) return false;
+  return typeof value.questionId === "string"
+    && typeof value.agentId === "string"
+    && typeof value.key === "string"
+    && (typeof value.name === "string" || value.name === null)
+    && typeof value.question === "string"
+    && typeof value.askedAt === "number";
 }
 
-function cmdQuestionsLocal(args: string[]) {
+/** Read pending questions from orchd; the daemon owns their answerable state. */
+async function collectPendingQuestions(args: string[]): Promise<{ pending: PendingQuestion[] }> {
+  const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
+  const answer = await rpcCall(orchDir(), "questions", { all: enabled.has("--all") });
+  if (!isRecord(answer) || !Array.isArray(answer.questions)) {
+    throw new Error("Daemon returned an invalid questions payload.");
+  }
+  return { pending: answer.questions.filter(isPendingQuestionView).map((view) => ({ view })) };
+}
+
+async function cmdQuestionsLocal(args: string[]): Promise<void> {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const all = enabled.has("--all");
-  const { pending, names } = collectPendingQuestions(args);
+  const { pending } = await collectPendingQuestions(args);
   if (!pending.length) {
     if (enabled.has("--json")) process.stdout.write("[]\n");
     else process.stdout.write("No pending questions.\n");
     return;
   }
   if (enabled.has("--json")) {
-    process.stdout.write(JSON.stringify(pending.map(({ pres, question }) => ({
-      key: pres.key,
-      name: names.get(pres.key) ?? null,
-      age: formatAge(question.ts),
-      id: question.id,
-      question: question.question,
-      ts: question.ts,
-      space: spaceOf(orchDir(), pres.key) ?? "-",
+    process.stdout.write(JSON.stringify(pending.map(({ view }) => ({
+      key: view.key,
+      name: view.name,
+      age: formatAge(view.askedAt),
+      id: view.questionId,
+      question: view.question,
+      ts: new Date(view.askedAt).toISOString(),
+      space: spaceOf(orchDir(), view.key) ?? "-",
     })), null, 2) + "\n");
     return;
   }
-  const spaces = pending.map(({ pres }) => spaceOf(orchDir(), pres.key) ?? "-");
+  const spaces = pending.map(({ view }) => spaceOf(orchDir(), view.key) ?? "-");
   const showSpace = all && new Set(spaces).size > 1;
   process.stdout.write(
     pending
-      .map(({ pres, question }) => {
-        const label = names.get(pres.key) ?? "-";
-        const spaceLabel = spaceOf(orchDir(), pres.key) ?? "-";
+      .map(({ view }) => {
+        const label = view.name ?? "-";
+        const spaceLabel = spaceOf(orchDir(), view.key) ?? "-";
         const name = showSpace ? `${spaceLabel} / ${label}` : label;
-        return `${pres.key}  ${name}  ${formatAge(question.ts)}\n${question.question}`;
+        return `${view.key}  ${name}  ${formatAge(view.askedAt)}\n${view.question}`;
       })
       .join("\n\n") + "\n"
   );
 }
 
 export function formatAge(ts: unknown): string {
-  const when = new Date(typeof ts === "string" ? ts : JSON.stringify(ts) ?? "").getTime();
+  const when = typeof ts === "number"
+    ? ts
+    : new Date(typeof ts === "string" ? ts : JSON.stringify(ts) ?? "").getTime();
   if (!Number.isFinite(when)) return "?";
   const seconds = Math.max(0, Math.floor((Date.now() - when) / 1000));
   if (seconds < 60) return `${seconds}s`;
@@ -261,12 +248,12 @@ export function formatAge(ts: unknown): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-function localQuestionRows(args: string[]): QuestionRow[] {
-  const { pending, names } = collectPendingQuestions(args);
-  return pending.map(({ pres, question }) => ({
-    key: pres.key, name: names.get(pres.key) ?? null, age: formatAge(question.ts),
-    question: question.question, id: question.id, ts: question.ts,
-    space: spaceOf(orchDir(), pres.key) ?? "-",
+async function localQuestionRows(args: string[]): Promise<QuestionRow[]> {
+  const { pending } = await collectPendingQuestions(args);
+  return pending.map(({ view }) => ({
+    key: view.key, name: view.name, age: formatAge(view.askedAt),
+    question: view.question, id: view.questionId, ts: new Date(view.askedAt).toISOString(),
+    space: spaceOf(orchDir(), view.key) ?? "-",
   }));
 }
 

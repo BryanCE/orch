@@ -5,7 +5,7 @@
 // The in-memory dedupe set applies each message id once.
 import * as fs from "node:fs";
 import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
-import { isBridgeDelivery, type BridgeDelivery } from "../control/bridge-message.ts";
+import { isBridgeDelivery, type AgentNotice, type BridgeDelivery } from "../control/bridge-message.ts";
 import {
   openJsonLineLink,
   readPortFile,
@@ -182,6 +182,10 @@ export function createDaemonClient(orchDir: string): DaemonClient {
     postAck: async (id: string): Promise<boolean> => {
       if (link?.send({ id: nextRequestId++, method: "ack", params: { id } }) === true) return true;
       return post("ack", { id });
+    },
+    postQuestion: async (notice: AgentNotice): Promise<void> => {
+      if (link?.send({ id: nextRequestId++, method: "question", params: { ...notice } }) === true) return;
+      await post("question", { ...notice });
     },
     postControlOutcome: (report: ControlOutcomeReport): Promise<boolean> => post("control-outcome", { ...report }),
   };

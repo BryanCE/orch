@@ -41,6 +41,17 @@ export const controlOutcomes = sqliteTable("control_outcomes", {
   error: text("error"),
 }, (table) => [index("control_outcomes_agent").on(table.agentId, table.settledAt)]);
 
+/** An agent's question to the human. `answered_at` NULL means still pending;
+ * `answer` NULL on a settled row means it was superseded, never answered. */
+export const questions = sqliteTable("questions", {
+  id: text("id").notNull().primaryKey(),
+  agentId: text("agent_id").notNull(),
+  question: text("question").notNull(),
+  askedAt: integer("asked_at").notNull(),
+  answeredAt: integer("answered_at"),
+  answer: text("answer"),
+}, (table) => [index("questions_pending").on(table.agentId, table.answeredAt)]);
+
 export const catalogues = sqliteTable("catalogues", {
   command: text("command").notNull().primaryKey(),
   at: integer("at").notNull(),

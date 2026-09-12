@@ -39,7 +39,7 @@ import { normalizeControlTarget } from "../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { isAgentGone } from "../control/agent-gone.ts";
 import { bridgeAttached } from "../control/bridge-links.ts";
-import { isBridgeMessage } from "../control/bridge-message.ts";
+import { isAgentNotice, isBridgeMessage } from "../control/bridge-message.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb } from "../adapters/adapter.ts";
 import { headlessBackend } from "../backends/registry.ts";
@@ -50,11 +50,12 @@ import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { LifecycleVerb } from "../types/adapter.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
-import type { DaemonStatusRow, LeaseStatusPayload, OutboxDelivery, OutboxDeps, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
+import type { DaemonStatusRow, LeaseStatusPayload, OutboxDelivery, OutboxDeps, PendingQuestionView, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
 import type { SettingsWatch, NotifyEntry, OrchSettings } from "../types/settings.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { LogContext, LogLevel, Logger } from "../types/core.ts";
 import { agentById } from "../store/agent-rows.ts";
+import { pendingQuestion, pendingQuestions, recordQuestion, settleQuestion } from "../store/question-rows.ts";
 import { recordedProcessIsLive } from "../store/interval-rows.ts";
 import { createPanePainter } from "./pane-painter.ts";
 import { activePaneHud } from "../backends/hud.ts";
@@ -475,6 +476,33 @@ export async function dispatch(directory: string, params: unknown) {
   return confirmTextWrite(directory, "dispatch", params);
 }
 
+function recordAgentQuestion(directory: string, params: unknown, context: { readonly identity?: { readonly id: string } }): { ok: true } {
+  if (!isAgentNotice(params)) throw new Error("question params must be an agent question notice");
+  const agentId = context.identity?.id;
+  if (agentId === undefined || agentById(directory, agentId) === null) {
+    throw new Error("question requires a registered agent identity");
+  }
+  recordQuestion(directory, { id: params.questionId, agentId, question: params.question, askedAt: params.askedAt });
+  return { ok: true };
+}
+
+function listPendingQuestions(directory: string): { questions: PendingQuestionView[] } {
+  const questions = pendingQuestions(directory)
+    .sort((left, right) => right.askedAt - left.askedAt)
+    .map((row): PendingQuestionView => {
+      const agent = agentById(directory, row.agentId);
+      return {
+        questionId: row.id,
+        agentId: row.agentId,
+        key: row.agentId,
+        name: agent?.name ?? null,
+        question: row.question,
+        askedAt: row.askedAt,
+      };
+    });
+  return { questions };
+}
+
 async function message(directory: string, params: unknown): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
   const value = rpcParams(params);
   const from = requiredString(value.from, "from");
@@ -496,11 +524,22 @@ export async function answer(directory: string, params: unknown) {
   const value = rpcParams(params);
   const target = requiredString(value.target, "target");
   const text = requiredString(value.text, "text");
+  const targetId = tryParseIdentity(target)?.id ?? target;
+  const current = pendingQuestion(directory, targetId);
+  const requestedQuestionId = value.questionId === undefined ? undefined : requiredString(value.questionId, "questionId");
+  if (current === undefined || (requestedQuestionId !== undefined && current.id !== requestedQuestionId)) {
+    throw new Error(requestedQuestionId === undefined
+      ? `${target} is not asking a question`
+      : `question ${requestedQuestionId} is not pending for ${target}`);
+  }
   governWrite(directory, target, params);
   const id = randomUUID();
   const ack = await confirmDelivery(id, loadSettings(directory).timeouts.dispatch_ack_ms, async () => {
     const outcome = await deliverControl(target, { kind: "answer", text, id });
     if (outcome.outcome === "answer") throw new Error(outcome.text);
+    if (!settleQuestion(directory, { id: current.id, answer: text, answeredAt: Date.now() })) {
+      throw new Error(`question ${current.id} is no longer pending`);
+    }
     return outcome.ack;
   });
   return { ok: true, id, ack };
@@ -607,6 +646,8 @@ async function main(): Promise<void> {
       "set-model": (params) => setModel(directory, params),
       lifecycle: (params) => applyLifecycle(directory, params),
       "agent-closed": (params) => publishClosedAgent(directory, params),
+      question: (params, _emit, context) => recordAgentQuestion(directory, params, context),
+      questions: () => listPendingQuestions(directory),
       answer: (params) => answer(directory, params),
       ack: (params) => {
         const value = rpcParams(params);

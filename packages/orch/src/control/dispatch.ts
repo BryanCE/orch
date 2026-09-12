@@ -5,6 +5,7 @@ import { normalizeControlTarget } from "./normalize-target.ts";
 import { AgentGoneError } from "./agent-gone.ts";
 import {loadPresence} from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
+import { pendingQuestion } from "../store/question-rows.ts";
 import { agentView } from "../store/agent-view.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { awaitControlOutcome } from "./outcome.ts";
@@ -118,7 +119,7 @@ function deliverAnswer(target: string, adapter: AgentAdapter, action: Extract<Co
     return { outcome: "answer", reason: "no-environment-role", text: `cannot answer ${target}: adapter ${adapter.id} takes no answers` };
   }
   requireLiveAgent(target, adapter, "answer");
-  const questionId = loadPresence().get(target)?.status?.asking?.id;
+  const questionId = pendingQuestion(orchDir(), target)?.id;
   if (questionId === undefined) return { outcome: "answer", reason: "not-asking", text: `${target} is not asking a question` };
   pushToBridge(target, { id: action.id, message: { action: "answer", text: action.text, questionId } });
   return { outcome: "invoke", ack: "expected" };

@@ -1,7 +1,7 @@
 // Type-only: `typeof`/`ReturnType` over a runtime binding, erased at compile
 // time, so these create no runtime edge out of the types layer.
 import type { createAgentPresence } from "../agent/presence.ts";
-import type { BridgeDelivery } from "../control/bridge-message.ts";
+import type { AgentNotice, BridgeDelivery } from "../control/bridge-message.ts";
 import type { subscribeEvents } from "../daemon/rpc/client.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { JsonRecord } from "./core.ts";
@@ -323,6 +323,8 @@ export interface DaemonClient {
   attached(): boolean;
   /** Posts the ack to orchd; false means the caller should use the one-shot request. */
   postAck(id: string): Promise<boolean>;
+  /** Publishes a question to orchd over the live link, falling back to one-shot RPC. */
+  postQuestion(notice: AgentNotice): Promise<void>;
   /** Reports a control outcome to orchd, which replies to whoever is waiting. */
   postControlOutcome(report: ControlOutcomeReport): Promise<boolean>;
 }

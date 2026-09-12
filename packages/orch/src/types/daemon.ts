@@ -188,6 +188,16 @@ export interface LeaseStatusPayload {
  */
 export type DaemonStatusRow = StatusRow & LeaseStatusPayload;
 
+/** One pending question as every client renders it. */
+export interface PendingQuestionView {
+  readonly questionId: string;
+  readonly agentId: string;
+  readonly key: string;
+  readonly name: string | null;
+  readonly question: string;
+  readonly askedAt: number;
+}
+
 /**
  * What the daemon's outbox reports for one delivery.
  *

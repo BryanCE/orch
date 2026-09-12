@@ -121,9 +121,12 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
         const dir = presence.dir();
         if (!dir) return noOrchestratorAnswer();
         const id = Math.random().toString(36).slice(2, 10);
-        const ts = new Date().toISOString();
+        const askedAt = Date.now();
+        const ts = new Date(askedAt).toISOString();
+        const question = truncate(params.question, 200);
+        await daemon.postQuestion({ notice: "question", questionId: id, question, askedAt });
         askingPreviousState = state.state;
-        state.asking = { question: truncate(params.question, 200), id, ts };
+        state.asking = { question, id, ts };
         state.state = "asking";
         presence.writeStatus();
         const notificationEvent: BridgeNotification = {

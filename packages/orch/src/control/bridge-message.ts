@@ -14,6 +14,23 @@ export type BridgeMessage =
 
 export type BridgeAction = BridgeMessage["action"];
 
+/** The one shape for an agent → daemon notice. The reverse of BridgeMessage: the agent
+ * publishes over its live link instead of writing a file the daemon has to watch. */
+export interface AgentNotice {
+  readonly notice: "question";
+  readonly questionId: string;
+  readonly question: string;
+  readonly askedAt: number;
+}
+
+export function isAgentNotice(value: unknown): value is AgentNotice {
+  return isRecord(value)
+    && value.notice === "question"
+    && typeof value.questionId === "string"
+    && typeof value.question === "string"
+    && typeof value.askedAt === "number";
+}
+
 /** One outbox row on its way down a link: the row id is what the bridge acks. */
 export interface BridgeDelivery {
   readonly id: string;

@@ -19,7 +19,7 @@ export function settleControlOutcome(report: ControlOutcomeReport): void {
  * on failure. A harness that never reports within `timeoutMs` is itself a
  * failure — silence is never reported as success.
  */
-export async function awaitControlOutcome(id: string, timeoutMs: number): Promise<void> {
+export async function awaitControlOutcome(id: string, timeoutMs: number): Promise<ControlOutcomeReport> {
   const report = await new Promise<ControlOutcomeReport>((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(id);
@@ -32,4 +32,5 @@ export async function awaitControlOutcome(id: string, timeoutMs: number): Promis
     });
   });
   if (report.error !== undefined) throw new Error(report.error);
+  return report;
 }

@@ -52,7 +52,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     registerSpawnedAgent(dir, {
       key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%3",
       cwd: "/tmp", name: "solo-1", model: "openai/gpt-5.6", space: "wsOne",
-      spawner: null, owner, process: { pid: process.pid },
+      spawner: null, owner, process: { pid: process.pid, startToken: "one-writer-spawned-agent-fixture" },
     });
 
     const view = agentView(dir, key);
@@ -77,6 +77,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       space: "wsTwo",
       group: "tab1",
       model: "openai/gpt-5.6",
+      thinking: "medium",
       preferredModels: [],
     });
 
@@ -101,6 +102,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       adapterId: "pi",
       name: "solo-3",
       cwd: "/tmp",
+      thinking: "medium",
       space: null,
       workspace: "w7",
       group: "tab1",

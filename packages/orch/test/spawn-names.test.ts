@@ -9,6 +9,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { endProcess, setSpace } from "../src/store/interval-rows.ts";
+import { processStartToken } from "../src/process-identity.ts";
 
 const directories: string[] = [];
 let previousOrchDir: string | undefined;
@@ -25,8 +26,10 @@ function tempOrchDir(): string {
  *  the key. */
 function seedAgent(orchDir: string, name: string, space: string): string {
   const key = mintAgentId();
+  const startToken = processStartToken(process.pid);
+  if (!startToken) throw new Error("test process has no start token");
   seedSpace(orchDir, space);
-  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: orchDir, name, model: "test", space, spawner: null, process: { pid: process.pid } });
+  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: orchDir, name, model: "test", space, spawner: null, process: { pid: process.pid, startToken } });
   return key;
 }
 

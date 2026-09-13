@@ -1,21 +1,21 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getBackend } from "../backends/registry.ts";
-import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
+import { recordedInstanceIsLive } from "../process-identity.ts";
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { agentEndings, agentHandles, agentLeases, agentPlexers, agentProcesses, agents } from "../db/schema.ts";
-import { currentProcess } from "../store/interval-rows.ts";
+import { currentProcess, currentTuning } from "../store/interval-rows.ts";
+import { liveAgentViews } from "../store/agent-view.ts";
+import { modelSpec } from "../policy/thinking.ts";
+import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
+import { STATUS_FILE } from "../presence/schema.ts";
 import type { CheckResult, DeclaredVsRealityDependencies, PlexerInventoryEntry } from "../types/doctor.ts";
 
-function defaultProcessAlive(pid: number, startToken: string | null): boolean {
-  if (startToken === null) return processIsAlive(pid);
-  return processInstanceMatches(pid, startToken);
-}
-
 const DEFAULT_DEPENDENCIES: DeclaredVsRealityDependencies = {
-  processAlive: defaultProcessAlive,
+  processAlive: recordedInstanceIsLive,
   plexerInventory: defaultInventory,
+  readPresenceStatus,
 };
 
 /** The doctor asks through injected `processAlive` so a check can be run against
@@ -74,11 +74,24 @@ function orphanFindings(orchDir: string, dependencies: DeclaredVsRealityDependen
   });
 }
 
+function tuningFindings(orchDir: string, dependencies: DeclaredVsRealityDependencies): string[] {
+  return liveAgentViews(orchDir).flatMap((agent) => {
+    const tuning = currentTuning(orchDir, agent.id);
+    const status = dependencies.readPresenceStatus(join(presenceAgentDir(agent.id, orchDir), STATUS_FILE));
+    if (tuning === undefined || status === null) return [];
+    const declared = modelSpec(tuning.model, tuning.thinking);
+    const runningModel = `${status.model?.provider}/${status.model?.id}`;
+    const running = modelSpec(runningModel, status.thinking);
+    if (declared === running) return [];
+    return [`agent ${agent.id} (${agent.name}): declared ${declared}, running ${running}`];
+  });
+}
+
 export function checkDeclaredVsReality(orchDir: string, dependencies: DeclaredVsRealityDependencies = DEFAULT_DEPENDENCIES): CheckResult {
   if (!existsSync(join(orchDir, "orch.db"))) {
     return { id: "declared-vs-reality", label: "Declared vs reality", status: "ok", detail: "no store to compare" };
   }
-  const findings = [...leaseFindings(orchDir, dependencies), ...environmentFindings(orchDir, dependencies), ...orphanFindings(orchDir, dependencies)];
+  const findings = [...leaseFindings(orchDir, dependencies), ...environmentFindings(orchDir, dependencies), ...orphanFindings(orchDir, dependencies), ...tuningFindings(orchDir, dependencies)];
   if (!findings.length) return { id: "declared-vs-reality", label: "Declared vs reality", status: "ok", detail: "no declared-vs-reality mismatches" };
   return { id: "declared-vs-reality", label: "Declared vs reality", status: "warn", detail: findings.join("\n    ") };
 }

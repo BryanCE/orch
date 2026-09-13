@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { isRecord } from "@orch/util.ts";
+import { isRecord } from "@orch/json.ts";
 
 /** One event as the daemon sent it. Deliberately open: the web renders what it
  *  recognises and carries the rest through, so a new field on the daemon side
@@ -48,8 +48,8 @@ function parseObject(payload: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
-  // `isRecord` is orch's own guard (src/util.ts) rather than a second copy of
-  // the same three checks living in the web package.
+  // `isRecord` is orch's own guard rather than a second copy of the same three
+  // checks living in the web package.
   return isRecord(value) ? value : null;
 }
 

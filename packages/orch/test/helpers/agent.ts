@@ -3,7 +3,18 @@ import { currentHostOs, ensureHost, ensurePlexer } from "../../src/store/agent-r
 import { recordProcess, setAgentPlexer, setHandle, setSpace } from "../../src/store/interval-rows.ts";
 import { adoptLease, currentLease } from "../../src/store/lease-rows.ts";
 import { orchDir } from "../../src/presence/writer.ts";
+import { processStartToken } from "../../src/process-identity.ts";
+import type { RecordedProcess } from "../../src/types/backend.ts";
 import type { AgentFacts } from "../../src/types/presence.ts";
+
+/** The test runner is the one process a fixture can prove alive, and a recorded
+ *  process is (pid, startToken): a fixture that cannot state both halves is not
+ *  a complete value, so it fails here rather than seeding a row no spawn writes. */
+function runnerProcess(): RecordedProcess {
+  const startToken = processStartToken(process.pid);
+  if (startToken === undefined) throw new Error("the OS could not prove which instance the test runner is");
+  return { pid: process.pid, startToken };
+}
 
 /**
  * Seed one agent through the SAME writer production uses.
@@ -30,8 +41,7 @@ export function seedAgent(key: string, facts: AgentFacts = {}, directory = orchD
     ...(facts.worktree !== undefined && facts.branch !== undefined
       ? { worktree: { path: facts.worktree, branch: facts.branch } }
       : {}),
-    // The test runner is the one process a fixture can prove alive.
-    process: { pid: process.pid },
+    process: runnerProcess(),
   });
 }
 
@@ -43,7 +53,7 @@ export function seedAgent(key: string, facts: AgentFacts = {}, directory = orchD
 export function seedLiveProcess(directory: string, agentId: string, now = 1): void {
   const host = "test-host";
   ensureHost(directory, host, host, currentHostOs(), now);
-  recordProcess(directory, agentId, now, { hostId: host, pid: process.pid });
+  recordProcess(directory, agentId, now, { hostId: host, ...runnerProcess() });
 }
 
 /**

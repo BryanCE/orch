@@ -147,7 +147,7 @@ describe("HerdrBackend", () => {
     try {
       process.env.HERDR_PANE_ID = "w0:p1";
       const id = mintAgentId();
-      expect(backend.identity?.current(id)).toEqual({ id });
+      expect(backend.identity?.current(id)).toBe(id);
       expect(backend.identity?.current(null)).toBeNull();
     } finally {
       restoreOrchEnv();

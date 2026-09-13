@@ -41,8 +41,12 @@ export function mintAgentId(): string {
   return id;
 }
 
+/** An agent's identity. A plain string on purpose: it is one minted id and has no
+ *  parts to reach into, so nothing may wrap it in an object to carry a second fact. */
+export type AgentId = string;
+
 /** True when `value` has the shape of a minted id. */
-export function isAgentId(value: unknown): value is string {
+export function isAgentId(value: unknown): value is AgentId {
   return typeof value === "string" && ID_PATTERN.test(value);
 }
 

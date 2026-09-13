@@ -11,7 +11,6 @@ import { environmentStamp } from "../../agent/environment.ts";
 const HEADLESS_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: null });
 import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { LocalProcessRole } from "../process.ts";
-import { processStartToken } from "../../process-identity.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { capture } from "../../presence/roles.ts";
@@ -68,6 +67,12 @@ function parseHeadlessHandle(value: unknown): HeadlessHandle | undefined {
   const pid: unknown = Reflect.get(parsed, "pid");
   const key: unknown = Reflect.get(parsed, "key");
   return typeof pid === "number" && Number.isInteger(pid) && safeKey(key) ? makeHeadlessHandle(pid, key) : undefined;
+}
+
+/** A detached agent's process is the handle itself. The recorded form is the
+ * serialized handle, so a caller reading the store hands back the string. */
+function headlessPid(handle: HeadlessHandle | string): number | null {
+  return typeof handle === "string" ? parseHeadlessHandle(handle)?.pid ?? null : handle.pid;
 }
 
 /**
@@ -127,7 +132,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly spaceHome = null;
   private readonly isPidAlive: (pid: number) => boolean;
   private readonly killer: (pid: number, signal: "SIGTERM") => void;
-  readonly process: ProcessRole;
+  readonly process: ProcessRole<HeadlessHandle>;
 
   /** Headless is a detached process; it needs no external binary. */
   isAvailable(): boolean {
@@ -142,7 +147,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   constructor(deps: HeadlessBackendDeps = {}) {
     this.isPidAlive = deps.pidAlive ?? ((pid) => pidAlive(pid));
     this.killer = deps.killer ?? ((pid, signal) => process.kill(pid, signal));
-    this.process = new LocalProcessRole({
+    this.process = new LocalProcessRole<HeadlessHandle>(headlessPid, {
       isAlive: this.isPidAlive,
       signal: (pid, signal) => {
         if (signal === "SIGTERM") this.killer(pid, signal);
@@ -225,9 +230,10 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       cwd: opts.cwd ?? process.cwd(),
       name: opts.name ?? opts.env?.ORCH_AGENT_NAME ?? key,
       model: opts.model ?? "",
+      thinking: opts.thinking,
       spawner: opts.env?.ORCH_SPAWNER_AGENT_ID ?? null,
       worktree: worktreePath && worktreeBranch ? { path: worktreePath, branch: worktreeBranch } : undefined,
-      process: { pid, startToken: processStartToken(pid) },
+      process: this.process.running(handle),
       now,
     });
     return handle;

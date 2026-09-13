@@ -9,7 +9,7 @@ import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, HomeSubject, Identity, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
+import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, HomeSubject, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 /**
@@ -89,13 +89,13 @@ class HomedBackend extends FakePanedBackend {
   override readonly identity: EnvironmentIdentityRole;
   private readonly inside: boolean;
 
-  constructor(home: SpaceHomeRole | null, inside: boolean, self: Identity | null) {
+  constructor(home: SpaceHomeRole | null, inside: boolean, self: string | null) {
     // The one pane this plexer lists, sitting in its coordinate `wF`: what a
     // caller recorded at that handle resolves to.
     super({ id: "herdr", panes: [fakePane("wF:p1", { space: "wF" })] });
     this.spaceHome = home;
     this.inside = inside;
-    this.identity = { current: (_id: string | null): Identity | null => self };
+    this.identity = { current: (_id: string | null): string | null => self };
   }
 
   /** Rule 11: WHERE the caller sits is environment. It is answered by the
@@ -107,7 +107,7 @@ class HomedBackend extends FakePanedBackend {
 
 /** `inside` is the environment fact (in a pane of this plexer); `self` is the
  *  identity fact (an orch-minted id, or none for a human's own pane). */
-function homedBackend(home: SpaceHomeRole | null, inside: boolean, self: Identity | null = null): Backend {
+function homedBackend(home: SpaceHomeRole | null, inside: boolean, self: string | null = null): Backend {
   return new HomedBackend(home, inside, self);
 }
 
@@ -188,7 +188,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const grant = gate();
 
     const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(home, true, { id: "insideorch" }), space: null,
+      directory: dir, backend: homedBackend(home, true, "insideorch"), space: null,
       packRootId: seedOrch(dir, "packroot02"), callerPlexer: "herdr", callerHandle: "wF:p1", grantNewHome: grant.grantNewHome,
     });
 
@@ -208,7 +208,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const grant = gate();
 
     const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(new RecordingHomeRole(), true, { id: "insideorch" }), space: null,
+      directory: dir, backend: homedBackend(new RecordingHomeRole(), true, "insideorch"), space: null,
       packRootId: seedOrch(dir, "packroot02c"), callerPlexer: "herdr", callerHandle: "wZ:p9", grantNewHome: grant.grantNewHome,
     });
 

@@ -33,25 +33,27 @@ function storeDir(): string {
   return storeUnderTest;
 }
 
-function presence(key: string, pid = process.pid): PresenceEntry {
+/** Liveness is `alive`, which the loader fills from the recorded process row —
+ *  presence carries state, never a pid a fixture can pass off as one. */
+function presence(key: string, alive = true): PresenceEntry {
   const dir = presenceAgentDir(key);
-  seedStatusInDir(dir, { key, pid });
-  return { key, dir, status: { schema: PRESENCE_SCHEMA, key, pid }, result: null, alive: pid === process.pid };
+  seedStatusInDir(dir, { key });
+  return { key, dir, status: { schema: PRESENCE_SCHEMA, key }, result: null, alive };
 }
 
 /** Both maps are keyed by the MINTED ID; presence joins to an agent by identity,
  *  never by the pane-bearing key. */
-function records(entries: [string, string, number?, string?][]): { views: Map<string, AgentView>; presence: Map<string, PresenceEntry> } {
+function records(entries: [string, string, string?][]): { views: Map<string, AgentView>; presence: Map<string, PresenceEntry> } {
   const views = new Map<string, AgentView>();
   const live = new Map<string, PresenceEntry>();
-  for (const [id, space, pid, spawnedBy] of entries) {
+  for (const [id, space, spawnedBy] of entries) {
     views.set(id, agentViewFixture(id, {
       spawnedBy: spawnedBy ?? null,
       spawnedByName: spawnedBy ?? null,
       rootAgentId: spawnedBy ?? id,
       environment: { space },
     }));
-    live.set(id, presence(id, pid));
+    live.set(id, presence(id));
   }
   return { views, presence: live };
 }
@@ -138,17 +140,18 @@ describe("spawn limits", () => {
 
   test("foreign pack members do not consume the caller's pack cap", () => {
     const data = records([
-      ["root-child-1", "wD", undefined, "root"], ["root-child-2", "wD", undefined, "root"],
-      ["root-child-3", "wD", undefined, "root"], ["root-child-4", "wD", undefined, "root"],
-      ["root-child-5", "wD", undefined, "root"], ["root-child-6", "wD", undefined, "root"],
-      ["root-child-7", "wD", undefined, "root"], ["root-child-8", "wD", undefined, "root"],
-      ["foreign-1", "wD", undefined, "other-root"], ["foreign-2", "wD", undefined, "other-root"],
+      ["root-child-1", "wD", "root"], ["root-child-2", "wD", "root"],
+      ["root-child-3", "wD", "root"], ["root-child-4", "wD", "root"],
+      ["root-child-5", "wD", "root"], ["root-child-6", "wD", "root"],
+      ["root-child-7", "wD", "root"], ["root-child-8", "wD", "root"],
+      ["foreign-1", "wD", "other-root"], ["foreign-2", "wD", "other-root"],
     ]);
     expect(spawnPolicyError({ fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false } }, "wD", 1, data.views, data.presence, "root")).toBeNull();
   });
 
-  test("dead pid records free capacity", () => {
-    const data = records([["dead", "wD", 99999999], ["live", "wD"]]);
+  test("an agent whose recorded process is gone frees capacity", () => {
+    const data = records([["dead", "wD"], ["live", "wD"]]);
+    data.presence.set("dead", presence("dead", false));
     expect(liveSpawnCounts(data.views, data.presence)).toEqual(new Map([["wD", 1]]));
   });
 

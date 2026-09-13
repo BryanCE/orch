@@ -15,6 +15,8 @@ import { orm } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { maySpawnFrom } from "../src/policy/spawner.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { modelSpec } from "../src/policy/thinking.ts";
+import { resolveTuningOrDie } from "../src/commands/selection.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
@@ -57,6 +59,37 @@ function policy(max_agents_per_pack: number, agents: AgentView[], spawnerId = "r
 }
 
 describe("spawn policy caps", () => {
+  test("spawn, dispatch, reset, and model share one resolved tuning", () => {
+    const dir = mkdtempSync(join(tmpdir(), "orch-tuning-resolution-"));
+    tempDirs.push(dir);
+    writeSettingsFixture(dir, {
+      enabled: { adapters: ["pi"], backends: ["headless"] },
+      defaults: {
+        adapter: "pi",
+        backend: "headless",
+        models: { pi: "openai/gpt-5.6" },
+        thinking: "high",
+        thinking_by_harness: { pi: "medium" },
+      },
+    });
+    const settings = loadSettings(dir);
+    const bareFlags = {};
+    const resolved = ["spawn", "dispatch", "reset", "model"].map(() => resolveTuningOrDie(bareFlags, settings, "pi"));
+    expect(resolved.map((tuning) => modelSpec(tuning.model, tuning.thinking))).toEqual([
+      "openai/gpt-5.6:medium",
+      "openai/gpt-5.6:medium",
+      "openai/gpt-5.6:medium",
+      "openai/gpt-5.6:medium",
+    ]);
+    const defaultsOnly = { ...settings, defaults: { ...settings.defaults, thinking_by_harness: {} } };
+    const defaultTuning = resolveTuningOrDie({}, defaultsOnly, "pi");
+    expect(modelSpec(defaultTuning.model, defaultTuning.thinking)).toBe("openai/gpt-5.6:high");
+    const suffixed = resolveTuningOrDie({ modelFlag: "openai/gpt-5.6:low" }, settings, "pi");
+    expect(modelSpec(suffixed.model, suffixed.thinking)).toBe("openai/gpt-5.6:low");
+    const flagged = resolveTuningOrDie({ modelFlag: "openai/gpt-5.6:low", thinkingFlag: "xhigh" }, settings, "pi");
+    expect(modelSpec(flagged.model, flagged.thinking)).toBe("openai/gpt-5.6:xhigh");
+  });
+
   test("launch env uses the minted agent id name", () => {
     expect(LAUNCH_ENV).toBe("ORCH_AGENT_ID");
   });

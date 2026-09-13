@@ -156,6 +156,7 @@ describe("fleet ownership scoping", () => {
       space: "local",
       group: "tab-1",
       model: "openai/gpt-5.6",
+      thinking: "medium",
       preferredModels: [],
     });
 

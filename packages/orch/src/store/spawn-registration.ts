@@ -1,5 +1,4 @@
 import { eq } from "drizzle-orm";
-import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { agentById, currentHostOs, ensureHarness, ensureHost, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
 import { hostname } from "node:os";
 import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
@@ -57,17 +56,19 @@ export function registerSpawnedAgent(directory: string, input: SpawnRegistration
 /** Every environment axis a spawn states, each on its own interval table:
  *  plexer, handle, process, space, tuning, worktree. */
 function writeEnvironment(directory: string, agentId: string, now: number, host: string, input: SpawnRegistration): void {
-  const tuning = splitThinkingSuffix(input.model);
   if (input.backendId !== undefined) setAgentPlexer(directory, agentId, input.backendId);
   if (input.handle !== undefined) setHandle(directory, agentId, now, input.handle);
-  recordProcess(directory, agentId, now, { hostId: host, pid: input.process.pid, startToken: input.process.startToken ?? null });
+  recordProcess(directory, agentId, now, { hostId: host, pid: input.process.pid, startToken: input.process.startToken });
   // The space is an axis in its own right, on its own timeline: an agent can be
   // moved between spaces without touching the plexer it sits in, and neither is
   // part of the identity that named it. Writing the plexer here and leaving the
   // space unwritten is what forced every other reader to go on parsing it back
   // out of the key.
   if (input.space !== undefined) setSpace(directory, agentId, now, input.space);
-  setTuning(directory, agentId, now, { model: tuning.bare, thinking: tuning.thinking });
+  // The effort is STATED by the launch that resolved it. Splitting it back out of
+  // `model` recorded NULL for every spawn, because the launch hands over the bare
+  // id — so the row said the fleet ran at no effort while every pin said `high`.
+  setTuning(directory, agentId, now, { model: input.model, thinking: input.thinking });
   if (input.worktree) setWorktree(directory, agentId, input.worktree.path, input.worktree.branch);
 }
 

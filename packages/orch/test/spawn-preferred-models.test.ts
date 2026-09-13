@@ -6,7 +6,7 @@ import { adapterCommand } from "../src/commands/spawn/models.ts";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { optionalModelSpecs } from "../src/daemon/orchd.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
-import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { PiAdapter, piAdapter } from "../src/adapters/pi.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { seedSpace } from "./helpers/space.ts";
@@ -43,7 +43,7 @@ const settings = (preferred: string[]): OrchSettings => ({
   runtime: "node",
   enabled: { adapters: ["pi"], backends: ["headless"] },
   locked_commands: [],
-  defaults: { models: {}, worktree: false },
+  defaults: { ...SETTINGS_DEFAULTS.defaults, models: {} },
   fleet: { worker_peer_tools: false, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, cross_space: false, max_agents_per_space: {} },
   models: { allowed: {}, preferred: { pi: preferred } },
   workers: { inherit_extensions: false, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
@@ -95,6 +95,7 @@ describe("the preferred quicklist reaches every launch route", () => {
       space: "wsA",
       group: "tab1",
       model: "openai/gpt-5.6",
+      thinking: "medium",
       preferredModels: QUICKLIST,
     });
 
@@ -114,6 +115,7 @@ describe("the preferred quicklist reaches every launch route", () => {
       space: "wsA",
       group: "tab1",
       model: "openai/gpt-5.6",
+      thinking: "medium",
       preferredModels: [],
     });
 
@@ -146,7 +148,7 @@ describe("the preferred quicklist reaches every launch route", () => {
     // through the one identity boundary, and a `<plexer>~<space>~<name>` key welds environment
     // into identity, which Rule 11 forbids.
     new HeadlessBackend().spawn(adapter, {
-      key: serializeIdentity({ id: mintAgentId() }),
+      key: mintAgentId(),
       cwd: directory,
       orchDir: directory,
       prompt: "go",

@@ -1,8 +1,9 @@
 // Type-only: `typeof` over a runtime binding, erased at compile time, so this
 // creates no runtime edge out of the types layer.
 import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
-import type { HomeSubject, SpaceHomeRole } from "./backend.ts";
+import type { HomeSubject, RecordedProcess, SpaceHomeRole } from "./backend.ts";
 import type { BridgeMessage } from "../control/bridge-message.ts";
+import type { ThinkingLevel } from "./policy.ts";
 
 export type HostOs = "linux" | "windows" | "darwin";
 
@@ -164,7 +165,7 @@ export interface GrantRequest {
   readonly requestedAt: number;
 }
 
-export interface ProcessValues { hostId:string; pid:number; startToken?:string|null }
+export interface ProcessValues extends RecordedProcess { hostId:string }
 
 export interface TuningValues { model:string; thinking?:string|null }
 
@@ -228,7 +229,15 @@ export interface SpawnRegistration {
    * row, never a NULL and never an invented place called "local".
    */
   space?: string;
+  /** The bare model id the launch resolved: never a `model:effort` ladder token. */
   model: string;
+  /**
+   * The thinking effort the launch resolved, stated beside the model. Absent
+   * means NO effort is recorded (an adopted agent orch never launched); a launch
+   * orch made always states one. It is never re-derived from `model`, which is
+   * bare by the time it reaches here.
+   */
+  thinking?: ThinkingLevel;
   /** The register-session id of the spawning session, when it has one. */
   spawner: string | null;
   /**
@@ -245,10 +254,10 @@ export interface SpawnRegistration {
    *
    * Rule 11 — the ONE liveness source. The daemon and every presence reader ask
    * this row whether the agent is alive; a pid an agent writes about itself is
-   * never consulted. A pane spawn records the pane shell, a headless spawn the
-   * harness process; both die with the agent.
+   * never consulted. The environment's own process statement is recorded; it
+   * must die with the agent.
    */
-  process: { pid: number; startToken?: string };
+  process: RecordedProcess;
   now?: number;
 }
 

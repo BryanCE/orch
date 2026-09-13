@@ -1,5 +1,5 @@
-import { tryParseIdentity } from "../../backends/identity.ts";
 import { orchDir } from "../../presence/writer.ts";
+import { isAgentId } from "../../backends/identity.ts";
 import { assertNameFree } from "../../policy/name.ts";
 import { renameAgent as renameNormalizedAgent } from "../../store/agent-rows.ts";
 import { errorMessage } from "../../util.ts";
@@ -41,8 +41,7 @@ function renameAgent(
     return null;
   }
   assertNameFree(name, view.environment.space ?? "");
-  const identity = tryParseIdentity(key);
-  if (!identity || !renameNormalizedAgent(orchDir(), identity.id, name)) return null;
+  if (!isAgentId(key) || !renameNormalizedAgent(orchDir(), key, name)) return null;
   const role = backend.agentNaming;
   if (!role) throw new Error("target environment has no agent naming role");
   role.renameAgent(handle, name);

@@ -4,7 +4,8 @@ import { orchDir } from "../presence/writer.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
-import { agentAddress, agentIdOfKey, agentViewIndex, assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent, presenceById, viewForKey } from "./target.ts";
+import { agentAddress, agentViewIndex, assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent, presenceById, viewForKey } from "./target.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { openingPlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
 import { displaySpace } from "./status.ts";
 import { spaceName } from "../policy/space.ts";
@@ -345,8 +346,7 @@ export function cmdMove(args: string[]) {
     // The pane moved; the agent did not become a different agent. A14: the
     // handle is an interval on its own axis, so the old one closes and a new
     // one opens — identity is untouched.
-    const movedId = agentIdOfKey(key);
-    if (movedId !== null) setHandle(orchDir(), movedId, Date.now(), String(handle));
+    if (isAgentId(key)) setHandle(orchDir(), key, Date.now(), String(handle));
     if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: groupId }) + "\n");
     else process.stdout.write(`Moved ${String(handle)} ${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
   } catch (e: unknown) {

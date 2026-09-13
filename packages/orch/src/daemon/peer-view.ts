@@ -12,9 +12,18 @@ import { deriveDriveState } from "../agent/drive-state.ts";
 import { depthOf, isDescendantOf } from "../policy/provenance.ts";
 import { scopeToSpace, spaceOf } from "../policy/space.ts";
 import { agentView } from "../store/agent-view.ts";
+import { loadPresence } from "../presence/store.ts";
 import type { DriveState } from "../types/agent.ts";
+import type { JsonRecord } from "../types/core.ts";
+
+export interface PeerViewPeer {
+  key: string;
+  status: JsonRecord;
+}
 
 export interface PeerView {
+  /** Live peers visible to the caller, including the status fields agents render. */
+  peers?: PeerViewPeer[];
   /** The subset of the requested keys this caller is allowed to see. */
   visible: string[];
   /** Each visible peer's space, and the drive state to render beside it. */
@@ -30,21 +39,31 @@ function mayCrossFleets(orchDir: string, callerId: string | null): boolean {
 
 /** Roots may request every space; a deeper caller stays inside its own
  *  provenance subtree however the all-spaces flag is set. */
-function visibleKeys(orchDir: string, ownKey: string, keys: string[], allSpaces: boolean): string[] {
+function visibleKeys(orchDir: string, ownKey: string, keys: string[], allSpaces: boolean, callerProject?: string): string[] {
   const lookup = (id: string) => agentView(orchDir, id);
   if (!mayCrossFleets(orchDir, ownKey)) {
     return keys.filter((key) => isDescendantOf(lookup, key, ownKey));
   }
-  return scopeToSpace(orchDir, keys, (key) => key, spaceOf(orchDir, ownKey), { all: allSpaces });
+  const scoped = scopeToSpace(orchDir, keys, (key) => key, spaceOf(orchDir, ownKey), { all: allSpaces });
+  if (allSpaces || callerProject === undefined) return scoped;
+  const presence = loadPresence(orchDir);
+  return scoped.filter((key) => presence.get(key)?.status?.project === callerProject);
 }
 
-export function peerView(orchDir: string, ownKey: string, keys: string[], allSpaces: boolean): PeerView {
-  const visible = visibleKeys(orchDir, ownKey, keys, allSpaces);
+export function peerView(orchDir: string, ownKey: string, keys: string[], allSpaces: boolean, callerProject?: string): PeerView {
+  const presence = loadPresence(orchDir);
+  const requestedKeys = keys.length > 0 ? keys : [...presence.keys()];
+  const liveKeys = requestedKeys.filter((key) => key !== ownKey && presence.get(key)?.alive === true && presence.get(key)?.status !== null);
+  const visible = visibleKeys(orchDir, ownKey, liveKeys, allSpaces, callerProject);
+  const peers: PeerViewPeer[] = visible.flatMap((key) => {
+    const status = presence.get(key)?.status;
+    return status === null || status === undefined ? [] : [{ key, status: Object.fromEntries(Object.entries(status)) }];
+  });
   const spaces: Record<string, string | null> = {};
   const drive: Record<string, DriveState> = {};
   for (const key of visible) {
     spaces[key] = spaceOf(orchDir, key);
     drive[key] = deriveDriveState(key, { directory: orchDir, currentOrchId: ownKey });
   }
-  return { visible, spaces, drive };
+  return { peers, visible, spaces, drive };
 }

@@ -6,23 +6,24 @@ import { orchDir, presenceAgentDir, readPresenceStatus } from "../presence/write
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
 import { loadSettings } from "../settings/read.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
-import { modelSpec, resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
+import { modelSpec } from "../policy/thinking.ts";
 import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
-import { pickAdapter, requestedModel, resolveAdapterOrDie } from "./selection.ts";
+import { pickAdapter, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
 import { clearSession } from "./lifecycle/reset.ts";
-import { assertLaunchModelAllowed, launchModel, pinModels } from "./spawn/models.ts";
+import { assertLaunchModelAllowed, pinModels } from "./spawn/models.ts";
 import { contextReference, readPromptFile } from "./prompt-file.ts";
 import { workerHeaderContext } from "../policy/spawner.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
 import { getBackend } from "../backends/registry.ts";
-import { paneProcess } from "./spawn/placement.ts";
 import { commandLogger } from "./logging.ts";
 import type { AdapterId } from "../types/adapter.ts";
+import type { RecordedProcess } from "../types/backend.ts";
 import type { PresenceEntry } from "../types/presence.ts";
+import type { ThinkingLevel } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
@@ -138,8 +139,7 @@ export async function cmdBroadcast(args: string[]) {
   else {
     process.stdout.write(`Broadcast to ${delivered} of ${destinations.size} agent(s).\n`);
     for (const refusal of refusals) {
-      const identity = tryParseIdentity(refusal.key);
-      const log = identity ? commandLogger().forAgent(identity.id) : commandLogger();
+      const log = isAgentId(refusal.key) ? commandLogger().forAgent(refusal.key) : commandLogger();
       log.warn("broadcast.refused", { reason: refusal.reason, target: refusal.key });
       process.stdout.write(`  refused ${recipientLabel(recipientFor(refusal.key))}: ${refusal.reason}\n`);
     }
@@ -193,7 +193,12 @@ export async function cmdModel(args: string[]): Promise<void> {
   const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
   assertAgentOwned(target, ent, gov.steal);
   const handle = ent.paneId ?? ent.key;
-  const result = await setAgentModel(ent.key, modelArg, gov);
+  const harness = ent.agent ?? ent.presence?.status?.agent;
+  if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its model mechanism.`);
+  const adapter = resolveAdapterOrDie(harness);
+  const tuning = resolveTuningOrDie({ modelFlag: modelArg }, loadSettings(orchDir()), adapter.id);
+  const spec = modelSpec(tuning.model, tuning.thinking);
+  const result = await setAgentModel(ent.key, spec, gov);
   const recipient = recipientFor(ent.key);
   const label = recipientLabel(recipient);
   if (json) process.stdout.write(JSON.stringify({ target: handle, recipient, requested: modelArg, ...result }) + "\n");
@@ -223,9 +228,8 @@ export async function dispatchToAgent(key: string, text: string, options: Dispat
   // The CLI end of the correlation chain. The id is minted by
   // the daemon, so this is the first moment the CLI can name the dispatch it just
   // made — without this record half the system writes nothing anywhere, ever.
-  const identity = tryParseIdentity(key);
   const log = commandLogger().forCorrelation(delivered.id);
-  (identity ? log.forAgent(identity.id) : log).info("dispatch.cli-accepted", { target: key });
+  (isAgentId(key) ? log.forAgent(key) : log).info("dispatch.cli-accepted", { target: key });
   return { accepted: true, id: delivered.id, ack: delivered.ack };
 }
 
@@ -245,7 +249,7 @@ function forwardedToTargetHost(args: string[], target: string | undefined): bool
  * has one; an adopted agent needs it under the SAME key we dispatched to, carrying
  * the dispatcher's owner token or it stays open to every other orchestrator.
  */
-function recordAdoptedAgent(key: string, dispatchSettings: DispatchSettings): void {
+function recordAdoptedAgent(key: string, dispatchSettings: DispatchSettings, tuning: { model: string; thinking: ThinkingLevel }): void {
   registerSpawnedAgent(orchDir(), {
     key,
     harnessId: dispatchSettings.adapter,
@@ -261,26 +265,29 @@ function recordAdoptedAgent(key: string, dispatchSettings: DispatchSettings): vo
     ...(dispatchSettings.ent.space === null ? {} : { space: dispatchSettings.ent.space }),
     cwd: process.cwd(),
     name: dispatchSettings.ent.name ?? key,
-    model: dispatchSettings.model ?? "",
+    // The pair this dispatch just pinned, as resolved — never the raw flag, which
+    // may still carry its `:effort` suffix.
+    model: tuning.model,
+    thinking: tuning.thinking,
     spawner: spawnerIdentity().key,
     owner: callerOwnerToken(),
     process: adoptedProcess(dispatchSettings.ent),
   });
 }
 
-/** The process an adopted agent runs under: its pane shell, read through the
- *  environment it already sits in. An agent in no pane has no process orch can
- *  watch, and adopting it would register a row that reads as dead at once. */
-function adoptedProcess(ent: Entity): { pid: number; startToken?: string } {
+/** The process an adopted agent runs in, as the environment it already sits in
+ *  states it. An agent whose environment can address nothing has no process orch
+ *  can watch, and adopting it would register a row that reads as dead at once. */
+function adoptedProcess(ent: Entity): RecordedProcess {
   const backend = ent.backend === null ? undefined : getBackend(ent.backend);
   if (backend === undefined || ent.paneId === null) die(`cannot adopt ${ent.key}: it sits in no pane orch can read, so orch cannot watch it. Spawn it with orch instead.`);
-  return paneProcess(backend, ent.paneId);
+  return backend.process.running(ent.paneId);
 }
 
 export async function cmdDispatch(args: string[]) {
   const { gov, rest } = parseGovernance(args);
   const flags = parseDispatchFlags(rest);
-  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--agent adapter] [--steal] [--cross-space]');
+  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--thinking <level>] [--agent adapter] [--steal] [--cross-space]');
   if (forwardedToTargetHost(args, flags.positional[0])) return;
   const settings = loadSettings(orchDir());
   const dispatchSettings = resolveDispatchSettings(flags, settings, gov);
@@ -291,20 +298,15 @@ export async function cmdDispatch(args: string[]) {
   // New work lands on a clean session unless the caller asked to keep the old one.
   // The model is pinned AFTER the clear, because a clear drops it.
   const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
-  const model = launchModel(flags, settings, adapter);
-  const thinking = resolveThinking({
-    flag: flags.thinkingFlag,
-    modelSuffix: splitThinkingSuffix(requestedModel(flags) ?? settings.defaults.models[adapter.id] ?? "").thinking,
-    harness: adapter.id,
-    settings,
-  });
+  const tuning = resolveTuningOrDie(flags, settings, adapter.id);
+  const { model, thinking } = tuning;
   assertLaunchModelAllowed(adapter.id, model);
   if (!dispatchSettings.keepContext) await clearSession(key, gov.steal === true);
   const pinWarnings = await pinModels([{ key, handle: dispatchSettings.handle, name: dispatchSettings.ent.name ?? dispatchSettings.handle }], model, thinking);
   if (pinWarnings.length > 0) process.exitCode = 1;
   const headerContext = workerHeaderContext(settings);
   const result = await dispatchToAgent(key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent), context: headerContext, gov });
-  if (!spawnedRecords().has(key)) recordAdoptedAgent(key, dispatchSettings);
+  if (!spawnedRecords().has(key)) recordAdoptedAgent(key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the agent runs the prompt this command sent, not some other delivery.
   reportControlDelivery("dispatched", key, result, dispatchSettings.json, "", settings.timeouts.dispatch_ack_ms);
@@ -316,6 +318,7 @@ export function parseDispatchFlags(args: string[]): DispatchFlags {
   for (let i = 0; i < commandArgs.length; i++) {
     const argument = commandArgs[i];
     if (argument === "--model") flags.modelFlag = commandArgs[++i];
+    else if (argument === "--thinking") flags.thinkingFlag = commandArgs[++i];
     else if (argument === "--file") flags.promptFile = commandArgs[++i];
     else if (argument === "--with") flags.withPaths.push(commandArgs[++i]!);
     else if (argument === "--agent" || argument === "--adapter") flags.adapterFlag = commandArgs[++i];
@@ -340,7 +343,7 @@ export function promptBody(flags: Pick<DispatchFlags, "promptFile" | "positional
 function resolveDispatchSettings(flags: DispatchFlags, settings: OrchSettings, gov: WriteGovernance = {}): DispatchSettings {
   const target = flags.positional[0];
   const prompt = promptBody(flags);
-  if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--agent adapter]');
+  if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--thinking <level>] [--agent adapter]');
   const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
   assertAgentOwned(target, ent, gov.steal);
   const handle = ent.paneId ?? ent.key;

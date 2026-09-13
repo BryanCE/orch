@@ -441,6 +441,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     /** Presence directory once initialised, or undefined when presence is skipped. */
     dir: (): string | undefined => dir,
     answers,
+    modelControl,
     lastCtx: (): HarnessContext | undefined => lastCtx,
     setLastCtx: (ctx: HarnessContext): void => {
       lastCtx = ctx;

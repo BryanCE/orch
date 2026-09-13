@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createModelControl, resolveRegistryModel } from "../src/agent/model-control.ts";
 import { splitThinkingSuffix } from "../src/policy/thinking.ts";
 import type { ControlOutcome, HarnessApi, HarnessContext, ResolvedModel } from "../src/types/agent.ts";
+import type { ThinkingLevel } from "../src/types/policy.ts";
 import type { JsonRecord } from "../src/types/core.ts";
 
 // A registry model is opaque to model-control — it only forwards whatever find()
@@ -114,8 +115,8 @@ describe("resolveRegistryModel — task 12.7 suffixed lookup", () => {
 });
 
 describe("createModelControl.applyControlCommand", () => {
-  function makePi(): { pi: HarnessApi; calls: { model?: ResolvedModel; thinking?: string } } {
-    const calls: { model?: ResolvedModel; thinking?: string } = {};
+  function makePi(): { pi: HarnessApi; calls: { model?: ResolvedModel; thinking?: ThinkingLevel } } {
+    const calls: { model?: ResolvedModel; thinking?: ThinkingLevel } = {};
     const pi: HarnessApi = {
       on: () => undefined,
       registerTool: () => undefined,
@@ -125,7 +126,7 @@ describe("createModelControl.applyControlCommand", () => {
         calls.model = model;
         return Promise.resolve(true);
       },
-      getThinkingLevel: () => undefined,
+      getThinkingLevel: () => calls.thinking,
       setThinkingLevel: (level) => {
         calls.thinking = level;
       },
@@ -153,6 +154,7 @@ describe("createModelControl.applyControlCommand", () => {
     expect(calls.model).toEqual(fakeModel("openai-codex", "gpt-5.6-luna"));
     expect(calls.thinking).toBe("medium");
     expect(refreshed).toBe(1);
+    expect(outcomes.reported[0]?.applied).toEqual({ model: "openai-codex/gpt-5.6-luna", thinking: "medium" });
     expect(outcomes.recorded[0]).toMatchObject({ id: "req-1", success: true, requested: { model: "openai-codex/gpt-5.6-luna:medium" } });
     // The dispatcher matches the report to its own request by this id.
     expect(outcomes.reported[0]).toMatchObject({ id: "req-1", command: "model", requested: { model: "openai-codex/gpt-5.6-luna:medium" } });

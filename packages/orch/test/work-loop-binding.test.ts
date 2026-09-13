@@ -2,7 +2,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serializeIdentity } from "../src/backends/identity.ts";
 import { runWorkLoop, statusSpeaksForTask } from "../src/daemon/work-loop.ts";
 import { addTask, type TaskRec } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
@@ -36,7 +35,7 @@ afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(dir
 
 /** A1: the presence key IS the minted id the runner's attempts and events carry
  *  — the plexer and the space are environment, never segments of an address. */
-const RUNNER_KEY = serializeIdentity({ id: "runner0000" });
+const RUNNER_KEY = "runner0000";
 
 /** An enqueuer and one runner in its pack, with the runner idle on disk. */
 function fleet(): string {

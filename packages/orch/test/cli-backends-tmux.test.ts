@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { mintAgentId, parseIdentity, serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
@@ -56,11 +56,11 @@ describe("tmux backend registry and capabilities", () => {
     // never promoted into the key. The key is one filesystem-safe segment
     // because a minted id has nothing in it that needs escaping.
     const identity = { id: mintAgentId() } as const;
-    const key = serializeIdentity(identity);
+    const key = identity.id;
     expect(key).toBe(identity.id);
     expect(key.includes("/")).toBe(false);
-    expect(parseIdentity(key)).toEqual(identity);
-    expect(() => serializeIdentity({ id: "%5" })).toThrow(/minted id|lowercase alphanumerics/);
+    expect(isAgentId(key)).toBe(true);
+    expect(isAgentId("%5")).toBe(false);
   });
 
   // Rule 11: where the caller SITS is environment and decides nothing. Selecting

@@ -2,7 +2,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serializeIdentity } from "../src/backends/identity.ts";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
 import { addTask, listTasks } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
@@ -20,7 +19,7 @@ afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(dir
 /** A1: the runner's presence key IS its minted id. The plexer and the space it
  *  sits in are environment, composed from `agent_plexers`/`agent_spaces`, and
  *  there is no longer anywhere in a key to weld them. */
-const RUNNER_KEY = serializeIdentity({ id: "runner0000" });
+const RUNNER_KEY = "runner0000";
 
 function fleet(): { dir: string; runnerKey: string } {
   const dir = mkdtempSync(join(tmpdir(), "orch-work-loop-identity-"));
@@ -67,7 +66,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
 
   test("an idle process with no registered agent row is never handed pack work", async () => {
     const { dir } = fleet();
-    const stranger = serializeIdentity({ id: "stranger00" });
+    const stranger = "stranger00";
     seedStatus(dir, stranger, { state: "idle", label: "Stranger" });
     orm(dir).run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('runner0000',2,NULL)`);
     await withOrchDir(dir, async () => {

@@ -4,7 +4,7 @@ import { agentIdentityEnv, maySpawnFrom, spawnerIdentity, worktreeEnv } from "..
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { workerPrompt, workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
-import { mintAgentId, serializeIdentity } from "../../backends/identity.ts";
+import { mintAgentId } from "../../backends/identity.ts";
 import { resolveBackend } from "../../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout } from "../../backends/tiling.ts";
 import { createAgentWorktree } from "../../worktree.ts";
@@ -21,10 +21,10 @@ import type { AgentAdapter } from "../../types/adapter.ts";
 import { agentById } from "../../store/agent-rows.ts";
 import { environmentOf } from "../../store/agent-view.ts";
 import type { CreatedAgent, PreparedAgent, SpawnPlacement, Spawner } from "../../types/command.ts";
-import { resolveSpawnSettings, parseSpawnFlags } from "./flags.ts";
+import { resolveSpawnAgentSettings, resolveSpawnSettings, parseSpawnFlags } from "./flags.ts";
 import type { SpawnSettings } from "./flags.ts";
 import { assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceGranted, assertTabCapacity, admitSpawn } from "./admission.ts";
-import { assertLaunchModelAllowed, pinModels, resolveAgentSettings } from "./models.ts";
+import { assertLaunchModelAllowed, pinModels } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
 import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
 import { awaitBridgeAttach, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
@@ -55,7 +55,7 @@ async function executeHeadlessSpawn(settings: SpawnSettings, backend: Backend, s
       // it as the launch credential, exactly like the placed path (spawnOneIntoTab).
       // The backend records the OS pid separately for close ownership; the key
       // never encodes it, and the backend never re-mints a second identity.
-      const key = serializeIdentity({ id: mintAgentId() });
+      const key = mintAgentId();
       const spawner = spawnerIdentity();
       // orchd launches a real harness process inside this call, so it gets the adapter-command
       // budget, not the 5s default meant for a question orchd answers from memory.
@@ -134,7 +134,7 @@ function prepareAgents(settings: SpawnSettings, adapter: AgentAdapter, names: re
   return names.map((name) => {
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
     adapter.workspaceTrust?.preTrustWorkspace(cwd, settings.cmd);
-    const key = serializeIdentity({ id: mintAgentId() });
+    const key = mintAgentId();
     const branch = settings.worktree ? `orch/${name}` : undefined;
     const env = {
       ...agentIdentityEnv(name, spawnerIdentity()),
@@ -304,7 +304,7 @@ export async function cmdSpawn(args: string[]) {
 export async function cmdTile(args: string[]) {
   const flags = parseSpawnFlags(args);
   const settingsFile = loadSettings(orchDir());
-  const { adapter, model, preferredModels } = resolveAgentSettings(flags, settingsFile);
+  const { adapter, model, thinking, preferredModels } = resolveSpawnAgentSettings(flags, settingsFile);
   const selectedBackend = resolveBackend({ explicit: flags.backendFlag ?? null, configured: settingsFile.defaults.backend ?? null });
   if (!selectedBackend.placementInventory) die(`orch tile requires an environment that places agents; ${selectedBackend.id} places none.`);
   if (!selectedBackend.groupHome || !selectedBackend.groupLayout) {
@@ -355,6 +355,7 @@ export async function cmdTile(args: string[]) {
       tools: workerTools(settingsFile),
       workers: workerPolicyFrom(settingsFile),
       model,
+      thinking,
       preferredModels,
       spawnerAgentId,
     });
@@ -366,6 +367,6 @@ export async function cmdTile(args: string[]) {
     process.stdout.write(`Added ${agent.handle} (${autoName}) to group ${layout.group} running ${adapter}.\n`);
     printLayout(selectedBackend, tab.id, "\nFinal tiling:");
   }
-  await pinModels([{ key: agent.key, handle: agent.handle, name: autoName }], model);
+  await pinModels([{ key: agent.key, handle: agent.handle, name: autoName }], model, thinking);
 }
 

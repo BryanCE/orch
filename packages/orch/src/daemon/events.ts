@@ -8,6 +8,7 @@ import { namesPresenceFile, readLatestResult, presenceAgentDir, readPresenceStat
 import { loadPresence } from "../presence/store.ts";
 import { agentView, agentViews } from "../store/agent-view.ts";
 import { computeFleetCapacity, packsUsed } from "../policy/capacity.ts";
+import { modelSpec } from "../policy/thinking.ts";
 import { loadSettings } from "../settings/read.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { upsertRun } from "../store/run-rows.ts";
@@ -33,8 +34,7 @@ function eventModel(status: unknown): string | null {
   if (!model || typeof model !== "object") return null;
   const id = property(model, "id");
   if (typeof id !== "string" || !id) return null;
-  const thinking = property(status, "thinking");
-  return `${id}${thinking ? `:${JSON.stringify(thinking) ?? ""}` : ""}`;
+  return modelSpec(id, optionalString(property(status, "thinking")));
 }
 
 function eventTokens(status: object): NotifyEvent["tokens"] | undefined {
@@ -191,17 +191,17 @@ function activityFields(value: object, state: AgentState): PresenceActivityField
   return { ...activityCore(value, state), ...activityContext(value) };
 }
 
-/** Derive one transition from a status file. First observations only seed state. */
-export function derivePresenceTransition(
+/** Compose the canonical event shape for a status observation. Re-asks use this
+ * same composer as filesystem-derived transitions, so their identity and activity
+ * fields cannot drift from live presence events. */
+export function composeAgentEvent(
   orchDir: string,
   key: string,
   status: unknown,
   metadata: PresenceMetadata,
-  states: Map<string, string>,
+  transition: { previous: AgentState; state: AgentState },
   now = new Date(),
-): NotifyEvent | null {
-  const transition = nextPresenceTransition(orchDir, key, status, states);
-  if (!transition) return null;
+): NotifyEvent {
   const value = statusObject(status);
   const identity = identityFields(orchDir, key, value, metadata);
   const activity = activityFields(value, transition.state);
@@ -227,6 +227,23 @@ export function derivePresenceTransition(
     tokens: activity.tokens,
     filesTouched: activity.filesTouched,
   };
+}
+
+/** Derive one transition from a status file. First observations only seed state. */
+export function derivePresenceTransition(
+  orchDir: string,
+  key: string,
+  status: unknown,
+  metadata: PresenceMetadata,
+  states: Map<string, string>,
+  now = new Date(),
+): NotifyEvent | null {
+  const transition = nextPresenceTransition(orchDir, key, status, states);
+  if (!transition || !isAgentState(transition.previous)) return null;
+  return composeAgentEvent(orchDir, key, status, metadata, {
+    previous: transition.previous,
+    state: transition.state,
+  }, now);
 }
 
 function directoryNames(directory: string): string[] {

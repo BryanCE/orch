@@ -2,16 +2,15 @@ import * as path from "node:path";
 import { STATUS_FILE } from "../../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { reclaimAgent } from "../../store/agent-rows.ts";
-import { modelSpec, resolveThinking, splitThinkingSuffix } from "../../policy/thinking.ts";
-import { assertLaunchModelAllowed, launchModel, pinModels } from "../spawn/models.ts";
-import { pickAdapter, resolveAdapterOrDie } from "../selection.ts";
+import { modelSpec } from "../../policy/thinking.ts";
+import { assertLaunchModelAllowed, pinModels } from "../spawn/models.ts";
+import { pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { writeRpc } from "../daemon.ts";
 import { assertAgentOwned, die, requireCallerOwnerToken, resolveLifecycleTarget } from "../target.ts";
 import { ownedAgentKeys, awaitIdleAfter } from "./index.ts";
-import { agentIdOf, describeHandle } from "./close.ts";
+import { describeHandle } from "./close.ts";
 import { loadSettings } from "../../settings/read.ts";
 import type { AgentFlags } from "../../types/command.ts";
-import type { ThinkingLevel } from "../../types/policy.ts";
 
 interface ClearedAgent { key: string; handle: string; name: string }
 
@@ -30,26 +29,6 @@ function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags 
   return { targets, flags };
 }
 
-/**
- * The model and effort a reset re-pins on: exactly the terms a spawn resolves.
- * A cleared session drops back to the harness's own default, and re-pinning the
- * bare model dropped the level, so every reset silently returned the agent to
- * whatever effort the harness itself defaults to.
- */
-function resolveLaunchSpec(flags: AgentFlags): { model: string; thinking: ThinkingLevel } {
-  const settings = loadSettings(orchDir());
-  const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
-  const model = launchModel(flags, settings, adapter);
-  const thinking = resolveThinking({
-    flag: flags.thinkingFlag,
-    modelSuffix: splitThinkingSuffix(flags.modelFlag ?? settings.defaults.models[adapter.id] ?? "").thinking,
-    harness: adapter.id,
-    settings,
-  });
-  assertLaunchModelAllowed(adapter.id, model);
-  return { model, thinking };
-}
-
 /** Clear one agent's session and wait for it to come back ready. */
 export async function clearSession(target: string, force: boolean): Promise<ClearedAgent> {
   // Resolved through the lifecycle resolver, which answers for an agent placed
@@ -63,7 +42,7 @@ export async function clearSession(target: string, force: boolean): Promise<Clea
   const sentAt = Date.now();
   // The daemon owns every lifecycle mechanism: a console gets the adapter's
   // text, an agent with none is refused. Neither is the CLI's to choose.
-  reclaimAgent(orchDir(), agentIdOf(ent.key));
+  reclaimAgent(orchDir(), ent.key);
   await writeRpc("lifecycle", { target: ent.key, verb: "reset" });
   if (!awaitIdleAfter(statusPath, beforeUpdated, sentAt)) die(`${label}: reset did not become ready within 75s.`);
   return { key: ent.key, handle: label, name: ent.name ?? label };
@@ -80,7 +59,11 @@ export async function cmdNew(args: string[]): Promise<void> {
     const { entity: ent } = resolveLifecycleTarget(target);
     assertAgentOwned(target, ent, force);
   }
-  const { model, thinking } = resolveLaunchSpec(flags);
+  const settings = loadSettings(orchDir());
+  const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
+  const tuning = resolveTuningOrDie(flags, settings, adapter.id);
+  const { model, thinking } = tuning;
+  assertLaunchModelAllowed(adapter.id, model);
   const cleared: ClearedAgent[] = [];
   for (const target of targets) {
     const agent = await clearSession(target, force);

@@ -8,7 +8,7 @@ const settings = (workerPeerTools?: boolean, allowTools: string[] = []): OrchSet
   runtime: "node",
   enabled: { adapters: [], backends: [] },
   locked_commands: [],
-  defaults: { models: {}, worktree: false },
+  defaults: { ...SETTINGS_DEFAULTS.defaults, models: {} },
   fleet: { worker_peer_tools: workerPeerTools ?? false, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, cross_space: false, max_agents_per_space: {} },
   models: { allowed: {}, preferred: {} },
   workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: allowTools, verify_commands: [] },

@@ -7,6 +7,7 @@
 // notification delivery through the injected notifier, so this module is
 // backend-agnostic.
 import { Type } from "typebox";
+import { isThinkingLevel } from "../policy/thinking.ts";
 import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
 import { loadSettingsOrNull } from "../settings/read.ts";
@@ -171,6 +172,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     presence.updateSessionRef(ctx);
     presence.updateModel(ctx);
     presence.writeStatus();
+    presence.modelControl.onSessionStart();
     void refreshLabels().catch(() => {
       /* noop */
     });
@@ -197,13 +199,19 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     if (isModelSelectEvent(event) && isRecord(event.model)) {
       const provider = optionalString(event.model.provider);
       const id = optionalString(event.model.id);
-      if (provider && id) state.model = { provider, id };
+      if (provider && id) {
+        state.model = { provider, id };
+        presence.modelControl.onModelSelect(state.model);
+      }
     }
     presence.writeStatus();
   });
 
   harness.on("thinking_level_select", (event: unknown) => {
-    if (isThinkingLevelSelectEvent(event) && typeof event.level === "string") state.thinking = event.level;
+    if (isThinkingLevelSelectEvent(event) && isThinkingLevel(event.level)) {
+      state.thinking = event.level;
+      presence.modelControl.onThinkingLevelSelect(event.level);
+    }
     presence.writeStatus();
   });
 

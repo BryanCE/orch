@@ -3,7 +3,7 @@ import { orchDir } from "../../presence/writer.ts";
 import { assertNameFree } from "../../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
-import { mintAgentId, serializeIdentity } from "../../backends/identity.ts";
+import { mintAgentId } from "../../backends/identity.ts";
 import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
 import { nextTilePlacement } from "../../backends/tiling.ts";
 import { createAgentWorktree } from "../../worktree.ts";
@@ -11,7 +11,6 @@ import { errorMessage } from "../../util.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { callerOwnerToken, die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
-import { processStartToken } from "../../process-identity.ts";
 import { commandLogger } from "../logging.ts";
 import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import { homeHandle, openHome } from "../../store/home-rows.ts";
@@ -102,7 +101,7 @@ export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
 // (warn-and-continue vs die); this throws on backend failure.
 export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   assertNameFree(spec.name, spec.space);
-  const key = spec.key ?? serializeIdentity({ id: mintAgentId() });
+  const key = spec.key ?? mintAgentId();
   const spawner = spawnerIdentity();
   const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), [LAUNCH_ENV]: key, ORCH_DIR: orchDir() };
   let place: BackendHandle | undefined;
@@ -135,22 +134,13 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   // which record was authoritative.
   registerSpawnedAgent(orchDir(), {
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
-    handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, space: spec.space ?? undefined,
+    handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
     spawner: spec.spawnerAgentId ?? null,
     owner: callerOwnerToken(),
     worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
-    process: paneProcess(spec.backend, handle),
+    process: spec.backend.process.running(handle),
   });
   return { key, handle: String(handle), name: spec.name };
-}
-
-/** The pane shell an agent runs under: the process whose death IS the agent's exit. */
-export function paneProcess(backend: Backend, handle: BackendHandle): { pid: number; startToken?: string } {
-  if (!backend.foreground) throw new Error(`environment "${backend.id}" reports no pane process, so orch cannot watch the agent`);
-  const pid = backend.foreground.read(handle).shellPid;
-  if (pid === null) throw new Error(`environment "${backend.id}" reports no shell pid for ${String(handle)}`);
-  const startToken = processStartToken(pid);
-  return startToken === undefined ? { pid } : { pid, startToken };
 }
 
 /** Add one agent to a group at the spot the planner picks for it against the

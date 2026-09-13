@@ -1,8 +1,9 @@
 import * as path from "node:path";
 import { closeOutboxForDeadTargets, reapDeadPresenceDirs, reapMalformedPresenceDirs } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
+import { isAgentId } from "../backends/identity.ts";
+import { livePresenceHolders } from "../store/connection.ts";
 import { errorMessage } from "../util.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
 import {
   listAgentWorktrees,
   removeDiscardedWorktree,
@@ -110,19 +111,33 @@ function closeDeadAgentWrites(json = false, root = orchDir()): number {
 /** Reap dead presence through the same spawned/ownership cleanup path as daemon
  *  retention. The presence store owns the directory and database cleanup; this
  *  command adds output. */
+/**
+ * Why a reap removed nothing. `--force` reaps DEAD agents, so a live fleet leaves
+ * it with nothing in scope — and saying only "every dir belongs to a live process"
+ * left the user to work out that their own agents were the reason and that closing
+ * is the fix. The store's rebuild refusal already says exactly that, from the same
+ * `livePresenceHolders` list, so this says it the same way rather than inventing a
+ * second wording for one situation.
+ */
+function nothingToReapMessage(root: string): string {
+  const holders = livePresenceHolders(root);
+  if (holders.length === 0) return "Nothing to clean - no agent dirs exist.\n";
+  return `Nothing to clean - ${holders.length} agent${holders.length === 1 ? " is" : "s are"} live: ${holders.join(", ")}. `
+    + `--force reaps DEAD agents only; close them first ('orch close --all'), then retry.\n`;
+}
+
 export function removeDeadAgentDirs(json = false, options: DeadAgentSweepOptions = {}): string[] {
   const result = reapDeadPresenceDirs(options.root ?? orchDir(), options.olderThan);
   for (const failure of result.failed) {
     const message = errorMessage(failure.error);
-    const identity = tryParseIdentity(failure.entry.key);
-    const log = identity ? commandLogger().forAgent(identity.id) : commandLogger();
+    const log = isAgentId(failure.entry.key) ? commandLogger().forAgent(failure.entry.key) : commandLogger();
     log.error("clean.presence-remove-failed", { path: failure.entry.dir, error: message });
     process.stdout.write(`failed to remove ${failure.entry.dir}: ${message}\n`);
   }
   const removed = result.removed.map((entry) => entry.key);
   if (!json) {
     if (removed.length) process.stdout.write("Removed dead agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
-    else process.stdout.write("Nothing to clean - every agent dir belongs to a live process (or none exist).\n");
+    else process.stdout.write(nothingToReapMessage(options.root ?? orchDir()));
   }
   return removed;
 }

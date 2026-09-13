@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { tryParseIdentity } from "../../backends/identity.ts";
 import { loadPresence } from "../../presence/store.ts";
 import { orchDir } from "../../presence/writer.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
@@ -8,47 +7,31 @@ import { selfId, selfIdentity } from "../../identity/self.ts";
 import { callerAuthority, refuseClose } from "../../policy/close-authority.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
-import { processInstanceMatches, processIsAlive } from "../../process-identity.ts";
 import { getBackend } from "../../backends/registry.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
 import { rpcCall } from "../../daemon/rpc/client.ts";
 import { agentAddress, die, presenceById, resolveLifecycleTarget, splitOptionFlags } from "../target.ts";
-import type { Backend, BackendHandle, PlacementRole } from "../../types/backend.ts";
+import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import { currentProcess } from "../../store/interval-rows.ts";
-
-interface RecordedProcess {
-  pid: number;
-  startToken?: string;
-}
-
-/** The agent id inside a presence key. A key is an ENVIRONMENT wrapped around
- *  orch's opaque id, and the store is keyed by that id alone; a key that does not
- *  parse is already bare. Same resolution as `deriveLeasePayload` — reading the
- *  raw key here is what made close look up a row no writer ever produces. */
-export function agentIdOf(key: string): string {
-  return tryParseIdentity(key)?.id ?? key;
-}
 
 /** Read the launch identity from the normalized agent process interval. Presence
  * status carries liveness only and can never authorize a signal. */
 function recordedProcess(key: string): RecordedProcess | null {
   try {
-    const row = currentProcess(orchDir(), agentIdOf(key));
-    if (row === undefined) return null;
-    return { pid: row.pid, ...(row.startToken === null ? {} : { startToken: row.startToken }) };
+    const row = currentProcess(orchDir(), key);
+    return row === undefined ? null : { pid: row.pid, startToken: row.startToken };
   } catch {
     return null;
   }
 }
 
-/** Whether the recorded process instance is still present after a close attempt. */
-function recordedProcessRemains(recorded: RecordedProcess): boolean {
-  const startToken = recorded.startToken;
-  if (typeof startToken !== "string") return processIsAlive(recorded.pid);
+/** Whether the recorded process instance is still present after a close attempt.
+ *  The environment that runs the process is the one asked whether it is gone. */
+function processRemains(role: ProcessRole, recorded: RecordedProcess): boolean {
   const exited = retryingSync(
     "await closed process",
-    () => !processInstanceMatches(recorded.pid, startToken),
+    () => role.state(recorded) !== "alive",
     { attempts: 40, delayMs: 50, backoff: 1 },
     { sleepSync: sleepMs, retryOnResult: (value) => !value },
   );
@@ -68,7 +51,7 @@ interface ClosedAgent {
 
 function endClosedAgent(key: string): ClosedAgent | null {
   const root = orchDir();
-  const agentId = agentIdOf(key);
+  const agentId = key;
   const row = agentById(root, agentId);
   if (row && !row.ending) {
     const by = selfId();
@@ -182,14 +165,16 @@ interface CloseAttempt {
 }
 
 /** Signal the recorded process INSTANCE, never merely the pid: reaping waits
- *  until that same (pid, start_token) is gone, not until kill(2) is accepted. */
-function closeByProcess(recorded: RecordedProcess): CloseAttempt {
+ *  until that same (pid, start_token) is gone, not until kill(2) is accepted.
+ *  The signal goes through the environment's own process role — the same port
+ *  that started the process — never a raw kill at this call site. */
+function closeByProcess(role: ProcessRole, recorded: RecordedProcess): CloseAttempt {
   try {
-    process.kill(recorded.pid, "SIGTERM");
+    role.kill(recorded, "SIGTERM");
   } catch (error: unknown) {
     return { failure: errorMessage(error), signalled: false, closedByBackend: false, alreadyAbsent: false };
   }
-  const failure = recordedProcessRemains(recorded) ? `process ${recorded.pid} is still running after SIGTERM` : null;
+  const failure = processRemains(role, recorded) ? `process ${recorded.pid} is still running after SIGTERM` : null;
   return { failure, signalled: true, closedByBackend: false, alreadyAbsent: false };
 }
 
@@ -222,50 +207,41 @@ function stillListed(target: CloseTarget): string | null {
   }
 }
 
-/** The one mechanism that can end this target, decided from the recorded
- *  process and the environment's pane role BEFORE anything is attempted. A
- *  variant carries what its own close needs, so the attempt re-derives nothing. */
+/** The one mechanism that can end this target, decided from the environment's
+ *  roles and the recorded process BEFORE anything is attempted. A variant
+ *  carries what its own close needs, so the attempt re-derives nothing. */
 type CloseRoute =
-  | { readonly kind: "process"; readonly recorded: RecordedProcess }
-  | { readonly kind: "pane"; readonly placer: PlacementRole }
-  | { readonly kind: "untokenized"; readonly pid: number }
+  | { readonly kind: "pane"; readonly placer: PlacementRole; readonly handle: BackendHandle }
+  | { readonly kind: "process"; readonly role: ProcessRole; readonly recorded: RecordedProcess }
   | { readonly kind: "none" };
 
+/** Whoever HOLDS the agent ends it: a placed agent's recorded process is the
+ *  place's own shell, which ignores SIGTERM, so its place host is asked first. */
 function closeRoute(target: CloseTarget, placer: PlacementRole | null): CloseRoute {
-  // Narrowed to the RECORD OF A LIVE PROCESS in one step: a dead pid is the
-  // same answer as no record at all, and every test below reads one value.
-  const recorded = target.recorded !== null && processIsAlive(target.recorded.pid) ? target.recorded : null;
-  const token = recorded !== null && typeof recorded.startToken === "string" ? recorded.startToken : null;
-  if (recorded !== null && token !== null && processInstanceMatches(recorded.pid, token)) {
-    return { kind: "process", recorded };
+  if (placer !== null && target.placeKnown && target.handle !== null) {
+    return { kind: "pane", placer, handle: target.handle };
   }
-  if (target.placeKnown && placer !== null) return { kind: "pane", placer };
-  // A live process without a launch token cannot be safely signalled or
-  // reaped: losing the row would make that process unreachable.
-  if (recorded !== null) return { kind: "untokenized", pid: recorded.pid };
-  return { kind: "none" };
+  const role = target.backend?.process ?? null;
+  const recorded = target.recorded;
+  if (recorded === null || role === null) return { kind: "none" };
+  // A dead or recycled pid is the same answer as no record at all.
+  return role.state(recorded) === "alive" ? { kind: "process", role, recorded } : { kind: "none" };
 }
 
-function takeRoute(route: CloseRoute, handle: BackendHandle | null): CloseAttempt {
+function takeRoute(route: CloseRoute): CloseAttempt {
   switch (route.kind) {
-    case "process": return closeByProcess(route.recorded);
-    case "pane": return handle === null
-      ? { failure: "pane route had no environment handle", signalled: false, closedByBackend: false, alreadyAbsent: false }
-      : closeByPane(route.placer, handle);
-    case "untokenized": return {
-      failure: `process ${route.pid} is live but carries no start token, so orch cannot prove it is this agent`,
-      signalled: false, closedByBackend: false, alreadyAbsent: false,
-    };
+    case "pane": return closeByPane(route.placer, route.handle);
+    case "process": return closeByProcess(route.role, route.recorded);
     case "none": return { failure: null, signalled: false, closedByBackend: false, alreadyAbsent: false };
   }
 }
 
 /** End one agent by the strongest means available, and say what happened. */
 function attemptClose(target: CloseTarget): CloseAttempt {
-  const placer = target.backend?.placement ?? null;
-  const paneCapable = target.placeKnown && placer !== null && target.handle !== null;
-  const attempt = takeRoute(closeRoute(target, placer), target.handle);
-  if (attempt.failure !== null || !paneCapable || attempt.alreadyAbsent) return attempt;
+  const route = closeRoute(target, target.backend?.placement ?? null);
+  const attempt = takeRoute(route);
+  // Only a close the pane host was actually asked for is verified against it.
+  if (attempt.failure !== null || route.kind !== "pane" || attempt.alreadyAbsent) return attempt;
   const lingering = stillListed(target);
   return lingering === null ? attempt : { ...attempt, failure: lingering };
 }
@@ -344,10 +320,10 @@ export function cmdClose(args: string[]) {
 
   const authority = callerAuthority(selfIdentity());
   const named = namedTargets(positional);
-  const refusal = named.map((target) => refuseClose(orchDir(), authority, agentIdOf(target.key))).find((reason) => reason !== null);
+  const refusal = named.map((target) => refuseClose(orchDir(), authority, target.key)).find((reason) => reason !== null);
   if (refusal !== undefined && refusal !== null) die(refusal);
   // A sweep skips what is not the caller's; a named target is refused.
-  const swept = all ? sweepTargets().filter((target) => refuseClose(orchDir(), authority, agentIdOf(target.key)) === null) : [];
+  const swept = all ? sweepTargets().filter((target) => refuseClose(orchDir(), authority, target.key) === null) : [];
 
   reportClose(closeEachTarget([...swept, ...named], json), { all, stream, json });
 }

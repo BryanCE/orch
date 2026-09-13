@@ -5,7 +5,7 @@ import * as os from "node:os";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
-import { serializeIdentity } from "../src/backends/identity.ts";
+
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -43,7 +43,7 @@ afterEach(() => {
 describe("work reaches an agent through its link", () => {
   test("a headless agent receives a dispatch through the link", async () => {
     const directory = tempDir();
-    const target = serializeIdentity({ id: "detached01" });
+    const target = "detached01";
     seedAgent(target, { adapter: "pi" }, directory);
     seedStatus(directory, target, { agent: "pi", state: "idle" });
     const deliveries = fakeLink(target);
@@ -56,7 +56,7 @@ describe("work reaches an agent through its link", () => {
 
   test("a capless adapter still gets the not-placed boundary answer", async () => {
     const directory = tempDir();
-    const target = serializeIdentity({ id: "detached02" });
+    const target = "detached02";
     seedAgent(target, { adapter: "claude" }, directory);
     seedStatus(directory, target, { agent: "claude", state: "idle" });
 

@@ -3,7 +3,6 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveLeasePayload } from "../src/daemon/orchd.ts";
-import { serializeIdentity } from "../src/backends/identity.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -36,7 +35,7 @@ describe("daemon status lease payload", () => {
   test("reports the current holder and its liveness", () => {
     const dir = fixture();
     acquireLease(dir, WORKER_ID, "orch", 2);
-    expect(deriveLeasePayload(dir, serializeIdentity({ id: WORKER_ID }))).toEqual({
+    expect(deriveLeasePayload(dir, WORKER_ID)).toEqual({
       lease: { holderId: "orch", holderName: "Lead", holderAlive: true },
       leaseKnown: true,
     });
@@ -44,7 +43,7 @@ describe("daemon status lease payload", () => {
 
   test("distinguishes a known unleased agent from an unknown key", () => {
     const dir = fixture();
-    expect(deriveLeasePayload(dir, serializeIdentity({ id: WORKER_ID }))).toEqual({ lease: null, leaseKnown: true });
+    expect(deriveLeasePayload(dir, WORKER_ID)).toEqual({ lease: null, leaseKnown: true });
     expect(deriveLeasePayload(dir, "missingkey0")).toEqual({ lease: null, leaseKnown: false });
   });
 });

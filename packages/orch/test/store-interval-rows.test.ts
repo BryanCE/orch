@@ -74,10 +74,10 @@ describe("interval satellites", () => {
     expect(currentProcess(dir, "a")).toBeUndefined();
   });
 
-  test("nullable process start_token round-trips as null", () => {
+  test("process start_token round-trips", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 10, { hostId: "h", pid: 7 });
-    expect(currentProcess(dir, "a")?.startToken).toBeNull();
+    recordProcess(dir, "a", 10, { hostId: "h", pid: 7, startToken: "round-trip" });
+    expect(currentProcess(dir, "a")?.startToken).toBe("round-trip");
   });
 
   test("space move history closes at the successor since", () => {
@@ -113,8 +113,8 @@ describe("interval satellites", () => {
 
   test("interval instants are stored as INTEGER values", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 1, { hostId: "h", pid: 1 });
-    recordProcess(dir, "a", 2, { hostId: "h", pid: 2 });
+    recordProcess(dir, "a", 1, { hostId: "h", pid: 1, startToken: "first-instance" });
+    recordProcess(dir, "a", 2, { hostId: "h", pid: 2, startToken: "relaunch" });
     setHandle(dir, "a", 3, "one");
     setHandle(dir, "a", 4, "two");
     setSpace(dir, "a", 5, "s");

@@ -2,7 +2,7 @@ import { accessSync, chmodSync, constants, existsSync, linkSync, mkdirSync, read
 import { randomBytes } from "node:crypto";
 import { delimiter, dirname, join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { JsonRecord, OsSide } from "./types/core.ts";
+import type { OsSide } from "./types/core.ts";
 
 export function osSide(platform: NodeJS.Platform = process.platform): OsSide {
   if (platform === "win32") return "windows";
@@ -81,9 +81,7 @@ export function errorTrace(error: unknown): string {
  * is safe to pull into the standalone claude/codex/pi bundles (Rule 6 constrains
  * which APIs runtime code may call, not whether it may import orch core).
  */
-export function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+export { isRecord } from "./json.ts";
 
 export function valueAtPath(root: unknown, path: readonly PropertyKey[]): unknown {
   let cursor: unknown = root;

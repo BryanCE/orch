@@ -73,7 +73,8 @@ export const NOTIFY_SIMPLE_IDS: readonly string[] = NOTIFY_IDS.filter((id) => NO
 export const SETTINGS_DEFAULTS = {
   fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, worker_peer_tools: false, cross_space: false },
   queue: { max_retries: 1 },
-  retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7 },
+  retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, sweep_interval_ms: 3_600_000 },
+  questions: { renag_ms: 120_000, renag_limit: 5 },
   logging: { level: "info" },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
@@ -163,6 +164,14 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     control_outcomes_days: PositiveInt.optional(),
     /** Headless log files older than this many days. */
     logs_days: PositiveInt.optional(),
+    /** How often the daemon sweeps retained rows, in milliseconds. */
+    sweep_interval_ms: PositiveInt.optional(),
+  }).optional(),
+  questions: z.strictObject({
+    /** How long an unanswered question waits before the daemon asks again, in milliseconds. */
+    renag_ms: PositiveInt.optional(),
+    /** How many asking events the daemon emits before giving up. */
+    renag_limit: PositiveInt.optional(),
   }).optional(),
   timeouts: z.strictObject({
     dispatch_ack_ms: PositiveInt.optional(),

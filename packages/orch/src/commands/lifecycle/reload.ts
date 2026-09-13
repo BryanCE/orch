@@ -5,15 +5,16 @@ import { STATUS_FILE } from "../../presence/schema.ts";
 import { orchDir, presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { reclaimAgent } from "../../store/agent-rows.ts";
 import { retryingSync } from "../../retry.ts";
-import { errorMessage, pidAlive } from "../../util.ts";
+import { errorMessage } from "../../util.ts";
+import { agentProcessLive } from "../../store/interval-rows.ts";
 import { atShellPrompt, sleepMs, NO_FOREGROUND } from "../../backends/shell-ready.ts";
 import { loadSettings } from "../../settings/read.ts";
-import { adapterCommand, assertLaunchModelAllowed, launchModel } from "../spawn/models.ts";
-import { resolveAdapterOrDie } from "../selection.ts";
+import { adapterCommand, assertLaunchModelAllowed } from "../spawn/models.ts";
+import { resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { writeRpc } from "../daemon.ts";
 import { assertAgentOwned, die, resolveLifecycleTarget } from "../target.ts";
 import { lifecycleLogger, lifecycleTargets } from "./index.ts";
-import { describeHandle, agentIdOf } from "./close.ts";
+import { describeHandle } from "./close.ts";
 import type { Backend, ForegroundProcesses } from "../../types/backend.ts";
 import type { AgentAdapter, LifecycleVerb } from "../../types/adapter.ts";
 import type { LifecycleTarget } from "../../types/command.ts";
@@ -29,15 +30,16 @@ export interface ReloadResult {
   reason?: string;
 }
 
-/** Block until the agent's bridge republishes status.json under a live pid, proving
- *  the harness came back. Backend-agnostic: it reads only the presence protocol. */
-function awaitBridgeRefresh(statusPath: string, wasUpdatedAt: string, tries: number): boolean {
+/** Block until the agent's bridge republishes status.json while its recorded
+ *  process is live, proving the harness came back. */
+function awaitBridgeRefresh(statusPath: string, presenceKey: string, wasUpdatedAt: string, tries: number): boolean {
   return retryingSync(
     "await bridge refresh",
     () => {
       const status = readPresenceStatus(statusPath);
-      return typeof status?.pid === "number" && typeof status.updatedAt === "string"
-        && pidAlive(status.pid) && Date.parse(status.updatedAt) > Date.parse(wasUpdatedAt);
+      return typeof status?.updatedAt === "string"
+        && agentProcessLive(orchDir(), presenceKey)
+        && Date.parse(status.updatedAt) > Date.parse(wasUpdatedAt);
     },
     { attempts: tries, delayMs: 500, backoff: 1 },
     { sleepSync: sleepMs, retryOnResult: (value) => !value },
@@ -55,7 +57,7 @@ async function lifecycleThroughDaemon(verb: LifecycleVerb, key: string, handle: 
   } catch (error: unknown) {
     return { handle, ok: false, reason: errorMessage(error) };
   }
-  return awaitBridgeRefresh(statusPath, wasUpdatedAt, 60)
+  return awaitBridgeRefresh(statusPath, key, wasUpdatedAt, 60)
     ? { handle, ok: true }
     : { handle, ok: false, reason: `bridge status.json did not refresh within 30s after ${verb}` };
 }
@@ -65,9 +67,6 @@ export function reloadAgentAndAwaitBridge(backend: Backend, handle: string, pres
     const statusPath = path.join(presenceAgentDir(presenceKey), STATUS_FILE);
     const old = readPresenceStatus(statusPath);
     const oldUpdatedAt = typeof old?.updatedAt === "string" ? old.updatedAt : "";
-    if (typeof old?.pid !== "number") {
-      return { handle, ok: false, reason: errorMessage("no bridge status.json pid to verify reload") };
-    }
     backend.agentInput?.sendKeys(handle, ["Escape"]);
     sleepMs(500);
     if (!backend.agentInput) throw new Error("target environment cannot take input");
@@ -76,8 +75,8 @@ export function reloadAgentAndAwaitBridge(backend: Backend, handle: string, pres
       "await bridge refresh",
       () => {
         const st = readPresenceStatus(statusPath);
-        return typeof st?.pid === "number" && typeof st.updatedAt === "string"
-          && pidAlive(st.pid) && Date.parse(st.updatedAt) > Date.parse(oldUpdatedAt);
+        return typeof st?.updatedAt === "string"
+          && agentProcessLive(orchDir(), presenceKey) && Date.parse(st.updatedAt) > Date.parse(oldUpdatedAt);
       },
       { attempts: 60, delayMs: 500, backoff: 1 },
       { sleepSync: sleepMs, retryOnResult: (value) => !value },
@@ -97,7 +96,6 @@ function touchReloadSignal(): void {
 
 function restartAgentAndAwaitBridge(backend: Backend, handle: string, cmd: string, presenceKey: string, quitText: string): boolean {
   const statusPath = path.join(presenceAgentDir(presenceKey), STATUS_FILE);
-  const oldPid = readPresenceStatus(statusPath)?.pid ?? null;
   backend.agentInput?.sendKeys(handle, ["Escape"]);
   sleepMs(500);
   if (!backend.agentInput) throw new Error("target environment cannot take input");
@@ -113,13 +111,13 @@ function restartAgentAndAwaitBridge(backend: Backend, handle: string, cmd: strin
     process.stdout.write(`${handle}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
-  reclaimAgent(orchDir(), agentIdOf(presenceKey));
+  reclaimAgent(orchDir(), presenceKey);
   backend.agentInput.submit(handle, cmd);
   const refreshed = retryingSync(
     "await relaunched bridge",
     () => {
       const st = readPresenceStatus(statusPath);
-      return typeof st?.pid === "number" && st.pid !== oldPid && pidAlive(st.pid);
+      return typeof st?.updatedAt === "string" && agentProcessLive(orchDir(), presenceKey);
     },
     { attempts: 40, delayMs: 500, backoff: 1 },
     { sleepSync: sleepMs, retryOnResult: (value) => !value },
@@ -218,9 +216,9 @@ export async function cmdReload(args: string[]): Promise<void> {
  *  harness fall back to its own default. */
 function restartLaunchCommand(cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings): string {
   if (cmd !== null) return cmd;
-  const model = launchModel({}, settings, adapter);
-  assertLaunchModelAllowed(adapter.id, model);
-  return adapterCommand(harnessId, settings, { model, preferredModels: settings.models.preferred[adapter.id] ?? [] });
+  const tuning = resolveTuningOrDie({}, settings, adapter.id);
+  assertLaunchModelAllowed(adapter.id, tuning.model);
+  return adapterCommand(harnessId, settings, { model: tuning.model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] });
 }
 
 /** Restart one target. A detached agent has no shell to type a quit into, so the
@@ -234,7 +232,7 @@ async function restartOneTarget(target: string, cmd: string | null, settings: Or
   const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
   if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
   if (!backend.agentInput) {
-    reclaimAgent(orchDir(), agentIdOf(ent.key));
+    reclaimAgent(orchDir(), ent.key);
     const restarted = await lifecycleThroughDaemon("restart", ent.key, describeHandle(handle));
     if (restarted.ok) {
       if (!flags.json) process.stdout.write(`${restarted.handle}: bridge live.\n`);

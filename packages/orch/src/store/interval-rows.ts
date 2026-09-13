@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
-import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
+import { recordedInstanceIsLive } from "../process-identity.ts";
 import { agentHandles, agentPlexers, agentProcesses, agentSpaces, agentTunings } from "../db/schema.ts";
 import type { ProcessValues, TuningValues } from "../types/store.ts";
 
@@ -26,7 +26,7 @@ export function recordProcess(orchDir: string, agentId: string, now: number, val
   withTransaction(orchDir, () => {
     closeOpen(orchDir, agentProcesses, agentId, now);
     orm(orchDir).insert(agentProcesses).values({
-      agentId, since: now, until: null, hostId: values.hostId, pid: values.pid, startToken: values.startToken ?? null,
+      agentId, since: now, until: null, hostId: values.hostId, pid: values.pid, startToken: values.startToken,
     }).run();
   });
 }
@@ -96,21 +96,16 @@ export function currentTuning(orchDir: string, agentId: string): TuningRow | und
  * about whether a holder is dead — which is the difference between refusing a
  * dispatch and allowing it (Rule 11: a dead holder is not a collision).
  *
- * A recorded start token is checked against the live process, so a pid reused by
- * an unrelated process reads as DEAD. A row with no token falls back to bare
- * liveness: it is all that was recorded, and inventing a stricter answer than
- * the record supports would report live agents as gone.
+ * The recorded start token is checked against the live process, so a pid reused
+ * by an unrelated process reads as DEAD.
  */
 export function recordedProcessIsLive(orchDir: string, agentId: string): boolean {
   const row = currentProcess(orchDir, agentId);
-  if (row === undefined) return false;
-  return row.startToken !== null && row.startToken.length > 0
-    ? processInstanceMatches(row.pid, row.startToken)
-    : processIsAlive(row.pid);
+  return row !== undefined && recordedInstanceIsLive(row.pid, row.startToken);
 }
 
-/** {@link recordedProcessIsLive} addressed by a presence key: the key wraps the
- *  id, and a key that names no registered agent has no process and is dead. */
+/** {@link recordedProcessIsLive} addressed by a presence key. A key that
+ *  names no registered agent has no process and is dead. */
 export function agentProcessLive(orchDir: string, key: string): boolean {
   return recordedProcessIsLive(orchDir, key);
 }

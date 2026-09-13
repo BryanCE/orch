@@ -1,23 +1,17 @@
 import { orchDir } from "../../presence/writer.ts";
 import { loadSettings } from "../../settings/read.ts";
 import { assertModelAllowed } from "../../policy/model.ts";
-import { modelSpec, resolveThinking, splitThinkingSuffix } from "../../policy/thinking.ts";
+import { modelSpec } from "../../policy/thinking.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
-import { repickCommand } from "../../adapters/prerequisites.ts";
-import { pickAdapter, requestedModel, resolveAdapterOrDie } from "../selection.ts";
+import { resolveAdapterOrDie } from "../selection.ts";
 import { SpawnRefusalError } from "../../refusal.ts";
-import { resolveBackend } from "../../backends/registry.ts";
 import { errorMessage } from "../../util.ts";
 import { retryingAsync } from "../../retry.ts";
 import { callDaemon } from "../daemon.ts";
-import { die } from "../target.ts";
 import { commandLogger } from "../logging.ts";
-import type { Backend } from "../../types/backend.ts";
-import type { AdapterId, AgentAdapter } from "../../types/adapter.ts";
+import type { AdapterId } from "../../types/adapter.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 import type { RetryPolicy } from "../../types/core.ts";
-import type { OrchSettings } from "../../types/settings.ts";
-import type { AgentFlags, AgentSettings } from "../../types/command.ts";
 
 
 /** The command one harness launches under, built by that harness's own adapter. `launch` carries
@@ -86,19 +80,6 @@ export async function pinModels(
 
 /** The harness this command runs: flag, then ORCH_ADAPTER, then the configured default. */
 
-/** The model a fresh session runs on: what the caller named, else the configured
- *  default. With neither, refuse — an unpinned session silently runs whatever the
- *  harness happens to default to, which is never what the orchestrator asked for.
- *  Every path that starts a clean session (spawn, tile, reset) resolves it here. Spawn
- *  validates the model only after policy accepts; the launch hands this string to the harness CLI, whose own
- *  resolver fuzzy-matches a shorthand onto whatever registry entry shares a prefix. A
- *  model the harness does not list must never reach that resolver. */
-export function launchModel(flags: AgentFlags, settings: OrchSettings, adapter: AgentAdapter): string {
-  const model = requestedModel(flags) ?? settings.defaults.models[adapter.id] ?? "";
-  if (!model) die(`no model selected for ${adapter.id} - pass --model <model[:thinking]>, or record one with: ${repickCommand(adapter.id)}`);
-  return splitThinkingSuffix(model).bare;
-}
-
 /** Enforce orch's model policy at the command's side-effect gate. */
 export function assertLaunchModelAllowed(adapterId: AdapterId, model: string): void {
   const adapter = resolveAdapterOrDie(adapterId);
@@ -109,26 +90,4 @@ export function assertLaunchModelAllowed(adapterId: AdapterId, model: string): v
   }
 }
 
-export function resolveAgentSettings(flags: AgentFlags, settings = loadSettings(orchDir())): AgentSettings {
-  const adapter = pickAdapter(flags, settings);
-  const harness = resolveAdapterOrDie(adapter);
-  // Selection flows through the backend factory: explicit flag/env, then settings
-  // default, then a capability-probed fallback. No per-backend branch is hard-coded here.
-  let backend: Backend;
-  try {
-    backend = resolveBackend({
-      explicit: flags.backendFlag ?? process.env.ORCH_BACKEND ?? null,
-      configured: settings.defaults.backend ?? null,
-    });
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
-  return {
-    adapter,
-    backend: backend.id,
-    model: launchModel(flags, settings, harness),
-    thinking: resolveThinking({ flag: flags.thinkingFlag, modelSuffix: splitThinkingSuffix(requestedModel(flags) ?? settings.defaults.models[adapter] ?? "").thinking, harness: adapter, settings }),
-    preferredModels: settings.models.preferred[adapter] ?? [],
-  };
-}
 

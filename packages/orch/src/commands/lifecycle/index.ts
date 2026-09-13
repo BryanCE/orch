@@ -1,5 +1,5 @@
 import { buildEntities, recipientFor, recipientLabel, resolvePane, resolveTarget } from "../../entities.ts";
-import { tryParseIdentity } from "../../backends/identity.ts";
+import { isAgentId } from "../../backends/identity.ts";
 import { orchDir, readPresenceStatus } from "../../presence/writer.ts";
 import { retryingSync } from "../../retry.ts";
 import { isRecord } from "../../util.ts";
@@ -13,8 +13,7 @@ import { agentViewIndex, backendTarget, die, ownsAgent, parseTargetPrompt, requi
 import { commandLogger } from "../logging.ts";
 
 export function lifecycleLogger(key: string) {
-  const agentId = tryParseIdentity(key)?.id;
-  return agentId ? commandLogger().forAgent(agentId) : commandLogger();
+  return isAgentId(key) ? commandLogger().forAgent(key) : commandLogger();
 }
 
 /** Dispatch a prompt and retry once when the pane never enters working state. */

@@ -191,7 +191,7 @@ describe("TmuxBackend", () => {
     try {
       process.env.TMUX_PANE = "%1";
       const id = mintAgentId();
-      expect(new TmuxBackend().identity?.current(id)).toEqual({ id });
+      expect(new TmuxBackend().identity?.current(id)).toBe(id);
       expect(new TmuxBackend().identity?.current(null)).toBeNull();
     } finally {
       restoreOrchEnv();

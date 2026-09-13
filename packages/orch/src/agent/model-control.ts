@@ -6,13 +6,14 @@
 // a harness never re-litigates it. Orch's ladder token names a model and a
 // thinking effort; the registry keys on the bare id, so the suffix is split off
 // before lookup and applied through pi's own mechanism.
-import { splitThinkingSuffix } from "../policy/thinking.ts";
+import { modelSpec, splitThinkingSuffix } from "../policy/thinking.ts";
 import { retryingAsync } from "../retry.ts";
 import type { ControlOutcome, FindRegistryModel, ModelControlDeps, ResolvedModel } from "../types/agent.ts";
 import type { BridgeMessage } from "../control/bridge-message.ts";
 import type { RetryPolicy } from "../types/core.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { JsonRecord } from "../types/core.ts";
+import { randomUUID } from "node:crypto";
 
 export type { ThinkingLevel };
 
@@ -56,10 +57,89 @@ export function createModelControl(deps: ModelControlDeps) {
   const { harness, context, recordOutcome, reportOutcome, refreshPresence } = deps;
   const findModel: FindRegistryModel = (provider, id) => context()?.modelRegistry.find(provider, id);
 
-  async function applyModelCommand(requestedModel: unknown): Promise<void> {
-    const { model, thinking } = await resolveRegistryModel(requestedModel, findModel);
-    await harness.setModel(model);
-    if (thinking !== undefined) harness.setThinkingLevel(thinking);
+  let pin: { model: ResolvedModel; thinking?: ThinkingLevel } | undefined;
+  let applying = false;
+  let activeApply: Promise<void> | undefined;
+
+  async function applyPin(nextPin: { model: ResolvedModel; thinking?: ThinkingLevel }): Promise<void> {
+    const previousApply = activeApply;
+    if (previousApply) await previousApply;
+
+    applying = true;
+    const operation = (async () => {
+      await harness.setModel(nextPin.model);
+      if (nextPin.thinking !== undefined) harness.setThinkingLevel(nextPin.thinking);
+    })();
+    activeApply = operation;
+    try {
+      await operation;
+    } finally {
+      activeApply = undefined;
+      applying = false;
+    }
+  }
+
+  function appliedModel(nextPin: { model: ResolvedModel; thinking?: ThinkingLevel }): NonNullable<ControlOutcome["applied"]> {
+    const thinking = harness.getThinkingLevel();
+    return {
+      model: `${nextPin.model.provider}/${nextPin.model.id}`,
+      ...(thinking === undefined ? {} : { thinking }),
+    };
+  }
+
+  async function applyModelCommand(requestedModel: unknown): Promise<NonNullable<ControlOutcome["applied"]>> {
+    const nextPin = await resolveRegistryModel(requestedModel, findModel);
+    await applyPin(nextPin);
+    pin = nextPin;
+    return appliedModel(nextPin);
+  }
+
+  async function reassert(): Promise<void> {
+    const currentPin = pin;
+    if (!currentPin || applying) return;
+    const id = randomUUID();
+    const requested: JsonRecord = {
+      model: modelSpec(`${currentPin.model.provider}/${currentPin.model.id}`, currentPin.thinking),
+    };
+    let error: string | undefined;
+    let applied: NonNullable<ControlOutcome["applied"]> | undefined;
+    try {
+      await applyPin(currentPin);
+      applied = appliedModel(currentPin);
+    } catch (thrown: unknown) {
+      error = thrown instanceof Error ? thrown.message : String(thrown);
+    } finally {
+      refreshPresence();
+    }
+    const outcome: ControlOutcome = {
+      id,
+      command: "model",
+      requested,
+      ...(applied === undefined ? {} : { applied }),
+      ...(error === undefined ? {} : { error }),
+    };
+    recordOutcome({
+      ...outcome,
+      ts: new Date().toISOString(),
+    });
+    await reportOutcome(outcome);
+  }
+
+  function onSessionStart(): void {
+    void reassert().catch(() => {
+      /* A later control command can retry a failed harness apply. */
+    });
+  }
+
+  function onModelSelect(model: ResolvedModel): void {
+    if (applying || !pin) return;
+    if (model.provider === pin.model.provider && model.id === pin.model.id) return;
+    onSessionStart();
+  }
+
+  function onThinkingLevelSelect(level: ThinkingLevel): void {
+    if (applying || !pin || pin.thinking === undefined || level === pin.thinking) return;
+    onSessionStart();
   }
 
   // The dispatcher blocks on the report to learn whether the model landed, so
@@ -70,17 +150,18 @@ export function createModelControl(deps: ModelControlDeps) {
   ): Promise<void> {
     const requested: JsonRecord = { model: message.model };
     let error: string | undefined;
+    let applied: NonNullable<ControlOutcome["applied"]> | undefined;
     try {
-      await applyModelCommand(message.model);
+      applied = await applyModelCommand(message.model);
     } catch (thrown: unknown) {
       error = thrown instanceof Error ? thrown.message : String(thrown);
     }
-    recordOutcome({ id, requested, success: error === undefined, ts: new Date().toISOString(), ...(error === undefined ? {} : { error }) });
-    const settled: ControlOutcome = { id, command: "model", requested, ...(error === undefined ? {} : { error }) };
+    recordOutcome({ id, requested, success: error === undefined, ts: new Date().toISOString(), ...(applied === undefined ? {} : { applied }), ...(error === undefined ? {} : { error }) });
+    const settled: ControlOutcome = { id, command: "model", requested, ...(applied === undefined ? {} : { applied }), ...(error === undefined ? {} : { error }) };
     await reportOutcome(settled);
     refreshPresence();
   }
 
-  return { applyControlCommand };
+  return { applyControlCommand, onSessionStart, onModelSelect, onThinkingLevelSelect, reassert };
 }
 

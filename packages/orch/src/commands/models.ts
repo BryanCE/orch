@@ -1,7 +1,7 @@
 import { loadSettings } from "../settings/read.ts";
 import { orchDir } from "../presence/writer.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
-import { splitThinkingSuffix } from "../policy/thinking.ts";
+import { resolveTuning } from "../policy/tuning.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { readAssignFlag, validateSetupFlag } from "../setup/flags.ts";
@@ -77,16 +77,16 @@ function matchingModels(
 /** One harness's section, numbered in display order so `--pick=<n>` names the row the user read. */
 function buildSection(id: AdapterId, settings: OrchSettings, filters: ModelFilters, read: CatalogueReader): HarnessSection {
   const preferred = settings.models.preferred[id] ?? [];
-  const launchModel = settings.defaults.models[id];
-  const launchBare = launchModel === undefined ? undefined : splitThinkingSuffix(launchModel).bare;
+  const configuredDefault = settings.defaults.models[id];
+  const defaultBare = resolveTuning({ model: configuredDefault, harness: id, settings })?.model;
   const models = matchingModels(read(id), preferred, filters).map((model, position) => ({
     index: position + 1,
     spec: model.spec,
     ...(model.label ? { label: model.label } : {}),
-    default: model.spec === launchBare,
+    default: model.spec === defaultBare,
     preferred: preferred.includes(model.spec),
   }));
-  return { id, ...(launchModel ? { default: launchModel } : {}), preferred: [...preferred], models };
+  return { id, ...(configuredDefault ? { default: configuredDefault } : {}), preferred: [...preferred], models };
 }
 
 /** Every targeted harness's catalogue, in configured order. */

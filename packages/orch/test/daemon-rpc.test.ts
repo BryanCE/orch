@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files";
-import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { DaemonAbsentError, DaemonUnreachableError, RpcError } from "../src/daemon/rpc/wire.ts";
 import { ReplayBuffer } from "../src/daemon/rpc/replay.ts";
 import { isRegisterSessionResponse } from "../src/daemon/rpc/registration.ts";
@@ -191,7 +191,7 @@ describe("daemon RPC", () => {
     writeSettingsFixture(dir, { defaults: { adapter: "claude" } });
     // A1: the target IS the minted id. The plexer that cannot reach it and the
     // space it is not in are environment, composed from their own tables.
-    const target = serializeIdentity({ id: mintAgentId() });
+    const target = mintAgentId();
     seedStatus(dir, target, { agent: "claude", pid: process.pid, state: "working" });
     try {
       await rpcRegisterSession(dir);
@@ -445,7 +445,7 @@ describe("daemon RPC", () => {
 
   test("dispatch waits for and reports a bridge acknowledgement", async () => {
     const dir = tempOrchDir();
-    const target = serializeIdentity({ id: mintAgentId() });
+    const target = mintAgentId();
     seedStatus(dir, target, { agent: "pi", pid: process.pid, state: "working" });
     const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" }, timeouts: { dispatch_ack_ms: 100 } });
     const bridge = await fakeBridge(dir, target);
@@ -464,7 +464,7 @@ describe("daemon RPC", () => {
 
   test("dispatch reports unavailable while a live agent has no bridge", async () => {
     const dir = tempOrchDir();
-    const target = serializeIdentity({ id: mintAgentId() });
+    const target = mintAgentId();
     seedStatus(dir, target, { agent: "pi", pid: process.pid, state: "working" });
     const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" }, timeouts: { dispatch_ack_ms: 10 } });
     try {
@@ -479,7 +479,7 @@ describe("daemon RPC", () => {
 
   test("attach reports open rows and re-pushes them", async () => {
     const dir = tempOrchDir();
-    const target = serializeIdentity({ id: mintAgentId() });
+    const target = mintAgentId();
     seedStatus(dir, target, { agent: "pi", pid: process.pid, state: "working" });
     const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" }, timeouts: { dispatch_ack_ms: 10 } });
     try {

@@ -2,6 +2,7 @@ import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import type { AgentAdapter } from "./adapter.ts";
 import type { HeadlessHandle } from "./plexer.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
+import type { AgentId } from "../backends/identity.ts";
 
 /** Where a placed agent sits, as the environment reports it. */
 export interface PlacementCoordinate {
@@ -147,7 +148,7 @@ export interface SpaceHomeRole<Handle = BackendHandle> {
  */
 export interface EnvironmentIdentityRole {
   /** Where the calling process sits, or null when it is not inside one at all. */
-  current(id: string | null): Identity | null;
+  current(id: string | null): AgentId | null;
 }
 
 /** Turning an agent key into this environment's native handle. A separate role
@@ -206,13 +207,17 @@ export interface StartedProcess {
 /** Process identity recorded for a running agent. */
 export interface RecordedProcess {
   readonly pid: number;
-  readonly startToken: string;
+  /** Proof this pid is still the instance orch launched; null when the OS would not say. */
+  readonly startToken: string | null;
 }
 
 export type ProcessState = "alive" | "dead" | "replaced";
 
-export interface ProcessRole {
+export interface ProcessRole<Handle = BackendHandle> {
   start(request: StartRequest): StartedProcess;
+  /** The process the agent at this handle runs in: a place's shell, a detached
+   *  harness, whatever this environment knows its own handle to run. */
+  running(handle: Handle): RecordedProcess;
   state(process: RecordedProcess): ProcessState;
   kill(process: RecordedProcess, signal: NodeJS.Signals): void;
 }
@@ -372,7 +377,7 @@ export interface Backend<Handle = BackendHandle> {
   isInsideSession(): boolean;
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): Handle;
   /** Process control, always composed: every environment runs processes. */
-  readonly process: ProcessRole;
+  readonly process: ProcessRole<Handle>;
   /** Read orch-owned captured status/result records; control traffic uses the daemon socket. */
   readonly capture: CaptureRole;
   /** Identity of the calling process's own target, when inside a session. */

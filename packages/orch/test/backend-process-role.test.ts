@@ -30,7 +30,7 @@ describe("ProcessRole", () => {
 
   test("reports replaced when a pid is reused by a different process token", () => {
     let token = "first";
-    const role = new LocalProcessRole({
+    const role = new LocalProcessRole(() => 41, {
       isAlive: () => true,
       startToken: () => token,
       spawn: () => ({ pid: 41, startToken: "first" }),
@@ -40,5 +40,23 @@ describe("ProcessRole", () => {
     token = "second";
     expect(role.state(started)).toBe("replaced");
     expect(() => role.kill(started, "SIGTERM")).toThrow(/replaced/);
+  });
+
+  test("running returns the process identity for a resolved handle", () => {
+    const role = new LocalProcessRole(
+      (handle: string) => handle === "agent" ? 42 : null,
+      { startToken: () => "instance-token" },
+    );
+    expect(role.running("agent")).toEqual({ pid: 42, startToken: "instance-token" });
+  });
+
+  test("running throws when the environment reports no process", () => {
+    const role = new LocalProcessRole<string>(() => null);
+    expect(() => role.running("missing")).toThrow(/reports no process/);
+  });
+
+  test("running throws when the OS cannot provide a start token", () => {
+    const role = new LocalProcessRole<string>(() => 42, { startToken: () => undefined });
+    expect(() => role.running("agent")).toThrow(/could not prove/);
   });
 });

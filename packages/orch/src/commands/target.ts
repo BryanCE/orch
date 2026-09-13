@@ -1,6 +1,6 @@
 import { loadSettings } from "../settings/read.ts";
 import { getBackend } from "../backends/registry.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { buildEntities, parseTarget, resolveTarget } from "../entities.ts";
 import { callerSpace, selfId, spaceOfAgent } from "../identity/self.ts";
 import { callerKind } from "../policy/caller.ts";
@@ -60,7 +60,7 @@ export function requirePresenceTarget(target: string): Entity {
 }
 
 function looksLikePaneKey(key: string): boolean {
-  return tryParseIdentity(key) !== null;
+  return isAgentId(key);
 }
 
 /**
@@ -70,9 +70,7 @@ function looksLikePaneKey(key: string): boolean {
  * name to an agent goes through here. Nothing downstream slices a plexer or a
  * space out of the key: those are environment, composed separately (A1).
  */
-export function agentIdOfKey(key: string | null | undefined): string | null {
-  return tryParseIdentity(key)?.id ?? null;
-}
+
 
 /** Every agent the store knows, indexed by its minted id. The index itself is
  *  built in exactly ONE place (src/presence/store.ts); a second copy is how two
@@ -87,15 +85,13 @@ export function agentViewIndex(root = orchDir()): Map<string, AgentView> {
 export function presenceById(presence: ReadonlyMap<string, PresenceEntry> = loadPresence()): Map<string, PresenceEntry> {
   const byId = new Map<string, PresenceEntry>();
   for (const entry of presence.values()) {
-    const id = agentIdOfKey(entry.key);
-    if (id !== null) byId.set(id, entry);
+    if (isAgentId(entry.key)) byId.set(entry.key, entry);
   }
   return byId;
 }
 
 export function viewForKey(views: ReadonlyMap<string, AgentView>, key: string): AgentView | undefined {
-  const id = agentIdOfKey(key);
-  return id === null ? undefined : views.get(id);
+  return isAgentId(key) ? views.get(key) : undefined;
 }
 
 /** The address that reaches an agent: the presence key it actually has, else
@@ -107,10 +103,9 @@ export function agentAddress(view: AgentView, presence: ReadonlyMap<string, Pres
 
 /** The live lease holder for one identity key, or null when nothing holds it. */
 export function leaseHolderOf(key: string): string | null {
-  const id = agentIdOfKey(key);
-  if (id === null) return null;
+  if (!isAgentId(key)) return null;
   try {
-    return currentLease(orchDir(), id)?.orchId ?? null;
+    return currentLease(orchDir(), key)?.orchId ?? null;
   } catch {
     return null;
   }
@@ -288,8 +283,8 @@ function directEntity(entities: readonly Entity[], target: string): Entity | und
  *  rather than carrying a malformed key onward. */
 function canonicalForStalePane(entities: readonly Entity[], ent: Entity): Entity | undefined {
   const paneId = ent.paneId;
-  if (tryParseIdentity(ent.key) !== null || !paneId) return undefined;
-  return entities.find((candidate) => tryParseIdentity(candidate.key) !== null
+  if (isAgentId(ent.key) || !paneId) return undefined;
+  return entities.find((candidate) => isAgentId(candidate.key)
     && candidate.paneId === paneId);
 }
 
@@ -345,13 +340,10 @@ function entityFromView(view: AgentView, presence: ReadonlyMap<string, PresenceE
 }
 
 /** The address orch reaches this agent by: the composed handle, else the pane
- *  the inventory listed, else a pid/key signal handle. */
+ *  the inventory listed, else its identity. Process signaling is owned by the
+ *  environment's process role, never a command-level pid handle. */
 function lifecycleHandle(ent: Entity, view: AgentView | undefined): BackendHandle {
-  const pid = ent.presence?.status?.pid;
-  const fallback: BackendHandle = typeof pid === "number"
-    ? { kind: "headless", pid, key: ent.key, toString: () => `${pid}:${ent.key}` }
-    : ent.key;
-  return view ? view.environment.handle ?? ent.paneId ?? fallback : ent.paneId ?? fallback;
+  return view ? view.environment.handle ?? ent.paneId ?? ent.key : ent.paneId ?? ent.key;
 }
 
 /**

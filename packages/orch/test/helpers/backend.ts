@@ -53,7 +53,14 @@ export class FakePanedBackend implements Backend {
   private readonly panes: FakePane[];
   private openedCount = 0;
 
-  readonly process: ProcessRole = new LocalProcessRole();
+  /** Every process this environment was asked to signal, in call order - so a test
+   *  can prove close signalled nothing when the environment owns the place. */
+  readonly signalled: { readonly pid: number; readonly signal: string }[] = [];
+  private killed = false;
+  readonly process: ProcessRole = new LocalProcessRole(() => process.pid, {
+    isAlive: () => !this.killed,
+    signal: (pid, signal) => { this.signalled.push({ pid, signal }); this.killed = true; },
+  });
   readonly capture = capture;
   readonly placement: PlacementRole;
   readonly placementInventory: PlacementInventoryRole;

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { deliverControl } from "../control/dispatch.ts";
-import { errorMessage, pidAlive } from "../util.ts";
+import { errorMessage } from "../util.ts";
 import {
   claimTask,
   listTasks,
@@ -18,6 +18,7 @@ import { workerHeaderFor, workerRules } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { agentById } from "../store/agent-rows.ts";
+import { agentProcessLive } from "../store/interval-rows.ts";
 import { agentView } from "../store/agent-view.ts";
 import { sweepExpiredRows } from "./retention.ts";
 import { decisionLogger } from "./decision-log.ts";
@@ -94,7 +95,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   // still writing live presence can receive the reply the clause instructs, and
   // a presence key is that spawner's minted id.
   const spawnerKey = view?.spawnedBy ?? entry.status?.spawnedBy;
-  const spawnerRepliable = typeof spawnerKey === "string" && pidAlive(loadPresence().get(spawnerKey)?.status?.pid);
+  const spawnerRepliable = typeof spawnerKey === "string" && agentProcessLive(options.orchDir, spawnerKey);
   const header = workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...rules });
   const prompt = `${header}\n\n${task.text}`;
   // The claim's dispatch id rides every attempt: the bridge acks per id, so a

@@ -23,7 +23,7 @@ export type HostSettings = z.infer<typeof HostSchema>;
 export interface OrchSettings {
   runtime: OrchRuntime;
   enabled: { adapters: AdapterId[]; backends: BackendId[] };
-  defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking?: ThinkingLevel; thinking_by_harness?: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
+  defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking: ThinkingLevel; thinking_by_harness: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
   fleet: { max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; worker_peer_tools: boolean; cross_space: boolean };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[] };

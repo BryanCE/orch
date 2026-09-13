@@ -74,3 +74,18 @@ export function processInstanceMatches(pid: number, startToken: string): boolean
   if (!processIsAlive(pid)) return false;
   return processStartToken(pid) === startToken;
 }
+
+/** The one place that decides what an unproven recorded process means: without a
+ *  token there is nothing to hold the pid to, so bare liveness is the answer. */
+export function recordedInstanceIsLive(pid: number, startToken: string | null, probe: InstanceProbe = OS_PROBE): boolean {
+  if (!probe.isAlive(pid)) return false;
+  return startToken === null || probe.startToken(pid) === startToken;
+}
+
+/** How the rule above reaches the OS, so an environment can substitute one. */
+export interface InstanceProbe {
+  readonly isAlive: (pid: number) => boolean;
+  readonly startToken: (pid: number) => string | undefined;
+}
+
+const OS_PROBE: InstanceProbe = { isAlive: processIsAlive, startToken: processStartToken };

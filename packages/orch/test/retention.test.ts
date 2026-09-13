@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync, utimesSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
-import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
+import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from "../src/settings/schema.ts";
 import { loadSettingsOrNull } from "../src/settings/read.ts";
 import { appendEvent } from "../src/store/event-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered } from "../src/store/outbox-rows.ts";
@@ -38,7 +38,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
   return {
     runtime: "node",
     enabled: { adapters: ["pi"], backends: [] },
-    defaults: { models: {}, worktree: false },
+    defaults: { ...SETTINGS_DEFAULTS.defaults, models: {} },
     fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
     models: { allowed: {}, preferred: {} },
     workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },

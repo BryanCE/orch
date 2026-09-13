@@ -298,6 +298,7 @@ export interface ControlOutcome {
   id: string;
   command: string;
   requested: JsonRecord;
+  applied?: { model: string; thinking?: ThinkingLevel };
   /** Absent means the command applied. */
   error?: string;
 }

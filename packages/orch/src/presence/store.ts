@@ -34,9 +34,8 @@ export function presenceRootFault(root = orchDir()): string | null {
   }
 }
 
-/** Serialized identity keys are already a single filesystem-safe segment
- *  (`<backend>~<workspace>~<handle>`, with `~ % : /` percent-escaped inside
- *  each part), so the presence directory name IS the key — no remapping. */
+/** Presence directories are named by the bare minted id, so the directory
+ *  name IS the identity — no remapping. */
 export function removePresenceAgentDir(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }

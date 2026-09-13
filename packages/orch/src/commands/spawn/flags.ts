@@ -1,14 +1,16 @@
 import { orchDir } from "../../presence/writer.ts";
 import { loadSettings, resolveSetting } from "../../settings/read.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
-import { resolveAdapterOrDie } from "../selection.ts";
+import { resolveBackend } from "../../backends/registry.ts";
+import { pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { readFileSync } from "node:fs";
 import { errorMessage } from "../../util.ts";
 import { die } from "../target.ts";
+import type { Backend } from "../../types/backend.ts";
 import type { WorkerPolicy } from "../../types/policy.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { AgentFlags, AgentSettings } from "../../types/command.ts";
-import { adapterCommand, resolveAgentSettings } from "./models.ts";
+import { adapterCommand } from "./models.ts";
 import { resolveSpawnNames } from "./names.ts";
 import { contextReference, readPromptFile } from "../prompt-file.ts";
 import { taskWithReferences } from "../../worker-prompt.ts";
@@ -115,9 +117,30 @@ function readTasksFile(source: string, n: number): string[] {
   return parsed.filter((item): item is string => typeof item === "string");
 }
 
+export function resolveSpawnAgentSettings(flags: AgentFlags, settings: OrchSettings): AgentSettings {
+  const adapter = pickAdapter(flags, settings);
+  const tuning = resolveTuningOrDie(flags, settings, adapter);
+  let backend: Backend;
+  try {
+    backend = resolveBackend({
+      explicit: flags.backendFlag ?? process.env.ORCH_BACKEND ?? null,
+      configured: settings.defaults.backend ?? null,
+    });
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+  return {
+    adapter,
+    backend: backend.id,
+    model: tuning.model,
+    thinking: tuning.thinking,
+    preferredModels: settings.models.preferred[adapter] ?? [],
+  };
+}
+
 export function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   const settingsFile = loadSettings(orchDir());
-  const settings = resolveAgentSettings(flags, settingsFile);
+  const settings = resolveSpawnAgentSettings(flags, settingsFile);
   const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", settings: settingsFile.defaults.worktree, fallback: settingsFile.defaults.worktree });
   if (flags.unknownFlags.length > 0) die(`Unknown flag ${flags.unknownFlags.join(", ")}.`);
   // The names ARE the positional arguments, and how many you give is how many

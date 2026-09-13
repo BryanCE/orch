@@ -1,4 +1,5 @@
 import type { OrchRuntime } from "../runtimes.ts";
+import type { PresenceStatus } from "./presence.ts";
 import type { ServerReport } from "./backend.ts";
 import type { SshResult } from "./core.ts";
 
@@ -61,6 +62,7 @@ export interface PlexerInventoryEntry {
 export interface DeclaredVsRealityDependencies {
   readonly processAlive: (pid: number, startToken: string | null) => boolean;
   readonly plexerInventory: (plexerId: string) => readonly PlexerInventoryEntry[] | null;
+  readonly readPresenceStatus: (file: string) => PresenceStatus | null;
 }
 
 export type SshRunner = (destination: string, command: string, options?: { timeoutMs?: number }) => SshResult;

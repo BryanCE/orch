@@ -14,7 +14,7 @@ import {
 import type { BridgeLink } from "../src/control/bridge-links.ts";
 import { isBridgeDelivery, isBridgeMessage } from "../src/control/bridge-message.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
-import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -37,7 +37,7 @@ function attach(key: string, link: BridgeLink): void {
 
 /** A live agent addressable by id and by name, so the registry can canonicalize either. */
 function liveAgent(name: string): string {
-  const key = serializeIdentity({ id: mintAgentId() });
+  const key = mintAgentId();
   seedStatus(directory, key, { agent: "pi", pid: process.pid });
   seedAgent(key, { name });
   return key;

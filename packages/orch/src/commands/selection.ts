@@ -5,11 +5,13 @@
  * a `--agent`/`--model` flag had to import the whole launch path — and
  * `control.ts` importing them while `spawn.ts` imported `dispatchToAgent` back
  * was a cycle between two of the largest files in the repo. Nothing here starts
- * anything; the launch decisions that DO (`launchModel`, `assertLaunchModelAllowed`)
+ * anything; the launch decisions that DO (`resolveTuning`, `assertLaunchModelAllowed`)
  * stay with the launch.
  */
 import { resolveSetting } from "../settings/read.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
+import { repickCommand } from "../adapters/prerequisites.ts";
+import { resolveTuning, type Tuning } from "../policy/tuning.ts";
 import { SpawnRefusalError } from "../refusal.ts";
 import { errorMessage } from "../util.ts";
 import { die } from "./target.ts";
@@ -37,4 +39,11 @@ export function pickAdapter(flags: AgentFlags, settings: OrchSettings): AdapterI
  *  it re-pinned every agent to the default and erased the model it spawned on. */
 export function requestedModel(flags: AgentFlags): string | null {
   return resolveSetting({ flag: flags.modelFlag, env: "ORCH_MODEL", fallback: "" }) || null;
+}
+
+/** Resolve the one model/effort pair every tuning-aware command applies. */
+export function resolveTuningOrDie(flags: AgentFlags, settings: OrchSettings, harness: AdapterId): Tuning {
+  const tuning = resolveTuning({ model: requestedModel(flags), thinking: flags.thinkingFlag, harness, settings });
+  if (tuning === null) die(`no model selected for ${harness} - pass --model <model[:thinking]>, or record one with: ${repickCommand(harness)}`);
+  return tuning;
 }

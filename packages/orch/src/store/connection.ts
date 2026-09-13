@@ -1,13 +1,14 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
-import { defineRelations, sql } from "drizzle-orm";
+import { defineRelations, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "../db/schema.ts";
-import { presenceRoot, readStatus } from "../presence/writer.ts";
+import { agentProcesses } from "../db/schema.ts";
 import { launchCredential } from "../identity/launch.ts";
-import { ensurePrivateDir, errorMessage, pidAlive } from "../util.ts";
+import { recordedInstanceIsLive } from "../process-identity.ts";
+import { ensurePrivateDir, errorMessage } from "../util.ts";
 
 /** One open file: the drizzle handle every caller queries through, beside the
  *  driver it was built on. The driver is reached for exactly two things drizzle
@@ -45,27 +46,22 @@ function migrationsFolder(): string {
   return join(import.meta.dirname, "..", "..", "drizzle");
 }
 
-/** Every agent whose status record still names a live pid. A current-schema
- *  record with a live pid means an agent is still running, and its identity is
- *  written nowhere but this store: recreating under it erases a living agent. */
+/** Every agent with an open process row whose recorded process instance is
+ *  live. The store is the sole liveness source: recreating under one erases a
+ *  living agent's identity. A store that cannot be opened or queried gives no
+ *  evidence and therefore returns an empty list. */
 export function livePresenceHolders(orchDir: string): string[] {
-  let entries: { name: string; isDirectory(): boolean }[];
   try {
-    entries = readdirSync(presenceRoot(orchDir), { withFileTypes: true });
+    return orm(orchDir).select({
+      agentId: agentProcesses.agentId,
+      pid: agentProcesses.pid,
+      startToken: agentProcesses.startToken,
+    }).from(agentProcesses).where(isNull(agentProcesses.until)).all()
+      .filter((row) => recordedInstanceIsLive(row.pid, row.startToken))
+      .map((row) => row.agentId);
   } catch {
     return [];
   }
-  const live: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    try {
-      const status = readStatus(join(presenceRoot(orchDir), entry.name));
-      if (pidAlive(status.pid)) live.push(entry.name);
-    } catch {
-      // A malformed status is not a live presence record.
-    }
-  }
-  return live;
 }
 
 /**

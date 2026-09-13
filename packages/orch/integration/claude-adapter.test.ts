@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 // Imported FIRST on purpose, and for its evaluation order alone: reaching
 // adapters/claude.ts as the ENTRY point makes it the head of the pre-existing
 // config.ts -> runtime.ts -> adapters/registry.ts -> claude.ts import cycle, and
@@ -22,7 +22,7 @@ const previousAgentKey = process.env[LAUNCH_ENV];
 const hookScript = join(import.meta.dir, "../extensions/claude/index.ts");
 // A1: the hook receives its identity through launch env, and that key is the
 // minted id alone — no plexer, no space, nothing for the hook to decode.
-const fakeKey = serializeIdentity({ id: mintAgentId() });
+const fakeKey = mintAgentId();
 
 function agentDir(key: string): string {
   const directory = join(orchDir, "agents", key);
@@ -92,7 +92,7 @@ describe("Claude adapter", () => {
 
   test("detects state from a live presence status", () => {
     const key = "claudestt1";
-    writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "claude", pid: process.pid, state: "working" }));
+    writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "claude", state: "working" }));
     expect(claudeAdapter.detectState({ key })).toBe("working");
   });
 
@@ -140,7 +140,7 @@ describe("Claude adapter", () => {
 
   test("maps Claude hook events to presence states and schema", () => {
     const key = "claude-hooks";
-    expect(runHook("SessionStart", { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", key: fakeKey, pid: process.pid, state: "working" });
+    expect(runHook("SessionStart", { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", key: fakeKey, state: "working" });
     expect(runHook("Notification", { pid: process.pid, message: "Approval needed" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "blocked", blockedMessage: "Approval needed" });
     expect(runHook("Stop", { pid: process.pid })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "idle" });
 

@@ -1,4 +1,5 @@
 import { loadSettings } from "../settings/read.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { collapse, resolveTarget, spaceOf } from "../entities.ts";
 import { loadPresence } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
@@ -10,15 +11,13 @@ import { assertAgentOwned, die, remoteCommandArgs, resultText, splitOptionFlags,
 import { entityAdapter } from "./status.ts";
 import { latestRunForKey } from "./runs.ts";
 import { selectRun } from "../store/run-rows.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
 import { commandLogger } from "./logging.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
 import type { Entity } from "../types/core.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
 
 function resultLogger(key?: string) {
-  const agentId = key ? tryParseIdentity(key)?.id : undefined;
-  return agentId ? commandLogger().forAgent(agentId) : commandLogger();
+  return key !== undefined && isAgentId(key) ? commandLogger().forAgent(key) : commandLogger();
 }
 
 interface QuestionRow { key: string; name: string | null; age: string; question: string; id?: string; ts?: string; space?: string; host?: string; warning?: string }

@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { buildEntities } from "../src/entities.ts";
-import { mintAgentId, parseIdentity } from "../src/backends/identity.ts";
+import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { seedAgent } from "../test/helpers/agent.ts";
@@ -100,7 +100,7 @@ describe("presence status schema", () => {
     const statuses = readStatuses();
     expect(statuses[key]?.key).toBe(key);
     expect(statuses[key]?.agent).toBe("pi");
-    expect(parseIdentity(key)).toEqual({ id: key });
+    expect(isAgentId(key)).toBe(true);
   });
 
   test("status and list report the same agent identity", () => {
@@ -113,7 +113,7 @@ describe("presence status schema", () => {
     expect({ key: status.key, agent: status.agent }).toEqual({
       key: listed.key, agent: listed.agent ?? undefined,
     });
-    expect(parseIdentity(status.key!)).toEqual({ id: key });
+    expect(isAgentId(status.key!)).toBe(true);
   });
 
   test("mixed pi and Claude status rows carry the same status field set", () => {
@@ -132,7 +132,7 @@ describe("presence status schema", () => {
     expect(rows.map((row) => row.agent).sort()).toEqual(["claude", "pi"]);
     // The key IS the minted id: there is no segment to strip, so two agents in
     // different spaces are told apart by their ids and by nothing else.
-    for (const row of rows) expect(parseIdentity(row.key!)).toEqual({ id: row.key! });
+    for (const row of rows) expect(isAgentId(row.key!)).toBe(true);
   });
 
   test("rejects a status record that carries no schema stamp", () => {

@@ -13,10 +13,11 @@ import {
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { settleControlOutcome } from "../src/control/outcome.ts";
 import { getBackend, registerBackend } from "../src/backends/registry.ts";
-import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent } from "./helpers/agent.ts";
-import { endProcess } from "../src/store/interval-rows.ts";
+import { currentTuning, endProcess } from "../src/store/interval-rows.ts";
+import { recordQuestion } from "../src/store/question-rows.ts";
 import type { AdapterId } from "../src/types/adapter.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -41,7 +42,7 @@ function tempDir(): string {
 }
 
 function target(): string {
-  return serializeIdentity({ id: mintAgentId() });
+  return mintAgentId();
 }
 
 /** A live agent: registered with this runner as its process, plus its status. */
@@ -128,6 +129,10 @@ describe("deliverControl bridge dispatch", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     presence(directory, key, "pi", { asking: { id: "question-1", question: "ship?", ts: "now" } });
+    // The daemon owns the pending question now, so the answerable record is the
+    // `questions` row; presence still reports the STATE but no longer carries the
+    // id an answer correlates against.
+    recordQuestion(directory, { id: "question-1", agentId: key, question: "ship?", askedAt: Date.now() });
     const deliveries = captureBridge(key);
 
     await deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" });
@@ -141,7 +146,7 @@ describe("deliverControl bridge dispatch", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target();
-    presence(directory, key, "pi");
+    presence(directory, key, "pi", { model: { provider: "provider", id: "model" }, thinking: "high" });
     const deliveries = captureBridge(key, (delivery) => {
       const message = delivery.message;
       if (message.action !== "model") return;
@@ -151,11 +156,35 @@ describe("deliverControl bridge dispatch", () => {
         id: delivery.id,
         command: "model",
         requested: { model },
+        applied: { model: "provider/model", thinking: "high" },
       }));
     });
 
-    await deliverControl(key, { kind: "model", model: "provider/model", id: "model-1" });
-    expect(deliveries).toEqual([{ id: "model-1", message: { action: "model", model: "provider/model" } }]);
+    await deliverControl(key, { kind: "model", model: "provider/model:high", id: "model-1" });
+    expect(deliveries).toEqual([{ id: "model-1", message: { action: "model", model: "provider/model:high" } }]);
+    expect(currentTuning(directory, key)).toMatchObject({ model: "provider/model", thinking: "high" });
+  });
+
+  test("rejects an outcome whose applied pin differs from the request", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target();
+    presence(directory, key, "pi");
+    captureBridge(key, (delivery) => {
+      if (delivery.message.action !== "model") return;
+      const requestedModel = delivery.message.model;
+      queueMicrotask(() => settleControlOutcome({
+        key,
+        id: delivery.id,
+        command: "model",
+        requested: { model: requestedModel },
+        applied: { model: "provider/other", thinking: "high" },
+      }));
+    });
+
+    expect(await rejection(deliverControl(key, { kind: "model", model: "provider/model:high", id: "model-2" })))
+      .toEqual(new Error("pinned provider/model:high, agent reports provider/other:high"));
+    expect(currentTuning(directory, key)?.model).toBe("");
   });
 
   test("uses the backend input path when the adapter bridge takes no steers", async () => {

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isAgentId, mintAgentId, parseIdentity, serializeIdentity, tryParseIdentity } from "../src/backends/identity.ts";
-import type { Identity } from "../src/types/backend.ts";
+import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
 
 /**
  * Identity is a minted id and NOTHING else.
@@ -16,29 +15,29 @@ import type { Identity } from "../src/types/backend.ts";
  */
 
 /** A minted id, built the one way anything ever builds one. */
-function mintedIdentity(): Identity {
-  return { id: mintAgentId() };
+function mintedIdentity(): string {
+  return mintAgentId();
 }
 
 describe("serializeIdentity / parseIdentity", () => {
   test("a key is the minted id verbatim", () => {
     const identity = mintedIdentity();
-    expect(serializeIdentity(identity)).toBe(identity.id);
+    expect(identity).toBe(identity);
   });
 
   test("round-trips a minted id", () => {
     const identity = mintedIdentity();
-    expect(parseIdentity(serializeIdentity(identity))).toEqual(identity);
+    expect(isAgentId(identity)).toBe(true);
   });
 
   test("a key is one flat filesystem-safe segment with nothing to split", () => {
-    const key = serializeIdentity(mintedIdentity());
+    const key = mintedIdentity();
     expect(key).toMatch(/^[0-9a-z]{10}$/);
     for (const separator of ["/", "~", ":", "%", "\\"]) expect(key.includes(separator)).toBe(false);
   });
 
   test("two spawns never collide, so no plexer is needed to namespace them", () => {
-    const keys = new Set(Array.from({ length: 200 }, () => serializeIdentity(mintedIdentity())));
+    const keys = new Set(Array.from({ length: 200 }, () => mintedIdentity()));
     expect(keys.size).toBe(200);
   });
 });
@@ -57,30 +56,9 @@ describe("isAgentId", () => {
 });
 
 describe("malformed input", () => {
-  test("rejects a plexer-and-space key on parse", () => {
-    expect(() => parseIdentity("herdr~wF~p2")).toThrow(/malformed identity key/);
-    expect(() => parseIdentity("headless~local~worker0001")).toThrow(/malformed identity key/);
-  });
-
-  test("rejects an empty key", () => {
-    expect(() => parseIdentity("")).toThrow(/malformed identity key/);
-  });
-
-  test("rejects a pane handle, a name, and a wrong-length id on serialize", () => {
-    for (const id of ["%5", "audit-1", "", "worker"]) {
-      expect(() => serializeIdentity({ id })).toThrow(/10 lowercase alphanumerics/);
+  test("rejects malformed ids", () => {
+    for (const id of ["herdr~wF~p2", "headless~local~worker0001", "", "%5", "audit-1", "worker"]) {
+      expect(isAgentId(id)).toBe(false);
     }
-  });
-
-  test("tryParseIdentity returns null for malformed and non-string input", () => {
-    expect(tryParseIdentity("herdr~wF~p2")).toBeNull();
-    expect(tryParseIdentity("")).toBeNull();
-    expect(tryParseIdentity(null)).toBeNull();
-    expect(tryParseIdentity(undefined)).toBeNull();
-  });
-
-  test("tryParseIdentity parses a minted id", () => {
-    const id = mintAgentId();
-    expect(tryParseIdentity(id)).toEqual({ id });
   });
 });

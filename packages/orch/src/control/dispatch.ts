@@ -3,12 +3,13 @@ import { resolveAdapter } from "../adapters/registry.ts";
 import { getBackend } from "../backends/registry.ts";
 import { normalizeControlTarget } from "./normalize-target.ts";
 import { AgentGoneError } from "./agent-gone.ts";
-import {loadPresence} from "../presence/store.ts";
+import { loadPresence } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
 import { pendingQuestion } from "../store/question-rows.ts";
-import { agentIdOf } from "../commands/lifecycle/close.ts";
 import { agentView } from "../store/agent-view.ts";
 import { assertModelAllowed } from "../policy/model.ts";
+import { splitThinkingSuffix } from "../policy/thinking.ts";
+import { setTuning } from "../store/interval-rows.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { pushToBridge } from "./bridge-links.ts";
 import { loadSettingsOrNull } from "../settings/read.ts";
@@ -79,7 +80,7 @@ function requireLiveAgent(target: string, adapter: AgentAdapter, action: string)
   const presence = loadPresence().get(target);
   if (!presence) throw new AgentGoneError(target, `no presence dir for ${adapter.id} bridge delivery (${action})`);
   if (!presence.status) throw new AgentGoneError(target, `${adapter.id} bridge never registered - respawn required`);
-  if (!presence.alive) throw new AgentGoneError(target, `${adapter.id} bridge is disconnected (pid ${presence.status.pid ?? "unknown"} is gone) - respawn required`);
+  if (!presence.alive) throw new AgentGoneError(target, `${adapter.id} bridge is disconnected - respawn required`);
 }
 
 /**
@@ -120,7 +121,7 @@ function deliverAnswer(target: string, adapter: AgentAdapter, action: Extract<Co
     return { outcome: "answer", reason: "no-environment-role", text: `cannot answer ${target}: adapter ${adapter.id} takes no answers` };
   }
   requireLiveAgent(target, adapter, "answer");
-  const questionId = pendingQuestion(orchDir(), agentIdOf(target))?.id;
+  const questionId = pendingQuestion(orchDir(), target)?.id;
   if (questionId === undefined) return { outcome: "answer", reason: "not-asking", text: `${target} is not asking a question` };
   pushToBridge(target, { id: action.id, message: { action: "answer", text: action.text, questionId } });
   return { outcome: "invoke", ack: "expected" };
@@ -143,7 +144,16 @@ async function deliverModel(target: string, adapter: AgentAdapter, model: string
   if (adapter.bridge?.takes.includes("model")) {
     pushToBridge(target, { id, message: { action: "model", model } });
   }
-  await awaitControlOutcome(id, timeoutMs);
+  const outcome = await awaitControlOutcome(id, timeoutMs);
+  const { bare, thinking } = splitThinkingSuffix(model);
+  const applied = outcome.applied;
+  const reported = applied === undefined
+    ? "missing applied result"
+    : `${applied.model}${applied.thinking === undefined ? "" : `:${applied.thinking}`}`;
+  if (applied === undefined || applied.model !== bare || applied.thinking !== thinking) {
+    throw new Error(`pinned ${model}, agent reports ${reported}`);
+  }
+  setTuning(orchDir(), target, Date.now(), { model: applied.model, thinking: applied.thinking });
   return { outcome: "invoke", ack: "none" };
 }
 

@@ -4,13 +4,13 @@ import { loadSettings } from "../../settings/read.ts";
 import { maySpawnFrom } from "../../policy/spawner.ts";
 import { workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
-import { tryParseIdentity } from "../../backends/identity.ts";
 import { readGroupLayout } from "../../backends/tiling.ts";
 import { dispatchToAgent } from "../control.ts";
 import { errorMessage, isRecord, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/reach.ts";
 import { selfId } from "../../identity/self.ts";
 import { agentViewIndex, presenceById } from "../target.ts";
+import { isAgentId } from "../../backends/identity.ts";
 import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../../policy/capacity.ts";
 import { commandLogger } from "../logging.ts";
 import type { Backend } from "../../types/backend.ts";
@@ -21,8 +21,7 @@ import type { SpawnSettings } from "./flags.ts";
 
 
 export function spawnLogger(key?: string) {
-  const agentId = key ? tryParseIdentity(key)?.id : undefined;
-  return agentId ? commandLogger().forAgent(agentId) : commandLogger();
+  return key !== undefined && isAgentId(key) ? commandLogger().forAgent(key) : commandLogger();
 }
 
 /** Return the keys whose bridge is attached in one daemon status response. */
@@ -138,7 +137,7 @@ export async function reportSpawnResults(settings: SpawnSettings, group: string,
     const presence = presenceById();
     const caller = selfId();
     const callerRoot = caller === undefined
-      ? created.map((agent) => tryParseIdentity(agent.key)?.id).flatMap((id) => id === undefined ? [] : [views.get(id)?.rootAgentId]).find((root): root is string => root !== undefined)
+      ? created.map((agent) => views.get(agent.key)?.rootAgentId).find((root): root is string => root !== undefined)
       : views.get(caller)?.rootAgentId;
     const capacity = computeFleetCapacity(views, presence, settingsFile, { packRootId: callerRoot });
     process.stdout.write(`\nSpawned ${created.length} (pack now ${packsUsed(capacity)}/${settingsFile.fleet.max_agents_per_pack}) on tab "${tabLabel}" (no focus stolen).\n`);

@@ -14,10 +14,10 @@ const HERDR_ENVIRONMENT_STAMP = environmentStamp({ labels: true, blockedEvent: H
 import { GONE_HANDLE_CODES, HERDR_INPUT_RETRY, HerdrCommandError, herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrServerStatus, herdrStartAgent, herdrTabs, version } from "./cli.ts";
 import { AgentGoneError } from "../../control/agent-gone.ts";
 import { homeLabel } from "../backend.ts";
-import { tryParseIdentity } from "../identity.ts";
+import { isAgentId } from "../identity.ts";
 import { capture } from "../../presence/roles.ts";
-import { LocalProcessRole } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
+import { LocalProcessRole, placedShellPid } from "../process.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { HerdrHandle, HerdrPane, HerdrTab, HerdrWorkspace } from "../../types/plexer.ts";
 
@@ -137,11 +137,11 @@ const ZOOM_FLAGS: Record<BackendZoomMode, string> = { on: "--on", off: "--off", 
 /** Herdr pane backend: adapts the herdr CLI to the plexer Backend port. */
 export class HerdrBackend implements Backend<HerdrHandle> {
   readonly id = HERDR_BACKEND;
-  readonly process = new LocalProcessRole();
+  readonly process = new LocalProcessRole<HerdrHandle>(placedShellPid(() => this.foreground));
   // Composes identity (it knows which space this process sits in) and nothing for
   // log pruning: herdr keeps no logs orch owns. Absence IS the answer (E13).
   readonly identity: EnvironmentIdentityRole = {
-    current: (id: string | null): Identity | null => this.ownIdentity(id),
+    current: (id: string | null): string | null => this.ownIdentity(id),
   };
   // No key -> handle lookup: a pane is addressed by its own handle here.
   readonly handleLookup: null = null;
@@ -301,14 +301,14 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Identity of the calling pane, resolved from the explicit orch id. */
-  private ownIdentity(id: string | null): Identity | null {
+  private ownIdentity(id: string | null): string | null {
     const handle = callerPaneHandle();
     if (!handle) return null;
     // Identity is orch's, not the plexer's: it exists only if orch minted one and
     // handed it over at launch. A pane orch never spawned has no orch identity,
     // and that is an answer — the pane id is a plexer coordinate that renumbers
     // on a move, so promoting it to an identity forks the agent in two (A1).
-    return tryParseIdentity(id);
+    return isAgentId(id) ? id : null;
   }
 
   /** Create a pane first, then start herdr's canonical harness in that pane. */

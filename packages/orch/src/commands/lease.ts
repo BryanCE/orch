@@ -1,16 +1,13 @@
-import { processInstanceMatches, processIsAlive } from "../process-identity.ts";
 import { deriveDriveState, DEAD_HOLDER_DRIVER } from "../agent/drive-state.ts";
 import { formatTimestamp } from "../format.ts";
-import { STATUS_FILE } from "../presence/schema.ts";
 import { removePresenceAgentDir } from "../presence/store.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
+import { orchDir, presenceAgentDir } from "../presence/writer.ts";
 import { rpcRegisterSession } from "../daemon/reach.ts";
 import { launchCredential } from "../identity/launch.ts";
-import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { agents } from "../db/schema.ts";
-import { currentProcess, recordedProcessIsLive } from "../store/interval-rows.ts";
+import { recordedProcessIsLive } from "../store/interval-rows.ts";
 import { agentById, childrenOf, liveAgents, renameAgent } from "../store/agent-rows.ts";
 import { adoptLease, currentLease, expireLease, leasesByOrch, releaseLease } from "../store/lease-rows.ts";
 import { promptMultiselect } from "../setup/io.ts";
@@ -49,20 +46,6 @@ export function resolveTarget(directory: string, target: string): AgentRow {
 
 function displayName(agent: AgentRow): string {
   return agent.name || agent.id;
-}
-
-interface RecordedProcess { readonly pid: number; readonly startToken: string | null }
-
-function recordedProcess(directory: string, agentId: string): RecordedProcess | null {
-  const row = currentProcess(directory, agentId);
-  return row === undefined ? null : { pid: row.pid, startToken: row.startToken };
-}
-
-/** A recorded process is live only when its process instance still matches. An
- * un-tokened live pid remains conservatively live: reaping must ask for close. */
-function processStillAlive(process: RecordedProcess | null): boolean {
-  if (!process || !processIsAlive(process.pid)) return false;
-  return process.startToken ? processInstanceMatches(process.pid, process.startToken) : true;
 }
 
 function liveDescendants(directory: string, parentId: string, result: AgentRow[] = []): AgentRow[] {
@@ -105,7 +88,7 @@ export function detachAgent(directory: string, target: string, orchId: string, o
 }
 
 function holderStillAlive(directory: string, orchId: string): boolean {
-  return processStillAlive(recordedProcess(directory, orchId));
+  return recordedProcessIsLive(directory, orchId);
 }
 
 /** C3 - the one place that answers "may this orch drive that agent?". Mutual
@@ -174,9 +157,7 @@ export function reapAgent(directory: string, target: string, now = Date.now()): 
     const names = live.map((child) => `${displayName(child)} (${child.id})`).join(", ");
     throw new Error(`Cannot reap ${displayName(agent)}: live descendants: ${names}.`);
   }
-  const status = readPresenceStatus(join(presenceAgentDir(agent.id, directory), STATUS_FILE));
-  const statusProcess = typeof status?.pid === "number" ? { pid: status.pid, startToken: null } : null;
-  if (processStillAlive(recordedProcess(directory, agent.id)) || processStillAlive(statusProcess)) {
+  if (recordedProcessIsLive(directory, agent.id)) {
     throw new Error(`Cannot reap ${displayName(agent)}: process is still running; close first.`);
   }
   // Foreign leases never gate ending/reaping. Delete descendants first because

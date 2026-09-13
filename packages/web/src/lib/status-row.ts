@@ -1,6 +1,6 @@
 import type { DaemonStatusRow } from "@orch/types/daemon.ts";
 import { isAgentState } from "@orch/agent-state.ts";
-import { isRecord } from "@orch/util.ts";
+import { isRecord } from "@orch/json.ts";
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";

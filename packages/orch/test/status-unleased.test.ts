@@ -8,7 +8,6 @@ import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { serializeIdentity } from "../src/backends/identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { Entity } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
@@ -39,7 +38,7 @@ function fixture(): string {
 const WORKER_ID = "worker0001";
 
 function entity(): Entity {
-  const key = serializeIdentity({ id: WORKER_ID });
+  const key = WORKER_ID;
   return {
     key, paneId: null, managed: true, name: "worker", tabLabel: null, agent: "pi", focused: false,
     // A detached agent is in no plexer and no space: that is a missing row, not

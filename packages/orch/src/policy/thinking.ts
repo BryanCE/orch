@@ -30,13 +30,15 @@ export function modelSpec(model: string, thinking: string | null | undefined): s
   return thinking ? `${model}:${thinking}` : model;
 }
 
-/** Resolve effort at orch's command boundary, from explicit input to harness default. */
+/** Resolve effort at orch's command boundary: explicit flag, then the model
+ *  spec's suffix, then the per-harness setting, then `defaults.thinking`. The
+ *  settings loader always fills the last one, so there is no literal to fall
+ *  back on — the harness's own default is never an answer here. */
 export function resolveThinking(input: ThinkingResolutionInput): ThinkingLevel {
   if (isThinkingLevel(input.flag)) return input.flag;
   if (isThinkingLevel(input.modelSuffix)) return input.modelSuffix;
-  const override = Object.entries(input.settings.defaults.thinking_by_harness ?? {})
+  const override = Object.entries(input.settings.defaults.thinking_by_harness)
     .find(([harness]) => harness === input.harness)?.[1];
   if (isThinkingLevel(override)) return override;
-  if (isThinkingLevel(input.settings.defaults.thinking)) return input.settings.defaults.thinking;
-  return "medium";
+  return input.settings.defaults.thinking;
 }

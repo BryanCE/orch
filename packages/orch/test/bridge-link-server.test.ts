@@ -8,7 +8,7 @@ import { attachBridge, attachedBridgeKeys, detachBridge, pushToBridge } from "..
 import type { BridgeLink } from "../src/control/bridge-links.ts";
 import { isBridgeDelivery } from "../src/control/bridge-message.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
-import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
 import { seedStatus } from "./helpers/presence.ts";
@@ -58,7 +58,7 @@ async function until(predicate: () => boolean): Promise<void> {
 }
 
 function liveKey(directory: string): string {
-  const key = serializeIdentity({ id: mintAgentId() });
+  const key = mintAgentId();
   seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "working" });
   return key;
 }

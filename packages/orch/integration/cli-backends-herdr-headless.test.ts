@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mintAgentId, parseIdentity, serializeIdentity, tryParseIdentity } from "../src/backends/identity.ts";
+import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
@@ -135,12 +135,12 @@ describe("headless common path: identity key -> presence", () => {
 
     // The spawner mints the identity BEFORE launch (one id per agent) and passes
     // it via opts.key; the backend never mints its own.
-    const key = serializeIdentity({ id: mintAgentId() });
+    const key = mintAgentId();
     const handle = backend.spawn(spawnAdapter, { key, orchDir: dir, cwd: dir, prompt: "write your presence and exit" });
 
     // The handle carries the caller's key unchanged — the minted id, nothing else.
     expect(handle.key).toBe(key);
-    expect(parseIdentity(handle.key)).toEqual({ id: key });
+    expect(isAgentId(handle.key)).toBe(true);
     expect(handle.key.includes("/")).toBe(false);
 
     // The agent writes its presence under ~/.orch/agents/<key>/.
@@ -176,7 +176,7 @@ describe("headless common path: identity key -> presence", () => {
 
   test("one adapter uses the same opaque key across headless and tmux routes", () => {
     const key = mintAgentId();
-    expect(parseIdentity(key)).toEqual({ id: key });
+    expect(isAgentId(key)).toBe(true);
     expect(claudeAdapter.headlessCmd("task", { key }).at(-1)).toBe("task");
     expect(piAdapter.interactiveCmd({ key })).toBe("pi");
   });
@@ -184,7 +184,7 @@ describe("headless common path: identity key -> presence", () => {
   test("a key carries no environment to read back out of it", () => {
     // The welded <plexer>~<space>~<id> key is gone: neither spelling parses, and
     // a space is read from the agent's environment or it is simply absent.
-    expect(tryParseIdentity("headless~local~123-1")).toBeNull();
-    expect(tryParseIdentity("wD:p1")).toBeNull();
+    expect(isAgentId("headless~local~123-1")).toBe(false);
+    expect(isAgentId("wD:p1")).toBe(false);
   });
 });

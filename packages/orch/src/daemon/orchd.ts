@@ -27,14 +27,14 @@ import { insertOutboxMessage, markOutboxDelivered, outboxMessageState, selectOpe
 import { insertControlOutcome } from "../store/control-outcome-rows.ts";
 import { settleControlOutcome } from "../control/outcome.ts";
 import { acknowledgeDelivery, confirmDelivery } from "../control/ack.ts";
-import { agentIdOf } from "../commands/lifecycle/close.ts";
 import type { ControlOutcomeReport } from "../types/agent.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
-import { isThinkingLevel } from "../policy/thinking.ts";
+import { isThinkingLevel, modelSpec } from "../policy/thinking.ts";
+import { resolveTuning } from "../policy/tuning.ts";
 import { deliverOutboxMessage, drainOutbox, redeliverOpenRows } from "./outbox.ts";
 import { acceptMail } from "./mail.ts";
-import { tryParseIdentity } from "../backends/identity.ts";
+import { isAgentId } from "../backends/identity.ts";
 import { normalizeControlTarget } from "../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { isAgentGone } from "../control/agent-gone.ts";
@@ -44,11 +44,11 @@ import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { isLifecycleVerb } from "../adapters/adapter.ts";
 import { headlessBackend } from "../backends/registry.ts";
 import { fleetStatusRows } from "../commands/status.ts";
-import { agentView } from "../store/agent-view.ts";
+import { agentView, liveAgentViews } from "../store/agent-view.ts";
 import { createLogger } from "../log.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { decisionLogger } from "./decision-log.ts";
-import type { LifecycleVerb } from "../types/adapter.ts";
+import type { AdapterId, LifecycleVerb } from "../types/adapter.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { DaemonStatusRow, LeaseStatusPayload, OutboxDelivery, OutboxDeps, PendingQuestionView, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
 import type { SettingsWatch, NotifyEntry, OrchSettings } from "../types/settings.ts";
@@ -61,6 +61,7 @@ import { createPanePainter } from "./pane-painter.ts";
 import { activePaneHud } from "../backends/hud.ts";
 import { peerView } from "./peer-view.ts";
 import type { PaneLabels } from "../types/plexer.ts";
+import type { ControlAction, ControlBoundaryOutcome } from "../types/control.ts";
 
 
 /** The one spelling of "is this lease's holder still running". A start token
@@ -75,7 +76,7 @@ function leaseHolderIsAlive(directory: string, holderId: string): boolean {
 export function deriveLeasePayload(directory: string, key: string): LeaseStatusPayload {
   // An agent key IS its minted id (A1); a key that is not one names no agent and
   // stays unknown rather than being guessed at.
-  const agentId = agentIdOf(key);
+  const agentId = key;
   if (!agentById(directory, agentId)) return { lease: null, leaseKnown: false };
   const lease = currentLease(directory, agentId);
   if (!lease) return { lease: null, leaseKnown: true };
@@ -212,7 +213,7 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
   try {
     const outcome = await deliverControl(canonicalTarget, { kind, text, id });
     if (outcome.outcome === "answer") {
-      const agentId = tryParseIdentity(canonicalTarget)?.id ?? canonicalTarget;
+      const agentId = canonicalTarget;
       decisionLogger(orchDir(), { correlationId: id, agentId }).debug("boundary.answer", {
         target: canonicalTarget,
         reason: outcome.reason,
@@ -266,10 +267,10 @@ export function governWrite(directory: string, target: string, params: unknown, 
   const crossSpace = value.crossSpace === true || configuredCrossSpace;
   const wall = checkWall(directory, actor, target, { crossSpace });
   if (!wall.allowed) throw new Error(wall.reason ?? "space wall denied the write");
-  const targetId = tryParseIdentity(target)?.id ?? target;
+  const targetId = target;
   const lease = currentLease(directory, targetId);
-  const actorId = actor === null ? null : (tryParseIdentity(actor)?.id ?? actor);
-  const holderId = lease && (tryParseIdentity(lease.orchId)?.id ?? lease.orchId);
+  const actorId = actor;
+  const holderId = lease?.orchId;
   const holderAlive = lease === null ? false : leaseHolderIsAlive(directory, lease.orchId);
   const foreignLease = lease !== null && holderId !== actorId;
   // Every grant is part of the decision trail, not just the interesting ones: a
@@ -479,7 +480,7 @@ export async function dispatch(directory: string, params: unknown) {
 function recordAgentQuestion(directory: string, params: unknown): { ok: true } {
   const value = rpcParams(params);
   if (!isAgentNotice(value)) throw new Error("question params must be an agent question notice");
-  const agentId = agentIdOf(requiredString(value.agentId, "agentId"));
+  const agentId = requiredString(value.agentId, "agentId");
   if (agentById(directory, agentId) === null) throw new Error(`question agent ${agentId} does not exist`);
   recordQuestion(directory, { id: value.questionId, agentId, question: value.question, askedAt: value.askedAt });
   return { ok: true };
@@ -523,7 +524,7 @@ export async function answer(directory: string, params: unknown) {
   const value = rpcParams(params);
   const target = requiredString(value.target, "target");
   const text = requiredString(value.text, "text");
-  const targetId = agentIdOf(target);
+  const targetId = target;
   const current = pendingQuestion(directory, targetId);
   const requestedQuestionId = value.questionId === undefined ? undefined : requiredString(value.questionId, "questionId");
   if (current === undefined || (requestedQuestionId !== undefined && current.id !== requestedQuestionId)) {
@@ -562,6 +563,62 @@ function logFatalAndExit(kind: string, error: unknown): void {
   const message = errorMessage(error);
   daemonLogger?.error("daemon.crashed", { kind, message, trace: errorTrace(error) });
   process.exit(1);
+}
+
+export interface LiveAgentForRepin {
+  readonly id: string;
+  readonly harnessId: string;
+}
+
+export interface RepinAdapterCapabilities {
+  readonly id: AdapterId;
+  readonly modelControl: object | null;
+  readonly bridge: { readonly takes: readonly string[] } | null;
+}
+
+export interface RepinLiveFleetOptions {
+  readonly previousSettings: OrchSettings;
+  readonly settings: OrchSettings;
+  readonly listLiveAgents: () => readonly LiveAgentForRepin[];
+  readonly resolveAdapter: (agent: LiveAgentForRepin) => RepinAdapterCapabilities | undefined;
+  readonly deliver: (target: string, action: Extract<ControlAction, { kind: "model" }>) => Promise<ControlBoundaryOutcome>;
+  readonly logger: Pick<Logger, "info" | "warn">;
+}
+
+function settingMapsDiffer(left: object, right: object): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = new Map(Object.entries(right));
+  if (leftEntries.length !== rightEntries.size) return true;
+  return leftEntries.some(([key, value]) => !rightEntries.has(key) || rightEntries.get(key) !== value);
+}
+
+export function tuningSettingsChanged(previous: OrchSettings, settings: OrchSettings): boolean {
+  return previous.defaults.thinking !== settings.defaults.thinking
+    || settingMapsDiffer(previous.defaults.thinking_by_harness, settings.defaults.thinking_by_harness)
+    || settingMapsDiffer(previous.defaults.models, settings.defaults.models);
+}
+
+export async function repinLiveFleet(options: RepinLiveFleetOptions): Promise<void> {
+  if (!tuningSettingsChanged(options.previousSettings, options.settings)) return;
+  for (const agent of options.listLiveAgents()) {
+    try {
+      const adapter = options.resolveAdapter(agent);
+      if (adapter === undefined) continue;
+      if (adapter.modelControl === null && !adapter.bridge?.takes.includes("model")) continue;
+      const tuning = resolveTuning({ harness: adapter.id, settings: options.settings });
+      if (tuning === null) continue;
+      const spec = modelSpec(tuning.model, tuning.thinking);
+      const outcome = await options.deliver(agent.id, { kind: "model", model: spec, id: randomUUID() });
+      options.logger.info("settings.repin.applied", {
+        agentId: agent.id,
+        model: spec,
+        thinking: tuning.thinking,
+        outcome: outcome.outcome,
+      });
+    } catch (error: unknown) {
+      options.logger.warn("settings.repin.failed", { agentId: agent.id, error: errorMessage(error) });
+    }
+  }
 }
 
 async function shutDown(directory: string, reason: string): Promise<void> {
@@ -626,11 +683,12 @@ async function main(): Promise<void> {
       "peer-view": (params) => {
         const value = rpcParams(params);
         const keys = Array.isArray(value.keys) ? value.keys.filter((key): key is string => typeof key === "string") : [];
-        return peerView(directory, requiredString(value.ownKey, "ownKey"), keys, value.allSpaces === true);
+        const callerProject = typeof value.projectRoot === "string" ? value.projectRoot : undefined;
+        return peerView(directory, requiredString(value.ownKey, "ownKey"), keys, value.allSpaces === true, callerProject);
       },
       notify: (params) => {
         const event = bridgeNotifyEvent(rpcParams(params));
-        activePaneHud(agentIdOf(event.key)).notify(event);
+        activePaneHud(event.key).notify(event);
         return { ok: true };
       },
       status: () => fleetStatus(directory),
@@ -670,7 +728,7 @@ async function main(): Promise<void> {
         };
         insertControlOutcome(directory, {
           id: report.id,
-          agentId: agentIdOf(report.key),
+          agentId: report.key,
           command: report.command,
           requested: report.requested,
           settledAt: Date.now(),
@@ -708,10 +766,23 @@ async function main(): Promise<void> {
   let settingsLoaded = false;
   settingsWatch = watchSettings(directory, {
     onChange: (settings) => {
+      const previousSettings = currentSettings;
       currentSettings = settings;
       sinks = undefined;
       if (settingsLoaded) daemonLogger?.info("config.reloaded");
       settingsLoaded = true;
+      if (previousSettings !== undefined && daemonLogger !== undefined) {
+        void repinLiveFleet({
+          previousSettings,
+          settings,
+          listLiveAgents: () => liveAgentViews(directory),
+          resolveAdapter: (agent) => resolveTargetAdapter(agent.id),
+          deliver: deliverControl,
+          logger: daemonLogger,
+        }).catch((error: unknown) => {
+          daemonLogger?.warn("settings.repin.failed", { error: errorMessage(error) });
+        });
+      }
     },
     onWarn: (message) => daemonLogger?.warn("config.warning", { message }),
   });
@@ -723,7 +794,7 @@ async function main(): Promise<void> {
       // the ONE composer. A spawner's label is READ from the spawner agent, never
       // copied onto the agent it spawned - a copy goes stale the moment the
       // spawner is renamed.
-      const normalized = tryParseIdentity(key)?.id;
+      const normalized = isAgentId(key) ? key : undefined;
       const view = normalized === undefined ? null : agentView(directory, normalized);
       const spawner = view?.spawnedBy == null ? null : agentView(directory, view.spawnedBy);
       const metadata: PresenceMetadata = { name: view?.name ?? null, tab: null };
@@ -734,7 +805,7 @@ async function main(): Promise<void> {
     onEvent: (event) => {
       lastActivityAt = Date.now();
       // The agent no longer paints its own pane: its bundle carries no plexer.
-      const painted = tryParseIdentity(event.key)?.id;
+      const painted = isAgentId(event.key) ? event.key : undefined;
       if (painted !== undefined) paintPane(painted, { state: event.newState, cost: event.cost ?? 0, ...(event.task === undefined ? {} : { task: event.task }) });
       emitAndNotify((value) => server?.emit(value), getSinks(directory), event, directory);
     },

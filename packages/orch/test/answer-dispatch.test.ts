@@ -11,9 +11,10 @@ import {
   type BridgeLink,
 } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
-import { mintAgentId, serializeIdentity } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { recordQuestion } from "../src/store/question-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
@@ -37,7 +38,7 @@ function tempDir(): string {
 }
 
 function target(): string {
-  return serializeIdentity({ id: mintAgentId() });
+  return mintAgentId();
 }
 
 function attach(key: string): BridgeDelivery[] {
@@ -48,12 +49,21 @@ function attach(key: string): BridgeDelivery[] {
   return deliveries;
 }
 
+/**
+ * An asking agent, seeded the way one now exists: the DAEMON owns the pending
+ * question, so the answerable record is a `questions` row. The presence `asking`
+ * block is still written because presence keeps reporting the agent's STATE, but
+ * it is no longer what an answer correlates against.
+ */
 function answerStatus(directory: string, key: string, asking?: { readonly id: string }): void {
   seedAgent(key, { adapter: "pi" }, directory);
   seedStatus(directory, key, {
     agent: "pi",
     ...(asking === undefined ? {} : { asking: { id: asking.id, question: "question", ts: "now" } }),
   });
+  if (asking !== undefined) {
+    recordQuestion(directory, { id: asking.id, agentId: key, question: "question", askedAt: Date.now() });
+  }
 }
 
 afterEach(() => {

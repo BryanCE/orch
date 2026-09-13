@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
-import { mintAgentId, parseIdentity } from "../src/backends/identity.ts";
+import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { normalizeControlTarget } from "../src/control/normalize-target.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { agentById, ensureHarness } from "../src/store/agent-rows.ts";
@@ -20,6 +20,7 @@ import type { BackendHandle, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 import { sql } from "drizzle-orm";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { processStartToken } from "../src/process-identity.ts";
 
 const dirs: string[] = [];
 
@@ -84,6 +85,7 @@ describe("one key per pane spawn (12.1)", () => {
       space: "wsA",
       group: "tab1",
       model: "openai/gpt-5.6",
+      thinking: "medium",
       preferredModels: [],
     });
 
@@ -92,12 +94,11 @@ describe("one key per pane spawn (12.1)", () => {
 
     // A1: identity is the minted id and NOTHING else — no plexer, no space, no
     // handle, and never the human name. Environment is composed separately.
-    const identity = parseIdentity(agent.key);
-    expect(identity).toEqual({ id: agent.key });
-    expect(identity.id).not.toBe("audit-1");
-    expect(identity.id).not.toBe("%5");
+    expect(isAgentId(agent.key)).toBe(true);
+    expect(agent.key).not.toBe("audit-1");
+    expect(agent.key).not.toBe("%5");
 
-    const view = spawnedRecords().get(identity.id);
+    const view = spawnedRecords().get(agent.key);
     expect(view).toBeDefined();
     // The agent is keyed on the minted id; the plexer, the space and the pane
     // handle are environment axes composed onto it, not parts of its key.
@@ -105,7 +106,7 @@ describe("one key per pane spawn (12.1)", () => {
     expect(view!.environment.space).toBe("wsA");
     expect(view!.environment.plexer).toBe("herdr");
     expect(view!.environment.handle).toBe("%5");
-    expect(agentById(process.env.ORCH_DIR!, identity.id)?.name).toBe("audit-1");
+    expect(agentById(process.env.ORCH_DIR!, agent.key)?.name).toBe("audit-1");
   });
 
   test("a name freed by a dead agent is reusable, and the two agents differ in identity", () => {
@@ -119,6 +120,7 @@ describe("one key per pane spawn (12.1)", () => {
       space: "wsC",
       group: "tab1",
       model: "openai/gpt-5.6",
+      thinking: "medium",
       preferredModels: [],
     });
 
@@ -128,7 +130,7 @@ describe("one key per pane spawn (12.1)", () => {
     const second = spawnAudit();
 
     expect(second.key).not.toBe(first.key);
-    expect(agentById(process.env.ORCH_DIR!, parseIdentity(second.key).id)?.name).toBe("audit-1");
+    expect(agentById(process.env.ORCH_DIR!, second.key)?.name).toBe("audit-1");
   });
 
   test("a spawned agent resolves to exactly one control-target candidate", () => {
@@ -145,6 +147,7 @@ describe("one key per pane spawn (12.1)", () => {
       space: "wsB",
       group: "tab1",
       model: "openai/gpt-5.6",
+      thinking: "medium",
       preferredModels: [],
     });
 
@@ -186,10 +189,12 @@ describe("A1: spawn registration records the space as an environment axis", () =
   test("a spawn into a space writes agent_spaces, and the composer reads it back", () => {
     const dir = registryFixture("wsA");
     const key = mintAgentId();
+    const startToken = processStartToken(process.pid);
+    if (!startToken) throw new Error("test process has no start token");
 
     registerSpawnedAgent(dir, {
       key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%42",
-      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: { pid: process.pid }, now: 10,
+      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: { pid: process.pid, startToken }, now: 10,
     });
 
     // The space is its own open interval, not a column beside the plexer.
@@ -204,12 +209,14 @@ describe("A1: spawn registration records the space as an environment axis", () =
   test("a spawn stating no space records NO ROW — a missing axis is a missing row", () => {
     const dir = registryFixture();
     const key = mintAgentId();
+    const startToken = processStartToken(process.pid);
+    if (!startToken) throw new Error("test process has no start token");
 
     registerSpawnedAgent(dir, {
       // States no plexer and no space: a capless agent is in no plexer, and that
       // is an ANSWER, not a gap for a second writer to close.
       key, harnessId: "pi", placed: false,
-      cwd: "/repo", name: "detached-1", model: "openai/gpt-5", spawner: null, process: { pid: process.pid }, now: 10,
+      cwd: "/repo", name: "detached-1", model: "openai/gpt-5", spawner: null, process: { pid: process.pid, startToken }, now: 10,
     });
 
     // Not a NULL column, not the invented place called "local": no row at all.
@@ -223,10 +230,12 @@ describe("A1: spawn registration records the space as an environment axis", () =
     const dir = registryFixture("wsA");
     orm(dir).run(sql`INSERT INTO spaces (id, name, created_by, created_at) VALUES ('wsB', 'wsB', NULL, 1)`);
     const key = mintAgentId();
+    const startToken = processStartToken(process.pid);
+    if (!startToken) throw new Error("test process has no start token");
 
     registerSpawnedAgent(dir, {
       key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%42",
-      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: { pid: process.pid }, now: 10,
+      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: { pid: process.pid, startToken }, now: 10,
     });
     setSpace(dir, key, 20, "wsB");
 

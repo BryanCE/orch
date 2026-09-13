@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { homeLabel } from "../backend.ts";
-import { tryParseIdentity } from "../identity.ts";
+import { isAgentId } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { environmentStamp } from "../../agent/environment.ts";
@@ -13,8 +13,8 @@ import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects } from "./cli.ts";
 import { capture } from "../../presence/roles.ts";
-import { LocalProcessRole } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit,  CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, Identity, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
+import { LocalProcessRole, placedShellPid } from "../process.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit,  CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { TmuxBackendDeps, TmuxHandle, TmuxPane } from "../../types/plexer.ts";
 
@@ -62,14 +62,14 @@ function groupPanesBy(panes: readonly TmuxPane[], key: (pane: TmuxPane) => strin
 /** Backend for panes managed by a tmux session. */
 export class TmuxBackend implements Backend<TmuxHandle> {
   readonly id = TMUX_BACKEND;
-  readonly process = new LocalProcessRole();
+  readonly process = new LocalProcessRole<TmuxHandle>(placedShellPid(() => this.foreground));
   private readonly homeExec: (args: string[]) => string;
 
   constructor(deps: TmuxBackendDeps = {}) {
     this.homeExec = deps.homeExec ?? ((args) => execTmux(args));
   }
   readonly identity: EnvironmentIdentityRole = {
-    current: (id: string | null): Identity | null => this.ownIdentity(id),
+    current: (id: string | null): string | null => this.ownIdentity(id),
   };
   // No key -> handle lookup: a pane is addressed by its own handle here.
   readonly handleLookup: null = null;
@@ -227,12 +227,12 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   }
 
   /** Identity of the calling pane, resolved from the explicit orch id. */
-  private ownIdentity(id: string | null): Identity | null {
+  private ownIdentity(id: string | null): string | null {
     const handle = process.env.TMUX_PANE;
     if (!handle) return null;
     // See the herdr backend: identity is minted by orch and arrives as an
     // explicit argument. A pane this process merely happens to occupy is not one.
-    return tryParseIdentity(id);
+    return isAgentId(id) ? id : null;
   }
 
   /** Split one pane (or the group's active pane) to place a new pane inside a group (D8). */

@@ -8,6 +8,7 @@ import { orm } from "../src/store/connection.ts";
 import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setHandle } from "../src/store/interval-rows.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
@@ -43,6 +44,11 @@ function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-row-not-pane-"));
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
+  // Only an enabled plexer is asked for its inventory; the fake registers as headless.
+  writeSettingsFixture(dir, {
+    enabled: { adapters: ["pi"], backends: ["headless"] },
+    defaults: { adapter: "pi", backend: "headless" },
+  });
   orm(dir);
   return dir;
 }

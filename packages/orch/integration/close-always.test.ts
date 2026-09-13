@@ -133,10 +133,10 @@ describe("close always works", () => {
     seedSpace(dir, "foreign-space");
     placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
     writeStatus(dir, key, pid);
-    // The pane host is never asked to close here — the recorded process is
-    // signalled instead — so the inventory keeps listing the pane afterwards,
-    // and a pane that is still listed must fail the close.
-    const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
+    // The pane host is asked to close and reports success, but its inventory
+    // still lists the pane afterwards: a pane that is still listed must fail
+    // the close, whatever the host said.
+    const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })], closeLeavesPane: true });
     const oldExit = process.exit.bind(process);
     const replacementExit: (code?: string | number | null) => void = (code) => {
       process.exitCode = typeof code === "number" ? code : 0;

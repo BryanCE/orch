@@ -71,6 +71,21 @@ describe("orch bridge links and capture roles", () => {
     expect(outboxMessageState(orchDir, id)).toBe("delivered");
   });
 
+  test("a spawned agent whose bridge is detached stays queued for that bridge", async () => {
+    const orchDir = tempOrchDir();
+    const key = "spawnedagt1";
+    writeSettingsFixture(orchDir);
+    seedAgent("orch1", {}, orchDir);
+    seedAgent(key, { spawnedBy: "orch1" }, orchDir);
+    seedLiveProcess(orchDir, key);
+    const id = "steer-spawned-1";
+    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w (wkey)] hi" } });
+
+    await deliverOutboxMessage(orchDir, id, { deliver: deliverWrite, maxAttempts: 3, now: () => 0 });
+
+    expect(outboxMessageState(orchDir, id)).toBe("pending");
+  });
+
   test("dead session without a bridge or pane route is undeliverable", async () => {
     const orchDir = tempOrchDir();
     const key = "sessionagt2";

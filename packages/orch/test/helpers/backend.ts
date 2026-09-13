@@ -84,9 +84,11 @@ export class FakePanedBackend implements Backend {
   readonly versionInfo = null;
   readonly serverInfo = null;
 
-  constructor(options: { readonly id?: BackendId; readonly panes?: readonly FakePane[] } = {}) {
+  constructor(options: { readonly id?: BackendId; readonly panes?: readonly FakePane[]; readonly closeLeavesPane?: boolean } = {}) {
     this.id = options.id ?? "headless";
     this.panes = [...(options.panes ?? [])];
+    // A pane host that reports a close it never carried out: the inventory keeps listing the pane.
+    const closeLeavesPane = options.closeLeavesPane === true;
     this.placement = {
       open: (request: PlacementRequest): Placement => {
         this.opened.push(request);
@@ -97,6 +99,7 @@ export class FakePanedBackend implements Backend {
       close: (handle: BackendHandle): void => {
         const target = String(handle);
         this.closed.push(target);
+        if (closeLeavesPane) return;
         const index = this.panes.findIndex((pane) => pane.handle === target);
         if (index >= 0) this.panes.splice(index, 1);
       },

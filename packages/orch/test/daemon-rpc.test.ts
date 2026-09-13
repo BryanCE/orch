@@ -21,6 +21,7 @@ import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { sql } from "drizzle-orm";
@@ -192,7 +193,13 @@ describe("daemon RPC", () => {
     // A1: the target IS the minted id. The plexer that cannot reach it and the
     // space it is not in are environment, composed from their own tables.
     const target = mintAgentId();
-    seedStatus(dir, target, { agent: "claude", pid: process.pid, state: "working" });
+    // The store decides existence and liveness; the status file only adds display state.
+    // A spawned agent (not a raw session) so the write takes the control route, not the session stream.
+    const spawner = mintAgentId();
+    seedAgent(spawner, { adapter: "pi" }, dir);
+    seedAgent(target, { adapter: "claude", backend: "headless", spawnedBy: spawner }, dir);
+    seedLiveProcess(dir, target);
+    seedStatus(dir, target, { agent: "claude", state: "working" });
     try {
       await rpcRegisterSession(dir);
       // An environment that offers no way to reach this agent is an ABSENCE, and
@@ -446,7 +453,13 @@ describe("daemon RPC", () => {
   test("dispatch waits for and reports a bridge acknowledgement", async () => {
     const dir = tempOrchDir();
     const target = mintAgentId();
-    seedStatus(dir, target, { agent: "pi", pid: process.pid, state: "working" });
+    // attach refuses an agent the store does not know, so the target is registered live,
+    // as a spawned agent so the write queues for its bridge rather than the session stream.
+    const spawner = mintAgentId();
+    seedAgent(spawner, { adapter: "pi" }, dir);
+    seedAgent(target, { adapter: "pi", spawnedBy: spawner }, dir);
+    seedLiveProcess(dir, target);
+    seedStatus(dir, target, { agent: "pi", state: "working" });
     const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" }, timeouts: { dispatch_ack_ms: 100 } });
     const bridge = await fakeBridge(dir, target);
     try {
@@ -480,7 +493,13 @@ describe("daemon RPC", () => {
   test("attach reports open rows and re-pushes them", async () => {
     const dir = tempOrchDir();
     const target = mintAgentId();
-    seedStatus(dir, target, { agent: "pi", pid: process.pid, state: "working" });
+    // attach refuses an agent the store does not know, so the target is registered live,
+    // as a spawned agent so the write queues for its bridge rather than the session stream.
+    const spawner = mintAgentId();
+    seedAgent(spawner, { adapter: "pi" }, dir);
+    seedAgent(target, { adapter: "pi", spawnedBy: spawner }, dir);
+    seedLiveProcess(dir, target);
+    seedStatus(dir, target, { agent: "pi", state: "working" });
     const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" }, timeouts: { dispatch_ack_ms: 10 } });
     try {
       const queued = await rpcCall(dir, "dispatch", { target, text: "before attach" });

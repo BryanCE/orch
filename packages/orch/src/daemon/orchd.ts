@@ -220,14 +220,20 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
   const text = payload.text;
   const kind = payload.action === "dispatch" ? "run" : "steer";
   const route = resolveTargetRoute(canonicalTarget);
-  if (!resolveTargetAdapter(canonicalTarget) || (!bridgeAttached(canonicalTarget) && !route?.backend.agentInput)) {
+  // Nobody spawned a raw session, so nothing composes a bridge for it: its event stream is its channel.
+  const rawSession = agentView(orchDir(), canonicalTarget)?.spawnedBy === null;
+  if (rawSession && !bridgeAttached(canonicalTarget) && !route?.backend.agentInput) {
+    if (agentProcessLive(orchDir(), canonicalTarget)) {
+      const event = sessionMessageEvent(orchDir(), canonicalTarget, id, text);
+      emitAndNotify((published) => server?.emit(published), getSinks(orchDir()), event, orchDir());
+      log.info("dispatch.delivered", { target: canonicalTarget, action: payload.action, reason: "session-stream" });
+      return "acked";
+    }
+    log.warn("dispatch.gone", { target: canonicalTarget, reason: "no delivery route" });
+    return "gone";
+  }
+  if (!resolveTargetAdapter(canonicalTarget)) {
     if (!route?.backend.agentInput) {
-      if (agentProcessLive(orchDir(), canonicalTarget)) {
-        const event = sessionMessageEvent(orchDir(), canonicalTarget, id, text);
-        emitAndNotify((published) => server?.emit(published), getSinks(orchDir()), event, orchDir());
-        log.info("dispatch.delivered", { target: canonicalTarget, action: payload.action, reason: "session-stream" });
-        return "acked";
-      }
       log.warn("dispatch.gone", { target: canonicalTarget, reason: "no delivery route" });
       return "gone";
     }

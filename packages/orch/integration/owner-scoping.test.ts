@@ -1,5 +1,6 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { allAdapters } from "../src/adapters/registry.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,6 +29,24 @@ import { withExitCode } from "../test/helpers/exit-code.ts";
 const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
 const dirs: string[] = [];
 const children: ChildProcess[] = [];
+/** Processes started as nobody's child (see {@link spawnOrphanSleeper}), killed after each test. */
+const orphans: number[] = [];
+/** Every env name a harness uses to mark the shell it runs in as a driving session. */
+const SESSION_ENV = allAdapters()
+  .flatMap((adapter) => [adapter.sessionEnvMarker, adapter.sessionIdEnv, adapter.sessionPidEnv])
+  .filter((name): name is string => name !== undefined);
+
+/**
+ * A live process that is NOT this test's child. `runCli` blocks in spawnSync
+ * while orch signals the target, so a direct child could not be reaped and
+ * would linger as a zombie that orch reads as still running after SIGTERM.
+ */
+function spawnOrphanSleeper(): number {
+  const launcher = "const child = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { detached: true, stdio: 'ignore' }); child.unref(); console.log(child.pid);";
+  const pid = Number(execFileSync(process.execPath, ["-e", launcher], { encoding: "utf8" }).trim());
+  orphans.push(pid);
+  return pid;
+}
 const oldDir = process.env.ORCH_DIR;
 const oldOwner = process.env.ORCH_OWNER;
 const oldPane = process.env.HERDR_PANE_ID;
@@ -65,8 +84,11 @@ function runCli(dir: string, args: string[], owner?: string, extraEnv?: Record<s
   const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: dir };
   if (owner === undefined) delete env.ORCH_OWNER;
   else env.ORCH_OWNER = owner;
-  // The caller is an operator unless a test explicitly makes it a spawned agent.
+  // The caller is an operator unless a test explicitly makes it a spawned agent:
+  // no launch credential, and no harness session marker inherited from the
+  // terminal this suite runs in (a session caller is walled by its lease).
   delete env[LAUNCH_ENV];
+  for (const name of SESSION_ENV) delete env[name];
   Object.assign(env, extraEnv);
   const result = Bun.spawnSync([process.execPath, binPath, ...args], {
     env,
@@ -84,6 +106,7 @@ afterAll(() => {
 });
 
 afterEach(async () => {
+  for (const pid of orphans.splice(0)) { try { process.kill(pid, "SIGKILL"); } catch {} }
   const spawned = children.splice(0);
   for (const child of spawned) {
     if (child.pid) { try { process.kill(child.pid, "SIGTERM"); } catch {} }
@@ -264,9 +287,7 @@ describe("fleet ownership scoping", () => {
   test("close has no force option and remains unconditional without it", () => {
     const dir = makeDir();
     const key = "kforced001";
-    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { detached: true });
-    children.push(child);
-    const pid = child.pid!;
+    const pid = spawnOrphanSleeper();
     const startToken = processStartToken(pid)!;
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working" }));

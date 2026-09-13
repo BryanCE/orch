@@ -9,7 +9,7 @@ import { pendingQuestion } from "../store/question-rows.ts";
 import { agentView } from "../store/agent-view.ts";
 import { assertModelAllowed } from "../policy/model.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
-import { setTuning } from "../store/interval-rows.ts";
+import { agentProcessLive, setTuning } from "../store/interval-rows.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { pushToBridge } from "./bridge-links.ts";
 import { loadSettingsOrNull } from "../settings/read.ts";
@@ -76,11 +76,9 @@ function runAdapterCommand(command: AdapterCommand, timeoutMs: number): Promise<
  * with no task, and the only symptom is a generic RPC timeout further up. Orch owns
  * this ruling for every harness; the adapter is named in the message, never branched on.
  */
+/** The store decides liveness; a live agent whose bridge is not yet attached queues, it is not gone. */
 function requireLiveAgent(target: string, adapter: AgentAdapter, action: string): void {
-  const presence = loadPresence().get(target);
-  if (!presence) throw new AgentGoneError(target, `no presence dir for ${adapter.id} bridge delivery (${action})`);
-  if (!presence.status) throw new AgentGoneError(target, `${adapter.id} bridge never registered - respawn required`);
-  if (!presence.alive) throw new AgentGoneError(target, `${adapter.id} bridge is disconnected - respawn required`);
+  if (!agentProcessLive(orchDir(), target)) throw new AgentGoneError(target, `${adapter.id} process is gone; ${action} needs a respawn`);
 }
 
 /**

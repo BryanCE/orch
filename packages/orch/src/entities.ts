@@ -1,4 +1,4 @@
-import { loadSettings } from "./settings/read.ts";
+import { loadSettings, loadSettingsOrNull } from "./settings/read.ts";
 import { allBackends } from "./backends/registry.ts";
 import { loadPresence } from "./presence/store.ts";
 import { orchDir } from "./presence/writer.ts";
@@ -133,9 +133,19 @@ interface Fleet {
 type Census = ReadonlyMap<string, ReadonlyMap<string, BackendTarget>>;
 
 /** Ask every environment what it holds, ONCE per build. */
+/** The plexers the settings enable. Every registered plexer used to be probed on
+ *  every command, so a fleet of headless agents paid a retrying tmux and herdr
+ *  listing (seconds each) that the settings had already ruled out. */
+function enabledBackends(): Backend[] {
+  const settings = loadSettingsOrNull(orchDir());
+  if (settings === null) return [];
+  const enabled = new Set(settings.enabled.backends);
+  return allBackends().filter((backend) => enabled.has(backend.id));
+}
+
 function paneCensus(): Census {
   const census = new Map<string, ReadonlyMap<string, BackendTarget>>();
-  for (const backend of allBackends()) {
+  for (const backend of enabledBackends()) {
     if (!backend.placementInventory || !backend.isAvailable()) continue;
     try {
       census.set(backend.id, new Map(backend.placementInventory.list().map((target) => [String(target.handle), target])));
@@ -284,7 +294,7 @@ export function buildEntities(options: { skipBackends?: boolean } = {}): Entity[
   const usedPresence = new Set<string>();
   const backendEntities = options.skipBackends
     ? []
-    : allBackends().flatMap((backend) => entitiesFromBackend(backend, fleet, usedPresence));
+    : enabledBackends().flatMap((backend) => entitiesFromBackend(backend, fleet, usedPresence));
   const entities = [...backendEntities, ...entitiesFromPresence(fleet, usedPresence)];
   return [...entities, ...entitiesFromStore(fleet, entities)];
 }

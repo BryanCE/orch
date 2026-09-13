@@ -7,7 +7,7 @@ import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "../db/schema.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { recordedInstanceIsLive } from "../process-identity.ts";
-import { ensurePrivateDir, errorMessage, isRecord } from "../util.ts";
+import { ensurePrivateDir, errorMessage, isRecord, packageRoot } from "../util.ts";
 
 /** One open file: the drizzle handle every caller queries through, beside the
  *  driver it was built on. The driver is reached for exactly two things drizzle
@@ -53,11 +53,12 @@ function databasePath(orchDir: string): string {
   return join(orchDir, "orch.db");
 }
 
-/** The generated migrations, shipped beside the package. Both bundles orch runs
- *  from — `dist/bin/orch.js` and `dist/daemon/orchd.js` — sit two levels under the
- *  package root, which is also where this file sits under the checkout. */
+/** The generated migrations, shipped beside the package. Resolved from the
+ *  package root rather than this file's own location: the extension bundles are
+ *  symlinked into each harness's extension directory, and a walk relative to the
+ *  link lands beside the harness (`~/.pi/drizzle`), not beside the package. */
 function migrationsFolder(): string {
-  return join(import.meta.dirname, "..", "..", "drizzle");
+  return join(packageRoot(), "drizzle");
 }
 
 /** Store process rows are the liveness source; read raw because the store may be refused. */

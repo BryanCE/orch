@@ -13,9 +13,13 @@ Repo: `/home/bryan/orch`. All paths in the task are relative to `packages/orch/`
    bun --filter @bryance/orch lint
    bun --filter @bryance/orch tc
    ```
-   Then run only the test files the task names, once, through Windows:
+   Then run only the test files the task names, once, on the side that owns the disk (repo `CLAUDE.md` Rule 0.1). Checkout under `/mnt/<drive>/…`:
    ```
    WINROOT=$(wslpath -w "$(git rev-parse --show-toplevel)"); powershell.exe -NoProfile -Command "cd '$WINROOT\packages\orch'; bun test <files>"
+   ```
+   Checkout under `/home/…`, from the repo root:
+   ```
+   bun test packages/orch/test/<files>
    ```
    If the task names no test files, run none.
 4. Report in the format below. Stop.

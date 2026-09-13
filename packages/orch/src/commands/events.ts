@@ -10,7 +10,7 @@ import { isAgentId } from "../backends/identity.ts";
 import { rpcCall, subscribeEvents } from "../daemon/rpc/client.ts";
 import { ensureDaemon } from "../daemon/reach.ts";
 import { deliver } from "../notify/router.ts";
-import { notificationText } from "../notify/format.ts";
+import { notificationText, oneLine } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { die, forbidNonOperatorOverride } from "./target.ts";
 import { commandLogger } from "./logging.ts";
@@ -61,6 +61,7 @@ export async function cmdEvents(args: string[]) {
   const accepts = (key: string): boolean => {
     // The key IS the minted id (A1), so there is one lookup and no second id space.
     const agentId = isAgentId(key) ? key : null;
+    if (key === scope.address) return true;
     const inScope = options.targets.length
       ? items.has(key)
       : agentId !== null && eventWithinSpaceWall(orchDir(), agentId, callerSpace());
@@ -276,6 +277,7 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
   const askingCount = event.newState === "asking" && typeof event.askCount === "number"
     ? ` (asked ${event.askCount}x${event.gaveUp === true ? "; gave up" : ""})`
     : "";
+  if (event.mail) return `${title}  ${oneLine(event.mail.text)}`;
   return `${title}  ${event.oldState}->${event.newState}${askingCount}`;
 }
 

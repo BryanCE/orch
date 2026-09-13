@@ -13,6 +13,7 @@ import { processStartToken } from "../src/process-identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
+import { seedLiveProcess } from "./helpers/agent.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
@@ -52,11 +53,15 @@ function fixture(): string {
   const db = orm(directory);
   db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
   for (const id of [CALLER, HELD, LOOSE, ORPHAN, DEAD_ORCH]) {
-    insertAgent(directory, { id, harnessId: "pi", cwd: "/tmp", name: id, createdAt: 1 });
+    const name = id === HELD ? "held-1" : id === LOOSE ? "loose-1" : id === ORPHAN ? "orphan-1" : id;
+    insertAgent(directory, { id, harnessId: "pi", cwd: "/tmp", name, createdAt: 1 });
   }
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
   db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${CALLER},${1},${"host"},${process.pid},${token})`);
+  seedLiveProcess(directory, HELD);
+  seedLiveProcess(directory, LOOSE);
+  seedLiveProcess(directory, ORPHAN);
   acquireLease(directory, HELD, CALLER, 2);
   acquireLease(directory, ORPHAN, DEAD_ORCH, 2);
 

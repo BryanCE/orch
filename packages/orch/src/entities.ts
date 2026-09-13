@@ -9,7 +9,7 @@ import { abstractAgentLabel } from "./notify/format.ts";
 import { agentViews } from "./store/agent-view.ts";
 import { callerSpace, selfId } from "./identity/self.ts";
 import { callerKind } from "./policy/caller.ts";
-import { currentLease } from "./store/lease-rows.ts";
+import { holdsLease } from "./store/lease-rows.ts";
 import { ambiguousTargetRefusal, CommandRefusal } from "./refusal.ts";
 
 export { spaceOf } from "./policy/space.ts";
@@ -331,7 +331,7 @@ export function callerMayResolve(entity: Pick<Entity, "key">): boolean {
   const caller = selfId();
   if (caller === undefined) return false;
   try {
-    return currentLease(orchDir(), entity.key)?.orchId === caller;
+    return holdsLease(orchDir(), entity.key, caller);
   } catch {
     return false;
   }

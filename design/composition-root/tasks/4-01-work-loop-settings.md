@@ -17,6 +17,6 @@ Do:
 
 3. `src/commands/queue.ts` `cmdWork`: where it builds `WorkOptions`, add `settings: services.settings`.
 
-`src/daemon/orchd.ts:817` passes `getSettings: () => getSettings(directory)`; that line breaks now. Do not edit it; task 4-02 owns `orchd.ts` and runs next.
+`src/daemon/orchd.ts:817` passes `getSettings: () => getSettings(directory)`; that line breaks now. Do not edit it; the 4-02 chain owns `orchd.ts` and runs next.
 
 Check: lint, tc on your three files. Tests: `test/agent-monitor.test.ts` and `grep -l "work-loop" test/*.ts`.

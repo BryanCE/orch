@@ -358,12 +358,13 @@ export function resolveLifecycleTarget(target: string): LifecycleTarget {
   const allViews = agentViewIndex();
   const views = new Map([...allViews].filter(([key]) => callerMayResolve({ key })));
   const presence = presenceById();
-  const entities = buildEntities().filter((entity) => callerMayResolve(entity));
+  const entities = buildEntities({ skipBackends: true }).filter((entity) => callerMayResolve(entity));
   const inventory = resolveFromInventory(entities, views, target);
   const composed = inventory.ent ? inventory : resolveFromViews(entities, views, presence, target);
   const view = composed.view ?? (composed.ent ? viewForKey(views, composed.ent.key) : undefined);
   const ent = composed.ent
-    ?? (composed.view ? entityFromView(composed.view, presence) : resolveTarget(target, { all: true }));
+    ?? (composed.view ? entityFromView(composed.view, presence) : undefined);
+  if (!ent) refuseForeignTarget(target);
   // Lifecycle resolution must obey the same open-lease wall as ordinary target
   // resolution. The operator remains unscoped so the human can still close a
   // foreign agent; a driving session gets the ordinary unknown-target refusal.

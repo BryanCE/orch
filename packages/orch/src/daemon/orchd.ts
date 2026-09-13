@@ -56,7 +56,7 @@ import type { NotifyEvent } from "../types/notify.ts";
 import type { LogContext, LogLevel, Logger } from "../types/core.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { pendingQuestion, pendingQuestions, recordQuestion, settleQuestion } from "../store/question-rows.ts";
-import { recordedProcessIsLive } from "../store/interval-rows.ts";
+import { agentProcessLive, recordedProcessIsLive } from "../store/interval-rows.ts";
 import { createPanePainter } from "./pane-painter.ts";
 import { activePaneHud } from "../backends/hud.ts";
 import { peerView } from "./peer-view.ts";
@@ -190,6 +190,24 @@ function bridgeNotifyEvent(params: Record<string, unknown>): NotifyEvent {
   return event;
 }
 
+/** Build the event carrying mail for a live session with no bridge route. */
+function sessionMessageEvent(directory: string, key: string, id: string, text: string): NotifyEvent {
+  const view = agentView(directory, key);
+  return {
+    key,
+    space: view?.environment.space ?? undefined,
+    agent: view?.name ?? null,
+    name: view?.name ?? null,
+    tab: null,
+    model: null,
+    oldState: "message",
+    newState: "message",
+    dispatchId: id,
+    ts: new Date().toISOString(),
+    mail: { id, text },
+  };
+}
+
 /** Send one outbox write into its target's text channel. New work and a mid-run steer
  *  differ only in the action kind; both go through the one control dispatcher. */
 export async function deliverWrite(target: string, payload: unknown, id: string): Promise<OutboxDelivery> {
@@ -201,9 +219,15 @@ export async function deliverWrite(target: string, payload: unknown, id: string)
   }
   const text = payload.text;
   const kind = payload.action === "dispatch" ? "run" : "steer";
-  if (!resolveTargetAdapter(canonicalTarget)) {
-    const route = resolveTargetRoute(canonicalTarget);
+  const route = resolveTargetRoute(canonicalTarget);
+  if (!resolveTargetAdapter(canonicalTarget) || (!bridgeAttached(canonicalTarget) && !route?.backend.agentInput)) {
     if (!route?.backend.agentInput) {
+      if (agentProcessLive(orchDir(), canonicalTarget)) {
+        const event = sessionMessageEvent(orchDir(), canonicalTarget, id, text);
+        emitAndNotify((published) => server?.emit(published), getSinks(orchDir()), event, orchDir());
+        log.info("dispatch.delivered", { target: canonicalTarget, action: payload.action, reason: "session-stream" });
+        return "acked";
+      }
       log.warn("dispatch.gone", { target: canonicalTarget, reason: "no delivery route" });
       return "gone";
     }
@@ -719,11 +743,20 @@ async function main(): Promise<void> {
       "control-outcome": (params) => {
         const value = rpcParams(params);
         const error = typeof value.error === "string" ? value.error : undefined;
+        const rawApplied = value.applied;
+        const applied = isRecord(rawApplied) && typeof rawApplied.model === "string"
+          && (rawApplied.thinking === undefined || isThinkingLevel(rawApplied.thinking))
+          ? {
+              model: rawApplied.model,
+              ...(rawApplied.thinking === undefined ? {} : { thinking: rawApplied.thinking }),
+            }
+          : undefined;
         const report: ControlOutcomeReport = {
           id: requiredString(value.id, "id"),
           key: requiredString(value.key, "key"),
           command: requiredString(value.command, "command"),
           requested: isRecord(value.requested) ? value.requested : {},
+          ...(applied === undefined ? {} : { applied }),
           ...(error === undefined ? {} : { error }),
         };
         insertControlOutcome(directory, {

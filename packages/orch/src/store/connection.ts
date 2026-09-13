@@ -1,14 +1,13 @@
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
-import { defineRelations, isNull, sql } from "drizzle-orm";
+import { defineRelations, sql } from "drizzle-orm";
 import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "../db/schema.ts";
-import { agentProcesses } from "../db/schema.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { recordedInstanceIsLive } from "../process-identity.ts";
-import { ensurePrivateDir, errorMessage } from "../util.ts";
+import { ensurePrivateDir, errorMessage, isRecord } from "../util.ts";
 
 /** One open file: the drizzle handle every caller queries through, beside the
  *  driver it was built on. The driver is reached for exactly two things drizzle
@@ -30,9 +29,24 @@ const connections = new Map<string, OpenDatabase>();
 /** `node:sqlite` is a builtin in node and bun alike: no compiled addon to
  *  mismatch a platform, and none for bun's N-API layer to panic on
  *  (oven-sh/bun#24956). */
-function createDatabase(file: string): OpenDatabase {
-  const client = new DatabaseSync(file);
+function createDatabase(file: string, readOnly = false): OpenDatabase {
+  const client = readOnly ? new DatabaseSync(file, { readOnly: true }) : new DatabaseSync(file);
   return { client, orm: drizzle({ client, relations }) };
+}
+
+interface LiveProcessRow {
+  readonly agent_id: string;
+  readonly pid: number;
+  readonly start_token: string | null;
+}
+
+function isLiveProcessRow(value: unknown): value is LiveProcessRow {
+  if (!isRecord(value)) return false;
+  const agentId = value.agent_id;
+  const pid = value.pid;
+  const startToken = value.start_token;
+  return typeof agentId === "string" && typeof pid === "number"
+    && (typeof startToken === "string" || startToken === null);
 }
 
 function databasePath(orchDir: string): string {
@@ -46,21 +60,23 @@ function migrationsFolder(): string {
   return join(import.meta.dirname, "..", "..", "drizzle");
 }
 
-/** Every agent with an open process row whose recorded process instance is
- *  live. The store is the sole liveness source: recreating under one erases a
- *  living agent's identity. A store that cannot be opened or queried gives no
- *  evidence and therefore returns an empty list. */
+/** Store process rows are the liveness source; read raw because the store may be refused. */
 export function livePresenceHolders(orchDir: string): string[] {
+  let opened: OpenDatabase | undefined;
   try {
-    return orm(orchDir).select({
-      agentId: agentProcesses.agentId,
-      pid: agentProcesses.pid,
-      startToken: agentProcesses.startToken,
-    }).from(agentProcesses).where(isNull(agentProcesses.until)).all()
-      .filter((row) => recordedInstanceIsLive(row.pid, row.startToken))
-      .map((row) => row.agentId);
+    opened = createDatabase(databasePath(orchDir), true);
+    const rows = opened.client.prepare("SELECT agent_id, pid, start_token FROM agent_processes WHERE until IS NULL").all();
+    const processes: LiveProcessRow[] = [];
+    for (const row of rows) {
+      if (isLiveProcessRow(row)) processes.push(row);
+    }
+    return processes
+      .filter((row) => recordedInstanceIsLive(row.pid, row.start_token))
+      .map((row) => row.agent_id);
   } catch {
     return [];
+  } finally {
+    try { opened?.client.close(); } catch {}
   }
 }
 

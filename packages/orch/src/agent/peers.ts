@@ -9,8 +9,9 @@
 import { Type } from "typebox";
 import { term } from "../policy/vocabulary.ts";
 import { modelSpec } from "../policy/thinking.ts";
-import { recipientFromStatus, recipientLabel } from "../recipient.ts";
-import { isPresenceStatus, presenceAgentDir, readLatestResult, readStatus } from "../presence/writer.ts";
+import { recipientLabel } from "../recipient.ts";
+import { agentProcessLive } from "../store/interval-rows.ts";
+import { orchDir, presenceAgentDir, readLatestResult, readStatus } from "../presence/writer.ts";
 import { isRecord, optionalString, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
@@ -37,8 +38,13 @@ function isDriveState(value: unknown): value is DriveState {
 }
 
 function isPeerView(value: unknown): value is PeerView {
-  if (!isRecord(value) || !Array.isArray(value.peers) || !Array.isArray(value.visible) || !isRecord(value.spaces) || !isRecord(value.drive)) return false;
-  return (value.peers === undefined || value.peers.every((peer) => isRecord(peer) && typeof peer.key === "string" && isPresenceStatus(peer.status)))
+  if (!isRecord(value) || (value.peers !== undefined && !Array.isArray(value.peers)) || !Array.isArray(value.visible) || !isRecord(value.spaces) || !isRecord(value.drive)) return false;
+  return (value.peers === undefined || value.peers.every((peer) => isRecord(peer)
+    && typeof peer.key === "string"
+    && typeof peer.name === "string"
+    && typeof peer.harness === "string"
+    && (peer.spawnedBy === null || typeof peer.spawnedBy === "string")
+    && (peer.status === null || isRecord(peer.status))))
     && value.visible.every((key) => typeof key === "string")
     && Object.values(value.spaces).every((space) => space === null || typeof space === "string")
     && Object.values(value.drive).every(isDriveState);
@@ -58,7 +64,14 @@ async function livePeers(daemon: DaemonClient, ownKey: string, allSpaces = false
     if (!view) return undefined;
     const peers = (view.peers ?? [])
       .filter((peer) => peer.key !== ownKey)
-      .map((peer) => ({ key: peer.key, dir: presenceAgentDir(peer.key), status: peer.status }))
+      .map((peer) => ({
+        key: peer.key,
+        dir: presenceAgentDir(peer.key),
+        name: peer.name,
+        harness: peer.harness,
+        spawnedBy: peer.spawnedBy,
+        status: peer.status,
+      }))
       .sort((left, right) => left.key.localeCompare(right.key));
     return { peers, view };
   } catch {
@@ -82,9 +95,16 @@ const UNREACHABLE_SPAWNER_ADVICE = " Write your result and end the turn; it is c
 async function liveSpawnerPeer(daemon: DaemonClient): Promise<Peer | undefined> {
   const key = optionalString(process.env.ORCH_SPAWNER);
   if (!key) return undefined;
-  const view = await peerViewFor(daemon, key, [key], true);
+  const view = await peerViewFor(daemon, "", [key], true);
   const peer = (view?.peers ?? []).find((candidate) => candidate.key === key);
-  return peer === undefined ? undefined : { key, dir: presenceAgentDir(key), status: peer.status };
+  return peer === undefined ? undefined : {
+    key,
+    dir: presenceAgentDir(key),
+    name: peer.name,
+    harness: peer.harness,
+    spawnedBy: peer.spawnedBy,
+    status: peer.status,
+  };
 }
 
 /** Whether the stamped spawner has a live process and status record. */
@@ -111,30 +131,31 @@ export async function resolvePeer(daemon: DaemonClient, target: string, ownKey: 
   const live = await livePeers(daemon, ownKey, allRequested);
   if (!live) return { error: "error: peer view unavailable" };
   const exact = live.peers.find((peer) => peer.key === target);
-  const matches = exact ? [exact] : live.peers.filter((peer) => peer.key.endsWith(target) || optionalString(peer.status.label) === target);
+  const matches = exact ? [exact] : live.peers.filter((peer) => peer.key.endsWith(target) || peer.name === target);
   if (matches.length === 1 && matches[0]) return { peer: matches[0] };
   if (matches.length > 1) return { error: `error: ambiguous target. Candidates: ${matches.map((peer) => peer.key).join(", ")}` };
   return { error: `error: target not found. Candidates: ${live.peers.map((peer) => peer.key).join(", ")}` };
 }
 
 function summarizePeer(peer: Peer, view: PeerView, spawnerKey: string | undefined): PeerSummary {
+  const status = peer.status ?? {};
   return {
     key: peer.key,
-    name: optionalString(peer.status.label),
-    harness: optionalString(peer.status.agent),
+    name: peer.name,
+    harness: peer.harness,
     space: view.spaces[peer.key] ?? null,
-    state: optionalString(peer.status.state) ?? "unknown",
+    state: optionalString(status.state) ?? "unknown",
     drive: view.drive[peer.key] ?? { kind: "unleased", owner: "unleased", mine: false },
     isSpawner: peer.key === spawnerKey ? true : undefined,
-    spawnedBy: optionalString(peer.status.spawnedBy),
-    spawnedByLabel: optionalString(peer.status.spawnedByLabel),
-    worktree: optionalString(peer.status.worktree),
-    branch: optionalString(peer.status.branch),
-    model: peerModel(peer.status),
-    task: optionalString(peer.status.task),
-    lastText: truncate(typeof peer.status.lastText === "string" ? peer.status.lastText : "", 120),
-    cost: typeof peer.status.cost === "number" ? peer.status.cost : undefined,
-    updatedAt: optionalString(peer.status.updatedAt),
+    spawnedBy: peer.spawnedBy ?? undefined,
+    spawnedByLabel: optionalString(status.spawnedByLabel),
+    worktree: optionalString(status.worktree),
+    branch: optionalString(status.branch),
+    model: peerModel(status),
+    task: optionalString(status.task),
+    lastText: truncate(typeof status.lastText === "string" ? status.lastText : "", 120),
+    cost: typeof status.cost === "number" ? status.cost : undefined,
+    updatedAt: optionalString(status.updatedAt),
   };
 }
 
@@ -176,9 +197,12 @@ export async function sendPeerMessage(daemon: DaemonClient, target: string, text
   });
   if (response === undefined) return "error: daemon unreachable; message not sent";
   // The sender knows a peer by its name and harness, not by the transport key that routed there.
-  const live = await livePeers(daemon, ownKey, allSpaces);
-  const space = live?.view.spaces[resolved.peer.key] ?? null;
-  const label = recipientLabel(recipientFromStatus(resolved.peer.key, space ?? "", resolved.peer.status));
+  const label = recipientLabel({
+    name: resolved.peer.name,
+    harness: resolved.peer.harness,
+    multiplexer: null,
+    transportId: resolved.peer.key,
+  });
   if (isRecord(response) && response.ack === "acknowledged") return `sent to ${label}`;
   return `sent to ${label} (queued, not yet read)`;
 }
@@ -299,7 +323,8 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence, 
     },
   });
 
-  if (optionalString(process.env.ORCH_SPAWNER)) {
+  const spawnerKey = optionalString(process.env.ORCH_SPAWNER);
+  if (spawnerKey && agentProcessLive(orchDir(), spawnerKey)) {
     harness.registerTool({
       name: "orch_send",
       label: `Send to ${term("orch")} Agent`,
@@ -340,14 +365,15 @@ export function registerPeerTools(harness: HarnessApi, presence: AgentPresence, 
         const resolved = await resolvePeer(daemon, params.target, ownKey, crossSpace);
         if ("error" in resolved) return resolved.error;
         const resultRecord = readLatestResult(resolved.peer.dir) ?? {};
+        const status = resolved.peer.status ?? {};
         const text = typeof resultRecord.text === "string"
           ? resultRecord.text
-          : typeof resolved.peer.status.lastText === "string" ? resolved.peer.status.lastText : "";
+          : typeof status.lastText === "string" ? status.lastText : "";
         return JSON.stringify({
           key: resolved.peer.key,
           space: null,
-          state: optionalString(resolved.peer.status.state) ?? "unknown",
-          model: peerModel(resolved.peer.status),
+          state: optionalString(status.state) ?? "unknown",
+          model: peerModel(status),
           text,
         });
       }, "error: unable to read peer agent");

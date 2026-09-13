@@ -7,6 +7,7 @@ import { describeBackendEnvironments } from "../src/doctor/backends.ts";
 import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
+import { readPresenceStatus } from "../src/presence/writer.ts";
 import { removeTempDir } from "../test/helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
@@ -31,6 +32,7 @@ function recordProcess(dir: string, id: string, pid: number, token: string | nul
 const testDependencies = {
   processAlive: (pid: number) => pid === process.pid,
   plexerInventory: () => [],
+  readPresenceStatus,
 };
 
 afterEach(() => {
@@ -70,7 +72,7 @@ describe("doctor declared-vs-reality", () => {
     orm(dir).run(sql`INSERT INTO agent_handles(agent_id,since,handle) VALUES ('worker',1,'gone')`);
 
     const result = checkDeclaredVsReality(dir, {
-      processAlive: testDependencies.processAlive,
+      ...testDependencies,
       plexerInventory: () => [{ handle: "still-here" }],
     });
     expect(result.status).toBe("warn");
@@ -88,10 +90,7 @@ describe("doctor declared-vs-reality", () => {
     recordProcess(dir, "spawner", 99999999, "dead-start");
     recordProcess(dir, "worker", process.pid, null);
 
-    const result = checkDeclaredVsReality(dir, {
-      plexerInventory: () => [],
-      processAlive: (pid) => pid === process.pid,
-    });
+    const result = checkDeclaredVsReality(dir, testDependencies);
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("worker");
     expect(result.detail).toContain("spawner");

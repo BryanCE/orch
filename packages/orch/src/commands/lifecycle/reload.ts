@@ -256,11 +256,24 @@ export async function cmdRestart(args: string[]): Promise<void> {
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
   const cmd = values.get("--cmd") ?? null;
   const settings = loadSettings(orchDir());
+  const results: ReloadResult[] = [];
   let ok = 0;
   for (const target of targets) {
-    if (await restartOneTarget(target, cmd, settings, flags)) ok++;
+    try {
+      const restarted = await restartOneTarget(target, cmd, settings, flags);
+      if (restarted) {
+        ok++;
+        results.push({ handle: target, ok: true });
+      } else {
+        results.push({ handle: target, ok: false, reason: "restart failed" });
+      }
+    } catch (error: unknown) {
+      const reason = errorMessage(error);
+      results.push({ handle: target, ok: false, reason });
+      if (!json) process.stdout.write(`FAILED ${target}: ${reason}\n`);
+    }
   }
-  if (json) process.stdout.write(JSON.stringify({ targets, ok, total: targets.length, hard: true }) + "\n");
+  if (json) process.stdout.write(JSON.stringify({ results, targets, ok, total: targets.length, hard: true }) + "\n");
   else process.stdout.write(`${ok}/${targets.length} restarted with fresh bridge.\n`);
   // `process.exitCode`, never `process.exit()` — same rule as reload above.
   if (ok !== targets.length) process.exitCode = 1;

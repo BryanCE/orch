@@ -13,7 +13,8 @@ import { deliverOutboxMessage } from "../src/daemon/outbox.ts";
 import type { OutboxDeps } from "../src/types/daemon.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const dirs: string[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
@@ -38,6 +39,7 @@ describe("orch bridge links and capture roles", () => {
     const orchDir = tempOrchDir();
     const key = "workeragt1";
     seedAgent(key, { adapter: "pi" }, orchDir);
+    seedLiveProcess(orchDir, key);
     seedStatus(orchDir, key, { key, agent: "pi", state: "working" });
     const deliveries: BridgeDelivery[] = [];
     const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
@@ -53,6 +55,33 @@ describe("orch bridge links and capture roles", () => {
     expect(outboxMessageState(orchDir, id)).toBe("awaiting");
     markOutboxDelivered(orchDir, id);
     expect(outboxMessageState(orchDir, id)).toBe("delivered");
+  });
+
+  test("live session delivery settles mail without a bridge or pane route", async () => {
+    const orchDir = tempOrchDir();
+    const key = "sessionagt1";
+    writeSettingsFixture(orchDir);
+    seedAgent(key, {}, orchDir);
+    seedLiveProcess(orchDir, key);
+    const id = "steer-session-1";
+    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w (wkey)] hi" } });
+
+    await deliverOutboxMessage(orchDir, id, { deliver: deliverWrite, maxAttempts: 3, now: () => 0 });
+
+    expect(outboxMessageState(orchDir, id)).toBe("delivered");
+  });
+
+  test("dead session without a bridge or pane route is undeliverable", async () => {
+    const orchDir = tempOrchDir();
+    const key = "sessionagt2";
+    writeSettingsFixture(orchDir);
+    seedAgent(key, {}, orchDir);
+    const id = "steer-session-2";
+    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w (wkey)] hi" } });
+
+    await deliverOutboxMessage(orchDir, id, { deliver: deliverWrite, maxAttempts: 3, now: () => 0 });
+
+    expect(outboxMessageState(orchDir, id)).toBe("undeliverable");
   });
 
   test("capture reads status and result from the orch presence record", () => {

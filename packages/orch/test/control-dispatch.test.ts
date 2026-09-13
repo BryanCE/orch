@@ -15,7 +15,7 @@ import { settleControlOutcome } from "../src/control/outcome.ts";
 import { getBackend, registerBackend } from "../src/backends/registry.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { currentTuning, endProcess } from "../src/store/interval-rows.ts";
 import { recordQuestion } from "../src/store/question-rows.ts";
 import type { AdapterId } from "../src/types/adapter.ts";
@@ -48,6 +48,7 @@ function target(): string {
 /** A live agent: registered with this runner as its process, plus its status. */
 function presence(directory: string, key: string, agent: AdapterId, extra: Record<string, unknown> = {}): void {
   seedAgent(key, { adapter: agent }, directory);
+  seedLiveProcess(directory, key);
   seedStatus(directory, key, { agent, ...extra });
 }
 
@@ -192,6 +193,7 @@ describe("deliverControl bridge dispatch", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     seedAgent(key, { adapter: "claude", backend: "headless", handle: key });
+    seedLiveProcess(directory, key);
     seedStatus(directory, key, { agent: "claude" });
     const submitted: { handle: unknown; text: string }[] = [];
     const backend = new FakePanedBackend();

@@ -18,7 +18,7 @@ import { removeTempDir } from "../test/helpers/tempdir.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "../test/helpers/backend.ts";
 import { fakeAdapter } from "../test/helpers/adapter.ts";
 import { seedSpace } from "../test/helpers/space.ts";
-import { placeAgent, seedAgent, seedDeadAgent } from "../test/helpers/agent.ts";
+import { placeAgent, seedAgent, seedLiveProcess } from "../test/helpers/agent.ts";
 import { seedStatus } from "../test/helpers/presence.ts";
 import { peerView } from "../src/daemon/peer-view.ts";
 import { sql } from "drizzle-orm";
@@ -119,10 +119,12 @@ describe("fleet ownership scoping", () => {
     seedAgent(child, { adapter: "pi", backend: "headless", space: "space-child", spawnedBy: root });
     seedAgent(grandchild, { adapter: "pi", backend: "headless", space: "space-child", spawnedBy: child });
     seedAgent(foreignRoot, { adapter: "pi", backend: "headless", space: "space-root" });
-    seedStatus(dir, root, { pid: process.pid, state: "working", project: "/other/project" });
-    seedStatus(dir, child, { pid: process.pid, state: "working", project: process.cwd() });
-    seedStatus(dir, grandchild, { pid: process.pid, state: "working", project: process.cwd() });
-    seedStatus(dir, foreignRoot, { pid: process.pid, state: "working", project: "/other/project" });
+    // Liveness is the store's process row, never the pid a status file claims.
+    for (const key of [root, child, grandchild, foreignRoot]) seedLiveProcess(dir, key);
+    seedStatus(dir, root, { state: "working", project: "/other/project" });
+    seedStatus(dir, child, { state: "working", project: process.cwd() });
+    seedStatus(dir, grandchild, { state: "working", project: process.cwd() });
+    seedStatus(dir, foreignRoot, { state: "working", project: "/other/project" });
     // Identity is injected through ownKey; no launch credential is set.
     delete process.env[LAUNCH_ENV];
 
@@ -169,7 +171,7 @@ describe("fleet ownership scoping", () => {
     delete process.env.HERDR_PANE_ID;
     delete process.env.TMUX_PANE;
     seedSpace(dir, "local");
-    seedDeadAgent("kunowned01", { adapter: "pi", backend: "headless", space: "local", handle: "unowned", owner: "other" });
+    seedAgent("kunowned01", { adapter: "pi", backend: "headless", space: "local", handle: "unowned", owner: "other" });
     const result = runCli(dir, ["close", "--all", "--json"], undefined);
     expect(result.status).toBe(0);
     expect(spawnedRecords().has("kunowned01")).toBe(false);
@@ -350,15 +352,10 @@ describe("a spawned agent touches only what it spawned", () => {
   test("close --all from an AGENT sweeps only its own subtree", () => {
     const dir = makeDir();
     seedSpace(dir, "wF");
-    // The caller is an agent, so ownership is the PROVENANCE chain: user -> orch
-    // -> the slaves it owns. `owner` here is the LEASE, which answers who is
-    // DRIVING and is deliberately not what ending is gated on - a lease can be
-    // adopted, and adopting a driver must never hand over the right to end.
-    // Provenance needs a spawner that EXISTS: `recordSpawned` drops a
-    // `spawnedBy` naming no agent rather than inventing the row it points at.
-    seedDeadAgent(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey });
-    seedDeadAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
-    seedDeadAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
+    // An agent's sweep reaches only what it owns: what it spawned or adopted.
+    seedAgent(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey });
+    seedAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
+    seedAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
 
     const result = runCli(dir, ["close", "--all", "--json"], undefined, { [LAUNCH_ENV]: agentKey });
     expect(result.status).toBe(0);
@@ -371,9 +368,9 @@ describe("a spawned agent touches only what it spawned", () => {
   test("close --all from the HUMAN sweeps every managed spawn, whoever spawned it", () => {
     const dir = makeDir();
     seedSpace(dir, "wF");
-    seedDeadAgent(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey });
-    seedDeadAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
-    seedDeadAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
+    seedAgent(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey });
+    seedAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey });
+    seedAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" });
 
     // No [LAUNCH_ENV]: the caller is a person at a terminal. Rule 11 - the
     // human must ALWAYS be able to stop a runaway agent, so nothing gates this.
@@ -389,11 +386,10 @@ describe("a spawned agent touches only what it spawned", () => {
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     seedSpace(dir, "wF");
-    seedDeadAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: "kwfoperato" });
+    seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: "kwfoperato" });
 
     const result = runCli(dir, ["close", key], undefined, { [LAUNCH_ENV]: agentKey });
-    // An agent reaches only its own provenance subtree. The refusal has to say
-    // whose it is and who to ask, or the agent has nothing to do but retry.
+    // An agent may not close what it neither spawned nor adopted; the refusal says who to ask.
     expect(result.status).not.toBe(0);
     expect(result.output).toContain("not yours to close");
     expect(spawnedRecords().has(key)).toBe(true);
@@ -405,8 +401,8 @@ describe("a spawned agent touches only what it spawned", () => {
     mkdirSync(join(dir, "agents", key), { recursive: true });
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     seedSpace(dir, "wF");
-    seedDeadAgent(agentKey, { backend: "headless", adapter: "pi", space: "wF", handle: agentKey });
-    seedDeadAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: agentKey });
+    seedAgent(agentKey, { backend: "headless", adapter: "pi", space: "wF", handle: agentKey });
+    seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: agentKey });
 
     const result = runCli(dir, ["close", key], undefined, { [LAUNCH_ENV]: agentKey });
     expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
@@ -420,7 +416,7 @@ describe("a spawned agent touches only what it spawned", () => {
     // A dead pid: close must reap the record, never signal a live process here.
     writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "working" }));
     seedSpace(dir, "wF");
-    seedDeadAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, owner: agentKey });
+    seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, owner: agentKey });
 
     const result = runCli(dir, ["close", key], "kwfoperato");
     // Assert on the pair so a non-zero exit prints what orch actually said.

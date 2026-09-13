@@ -2,14 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claimAgent } from "../src/store/agent-rows.ts";
+import { claimAgent, ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { assertStoreRecreatable, closeAllStores, orm } from "../src/store/connection.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
 const dirs: string[] = [];
 const originalOrchDir = process.env.ORCH_DIR;
@@ -53,6 +52,15 @@ function unmigrated(dir: string): string {
   return path;
 }
 
+function seedUnmigratedLiveProcess(path: string): void {
+  const database = new Database(path);
+  database.exec("INSERT INTO harnesses(id,name) VALUES ('pi','pi')");
+  database.exec("INSERT INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)");
+  database.exec("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('herdr~w1~p1','herdr~w1~p1','pi','/tmp','herdr~w1~p1',1)");
+  database.exec(`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES ('herdr~w1~p1',1,'test-host',${process.pid},NULL)`);
+  database.close();
+}
+
 describe("store migration guards", () => {
   test("a store predating the migrations is refused, not rebuilt over", () => {
     const dir = fixture();
@@ -68,14 +76,8 @@ describe("store migration guards", () => {
   test("names live presence as the thing to close before rebuilding", () => {
     const dir = fixture();
     const path = unmigrated(dir);
+    seedUnmigratedLiveProcess(path);
     const before = readFileSync(path);
-    // The guard asks only whether a presence record is LIVE, never what shape
-    // its directory name has, so this fixture keeps a name orch would never
-    // mint: a directory on disk can be called anything, and the refusal has to
-    // survive one that is.
-    const presenceDir = join(dir, "agents", "herdr~w1~p1");
-    mkdirSync(presenceDir, { recursive: true });
-    writeFileSync(join(presenceDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, pid: process.pid, state: "working" }));
 
     expect(() => orm(dir)).toThrow(/live agents/i);
     expect(readFileSync(path)).toEqual(before);
@@ -106,12 +108,6 @@ function exportSpawnedIdentity(): void {
   process.env[HARNESS_SESSION_ENV.pi.sessionId] = SPAWNED_SESSION_TOKEN;
 }
 
-function seedLivePresence(dir: string, key: string, pid: number): void {
-  const presenceDir = join(dir, "agents", key);
-  mkdirSync(presenceDir, { recursive: true });
-  writeFileSync(join(presenceDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, pid, state: "working" }));
-}
-
 describe("a slave never reaps or recreates the store", () => {
   test("a spawned agent hitting a schema-mismatched store errors and mutates nothing", () => {
     const dir = fixture();
@@ -136,9 +132,10 @@ describe("a slave never reaps or recreates the store", () => {
     const dir = fixture();
     orm(dir);
     closeAllStores();
-    // Deliberately not a minted id: the refusal names whatever directory it
-    // found, and must not silently skip one whose name it cannot parse.
-    seedLivePresence(dir, "herdr~w1~p1", process.pid);
+    // Deliberately not a minted id: the refusal names whatever id it found.
+    ensureHarness(dir, "pi", "pi", 1);
+    insertAgent(dir, { id: "herdr~w1~p1", harnessId: "pi", cwd: process.cwd(), name: "herdr~w1~p1", createdAt: 1 });
+    seedLiveProcess(dir, "herdr~w1~p1");
 
     // No [LAUNCH_ENV]: this is the user, and the living agent's identity is
     // still not collateral.
@@ -152,8 +149,8 @@ describe("a slave never reaps or recreates the store", () => {
     const dir = fixture();
     orm(dir);
     closeAllStores();
-    // Same unparseable directory name, dead pid: still not a live holder.
-    seedLivePresence(dir, "herdr~w1~dead", 999999);
+    // Same unparseable id, dead pid: still not a live holder.
+    seedAgent("herdr~w1~dead", { adapter: "pi" }, dir);
 
     expect(() => assertStoreRecreatable(dir)).not.toThrow();
   });

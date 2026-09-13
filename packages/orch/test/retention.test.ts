@@ -14,7 +14,7 @@ import { ORCH_LOG_MAX_BYTES, sweepExpiredRows } from "../src/daemon/retention.ts
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeResult } from "../src/presence/writer.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { RunRecord } from "../src/types/store.ts";
@@ -215,6 +215,7 @@ describe("retention sweep", () => {
   test("never reaps a live presence dir regardless of age", () => {
     const orchDir = fixture();
     seedAgent("liveagent1", {}, orchDir);
+    seedLiveProcess(orchDir, "liveagent1");
     const dir = seedStatus(orchDir, "liveagent1", {});
     const old = new Date(NOW.getTime() - 100 * 24 * 60 * 60 * 1000);
     utimesSync(dir, old, old);
@@ -231,6 +232,7 @@ describe("retention sweep", () => {
     writeFileSync(deadLog, "dead");
     writeFileSync(liveLog, "live");
     seedAgent("liveagent1", {}, orchDir);
+    seedLiveProcess(orchDir, "liveagent1");
     seedStatus(orchDir, "liveagent1", {});
     const old = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
     utimesSync(deadLog, old, old);

@@ -7,7 +7,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { loadSettings } from "../src/settings/read.ts";
 import { isRecord } from "../src/util.ts";
 import { seedStatusInDir } from "./helpers/presence.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
 const tempDirs: string[] = [];
 
@@ -53,6 +53,7 @@ describe("orch presence notifications", () => {
     const { presenceAgentDir } = await import("../src/presence/writer.ts");
     const agentsDir = presenceAgentDir(key, orchDir);
     seedAgent(key, { name: "Test agent" }, orchDir);
+    seedLiveProcess(orchDir, key);
     seedStatusInDir(agentsDir, { state: "idle", label: "Test agent" });
     writeSettingsFixture(orchDir, {
       notify: [{ id: "command", on: ["working"], command }],

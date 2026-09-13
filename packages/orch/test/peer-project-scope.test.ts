@@ -8,7 +8,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { peerSummaries, resolvePeer } from "../src/agent/peers.ts";
 import { daemonClientForPeerView, daemonClientForPeers } from "./helpers/daemon-client.ts";
 import { peerView } from "../src/daemon/peer-view.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
@@ -40,6 +40,10 @@ describe("peer discovery walls on the project", () => {
 
   test("a same-workspace peer from another project is invisible by default", async () => {
     const directory = makeOrchDir();
+    seedAgent("sibling001", {}, directory);
+    seedLiveProcess(directory, "sibling001");
+    seedAgent("foreigner1", { name: "foreigner" }, directory);
+    seedLiveProcess(directory, "foreigner1");
     seedStatus(directory, "sibling001", { pid: process.pid, state: "working" });
     seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
 
@@ -49,6 +53,8 @@ describe("peer discovery walls on the project", () => {
 
   test("all_workspaces deliberately lifts the project wall", async () => {
     const directory = makeOrchDir();
+    seedAgent("foreigner1", { name: "foreigner" }, directory);
+    seedLiveProcess(directory, "foreigner1");
     seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
 
     const keys = (await peerSummaries(daemonClientForPeers(["foreigner1"]), ownKey, true)).map((peer) => peer.key);
@@ -57,6 +63,8 @@ describe("peer discovery walls on the project", () => {
 
   test("a cross-project target does not resolve for sends without the explicit flag", async () => {
     const directory = makeOrchDir();
+    seedAgent("foreigner1", { name: "foreigner" }, directory);
+    seedLiveProcess(directory, "foreigner1");
     seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
 
     const refused = await resolvePeer(daemonClientForPeers(["foreigner1"]), "foreigner", ownKey);
@@ -67,6 +75,8 @@ describe("peer discovery walls on the project", () => {
 
   test("a record with no project stamp is malformed and never listed", async () => {
     const directory = makeOrchDir();
+    seedAgent("unstamped1", {}, directory);
+    seedLiveProcess(directory, "unstamped1");
     seedStatus(directory, "unstamped1", { pid: process.pid, state: "working", project: undefined });
 
     expect(await peerSummaries(daemonClientForPeers(["unstamped1"]), ownKey)).toEqual([]);
@@ -74,6 +84,8 @@ describe("peer discovery walls on the project", () => {
 
   test("a spawned agent's all_workspaces flag is ignored", async () => {
     const directory = makeOrchDir();
+    seedAgent("foreigner1", { name: "foreigner" }, directory);
+    seedLiveProcess(directory, "foreigner1");
     seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
     const rootKey = "root000001";
     seedAgent(rootKey, {}, directory);

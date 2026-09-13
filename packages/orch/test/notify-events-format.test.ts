@@ -110,6 +110,11 @@ describe("notification and presence event formatting", () => {
     });
   });
 
+  test("message notification titles contain delivered mail text", () => {
+    const title = notificationText(event({ oldState: "message", newState: "message", mail: { id: "mail-1", text: "[from worker (worker-key)] hello orchestrator" } }), { colorize: false }).title;
+    expect(title).toContain("[from worker (worker-key)] hello orchestrator");
+  });
+
   test("webhook payload includes space and spaceColor", async () => {
     let body = "";
     const originalFetch = globalThis.fetch;

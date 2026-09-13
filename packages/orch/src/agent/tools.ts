@@ -118,14 +118,14 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     }),
     async execute(_toolCallId, params: OrchAskParams, signal, _onUpdate, ctx: HarnessContext) {
       try {
-        presence.ownPresenceKey(ctx);
+        const agentId = presence.ownPresenceKey(ctx);
         const dir = presence.dir();
         if (!dir) return noOrchestratorAnswer();
         const id = Math.random().toString(36).slice(2, 10);
         const askedAt = Date.now();
         const ts = new Date(askedAt).toISOString();
         const question = truncate(params.question, 200);
-        await daemon.postQuestion({ notice: "question", questionId: id, question, askedAt });
+        await daemon.postQuestion({ notice: "question", agentId, questionId: id, question, askedAt });
         askingPreviousState = state.state;
         state.asking = { question, id, ts };
         state.state = "asking";

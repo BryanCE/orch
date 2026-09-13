@@ -9,16 +9,7 @@ import { callerAuthority, refuseClose } from "../src/policy/close-authority.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
-/**
- * Under the governing identity model.
- *
- * "The human must always be able to kill from the CLI or the web" is a
- * statement about the HUMAN, and only about the human. An agent is not a human
- * and does not inherit it: for an agent, ownership is a chain — user → orch →
- * the slaves it owns — and that chain is NOT the lease. Ending consults the
- * chain; driving consults the lease. Confusing the two would block an orch from
- * closing its own slave because somebody else happened to hold the lease.
- */
+/** A human may end anything. An agent may end what it owns: itself, what it spawned, what it adopted. */
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -74,13 +65,11 @@ describe("who may end an agent (D7)", () => {
     expect(refuseClose(d, callerAuthority({ id: "slaveA" }), "slaveA")).toBeNull();
   });
 
-  test("the LEASE never decides it: a foreign holder does not block the owner", () => {
+  test("adopting grants the right to end, and the spawner keeps it", () => {
     const d = fixture();
-    // orchB is driving orchA's slave. orchA still owns it and may end it.
     acquireLease(d, "slaveA", "orchB", 10);
+    expect(refuseClose(d, callerAuthority({ id: "orchB" }), "slaveA")).toBeNull();
     expect(refuseClose(d, callerAuthority({ id: "orchA" }), "slaveA")).toBeNull();
-    // And holding the lease confers no right to end it.
-    expect(refuseClose(d, callerAuthority({ id: "orchB" }), "slaveA")).toContain("orchA");
   });
 
   test("a provenance cycle terminates instead of hanging", () => {

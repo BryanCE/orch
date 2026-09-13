@@ -8,6 +8,7 @@ import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalSpawner = process.env.ORCH_SPAWNER;
@@ -76,6 +77,7 @@ describe("peer tool registration", () => {
   test("does not register orch_send when the spawner pid is dead", () => {
     const directory = tempOrchDir();
     process.env.ORCH_SPAWNER = "dead-spawner";
+    seedAgent("dead-spawner", {}, directory);
     seedStatus(directory, "dead-spawner", { pid: 2147483646 });
     const { harness, toolNames } = fakeHarness();
 
@@ -87,6 +89,8 @@ describe("peer tool registration", () => {
   test("registers orch_send when the spawner has a live status record", () => {
     const directory = tempOrchDir();
     process.env.ORCH_SPAWNER = "live-spawner";
+    seedAgent("live-spawner", {}, directory);
+    seedLiveProcess(directory, "live-spawner");
     seedStatus(directory, "live-spawner", { pid: process.pid });
     const { harness, toolNames } = fakeHarness();
 

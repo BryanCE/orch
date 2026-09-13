@@ -3,7 +3,7 @@
 Model: luna:low
 Owns: `src/settings/watch.ts`
 
-Requires 4-02 landed (the daemon passes `load`).
+Requires 4-02b landed (the daemon passes `load`).
 
 Goal: the watcher never loads settings itself.
 

@@ -157,7 +157,10 @@ export interface PeerSummary {
 export interface Peer {
   key: string;
   dir: string;
-  status: JsonRecord;
+  name: string;
+  harness: string;
+  spawnedBy: string | null;
+  status: JsonRecord | null;
 }
 
 export interface PeerResolutionError {

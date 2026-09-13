@@ -18,6 +18,7 @@ export type BridgeAction = BridgeMessage["action"];
  * publishes over its live link instead of writing a file the daemon has to watch. */
 export interface AgentNotice {
   readonly notice: "question";
+  readonly agentId: string;
   readonly questionId: string;
   readonly question: string;
   readonly askedAt: number;
@@ -26,6 +27,7 @@ export interface AgentNotice {
 export function isAgentNotice(value: unknown): value is AgentNotice {
   return isRecord(value)
     && value.notice === "question"
+    && typeof value.agentId === "string"
     && typeof value.questionId === "string"
     && typeof value.question === "string"
     && typeof value.askedAt === "number";

@@ -57,7 +57,7 @@ Writes to `settings.json` stay in `src/settings/write.ts` taking `orchDir: strin
 2. Dispatch each task in one shot with the commands under "Dispatch commands". A plain `orch dispatch` lands on a clean session, which satisfies Rule 7. `--keep-context` is used only for the chains listed under "Context continuity".
 3. Watch the push stream. Each worker reports `DONE` with its pasted check output, or `BLOCKED` with the reason.
 4. On `DONE`: the report is the agent's result; orch keeps it in that agent's `results.jsonl` and `orch result <agent>` reads it back. Nothing is copied anywhere. If it names callers or follow-ups, write the follow-up task files immediately (see "Generated tasks") and dispatch them to the freed worker. Never leave a worker idle while tasks exist.
-5. On `BLOCKED`: fix the task file, redispatch clean. Escalate straight from `luna:high` to `sol:low`, then `sol:high` (cap), only that worker. Never `luna:xhigh`.
+5. On `BLOCKED`: the task was too big or under-specified. First fix the task file, splitting it if it asks for more than one kind of change, and redispatch clean on `luna:high`. Only if the same slice blocks twice, escalate that one worker one step at a time: `sol:low`, then `sol:medium`, then `sol:high` (cap). Never `luna:xhigh`. Needing a bigger model is a signal to rewrite the task, not a normal path.
 6. When a wave's last task lands, run `bun check` from the repo root over the whole tree. Green means commit point. Red means write a fix task from the output and dispatch it. Do not start the next wave on a red tree except where the wave table says the tree is expected red until a closing task.
 
 Rules that bind the delegator: Rule 1 (never build, migrate, reload), Rule 0 (the gate is the delegator's whole-tree `bun check`), Rule 3 (one owner per file per wave), Rule 7 (clean session per task, except the chains Bryan authorised below).
@@ -88,9 +88,9 @@ Handing one agent's result to another. When a task says "the 2a signatures" or "
 ```
 orch pipe <finished agent> <working agent> "New signatures from <task id>; pass what each now requires."
 ```
-One `pipe` per source. Every 2b worker gets the three 2a results piped. `2b-spawn-index` gets the three spawn siblings. `2c-01` gets every 2a and 2b result. `4-02` gets every 3a result. Nothing is copied to disk and nothing is pasted into a task file.
+One `pipe` per source. Every 2b worker gets the three 2a results piped. `2b-spawn-index` gets the three spawn siblings. `2c-01a` gets every 2a and 2b result. `4-02a` gets every 3a result. Nothing is copied to disk and nothing is pasted into a task file.
 
-Model per task: pass `--model luna:low` or `--model sol:low` when the task file names one; otherwise omit and the agent's pinned default applies.
+Model per task: pass `--model luna:low` when the task file names it; otherwise omit and the agent's pinned `luna:high` applies.
 
 ## Context continuity
 
@@ -101,17 +101,18 @@ Chains:
 | Chain | Why |
 |---|---|
 | `10` → `11` → `13` | the manager's author writes the factory over it and the tests against it |
-| `2a-01-target` → `2b-status` → `2b-status-verb-live-review` | status is the heaviest consumer of target helpers; the author of the new signatures threads them |
+| `2a-01a` → `2a-01b` → `2a-01c` → `2b-status` → `2b-status-verb-live-review` | one file sliced three ways, then its heaviest consumer; the author of the new signatures threads them |
+| `2c-01a` → `2c-01b` | one file, two slices |
 | `2a-03-lifecycle-index` → `2b-lifecycle-close` → `2b-lifecycle-reload` → `2b-lifecycle-reset-rename` | one helper module, four consumers in the same directory |
 | `2b-spawn-flags-admission` → `2b-spawn-models-placement` → `2b-spawn-report` → `2b-spawn-index` | `spawn/index.ts` needs every sibling's new signature; the agent that changed them holds them, so nothing is piped |
 | `3a-<file>` → its generated `3b-*` tasks | the agent that changed the signature fixes its own callers, as long as the caller file is not claimed by another 3b task in flight |
-| `4-02-daemon-root` → `4-03-daemon-state-object` | both are `orchd.ts`; the second is a mechanical move over what the first just wrote |
+| `4-02a` → `4-02b` → `4-02c` → `4-03a` → `4-03b` → `4-03c` | all six are `orchd.ts`; each is one kind of change over what the previous slice left |
 
 Break points, always a fresh session:
 
 - The first task of every wave.
-- `2c-01-cli-root`: `index.ts` has not been touched by anyone; the input is the full set of 2a and 2b results, piped in.
-- `4-02-daemon-root`: `orchd.ts` is the largest file in the daemon; start it with an empty window and the 3a results piped in.
+- `2c-01a`: `index.ts` has not been touched by anyone; the input is the full set of 2a and 2b results, piped in.
+- `4-02a`: `orchd.ts` is the largest file in the daemon; start the chain with an empty window and the 3a results piped in.
 - Every `6-*` task: their inputs are the tree itself.
 - Any task redispatched after `BLOCKED`.
 - Any task whose predecessor on that agent reported a check that was not clean; a dirty window compounds.
@@ -128,16 +129,16 @@ Tasks live in `tasks/`. Parallel means dispatch together. Sequential means one a
 |---|---|---|---|---|
 | 0 foundation | `00-services-types`, `01-settings-parse-split`, `02-settings-storage`, `03-die-single`, `04-watch-load-option` | parallel (5) | never | yes |
 | 1 manager and factory | `10-settings-manager`, `11-services-factory`, `12-test-helper-services`, `13-settings-manager-tests` | `10` first, then `11`; `12` and `13` after `10` | never | yes |
-| 2a helpers | `2a-01-target`, `2a-02-entities`, `2a-03-lifecycle-index` | parallel (3) | `2c-01` | no |
-| 2b commands | every `2b-*` file | parallel, 10 at a time, any order | `2c-01` | no |
-| 2c CLI root | `2c-01-cli-root` | alone, after every 2b reports DONE | closes it | yes |
+| 2a helpers | `2a-01a` → `2a-01b` → `2a-01c` (one chain), `2a-02-entities`, `2a-03-lifecycle-index` | 3 agents in parallel | `2c-01b` | no |
+| 2b commands | every `2b-*` file | parallel, 10 at a time, any order | `2c-01b` | no |
+| 2c CLI root | `2c-01a` → `2c-01b` | one chain, after every 2b reports DONE | closes it | yes |
 | 3a leaf signatures | every `3a-*` file | parallel, 10 at a time | generated `3b-*` | no |
 | 3b callers | generated from 3a results | parallel, one per caller file | closes it | yes |
-| 4 daemon root | `4-01-work-loop-settings`, `4-02-daemon-root`, `4-03-daemon-state-object` | sequential | `4-02` | yes after `4-03` |
+| 4 daemon root | `4-01-work-loop-settings`, then the chain `4-02a` → `4-02b` → `4-02c` → `4-03a` → `4-03b` → `4-03c` | sequential | `4-02c` | yes after `4-02c`, again after `4-03c` |
 | 5 shim roots | `5-01-presence-session-helper`, `5-02-extension-roots` | parallel (2) | never | yes |
 | 6 contract and enforce | `6-01-delete-load-settings`, `6-02-env-read-into-services`, `6-03-delete-command-logger`, `6-04-watch-load-required`, `6-05-check-bridge-rule`, `6-06-test-sweep` | `6-01` to `6-04` parallel (4); then `6-05`; then `6-06` | generated from `6-06` | yes |
 
-Model tiers: `luna:low` for any task marked trivial, `sol:low` for `2a-01-target`, `2c-01-cli-root`, `4-02-daemon-root`, `4-03-daemon-state-object`. Everything else `luna:high`. `luna:xhigh` is never used.
+Model tiers: `luna:low` for any task marked trivial, `luna:high` for everything else. No task in this plan starts on sol. The former large tasks (`target.ts`, `index.ts`, `orchd.ts`) are sliced into chained 1-2 minute tasks instead: `2a-01a/b/c`, `2c-01a/b`, `4-02a/b/c`, `4-03a/b/c`.
 
 ## Generated tasks
 

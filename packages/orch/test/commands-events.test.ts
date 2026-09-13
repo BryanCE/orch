@@ -97,6 +97,13 @@ describe("commands/events", () => {
 
   // Cost and pack capacity are `orch status` columns. On a stream they made every
   // transition read like a status row and buried what the line exists to say.
+  test("message events render the full delivered mail text", () => {
+    const mail = "[from worker (worker-key)] hello orchestrator";
+    const line = renderEvent({ key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "message", newState: "message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4);
+    expect(line).toEndWith(mail);
+    expect(line).not.toContain("message->message");
+  });
+
   test("an event line says what happened, never the fleet's books", () => {
     const event = { key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now", cost: 0.04, capacity: { packUsed: 7, packCap: 10 } };
     const line = renderEvent(event, false, 4);

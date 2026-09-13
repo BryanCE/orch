@@ -1,25 +1,10 @@
 import { agentView } from "../store/agent-view.ts";
+import { holdsLease } from "../store/lease-rows.ts";
 import { isDescendantOf } from "./provenance.ts";
 import type { SelfIdentity } from "../types/core.ts";
 import type { CloseAuthority } from "../types/policy.ts";
 
-/**
- * Who may END an agent.
- *
- * The human is NEVER gated — they must always be able to stop a runaway agent
- * from the CLI or the web. That is a statement about the human, and only about
- * the human: an agent is not a human and does not inherit it.
- *
- * For an agent, ownership is a CHAIN — user → orch → the slaves that orch owns
- * — and it is NOT the lease. The lease answers "who is driving this right now"
- * and gates the driving verbs (dispatch/steer/model/reset). This answers "whose
- * is this" and gates ending it. Consulting the lease here would be wrong twice
- * over: an orch closing its own slave must never be blocked because another
- * orch holds the lease, and clearing a dead holder's lease must never be a
- * prerequisite for killing a runaway.
- */
-
-/** The human may end anything. An agent's reach is what it spawned. */
+/** Who may END an agent: the human, anything; an agent, what it owns: itself, what it spawned, what it adopted. */
 export type { CloseAuthority };
 
 export function callerAuthority(self: SelfIdentity | null): CloseAuthority {
@@ -34,8 +19,10 @@ export function refuseClose(orchDir: string, authority: CloseAuthority, agentId:
   if (authority.kind === "human") return null;
   // Acting on yourself is not driving anyone else's fleet.
   if (authority.agentId === agentId) return null;
-  // Provenance is immutable, so this answer cannot be changed by a lease moving.
+  // Spawning an agent is owning it, at any depth.
   if (isDescendantOf((id) => agentView(orchDir, id), agentId, authority.agentId)) return null;
+  // Adopting an agent is owning it.
+  if (holdsLease(orchDir, agentId, authority.agentId)) return null;
   const view = agentView(orchDir, agentId);
   const name = view?.name ?? agentId;
   const owner = view?.spawnedByName ?? view?.spawnedBy;

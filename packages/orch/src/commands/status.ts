@@ -6,7 +6,7 @@ import { deriveDriveState, NO_ORCH_DRIVER } from "../agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../policy/capacity.ts";
 
 import { getAdapter } from "../adapters/registry.ts";
-import { collapse, buildEntities, entitySpace, sortEntities } from "../entities.ts";
+import { collapse, buildEntities, sortEntities } from "../entities.ts";
 import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
 import { orchDir } from "../presence/writer.ts";
@@ -632,8 +632,8 @@ export function statusRowFromEntity(
   views: ReadonlyMap<string, AgentView>,
   staleHashes: ReadonlySet<string> | undefined = new Set(shippedBundleHashes()),
   spaces: OrchSettings["spaces"] = {},
-  orchId: string | null = currentOrchId(),
-  directory: string = orchDir(),
+  orchId: string | null = null,
+  directory?: string,
 ): StatusRow {
   const pres = entity.presence;
   const adapter = entityAdapter(entity, views);
@@ -644,7 +644,10 @@ export function statusRowFromEntity(
   const provenance = viewProvenance(pres, agentView);
   const alive = pres?.alive ?? false;
   const spaceNames = orchNames(entity.key, views);
-  const spaceId = spaceNames.spaceId ?? entitySpace(entity);
+  const spaceId = spaceNames.spaceId ?? entity.space;
+  const ownership = directory === undefined
+    ? { owner: NO_ORCH_DRIVER, ownerId: null }
+    : { owner: deriveDriveState(entity.key, { currentOrchId: orchId, directory }).owner, ownerId: currentLeaseOwner(directory, entity.key) };
   return {
     key: entity.key,
     agentId: spaceNames.agentId,
@@ -655,8 +658,8 @@ export function statusRowFromEntity(
     name: spaceNames.agentName ?? (entity.managed === false ? null : entity.name),
     tab: entity.tabLabel,
     agent: entity.agent,
-    owner: deriveDriveState(entity.key, { currentOrchId: orchId, directory }).owner,
-    ownerId: currentLeaseOwner(directory, entity.key),
+    owner: ownership.owner,
+    ownerId: ownership.ownerId,
     ...provenance,
     focused: entity.focused,
     model: modelFull,

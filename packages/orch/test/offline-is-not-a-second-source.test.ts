@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fleetStatusRows } from "../src/commands/status.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
 /**
  * The DESIGN question was whether `orch status --offline`
@@ -42,7 +42,10 @@ function fixture(): string {
 
 /** A presence record; `alive` registers the agent with this runner as its recorded process. */
 function seedPresence(root: string, key: string, alive: boolean, state: string): void {
-  if (alive) seedAgent(key, {}, root);
+  if (alive) {
+    seedAgent(key, {}, root);
+    seedLiveProcess(root, key);
+  }
   const dir = join(root, "agents", key);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, agent: "pi", state }));
@@ -105,6 +108,6 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     // This is what the flag is FOR, and the reason it stays a status flag rather
     // than moving to doctor: a person on a machine with no daemon still gets the
     // fleet, and orch does not start one behind their back to answer.
-    expect(source).toContain("if (!options.offline) await ensureDaemonOrWarn");
+    expect(source).toMatch(/if \(!options\.offline\) \{\s*await ensureDaemonOrWarn/);
   });
 });

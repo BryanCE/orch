@@ -89,6 +89,11 @@ export function currentLease(orchDir: string, agentId: string): Lease | null {
   return row ? toLease(row) : null;
 }
 
+/** Whether `holder` holds the open lease on `agentId`. */
+export function holdsLease(orchDir: string, agentId: string, holder: string): boolean {
+  return currentLease(orchDir, agentId)?.orchId === holder;
+}
+
 /** Every holding this agent has ever had, oldest first. C7: history is read from
  *  the lease trail, never inferred from whoever happens to hold it now. */
 export function leaseHistory(orchDir: string, agentId: string): Lease[] {

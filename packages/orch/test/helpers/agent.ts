@@ -14,21 +14,8 @@ export function runnerProcess(): RecordedProcess {
 /** A pid no process holds, so a seeded record reads as a dead one. */
 export const DEAD_PID = 2147483646;
 
-/** A dead recorded process: close ends the row and signals nothing. */
-export function deadProcess(): RecordedProcess {
-  return { pid: DEAD_PID, startToken: null };
-}
-
-/**
- * Seed one agent through the SAME writer production uses.
- *
- * The fixtures used to reach for a second writer (`recordSpawned`), which is
- * how a test could pass against a record
- * shape no spawn ever produces. There is one writer, so there is one way to
- * seed: this maps the fixture's stated facts onto `SpawnRegistration` and
- * states nothing the caller did not.
- */
-function seedAgentWith(process: RecordedProcess, key: string, facts: AgentFacts = {}, directory = orchDir()): void {
+/** Seed one agent through the same writer production uses. It has no live process; seedLiveProcess states one. */
+export function seedAgent(key: string, facts: AgentFacts = {}, directory = orchDir()): void {
   registerSpawnedAgent(directory, {
     key,
     harnessId: facts.adapter ?? "pi",
@@ -36,7 +23,7 @@ function seedAgentWith(process: RecordedProcess, key: string, facts: AgentFacts 
     placed: false,
     ...(facts.handle === undefined ? {} : { handle: facts.handle }),
     ...(facts.space === undefined ? {} : { space: facts.space }),
-    cwd: facts.cwd ?? globalThis.process.cwd(),
+    cwd: facts.cwd ?? process.cwd(),
     name: facts.name ?? key,
     model: facts.model ?? "",
     spawner: facts.spawnedBy ?? null,
@@ -44,18 +31,8 @@ function seedAgentWith(process: RecordedProcess, key: string, facts: AgentFacts 
     ...(facts.worktree !== undefined && facts.branch !== undefined
       ? { worktree: { path: facts.worktree, branch: facts.branch } }
       : {}),
-    process,
+    process: { pid: DEAD_PID, startToken: null },
   });
-}
-
-/** Seed an agent whose process is the live test runner. */
-export function seedAgent(key: string, facts: AgentFacts = {}, directory = orchDir()): void {
-  seedAgentWith(runnerProcess(), key, facts, directory);
-}
-
-/** Seed an agent whose recorded process is already dead. Use it for any agent a test closes for real. */
-export function seedDeadAgent(key: string, facts: AgentFacts = {}, directory = orchDir()): void {
-  seedAgentWith(deadProcess(), key, facts, directory);
 }
 
 /**
@@ -63,7 +40,7 @@ export function seedDeadAgent(key: string, facts: AgentFacts = {}, directory = o
  * agent reads as alive to the daemon and the presence store. For a fixture that
  * inserted its row directly instead of through `seedAgent`.
  */
-export function seedLiveProcess(directory: string, agentId: string, now = 1): void {
+export function seedLiveProcess(directory: string, agentId: string, now = Date.now()): void {
   const host = "test-host";
   ensureHost(directory, host, host, currentHostOs(), now);
   recordProcess(directory, agentId, now, { hostId: host, ...runnerProcess() });

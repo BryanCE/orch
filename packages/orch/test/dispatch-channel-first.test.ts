@@ -7,7 +7,7 @@ import { attachBridge, detachBridge, type BridgeLink } from "../src/control/brid
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 
 import { seedStatus } from "./helpers/presence.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -45,6 +45,7 @@ describe("work reaches an agent through its link", () => {
     const directory = tempDir();
     const target = "detached01";
     seedAgent(target, { adapter: "pi" }, directory);
+    seedLiveProcess(directory, target);
     seedStatus(directory, target, { agent: "pi", state: "idle" });
     const deliveries = fakeLink(target);
 
@@ -58,6 +59,7 @@ describe("work reaches an agent through its link", () => {
     const directory = tempDir();
     const target = "detached02";
     seedAgent(target, { adapter: "claude" }, directory);
+    seedLiveProcess(directory, target);
     seedStatus(directory, target, { agent: "claude", state: "idle" });
 
     const outcome = await deliverControl(target, { kind: "run", text: "do the work", id: "dispatch-2" });

@@ -30,6 +30,8 @@ export interface NotifyEvent {
   lastError?: string;
   /** Final assistant text reported when the agent is done. */
   lastText?: string;
+  /** Text delivered to this agent's session; present only on a `message` event. */
+  mail?: { readonly id: string; readonly text: string };
   result?: string;
   /** Why the agent stopped, or the question blocking it. */
   reason?: string;

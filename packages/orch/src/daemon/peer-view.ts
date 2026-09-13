@@ -1,24 +1,19 @@
-// What one agent may see of another, answered by the daemon.
-//
-// A bundled harness links no store (T5), but peer listing needs three facts that
-// only the store holds: the provenance wall, the space wall, and who drives each
-// peer. The agent still finds its peers itself — enumerating presence is orch's
-// own mechanism and needs no database — and asks here only for the judgements.
-//
-// The project filter deliberately stays with the agent: it compares a peer's
-// reported project against the CALLER's own working tree, which is the caller's
-// fact and not a row.
+// What one agent may see of another: the store decides existence and liveness; presence only adds display state.
 import { deriveDriveState } from "../agent/drive-state.ts";
 import { depthOf, isDescendantOf } from "../policy/provenance.ts";
 import { scopeToSpace, spaceOf } from "../policy/space.ts";
-import { agentView } from "../store/agent-view.ts";
+import { agentView, liveAgentViews } from "../store/agent-view.ts";
+import { agentProcessLive } from "../store/interval-rows.ts";
 import { loadPresence } from "../presence/store.ts";
 import type { DriveState } from "../types/agent.ts";
 import type { JsonRecord } from "../types/core.ts";
 
 export interface PeerViewPeer {
   key: string;
-  status: JsonRecord;
+  name: string;
+  harness: string;
+  spawnedBy: string | null;
+  status: JsonRecord | null;
 }
 
 export interface PeerView {
@@ -47,17 +42,30 @@ function visibleKeys(orchDir: string, ownKey: string, keys: string[], allSpaces:
   const scoped = scopeToSpace(orchDir, keys, (key) => key, spaceOf(orchDir, ownKey), { all: allSpaces });
   if (allSpaces || callerProject === undefined) return scoped;
   const presence = loadPresence(orchDir);
-  return scoped.filter((key) => presence.get(key)?.status?.project === callerProject);
+  return scoped.filter((key) => {
+    const status = presence.get(key)?.status;
+    return status === null || status === undefined || status.project === callerProject;
+  });
 }
 
 export function peerView(orchDir: string, ownKey: string, keys: string[], allSpaces: boolean, callerProject?: string): PeerView {
   const presence = loadPresence(orchDir);
-  const requestedKeys = keys.length > 0 ? keys : [...presence.keys()];
-  const liveKeys = requestedKeys.filter((key) => key !== ownKey && presence.get(key)?.alive === true && presence.get(key)?.status !== null);
-  const visible = visibleKeys(orchDir, ownKey, liveKeys, allSpaces, callerProject);
+  const views = liveAgentViews(orchDir)
+    .filter((view) => view.id !== ownKey && agentProcessLive(orchDir, view.id))
+    .filter((view) => keys.length === 0 || keys.includes(view.id));
+  const byKey = new Map(views.map((view) => [view.id, view]));
+  const visible = visibleKeys(orchDir, ownKey, views.map((view) => view.id), allSpaces, callerProject);
   const peers: PeerViewPeer[] = visible.flatMap((key) => {
+    const view = byKey.get(key);
+    if (!view) return [];
     const status = presence.get(key)?.status;
-    return status === null || status === undefined ? [] : [{ key, status: Object.fromEntries(Object.entries(status)) }];
+    return [{
+      key,
+      name: view.name,
+      harness: view.harnessId,
+      spawnedBy: view.spawnedBy,
+      status: status === null || status === undefined ? null : Object.fromEntries(Object.entries(status)),
+    }];
   });
   const spaces: Record<string, string | null> = {};
   const drive: Record<string, DriveState> = {};

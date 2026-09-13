@@ -11,7 +11,7 @@ import { spawnedRecords } from "../src/presence/store.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { daemonClientForPeers } from "./helpers/daemon-client.ts";
 
 const IDENTITY_ENV = [
@@ -27,16 +27,11 @@ let savedEnv: Record<string, string | undefined> = {};
 
 function recordingDaemon(keys: string[], messageResponse: unknown) {
   const daemon = daemonClientForPeers(keys);
+  const peerViewDaemon = daemonClientForPeers(keys);
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
   daemon.ask = (method, params) => {
     calls.push({ method, params });
-    if (method === "peer-view") {
-      return Promise.resolve({
-        visible: keys,
-        spaces: Object.fromEntries(keys.map((key) => [key, null])),
-        drive: {},
-      });
-    }
+    if (method === "peer-view") return peerViewDaemon.ask(method, params);
     return Promise.resolve(messageResponse);
   };
   return { daemon, calls };
@@ -192,6 +187,7 @@ describe("the spawner address invariant", () => {
       cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
     });
     seedStatus(orchDir, registered.id, { agent: "pi", pid: process.pid, state: "idle" });
+    seedLiveProcess(orchDir, registered.id);
 
     const address = stampedSpawnerAddress();
     expect(address).toBe(registered.id);
@@ -208,6 +204,8 @@ describe("peer identity in messaging", () => {
     const directory = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "unplaced02";
+    seedAgent(peerKey, {}, directory);
+    seedLiveProcess(directory, peerKey);
     seedStatus(directory, peerKey, { agent: "pi", pid: process.pid, state: "idle", label: "unplaced" });
 
     const summary = (await peerSummaries(daemonClientForPeers([peerKey]), ownKey))[0];
@@ -221,6 +219,8 @@ describe("peer identity in messaging", () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "sweep20002";
+    seedAgent(peerKey, { name: "sweep-2" }, orchDir);
+    seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
     const { daemon, calls } = recordingDaemon([ownKey, peerKey], { accepted: true, id: "mail-1", ack: "acknowledged" });
@@ -238,6 +238,8 @@ describe("peer identity in messaging", () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "sweep20002";
+    seedAgent(peerKey, { name: "sweep-2" }, orchDir);
+    seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
     const { daemon } = recordingDaemon([ownKey, peerKey], { accepted: true, id: "mail-2", ack: "unavailable" });
@@ -250,6 +252,8 @@ describe("peer identity in messaging", () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "sweep20002";
+    seedAgent(peerKey, { name: "sweep-2" }, orchDir);
+    seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
     const { daemon } = recordingDaemon([ownKey, peerKey], undefined);
@@ -262,6 +266,8 @@ describe("peer identity in messaging", () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "recon30003";
+    seedAgent(peerKey, { name: "recon-3" }, orchDir);
+    seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, peerKey, { agent: "pi", label: "recon-3", pid: process.pid, state: "idle" });
 
     const resolved = await resolvePeer(daemonClientForPeers([peerKey]), "recon-3", ownKey);
@@ -271,6 +277,8 @@ describe("peer identity in messaging", () => {
   test("\"spawner\" reaches the stamped spawner session across fleet scoping", async () => {
     const orchDir = tempOrchDir();
     const ownKey = "worker0004";
+    seedAgent("session777", { name: "pi session" }, orchDir);
+    seedLiveProcess(orchDir, "session777");
     seedStatus(orchDir, "session777", { agent: "pi", pid: process.pid, state: "idle" });
     process.env.ORCH_SPAWNER = "session777";
     process.env.ORCH_SPAWNER_LABEL = "pi session";
@@ -287,6 +295,7 @@ describe("peer identity in messaging", () => {
     tempOrchDir();
     process.env.ORCH_SPAWNER = "operator01";
     process.env.ORCH_SPAWNER_LABEL = "claude session";
+    seedAgent("operator01", { name: "claude session" });
 
     const resolved = await resolvePeer(noPeersDaemon, "spawner", "worker0005");
     expect("error" in resolved && resolved.error).toContain("claude session");

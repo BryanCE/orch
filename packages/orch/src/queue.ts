@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { agentById } from "./store/agent-rows.ts";
 import { currentSpace } from "./store/interval-rows.ts";
-import { currentLease, leasesByOrch } from "./store/lease-rows.ts";
+import { currentLease, holdsLease, leasesByOrch } from "./store/lease-rows.ts";
 import { errorMessage, isRecord } from "./util.ts";
 import {
   agentsInTaskScope,
@@ -199,7 +199,7 @@ export function cancelTask(
   const targeted = agentsInTaskScope(orchDir, id);
   const permitted = options.human === true
     || task.enqueuedBy === cancelledBy
-    || targeted.some((agentId) => currentLease(orchDir, agentId)?.orchId === cancelledBy);
+    || targeted.some((agentId) => holdsLease(orchDir, agentId, cancelledBy));
   if (!permitted) return { ...task, error: "Cancellation is not permitted for this caller" };
   if (task.state === "cancelled") return task;
   insertCancellation(orchDir, id, cancelledBy);

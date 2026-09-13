@@ -114,6 +114,7 @@ export function notificationText(event: NotifyEvent, options: { colorize?: boole
   if (event.newState === "done") summary = textValue(event.lastText) ?? textValue(event.task) ?? "state changed";
   else if (event.newState === "error") summary = event.lastError ?? event.task ?? "agent error";
   else if (event.newState === "blocked") summary = event.task ?? "agent needs input";
+  else if (event.newState === "message") summary = event.mail?.text ?? "message";
   summary = oneLine(summary).replace(/^Q:\s*/i, "").slice(0, 60);
   const spaceLabel = `[${space}]`;
   const coloredSpace = options.colorize ? `${spaceAnsi(space)}${spaceLabel}\u001b[0m` : spaceLabel;

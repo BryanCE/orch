@@ -361,7 +361,7 @@ describe("daemon presence events", () => {
       name: "Ada's worker",
       dispatchId: "dispatch-asking",
       tab: "tab-a",
-      model: "model-a:\"deep\"",
+      model: "model-a:deep",
       oldState: "working",
       newState: "asking",
       cost: 1.5,

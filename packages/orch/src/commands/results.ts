@@ -5,7 +5,7 @@ import { loadPresence } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
 import { selfId } from "../identity/self.ts";
 import { callerKind } from "../policy/caller.ts";
-import { currentLease } from "../store/lease-rows.ts";
+import { holdsLease } from "../store/lease-rows.ts";
 import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
@@ -195,7 +195,7 @@ function callerMaySeeQuestion(agentId: string): boolean {
   const caller = selfId();
   if (caller === undefined) return false;
   try {
-    return currentLease(orchDir(), agentId)?.orchId === caller;
+    return holdsLease(orchDir(), agentId, caller);
   } catch {
     return false;
   }

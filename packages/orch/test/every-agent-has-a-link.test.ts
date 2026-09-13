@@ -7,7 +7,7 @@ import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -26,6 +26,7 @@ function storeDir(): string {
 function agent(directory: string, facts: Parameters<typeof seedAgent>[1] = {}): { key: string; deliveries: BridgeDelivery[] } {
   const key = mintAgentId();
   seedAgent(key, { adapter: "pi", ...facts }, directory);
+  seedLiveProcess(directory, key);
   seedStatus(directory, key, { key, agent: "pi", pid: process.pid, state: "idle" });
   const deliveries: BridgeDelivery[] = [];
   const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };

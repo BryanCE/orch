@@ -24,6 +24,7 @@ describe("commands/clean", () => {
     try {
       seedStatus(root, "deadagent1", {});
       seedAgent("liveagent1", {}, root);
+      seedLiveProcess(root, "liveagent1");
       seedStatus(root, "liveagent1", {});
       expect(removeDeadAgentDirs(true)).toEqual(["deadagent1"]);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
@@ -37,6 +38,7 @@ describe("commands/clean", () => {
     try {
       seedStatus(root, "deadagent1", {});
       seedAgent("liveagent1", {}, root);
+      seedLiveProcess(root, "liveagent1");
       seedStatus(root, "liveagent1", {});
       seedStatus(root, "herdr~wF~p9", {});
       insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });

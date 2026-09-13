@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { loadPresence, reapDeadPresenceDirs } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
 /**
  * Presence directory names change; existing dirs are REAPED, not migrated.
@@ -42,6 +42,7 @@ function seedDir(root: string, name: string): string {
 /** A presence directory for an agent orch registered, whose recorded process is this runner. */
 function seedLiveDir(root: string, name: string): string {
   seedAgent(name, {}, root);
+  seedLiveProcess(root, name);
   return seedDir(root, name);
 }
 

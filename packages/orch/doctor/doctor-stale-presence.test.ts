@@ -5,6 +5,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { runDoctor } from "../src/doctor/runner.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { seedAgent, seedLiveProcess } from "../test/helpers/agent.ts";
+import { closeAllStores } from "../src/store/connection.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
 
 const directories: string[] = [];
@@ -28,6 +30,7 @@ function staleResult(results: CheckResult[]): CheckResult {
 }
 
 afterEach(() => {
+  closeAllStores();
   while (directories.length) removeTempDir(directories.pop()!);
 });
 
@@ -65,7 +68,10 @@ describe("doctor stale presence safety", () => {
 
   test("no dead agents leaves nothing to remove", async () => {
     const directory = tempDir();
-    writeDeadAgent(directory, LIVE_KEY, { schema: PRESENCE_SCHEMA, pid: process.pid, label: "alive", agent: "pi", cwd: "/x/orch" });
+    // Liveness is the store's process row, never the pid a status file claims.
+    seedAgent(LIVE_KEY, { adapter: "pi", cwd: "/x/orch" }, directory);
+    seedLiveProcess(directory, LIVE_KEY);
+    writeDeadAgent(directory, LIVE_KEY, { schema: PRESENCE_SCHEMA, label: "alive", agent: "pi", cwd: "/x/orch" });
     const result = staleResult(await runDoctor(directory));
     expect(result.status).toBe("ok");
     expect(result.fix).toBeUndefined();

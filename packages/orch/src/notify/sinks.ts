@@ -5,11 +5,12 @@
 import { spawn, execFile } from "node:child_process";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { osSide, packageRoot } from "../util.ts";
+import { packageRoot } from "../util.ts";
+import { hostOs } from "../host.ts";
 import { notificationText, payload } from "./format.ts";
 import { playDing, soundAvailable } from "./ding.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
-import type { OsSide } from "../types/core.ts";
+import type { HostOs } from "../types/host.ts";
 
 const registeredNotifiers = new Map<string, Notifier>();
 
@@ -79,14 +80,14 @@ export function commandAvailable(config: Record<string, unknown>): boolean {
 }
 
 /** The single place the command sink knows an OS apart - `sh` is not a Windows program. */
-const HOST_SHELL: Record<OsSide, readonly [string, ...string[]]> = {
+const HOST_SHELL: Record<HostOs, readonly [string, ...string[]]> = {
   linux: ["sh", "-c"],
   darwin: ["sh", "-c"],
   windows: ["cmd.exe", "/d", "/s", "/c"],
 };
 
 export function hostShell(): readonly [string, ...string[]] {
-  return HOST_SHELL[osSide()];
+  return HOST_SHELL[hostOs()];
 }
 
 /** A configured command as argv. Delivery and doctor both normalize here. */

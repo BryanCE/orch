@@ -1,20 +1,15 @@
 import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, isNotNull, isNull, type SQL } from "drizzle-orm";
 import { mintAgentId } from "../backends/identity.ts";
-import { isRecord, osSide } from "../util.ts";
+import { isRecord } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf } from "./agent-view.ts";
 import { setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
 import { decisionLogger } from "../daemon/decision-log.ts";
-import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostOs, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
-
-/** This machine's OS as the store names it. Throws rather than guess: an
- *  unsupported platform is a host orch cannot record, not a host it may mislabel. */
-export function currentHostOs(platform: NodeJS.Platform = process.platform): HostOs {
-  return osSide(platform);
-}
+import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
+import type { HostOs } from "../types/host.ts";
 
 /** An agent joined to the ending it may not have. The join is left, so `ending`
  *  is null for every live agent and carries the instant for a closed one. */

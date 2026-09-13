@@ -1,7 +1,8 @@
 import { hostname } from "node:os";
 import { confirm, isCancel } from "@clack/prompts";
 import type { Services } from "../types/services.ts";
-import { currentHostOs, ensureHost } from "../store/agent-rows.ts";
+import { ensureHost } from "../store/agent-rows.ts";
+import { hostOs } from "../host.ts";
 import { approveGrantRequest, denyGrantRequest, pendingGrantRequest, pendingGrantRequests, renderGrantRequest } from "../store/grant-rows.ts";
 import { die } from "./target.ts";
 import type { GrantRequest } from "../types/store.ts";
@@ -30,7 +31,7 @@ function listRequests(requests: readonly GrantRequest[]): void {
 /** The host row the approval points at: the machine that had the terminal. */
 function approvingHost(directory: OrchDir): string {
   const host = hostname();
-  ensureHost(directory, host, host, currentHostOs(), Date.now());
+  ensureHost(directory, host, host, hostOs(), Date.now());
   return host;
 }
 

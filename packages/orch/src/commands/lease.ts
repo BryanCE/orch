@@ -20,7 +20,7 @@ export type { LeaseCommandResult, LeaseOptions };
 
 /** Resolve the caller's orch identity in one seam for every lease command. */
 async function resolveSelfOrchId(directory: OrchDir, logger: Services["logger"]): Promise<string> {
-  return launchCredential(directory) ?? (await rpcRegisterSession(directory, logger)).id;
+  return launchCredential() ?? (await rpcRegisterSession(directory, logger)).id;
 }
 
 

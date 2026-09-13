@@ -1,7 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { osSide } from "../util.ts";
+import { hostOs } from "../host.ts";
 import type { DaemonDiscoveryFiles, DaemonRuntimeFiles } from "../types/daemon.ts";
 
 /** Machine-wide discovery is deliberately independent of `$ORCH_DIR`. Tests and
@@ -10,7 +10,7 @@ import type { DaemonDiscoveryFiles, DaemonRuntimeFiles } from "../types/daemon.t
 export function daemonDiscoveryFiles(): DaemonDiscoveryFiles {
   const root = process.env.ORCH_DAEMON_DISCOVERY_DIR
     ?? process.env.XDG_RUNTIME_DIR
-    ?? (osSide() === "windows" ? process.env.LOCALAPPDATA : undefined)
+    ?? (hostOs() === "windows" ? process.env.LOCALAPPDATA : undefined)
     ?? join(tmpdir(), `orchd-${homedir().replace(/[^a-zA-Z0-9_.-]/g, "_")}`);
   return { registration: join(root, "orchd.registration") };
 }

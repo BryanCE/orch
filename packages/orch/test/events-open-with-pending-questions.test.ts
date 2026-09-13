@@ -39,7 +39,7 @@ describe("events pending-question snapshot", () => {
         return true;
       },
     };
-    const cleanup = startEventsTransport(context, testServices({ orchDir: root, settings: null }));
+    const transport = startEventsTransport(context, testServices({ orchDir: root, settings: null }));
     try {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(received).toHaveLength(1);
@@ -51,7 +51,7 @@ describe("events pending-question snapshot", () => {
       expect(first?.event.askCount).toBe(1);
       expect(first?.seq).toBe(0);
     } finally {
-      cleanup();
+      transport.close();
       await server.close();
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;

@@ -1,7 +1,8 @@
 import type { OrchDir } from "../types/core.ts";
 import { eq } from "drizzle-orm";
-import { agentById, currentHostOs, ensureHarness, ensureHost, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
+import { agentById, ensureHarness, ensureHost, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
 import { hostname } from "node:os";
+import { hostOs } from "../host.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
@@ -28,7 +29,7 @@ export function registerSpawnedAgent(directory: OrchDir, input: SpawnRegistratio
   if (input.space !== undefined) requireSpace(directory, input.space);
   ensureHarness(directory, input.harnessId, input.harnessId, now);
   const host = hostname();
-  ensureHost(directory, host, host, currentHostOs(), now);
+  ensureHost(directory, host, host, hostOs(), now);
   // The plexer is STATED, never derived from whether a pane exists: a headless
   // agent runs in the headless plexer just as truly as a herdr agent runs in
   // herdr, and a capless agent states none. Deriving it from `pane` is what

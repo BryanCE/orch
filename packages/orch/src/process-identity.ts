@@ -4,7 +4,8 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { errnoCode, osSide } from "./util.ts";
+import { errnoCode } from "./util.ts";
+import { hostOs } from "./host.ts";
 
 const FIELD_READ_TIMEOUT_MS = 5_000;
 
@@ -15,7 +16,7 @@ export function processIsAlive(pid: number): boolean {
   } catch (error: unknown) {
     return errnoCode(error) !== "ESRCH";
   }
-  if (osSide() === "linux") {
+  if (hostOs() === "linux") {
     try {
       const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
       const closingParen = stat.lastIndexOf(")");
@@ -62,8 +63,8 @@ function linuxStartTicks(pid: number): string | undefined {
  * as "matches".
  */
 export function processStartToken(pid: number): string | undefined {
-  if (osSide() === "linux") return linuxStartTicks(pid);
-  if (osSide() === "windows") {
+  if (hostOs() === "linux") return linuxStartTicks(pid);
+  if (hostOs() === "windows") {
     return readProcessField("powershell", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.Ticks`]);
   }
   return readProcessField("ps", ["-o", "lstart=", "-p", String(pid)]);

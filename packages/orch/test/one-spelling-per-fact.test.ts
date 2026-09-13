@@ -2,10 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseRpcLine } from "../src/daemon/rpc/wire.ts";
-import { ensureHost, currentHostOs } from "../src/store/agent-rows.ts";
+import { ensureHost } from "../src/store/agent-rows.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { hosts } from "../src/db/schema.ts";
-import { isRecord, osSide } from "../src/util.ts";
+import { hostOsOf } from "../src/host.ts";
+import { isRecord } from "../src/util.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
@@ -22,15 +23,15 @@ afterEach(() => {
 });
 
 describe("one spelling per shared fact", () => {
-  test("osSide and the store agree for an injected Windows platform", () => {
+  test("host OS and the store agree for an injected Windows platform", () => {
     const directory = tempOrchDir("orch-one-spelling-");
     dirs.push(directory);
 
-    expect(osSide("win32")).toBe("windows");
-    expect(osSide("linux")).toBe("linux");
-    expect(currentHostOs("win32")).toBe(osSide("win32"));
+    expect(hostOsOf("win32")).toBe("windows");
+    expect(hostOsOf("linux")).toBe("linux");
+    expect(hostOsOf("win32")).toBe(hostOsOf("win32"));
 
-    ensureHost(directory, "host", "Host", currentHostOs("win32"), 1);
+    ensureHost(directory, "host", "Host", hostOsOf("win32"), 1);
     const stored = orm(directory).select({ os: hosts.os }).from(hosts).get();
     expect(stored?.os).toBe("windows");
   });

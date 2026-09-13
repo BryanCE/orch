@@ -5,8 +5,7 @@ import type { HomeSubject, RecordedProcess, SpaceHomeRole } from "./backend.ts";
 import type { BridgeMessage } from "../control/bridge-message.ts";
 import type { ThinkingLevel } from "./policy.ts";
 import type { OrchDir } from "./core.ts";
-
-export type HostOs = "linux" | "windows" | "darwin";
+import type { HostOs } from "./host.ts";
 
 export interface AgentInput {
   id: string;

@@ -1,11 +1,6 @@
-import * as os from "node:os";
 import { PREREQUISITES } from "../adapters/prerequisites.ts";
 import { soundTierBinaries } from "./ding.ts";
-
-function isWslRuntime(): boolean {
-  if (process.env.WSL_DISTRO_NAME) return true;
-  return /microsoft|wsl/i.test(os.release());
-}
+import { isWsl } from "../host.ts";
 
 const DEFAULT_REMEDIATION = "fix: verify the adapter installation and configuration";
 
@@ -19,7 +14,7 @@ export function notifierRemediation(
   if (id === "desktop") {
     const notifySendInstall = PREREQUISITES["notify-send"]?.install;
     if (!notifySendInstall) return DEFAULT_REMEDIATION;
-    return isWslRuntime()
+    return isWsl()
       ? `fix: install notify-send (\`${notifySendInstall}\`) or ensure powershell.exe and wslpath are reachable`
       : `fix: install notify-send (\`${notifySendInstall}\`)`;
   }

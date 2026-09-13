@@ -238,7 +238,7 @@ export function subscribeEvents(
         // shares the same socket as the event subscription.
         if (identify) {
           // The token is read fresh because a restart mints a new credential.
-          const credential = launchCredential(orchDir);
+          const credential = launchCredential();
           const claim = sessionClaim(orchDir);
           if (credential !== null && typeof claim.sessionToken === "string") {
             connected.write(encodeRequest(nextRequestId++, "claim-identity", { ...claim, id: credential, sessionToken: claim.sessionToken }));

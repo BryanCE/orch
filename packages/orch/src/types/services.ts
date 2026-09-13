@@ -1,5 +1,6 @@
 import type { OrchSettings } from "./settings.ts";
 import type { Logger, OrchDir } from "./core.ts";
+import type { Host } from "./host.ts";
 import type { SettingsFilePath } from "../settings/schema.ts";
 
 /** Parsed settings for one process. `current()` is cheap after the first call:
@@ -22,6 +23,7 @@ export interface Services {
   readonly orchDir: OrchDir;
   readonly settings: SettingsManager;
   readonly logger: Logger;
+  readonly host: Host;
 }
 
 export type OrchDirService = Pick<Services, "orchDir">;

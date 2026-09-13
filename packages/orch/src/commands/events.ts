@@ -18,6 +18,12 @@ import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts"
 import type { PendingQuestionView } from "../types/daemon.ts";
 import type { OrchDir } from "../types/core.ts";
 
+export interface EventsTransport {
+  /** Settles when the stream is finished: `--once` matched, or close() was called. */
+  readonly done: Promise<void>;
+  close(): void;
+}
+
 function looksLikePaneKey(key: string): boolean {
   return isAgentId(key);
 }
@@ -77,13 +83,14 @@ export async function cmdEvents(services: Services, args: string[]) {
   // Notification delivery is orchd's, not the client's: the daemon fans every
   // transition out to the sinks configured in settings.json whether or not
   // anyone is streaming. `orch events` only renders.
-  const cleanup = startEventsLiveStream(options, scope, {
+  const transport = startEventsLiveStream(options, scope, {
     writeNotice: (line) => process.stdout.write(line),
     startTransport: () => startEventsTransport(context, services),
     ownedAgents: () => ownedAgentCount(scope, services.orchDir),
   });
-  process.on("SIGINT", () => { cleanup(); process.exit(0); });
-  process.on("SIGTERM", () => { cleanup(); process.exit(0); });
+  process.on("SIGINT", () => { transport.close(); });
+  process.on("SIGTERM", () => { transport.close(); });
+  await transport.done;
 }
 
 export async function cmdNotify(services: Services, args: string[]) {
@@ -129,7 +136,7 @@ function namedTarget(argument: string, flag: string, usage: string): string {
 
 export interface EventsLiveStreamPorts {
   writeNotice: (line: string) => void;
-  startTransport: () => () => void;
+  startTransport: () => EventsTransport;
   /** Whether stdout is a terminal, so the banner reaches a person rather than a parser. */
   toTerminal?: boolean;
   /** How many agents the caller owns. Injected like every other fact this
@@ -137,7 +144,7 @@ export interface EventsLiveStreamPorts {
   ownedAgents?: () => number;
 }
 
-export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCallerScope, ports: EventsLiveStreamPorts): () => void {
+export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCallerScope, ports: EventsLiveStreamPorts): EventsTransport {
   // Ahead of the banner, and never suppressed: a parser and a person are equally
   // misled by a stream that cannot fire, and the harness reading it is the one
   // that will sit on it for an hour.
@@ -315,17 +322,29 @@ function pendingQuestionEvent(question: PendingQuestionView, root: OrchDir): Not
  * session, so an orchestrator never has to poll `orch status` to notice a
  * worker went blocked.
  */
-export function startEventsTransport(context: EventsContext, services: Pick<Services, "orchDir" | "logger">): () => void {
+export function startEventsTransport(context: EventsContext, services: Pick<Services, "orchDir" | "logger">): EventsTransport {
+  let resolveDone: (() => void) | undefined;
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
+  let closed = false;
+  let subscription: ReturnType<typeof subscribeEvents> | undefined;
+  const transport: EventsTransport = {
+    done,
+    close: () => {
+      if (closed) return;
+      closed = true;
+      subscription?.close();
+      resolveDone?.();
+    },
+  };
   const pending = rpcCall(services.orchDir, "questions", undefined);
-  const subscription = subscribeEvents(
+  subscription = subscribeEvents(
     services.orchDir,
     context.options.sinceSeq === undefined ? {} : { since: context.options.sinceSeq },
     (value, streamSeq) => {
       if (!isNotifyEvent(value) || !context.accepts(value.key)) return;
-      if (context.emit(value, streamSeq) && context.options.once) {
-        subscription.close();
-        process.exit(0);
-      }
+      if (context.emit(value, streamSeq) && context.options.once) transport.close();
     },
     (oldestSeq) => {
       services.logger.warn("events.replay-gap", { oldestSeq });
@@ -336,14 +355,14 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
     for (const question of value.questions) {
       if (!context.accepts(question.agentId)) continue;
       if (context.emit(pendingQuestionEvent(question, services.orchDir), 0) && context.options.once) {
-        subscription.close();
-        process.exit(0);
+        transport.close();
+        break;
       }
     }
   }).catch(() => {
     // The live subscription remains authoritative if the snapshot RPC is unavailable.
   });
-  return () => subscription.close();
+  return transport;
 }
 
 export function isNotifyEvent(value: unknown): value is NotifyEvent {

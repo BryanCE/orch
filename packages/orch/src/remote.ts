@@ -1,5 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
-import { osSide, shellQuote } from "./util.ts";
+import { shellQuote } from "./util.ts";
+import { hostOs } from "./host.ts";
 import type { HostSettings } from "./types/settings.ts";
 import type { RemoteResult, SshResult } from "./types/core.ts";
 
@@ -34,7 +35,7 @@ export function runSSH(destination: string, command: string, options: RemoteOpti
 }
 
 function windowsCommandShell(sshBin: string): boolean {
-  return osSide() === "windows" && /\.(?:cmd|bat)$/i.test(sshBin);
+  return hostOs() === "windows" && /\.(?:cmd|bat)$/i.test(sshBin);
 }
 
 function outputText(value: unknown): string {

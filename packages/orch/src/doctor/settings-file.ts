@@ -4,7 +4,8 @@ import * as path from "node:path";
 import { settingsDefects } from "../settings/defects.ts";
 import { settingsPath } from "../settings/schema.ts";
 import { displayValue } from "../settings/display.ts";
-import { commandOutput, isWslRuntime } from "./shared.ts";
+import { commandOutput } from "./shared.ts";
+import { isWsl } from "../host.ts";
 import { errorMessage } from "../util.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -72,7 +73,7 @@ export async function checkOrchDirLocation(orchDir: OrchDir): Promise<CheckResul
   } catch {
     resolved = path.resolve(orchDir);
   }
-  if (!isWslRuntime() || !isDrvFsPath(resolved)) {
+  if (!isWsl() || !isDrvFsPath(resolved)) {
     return { id, label, status: "ok", detail: "ORCH_DIR is on the Linux filesystem" };
   }
   return {

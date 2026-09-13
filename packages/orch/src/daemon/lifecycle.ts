@@ -12,11 +12,12 @@ import {
 import * as path from "node:path";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
 import { retryingAsync, retryingSync } from "../retry.ts";
-import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot } from "../util.ts";
+import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, packageRoot } from "../util.ts";
+import { hostOs, isHostOs } from "../host.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 import { orchDirAt } from "../services.ts";
 import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, LockRecord, OsExecutor, OsSideExecution, SocketProbe } from "../types/daemon.ts";
-import type { OsSide } from "../types/core.ts";
+import type { HostOs } from "../types/host.ts";
 
 const HASH_LENGTH = 12;
 
@@ -41,14 +42,6 @@ function registrationPath(): string {
   return daemonDiscoveryFiles().registration;
 }
 
-/** The OS sides orch knows how to name. A record naming anything else was not
- *  written by this build, so it names no daemon this build can reason about. */
-const OS_SIDES: readonly OsSide[] = ["linux", "windows", "darwin"];
-
-function parsedOsSide(value: unknown): OsSide | undefined {
-  return OS_SIDES.find((side) => side === value);
-}
-
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -63,7 +56,7 @@ function parseRegistration(value: unknown): DaemonRegistration | undefined {
   const orchDir = rawOrchDir === undefined ? undefined : orchDirAt(rawOrchDir);
   const pid = positiveInteger(value.pid);
   const startToken = nonEmptyString(value.startToken);
-  const side = parsedOsSide(value.osSide);
+  const side = isHostOs(value.osSide) ? value.osSide : undefined;
   const socket = nonEmptyString(value.socket);
   const token = nonEmptyString(value.token);
   const port = nonEmptyString(value.port);
@@ -99,7 +92,7 @@ export function acquireDaemonRegistration(orchDir: OrchDir): DaemonRegistrationR
     orchDir: orchDirAt(path.resolve(orchDir)),
     pid: process.pid,
     startToken,
-    osSide: osSide(),
+    osSide: hostOs(),
     socket: runtime.socket,
     token: runtime.token,
     port: runtime.port,
@@ -300,7 +293,7 @@ export async function terminateDaemon(pid: number, graceMs: number): Promise<voi
 /** The side orch itself runs on. Its three questions are the ones this process
  *  can already answer directly: spawn, signal 0, and SIGTERM. */
 const localExecutor: OsExecutor = {
-  osSide: osSide(),
+  osSide: hostOs(),
   start: (entrypoint, args = [], orchDir) => {
     if (orchDir === undefined) throw new Error("daemon start requires orchDir");
     return daemonize(orchDirAt(orchDir), entrypoint, args);
@@ -316,7 +309,7 @@ const localExecutor: OsExecutor = {
  * a side with none is an honest declared missing capability, not a defect to
  * discover at the moment something tries to run.
  */
-export function executorFor(side: OsSide): OsExecutor | null {
+export function executorFor(side: HostOs): OsExecutor | null {
   return side === localExecutor.osSide ? localExecutor : null;
 }
 
@@ -327,7 +320,7 @@ export function executorFor(side: OsSide): OsExecutor | null {
  * the environment and therefore an ANSWER with exit code zero — never a thrown
  * error, and never a silently empty result the caller reads as "nothing there".
  */
-export function onOsSide<T>(side: OsSide, body: (executor: OsExecutor) => T): OsSideExecution<T> {
+export function onOsSide<T>(side: HostOs, body: (executor: OsExecutor) => T): OsSideExecution<T> {
   const executor = executorFor(side);
   if (!executor) {
     return { outcome: "answer", reason: "no-environment-role", exitCode: 0, text: `nothing runs on the ${side} side from here: it declares no executor.` };

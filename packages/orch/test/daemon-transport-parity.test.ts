@@ -6,7 +6,7 @@ import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
-import { currentHostOs } from "../src/store/agent-rows.ts";
+import { hostOs } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
@@ -70,7 +70,7 @@ function tcpPort(server: RpcServer): number {
 }
 
 function hello(token: unknown): unknown {
-  return { id: 1, method: "register-session", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() } };
+  return { id: 1, method: "register-session", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs() } };
 }
 
 describe("both transports carry one mechanism", () => {

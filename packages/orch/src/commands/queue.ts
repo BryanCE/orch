@@ -35,7 +35,7 @@ function writeQueueTask(task: TaskRec, json: boolean, plainText: string): void {
 }
 
 async function resolveSelfId(directory: OrchDir, logger: Services["logger"]): Promise<string> {
-  return launchCredential(directory) ?? (await rpcRegisterSession(directory, logger)).id;
+  return launchCredential() ?? (await rpcRegisterSession(directory, logger)).id;
 }
 
 function takeValue(args: string[], flag: string): { value?: string; rest: string[] } {

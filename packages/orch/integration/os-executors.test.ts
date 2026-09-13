@@ -10,9 +10,10 @@ import {
 } from "../src/daemon/lifecycle.ts";
 import { checkOsExecutors } from "../src/doctor/daemon.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { osSide } from "../src/util.ts";
+import { hostOs } from "../src/host.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
-import type { OrchDir, OsSide } from "../src/types/core.ts";
+import type { OrchDir } from "../src/types/core.ts";
+import type { HostOs } from "../src/types/host.ts";
 
 const oldDiscovery = process.env.ORCH_DAEMON_DISCOVERY_DIR;
 const roots: string[] = [];
@@ -24,8 +25,8 @@ function tempDir(prefix: string): string {
 }
 
 /** An OS side this process is certainly not running on. */
-function farSide(): OsSide {
-  return osSide() === "windows" ? "linux" : "windows";
+function farSide(): HostOs {
+  return hostOs() === "windows" ? "linux" : "windows";
 }
 
 afterEach(() => {
@@ -37,10 +38,10 @@ afterEach(() => {
 
 describe("cross-OS execution is a backend, not a peer daemon", () => {
   test("the local side supplies start, is-alive and kill", () => {
-    const executor = executorFor(osSide());
+    const executor = executorFor(hostOs());
     if (!executor) throw new Error("the side orch is running on always has an executor");
 
-    expect(executor.osSide).toBe(osSide());
+    expect(executor.osSide).toBe(hostOs());
     expect(typeof executor.start).toBe("function");
     expect(executor.isAlive(process.pid)).toBe(true);
     expect(typeof executor.kill).toBe("function");
@@ -66,7 +67,7 @@ describe("cross-OS execution is a backend, not a peer daemon", () => {
   });
 
   test("the local side runs the body and hands back its value", () => {
-    expect(onOsSide(osSide(), (executor) => executor.isAlive(process.pid)))
+    expect(onOsSide(hostOs(), (executor) => executor.isAlive(process.pid)))
       .toEqual({ outcome: "ran", value: true });
   });
 
@@ -78,7 +79,7 @@ describe("cross-OS execution is a backend, not a peer daemon", () => {
     const check = checkOsExecutors();
 
     expect(check.status).toBe("ok");
-    expect(check.detail).toContain(osSide());
+    expect(check.detail).toContain(hostOs());
   });
 
   test("doctor answers, rather than failing, for a daemon on a side with no executor", () => {

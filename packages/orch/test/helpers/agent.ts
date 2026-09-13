@@ -1,6 +1,7 @@
 import type { OrchDir } from "../../src/types/core.ts";
 import { ensureOrchAgent, registerSpawnedAgent } from "../../src/store/spawn-registration.ts";
-import { currentHostOs, ensureHost, ensurePlexer } from "../../src/store/agent-rows.ts";
+import { ensureHost, ensurePlexer } from "../../src/store/agent-rows.ts";
+import { hostOs } from "../../src/host.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace } from "../../src/store/interval-rows.ts";
 import { adoptLease, currentLease } from "../../src/store/lease-rows.ts";
 import type { RecordedProcess } from "../../src/types/backend.ts";
@@ -42,7 +43,7 @@ export function seedAgent(key: string, facts: AgentFacts = {}, directory: OrchDi
  */
 export function seedLiveProcess(directory: OrchDir, agentId: string, now = Date.now()): void {
   const host = "test-host";
-  ensureHost(directory, host, host, currentHostOs(), now);
+  ensureHost(directory, host, host, hostOs(), now);
   recordProcess(directory, agentId, now, { hostId: host, ...runnerProcess() });
 }
 

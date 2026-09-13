@@ -37,7 +37,7 @@ export function agentInScope(input: AgentScopeInput): boolean {
  * unscoped for a human and scoped for an orch, with no flag on either side.
  */
 export async function callerScopeAddress(logger: Logger, directory: OrchDir, options: { register?: boolean } = {}): Promise<string | undefined> {
-  const launched = launchCredential(directory);
+  const launched = launchCredential();
   if (launched !== null) return launched;
   if (callerSession() === null) return undefined;
   const known = selfId(directory);

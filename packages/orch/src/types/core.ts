@@ -67,7 +67,6 @@ export interface LoggerOptions {
  * A hardcoded "two levels up from the entry file" breaks the moment the entry
  * moves from `bin/` to `dist/bin/`.
  */
-export type OsSide = "linux" | "windows" | "darwin";
 
 /** A parsed JSON object. The one spelling of this shape repo-wide. */
 export type JsonRecord = Record<string, unknown>;

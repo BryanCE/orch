@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { eventsScopeNotice, parseEventsOptions, startEventsLiveStream } from "../src/commands/events.ts";
+import type { EventsTransport } from "../src/commands/events.ts";
 import type { ResolvedCallerScope } from "../src/types/policy.ts";
 
 /** What `resolveCallerScope` hands the notice: an ownership filter and the address it
@@ -34,9 +35,9 @@ describe("events scope notice", () => {
         writes++;
         order.push(`notice:${line}`);
       },
-      startTransport: () => {
+      startTransport: (): EventsTransport => {
         order.push("transport");
-        return () => undefined;
+        return { done: Promise.resolve(), close: () => undefined };
       },
     });
 
@@ -51,7 +52,7 @@ describe("events scope notice", () => {
       writeNotice: () => {
         writes++;
       },
-      startTransport: () => () => undefined,
+      startTransport: () => ({ done: Promise.resolve(), close: () => undefined }),
     });
 
     expect(writes).toBe(0);
@@ -66,7 +67,7 @@ describe("events scope notice", () => {
     startEventsLiveStream(parseEventsOptions(["--since-seq", "0"]), MINE, {
       ownedAgents: () => 0,
       writeNotice: (line: string) => lines.push(line),
-      startTransport: () => () => undefined,
+      startTransport: () => ({ done: Promise.resolve(), close: () => undefined }),
     });
 
     expect(lines).toHaveLength(1);
@@ -79,7 +80,7 @@ describe("events scope notice", () => {
     startEventsLiveStream(parseEventsOptions(["--json"]), MINE, {
       ownedAgents: () => 0,
       writeNotice: (line: string) => lines.push(line),
-      startTransport: () => () => undefined,
+      startTransport: () => ({ done: Promise.resolve(), close: () => undefined }),
     });
 
     expect(lines).toEqual([]);

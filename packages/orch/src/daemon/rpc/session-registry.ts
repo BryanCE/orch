@@ -6,7 +6,8 @@ import { claimAgent, getOrCreateSessionAgent } from "../../store/agent-rows.ts";
 import { processStartToken } from "../../process-identity.ts";
 import { versionInRange } from "../../backends/versions.ts";
 import { getBackend } from "../../backends/registry.ts";
-import type { HostOs } from "../../types/store.ts";
+import { isHostOs } from "../../host.ts";
+import type { HostOs } from "../../types/host.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse, UnleasedAgent } from "../../types/daemon.ts";
 import type { ParamsOf, SessionClaim } from "./protocol.ts";
 import { and, asc, eq, isNull, ne, notInArray } from "drizzle-orm";
@@ -38,10 +39,6 @@ function claimUnleasedAnnouncement(orchDir: OrchDir, sessionId: string): boolean
     return true;
   }
   return true;
-}
-
-function isHostOs(value: unknown): value is HostOs {
-  return value === "linux" || value === "windows" || value === "darwin";
 }
 
 function claimedHostOs(claim: SessionClaim): HostOs {

@@ -13,7 +13,7 @@ export type PresenceSession =
 export function presenceSession(): PresenceSession {
   // Task 6-02 moves this env read into src/services.ts.
   const root = envOrchDir();
-  const key = launchCredential(root);
+  const key = launchCredential();
   if (key === null) return { kind: "not-orch" };
   const directory = ensurePresenceAgentDir(key, root);
   if (directory === undefined) return { kind: "not-orch" };

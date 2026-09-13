@@ -1,7 +1,8 @@
 import type { SessionAgentIdentity } from "./store.ts";
 import type { StatusRow } from "./command.ts";
 import type { NotifyEvent } from "./notify.ts";
-import type { OrchDir, OsSide } from "./core.ts";
+import type { OrchDir } from "./core.ts";
+import type { HostOs } from "./host.ts";
 import type { SettingsManager } from "./services.ts";
 import type { PresenceEntry } from "./presence.ts";
 import type { TaskRec } from "./queue.ts";
@@ -97,7 +98,7 @@ export interface DaemonRegistration {
   readonly orchDir: OrchDir;
   readonly pid: number;
   readonly startToken: string;
-  readonly osSide: OsSide;
+  readonly osSide: HostOs;
   readonly socket: string;
   readonly token: string;
   readonly port: string;
@@ -125,7 +126,7 @@ export type SocketProbe = (socketPath: string) => boolean;
  * side gets an executor behind the backend port, never a peer daemon.
  */
 export interface OsExecutor {
-  readonly osSide: OsSide;
+  readonly osSide: HostOs;
   /** Start a detached process from `entrypoint`, answering with its pid. */
   start(entrypoint: string, args?: string[], orchDir?: OrchDir): number;
   /** Whether that process is still the instance it claims to be. */

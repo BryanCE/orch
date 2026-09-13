@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isRecord } from "../../util.ts";
+import { HOST_OS_VALUES } from "../../types/host.ts";
 import { isPeerView } from "../../agent/peers.ts";
 import { isPaneLabels } from "../../agent/environment.ts";
 import { isLifecycleVerb } from "../../adapters/adapter.ts";
@@ -67,7 +68,7 @@ const SESSION_CLAIM = z.object({
   handle: z.string().optional(),
   space: z.string().nullish(),
   hostName: z.string(),
-  hostOs: z.enum(["linux", "windows", "darwin"]),
+  hostOs: z.enum(HOST_OS_VALUES),
 });
 export type SessionClaim = z.infer<typeof SESSION_CLAIM>;
 

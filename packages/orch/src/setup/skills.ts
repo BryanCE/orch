@@ -2,11 +2,12 @@ import * as files from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { packageRoot } from "../util.ts";
+import { hostOs } from "../host.ts";
 
 const HOME = os.homedir();
 
 /** Windows needs a junction to link a directory without elevation; POSIX ignores the type. */
-const LINK_TYPE = process.platform === "win32" ? "junction" : "dir";
+const LINK_TYPE = hostOs() === "windows" ? "junction" : "dir";
 
 /** Where one packaged skill landed. `target` is null for the real directory in the store
  *  and names the store directory for a harness link pointing at it. */

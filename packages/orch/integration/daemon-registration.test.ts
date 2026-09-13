@@ -7,7 +7,7 @@ import { acquireDaemonRegistration, daemonStartRefusal, readDaemonRegistration, 
 import { checkDaemonPresence, checkDaemonRegistration } from "../src/doctor/daemon.ts";
 import { endpointPaths } from "../src/daemon/rpc/wire.ts";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
-import { osSide } from "../src/util.ts";
+import { hostOs } from "../src/host.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
@@ -95,7 +95,7 @@ describe("machine daemon registration", () => {
       orchDir,
       pid: process.pid,
       startToken: "recycled-instance",
-      osSide: osSide(),
+      osSide: hostOs(),
       socket: join(orchDir, "orchd.sock"),
       token: join(orchDir, "orchd.token"),
       port: join(orchDir, "orchd.port"),
@@ -122,7 +122,7 @@ describe("machine daemon registration", () => {
       orchDir,
       pid: process.pid,
       startToken: "recycled-instance",
-      osSide: osSide(),
+      osSide: hostOs(),
       socket: join(orchDir, "orchd.sock"),
       token: join(orchDir, "orchd.token"),
       port: join(orchDir, "orchd.port"),

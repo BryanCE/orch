@@ -5,7 +5,8 @@ import { join, resolve } from "node:path";
 import { daemonEntrypoint, liveDaemonRegistration, onOsSide, provenDaemonPid, readDaemonCodeSkew, readDaemonLock, readDaemonRegistration } from "../daemon/lifecycle.ts";
 import { daemonDiscoveryFiles, daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
-import { errorMessage, osSide, pidAlive } from "../util.ts";
+import { errorMessage, pidAlive } from "../util.ts";
+import { hostOs } from "../host.ts";
 import { orchDirAt } from "../services.ts";
 import type { CheckResult } from "../types/doctor.ts";
 
@@ -50,7 +51,7 @@ export function checkDaemonRegistration(): CheckResult {
 export function checkOsExecutors(): CheckResult {
   const id = "os-executors";
   const label = "OS-side executors";
-  const here = osSide();
+  const here = hostOs();
   const registration = liveDaemonRegistration();
   if (!registration) {
     return { id, label, status: "ok", detail: `orch runs processes on the ${here} side; no daemon is registered on this machine` };

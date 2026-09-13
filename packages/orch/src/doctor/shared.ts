@@ -1,6 +1,5 @@
 import * as filesystem from "node:fs";
 import { execFile } from "node:child_process";
-import * as os from "node:os";
 import { isRecord, errorMessage } from "../util.ts";
 
 export function readJson(file: string): unknown {
@@ -21,7 +20,3 @@ export function commandOutput(command: string, args: string[]): Promise<{ ok: bo
   });
 }
 
-export function isWslRuntime(): boolean {
-  if (process.env.WSL_DISTRO_NAME) return true;
-  return /microsoft|wsl/i.test(os.release());
-}

@@ -7,6 +7,7 @@ import { allBackends } from "../../backends/registry.ts";
 import { endpointPaths } from "./wire.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";
 import { RPC_RESULTS, type SessionClaim } from "./protocol.ts";
+import { hostOs } from "../../host.ts";
 
 /** Validate every field carried by a session registration before trusting it. */
 export function isRegisterSessionResponse(value: unknown): value is RegisterSessionResponse {
@@ -56,11 +57,4 @@ export function sessionClaim(orchDir: OrchDir, label?: string): SessionClaim {
     hostName: hostname(),
     hostOs: hostOs(),
   };
-}
-
-function hostOs(): "linux" | "windows" | "darwin" {
-  if (process.platform === "win32") return "windows";
-  if (process.platform === "darwin") return "darwin";
-  if (process.platform === "linux") return "linux";
-  throw new Error(`unsupported host OS ${process.platform}`);
 }

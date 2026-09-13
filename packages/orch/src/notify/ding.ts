@@ -3,8 +3,9 @@
 // tried in order and the first that runs wins, so one row covers a Linux desktop and WSL.
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, writeSync } from "node:fs";
-import { binaryOnPath, osSide } from "../util.ts";
-import type { OsSide } from "../types/core.ts";
+import { binaryOnPath } from "../util.ts";
+import { hostOs } from "../host.ts";
+import type { HostOs } from "../types/host.ts";
 
 /** One way to make a sound: a binary plus the arguments that play `sound` through it. */
 interface SoundTier {
@@ -40,7 +41,7 @@ interface Host {
   readonly ttyDevice: string;
 }
 
-const HOSTS: Record<OsSide, Host> = {
+const HOSTS: Record<HostOs, Host> = {
   linux: {
     tiers: [PULSE, CANBERRA, POWERSHELL],
     sound: "/usr/share/sounds/freedesktop/stereo/complete.oga",
@@ -65,7 +66,7 @@ const BELL = "";
 export const ORCH_DING_BIN = "orch-ding";
 
 function host(): Host {
-  return HOSTS[osSide()];
+  return HOSTS[hostOs()];
 }
 
 /** The sound file to play: the operator's override, else the host's own, and only if it exists. */

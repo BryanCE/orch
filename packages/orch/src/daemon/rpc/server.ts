@@ -5,7 +5,8 @@ import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { readDaemonLock } from "../lifecycle.ts";
 import { attachBridge, detachBridge, attachedBridgeKeys, type BridgeLink } from "../../control/bridge-links.ts";
 import type { BridgeDelivery } from "../../control/bridge-message.ts";
-import { ensurePrivateDir, errorMessage, osSide } from "../../util.ts";
+import { ensurePrivateDir, errorMessage } from "../../util.ts";
+import { hostOs } from "../../host.ts";
 import type { SessionAgentIdentity } from "../../types/store.ts";
 import type { EndpointPaths, RpcEventEmitter, RpcHandlers, RpcRequestContext, RpcServer, RpcServerOptions } from "../../types/daemon.ts";
 import type { IdentityMethod, ParamsOf, RpcMethod } from "./protocol.ts";
@@ -161,7 +162,7 @@ function attachConnection(
  *  itself; a Windows named pipe never does, so a client probing the path would
  *  call a live daemon absent. `close()` unlinks the path either way. */
 function markSocketBound(socketPath: string): void {
-  if (osSide() !== "windows") return;
+  if (hostOs() !== "windows") return;
   try {
     writeFileSync(socketPath, "", { mode: 0o600 });
   } catch {
@@ -309,7 +310,7 @@ async function startTcpServer(
  *  ephemeral one on Windows, where a client cannot stat an AF_UNIX socket path
  *  and needs the port file as its fallback dial to a live daemon. */
 function companionTcpPort(options: RpcServerOptions): number | undefined {
-  return options.tcpPort ?? (osSide() === "windows" ? 0 : undefined);
+  return options.tcpPort ?? (hostOs() === "windows" ? 0 : undefined);
 }
 
 function tcpEndpointOf(tcpServer: Server | undefined): string | undefined {

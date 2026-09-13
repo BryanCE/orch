@@ -36,6 +36,7 @@ import { resolveTuning } from "../policy/tuning.ts";
 import { deliverOutboxMessage, drainOutbox, redeliverOpenRows } from "./outbox.ts";
 import { acceptMail } from "./mail.ts";
 import { isAgentId } from "../backends/identity.ts";
+import { LAUNCH_ENV, readLaunchCredential } from "../identity/launch.ts";
 import { normalizeControlTarget } from "../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { isAgentGone } from "../control/agent-gone.ts";
@@ -638,6 +639,11 @@ export async function startDaemon(): Promise<DaemonState> {
     process.on("exit", (code) => { if (code !== 0 && !state.fatalLogged) state.logger?.error("daemon.exited", { code }); });
   }
   state.logger = loggerFor(directory);
+  const launch = readLaunchCredential();
+  if (launch.kind === "malformed") {
+    state.logger.error("launch.invalid-key", { value: launch.value });
+    throw new Error(`${LAUNCH_ENV} is set but is not an agent id: ${JSON.stringify(launch.value)}`);
+  }
   const answers = await socketAnswers(directory);
   const registration = acquireDaemonRegistration(directory);
   if (!registration.acquired) {

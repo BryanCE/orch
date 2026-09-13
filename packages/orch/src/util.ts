@@ -2,14 +2,7 @@ import { accessSync, chmodSync, constants, existsSync, linkSync, mkdirSync, read
 import { randomBytes } from "node:crypto";
 import { delimiter, dirname, join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { OsSide } from "./types/core.ts";
-
-export function osSide(platform: NodeJS.Platform = process.platform): OsSide {
-  if (platform === "win32") return "windows";
-  if (platform === "darwin") return "darwin";
-  if (platform === "linux") return "linux";
-  throw new Error(`unsupported host OS ${platform}`);
-}
+import { hostOs } from "./host.ts";
 
 /** The installed package directory. Resolved through the real path first: the
  *  harness extension bundles are symlinked into `~/.pi/agent/extensions` and the
@@ -40,7 +33,7 @@ export function shellQuote(value: string): string {
 
 export function binaryPath(bin: string): string | null {
   const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
-  const exts = osSide() === "windows" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
+  const exts = hostOs() === "windows" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
   for (const dir of dirs) {
     for (const ext of exts) {
       const candidate = join(dir, bin + ext);

@@ -1,24 +1,21 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { formatOwnerCell, statusRowFromEntity } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import type { Entity } from "../src/types/core.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { Entity, OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => {
   while (dirs.length > 0) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-status-unleased-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-status-unleased-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "Pi", 1);
   const db = orm(dir);

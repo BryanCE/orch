@@ -1,20 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
 import { setTuning } from "../src/store/interval-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import type { DeclaredVsRealityDependencies } from "../src/types/doctor.ts";
 import type { PresenceStatus } from "../src/types/presence.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import { seedAgent } from "./helpers/agent.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
-function fixture(status: PresenceStatus | null): { directory: string; dependencies: DeclaredVsRealityDependencies } {
-  const directory = mkdtempSync(join(tmpdir(), "orch-doctor-tuning-"));
+function fixture(status: PresenceStatus | null): { directory: OrchDir; dependencies: DeclaredVsRealityDependencies } {
+  const directory = tempOrchDir("orch-doctor-tuning-");
   directories.push(directory);
   seedAgent("agent-1", { name: "worker", model: "openai/model-a" }, directory);
   setTuning(directory, "agent-1", Date.now() + 1, { model: "openai/model-a", thinking: "high" });

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { OrchDir } from "../../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { closeAllStores, orm } from "../../src/store/connection.ts";
 import { isRecord } from "../../src/util.ts";
@@ -32,7 +33,7 @@ function objectCountsOf(rows: readonly unknown[]): ObjectCount[] {
   return rows.flatMap((row) => (isRecord(row) && typeof row.type === "string" ? [{ type: row.type, count: countOf(row, "count") }] : []));
 }
 
-export function buildStore(storeDir: string): StoreSummary {
+export function buildStore(storeDir: OrchDir): StoreSummary {
   const store = orm(storeDir);
   const applied = countOf(store.all(sql`SELECT COUNT(*) AS applied FROM __drizzle_migrations`)[0], "applied");
   const objects = objectCountsOf(store.all(sql`SELECT type, COUNT(*) AS count FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' GROUP BY type ORDER BY type`));
@@ -40,7 +41,7 @@ export function buildStore(storeDir: string): StoreSummary {
   return { applied, objects };
 }
 
-export function reportStore(command: string, storeDir: string, summary: StoreSummary): void {
+export function reportStore(command: string, storeDir: OrchDir, summary: StoreSummary): void {
   process.stdout.write(`\n${command}  ${join(storeDir, "orch.db")}\n`);
   process.stdout.write(`  ${summary.applied} migration${summary.applied === 1 ? "" : "s"} applied\n`);
   for (const { type, count } of summary.objects) {

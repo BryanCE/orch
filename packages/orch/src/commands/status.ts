@@ -33,7 +33,7 @@ import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { EnvironmentCapabilityView, StatusRow } from "../types/command.ts";
-import type { Entity } from "../types/core.ts";
+import type { Entity, OrchDir } from "../types/core.ts";
 import type { CallerKind } from "../types/policy.ts";
 import type { OrchDirService, Services, SettingsService } from "../types/services.ts";
 
@@ -62,11 +62,11 @@ export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView>
   return getAdapter(viewForKey(views, ent.key)?.harnessId ?? ent.presence?.status?.agent ?? ent.agent ?? "");
 }
 
-function currentOrchId(orchDir: string): string | null {
+function currentOrchId(orchDir: OrchDir): string | null {
   return spawnerIdentity(orchDir).key;
 }
 
-function currentLeaseOwner(directory: string, agentId: string): string | null {
+function currentLeaseOwner(directory: OrchDir, agentId: string): string | null {
   try {
     return currentLease(directory, agentId)?.orchId ?? null;
   } catch {
@@ -237,7 +237,7 @@ function statusRowsFrom(values: readonly unknown[]): StatusRow[] {
   return values.filter(isStatusRow);
 }
 
-async function readFleetRows(settings: OrchSettings | null, orchDir: string, spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
+async function readFleetRows(settings: OrchSettings | null, orchDir: OrchDir, spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
   if (settings === null) return snapshot([], false);
   if (offline) {
     const rows = fleetStatusRows(settings, spaces, { offline: true, directory: orchDir });
@@ -270,7 +270,7 @@ export interface CallerScope {
   kind: CallerKind;
 }
 
-export function callerScope(orchDir: string): CallerScope {
+export function callerScope(orchDir: OrchDir): CallerScope {
   const kind = callerKind(orchDir);
   const id = selfId(orchDir) ?? null;
   return { id, ceiling: kind === "operator" || id === null ? null : spaceOfAgent(orchDir, id), kind };
@@ -634,7 +634,7 @@ export function statusRowFromEntity(
   staleHashes: ReadonlySet<string> | undefined = new Set(shippedBundleHashes()),
   spaces: OrchSettings["spaces"] = {},
   orchId: string | null,
-  directory: string,
+  directory: OrchDir,
 ): StatusRow {
   const pres = entity.presence;
   const adapter = entityAdapter(entity, views);
@@ -701,7 +701,7 @@ interface FleetStatusOptions {
   bundleHashes?: () => ReadonlySet<string>;
   orchId?: () => string | null;
   /** Resolve the store root once per fleet build (injectable for cost tests). */
-  directory: string;
+  directory: OrchDir;
 }
 
 export function fleetStatusRows(settings: OrchSettings, spaces: OrchSettings["spaces"], options: FleetStatusOptions): StatusRow[] {
@@ -716,7 +716,7 @@ export function fleetStatusRows(settings: OrchSettings, spaces: OrchSettings["sp
 }
 
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
-async function localStatusRows(settings: OrchSettings | null, orchDir: string, options: StatusOptions, spaces: OrchSettings["spaces"], caller?: CallerScope): Promise<FleetSnapshot> {
+async function localStatusRows(settings: OrchSettings | null, orchDir: OrchDir, options: StatusOptions, spaces: OrchSettings["spaces"], caller?: CallerScope): Promise<FleetSnapshot> {
   const snapshot = await readFleetRows(settings, orchDir, spaces, options.offline);
   const scoped = scopeFleetRows(snapshot.rows, { ...options, states: options.filter.states, caller });  return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
@@ -796,7 +796,7 @@ export async function readStatusResult(
   };
 }
 
-function capacityOutput(orchDir: string, settings: OrchSettings): { capacity: ReturnType<typeof computeFleetCapacity>; line: string } {
+function capacityOutput(orchDir: OrchDir, settings: OrchSettings): { capacity: ReturnType<typeof computeFleetCapacity>; line: string } {
   const capacity = computeFleetCapacity(agentViewIndex(orchDir), presenceById(loadPresence(orchDir)), settings);
   return { capacity, line: formatCapacityLine(capacity, currentOrchId(orchDir) ?? undefined) };
 }

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, ensureHost, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
@@ -11,22 +10,24 @@ import { attachBridge, detachBridge, type BridgeLink } from "../src/control/brid
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { eq, sql } from "drizzle-orm";
 import { outbox } from "../src/db/schema.ts";
 
+import { orchDirAt } from "../src/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
 /**
  * A transfer must not disturb the agent or its attached link. Ownership is a
  * lease and nothing else (A1), so handing one over writes `agent_leases` and
  * sends no control delivery down the link.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
 const saved = process.env.ORCH_DIR;
 
 afterEach(() => {
-  for (const { key, link } of links.splice(0)) detachBridge(process.env.ORCH_DIR ?? ".", key, link);
+  for (const { key, link } of links.splice(0)) detachBridge(orchDirAt(process.env.ORCH_DIR ?? "."), key, link);
   closeAllStores();
   if (saved === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = saved;
@@ -34,8 +35,8 @@ afterEach(() => {
 });
 
 /** A fully placed, working agent: every axis set, a live process, presence on disk. */
-function workingAgent(): { directory: string; worker: string; before: ReturnType<typeof agentView> } {
-  const directory = mkdtempSync(join(tmpdir(), "orch-transfer-"));
+function workingAgent(): { directory: OrchDir; worker: string; before: ReturnType<typeof agentView> } {
+  const directory = tempOrchDir("orch-transfer-");
   dirs.push(directory);
   process.env.ORCH_DIR = directory;
   orm(directory);
@@ -60,12 +61,12 @@ function workingAgent(): { directory: string; worker: string; before: ReturnType
   return { directory, worker: "worker", before: agentView(directory, "worker") };
 }
 
-function processInterval(directory: string): unknown {
+function processInterval(directory: OrchDir): unknown {
   return orm(directory)
     .all(sql`SELECT since, until, pid, start_token FROM agent_processes WHERE agent_id = 'worker'`);
 }
 
-function statusBytes(directory: string): string {
+function statusBytes(directory: OrchDir): string {
   return readFileSync(join(directory, "agents", "worker", "status.json"), "utf8");
 }
 

@@ -1,17 +1,18 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+
+
 import { closeAllStores } from "../src/store/connection.ts";
+import { orchDirAt } from "../src/services.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { cmdReap, reapCandidates, type ReapCandidateInput } from "../src/commands/lease.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { errorMessage } from "../src/util.ts";
 import { testServices } from "./helpers/services.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const previousOrchDir = process.env.ORCH_DIR;
 const previousAgentId = process.env[LAUNCH_ENV];
 const rows = [
@@ -84,7 +85,7 @@ describe("reapCandidates", () => {
 
 describe("cmdReap", () => {
   test.serial("prints the --dead --json result shape", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-reap-picker-"));
+    const directory = tempOrchDir("orch-reap-picker-");
     directories.push(directory);
     ensureHarness(directory, "pi", "pi", 1);
     const caller = mintAgentId();
@@ -105,7 +106,7 @@ describe("cmdReap", () => {
     const original = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true, writable: true });
     try {
-      const refusal = await cmdReap(testServices({ orchDir: process.env.ORCH_DIR ?? ".", settings: null }), []).then(() => null, (error: unknown) => errorMessage(error));
+      const refusal = await cmdReap(testServices({ orchDir: orchDirAt(process.env.ORCH_DIR ?? "."), settings: null }), []).then(() => null, (error: unknown) => errorMessage(error));
       expect(refusal).toBe("usage: orch reap <target> | --dead [--json]");
     } finally {
       if (original) Object.defineProperty(process.stdin, "isTTY", original);

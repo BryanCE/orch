@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { isRecord } from "../src/util.ts";
-import { seedStatusInDir } from "./helpers/presence.ts";
+import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { testServices } from "./helpers/services.ts";
-const tempDirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const tempDirs: OrchDir[] = [];
 
 function nodeCommand(script: string): [string, string, string] {
   return [process.execPath, "-e", script];
@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe("orch presence notifications", () => {
   test("delivers a presence transition through a configured command sink", async () => {
-    const orchDir = mkdtempSync(join(tmpdir(), "orch-work-notify-"));
+    const orchDir = tempOrchDir("orch-work-notify-");
     tempDirs.push(orchDir);
     const output = join(orchDir, "notification.json");
     const key = "testagent1";
@@ -54,7 +54,7 @@ describe("orch presence notifications", () => {
     const agentsDir = presenceAgentDir(key, orchDir);
     seedAgent(key, { name: "Test agent" }, orchDir);
     seedLiveProcess(orchDir, key);
-    seedStatusInDir(agentsDir, { state: "idle", label: "Test agent" });
+    seedStatus(orchDir, key, { state: "idle", label: "Test agent" });
     writeSettingsFixture(orchDir, {
       notify: [{ id: "command", on: ["working"], command }],
     });
@@ -72,7 +72,7 @@ describe("orch presence notifications", () => {
       });
       try {
         // startPresenceWatch seeds the initial idle state during its first scan.
-        seedStatusInDir(agentsDir, { state: "working", label: "Test agent" });
+        seedStatus(orchDir, key, { state: "working", label: "Test agent" });
         const payload: Record<string, unknown> = await waitForFile(output);
         expect(payload).toMatchObject({ space: "space", newState: "working" });
         expect(payload.title).toEqual(expect.stringContaining("WORKING [space] Test agent"));

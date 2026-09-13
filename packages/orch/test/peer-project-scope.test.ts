@@ -1,9 +1,10 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { removeTempDir } from "./helpers/tempdir.ts";
+
+
+
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { peerSummaries, resolvePeer } from "../src/agent/peers.ts";
 import { daemonClientForPeerView, daemonClientForPeers } from "./helpers/daemon-client.ts";
@@ -12,10 +13,10 @@ import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
-const tempDirs: string[] = [];
+const tempDirs: OrchDir[] = [];
 
-function makeOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-peer-project-"));
+function makeOrchDir(): OrchDir {
+  const directory = tempOrchDir("orch-peer-project-");
   tempDirs.push(directory);
   process.env.ORCH_DIR = directory;
   // The caller is a human session unless a test explicitly becomes an agent.

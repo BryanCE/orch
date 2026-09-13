@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
@@ -49,7 +50,7 @@ function isLiveProcessRow(value: unknown): value is LiveProcessRow {
     && (typeof startToken === "string" || startToken === null);
 }
 
-function databasePath(orchDir: string): string {
+function databasePath(orchDir: OrchDir): string {
   return join(orchDir, "orch.db");
 }
 
@@ -62,7 +63,7 @@ function migrationsFolder(): string {
 }
 
 /** Store process rows are the liveness source; read raw because the store may be refused. */
-export function livePresenceHolders(orchDir: string): string[] {
+export function livePresenceHolders(orchDir: OrchDir): string[] {
   let opened: OpenDatabase | undefined;
   try {
     opened = createDatabase(databasePath(orchDir), true);
@@ -90,7 +91,7 @@ export function livePresenceHolders(orchDir: string): string[] {
  * credential is enough here — a spawned agent, claimed or not, never rebuilds
  * the store — and it is read through the one leaf that owns the env var.
  */
-function callerIsSpawnedAgent(orchDir: string): boolean {
+function callerIsSpawnedAgent(orchDir: OrchDir): boolean {
   return launchCredential(orchDir) !== null;
 }
 
@@ -105,7 +106,7 @@ function callerIsSpawnedAgent(orchDir: string): boolean {
  * ahead, and the installed CLI silently reaped and recreated it under twelve
  * live agents.
  */
-export function assertStoreRecreatable(orchDir: string): void {
+export function assertStoreRecreatable(orchDir: OrchDir): void {
   const file = databasePath(orchDir);
   if (callerIsSpawnedAgent(orchDir)) {
     throw new Error(`orch: a spawned agent never rebuilds ${file}. Report the skew to the user or the pack's orch, who rebuilds it, and change nothing.`);
@@ -145,7 +146,7 @@ function migrationFolderPredatesKit(reason: string): boolean {
 /** What the caller who hit this skew may actually do about it. A slave is told
  *  to report it, never how to rebuild: naming a rebuild at a process that must
  *  not run one is how the store got recreated under twelve live agents. */
-function openRemedy(orchDir: string, reason: string): string {
+function openRemedy(orchDir: OrchDir, reason: string): string {
   if (callerIsSpawnedAgent(orchDir)) {
     return "A spawned agent never rebuilds the store: report this skew to the user or the pack's orch, and change nothing.";
   }
@@ -155,7 +156,7 @@ function openRemedy(orchDir: string, reason: string): string {
   return `Rebuild it with 'bun db:reset', which first keeps a copy under ${join(orchDir, "backups")}.`;
 }
 
-function applyMigrations(opened: OpenDatabase, path: string, orchDir: string): void {
+function applyMigrations(opened: OpenDatabase, path: string, orchDir: OrchDir): void {
   try {
     if (predatesMigrations(opened.orm)) throw new Error("it has orch's tables but no record of the migrations that create them");
     migrate(opened.orm, { migrationsFolder: migrationsFolder() });
@@ -170,7 +171,7 @@ function applyMigrations(opened: OpenDatabase, path: string, orchDir: string): v
 /** The typed drizzle handle for one orch dir: the ONE query stack over the one
  *  connection. Opening creates the file when absent and applies every migration;
  *  the connection is cached per orch dir. */
-export function orm(orchDir: string): Orm {
+export function orm(orchDir: OrchDir): Orm {
   return openDatabase(orchDir).orm;
 }
 
@@ -183,16 +184,16 @@ export function orm(orchDir: string): Orm {
  * into it — so a read path that calls it unconditionally turns `orch status
  * --offline` on a machine that has never run orch into a machine that has.
  */
-export function storeExists(orchDir: string): boolean {
+export function storeExists(orchDir: OrchDir): boolean {
   return connections.has(databasePath(orchDir)) || existsSync(databasePath(orchDir));
 }
 
 /** The store for reading, or `null` where there is none. Never creates one. */
-export function ormForRead(orchDir: string): Orm | null {
+export function ormForRead(orchDir: OrchDir): Orm | null {
   return storeExists(orchDir) ? orm(orchDir) : null;
 }
 
-function openDatabase(orchDir: string): OpenDatabase {
+function openDatabase(orchDir: OrchDir): OpenDatabase {
   const path = databasePath(orchDir);
   const cached = connections.get(path);
   if (cached) return cached;
@@ -231,7 +232,7 @@ export function closeAllStores(): void {
  *  store module writes through. drizzle's own `transaction` takes a callback
  *  bound to a scoped handle; orch's writers reach the connection by orch dir, so
  *  the boundary is stated here in the driver's own terms. */
-export function withTransaction<T>(orchDir: string, body: () => T): T {
+export function withTransaction<T>(orchDir: OrchDir, body: () => T): T {
   const db = openDatabase(orchDir).client;
   db.exec("BEGIN IMMEDIATE");
   try {

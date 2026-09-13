@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { createNotifierRegistry } from "../src/notify/router.ts";
 import type { Notifier, NotifyEvent } from "../src/types/notify.ts";
 import type { NotifyEntry } from "../src/types/settings.ts";
+import { orchDirAt } from "../src/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
+
+const orchDir = (): OrchDir => orchDirAt(".");
 
 const event: NotifyEvent = { key: "k", agent: null, tab: null, model: null, oldState: "working", newState: "done", ts: "2026-01-01T00:00:00.000Z" };
 
@@ -18,7 +22,7 @@ function notifier(id: Notifier["id"], seen: (config: Record<string, unknown>) =>
 describe("notify router", () => {
   test("delivers only when on includes the event state", async () => {
     let count = 0;
-    const registry = createNotifierRegistry(".", [notifier("webhook", () => { count += 1; })]);
+    const registry = createNotifierRegistry(orchDir(), [notifier("webhook", () => { count += 1; })]);
     const excluded: NotifyEntry = { id: "webhook", on: ["error"], url: "https://example.test" };
     const included: NotifyEntry = { id: "webhook", on: ["done"], url: "https://example.test" };
     await registry.deliver(excluded, event);
@@ -28,7 +32,7 @@ describe("notify router", () => {
 
   test("passes typed webhook and command configuration", async () => {
     const seen: Record<string, unknown>[] = [];
-    const registry = createNotifierRegistry(".", [
+    const registry = createNotifierRegistry(orchDir(), [
       notifier("webhook", (config) => seen.push(config)),
       notifier("command", (config) => seen.push(config)),
     ]);
@@ -42,7 +46,7 @@ describe("notify router", () => {
 
   test("surfaces notifier errors", async () => {
     const failure = new Error("delivery failed");
-    const registry = createNotifierRegistry(".", [{ ...notifier("webhook", () => { /* config unused here */ }), deliver: () => Promise.reject(failure) }]);
+    const registry = createNotifierRegistry(orchDir(), [{ ...notifier("webhook", () => { /* config unused here */ }), deliver: () => Promise.reject(failure) }]);
     const thrown: unknown = await registry.deliver({ id: "webhook", on: ["done"], url: "https://example.test" }, event).then(() => null, (error: unknown) => error);
     expect(thrown).toBe(failure);
   });

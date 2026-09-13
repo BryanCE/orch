@@ -1,7 +1,7 @@
 import { agentView } from "../store/agent-view.ts";
 import { holdsLease } from "../store/lease-rows.ts";
 import { isDescendantOf } from "./provenance.ts";
-import type { SelfIdentity } from "../types/core.ts";
+import type { OrchDir, SelfIdentity } from "../types/core.ts";
 import type { CloseAuthority } from "../types/policy.ts";
 
 /** Who may END an agent: the human, anything; an agent, what it owns: itself, what it spawned, what it adopted. */
@@ -15,7 +15,7 @@ export function callerAuthority(self: SelfIdentity | null): CloseAuthority {
  * `null` when the caller may end this agent; otherwise the refusal to print.
  * A refusal names the owner so the caller knows who to ask.
  */
-export function refuseClose(orchDir: string, authority: CloseAuthority, agentId: string): string | null {
+export function refuseClose(orchDir: OrchDir, authority: CloseAuthority, agentId: string): string | null {
   if (authority.kind === "human") return null;
   // Acting on yourself is not driving anyone else's fleet.
   if (authority.agentId === agentId) return null;

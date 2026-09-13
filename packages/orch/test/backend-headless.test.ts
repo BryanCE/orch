@@ -1,6 +1,6 @@
+import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
@@ -9,13 +9,13 @@ import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { readCodexSessionView } from "../src/adapters/codex-events.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { SpawnOpts } from "../src/types/adapter.ts";
 import { processStartToken } from "../src/process-identity.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
-const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-headless-"));
+const testOrchDir: OrchDir = tempOrchDir("orch-backend-headless-");
 
 const { HeadlessBackend } = await import("../src/backends/headless/index.ts");
 const backend = new HeadlessBackend();

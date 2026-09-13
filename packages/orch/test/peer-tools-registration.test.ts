@@ -1,7 +1,9 @@
+import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+
+
+
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerPeerTools } from "../src/agent/peers.ts";
 import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
@@ -13,7 +15,7 @@ import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 const originalOrchDir = process.env.ORCH_DIR;
 const originalSpawner = process.env.ORCH_SPAWNER;
 const originalSpawnerLabel = process.env.ORCH_SPAWNER_LABEL;
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
 function fakeHarness(): { harness: HarnessApi; toolNames: string[] } {
   const toolNames: string[] = [];
@@ -35,7 +37,7 @@ function fakeHarness(): { harness: HarnessApi; toolNames: string[] } {
   return { harness, toolNames };
 }
 
-function fakePresence(orchDir: string, harness: HarnessApi) {
+function fakePresence(orchDir: OrchDir, harness: HarnessApi) {
   return createAgentPresence(orchDir, {
     harness,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
@@ -44,8 +46,8 @@ function fakePresence(orchDir: string, harness: HarnessApi) {
   });
 }
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-peer-tools-"));
+function tempOrchDir(): OrchDir {
+  const directory = makeTempOrchDir("orch-peer-tools-");
   directories.push(directory);
   process.env.ORCH_DIR = directory;
   return directory;

@@ -1,15 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { repinLiveFleet, type LiveAgentForRepin, type RepinAdapterCapabilities } from "../src/daemon/orchd.ts";
 import type { ControlAction, ControlBoundaryOutcome } from "../src/types/control.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-function settingsDirectory(thinking: "medium" | "high", model: string): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-daemon-repin-"));
+function settingsDirectory(thinking: "medium" | "high", model: string): OrchDir {
+  const directory = tempOrchDir("orch-daemon-repin-");
   writeSettingsFixture(directory, { defaults: { thinking, models: { pi: model } } });
   return directory;
 }
@@ -23,7 +22,7 @@ function adapter(): RepinAdapterCapabilities {
 }
 
 describe("daemon settings tuning re-pin", () => {
-  const directories: string[] = [];
+  const directories: OrchDir[] = [];
 
   afterEach(() => {
     while (directories.length > 0) removeTempDir(directories.pop()!);

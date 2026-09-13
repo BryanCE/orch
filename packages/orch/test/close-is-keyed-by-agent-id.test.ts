@@ -1,7 +1,8 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cmdClose } from "../src/commands/lifecycle/close.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -11,7 +12,7 @@ import { isRecord } from "../src/util.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { endProcess } from "../src/store/interval-rows.ts";
 import { withExitCode } from "./helpers/exit-code.ts";
@@ -36,8 +37,8 @@ import { testServices } from "./helpers/services.ts";
  * `--json` consumer is told they closed.
  */
 
-const dirs: string[] = [];
-const oldDir = process.env.ORCH_DIR;
+const dirs: OrchDir[] = [];
+const oldDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 const oldKey = process.env[LAUNCH_ENV];
 const originalWrite = process.stdout.write.bind(process.stdout);
 const SETTINGS = {
@@ -52,8 +53,8 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-close-by-id-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-close-by-id-");
   dirs.push(dir);
   writeSettingsFixture(dir, SETTINGS);
   process.env.ORCH_DIR = dir;
@@ -63,14 +64,14 @@ function fixture(): string {
   return dir;
 }
 
-function services(dir: string) {
+function services(dir: OrchDir) {
   return testServices({ orchDir: dir, settings: SETTINGS });
 }
 
 /** Seed an agent whose process has already ended, so close has nothing to signal.
  *  `handle` absent = the pane is GONE: `agent_handles` has no open interval, which
  *  is exactly the state the reported sweep hit. */
-function seedLiveAgent(dir: string, key: string, handle?: string): void {
+function seedLiveAgent(dir: OrchDir, key: string, handle?: string): void {
   seedAgent(key, {
     adapter: "pi", backend: "headless", space: "space00001",
     ...(handle === undefined ? {} : { handle }),

@@ -4,14 +4,12 @@ import { resolveThinking } from "../src/policy/thinking.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 describe("thinking resolution", () => {
   test("resolves every rung in priority order", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-thinking-"));
+    const dir: OrchDir = tempOrchDir("orch-thinking-");
     writeSettingsFixture(dir, { defaults: { thinking: "low", thinking_by_harness: { codex: "high" } } });
     const settings = fileSettingsManager(dir).current();
     expect(resolveThinking({ flag: "max", modelSuffix: "minimal", harness: "codex", settings })).toBe("max");
@@ -22,7 +20,7 @@ describe("thinking resolution", () => {
   });
 
   test("bare model with no setting yields harness default", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-thinking-"));
+    const dir: OrchDir = tempOrchDir("orch-thinking-");
     writeSettingsFixture(dir, { defaults: { models: { pi: "openai/model" } } });
     const settings = fileSettingsManager(dir).current();
     expect(resolveThinking({ harness: "pi", settings })).toBe("medium");
@@ -38,7 +36,7 @@ describe("thinking resolution", () => {
   });
 
   test("per-harness override beats global default", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-thinking-"));
+    const dir: OrchDir = tempOrchDir("orch-thinking-");
     writeSettingsFixture(dir, { defaults: { thinking: "low", thinking_by_harness: { claude: "xhigh" } } });
     const settings = fileSettingsManager(dir).current();
     expect(resolveThinking({ harness: "claude", settings })).toBe("xhigh");

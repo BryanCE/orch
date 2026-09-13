@@ -1,8 +1,8 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
 import { formatPeerLines, peerSummaries } from "../src/agent/peers.ts";
 import { peerView } from "../src/daemon/peer-view.ts";
 import { daemonClientForPeerView } from "./helpers/daemon-client.ts";
@@ -11,14 +11,14 @@ import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 import { seedLiveProcess } from "./helpers/agent.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
 const originalSpawner = process.env.ORCH_SPAWNER;
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
 afterEach(() => {
   closeAllStores();
@@ -42,8 +42,8 @@ const DEAD_ORCH = "deadorch01";
 
 /** The caller holds HELD; LOOSE was never leased; ORPHAN's holder is a dead
  *  orch. Three lease facts, one fixture. */
-function fixture(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-peer-lease-"));
+function fixture(): OrchDir {
+  const directory = tempOrchDir("orch-peer-lease-");
   directories.push(directory);
   process.env.ORCH_DIR = directory;
   delete process.env[LAUNCH_ENV];
@@ -71,7 +71,7 @@ function fixture(): string {
   return directory;
 }
 
-async function summaries(directory: string) {
+async function summaries(directory: OrchDir) {
   const view = peerView(directory, CALLER, [HELD, LOOSE, ORPHAN], false);
   return peerSummaries(directory, daemonClientForPeerView(view), CALLER);
 }

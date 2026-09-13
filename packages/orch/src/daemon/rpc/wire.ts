@@ -1,3 +1,4 @@
+import type { OrchDir } from "../../types/core.ts";
 import { type Socket } from "node:net";
 import { liveDaemonRegistration } from "../lifecycle.ts";
 import { daemonRuntimeFiles } from "../runtime-files.ts";
@@ -8,8 +9,10 @@ import type { EndpointPaths } from "../../types/daemon.ts";
 export class DaemonAbsentError extends Error {
   readonly code = "DAEMON_ABSENT";
 
-  constructor(orchDir: string) {
-    super(`orchd daemon is absent (${orchDir})`);
+  /** `lastLogLine` is what orchd last wrote before going: the one thing an operator
+   *  needs when a start attempt ends in silence, so it travels with the refusal. */
+  constructor(orchDir: OrchDir, lastLogLine: string | null = null) {
+    super(`orchd daemon is absent (${orchDir})${lastLogLine === null ? "" : `; last log line: ${lastLogLine}`}`);
     this.name = "DaemonAbsentError";
   }
 }
@@ -106,7 +109,7 @@ export function isRpcResponse(value: unknown): value is RpcResponse {
   return has.event || has.gap || has.result || has.error;
 }
 export const DEFAULT_TIMEOUT_MS = 5_000;
-export function endpointPaths(orchDir: string): EndpointPaths {
+export function endpointPaths(orchDir: OrchDir): EndpointPaths {
   const registration = liveDaemonRegistration(orchDir);
   if (registration) return { socket: registration.socket, port: registration.port, token: registration.token };
   const files = daemonRuntimeFiles(orchDir);

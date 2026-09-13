@@ -1,17 +1,17 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseGovernance, validDaemonStatus } from "../src/commands/daemon.ts";
 import { daemonLockPid } from "../src/daemon/reach.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { testServices } from "./helpers/services.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { isolateHarnessSession } from "./helpers/env.ts";
 
 describe("commands/daemon", () => {
   test("parses governance and validates daemon status", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-command-daemon-"));
+    const directory: OrchDir = tempOrchDir("orch-command-daemon-");
     const restoreHarness = isolateHarnessSession("pi");
     const marker = HARNESS_SESSION_ENV.pi.marker;
     const sessionId = HARNESS_SESSION_ENV.pi.sessionId;
@@ -33,7 +33,7 @@ describe("commands/daemon", () => {
     }
   });
   test("reads a lock pid only from a complete lock record", () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-command-daemon-"));
+    const dir = tempOrchDir("orch-command-daemon-");
     const lock = join(dir, "orchd.lock");
     const write = (record: unknown) => writeFileSync(lock, JSON.stringify(record));
     try {

@@ -1,7 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
@@ -9,22 +6,23 @@ import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { testServices } from "./helpers/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
 const previousDir = process.env.ORCH_DIR;
 
-function tempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-channel-first-"));
+function tempDir(): OrchDir {
+  const dir = tempOrchDir("orch-channel-first-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   writeSettingsFixture(dir, { defaults: { adapter: "pi", backend: "headless" } });
   return dir;
 }
 
-function fakeLink(directory: string, key: string): BridgeDelivery[] {
+function fakeLink(directory: OrchDir, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
   const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
   attachBridge(directory, key, link);

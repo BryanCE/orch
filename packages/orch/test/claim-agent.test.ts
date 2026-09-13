@@ -1,19 +1,17 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { agentById, claimAgent, ensureHarness, insertAgent, reclaimAgent } from "../src/store/agent-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { row } from "./helpers/rows.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
-function fixture() { const d = mkdtempSync(join(tmpdir(), "orch-claim-agent-")); dirs.push(d); return d; }
-function seed(d: string) { ensureHarness(d, "pi", "Pi"); }
-function agent(d: string, id: string) { return insertAgent(d, { id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 2_000 }); }
-function claimedRow(d: string, id: string) {
+function fixture() { const d = tempOrchDir("orch-claim-agent-"); dirs.push(d); return d; }
+function seed(d: OrchDir) { ensureHarness(d, "pi", "Pi"); }
+function agent(d: OrchDir, id: string) { return insertAgent(d, { id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 2_000 }); }
+function claimedRow(d: OrchDir, id: string) {
   return row(orm(d), sql`SELECT claimed_at, session_token FROM agents WHERE id = ${id}`);
 }
 

@@ -1,8 +1,10 @@
+import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
+
 import { allAdapters } from "../src/adapters/registry.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../src/policy/spawner.ts";
 import { getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
@@ -21,13 +23,13 @@ const IDENTITY_ENV = [
     .filter((name): name is string => name !== undefined),
 ];
 
-const directories: string[] = [];
-function noPeersDaemon(directory: string) {
+const directories: OrchDir[] = [];
+function noPeersDaemon(directory: OrchDir) {
   return daemonClientForPeers(directory, []);
 }
 let savedEnv: Record<string, string | undefined> = {};
 
-function recordingDaemon(directory: string, keys: string[], messageResponse: unknown) {
+function recordingDaemon(directory: OrchDir, keys: string[], messageResponse: unknown) {
   const daemon = daemonClientForPeers(directory, keys);
   const peerViewDaemon = daemonClientForPeers(directory, keys);
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
@@ -39,8 +41,8 @@ function recordingDaemon(directory: string, keys: string[], messageResponse: unk
   return { daemon, calls };
 }
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-peer-identity-"));
+function tempOrchDir(): OrchDir {
+  const directory = makeTempOrchDir("orch-peer-identity-");
   directories.push(directory);
   process.env.ORCH_DIR = directory;
   return directory;
@@ -165,7 +167,7 @@ describe("spawner identity", () => {
  * never existed.
  */
 describe("the spawner address invariant", () => {
-  function stampedSpawnerAddress(orchDir: string): string | undefined {
+  function stampedSpawnerAddress(orchDir: OrchDir): string | undefined {
     return agentIdentityEnv("worker-1", spawnerIdentity(orchDir)).ORCH_SPAWNER;
   }
 

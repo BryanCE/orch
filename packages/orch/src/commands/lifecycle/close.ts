@@ -14,12 +14,12 @@ import { rpcCall } from "../../daemon/rpc/client.ts";
 import { agentAddress, die, presenceById, resolveLifecycleTarget, splitOptionFlags } from "../target.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
-import type { Logger } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import { currentProcess } from "../../store/interval-rows.ts";
 
 /** Read the launch identity from the normalized agent process interval. Presence
  * status carries liveness only and can never authorize a signal. */
-function recordedProcess(orchDir: string, key: string): RecordedProcess | null {
+function recordedProcess(orchDir: OrchDir, key: string): RecordedProcess | null {
   try {
     const row = currentProcess(orchDir, key);
     return row === undefined ? null : { pid: row.pid, startToken: row.startToken };
@@ -51,7 +51,7 @@ interface ClosedAgent {
   readonly oldState: string;
 }
 
-function endClosedAgent(orchDir: string, key: string): ClosedAgent | null {
+function endClosedAgent(orchDir: OrchDir, key: string): ClosedAgent | null {
   const root = orchDir;
   const agentId = key;
   const row = agentById(root, agentId);
@@ -64,7 +64,7 @@ function endClosedAgent(orchDir: string, key: string): ClosedAgent | null {
   return null;
 }
 
-function publishClosedAgent(orchDir: string, closed: ClosedAgent): void {
+function publishClosedAgent(orchDir: OrchDir, closed: ClosedAgent): void {
   void rpcCall(orchDir, "agent-closed", closed).catch(() => { /* the daemon may not be running */ });
 }
 
@@ -267,7 +267,7 @@ function killEventStreams(): number {
  *  Prose on stderr is not something a caller
  *  can act on, and a payload carrying only the successes cannot tell a full
  *  sweep from a half one. A target named twice is closed once. */
-function closeEachTarget(logger: Logger, orchDir: string, targets: readonly CloseTarget[], json: boolean): { results: CloseOutcome[]; closed: string[]; ok: number } {
+function closeEachTarget(logger: Logger, orchDir: OrchDir, targets: readonly CloseTarget[], json: boolean): { results: CloseOutcome[]; closed: string[]; ok: number } {
   const results: CloseOutcome[] = [];
   const closed: string[] = [];
   const seen = new Set<string>();

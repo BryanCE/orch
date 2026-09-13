@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { selectRuns } from "../src/store/run-rows.ts";
 import { orm } from "../src/store/connection.ts";
@@ -13,8 +12,9 @@ import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { subscribeEvents } from "../src/daemon/rpc/client.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { PresenceWatch, RpcServer } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { NotifyEntry } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
@@ -22,13 +22,13 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { testServices } from "./helpers/services.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const servers: RpcServer[] = [];
 const presenceWatches: PresenceWatch[] = [];
-const noDirSettings = testServices({ orchDir: "/tmp", settings: {} }).settings;
+const noDirSettings = testServices({ orchDir: tempOrchDir(), settings: {} }).settings;
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-events-"));
+function tempOrchDir(): OrchDir {
+  const directory = makeTempOrchDir("orch-events-");
   directories.push(directory);
   return directory;
 }
@@ -36,7 +36,7 @@ function tempOrchDir(): string {
 /** Seed one agent through the normalized tables the composer reads.
  *  A1: identity is the minted id, and environment is a satellite of it - never a
  *  column on a wide row keyed by the pane. */
-function seedAgent(orchDir: string, agentId: string, options: { harnessId?: string; space?: string } = {}): void {
+function seedAgent(orchDir: OrchDir, agentId: string, options: { harnessId?: string; space?: string } = {}): void {
   const harnessId = options.harnessId ?? "pi";
   ensureHarness(orchDir, harnessId, harnessId);
   insertAgent(orchDir, { id: agentId, spawnedBy: null, harnessId, cwd: orchDir, name: agentId, createdAt: 1 });
@@ -76,7 +76,7 @@ function notifyEvent(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   };
 }
 
-function writeStatus(orchDir: string, key: string, state: string, extra: object = {}): void {
+function writeStatus(orchDir: OrchDir, key: string, state: string, extra: object = {}): void {
   seedStatus(orchDir, key, { state, ...extra });
 }
 

@@ -1,12 +1,13 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
+
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { sweepExpiredRows } from "../src/daemon/retention.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
 
@@ -20,11 +21,11 @@ import { sql } from "drizzle-orm";
  * refused while anything below it is still live.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const d = mkdtempSync(join(tmpdir(), "orch-reap-provenance-"));
+function fixture(): OrchDir {
+  const d = tempOrchDir("orch-reap-provenance-");
   dirs.push(d);
   orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   insertAgent(d, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
@@ -33,7 +34,7 @@ function fixture(): string {
   return d;
 }
 
-function end(dir: string, id: string, at: number): void {
+function end(dir: OrchDir, id: string, at: number): void {
   orm(dir).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${id},${at},${null})`);
 }
 

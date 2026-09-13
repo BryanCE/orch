@@ -12,11 +12,12 @@ import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { isDrvFsPath } from "../src/doctor/settings-file.ts";
 import { runTestDoctor } from "../test/helpers/doctor.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
-import { seedStatusInDir } from "../test/helpers/presence.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { seedStatus } from "../test/helpers/presence.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
-const directories: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
 // The machine registration is a per-machine rendezvous outside any orchDir. Left
@@ -26,8 +27,8 @@ const discoveryDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-discover
 process.env.ORCH_DAEMON_DISCOVERY_DIR = discoveryDir;
 afterAll(() => { removeTempDir(discoveryDir); });
 
-function tempDir(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-doctor-");
   directories.push(directory);
   return directory;
 }
@@ -182,9 +183,7 @@ describe("runDoctor", () => {
 
   test("warns when the extension bundle is absent for a matching live hash", async () => {
     const directory = tempDir();
-    const agent = path.join(directory, "agents", "paneagent1");
-    fs.mkdirSync(agent, { recursive: true });
-    seedStatusInDir(agent, {
+    seedStatus(directory, "paneagent1", {
       pid: process.pid,
       extensionHash: computeCodeHash(path.join(import.meta.dir, "../extensions/pi/index.ts")),
     });
@@ -198,9 +197,7 @@ describe("runDoctor", () => {
 
   test("warns when the extension bundle is absent for a stale live hash", async () => {
     const directory = tempDir();
-    const agent = path.join(directory, "agents", "paneagent2");
-    fs.mkdirSync(agent, { recursive: true });
-    seedStatusInDir(agent, { pid: process.pid, extensionHash: "old" });
+    seedStatus(directory, "paneagent2", { pid: process.pid, extensionHash: "old" });
 
     const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
     expect(result).toMatchObject({
@@ -211,11 +208,9 @@ describe("runDoctor", () => {
 
   test("warns when the extension bundle is absent for a live status without a hash", async () => {
     const directory = tempDir();
-    const agent = path.join(directory, "agents", "paneagent3");
     const broken = path.join(directory, "agents", "brokenagt1");
-    fs.mkdirSync(agent, { recursive: true });
+    seedStatus(directory, "paneagent3", { pid: process.pid });
     fs.mkdirSync(broken, { recursive: true });
-    seedStatusInDir(agent, { pid: process.pid });
     fs.writeFileSync(path.join(broken, "status.json"), "not json");
 
     const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
@@ -227,9 +222,7 @@ describe("runDoctor", () => {
 
   test("reports a dead presence pid", async () => {
     const directory = tempDir();
-    const agent = path.join(directory, "agents", "formeragt1");
-    fs.mkdirSync(agent, { recursive: true });
-    seedStatusInDir(agent, { pid: 99999999 });
+    seedStatus(directory, "formeragt1", { pid: 99999999 });
     const results = await runTestDoctor(directory);
     const stale = check(results, "stale-presence");
 
@@ -237,7 +230,7 @@ describe("runDoctor", () => {
     expect(stale.detail).toContain("formeragt1");
     expect(stale.fix).toBeDefined();
     expect(applyFixes([stale])).toEqual({ applied: [stale.fix!.description] });
-    expect(fs.existsSync(agent)).toBe(false);
+    expect(fs.existsSync(path.join(directory, "agents", "formeragt1"))).toBe(false);
   });
 
   test("bins check is driven by the enabled set and offers no fix", async () => {

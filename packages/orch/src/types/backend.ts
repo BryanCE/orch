@@ -3,6 +3,7 @@ import type { AgentAdapter } from "./adapter.ts";
 import type { HeadlessHandle } from "./plexer.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentId } from "../backends/identity.ts";
+import type { OrchDir } from "./core.ts";
 
 /** Where a placed agent sits, as the environment reports it. */
 export interface PlacementCoordinate {
@@ -156,7 +157,7 @@ export interface EnvironmentIdentityRole {
  *  SOMEONE ELSE are different capabilities, and welding them would force an
  *  environment to fake whichever half it lacks. */
 export interface HandleLookupRole<Handle = BackendHandle> {
-  handleFor(key: string, orchDir: string): Handle | undefined;
+  handleFor(key: string, orchDir: OrchDir): Handle | undefined;
 }
 
 /** What an environment's running server says about itself. `compatible` is null
@@ -187,7 +188,7 @@ export interface ServerInfoRole {
  *  answer, not a failure, and replaces the `canPruneLogs` boolean declared
  *  alongside the method. */
 export interface LogPruningRole {
-  prune(cutoff: Date, liveKeys: readonly string[], orchDir: string): number;
+  prune(cutoff: Date, liveKeys: readonly string[], orchDir: OrchDir): number;
 }
 
 /** Request to launch one process in an environment. */
@@ -260,7 +261,7 @@ export interface BackendSpawnOpts {
   /** Model patterns the adapter should expose in its native cycle/picker, when configured. */
   readonly preferredModels?: readonly string[];
   /** ORCH_DIR for the adapter process. */
-  readonly orchDir: string;
+  readonly orchDir: OrchDir;
   /** Extra environment passed to the adapter process. */
   readonly env?: Readonly<Record<string, string>>;
   /** Explicit worker tool allowlist, when the launcher applies one. */

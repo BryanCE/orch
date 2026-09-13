@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
@@ -10,12 +9,12 @@ import { governWrite, deliverWrite } from "../src/daemon/orchd.ts";
 import { isLogRecord } from "../src/log.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import type { LogRecord } from "../src/types/core.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { LogRecord, OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const previousLogLevel = process.env.ORCH_LOG_LEVEL;
 const previousOrchDir = process.env.ORCH_DIR;
 
@@ -27,8 +26,8 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-decision-trail-"));
+function fixture(): OrchDir {
+  const directory = tempOrchDir("orch-decision-trail-");
   dirs.push(directory);
   process.env.ORCH_LOG_LEVEL = "debug";
   process.env.ORCH_DIR = directory;
@@ -37,16 +36,16 @@ function fixture(): string {
   return directory;
 }
 
-function agent(directory: string, id: string): void {
+function agent(directory: OrchDir, id: string): void {
   insertAgent(directory, { id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 1 });
 }
 
-function daemonState(directory: string) {
+function daemonState(directory: OrchDir) {
   const services = testServices({ orchDir: directory, settings: {} });
   return { services, directory, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, presenceWatch: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false };
 }
 
-function records(directory: string): LogRecord[] {
+function records(directory: OrchDir): LogRecord[] {
   const lines = readFileSync(join(directory, "orchd.log"), "utf8").trim().split("\n");
   return lines.map((line) => {
     const parsed: unknown = JSON.parse(line);

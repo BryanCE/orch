@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // The in-agent wiring every pi-shaped harness gets: pane HUD state, the presence
 // binding that writes $ORCH_DIR/agents/<KEY>/, the tool layer, and the fleet
 // monitor.
@@ -26,7 +27,7 @@ export function registerHarnessBridge(
   harness: HarnessApi,
   identity: HarnessIdentity,
   extensionHash: string,
-  options: { orchDir: string; settings: SettingsManager; renderFleetStatus?: FleetStatusRenderer; fleet?: boolean },
+  options: { orchDir: OrchDir; settings: SettingsManager; renderFleetStatus?: FleetStatusRenderer; fleet?: boolean },
 ): HarnessBridge {
   // This bridge knows no plexer. What its environment composes was decided by
   // orch at spawn and stamped into the launch env; what its environment KNOWS is

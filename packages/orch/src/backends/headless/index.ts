@@ -15,11 +15,12 @@ import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { createCaptureRole } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
+import type { OrchDir } from "../../types/core.ts";
 import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
 
 const HEADLESS_BACKEND: BackendId = "headless";
 
-function orchDirectory(orchDir: string): string {
+function orchDirectory(orchDir: OrchDir): OrchDir {
   return orchDir;
 }
 
@@ -82,7 +83,7 @@ function headlessPid(handle: HeadlessHandle | string): number | null {
  * here, and a `backend === "headless"` test would say the same thing while
  * making the model care which environment an agent happens to be in.
  */
-function headlessHandles(directory: string): HeadlessHandle[] {
+function headlessHandles(directory: OrchDir): HeadlessHandle[] {
   try {
     return agentViews(directory).flatMap((view) => {
       const handle = parseHeadlessHandle(view.environment.handle);
@@ -106,14 +107,14 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** A detached handle carries the OS pid, which a relaunch replaces, so the
    *  recorded environment is its one source. */
   readonly handleLookup: HandleLookupRole<HeadlessHandle> = {
-    handleFor: (key: string, orchDir: string): HeadlessHandle | undefined =>
+    handleFor: (key: string, orchDir: OrchDir): HeadlessHandle | undefined =>
       this.liveHandles(orchDir).find((handle) => handle.key === key && handle.alive),
   };
   // A detached process has no plexer integration to version.
   readonly versionInfo: null = null;
   readonly serverInfo: null = null;
   readonly logPruning: LogPruningRole = {
-    prune: (cutoff: Date, liveKeys: readonly string[], orchDir: string): number => this.pruneLogFiles(cutoff, liveKeys, orchDir),
+    prune: (cutoff: Date, liveKeys: readonly string[], orchDir: OrchDir): number => this.pruneLogFiles(cutoff, liveKeys, orchDir),
   };
   readonly capture: CaptureRole = {
     read: (agentId, request) => {
@@ -133,7 +134,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly groupHome = null;
   readonly groupLayout = null;
   readonly spaceHome = null;
-  private readonly orchDir: string | undefined;
+  private readonly orchDir: OrchDir | undefined;
   private readonly isPidAlive: (pid: number) => boolean;
   private readonly killer: (pid: number, signal: "SIGTERM") => void;
   readonly process: ProcessRole<HeadlessHandle>;
@@ -148,7 +149,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     return true;
   }
 
-  constructor(deps: HeadlessBackendDeps & { readonly orchDir?: string } = {}) {
+  constructor(deps: HeadlessBackendDeps & { readonly orchDir?: OrchDir } = {}) {
     this.orchDir = deps.orchDir;
     this.isPidAlive = deps.pidAlive ?? ((pid) => pidAlive(pid));
     this.killer = deps.killer ?? signalOtherProcess;
@@ -246,13 +247,13 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
 
   /** Every registered headless handle with a fresh liveness result. Private:
    *  `handleLookup` is the one public address for this (2.2). */
-  private liveHandles(orchDir: string): HeadlessHandle[] {
+  private liveHandles(orchDir: OrchDir): HeadlessHandle[] {
     const directory = orchDirectory(orchDir);
     return headlessHandles(directory).map((handle) => makeHeadlessHandle(handle.pid, handle.key, this.isPidAlive(handle.pid)));
   }
 
   /** Remove old headless logs, retaining every log belonging to a live presence. */
-  private pruneLogFiles(cutoff: Date, liveKeys: readonly string[], orchDir: string): number {
+  private pruneLogFiles(cutoff: Date, liveKeys: readonly string[], orchDir: OrchDir): number {
     const logsDir = logDirectory(orchDirectory(orchDir));
     let names: string[];
     try {

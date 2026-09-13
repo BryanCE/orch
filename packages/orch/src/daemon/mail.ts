@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { randomUUID } from "node:crypto";
 import { checkWall } from "../policy/space.ts";
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
@@ -13,7 +14,7 @@ function requiredMailString(value: string, name: string): string {
 /** Queue one agent's message to another. Mail is governed by the space wall only, never by
  * the lease: it is not a driving verb (Rule 11). The row is picked up by the outbox drain
  * or by the caller's own delivery attempt. */
-export function acceptMail(directory: string, settings: OrchSettings | null, from: string, target: string, text: string): { id: string } {
+export function acceptMail(directory: OrchDir, settings: OrchSettings | null, from: string, target: string, text: string): { id: string } {
   const sender = requiredMailString(from, "from");
   const recipient = requiredMailString(target, "target");
   const body = requiredMailString(text, "text");

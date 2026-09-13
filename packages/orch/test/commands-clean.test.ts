@@ -1,8 +1,9 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
-import { mkdtempSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { cmdClean, liveWorktreeOwner, removeDeadAgentDirs } from "../src/commands/clean.ts";
 import { claimAgent, ensureHarness, insertAgent, setWorktree } from "../src/store/agent-rows.ts";
@@ -12,7 +13,7 @@ import { closeAllStores } from "../src/store/connection.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { loadPresence } from "../src/presence/store.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { isolateHarnessSession } from "./helpers/env.ts";
 import { testServices } from "./helpers/services.ts";
@@ -21,8 +22,8 @@ import { testServices } from "./helpers/services.ts";
 
 describe("commands/clean", () => {
   test("the forced sweep reaps dead agent dirs but preserves live processes", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-clean-"));
-    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    const root: OrchDir = tempOrchDir("orch-command-clean-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});
       seedAgent("liveagent1", {}, root);
@@ -35,8 +36,8 @@ describe("commands/clean", () => {
   });
 
   test("bare clean keeps ended agents as history and closes their queued writes", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-clean-bare-"));
-    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    const root = tempOrchDir("orch-command-clean-bare-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});
       seedAgent("liveagent1", {}, root);
@@ -59,8 +60,8 @@ describe("commands/clean", () => {
   });
 
   test("--force reaps the ended agent and closes its queued writes", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-clean-force-"));
-    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    const root = tempOrchDir("orch-command-clean-force-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});
       insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
@@ -78,8 +79,8 @@ describe("worktree ownership reads the composed environment", () => {
   // liveness is presence keyed by the agent's minted id — not a column on a wide
   // row keyed by a pane.
   test("a live agent's worktree is protected and a dead one's is not", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-clean-worktree-owner-"));
-    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    const root = tempOrchDir("orch-clean-worktree-owner-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       ensureHarness(root, "pi", "pi", 1);
       insertAgent(root, { id: "live000001", harnessId: "pi", cwd: "/repo", name: "keeper", createdAt: 1 });
@@ -105,8 +106,8 @@ describe("worktree ownership reads the composed environment", () => {
 
 describe("orch clean is destructive maintenance", () => {
   test("a spawned agent is refused the sweep, and the dirs it does not own survive", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-clean-slave-"));
-    const oldDir = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-clean-slave-");
+    const oldDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const oldKey = process.env[LAUNCH_ENV];
     const oldExit = process.exit.bind(process);
     const oldMarker = process.env[HARNESS_SESSION_ENV.pi.marker];

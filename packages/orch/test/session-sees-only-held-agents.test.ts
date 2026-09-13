@@ -1,8 +1,9 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { removeTempDir } from "./helpers/tempdir.ts";
+
+
+
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { cmdStatus, parseStatusOptions, scopeFleetRows } from "../src/commands/status.ts";
 import { cmdNew } from "../src/commands/lifecycle/reset.ts";
@@ -33,7 +34,7 @@ function row(key: string, ownerId: string | null, spaceId = "space"): StatusRow 
 const session: CallerScope = { id: "session-a", ceiling: "space", kind: "session" };
 const SETTINGS = { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } };
 
-function services(root: string) {
+function services(root: OrchDir) {
   return testServices({ orchDir: root, settings: SETTINGS });
 }
 
@@ -50,7 +51,7 @@ describe("session agent visibility", () => {
   });
 
   test.serial("a session cannot reset a foreign-held agent", async () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-session-reset-"));
+    const root = tempOrchDir("orch-session-reset-");
     const oldDir = process.env.ORCH_DIR;
     const oldMarker = process.env.PI_CODING_AGENT;
     const oldSession = process.env.PI_SESSION_ID;
@@ -77,7 +78,7 @@ describe("session agent visibility", () => {
   });
 
   test.serial("a session cannot read runs by the exact key of a foreign-held agent", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-session-runs-"));
+    const root = tempOrchDir("orch-session-runs-");
     const oldDir = process.env.ORCH_DIR;
     const oldMarker = process.env.PI_CODING_AGENT;
     const oldSession = process.env.PI_SESSION_ID;
@@ -103,7 +104,7 @@ describe("session agent visibility", () => {
   });
 
   test.serial("a session cannot widen status with --space-wide", async () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-session-status-"));
+    const root = tempOrchDir("orch-session-status-");
     const oldMarker = process.env.PI_CODING_AGENT;
     const oldSession = process.env.PI_SESSION_ID;
     process.env.PI_CODING_AGENT = "1";
@@ -126,7 +127,7 @@ describe("session agent visibility", () => {
   });
 
   test.serial("a session cannot resolve a foreign target, even when it shares provenance", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-session-visibility-"));
+    const root = tempOrchDir("orch-session-visibility-");
     const oldDir = process.env.ORCH_DIR;
     const oldMarker = process.env.PI_CODING_AGENT;
     const oldSession = process.env.PI_SESSION_ID;

@@ -1,8 +1,6 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createConnection, type Socket } from "node:net";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { attachBridge, attachedBridgeKeys, detachBridge, pushToBridge } from "../src/control/bridge-links.ts";
 import type { BridgeLink } from "../src/control/bridge-links.ts";
@@ -12,10 +10,10 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
 function observe(socket: Socket): string[] {
@@ -57,7 +55,7 @@ async function until(predicate: () => boolean): Promise<void> {
   if (!predicate()) throw new Error("timed out waiting for bridge state");
 }
 
-function liveKey(directory: string): string {
+function liveKey(directory: OrchDir): string {
   const key = mintAgentId();
   seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "working" });
   return key;
@@ -73,7 +71,7 @@ async function start(onBridgeAttached?: (key: string) => void): Promise<RpcServe
 }
 
 beforeEach(() => {
-  const directory = mkdtempSync(join(tmpdir(), "orch-bridge-link-server-"));
+  const directory = tempOrchDir("orch-bridge-link-server-");
   directories.push(directory);
   process.env.ORCH_DIR = directory;
 });

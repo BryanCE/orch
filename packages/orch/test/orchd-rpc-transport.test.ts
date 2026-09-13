@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { rpcCall } from "../src/daemon/rpc/client.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-function tempOrchDir(): string {
-  return mkdtempSync(join(tmpdir(), "orch-rpc-transport-"));
+function tempOrchDir(): OrchDir {
+  return freshOrchDir("orch-rpc-transport-");
 }
 
 function handlers() {

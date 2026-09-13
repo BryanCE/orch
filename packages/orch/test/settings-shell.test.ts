@@ -1,7 +1,8 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { readFileSync } from "node:fs";
+
 import { join } from "node:path";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { shouldLaunchSettingsEditor } from "../src/commands/settings.ts";
@@ -10,10 +11,10 @@ import { createEditorState, editorReducer } from "../src/settings/editor.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { EditorSetting, SettingSpec } from "../src/types/settings.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
-function tempDir(prefix: string): string {
-  const directory = mkdtempSync(join(tmpdir(), prefix));
+function tempDir(prefix: string): OrchDir {
+  const directory = tempOrchDir(prefix);
   dirs.push(directory);
   return directory;
 }

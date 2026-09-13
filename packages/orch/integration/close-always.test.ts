@@ -1,7 +1,6 @@
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";
@@ -13,12 +12,13 @@ import { checkWall } from "../src/policy/space.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "../test/helpers/backend.ts";
 import { seedSpace } from "../test/helpers/space.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { placeAgent, seedAgent } from "../test/helpers/agent.ts";
 import { withExitCode } from "../test/helpers/exit-code.ts";
 import { testServices } from "../test/helpers/services.ts";
 import { sql } from "drizzle-orm";
 
+import type { OrchDir } from "../src/types/core.ts";
 /**
  * Identity is a minted id and NOTHING else, so
  * every fixture below addresses its agent by a minted-shaped id. The plexer,
@@ -27,7 +27,7 @@ import { sql } from "drizzle-orm";
  * through the composer — never spelled into the key and never parsed out of it.
  */
 const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const children: ChildProcess[] = [];
 const oldDir = process.env.ORCH_DIR;
 const oldOwner = process.env.ORCH_OWNER;
@@ -36,8 +36,8 @@ const testSettings = {
   defaults: { adapter: "pi", backend: "headless" },
 };
 
-function makeDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-close-always-"));
+function makeDir(): OrchDir {
+  const dir = tempOrchDir("orch-close-always-");
   dirs.push(dir);
   writeSettingsFixture(dir, testSettings);
   process.env.ORCH_DIR = dir;
@@ -45,7 +45,7 @@ function makeDir(): string {
   return dir;
 }
 
-function runCli(dir: string, args: string[]): { status: number | null; output: string } {
+function runCli(dir: OrchDir, args: string[]): { status: number | null; output: string } {
   const result = Bun.spawnSync([process.execPath, binPath, ...args], {
     env: { ...process.env, ORCH_DIR: dir, ORCH_OWNER: "caller" },
     stdout: "pipe",
@@ -55,7 +55,7 @@ function runCli(dir: string, args: string[]): { status: number | null; output: s
   return { status: result.exitCode, output: `${result.stdout.toString()}\n${result.stderr.toString()}` };
 }
 
-function writeStatus(dir: string, key: string, pid: number): void {
+function writeStatus(dir: OrchDir, key: string, pid: number): void {
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
@@ -63,7 +63,7 @@ function writeStatus(dir: string, key: string, pid: number): void {
   }));
 }
 
-function recordProcess(dir: string, key: string, pid: number, startToken: string): void {
+function recordProcess(dir: OrchDir, key: string, pid: number, startToken: string): void {
   const db = orm(dir);
   db.run(sql`INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)`);
   db.run(sql`INSERT OR IGNORE INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)`);

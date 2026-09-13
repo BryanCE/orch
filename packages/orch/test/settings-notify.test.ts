@@ -1,24 +1,24 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
 import { cmdSettingsNotify } from "../src/commands/settings.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, NOTIFY_SIMPLE_IDS } from "../src/settings/schema.ts";
 import { NOTIFY_STATES } from "../src/types/settings.ts";
 import { registeredSetting, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createServices } from "../src/services.ts";
 
 // `orch settings notify` is the writer for the settings.json `notify` array. Sink ids and the
 // fields each takes come from the notifier registry, so nothing here is hardcoded per sink.
 
-let root = "";
+let root: OrchDir;
 let previousOrchDir: string | undefined;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "orch-settings-notify-"));
+  root = tempOrchDir("orch-settings-notify-");
   previousOrchDir = process.env.ORCH_DIR;
   process.env.ORCH_DIR = root;
   writeSettingsFixture(root, {

@@ -10,7 +10,7 @@ import { errorMessage } from "../../util.ts";
 import { agentViewIndex, die, presenceById } from "../target.ts";
 import { callerSpace } from "../../identity/self.ts";
 import type { Backend } from "../../types/backend.ts";
-import type { Logger } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import type { AgentView, GrantAction } from "../../types/store.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
@@ -59,7 +59,7 @@ export function spawnPolicyError(
   return null;
 }
 
-export function assertSpawnPolicy(orchDir: string, settings: Pick<OrchSettings, "fleet">, space: string | null, requested: number): void {
+export function assertSpawnPolicy(orchDir: OrchDir, settings: Pick<OrchSettings, "fleet">, space: string | null, requested: number): void {
   const refusal = spawnPolicyError(settings, space, requested, agentViewIndex(orchDir), presenceById(loadPresence(orchDir)), spawnerIdentity(orchDir).key);
   if (refusal) throw new SpawnRefusalError(`spawn refused: ${refusal}`);
 }
@@ -74,7 +74,7 @@ export function assertTabCapacity(settings: Pick<OrchSettings, "fleet">, tab: st
 }
 
 export function assertSpawnCapacity(
-  orchDir: string,
+  orchDir: OrchDir,
   settings: Pick<OrchSettings, "fleet">,
   space: string | null,
   requested: number,
@@ -108,7 +108,7 @@ export function newSpaceAction(settings: SpawnSettings, backend: Backend): Grant
 /** Opening a space puts a window on the human's screen, so a caller with no
  *  space of its own may not take one unasked. There is no flag to pass here:
  *  a flag is typed by whoever runs the command, which is the agent. */
-export function assertNewSpaceGranted(orchDir: string, settings: SpawnSettings, backend: Backend, callerAgentId: string | null): void {
+export function assertNewSpaceGranted(orchDir: OrchDir, settings: SpawnSettings, backend: Backend, callerAgentId: string | null): void {
   const action = newSpaceAction(settings, backend);
   if (spendGrant(orchDir, action, callerAgentId)) return;
   const request = recordGrantRequest(orchDir, action, callerAgentId);
@@ -119,7 +119,7 @@ export function assertNewSpaceGranted(orchDir: string, settings: SpawnSettings, 
 }
 /** Everything that can refuse a spawn, run before it creates anything. A refused
  *  spawn leaves no handle, no worktree and no queue entry. */
-export async function admitSpawn(orchDir: string, settingsFile: OrchSettings, settings: SpawnSettings, logger: Logger): Promise<void> {
+export async function admitSpawn(orchDir: OrchDir, settingsFile: OrchSettings, settings: SpawnSettings, logger: Logger): Promise<void> {
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.
   assertSpawnPolicy(orchDir, settings, settings.space ?? callerSpace(orchDir), settings.n);

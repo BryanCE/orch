@@ -6,6 +6,7 @@ import { BACKEND_IDS, TILE_FIRST_SPLITS } from "../types/backend.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { ORCH_RUNTIMES } from "../runtimes.ts";
 import { NOTIFY_STATES, type NotifyState } from "../types/settings.ts";
+import type { OrchDir } from "../types/core.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * exactly ONE live schema, no reader accepts two, and a file with any other version is
@@ -217,9 +218,15 @@ export type SettingsFile = z.infer<typeof SETTINGS_FILE_SCHEMA>;
 /** The settings filename, as a directory watcher sees it. */
 export const SETTINGS_FILE = "settings.json";
 
-/** User-editable composition storage: `$orchDir/settings.json`. */
-export function settingsPath(orchDir: string): string {
-  return path.join(orchDir, SETTINGS_FILE);
+/** The path of an orch dir's settings.json. Branded so a bare directory, or any other
+ *  string, cannot be handed to code that expects the file. Minted here and nowhere else. */
+export type SettingsFilePath = string & { readonly __brand: "SettingsFilePath" };
+
+/** User-editable composition storage: `$orchDir/settings.json`. The one place the brand
+ *  is applied: the value is built from the constant right here, so the cast asserts
+ *  nothing the line above it did not just establish. */
+export function settingsPath(orchDir: OrchDir): SettingsFilePath {
+  return path.join(orchDir, SETTINGS_FILE) as SettingsFilePath;
 }
 
 export function settingsTemporaryPath(file: string): string {

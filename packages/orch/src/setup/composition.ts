@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends } from "../backends/registry.ts";
 import { settingsPath } from "../settings/schema.ts";
@@ -184,7 +185,7 @@ export function modelListsNote(preferred: readonly string[] | undefined, allowed
 
 /** Persist the composition selections (runtime, installed sets, active defaults) to settings.json. */
 export function recordComposition(
-  orchDir: string,
+  orchDir: OrchDir,
   runtime: OrchRuntime,
   adapters: AdapterId[],
   defaultAdapter: AdapterId,

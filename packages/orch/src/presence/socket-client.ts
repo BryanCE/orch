@@ -6,6 +6,7 @@ import { createConnection } from "node:net";
 import { readFileSync } from "node:fs";
 import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { isRecord } from "../util.ts";
+import type { OrchDir } from "../types/core.ts";
 
 function isValidPort(port: unknown): port is number {
   return typeof port === "number" && Number.isInteger(port) && port > 0 && port < 65536;
@@ -33,7 +34,7 @@ export function readPortPath(file: string): number | undefined {
   return undefined;
 }
 
-export function readPortFile(orchDir: string): number | undefined {
+export function readPortFile(orchDir: OrchDir): number | undefined {
   return readPortPath(daemonRuntimeFiles(orchDir).port);
 }
 

@@ -12,7 +12,7 @@ import { isLogLevel } from "../log.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import { SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA, type SettingsFile, settingsPath } from "./schema.ts";
 import type { OrchSettings, SettingSource } from "../types/settings.ts";
-import type { LogLevel } from "../types/core.ts";
+import type { LogLevel, OrchDir } from "../types/core.ts";
 
 /** Describe a rejected provider id so the operator sees the value and the closed set,
  *  never a raw enum dump. `enabled.adapters[0]` and `defaults.adapter` both name one adapter. */
@@ -85,7 +85,7 @@ export function readSettingsFile(file: string): SettingsFile | null {
  * return the backup path; null when the file is absent or already readable. Pre-publish, a file
  * from an older schema is malformed data rather than something to migrate (Rule 8) — setup reaps
  * it. This is the ONE place that does so, and it is never reached by an ordinary command. */
-export function reapUnreadableSettings(orchDir: string, suffix = "invalid"): string | null {
+export function reapUnreadableSettings(orchDir: OrchDir, suffix = "invalid"): string | null {
   const file = settingsPath(orchDir);
   if (!filesystem.existsSync(file)) return null;
   try {

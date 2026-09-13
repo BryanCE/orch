@@ -1,24 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores } from "../src/store/connection.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import {
   clearCatalogues,
   readCatalogues,
   writeCatalogue,
 } from "../src/store/catalogue-rows.ts";
 
-const tempDirs: string[] = [];
+const tempDirs: OrchDir[] = [];
 
 afterEach(() => {
   closeAllStores();
   while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
-function fixture(): string {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-catalogue-"));
+function fixture(): OrchDir {
+  const orchDir = tempOrchDir("orch-catalogue-");
   tempDirs.push(orchDir);
   return orchDir;
 }

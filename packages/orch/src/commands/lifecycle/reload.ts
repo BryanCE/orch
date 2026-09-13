@@ -20,7 +20,7 @@ import type { AgentAdapter, LifecycleVerb } from "../../types/adapter.ts";
 import type { LifecycleTarget } from "../../types/command.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { Services } from "../../types/services.ts";
-import type { Logger } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 
 export function foregroundOf(backend: Pick<Backend, "foreground">, handle: string): ForegroundProcesses {
   return backend.foreground?.read(handle) ?? NO_FOREGROUND;
@@ -34,7 +34,7 @@ export interface ReloadResult {
 
 /** Block until the agent's bridge republishes status.json while its recorded
  *  process is live, proving the harness came back. */
-function awaitBridgeRefresh(orchDir: string, statusPath: string, presenceKey: string, wasUpdatedAt: string, tries: number): boolean {
+function awaitBridgeRefresh(orchDir: OrchDir, statusPath: string, presenceKey: string, wasUpdatedAt: string, tries: number): boolean {
   return retryingSync(
     "await bridge refresh",
     () => {
@@ -66,7 +66,7 @@ async function lifecycleThroughDaemon(services: LifecycleServices, verb: Lifecyc
     : { handle, ok: false, reason: `bridge status.json did not refresh within 30s after ${verb}` };
 }
 
-export function reloadAgentAndAwaitBridge(orchDir: string, backend: Backend, handle: string, presenceKey: string, reloadText: string): ReloadResult {
+export function reloadAgentAndAwaitBridge(orchDir: OrchDir, backend: Backend, handle: string, presenceKey: string, reloadText: string): ReloadResult {
   try {
     const statusPath = path.join(presenceAgentDir(presenceKey, orchDir), STATUS_FILE);
     const old = readPresenceStatus(statusPath);
@@ -92,13 +92,13 @@ export function reloadAgentAndAwaitBridge(orchDir: string, backend: Backend, han
   }
 }
 
-function touchReloadSignal(orchDir: string): void {
+function touchReloadSignal(orchDir: OrchDir): void {
   const signalPath = path.join(orchDir, RELOAD_SIGNAL_FILE);
   const fd = files.openSync(signalPath, "a");
   files.closeSync(fd);
 }
 
-function restartAgentAndAwaitBridge(orchDir: string, logger: Logger, backend: Backend, handle: string, cmd: string, presenceKey: string, quitText: string): boolean {
+function restartAgentAndAwaitBridge(orchDir: OrchDir, logger: Logger, backend: Backend, handle: string, cmd: string, presenceKey: string, quitText: string): boolean {
   const statusPath = path.join(presenceAgentDir(presenceKey, orchDir), STATUS_FILE);
   backend.agentInput?.sendKeys(handle, ["Escape"]);
   sleepMs(500);
@@ -143,7 +143,7 @@ interface PlannedReload {
 /** Resolve every target BEFORE touching a shim: an unresolvable target must not
  *  leave a redeployed integration behind, and the refresh can only be scoped to
  *  the harnesses in play once they are known. */
-function planReloads(orchDir: string, settings: OrchSettings, targets: readonly string[], force: boolean, results: ReloadResult[]): PlannedReload[] {
+function planReloads(orchDir: OrchDir, settings: OrchSettings, targets: readonly string[], force: boolean, results: ReloadResult[]): PlannedReload[] {
   const planned: PlannedReload[] = [];
   for (const target of targets) {
     try {
@@ -218,7 +218,7 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
 /** The command a restart relaunches the harness on. Restart is a FRESH launch,
  *  so the model is resolved exactly like spawn and reset rather than letting the
  *  harness fall back to its own default. */
-function restartLaunchCommand(orchDir: string, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings): string {
+function restartLaunchCommand(orchDir: OrchDir, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings): string {
   if (cmd !== null) return cmd;
   const tuning = resolveTuningOrDie({}, settings, adapter.id);
   assertLaunchModelAllowed(settings, adapter.id, tuning.model);

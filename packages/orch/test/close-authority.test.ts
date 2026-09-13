@@ -1,25 +1,23 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { callerAuthority, refuseClose } from "../src/policy/close-authority.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 /** A human may end anything. An agent may end what it owns: itself, what it spawned, what it adopted. */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => {
   closeAllStores();
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
+function fixture(): OrchDir {
   // Authority is passed explicitly; this fixture models a human/agent caller.
-  const d = mkdtempSync(join(tmpdir(), "orch-close-authority-"));
+  const d = tempOrchDir("orch-close-authority-");
   dirs.push(d);
   orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   insertAgent(d, { id: "orchA", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orchA", createdAt: 1 });

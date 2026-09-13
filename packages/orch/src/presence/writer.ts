@@ -18,23 +18,23 @@ import { join } from "node:path";
 import { OUTCOMES_FILE, PRESENCE_SCHEMA, RESULTS_FILE, STATUS_FILE } from "./schema.ts";
 import { isRecord, readJsonFile } from "../util.ts";
 import type { LaunchEnvFacts, LaunchStampable, PresenceRecord, PresenceStatus } from "../types/presence.ts";
-import type { JsonRecord } from "../types/core.ts";
+import type { OrchDir, JsonRecord } from "../types/core.ts";
 
 /** The root holding every agent's presence directory. */
-export function presenceRoot(root: string): string {
+export function presenceRoot(root: OrchDir): string {
   return join(root, "agents");
 }
 
 /** The presence directory for one agent. The presence key IS the directory name
  * — keys are already filesystem-safe (percent-escaped), so there is no remapping. */
-export function presenceAgentDir(key: string, root: string): string {
+export function presenceAgentDir(key: string, root: OrchDir): string {
   return join(presenceRoot(root), key);
 }
 
 /** Create (recursively) and return the agent's presence directory, or undefined
  * when it cannot be created. Callers exit silently on undefined: an unwritable
  * presence dir means there is no orch to report to, which is not an error. */
-export function ensurePresenceAgentDir(key: string, root: string): string | undefined {
+export function ensurePresenceAgentDir(key: string, root: OrchDir): string | undefined {
   const directory = presenceAgentDir(key, root);
   try {
     mkdirSync(directory, { recursive: true });

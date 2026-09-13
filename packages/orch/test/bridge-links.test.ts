@@ -1,6 +1,4 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   BridgeDetachedError,
@@ -17,10 +15,10 @@ import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
-let directory = "";
+let directory!: OrchDir;
 const held: { key: string; link: BridgeLink }[] = [];
 
 /** A link that records every delivery pushed down it. */
@@ -62,7 +60,7 @@ function pushToBridge(key: string, value: BridgeDelivery): void {
 }
 
 beforeEach(() => {
-  directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-bridge-links-"));
+  directory = tempOrchDir("orch-bridge-links-");
   process.env.ORCH_DIR = directory;
 });
 

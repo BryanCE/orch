@@ -1,5 +1,7 @@
 import type { SettingsManager } from "../types/services.ts";
+import type { OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
+import type { SettingsFilePath } from "./schema.ts";
 import { fileSettingsStorage, inMemorySettingsStorage, type SettingsStorage } from "./storage.ts";
 import { absentSettingsMessage, parseSettingsText, settingsFromFile } from "./read.ts";
 
@@ -26,10 +28,10 @@ export function createSettingsManager(storage: SettingsStorage): SettingsManager
   };
 }
 
-export function fileSettingsManager(orchDir: string): SettingsManager {
+export function fileSettingsManager(orchDir: OrchDir): SettingsManager {
   return createSettingsManager(fileSettingsStorage(orchDir));
 }
 
-export function inMemorySettingsManager(text: string | null, file: string): SettingsManager {
+export function inMemorySettingsManager(text: string | null, file: SettingsFilePath): SettingsManager {
   return createSettingsManager(inMemorySettingsStorage(text, file));
 }

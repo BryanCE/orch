@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { settingsDefects } from "../settings/defects.ts";
@@ -36,7 +37,7 @@ export async function checkCommandLocks(settings: OrchSettings | null): Promise<
   };
 }
 
-export async function checkSettingsFile(orchDir: string): Promise<CheckResult> {
+export async function checkSettingsFile(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
   const file = settingsPath(orchDir);
   if (!filesystem.existsSync(file)) return { id: "settings", label: "Settings validity", status: "ok", detail: "no settings.json" };
@@ -61,7 +62,7 @@ export function isDrvFsPath(resolved: string): boolean {
   return resolved.toLowerCase().startsWith("/mnt/");
 }
 
-export async function checkOrchDirLocation(orchDir: string): Promise<CheckResult> {
+export async function checkOrchDirLocation(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
   const id = "orchdir-location";
   const label = "ORCH_DIR location";

@@ -1,23 +1,23 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runTestDoctor } from "../test/helpers/doctor.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "../test/helpers/agent.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
 
-const directories: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
 
-function tempDir(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-stale-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-stale-");
   directories.push(directory);
   return directory;
 }
 
-function writeDeadAgent(orchDir: string, key: string, status: Record<string, unknown>): void {
+function writeDeadAgent(orchDir: OrchDir, key: string, status: Record<string, unknown>): void {
   const dir = path.join(orchDir, "agents", key);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify(status));

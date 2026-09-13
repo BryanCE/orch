@@ -1,18 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { addTask, claimTask, listTasks, recordTaskDone, recordTaskFailure } from "../src/queue.ts";
 import { deleteSettledTasksBefore } from "../src/store/task-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-store-tasks-")); dirs.push(dir);
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-store-tasks-"); dirs.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('a','a','pi','/tmp','a',1)`);

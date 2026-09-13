@@ -1,7 +1,8 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
+
 import {
   addTask,
   claimTask,
@@ -14,14 +15,14 @@ import {
 } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { deleteSettledTasksBefore, taskState } from "../src/store/task-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-queue-reaping-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-queue-reaping-");
   dirs.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
@@ -34,7 +35,7 @@ function fixture(): string {
   return dir;
 }
 
-function end(dir: string, agentId: string, at: number): void {
+function end(dir: OrchDir, agentId: string, at: number): void {
   orm(dir).run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${agentId},${at},NULL)`);
 }
 

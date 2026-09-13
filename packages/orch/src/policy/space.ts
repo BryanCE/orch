@@ -2,8 +2,9 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { agentView } from "../store/agent-view.ts";
 import type { SpaceResolver, WallDecision } from "../types/policy.ts";
+import type { OrchDir } from "../types/core.ts";
 
-export function spaceOf(orchDir: string, id: string | null | undefined): string | null {
+export function spaceOf(orchDir: OrchDir, id: string | null | undefined): string | null {
   if (id === null || id === undefined) return null;
   return agentView(orchDir, id)?.environment.space ?? null;
 }
@@ -37,7 +38,7 @@ export function withinSpaceCeiling(agentSpace: string | null | undefined, ceilin
 
 /** The human operator of a space controls every agent keyed into it. */
 export function operatorControls(
-  orchDir: string,
+  orchDir: OrchDir,
   actor: string | null | undefined,
   agentKey: string | null | undefined,
   actorSpace: string | null | undefined,
@@ -68,14 +69,14 @@ function repoRootOf(cwd: string | null | undefined): string | null {
   }
 }
 
-function repoRootFor(orchDir: string, key: string | null | undefined): string | null {
+function repoRootFor(orchDir: OrchDir, key: string | null | undefined): string | null {
   if (key === null || key === undefined) return null;
   return repoRootOf(agentView(orchDir, key)?.cwd);
 }
 
 /** Decide whether a caller may cross the space wall. */
 export function checkWall(
-  orchDir: string,
+  orchDir: OrchDir,
   ownKey: string | null | undefined,
   targetKey: string | null | undefined,
   opts: { crossSpace: boolean },
@@ -111,7 +112,7 @@ export function checkWall(
 
 /** Scope items to the caller's space unless explicitly unscoped. */
 export function scopeToSpace<T>(
-  orchDir: string,
+  orchDir: OrchDir,
   items: T[],
   keyOf: (item: T) => string | null,
   currentSpace: string | null,

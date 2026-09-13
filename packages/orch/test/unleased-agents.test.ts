@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores } from "../src/store/connection.ts";
 import { ensureHarness, getOrCreateSessionAgent, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { unleasedAgents } from "../src/daemon/rpc/session-registry.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const directories: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
 
 afterEach(() => {
   closeAllStores();
@@ -17,7 +15,7 @@ afterEach(() => {
 
 describe("registration unleased agent hint", () => {
   test("includes unleased workers but never session identities", () => {
-    const orchDir = mkdtempSync(join(tmpdir(), "orch-unleased-agents-"));
+    const orchDir = tempOrchDir("orch-unleased-agents-");
     directories.push(orchDir);
     ensureHarness(orchDir, "pi", "pi");
     insertAgent(orchDir, { id: "worker", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 1 });

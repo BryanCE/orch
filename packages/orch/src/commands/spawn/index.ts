@@ -19,6 +19,7 @@ import { agentById } from "../../store/agent-rows.ts";
 import { environmentOf } from "../../store/agent-view.ts";
 import type { CreatedAgent, PreparedAgent, SpawnPlacement, Spawner } from "../../types/command.ts";
 import type { Services } from "../../types/services.ts";
+import type { OrchDir } from "../../types/core.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import { resolveSpawnAgentSettings, resolveSpawnSettings, parseSpawnFlags } from "./flags.ts";
 import type { SpawnSettings } from "./flags.ts";
@@ -128,7 +129,7 @@ function answerNoGroupLayout(json: boolean): void {
 }
 
 /** Mint every identity, worktree and environment up front, before a tab exists. */
-function prepareAgents(orchDir: string, settings: SpawnSettings, adapter: AgentAdapter, names: readonly string[]): PreparedAgent[] {
+function prepareAgents(orchDir: OrchDir, settings: SpawnSettings, adapter: AgentAdapter, names: readonly string[]): PreparedAgent[] {
   return names.map((name) => {
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
     adapter.workspaceTrust?.preTrustWorkspace(cwd, settings.cmd);
@@ -221,7 +222,7 @@ function launchPrepared(
  *  things and are never interchanged: capacity, names and the agent record are
  *  orch's; the group and placement requests take the coordinate. */
 function placeSpawn(
-  orchDir: string,
+  orchDir: OrchDir,
   settings: SpawnSettings,
   backend: Backend,
   spawner: Spawner,
@@ -253,7 +254,7 @@ function seatFleetInHome(backend: Backend, groupHome: GroupHomeRole, home: Creat
 /** The group this fleet fills and the coordinate it sits at. A fleet owed a
  *  home opens one and takes its root group; any other fleet opens a group where
  *  placement put it. */
-function seatFleet(orchDir: string, backend: Backend, groupHome: GroupHomeRole, placement: SpawnPlacement, settings: SpawnSettings, prepared: readonly PreparedAgent[]): { group: BackendGroup; workspace: string | undefined } {
+function seatFleet(orchDir: OrchDir, backend: Backend, groupHome: GroupHomeRole, placement: SpawnPlacement, settings: SpawnSettings, prepared: readonly PreparedAgent[]): { group: BackendGroup; workspace: string | undefined } {
   if (placement.homeToOpen === null) {
     return { group: createSpawnGroup(groupHome, placement.workspace, settings.label, prepared), workspace: placement.workspace };
   }

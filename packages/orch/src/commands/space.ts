@@ -9,6 +9,7 @@ import { die, splitOptionFlags } from "./target.ts";
 import { errorMessage } from "../util.ts";
 import type { SpaceEnvironment } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
+import type { OrchDir } from "../types/core.ts";
 
 /**
  * `orch space` — orch's OWN grouping of work.
@@ -38,7 +39,7 @@ interface BoundaryAnswer {
   readonly reason: "no-pane" | "no-environment-role";
 }
 
-function readSpaceRows(directory: string): SpaceRecord[] {
+function readSpaceRows(directory: OrchDir): SpaceRecord[] {
   return orm(directory).select({ id: spaces.id, name: spaces.name }).from(spaces)
     .orderBy(asc(spaces.name), asc(spaces.id)).all().flatMap((value): SpaceRecord[] => {
     return [{ id: value.id, name: value.name }];
@@ -53,7 +54,7 @@ function readHome(env: SpaceEnvironment, spaceId: string): string | null {
   return homeHandle(env.directory, { kind: "space", id: spaceId }, env.plexerId);
 }
 
-function findSpace(directory: string, target: string): SpaceRecord {
+function findSpace(directory: OrchDir, target: string): SpaceRecord {
   const matches = readSpaceRows(directory).filter((space) => space.id === target || space.name === target);
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) throw new Error(`Ambiguous space "${target}": ${matches.map((space) => space.id).join(", ")}.`);

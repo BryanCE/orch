@@ -16,7 +16,7 @@ import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
 import type { LifecycleTarget } from "../types/command.ts";
-import type { Entity } from "../types/core.ts";
+import type { Entity, OrchDir } from "../types/core.ts";
 
 export { die } from "../refusal.ts";
 
@@ -47,7 +47,7 @@ export function parseTargetPrompt(args: string[], ignoredFlag: string, usage: st
   return { target, prompt };
 }
 
-export function requirePresenceTarget(root: string, settings: OrchSettings, target: string): Entity {
+export function requirePresenceTarget(root: OrchDir, settings: OrchSettings, target: string): Entity {
   const ent = resolveTarget(root, settings, target);
   if (!ent.presence) die(`Target "${target}" has no agent dir.`);
   return ent;
@@ -69,7 +69,7 @@ function looksLikePaneKey(key: string): boolean {
 /** Every agent the store knows, indexed by its minted id. The index itself is
  *  built in exactly ONE place (src/presence/store.ts); a second copy is how two
  *  callers end up disagreeing about what the fleet is. */
-export function agentViewIndex(root: string): Map<string, AgentView> {
+export function agentViewIndex(root: OrchDir): Map<string, AgentView> {
   return spawnedRecords(root);
 }
 
@@ -96,7 +96,7 @@ export function agentAddress(view: AgentView, presence: ReadonlyMap<string, Pres
 }
 
 /** The live lease holder for one identity key, or null when nothing holds it. */
-export function leaseHolderOf(orchDir: string, key: string): string | null {
+export function leaseHolderOf(orchDir: OrchDir, key: string): string | null {
   if (!isAgentId(key)) return null;
   try {
     return currentLease(orchDir, key)?.orchId ?? null;
@@ -105,7 +105,7 @@ export function leaseHolderOf(orchDir: string, key: string): string | null {
   }
 }
 
-export function livePanePresenceEntries(root: string): PresenceEntry[] {
+export function livePanePresenceEntries(root: OrchDir): PresenceEntry[] {
   return [...loadPresence(root).values()].filter((pres) => pres.alive && looksLikePaneKey(pres.key));
 }
 
@@ -138,7 +138,7 @@ export function remoteWrite(
   if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
 }
 
-export function callerOwnerToken(root: string): string | undefined {
+export function callerOwnerToken(root: OrchDir): string | undefined {
   // The stamped owner is the id orch issued this process - the same id its
   // leases are held by. Never a plexer coordinate: that names an environment,
   // matches no stored record, and made orch refuse the fleet it had just spawned.
@@ -148,26 +148,26 @@ export function callerOwnerToken(root: string): string | undefined {
 }
 
 /** The calling orchestrator's token, or a refusal naming the fix. No operator gate: the caller acts on its own agents. */
-export function ownerTokenOrDie(root: string): string {
+export function ownerTokenOrDie(root: OrchDir): string {
   const token = callerOwnerToken(root);
   if (!token) die(`Bulk operation refused: set ORCH_OWNER to identify this ${term("orch")}.`);
   return token;
 }
 
 /** Refuse bulk operations that cannot identify their calling orchestrator. */
-export function requireCallerOwnerToken(root: string): string {
+export function requireCallerOwnerToken(root: OrchDir): string {
   forbidNonOperatorOverride(root, "--all");
   return ownerTokenOrDie(root);
 }
 
 /** True when this process was launched as an orch-spawned agent. */
-export function callerIsSpawnedAgent(root: string): boolean {
+export function callerIsSpawnedAgent(root: OrchDir): boolean {
   return callerKind(root) === "agent";
 }
 
 /** Owner-gate overrides are operator-only. A spawned agent may touch exactly
  *  what it spawned — no flag widens that, ever. */
-export function forbidNonOperatorOverride(root: string, flag: string): void {
+export function forbidNonOperatorOverride(root: OrchDir, flag: string): void {
   if (callerKind(root) !== "operator") {
     die(`${flag} is operator-only: a driving session may only touch agents it holds.`);
   }
@@ -178,7 +178,7 @@ export function forbidNonOperatorOverride(root: string, flag: string): void {
 /** Where the caller acts: its own space, else the space its owner token names.
  *  An operator driving orch from outside any pane still operates a space, and
  *  losing that made its own fleet foreign to it. */
-export function actorSpace(root: string, token: string): string | null {
+export function actorSpace(root: OrchDir, token: string): string | null {
   return callerSpace(root) ?? spaceOfAgent(root, token);
 }
 
@@ -187,7 +187,7 @@ export function actorSpace(root: string, token: string): string | null {
  *  Ownership is the OPEN lease and nothing else (Rule 11) — `heldBy`, never a
  *  column on a wide row and never a second id space. Failing that, the human
  *  operator of a space controls every agent composed into it. */
-export function ownsAgent(orchDir: string, agent: Pick<AgentView, "id" | "heldBy">): boolean {
+export function ownsAgent(orchDir: OrchDir, agent: Pick<AgentView, "id" | "heldBy">): boolean {
   const token = callerOwnerToken(orchDir);
   if (!token) return false;
   if (agent.heldBy?.orchId === token) return true;
@@ -196,17 +196,17 @@ export function ownsAgent(orchDir: string, agent: Pick<AgentView, "id" | "heldBy
 }
 
 /** Return the exact session address that spawned this caller. */
-export function selfSpawnAddress(root: string): string | undefined {
+export function selfSpawnAddress(root: OrchDir): string | undefined {
   return spawnerIdentity(root).key ?? undefined;
 }
 
 /** True when a record predates spawn-session stamping or belongs to this session. */
-export function spawnedBySelf(root: string, record: { spawnedBy?: string }): boolean {
+export function spawnedBySelf(root: OrchDir, record: { spawnedBy?: string }): boolean {
   return record.spawnedBy === undefined || record.spawnedBy === selfSpawnAddress(root);
 }
 
 export function assertAgentOwned(
-  orchDir: string,
+  orchDir: OrchDir,
   target: string,
   entity: Pick<Entity, "key">,
   force = false,
@@ -225,7 +225,7 @@ export function assertAgentOwned(
 }
 
 export function backendTarget(
-  orchDir: string,
+  orchDir: OrchDir,
   settings: OrchSettings,
   target: string,
   command: string,
@@ -361,7 +361,7 @@ function lifecycleHandle(ent: Entity, view: AgentView | undefined): BackendHandl
  * Close is cleanup, so it must still resolve a dead or headless record after
  * the backend has stopped reporting the pane.
  */
-export function resolveLifecycleTarget(orchDir: string, settings: OrchSettings, target: string): LifecycleTarget {
+export function resolveLifecycleTarget(orchDir: OrchDir, settings: OrchSettings, target: string): LifecycleTarget {
   const allViews = agentViewIndex(orchDir);
   const views = new Map([...allViews].filter(([key]) => callerMayResolve(orchDir, { key })));
   const presence = presenceById(loadPresence(orchDir));

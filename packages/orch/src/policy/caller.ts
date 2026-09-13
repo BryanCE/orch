@@ -2,11 +2,12 @@ import { launchCredential } from "../identity/launch.ts";
 import { callerSession } from "../adapters/session-env.ts";
 import { agentById } from "../store/agent-rows.ts";
 import type { CallerKind } from "../types/policy.ts";
+import type { OrchDir } from "../types/core.ts";
 
 export type { CallerKind };
 
 /** Classify the caller from its harness marker and, for workers, its claim. */
-export function callerKind(orchDir: string): CallerKind {
+export function callerKind(orchDir: OrchDir): CallerKind {
   const session = callerSession();
   const id = launchCredential(orchDir);
   if (id !== null) {

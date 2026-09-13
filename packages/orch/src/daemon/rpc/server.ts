@@ -1,3 +1,4 @@
+import type { OrchDir } from "../../types/core.ts";
 import { createServer, type Server, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
@@ -17,7 +18,7 @@ interface ConnectionState {
   bridge?: { key: string; link: BridgeLink };
 }
 
-function detachConnectionBridge(orchDir: string, state: ConnectionState): void {
+function detachConnectionBridge(orchDir: OrchDir, state: ConnectionState): void {
   if (state.bridge === undefined) return;
   detachBridge(orchDir, state.bridge.key, state.bridge.link);
   state.bridge = undefined;
@@ -29,7 +30,7 @@ type AttachOutcome =
   | { readonly kind: "attached"; readonly notify: () => void };
 
 function attachRequest(
-  orchDir: string,
+  orchDir: OrchDir,
   socket: Socket,
   request: { id: unknown; method: string; params: unknown },
   state: ConnectionState,
@@ -90,7 +91,7 @@ function handleLine(
   handlers: RpcHandlers,
   subscriptions: Set<Socket>,
   replayBuffer: ReplayBuffer,
-  orchDir: string,
+  orchDir: OrchDir,
   transport: "unix" | "tcp",
   state: ConnectionState,
   daemonToken: string,
@@ -137,7 +138,7 @@ function attachConnection(
   handlers: RpcHandlers,
   subscriptions: Set<Socket>,
   replayBuffer: ReplayBuffer,
-  orchDir: string,
+  orchDir: OrchDir,
   transport: "unix" | "tcp",
   daemonToken: string,
   onBridgeAttached?: (key: string) => void,
@@ -200,7 +201,7 @@ function boundTcpPort(server: Server): number {
 
 /** Start the local RPC endpoint, preferring a unix socket and falling back to loopback TCP. */
 export async function startRpcServer(
-  orchDir: string,
+  orchDir: OrchDir,
   handlers: RpcHandlers,
   options: RpcServerOptions = {},
 ): Promise<RpcServer> {
@@ -276,7 +277,7 @@ async function refusedListen(server: Server, endpoint: string): Promise<unknown>
 
 /** A bind refusal this process may clear: the address is taken and the lock on it
  *  is ours, so the path is a corpse of our own previous instance. */
-function reclaimableSocket(orchDir: string, options: RpcServerOptions): (error: unknown) => boolean {
+function reclaimableSocket(orchDir: OrchDir, options: RpcServerOptions): (error: unknown) => boolean {
   return (error: unknown) => {
     if (!(error instanceof Error) || Reflect.get(error, "code") !== "EADDRINUSE") return false;
     return options.holdsDaemonLock ?? readDaemonLock(orchDir)?.pid === process.pid;

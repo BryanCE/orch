@@ -25,7 +25,7 @@ import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
-import type { Entity } from "../types/core.ts";
+import type { Entity, OrchDir } from "../types/core.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;
@@ -75,7 +75,7 @@ export async function cmdSteer(services: Services, args: string[]): Promise<void
   reportControlDelivery(services.orchDir, "steered", entity.key, result, json, ` -> ${truncate(collapse(text), 60)}`);
 }
 
-function reportControlDelivery(orchDir: string, action: "steered" | "answered" | "dispatched", key: string, result: unknown, json: boolean, suffix: string, dispatchAckMs?: number): void {
+function reportControlDelivery(orchDir: OrchDir, action: "steered" | "answered" | "dispatched", key: string, result: unknown, json: boolean, suffix: string, dispatchAckMs?: number): void {
   if (!isRecord(result) || (result.ack !== "acknowledged" && result.ack !== "unavailable")) die("Daemon response missing delivery acknowledgement.");
   const confirmed = result.ack === "acknowledged";
   const recipient = recipientFor(orchDir, key);
@@ -250,7 +250,7 @@ function forwardedToTargetHost(hosts: OrchSettings["hosts"], args: string[], tar
  * has one; an adopted agent needs it under the SAME key we dispatched to, carrying
  * the dispatcher's owner token or it stays open to every other orchestrator.
  */
-function recordAdoptedAgent(orchDir: string, key: string, dispatchSettings: DispatchSettings, tuning: { model: string; thinking: ThinkingLevel }): void {
+function recordAdoptedAgent(orchDir: OrchDir, key: string, dispatchSettings: DispatchSettings, tuning: { model: string; thinking: ThinkingLevel }): void {
   registerSpawnedAgent(orchDir, {
     key,
     harnessId: dispatchSettings.adapter,
@@ -341,7 +341,7 @@ export function promptBody(flags: Pick<DispatchFlags, "promptFile" | "positional
   return readPromptFile(flags.promptFile);
 }
 
-function resolveDispatchSettings(orchDir: string, flags: DispatchFlags, settings: OrchSettings, gov: WriteGovernance = {}): DispatchSettings {
+function resolveDispatchSettings(orchDir: OrchDir, flags: DispatchFlags, settings: OrchSettings, gov: WriteGovernance = {}): DispatchSettings {
   const target = flags.positional[0];
   const prompt = promptBody(flags);
   if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--thinking <level>] [--agent adapter]');

@@ -6,6 +6,7 @@ import { isAdapterId } from "../adapters/adapter.ts";
 import { isBackendId } from "../backends/backend.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import type { NotifyEntry, OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
+import type { OrchDir } from "../types/core.ts";
 
 
 function choicesFor(key: string, node: JsonSchemaNode): readonly string[] {
@@ -56,14 +57,14 @@ function readAt(settings: OrchSettings, key: string): unknown {
   return current;
 }
 
-type SettingWriter = (orchDir: string, value: unknown) => void;
+type SettingWriter = (orchDir: OrchDir, value: unknown) => void;
 
-function writeDefaultAdapter(orchDir: string, value: unknown): void {
+function writeDefaultAdapter(orchDir: OrchDir, value: unknown): void {
   if (!isAdapterId(value)) throw new Error(`defaults.adapter must be a known adapter id`);
   writeSettingsDefault(orchDir, "adapter", value);
 }
 
-function writeDefaultBackend(orchDir: string, value: unknown): void {
+function writeDefaultBackend(orchDir: OrchDir, value: unknown): void {
   if (!isBackendId(value)) throw new Error(`defaults.backend must be a known backend id`);
   writeSettingsDefault(orchDir, "backend", value);
 }
@@ -89,7 +90,7 @@ function notifyEntry(candidate: unknown): NotifyEntry {
   return parsed.data;
 }
 
-function writeNotifySinks(orchDir: string, value: unknown): void {
+function writeNotifySinks(orchDir: OrchDir, value: unknown): void {
   if (!Array.isArray(value)) throw new Error("notify must be a list of sinks");
   writeNotifyEntries(orchDir, value.map(notifyEntry));
 }
@@ -97,7 +98,7 @@ function writeNotifySinks(orchDir: string, value: unknown): void {
 /** Persist whole notify entries - `orch settings notify add`'s writer, and this row's.
  *  A REPLACE: unchecking a sink and `notify remove` both have to be able to take one away,
  *  which setup's additive `writeSettingsNotify` cannot say. */
-export function writeNotifyEntries(orchDir: string, entries: readonly NotifyEntry[]): void {
+export function writeNotifyEntries(orchDir: OrchDir, entries: readonly NotifyEntry[]): void {
   writeSettingsValue(orchDir, "notify", [...entries]);
 }
 
@@ -121,7 +122,7 @@ function setting(key: string, group: string, help: string, env?: string, writabl
     help,
     type: kindFor(key),
     read: readerFor(key) ?? ((settings) => readAt(settings, key)),
-    ...(writable ? { write: writer ?? ((orchDir: string, value: unknown) => writeSettingsValue(orchDir, key, value)) } : {}),
+    ...(writable ? { write: writer ?? ((orchDir: OrchDir, value: unknown) => writeSettingsValue(orchDir, key, value)) } : {}),
     ...(env === undefined ? {} : { env }),
   };
 }
@@ -214,7 +215,7 @@ export function registeredSetting(key: string): SettingSpec {
 }
 
 /** Persist a value through the declaration that owns the setting. */
-export function writeRegisteredSetting(orchDir: string, key: string, value: unknown): void {
+export function writeRegisteredSetting(orchDir: OrchDir, key: string, value: unknown): void {
   const spec = registeredSetting(key);
   if (spec.write === undefined) throw new Error(`${key} is read-only`);
   spec.write(orchDir, value);
@@ -222,7 +223,7 @@ export function writeRegisteredSetting(orchDir: string, key: string, value: unkn
 
 /** Remove a setting from settings.json so its default wins again. Guarded by the same
  *  declaration as writes: a read-only setting cannot be cleared either. */
-export function clearRegisteredSetting(orchDir: string, key: string): void {
+export function clearRegisteredSetting(orchDir: OrchDir, key: string): void {
   const spec = registeredSetting(key);
   if (spec.write === undefined) throw new Error(`${key} is read-only`);
   clearSettingsValue(orchDir, key);

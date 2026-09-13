@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import {
   acquireDaemonLock,
   acquireDaemonRegistration,
@@ -40,10 +40,10 @@ function readLockData(path: string): LockData {
   };
 }
 
-const tempDirs: string[] = [];
+const tempDirs: OrchDir[] = [];
 
-function makeOrchDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-daemon-"));
+function makeOrchDir(): OrchDir {
+  const dir = tempOrchDir("orch-daemon-");
   tempDirs.push(dir);
   return dir;
 }

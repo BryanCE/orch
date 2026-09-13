@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { lt } from "drizzle-orm";
 import { orm } from "./connection.ts";
 import { controlOutcomes } from "../db/schema.ts";
@@ -5,7 +6,7 @@ import type { ControlOutcomeRecord } from "../types/store.ts";
 
 /** Record what an agent did with a control command. The daemon carries the live
  *  reply to whoever is waiting; this is the copy that outlives them both. */
-export function insertControlOutcome(d: string, outcome: ControlOutcomeRecord): void {
+export function insertControlOutcome(d: OrchDir, outcome: ControlOutcomeRecord): void {
   orm(d).insert(controlOutcomes).values({
     id: outcome.id,
     agentId: outcome.agentId,
@@ -16,6 +17,6 @@ export function insertControlOutcome(d: string, outcome: ControlOutcomeRecord): 
   }).run();
 }
 
-export function deleteControlOutcomesBefore(d: string, cutoff: number): number {
+export function deleteControlOutcomesBefore(d: OrchDir, cutoff: number): number {
   return Number(orm(d).delete(controlOutcomes).where(lt(controlOutcomes.settledAt, cutoff)).run().changes);
 }

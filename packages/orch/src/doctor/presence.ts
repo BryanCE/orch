@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { loadPresence, malformedPresenceDirs, presenceDir } from "../presence/store.ts";
@@ -21,7 +22,7 @@ function humanAge(ms: number): string {
 }
 
 /** One human-legible line identifying a presence dir — so nobody deletes a live session blind. */
-function describePresenceDir(entry: PresenceEntry, orchDir: string): string {
+function describePresenceDir(entry: PresenceEntry, orchDir: OrchDir): string {
   const { key, description = {} } = entry;
   const label = description.label?.trim() ?? "";
   const cwd = description.cwd ?? null;
@@ -36,7 +37,7 @@ function describePresenceDir(entry: PresenceEntry, orchDir: string): string {
     .join(" | ");
 }
 
-export function checkMalformedPresenceRecords(orchDir: string): CheckResult {
+export function checkMalformedPresenceRecords(orchDir: OrchDir): CheckResult {
   const entries = loadPresence(orchDir);
   if (!entries.size && !filesystem.existsSync(presenceDir(orchDir))) {
     return { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no presence records", ignoredRecords: [] };
@@ -81,7 +82,7 @@ function describeUnscopedTask(task: TaskRec): string {
  * Report tasks that violate exactly-one typed scope. The current schema rejects
  * these rows; this remains report-only for a store damaged outside orch.
  */
-export function checkUnscopedTasks(orchDir: string): CheckResult {
+export function checkUnscopedTasks(orchDir: OrchDir): CheckResult {
   let tasks: TaskRec[];
   try {
     tasks = listTasks(orchDir);
@@ -102,7 +103,7 @@ export function checkUnscopedTasks(orchDir: string): CheckResult {
   };
 }
 
-export async function checkStalePresence(orchDir: string): Promise<CheckResult> {
+export async function checkStalePresence(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
   const entries = loadPresence(orchDir);
   if (!entries.size) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no agent dirs" };

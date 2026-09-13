@@ -1,7 +1,8 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
+
 import {
   addTask,
   cancelTask,
@@ -21,14 +22,14 @@ import { setSpace } from "../src/store/interval-rows.ts";
 
 import { isRecord } from "../src/util.ts";
 import { openTasksInScope, taskState } from "../src/store/task-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-queue-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-queue-");
   dirs.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);

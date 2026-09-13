@@ -9,7 +9,7 @@ import { launchCredential } from "../identity/launch.ts";
 import { selfId } from "../identity/self.ts";
 import { callerSession } from "../adapters/session-env.ts";
 import { rpcRegisterSession } from "../daemon/reach.ts";
-import type { Logger } from "../types/core.ts";
+import type { Logger, OrchDir } from "../types/core.ts";
 import type { AgentScopeInput, CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 
 export function agentInMineScope(input: Omit<AgentScopeInput, "spaceWide">): boolean {
@@ -36,7 +36,7 @@ export function agentInScope(input: AgentScopeInput): boolean {
  * fleet question with an empty table. Null here is what makes the default
  * unscoped for a human and scoped for an orch, with no flag on either side.
  */
-export async function callerScopeAddress(logger: Logger, directory: string, options: { register?: boolean } = {}): Promise<string | undefined> {
+export async function callerScopeAddress(logger: Logger, directory: OrchDir, options: { register?: boolean } = {}): Promise<string | undefined> {
   const launched = launchCredential(directory);
   if (launched !== null) return launched;
   if (callerSession() === null) return undefined;
@@ -56,7 +56,7 @@ export async function callerScopeAddress(logger: Logger, directory: string, opti
 export async function resolveCallerScope(
   logger: Logger,
   choice: CallerScopeChoice,
-  directory: string,
+  directory: OrchDir,
   options: { register?: boolean } = {},
 ): Promise<ResolvedCallerScope> {
   if (choice === "any") return { mine: false, address: undefined };

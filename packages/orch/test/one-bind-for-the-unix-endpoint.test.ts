@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { rpcCall } from "../src/daemon/rpc/client.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 /**
  * One `bindUnix(server, paths)`.
@@ -31,8 +31,8 @@ function occurrences(needle: string): number {
   return CLAIM_REGION.split(needle).length - 1;
 }
 
-function tempOrchDir(): string {
-  return mkdtempSync(join(tmpdir(), "orch-one-bind-"));
+function tempOrchDir(): OrchDir {
+  return freshOrchDir("orch-one-bind-");
 }
 
 describe("one bind for the unix endpoint (2.4)", () => {

@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { createBuiltinNotifiers } from "../src/notify/sinks.ts";
 import { createNotifierRegistry } from "../src/notify/router.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
+import { orchDirAt } from "../src/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
+
+const orchDir = (): OrchDir => orchDirAt(".");
 
 const event: NotifyEvent = {
   key: "demo:worker", space: "demo", agent: "worker", tab: "tab-1", model: "model-1",
@@ -10,7 +14,7 @@ const event: NotifyEvent = {
 
 describe("notifier registry and built-in adapters", () => {
   test("reports notifier reachability from one configured entry", async () => {
-    const registry = createNotifierRegistry(".", createBuiltinNotifiers());
+    const registry = createNotifierRegistry(orchDir(), createBuiltinNotifiers());
     const result = await registry.reachable({ id: "webhook", on: ["blocked"], url: "https://example.test/hook" });
     expect(result.available).toBe(true);
   });
@@ -25,7 +29,7 @@ describe("notifier registry and built-in adapters", () => {
       return Promise.resolve(new Response("ok", { status: 200 }));
     } });
     try {
-      const registry = createNotifierRegistry(".", createBuiltinNotifiers());
+      const registry = createNotifierRegistry(orchDir(), createBuiltinNotifiers());
       expect(await registry.deliver({ id: "webhook", on: ["blocked"], url: "https://example.test/hook" }, event)).toBe(true);
       expect(request).toBe("https://example.test/hook");
       expect(init?.method).toBe("POST");
@@ -40,7 +44,7 @@ describe("notifier registry and built-in adapters", () => {
     const failure = new Error("boom");
     const webhook = createBuiltinNotifiers().find((notifier) => notifier.id === "webhook");
     if (!webhook) throw new Error("webhook notifier missing");
-    const registry = createNotifierRegistry(".", [{ ...webhook, available: () => true, deliver: () => Promise.reject(failure) }]);
+    const registry = createNotifierRegistry(orchDir(), [{ ...webhook, available: () => true, deliver: () => Promise.reject(failure) }]);
     const thrown: unknown = await registry.deliver({ id: "webhook", on: ["blocked"], url: "https://example.test" }, event).then(() => null, (error: unknown) => error);
     expect(thrown).toBe(failure);
   });

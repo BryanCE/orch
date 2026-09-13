@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { orchDirAt } from "../src/services.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { buildEntities, entitySpace } from "../src/entities.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
@@ -11,7 +11,7 @@ import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-row
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import type { Entity } from "../src/types/core.ts";
+import type { Entity, OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
 
@@ -21,8 +21,8 @@ import { testServices } from "./helpers/services.ts";
  * minted id, so there is no key text left to slice.
  */
 
-const directories: string[] = [];
-const originalOrchDir = process.env.ORCH_DIR;
+const directories: OrchDir[] = [];
+const originalOrchDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 
 afterEach(() => {
   closeAllStores();
@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 /** Seed one placed agent: minted identity, plus one row per environment axis. */
-function writeAgent(orchDir: string, agent: string, space: string, handle: string): string {
+function writeAgent(orchDir: OrchDir, agent: string, space: string, handle: string): string {
   const id = mintAgentId();
   ensureHarness(orchDir, "pi", "pi", 1);
   ensurePlexer(orchDir, "headless", "headless", 1);
@@ -49,8 +49,8 @@ function writeAgent(orchDir: string, agent: string, space: string, handle: strin
   return id;
 }
 
-function presenceFixture(): { orchDir: string; key: string } {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-command-space-"));
+function presenceFixture(): { orchDir: OrchDir; key: string } {
+  const orchDir = tempOrchDir("orch-command-space-");
   directories.push(orchDir);
   return { orchDir, key: writeAgent(orchDir, "pi", "reported-space", "999999") };
 }

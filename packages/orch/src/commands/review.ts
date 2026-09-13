@@ -6,6 +6,7 @@ import { writeRpc } from "./daemon.ts";
 import { agentAddress, agentViewIndex, die, presenceById } from "./target.ts";
 import { resultText } from "./target.ts";
 import type { Services } from "../types/services.ts";
+import type { OrchDir } from "../types/core.ts";
 import { repositoryBranch, repositoryCommonRoot, worktreeReviewSummary, mergeReviewBranch, removeMergedWorktree } from "../worktree.ts";
 
 interface ReviewItem {
@@ -111,7 +112,7 @@ export async function cmdReviewInteractive(services: Services): Promise<void> {
   }
 }
 
-function reviewItems(orchDir: string): ReviewItem[] {
+function reviewItems(orchDir: OrchDir): ReviewItem[] {
   // A1: worktree and branch are ENVIRONMENT axes composed onto an agent, and
   // presence joins to that agent by its minted id — not by a pane key.
   const presence = presenceById(loadPresence(orchDir));
@@ -152,7 +153,7 @@ function reviewItems(orchDir: string): ReviewItem[] {
   return items;
 }
 
-function findReviewItem(orchDir: string, target: string): ReviewItem {
+function findReviewItem(orchDir: OrchDir, target: string): ReviewItem {
   const item = reviewItems(orchDir).find((candidate) => [candidate.target, candidate.key, candidate.branch, candidate.worktree].includes(target));
   if (!item) die(`No reviewable worktree matches "${target}". Run 'orch review list'.`);
   return item;

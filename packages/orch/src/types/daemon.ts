@@ -1,7 +1,7 @@
 import type { SessionAgentIdentity } from "./store.ts";
 import type { StatusRow } from "./command.ts";
 import type { NotifyEvent } from "./notify.ts";
-import type { OsSide } from "./core.ts";
+import type { OrchDir, OsSide } from "./core.ts";
 import type { SettingsManager } from "./services.ts";
 import type { PresenceEntry } from "./presence.ts";
 import type { TaskRec } from "./queue.ts";
@@ -95,7 +95,7 @@ export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startToken">;
  *  osSide records which side of an OS boundary the daemon is hosted on — the one
  *  fact a client on the other side cannot work out from the paths alone. */
 export interface DaemonRegistration {
-  readonly orchDir: string;
+  readonly orchDir: OrchDir;
   readonly pid: number;
   readonly startToken: string;
   readonly osSide: OsSide;
@@ -128,7 +128,7 @@ export type SocketProbe = (socketPath: string) => boolean;
 export interface OsExecutor {
   readonly osSide: OsSide;
   /** Start a detached process from `entrypoint`, answering with its pid. */
-  start(entrypoint: string, args?: string[], orchDir?: string): number;
+  start(entrypoint: string, args?: string[], orchDir?: OrchDir): number;
   /** Whether that process is still the instance it claims to be. */
   isAlive(pid: number, startToken?: string): boolean;
   /** Stop it and wait for the OS to reap it, up to `graceMs`. */
@@ -150,7 +150,7 @@ export interface PresenceMetadata {
 };
 
 export interface PresenceWatchOptions {
-  orchDir: string;
+  orchDir: OrchDir;
   onEvent: (event: NotifyEvent) => void;
   initialStates?: Map<string, string>;
   keys?: Map<string, PresenceMetadata>;
@@ -246,7 +246,7 @@ export interface SweepCounts {
 }
 
 export interface WorkOptions {
-  orchDir: string;
+  orchDir: OrchDir;
   pollIntervalMs: number;
   signal?: AbortSignal;
   once?: boolean;

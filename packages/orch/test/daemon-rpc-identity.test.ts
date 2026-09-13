@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { currentHostOs, ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
@@ -9,14 +7,15 @@ import { rpcCall } from "../src/daemon/rpc/client.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { orm } from "../src/store/connection.ts";
 import { sql } from "drizzle-orm";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { row } from "./helpers/rows.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
-function tempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-rpc-identity-"));
+function tempDir(): OrchDir {
+  const dir = tempOrchDir("orch-rpc-identity-");
   dirs.push(dir);
   return dir;
 }

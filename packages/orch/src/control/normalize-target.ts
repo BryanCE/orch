@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { loadPresence } from "../presence/store.ts";
 import { agentViews } from "../store/agent-view.ts";
 
@@ -18,7 +19,7 @@ import { agentViews } from "../store/agent-view.ts";
  * `presence/store.ts`, which imports `identity.ts` straight back — an
  * initialization cycle around the one module everything else parses ids with.
  */
-export function normalizeControlTarget(orchDir: string, target: string): string {
+export function normalizeControlTarget(orchDir: OrchDir, target: string): string {
   if (typeof target !== "string" || target.trim().length === 0) {
     throw new Error(`control target must be a non-empty string: ${JSON.stringify(target)}`);
   }

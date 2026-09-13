@@ -15,7 +15,7 @@ import {
 } from "../worktree.ts";
 import { agentViewIndex, callerIsSpawnedAgent, die, presenceById } from "./target.ts";
 import type { AgentView } from "../types/store.ts";
-import type { Logger } from "../types/core.ts";
+import type { Logger, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { DeadAgentSweepOptions } from "../types/command.ts";
@@ -61,7 +61,7 @@ function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: st
   return true;
 }
 
-function cleanWorktrees(root: string, logger: Logger, force: boolean, json = false): number {
+function cleanWorktrees(root: OrchDir, logger: Logger, force: boolean, json = false): number {
   let repoRoot: string;
   try {
     repoRoot = repositoryCommonRoot(process.cwd());
@@ -91,7 +91,7 @@ function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean
 
 /** Remove the presence directories that name no agent; the store owns the removal,
  *  this command adds output. */
-function removeMalformedAgentDirs(json = false, root: string): string[] {
+function removeMalformedAgentDirs(json = false, root: OrchDir): string[] {
   const removed = reapMalformedPresenceDirs(root);
   if (!json) {
     if (removed.length) process.stdout.write("Removed malformed agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
@@ -102,7 +102,7 @@ function removeMalformedAgentDirs(json = false, root: string): string[] {
 
 /** Close the queued writes no live agent will ever read; the store owns the rows,
  *  this command adds output. */
-function closeDeadAgentWrites(json = false, root: string): number {
+function closeDeadAgentWrites(json = false, root: OrchDir): number {
   const closed = closeOutboxForDeadTargets(root);
   if (!json) process.stdout.write(closed ? `Closed ${closed} queued write(s) to dead agents.\n` : "No queued writes to dead agents.\n");
   return closed;
@@ -119,14 +119,14 @@ function closeDeadAgentWrites(json = false, root: string): number {
  * `livePresenceHolders` list, so this says it the same way rather than inventing a
  * second wording for one situation.
  */
-function nothingToReapMessage(root: string): string {
+function nothingToReapMessage(root: OrchDir): string {
   const holders = livePresenceHolders(root);
   if (holders.length === 0) return "Nothing to clean - no agent dirs exist.\n";
   return `Nothing to clean - ${holders.length} agent${holders.length === 1 ? " is" : "s are"} live: ${holders.join(", ")}. `
     + `--force reaps DEAD agents only; close them first ('orch close --all'), then retry.\n`;
 }
 
-export function removeDeadAgentDirs(services: Services, json: boolean, options: DeadAgentSweepOptions & { root: string }): string[] {
+export function removeDeadAgentDirs(services: Services, json: boolean, options: DeadAgentSweepOptions & { root: OrchDir }): string[] {
   const result = reapDeadPresenceDirs(options.root, options.olderThan);
   for (const failure of result.failed) {
     const message = errorMessage(failure.error);

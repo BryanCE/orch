@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // Ownership, and ownership only: who is driving one agent RIGHT NOW.
 //
 // Rule 11 keeps identity, provenance, ownership and environment apart, and makes
@@ -10,7 +11,7 @@ import { currentLease } from "../store/lease-rows.ts";
 import { recordedProcessIsLive } from "../store/interval-rows.ts";
 import type { DriveState, DriveStateOptions } from "../types/agent.ts";
 
-type DriveStateInput = Omit<DriveStateOptions, "directory"> & { directory: string };
+type DriveStateInput = Omit<DriveStateOptions, "directory"> & { directory: OrchDir };
 
 
 export const NO_ORCH_DRIVER = "no orch driving it";

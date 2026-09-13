@@ -10,6 +10,7 @@ import { agentById } from "../store/agent-rows.ts";
 import { die, remoteWrite, splitOptionFlags } from "./target.ts";
 import type { QueueScopeFlags } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
+import type { OrchDir } from "../types/core.ts";
 import { asc, eq } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { agents } from "../db/schema.ts";
@@ -33,7 +34,7 @@ function writeQueueTask(task: TaskRec, json: boolean, plainText: string): void {
   else process.stdout.write(plainText + "\n");
 }
 
-async function resolveSelfId(directory: string, logger: Services["logger"]): Promise<string> {
+async function resolveSelfId(directory: OrchDir, logger: Services["logger"]): Promise<string> {
   return launchCredential(directory) ?? (await rpcRegisterSession(directory, logger)).id;
 }
 
@@ -47,7 +48,7 @@ function takeValue(args: string[], flag: string): { value?: string; rest: string
 
 /** C4c/C4d: a name is for the human and carries no uniqueness, so resolving one
  *  is a lookup that either finds one agent or asks which id you meant. */
-function resolveAgent(directory: string, target: string): string {
+function resolveAgent(directory: OrchDir, target: string): string {
   if (agentById(directory, target)) return target;
   const rows = orm(directory).select({ id: agents.id }).from(agents)
     .where(eq(agents.name, target)).orderBy(asc(agents.id)).all();
@@ -64,7 +65,7 @@ function resolveAgent(directory: string, target: string): string {
  * No flag returns no selection: the facade fills in the enqueuer's own pack, and
  * saying so here would be a second place that decides the default.
  */
-export function scopeFromFlags(directory: string, flags: QueueScopeFlags): TaskScopeSelection {
+export function scopeFromFlags(directory: OrchDir, flags: QueueScopeFlags): TaskScopeSelection {
   const chosen = [flags.agent, flags.pack, flags.space].filter((value) => value !== undefined);
   if (chosen.length > 1) die("Choose exactly one of --agent, --pack or --space");
   if (flags.agent !== undefined) return { agentId: resolveAgent(directory, flags.agent) };
@@ -143,7 +144,7 @@ function validateCollection(invocation: QueueInvocation): void {
   }
 }
 
-function queueCollection(directory: string, invocation: QueueInvocation): void {
+function queueCollection(directory: OrchDir, invocation: QueueInvocation): void {
   validateCollection(invocation);
   const tasks = invocation.subcommand === "history" ? queueHistory(directory) : listTasks(directory);
   if (invocation.json) process.stdout.write(JSON.stringify(tasks, null, 2) + "\n");
@@ -201,7 +202,7 @@ async function queueReap(services: Pick<Services, "orchDir" | "logger">, invocat
 
 /** The pack whose consent is being recorded: the caller's own, or that of an
  *  agent it names. Only its holder may speak for it, which the facade enforces. */
-function packOfCaller(directory: string, invocation: QueueInvocation, callerId: string): string {
+function packOfCaller(directory: OrchDir, invocation: QueueInvocation, callerId: string): string {
   const target = invocation.agent ? resolveAgent(directory, invocation.agent) : callerId;
   const agent = agentById(directory, target);
   if (!agent) die(`Unknown agent: ${target}`);

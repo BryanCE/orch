@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { buildEntities, entitySpace } from "../src/entities.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
@@ -15,7 +14,9 @@ import { checkWall, sameSpace, scopeToSpace, spaceName, spaceOf } from "../src/p
 import { seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
+import { orchDirAt } from "../src/services.ts";
 
+import type { OrchDir } from "../src/types/core.ts";
 /**
  * The space an agent is in is ENVIRONMENT, composed onto its own timeline. It is
  * never a segment of an identity key, and an agent that
@@ -24,7 +25,7 @@ import { testServices } from "./helpers/services.ts";
  */
 
 const originalOrchDir = process.env.ORCH_DIR;
-const fixtureDirs: string[] = [];
+const fixtureDirs: OrchDir[] = [];
 
 afterEach(() => {
   closeAllStores();
@@ -33,21 +34,21 @@ afterEach(() => {
   while (fixtureDirs.length) removeTempDir(fixtureDirs.pop()!);
 });
 
-function storeDir(prefix: string): string {
-  const directory = mkdtempSync(join(tmpdir(), prefix));
+function storeDir(prefix: string): OrchDir {
+  const directory = tempOrchDir(prefix);
   fixtureDirs.push(directory);
   ensureHarness(directory, "pi", "pi", 1);
   return directory;
 }
 
-function ensureSpaceRow(directory: string, spaceId: string): void {
+function ensureSpaceRow(directory: OrchDir, spaceId: string): void {
   orm(directory).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${spaceId}, ${spaceId}, 1)`);
 }
 
 /** Place one agent: identity is minted, and each environment axis it actually
  *  has gets its own row. An axis with no row is genuinely absent. */
 function placeAgent(
-  directory: string,
+  directory: OrchDir,
   options: { plexer?: string; space?: string; handle?: string } = {},
 ): string {
   const id = mintAgentId();
@@ -65,7 +66,7 @@ function placeAgent(
 }
 
 /** An agent whose cwd is a specific repo root, optionally in a space. */
-function placeAgentIn(directory: string, cwd: string, space?: string): string {
+function placeAgentIn(directory: OrchDir, cwd: string, space?: string): string {
   const id = mintAgentId();
   insertAgent(directory, { id, spawnedBy: null, harnessId: "pi", cwd, name: id, createdAt: 1 });
   if (space !== undefined) {
@@ -111,7 +112,7 @@ describe("a space is user-created, and absence falls back to the repo root", () 
 
   test("two unspaced agents in the SAME repo root can reach each other", () => {
     const dir = storeDir("orch-space-a7-same-repo-");
-    const repo = mkdtempSync(join(tmpdir(), "orch-a7-repo-"));
+    const repo = tempOrchDir("orch-a7-repo-");
     fixtureDirs.push(repo);
     const one = placeAgentIn(dir, repo);
     const two = placeAgentIn(dir, repo);
@@ -121,8 +122,8 @@ describe("a space is user-created, and absence falls back to the repo root", () 
 
   test("two unspaced agents in DIFFERENT repo roots cannot", () => {
     const dir = storeDir("orch-space-a7-other-repo-");
-    const here = mkdtempSync(join(tmpdir(), "orch-a7-here-"));
-    const there = mkdtempSync(join(tmpdir(), "orch-a7-there-"));
+    const here = tempOrchDir("orch-a7-here-");
+    const there = tempOrchDir("orch-a7-there-");
     fixtureDirs.push(here, there);
     const mine = placeAgentIn(dir, here);
     const theirs = placeAgentIn(dir, there);
@@ -171,7 +172,7 @@ describe("a space is user-created, and absence falls back to the repo root", () 
 
   test("a space still walls, and it outranks the repo root", () => {
     const dir = storeDir("orch-space-a7-space-wins-");
-    const repo = mkdtempSync(join(tmpdir(), "orch-a7-shared-"));
+    const repo = tempOrchDir("orch-a7-shared-");
     fixtureDirs.push(repo);
     const server = placeAgentIn(dir, repo, "server");
     const client = placeAgentIn(dir, repo, "client");
@@ -252,15 +253,20 @@ describe("space policy", () => {
 
   test("2.7 status displays the composed space, not text sliced from a key", () => {
     const { actorKey } = identityFixture();
-    const entity = buildEntities(process.env.ORCH_DIR!, testServices({ orchDir: process.env.ORCH_DIR!, settings: {} }).settings.current()).find((candidate) => candidate.key === actorKey)!;
+    const rawOrchDir = process.env.ORCH_DIR;
+    if (rawOrchDir === undefined) throw new Error("ORCH_DIR missing");
+    const orchDir = orchDirAt(rawOrchDir);
+    const entity = buildEntities(orchDir, testServices({ orchDir, settings: {} }).settings.current()).find((candidate) => candidate.key === actorKey)!;
 
-    expect(entitySpace(process.env.ORCH_DIR!, entity)).toBe("reported-space");
+    expect(entitySpace(orchDir, entity)).toBe("reported-space");
     expect(actorKey).not.toContain("reported-space");
   });
 
   test("6.6 structured identity drives status and policy, not serialized key text", () => {
     const { actorKey, targetKey } = identityFixture();
-    const root = process.env.ORCH_DIR!;
+    const rawOrchDir = process.env.ORCH_DIR;
+    if (rawOrchDir === undefined) throw new Error("ORCH_DIR missing");
+    const root = orchDirAt(rawOrchDir);
     const entities = buildEntities(root, testServices({ orchDir: root, settings: {} }).settings.current());
     const actor = entities.find((entity) => entity.key === actorKey)!;
     const target = entities.find((entity) => entity.key === targetKey)!;
@@ -273,6 +279,6 @@ describe("space policy", () => {
     expect(actorKey).not.toContain(actorSpace!);
     expect(targetKey).not.toContain(targetSpace!);
     expect(sameSpace(actorSpace, targetSpace)).toBe(true);
-    expect(checkWall(process.env.ORCH_DIR!, actorKey, targetKey, { crossSpace: false }).allowed).toBe(true);
+    expect(checkWall(root, actorKey, targetKey, { crossSpace: false }).allowed).toBe(true);
   });
 });

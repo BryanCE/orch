@@ -1,7 +1,8 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cmdClose } from "../src/commands/lifecycle/close.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -11,7 +12,7 @@ import { isRecord } from "../src/util.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { endProcess } from "../src/store/interval-rows.ts";
 import { withExitCode } from "./helpers/exit-code.ts";
@@ -33,8 +34,8 @@ import { testServices } from "./helpers/services.ts";
  * a failure, and kept a row alive that nothing could ever close.
  */
 
-const dirs: string[] = [];
-const oldDir = process.env.ORCH_DIR;
+const dirs: OrchDir[] = [];
+const oldDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 const oldKey = process.env[LAUNCH_ENV];
 const originalWrite = process.stdout.write.bind(process.stdout);
 const SETTINGS = {
@@ -49,8 +50,8 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-close-report-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-close-report-");
   dirs.push(dir);
   writeSettingsFixture(dir, SETTINGS);
   process.env.ORCH_DIR = dir;
@@ -60,12 +61,12 @@ function fixture(): string {
   return dir;
 }
 
-function services(dir: string) {
+function services(dir: OrchDir) {
   return testServices({ orchDir: dir, settings: SETTINGS });
 }
 
 /** An agent whose process already ended, so close has only its pane and row to settle. */
-function seedAgentWithStatus(dir: string, key: string, handle: string): void {
+function seedAgentWithStatus(dir: OrchDir, key: string, handle: string): void {
   seedAgent(key, { adapter: "pi", backend: "headless", space: "space00001", handle }, dir);
   endProcess(dir, key, Date.now());
   const agentDir = join(dir, "agents", key);

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { mkdirSync, readdirSync, statSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { collapse } from "../entities.ts";
@@ -17,6 +18,7 @@ import type { AgentState } from "../adapters/adapter.ts";
 import { isAgentState } from "../agent-state.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";
 import { optionalString } from "../util.ts";
+import { orchDirAt } from "../services.ts";
 import type { RunRecord } from "../types/store.ts";
 import type { PresenceStatus } from "../types/presence.ts";
 import type { PresenceMetadata, PresenceWatch, PresenceWatchOptions } from "../types/daemon.ts";
@@ -86,7 +88,7 @@ interface PresenceTransition {
 
 /** Advance the observed state, suppressing initial and duplicate observations. */
 function nextPresenceTransition(
-  orchDir: string,
+  orchDir: OrchDir,
   key: string,
   status: unknown,
   states: Map<string, string>,
@@ -115,7 +117,7 @@ interface PresenceIdentityFields {
 }
 
 function identityFields(
-  orchDir: string,
+  orchDir: OrchDir,
   key: string,
   value: object,
   metadata: PresenceMetadata,
@@ -195,7 +197,7 @@ function activityFields(value: object, state: AgentState): PresenceActivityField
  * same composer as filesystem-derived transitions, so their identity and activity
  * fields cannot drift from live presence events. */
 export function composeAgentEvent(
-  orchDir: string,
+  orchDir: OrchDir,
   key: string,
   status: unknown,
   metadata: PresenceMetadata,
@@ -231,7 +233,7 @@ export function composeAgentEvent(
 
 /** Derive one transition from a status file. First observations only seed state. */
 export function derivePresenceTransition(
-  orchDir: string,
+  orchDir: OrchDir,
   key: string,
   status: unknown,
   metadata: PresenceMetadata,
@@ -264,7 +266,7 @@ const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited", "idle"]);
 
 /** Build the durable run row from the status that produced a transition. */
 function runRecordForTransition(
-  orchDir: string,
+  orchDir: OrchDir,
   key: string,
   status: PresenceStatus,
   event: NotifyEvent,
@@ -315,7 +317,8 @@ function runRecordForTransition(
  * daemon is absent. Importing this outside `src/daemon/` reintroduces the second
  * event source this layering exists to prevent. */
 export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch {
-  const agentsDir = join(options.orchDir, "agents");
+  const orchDir = orchDirAt(options.orchDir);
+  const agentsDir = join(orchDir, "agents");
   mkdirSync(agentsDir, { recursive: true });
   const states = options.initialStates ?? new Map<string, string>();
   const watchers = new Map<string, FSWatcher>();
@@ -335,7 +338,7 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
 
   const check = (key: string): void => {
     if (stopped) return;
-    const agentDir = presenceAgentDir(key, options.orchDir);
+    const agentDir = presenceAgentDir(key, orchDir);
     try {
       if (!statSync(agentDir).isDirectory()) {
         closeWatcher(key);
@@ -347,22 +350,22 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
     }
     const status = readPresenceStatus(join(agentDir, STATUS_FILE));
     const knownMetadata = options.keys?.get(key);
-    const candidateState = statusState(status, agentProcessLive(options.orchDir, key));
+    const candidateState = statusState(status, agentProcessLive(orchDir, key));
     const previous = states.get(key);
     if (candidateState === undefined || candidateState === null || previous === candidateState) return;
     // Seed the initial observation without loading metadata: it is not a
     // transition and therefore cannot produce an event.
     if (previous === undefined) {
-      derivePresenceTransition(options.orchDir, key, status, { name: null, tab: null }, states);
+      derivePresenceTransition(orchDir, key, status, { name: null, tab: null }, states);
       return;
     }
     // Metadata may require database reads. Defer it until a real state transition
     // is observed; idle scans must not reload the spawned registry.
     const metadata = knownMetadata ?? options.metadataFor?.(key) ?? { name: null, tab: null };
-    const event = derivePresenceTransition(options.orchDir, key, status, metadata, states);
+    const event = derivePresenceTransition(orchDir, key, status, metadata, states);
     let resultText: string | undefined;
     if (event?.newState === "done") {
-      const result = readLatestResult(presenceAgentDir(key, options.orchDir));
+      const result = readLatestResult(presenceAgentDir(key, orchDir));
       if (result) {
         const text = property(result, "text");
         if (typeof text === "string" && text.length > 0) {
@@ -376,8 +379,8 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
       // presence watch from publishing the transition.
       try {
         if (status) {
-          const run = runRecordForTransition(options.orchDir, key, status, event, resultText);
-          if (run) upsertRun(options.orchDir, run);
+          const run = runRecordForTransition(orchDir, key, status, event, resultText);
+          if (run) upsertRun(orchDir, run);
         }
       } catch {
         // Keep watching even when the history store or its write is unavailable.
@@ -388,7 +391,7 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
   const attach = (key: string): void => {
     if (watchers.has(key)) return;
     try {
-      const watcher = watch(presenceAgentDir(key, options.orchDir), (_event, filename) => {
+      const watcher = watch(presenceAgentDir(key, orchDir), (_event, filename) => {
         if (!filename || namesPresenceFile(filename.toString(), STATUS_FILE)) check(key);
       });
       watcher.on("error", () => { /* noop */ });
@@ -468,7 +471,7 @@ export function emitAndNotify(
   emit: (event: NotifyEvent) => void,
   sinks: NotifyEntry[],
   event: NotifyEvent,
-  orchDir: string | undefined,
+  orchDir: OrchDir | undefined,
   settings: SettingsManager,
   now = Date.now(),
 ): void {

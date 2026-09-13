@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import {loadPresence} from "../presence/store.ts";
 import { agentViews } from "../store/agent-view.ts";
@@ -28,7 +29,7 @@ export function buildSmokePrompt(): string {
 }
 
 /** Best-effort close of the headless smoke agent by its key. */
-export function closeSmokeAgent(orchDir: string, key: string): void {
+export function closeSmokeAgent(orchDir: OrchDir, key: string): void {
   try {
     const backend = resolveBackend({ configured: "headless" });
     const handle = backend.handleLookup?.handleFor(key, orchDir);

@@ -1,28 +1,29 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+
+
 import { closeAllStores } from "../src/store/connection.ts";
 import { agentById, endAgent, getOrCreateSessionAgent, insertAgent } from "../src/store/agent-rows.ts";
 import { currentProcess } from "../src/store/interval-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const tempDirs: string[] = [];
+const tempDirs: OrchDir[] = [];
 
 afterEach(() => {
   closeAllStores();
   while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
-function fixture(): string {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-session-refresh-"));
+function fixture(): OrchDir {
+  const orchDir = tempOrchDir("orch-session-refresh-");
   tempDirs.push(orchDir);
   return orchDir;
 }
 
-function session(orchDir: string, pid: number, startToken: string, sessionToken: string, label: string, now: number) {
+function session(orchDir: OrchDir, pid: number, startToken: string, sessionToken: string, label: string, now: number) {
   return getOrCreateSessionAgent(orchDir, {
     pid, startToken, sessionToken, harnessId: "pi", cwd: "/repo", label,
     hostId: "host", hostName: "Host", hostOs: "linux", now,

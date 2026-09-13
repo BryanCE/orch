@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { commandArgv, commandAvailable, createBuiltinNotifiers, stringArray } from "./sinks.ts";
 import { oneLine } from "./format.ts";
@@ -7,7 +8,7 @@ import type { NotifyEntry } from "../types/settings.ts";
 import { decisionLogger } from "../daemon/decision-log.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
-function warning(orchDir: string, message: string): void { decisionLogger(orchDir, null).warn("notify.failed", { message }); }
+function warning(orchDir: OrchDir, message: string): void { decisionLogger(orchDir, null).warn("notify.failed", { message }); }
 
 /** The sink ids are the discriminants settings.ts's `NotifyEntrySchema` already
  *  declares. Re-listing them here made a second copy that could drift, and put a
@@ -25,7 +26,7 @@ function configFor(entry: NotifyEntry): Record<string, unknown> {
   return {};
 }
 
-export function loadNotifierEntries(orchDir: string, settings: OrchSettings | null): NotifyEntry[] {
+export function loadNotifierEntries(orchDir: OrchDir, settings: OrchSettings | null): NotifyEntry[] {
   try {
     return settings?.notify ?? [];
   } catch (error: unknown) {
@@ -39,7 +40,7 @@ class NotifierRegistry {
   private readonly emitWarning: (message: string) => void;
   readonly timeoutMs: number;
 
-  constructor(orchDir: string, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { timeoutMs?: number; warn?: (message: string) => void } = {}) {
+  constructor(orchDir: OrchDir, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { timeoutMs?: number; warn?: (message: string) => void } = {}) {
     this.timeoutMs = options.timeoutMs ?? SETTINGS_DEFAULTS.timeouts.notify_ms;
     this.emitWarning = options.warn ?? ((message) => warning(orchDir, message));
     this.notifiers = new Map(notifiers.flatMap((notifier) => isNotifyId(notifier.id) ? [[notifier.id, notifier]] : []));
@@ -102,14 +103,14 @@ class NotifierRegistry {
   }
 }
 
-export function createNotifierRegistry(orchDir: string, notifiers?: readonly Notifier[], options: { timeoutMs?: number; warn?: (message: string) => void } = {}): NotifierRegistry {
+export function createNotifierRegistry(orchDir: OrchDir, notifiers?: readonly Notifier[], options: { timeoutMs?: number; warn?: (message: string) => void } = {}): NotifierRegistry {
   return new NotifierRegistry(orchDir, notifiers, options);
 }
 
-export async function deliver(orchDir: string, entry: NotifyEntry, event: NotifyEvent): Promise<boolean> {
+export async function deliver(orchDir: OrchDir, entry: NotifyEntry, event: NotifyEvent): Promise<boolean> {
   return createNotifierRegistry(orchDir).deliver(entry, event);
 }
 
-export function notify(orchDir: string, entries: readonly NotifyEntry[], event: NotifyEvent): void {
+export function notify(orchDir: OrchDir, entries: readonly NotifyEntry[], event: NotifyEvent): void {
   createNotifierRegistry(orchDir).notify(entries, event);
 }

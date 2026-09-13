@@ -1,18 +1,19 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
+
 import { addTask, listTasks, nextQueuedTask } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
 describe("queue replay keeps typed scope", () => {
   test("stored scope offers pack work only to that pack", () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-queue-replay-")); dirs.push(dir);
+    const dir = tempOrchDir("orch-queue-replay-"); dirs.push(dir);
     const db = orm(dir);
     db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
     for (const [id, root, parent] of [["a","a",null],["a1","a","a"],["b","b",null]] as const) {

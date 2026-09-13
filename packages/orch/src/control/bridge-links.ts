@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import type { BridgeDelivery } from "./bridge-message.ts";
 import { normalizeControlTarget } from "./normalize-target.ts";
 
@@ -24,22 +25,22 @@ export function isBridgeDetached(error: unknown): error is BridgeDetachedError {
 const links = new Map<string, BridgeLink>();
 
 /** Replace any link held for the key: a restarted bridge wins over the one it replaced. */
-export function attachBridge(orchDir: string, key: string, link: BridgeLink): void {
+export function attachBridge(orchDir: OrchDir, key: string, link: BridgeLink): void {
   links.set(normalizeControlTarget(orchDir, key), link);
 }
 
 /** Remove the link only if it is still the one held, so a stale close never drops a newer attach. */
-export function detachBridge(orchDir: string, key: string, link: BridgeLink): void {
+export function detachBridge(orchDir: OrchDir, key: string, link: BridgeLink): void {
   const canonical = normalizeControlTarget(orchDir, key);
   if (links.get(canonical) === link) links.delete(canonical);
 }
 
-export function bridgeAttached(orchDir: string, key: string): boolean {
+export function bridgeAttached(orchDir: OrchDir, key: string): boolean {
   return links.has(normalizeControlTarget(orchDir, key));
 }
 
 /** Throws BridgeDetachedError when no link is held. */
-export function pushToBridge(orchDir: string, key: string, delivery: BridgeDelivery): void {
+export function pushToBridge(orchDir: OrchDir, key: string, delivery: BridgeDelivery): void {
   const canonical = normalizeControlTarget(orchDir, key);
   const link = links.get(canonical);
   if (link === undefined) throw new BridgeDetachedError(canonical);

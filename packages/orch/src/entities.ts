@@ -1,3 +1,4 @@
+import type { OrchDir } from "./types/core.ts";
 import { allBackends } from "./backends/registry.ts";
 import { loadPresence } from "./presence/store.ts";
 import { agentById } from "./store/agent-rows.ts";
@@ -45,7 +46,7 @@ export function formatTarget(ref: TargetRef): string {
 
 /** Every agent the store knows, indexed by its minted id — the ONLY key the
  *  store has. A store that does not exist yet is an empty fleet, not a crash. */
-function viewsById(root: string): Map<string, AgentView> {
+function viewsById(root: OrchDir): Map<string, AgentView> {
   const index = new Map<string, AgentView>();
   try {
     for (const view of agentViews(root)) index.set(view.id, view);
@@ -75,15 +76,15 @@ function indexPresenceById(presence: ReadonlyMap<string, PresenceEntry>): Map<st
 }
 
 /** Resolve an identity key to the agent an operator knows. */
-function normalizedAgentName(root: string, key: string): string | null {
+function normalizedAgentName(root: OrchDir, key: string): string | null {
   try { return agentById(root, key)?.name ?? null; } catch { return null; }
 }
 
-function recipientName(root: string, status: PresenceEntry["status"], space: string, key: string): string {
+function recipientName(root: OrchDir, status: PresenceEntry["status"], space: string, key: string): string {
   return normalizedAgentName(root, key) ?? status?.label ?? status?.agent ?? abstractAgentLabel(space, key);
 }
 
-export function recipientFor(root: string, key: string, views = viewsById(root)): Recipient {
+export function recipientFor(root: OrchDir, key: string, views = viewsById(root)): Recipient {
   const view = viewForKey(views, key);
   const status = loadPresence(root).get(key)?.status ?? null;
   const space = view?.environment.space ?? spaceOf(root, key) ?? "space";
@@ -107,11 +108,11 @@ function naturalPaneOrder(id: string): [string, number] {
   return match ? [match[1]!, parseInt(match[2]!, 10)] : [id, 0];
 }
 
-export function entitySpace(root: string, e: Entity): string | null {
+export function entitySpace(root: OrchDir, e: Entity): string | null {
   return e.space ?? spaceOf(root, e.key);
 }
 
-export function scopeEntitiesToSpace(root: string, entities: Entity[], opts?: { all?: boolean }): Entity[] {
+export function scopeEntitiesToSpace(root: OrchDir, entities: Entity[], opts?: { all?: boolean }): Entity[] {
   const current = callerSpace(root);
   if (opts?.all === true || current === null) return entities;
   return entities.filter((entity) => sameSpace(entitySpace(root, entity), current));
@@ -160,7 +161,7 @@ function handlesByKey(fleet: Fleet, backend: Backend): Map<string, string> {
 }
 
 function entityFromBackendTarget(
-  root: string,
+  root: OrchDir,
   backend: Backend,
   target: BackendTarget,
   keyByHandle: Map<string, string>,
@@ -201,7 +202,7 @@ function entityFromBackendTarget(
   };
 }
 
-function entitiesFromBackend(root: string, backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
+function entitiesFromBackend(root: OrchDir, backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
   const listed = fleet.census.get(backend.id);
   if (listed === undefined) return [];
   const keyByHandle = handlesByKey(fleet, backend);
@@ -217,7 +218,7 @@ function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "agent" | "ses
   };
 }
 
-function presenceOnlyEntity(root: string, entry: PresenceEntry, fleet: Fleet): Entity {
+function presenceOnlyEntity(root: OrchDir, entry: PresenceEntry, fleet: Fleet): Entity {
   const view = viewForKey(fleet.views, entry.key);
   const statusFields = presenceStatusFields(entry);
   // U1: a pane is environment, so orch's own record answers for it. The agent's
@@ -240,7 +241,7 @@ function presenceOnlyEntity(root: string, entry: PresenceEntry, fleet: Fleet): E
   };
 }
 
-function entitiesFromPresence(root: string, fleet: Fleet, usedPresence: Set<string>): Entity[] {
+function entitiesFromPresence(root: OrchDir, fleet: Fleet, usedPresence: Set<string>): Entity[] {
   return [...fleet.presence.values()]
     .filter((entry) => !usedPresence.has(entry.key))
     .map((entry) => presenceOnlyEntity(root, entry, fleet));
@@ -285,7 +286,7 @@ function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
   return found;
 }
 
-export function buildEntities(root: string, settings: OrchSettings, options: { skipBackends?: boolean } = {}): Entity[] {
+export function buildEntities(root: OrchDir, settings: OrchSettings, options: { skipBackends?: boolean } = {}): Entity[] {
   const presence = loadPresence(root);
   const fleet: Fleet = { views: viewsById(root), presence, presenceById: indexPresenceById(presence), census: paneCensus(settings) };
   const usedPresence = new Set<string>();
@@ -329,7 +330,7 @@ function stillRunning(entity: Entity): boolean {
 
 /** A session or spawned agent may resolve only an agent it currently holds.
  *  Ownership is the open lease, never the immutable spawner or a display label. */
-export function callerMayResolve(root: string, entity: Pick<Entity, "key">): boolean {
+export function callerMayResolve(root: OrchDir, entity: Pick<Entity, "key">): boolean {
   if (callerKind(root) === "operator") return true;
   const caller = selfId(root);
   if (caller === undefined) return false;
@@ -385,7 +386,7 @@ function matchInPool(entities: Entity[], localTarget: string, target: string, ho
 // default — crossing the wall is never an accident of typing a foreign key.
 // A host-prefixed (<host>/<target>) or --all target opts out; headless runs
 // (no current space) are unscoped.
-export function resolveTarget(root: string, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): Entity {
+export function resolveTarget(root: OrchDir, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): Entity {
   let ref: TargetRef;
   try {
     ref = parseTarget(target, settings.hosts);
@@ -416,7 +417,7 @@ export function resolveTarget(root: string, settings: OrchSettings, target: stri
   die(`No target matches "${target}". Run 'orch panes' to list.`);
 }
 
-export function resolvePane(root: string, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): { ent: Entity; pane: string } {
+export function resolvePane(root: OrchDir, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): { ent: Entity; pane: string } {
   const ent = resolveTarget(root, settings, target, opts);
   if (!ent.paneId) die(`Target "${target}" has no pane.`);
   return { ent, pane: ent.paneId };

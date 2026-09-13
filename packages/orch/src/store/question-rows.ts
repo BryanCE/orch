@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
 import { questions } from "../db/schema.ts";
@@ -6,7 +7,7 @@ export type QuestionRow = typeof questions.$inferSelect;
 
 /** Record a new pending question, superseding any question this agent left open. */
 export function recordQuestion(
-  directory: string,
+  directory: OrchDir,
   input: { id: string; agentId: string; question: string; askedAt: number },
 ): void {
   withTransaction(directory, () => {
@@ -27,7 +28,7 @@ export function recordQuestion(
 
 /** Settle an open question, rejecting late and duplicate answers. */
 export function settleQuestion(
-  directory: string,
+  directory: OrchDir,
   input: { id: string; answer: string; answeredAt: number },
 ): boolean {
   const result = orm(directory).update(questions)
@@ -37,7 +38,7 @@ export function settleQuestion(
   return Number(result.changes) === 1;
 }
 
-export function pendingQuestion(directory: string, agentId: string): QuestionRow | undefined {
+export function pendingQuestion(directory: OrchDir, agentId: string): QuestionRow | undefined {
   return orm(directory).select().from(questions)
     .where(and(eq(questions.agentId, agentId), isNull(questions.answeredAt)))
     .orderBy(desc(questions.askedAt), asc(questions.id))
@@ -45,7 +46,7 @@ export function pendingQuestion(directory: string, agentId: string): QuestionRow
     .get();
 }
 
-export function pendingQuestions(directory: string): QuestionRow[] {
+export function pendingQuestions(directory: OrchDir): QuestionRow[] {
   return orm(directory).select().from(questions)
     .where(isNull(questions.answeredAt))
     .orderBy(desc(questions.askedAt), asc(questions.id))

@@ -1,16 +1,17 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
+
 import { compareVersions, versionInRange } from "../src/backends/versions.ts";
 import { backendVersionsVerdict } from "../src/doctor/backends.ts";
 import { ensureHost, ensurePlexer, ensureHostPlexer, hostPlexers } from "../src/store/agent-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
-function fixture(): string { const d = mkdtempSync(join(tmpdir(), "orch-plexer-versions-")); dirs.push(d); return d; }
+function fixture(): OrchDir { const d = tempOrchDir("orch-plexer-versions-"); dirs.push(d); return d; }
 
 describe("plexer version support", () => {
   test("a floor admits every version at or above it", () => {

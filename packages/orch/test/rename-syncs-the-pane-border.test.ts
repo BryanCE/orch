@@ -1,6 +1,7 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
+
 import { join } from "node:path";
 import { cmdRename } from "../src/commands/lifecycle/rename.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
@@ -12,7 +13,7 @@ import { isRecord } from "../src/util.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { AgentNamingRole, LabelRole } from "../src/types/backend.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { testServices } from "./helpers/services.ts";
@@ -37,7 +38,7 @@ import { testServices } from "./helpers/services.ts";
  * on purpose — never as the price of a correct display.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const oldDir = process.env.ORCH_DIR;
 const oldAgentId = process.env[LAUNCH_ENV];
 const harnessMarkers = Object.values(HARNESS_SESSION_ENV).map((entry) => entry.marker);
@@ -63,8 +64,8 @@ afterEach(() => {
 
 const KEY = "renameagt1";
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-rename-border-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-rename-border-");
   dirs.push(dir);
   writeSettingsFixture(dir, SETTINGS);
   process.env.ORCH_DIR = dir;
@@ -81,7 +82,7 @@ function fixture(): string {
   return dir;
 }
 
-function services(dir: string) {
+function services(dir: OrchDir) {
   return testServices({ orchDir: dir, settings: SETTINGS });
 }
 

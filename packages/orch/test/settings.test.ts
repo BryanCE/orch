@@ -1,5 +1,5 @@
+import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
@@ -7,20 +7,20 @@ import { allowedModelPatterns, declaredRuntime, reapUnreadableSettings, resolveS
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsAllowedModels, writeSettingsDefault, writeSettingsFullTree, writeSettingsEnabled, writeSettingsPreferredModels, writeSettingsRuntime } from "../src/settings/write.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const originalConfigTest = process.env.ORCH_CONFIG_TEST;
 const originalConfigPrecedence = process.env.ORCH_CONFIG_PRECEDENCE;
 
-function tempDir(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-settings-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-settings-");
   directories.push(directory);
   return directory;
 }
 
-function readSettingsRecord(directory: string): Record<string, unknown> {
+function readSettingsRecord(directory: OrchDir): Record<string, unknown> {
   const value: unknown = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8"));
   if (!isRecord(value)) throw new Error("settings.json is not an object");
   return value;

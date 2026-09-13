@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { osSide } from "../util.ts";
@@ -14,7 +15,7 @@ export function daemonDiscoveryFiles(): DaemonDiscoveryFiles {
   return { registration: join(root, "orchd.registration") };
 }
 
-export function daemonRuntimeFiles(orchDir: string): DaemonRuntimeFiles {
+export function daemonRuntimeFiles(orchDir: OrchDir): DaemonRuntimeFiles {
   return {
     lock: join(orchDir, "orchd.lock"),
     socket: join(orchDir, "orchd.sock"),
@@ -26,7 +27,7 @@ export function daemonRuntimeFiles(orchDir: string): DaemonRuntimeFiles {
 
 /** The files a departed orchd must not leave behind. The log survives: it is the
  *  record of why the last daemon died. */
-export function daemonOwnershipFiles(orchDir: string): readonly string[] {
+export function daemonOwnershipFiles(orchDir: OrchDir): readonly string[] {
   const files = daemonRuntimeFiles(orchDir);
   return [files.lock, files.socket, files.port, files.token];
 }

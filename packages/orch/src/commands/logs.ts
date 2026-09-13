@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { isLogLevel, isLogRecord } from "../log.ts";
 import { die } from "./target.ts";
 import type { LogOptions } from "../types/command.ts";
-import type { LogRecord } from "../types/core.ts";
+import type { LogRecord, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
 
 /** Exported so the filter contract is testable without a process exit: every
@@ -37,7 +37,7 @@ export function parseLogOptions(args: string[]): LogOptions {
   return out;
 }
 
-function records(directory: string): LogRecord[] {
+function records(directory: OrchDir): LogRecord[] {
   const result: LogRecord[] = [];
   for (const name of ["orch.log", "orchd.log"]) {
     const file = join(directory, name);

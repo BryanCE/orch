@@ -1,18 +1,19 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
+
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsThinking } from "../src/settings/write.ts";
 import { cmdSettingsThinking } from "../src/commands/settings.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { testServices } from "./helpers/services.ts";
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const oldDir = process.env.ORCH_DIR;
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-thinking-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-thinking-");
   dirs.push(dir);
   writeSettingsFixture(dir, {});
   process.env.ORCH_DIR = dir;
@@ -57,8 +58,8 @@ describe("orch settings thinking", () => {
   });
 
   test("a level orch does not know is refused, naming the valid levels", () => {
-    fixture();
-    expect(() => cmdSettingsThinking(testServices({ orchDir: process.env.ORCH_DIR ?? ".", settings: {} }), ["ludicrous"])).toThrow(/off.*minimal.*low.*medium.*high.*xhigh.*max/s);
+    const dir = fixture();
+    expect(() => cmdSettingsThinking(testServices({ orchDir: dir, settings: {} }), ["ludicrous"])).toThrow(/off.*minimal.*low.*medium.*high.*xhigh.*max/s);
   });
 
   test("clearing a per-harness override falls back to the global default", () => {

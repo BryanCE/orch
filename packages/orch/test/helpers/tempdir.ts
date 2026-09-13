@@ -1,14 +1,26 @@
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { closeAllStores } from "../../src/store/connection.ts";
 import { provenDaemonPid } from "../../src/daemon/lifecycle.ts";
+import { orchDirAt } from "../../src/services.ts";
+import type { OrchDir } from "../../src/types/core.ts";
 
 const undeleted: string[] = [];
+
+/** A fresh temp directory minted as an orch dir. The one way a test gets an OrchDir:
+ *  `mkdtempSync` alone yields a string, which nothing taking the orch dir accepts. */
+export function tempOrchDir(prefix: string): OrchDir {
+  return orchDirAt(mkdtempSync(join(tmpdir(), prefix)));
+}
 
 /** Kill the detached orchd a CLI-driven test auto-started under this dir; a live daemon holds
  *  the dir's orch.db open. Only a PROVEN owner is signalled — fixtures seed locks naming this
  *  very test runner's pid, and a start-token match is what no seeded record can fake. */
 function killTempDirDaemon(dir: string): void {
-  const pid = provenDaemonPid(dir);
+  // Any temp dir a test removes MAY have been used as an orch dir; a dir that never was
+  // one simply holds no lock. The mint here is that "maybe", not a claim about the path.
+  const pid = provenDaemonPid(orchDirAt(dir));
   if (pid === undefined || pid === process.pid) return;
   try { process.kill(pid, "SIGTERM"); } catch {}
 }

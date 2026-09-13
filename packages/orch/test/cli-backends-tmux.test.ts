@@ -1,14 +1,13 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
+import { orchDirAt } from "../src/services.ts";
 
 const originalTmux = process.env.TMUX;
 const originalHerdrEnv = process.env.HERDR_ENV;
@@ -118,7 +117,7 @@ describe("tmux backend registry and capabilities", () => {
       TmuxBackend.prototype.isAvailable = () => true;
       delete process.env.TMUX;
       expect(resolveBackend({ explicit: "tmux", configured: null }).id).toBe("tmux");
-      expect(() => new TmuxBackend().spawn(fakeAdapter(), { key: "k", cwd: "/tmp", orchDir: process.cwd() }))
+      expect(() => new TmuxBackend().spawn(fakeAdapter(), { key: "k", cwd: "/tmp", orchDir: orchDirAt(process.cwd()) }))
         .toThrow(/tmux spawn requires running inside a tmux session/);
     } finally {
       TmuxBackend.prototype.isAvailable = oldTmuxAvailable;
@@ -145,8 +144,8 @@ describe("tmux backend registry and capabilities", () => {
   test("refuses cross-session tmux steer without --cross-space", async () => {
     const { checkWall } = await import("../src/policy/space.ts");
     const { seedAgent } = await import("./helpers/agent.ts");
-    const orchDir = mkdtempSync(join(tmpdir(), "orch-tmux-wall-"));
-    const previousOrchDir = process.env.ORCH_DIR;
+    const orchDir: OrchDir = tempOrchDir("orch-tmux-wall-");
+    const previousOrchDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = orchDir;
     // The space is ENVIRONMENT, recorded beside the agent. The key carries none,
     // so the wall can only read it from the store — which is the whole point.

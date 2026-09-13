@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
@@ -28,7 +29,7 @@ export function matchesLockedCommand(argv: readonly string[], patterns: readonly
   });
 }
 
-function lockPath(orchDir: string): string {
+function lockPath(orchDir: OrchDir): string {
   return join(orchDir, LOCK_NAME);
 }
 
@@ -55,7 +56,7 @@ function reapLock(path: string, lock: CommandLock): boolean {
   }
 }
 
-export async function acquireCommandLock(orchDir: string, options: CommandLockOptions): Promise<CommandLock> {
+export async function acquireCommandLock(orchDir: OrchDir, options: CommandLockOptions): Promise<CommandLock> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const path = lockPath(orchDir);
@@ -84,7 +85,7 @@ export async function acquireCommandLock(orchDir: string, options: CommandLockOp
   throw new Error(`timed out after ${timeoutMs}ms waiting for command lock held by ${heldBy}`);
 }
 
-export function releaseCommandLock(orchDir: string, pid = process.pid, startToken = processStartToken(pid)): boolean {
+export function releaseCommandLock(orchDir: OrchDir, pid = process.pid, startToken = processStartToken(pid)): boolean {
   const path = lockPath(orchDir);
   const current = loadLock(path);
   if (!current || current.pid !== pid || !startToken || current.start_token !== startToken) return false;
@@ -97,12 +98,12 @@ export function releaseCommandLock(orchDir: string, pid = process.pid, startToke
   }
 }
 
-export function readCommandLock(orchDir: string): CommandLock | null {
+export function readCommandLock(orchDir: OrchDir): CommandLock | null {
   return loadLock(lockPath(orchDir));
 }
 
 /** The current holder only when its process instance is still alive. */
-export function readLiveCommandLock(orchDir: string): CommandLock | null {
+export function readLiveCommandLock(orchDir: OrchDir): CommandLock | null {
   const lock = loadLock(lockPath(orchDir));
   return lock && processInstanceMatches(lock.pid, lock.start_token) ? lock : null;
 }

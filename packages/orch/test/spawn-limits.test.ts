@@ -1,43 +1,40 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { applyFixes } from "../src/doctor/runner.ts";
 import { checkSpawnLimits } from "../src/doctor/settings-file.ts";
 import { assertSpawnCapacity, liveSpawnCounts, spawnPolicyError } from "../src/commands/spawn/admission.ts";
 import { SpawnRefusalError } from "../src/refusal.ts";
-import { presenceAgentDir } from "../src/presence/writer.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { seedStatusInDir } from "./helpers/presence.ts";
+import { seedStatus } from "./helpers/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const dirs: OrchDir[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
-let storeUnderTest = "";
+let storeUnderTest: OrchDir | undefined;
 
 /** `records()` seeds real status files, and where they land is whatever ORCH_DIR says.
  *  Every test gets its own store before it runs, so a test that never names one cannot
  *  write its fixtures into the live ~/.orch. */
 beforeEach(() => {
-  storeUnderTest = fs.mkdtempSync(path.join(os.tmpdir(), "orch-spawn-limits-"));
+  storeUnderTest = tempOrchDir("orch-spawn-limits-");
   dirs.push(storeUnderTest);
   process.env.ORCH_DIR = storeUnderTest;
 });
 
-function storeDir(): string {
+function storeDir(): OrchDir {
+  if (storeUnderTest === undefined) throw new Error("store not initialized");
   return storeUnderTest;
 }
 
 /** Liveness is `alive`, which the loader fills from the recorded process row —
  *  presence carries state, never a pid a fixture can pass off as one. */
 function presence(key: string, alive = true): PresenceEntry {
-  const dir = presenceAgentDir(key, storeDir());
-  seedStatusInDir(dir, { key });
+  const dir = seedStatus(storeDir(), key, { key });
   return { key, dir, status: { schema: PRESENCE_SCHEMA, key }, result: null, alive };
 }
 
@@ -65,7 +62,7 @@ afterEach(() => {
 });
 
 function capacityRefusal(
-  orchDir: string,
+  orchDir: OrchDir,
   settings: Parameters<typeof assertSpawnCapacity>[1],
   workspace: string,
   requested: number,

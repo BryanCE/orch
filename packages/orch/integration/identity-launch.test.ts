@@ -1,14 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { launchCredential, LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 
-const directories: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
 
 beforeEach(() => isolateOrchEnv());
 afterEach(() => {
@@ -18,13 +18,13 @@ afterEach(() => {
 
 describe("launchCredential", () => {
   test("returns null when the launch environment is unset", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-identity-launch-"));
+    const directory = tempOrchDir("orch-identity-launch-");
     directories.push(directory);
     expect(launchCredential(directory)).toBeNull();
   });
 
   test("returns a minted id", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-identity-launch-"));
+    const directory = tempOrchDir("orch-identity-launch-");
     directories.push(directory);
     const id = mintAgentId();
     process.env[LAUNCH_ENV] = id;
@@ -32,7 +32,7 @@ describe("launchCredential", () => {
   });
 
   test("malformed value exits 1 and logs launch.invalid-key", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-identity-launch-"));
+    const directory = tempOrchDir("orch-identity-launch-");
     directories.push(directory);
     const script = `import { launchCredential } from './src/identity/launch.ts'; launchCredential(${JSON.stringify(directory)});`;
     const result = spawnSync(process.execPath, ["-e", script], {

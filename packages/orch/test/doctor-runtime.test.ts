@@ -1,17 +1,17 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { checkRuntime, runningRuntime, shebangRuntime } from "../src/doctor/runtime.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { RuntimeObservations } from "../src/types/doctor.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
-function tempDir(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-runtime-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-doctor-runtime-");
   directories.push(directory);
   return directory;
 }
@@ -154,7 +154,7 @@ describe("doctor runtime verdict table", () => {
   });
 
   test("skips rather than throwing when settings cannot be read", () => {
-    const settings = fileSettingsManager(path.join(tempDir(), "absent")).currentOrNull();
+    const settings = fileSettingsManager(tempOrchDir("orch-doctor-runtime-absent-")).currentOrNull();
     const result = settings === null ? { id: "runtime", status: "skip" } : checkRuntime(settings, observed());
 
     expect(result).toMatchObject({ id: "runtime", status: "skip" });

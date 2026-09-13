@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { endpointPaths } from "../src/daemon/rpc/wire.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 /**
  * Credential is the `0600` token file in `$ORCH_DIR`; same-uid is the whole
@@ -18,7 +18,7 @@ import type { RpcServer } from "../src/types/daemon.ts";
  * other account on the machine.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
 afterEach(async () => {
@@ -26,13 +26,13 @@ afterEach(async () => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function tempDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-credential-"));
+function tempDir(): OrchDir {
+  const directory = makeTempOrchDir("orch-credential-");
   dirs.push(directory);
   return directory;
 }
 
-async function start(orchDir: string): Promise<RpcServer> {
+async function start(orchDir: OrchDir): Promise<RpcServer> {
   const server = await startRpcServer(orchDir, {});
   servers.push(server);
   return server;

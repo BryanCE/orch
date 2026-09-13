@@ -1,7 +1,7 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { orm } from "../src/store/connection.ts";
@@ -14,7 +14,7 @@ import { headlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { placeAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
@@ -23,18 +23,18 @@ import { row } from "./helpers/rows.ts";
 import { withExitCode } from "./helpers/exit-code.ts";
 import { testServices } from "./helpers/services.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 beforeEach(() => isolateOrchEnv());
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
   restoreOrchEnv();
 });
 
-function services(dir: string) {
+function services(dir: OrchDir) {
   return testServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } });
 }
 
-function daemonState(dir: string) {
+function daemonState(dir: OrchDir) {
   const serviceSet = services(dir);
   return {
     services: serviceSet,
@@ -52,18 +52,18 @@ function daemonState(dir: string) {
   };
 }
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-lease-command-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-lease-command-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
   ensureHost(dir, "host", "host", "linux", 1);
   return dir;
 }
-function agent(dir: string, id: string, name = id, spawnedBy: string | null = null): void {
+function agent(dir: OrchDir, id: string, name = id, spawnedBy: string | null = null): void {
   insertAgent(dir, { id, name, spawnedBy, harnessId: "pi", cwd: dir, createdAt: 1 });
 }
 
-function liveHolder(dir: string, id = "foreign-orch"): void {
+function liveHolder(dir: OrchDir, id = "foreign-orch"): void {
   agent(dir, id);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");

@@ -32,7 +32,7 @@ import { die } from "./target.ts";
 import { term } from "../policy/vocabulary.ts";
 import { createServices } from "../services.ts";
 import type { Services } from "../types/services.ts";
-import type { Logger } from "../types/core.ts";
+import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 function usage() {
@@ -251,7 +251,7 @@ const STALE_GUARD_COMMANDS = new Set([
 ]);
 
 /** Refuse writes sent to a live daemon from a stale installed CLI. */
-function preflightSkew(directory: string, argv: string[]): string[] {
+function preflightSkew(directory: OrchDir, argv: string[]): string[] {
   const staleOk = argv.includes("--stale-ok");
   const sanitized = argv.filter((arg) => arg !== "--stale-ok");
   const cmd = sanitized[0];

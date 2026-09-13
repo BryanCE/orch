@@ -1,8 +1,6 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { checkWall } from "../src/policy/space.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -11,20 +9,20 @@ import { adoptLease, acquireLease, currentLease, leaseHistory } from "../src/sto
 import { agentView } from "../src/store/agent-view.ts";
 import { sql } from "drizzle-orm";
 
-const tempDirs: string[] = [];
+const tempDirs: OrchDir[] = [];
 
-function makeOrchDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-broker-ownership-"));
+function makeOrchDir(): OrchDir {
+  const dir = tempOrchDir("orch-broker-ownership-");
   tempDirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
   return dir;
 }
 
-function agent(dir: string, id: string): void {
+function agent(dir: OrchDir, id: string): void {
   insertAgent(dir, { id, name: id, spawnedBy: null, harnessId: "pi", cwd: dir, createdAt: 1 });
 }
 
-function placeIn(dir: string, id: string, space: string): void {
+function placeIn(dir: OrchDir, id: string, space: string): void {
   orm(dir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, ${1})`);
   setSpace(dir, id, 1, space);
 }

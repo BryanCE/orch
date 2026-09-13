@@ -1,14 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { endpointPaths } from "../src/daemon/rpc/wire.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
 import { currentHostOs } from "../src/store/agent-rows.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 /**
  * ONE MECHANISM on both transports; TCP is a FALLBACK, never a client class.
@@ -19,7 +18,7 @@ import { currentHostOs } from "../src/store/agent-rows.ts";
  * class, the credential (B2) has a second, weaker sibling.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
 afterEach(async () => {
@@ -27,8 +26,8 @@ afterEach(async () => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-async function start(): Promise<{ server: RpcServer; orchDir: string; token: string }> {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-transport-"));
+async function start(): Promise<{ server: RpcServer; orchDir: OrchDir; token: string }> {
+  const orchDir = tempOrchDir("orch-transport-");
   dirs.push(orchDir);
   // A companion loopback port, which orch binds on its own only where a client
   // cannot dial the unix socket (Windows). Requesting it here is what makes the

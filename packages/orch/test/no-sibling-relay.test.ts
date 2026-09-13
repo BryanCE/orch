@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { resolvePeer } from "../src/agent/peers.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { tempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 /**
  * A slave with no reachable spawner relays through a sibling and burns its turn.
@@ -22,7 +21,7 @@ import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
  * not established the worker can deliver.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
 beforeEach(() => {
   isolateOrchEnv();
@@ -33,8 +32,8 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const d = mkdtempSync(join(tmpdir(), "orch-no-relay-"));
+function fixture(): OrchDir {
+  const d = tempOrchDir("orch-no-relay-");
   dirs.push(d);
   process.env.ORCH_DIR = d;
   return d;

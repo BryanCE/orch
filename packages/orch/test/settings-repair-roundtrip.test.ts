@@ -1,7 +1,8 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+
 import { join } from "node:path";
 import { settingsDefects } from "../src/settings/defects.ts";
 import { createRepairState, plannedRepairs, repairReducer } from "../src/settings/repair.ts";
@@ -9,14 +10,14 @@ import { applySettingsRepairs } from "../src/settings/write.ts";
 import { readSettingsFile } from "../src/settings/read.ts";
 import type { RepairChoice, RepairState } from "../src/types/settings.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
 afterEach(() => {
   for (const directory of directories.splice(0)) removeTempDir(directory);
 });
 
-function orchDirWith(settings: Record<string, unknown>): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-repair-"));
+function orchDirWith(settings: Record<string, unknown>): OrchDir {
+  const directory = tempOrchDir("orch-repair-");
   directories.push(directory);
   writeFileSync(join(directory, "settings.json"), JSON.stringify(settings, null, 2) + "\n");
   return directory;

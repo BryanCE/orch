@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { fileSettingsManager } from "../settings/manager.ts";
 import { settingsDefects } from "../settings/defects.ts";
 import { settingsPath } from "../settings/schema.ts";
@@ -38,7 +39,7 @@ async function isolated(id: string, label: string, check: () => Promise<CheckRes
   }
 }
 
-async function settingsDependent(orchDir: string, settings: OrchSettings | null, id: string, label: string, check: (settings: OrchSettings | null) => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
+async function settingsDependent(orchDir: OrchDir, settings: OrchSettings | null, id: string, label: string, check: (settings: OrchSettings | null) => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
   const defects = settingsDefects(settingsPath(orchDir));
   if (defects.length > 0) {
     return { id, label, status: "skip", detail: `settings.json has ${defects.length} unreadable key(s); fix: orch settings` };
@@ -47,7 +48,7 @@ async function settingsDependent(orchDir: string, settings: OrchSettings | null,
 }
 
 /** Validate every distinct live adapter/backend composition independently. */
-async function checkLiveFleetPairs(orchDir: string, settings: OrchSettings, logger: Logger): Promise<CheckResult[]> {
+async function checkLiveFleetPairs(orchDir: OrchDir, settings: OrchSettings, logger: Logger): Promise<CheckResult[]> {
   const pairs = new Set<string>();
   for (const entry of loadPresence(orchDir).values()) {
     if (!entry.alive) continue;
@@ -70,7 +71,7 @@ async function checkLiveFleetPairs(orchDir: string, settings: OrchSettings, logg
   }));
 }
 
-export async function runDoctor(orchDir: string, logger: Logger, sshRunnerOrOptions: SshRunner | DoctorOptions): Promise<CheckResult[]> {
+export async function runDoctor(orchDir: OrchDir, logger: Logger, sshRunnerOrOptions: SshRunner | DoctorOptions): Promise<CheckResult[]> {
   // `yes` is a command-level concern; accepting it here keeps programmatic doctor
   // runs explicit while preserving the runner's read-only diagnostic contract.
   const sshRunner = typeof sshRunnerOrOptions === "function"
@@ -166,7 +167,7 @@ export function applyFixes(results: CheckResult[]): { applied: string[] } {
  *  run it first — a freshly updated orch must never launch agents on the last
  *  version's bridge. `harnesses` is required and never widened to "every enabled
  *  adapter": reloading a pi agent has no business rewriting Claude's hooks. */
-export async function refreshStaleShims(orchDir: string, logger: Logger, harnesses: readonly string[], settings: OrchSettings | null): Promise<string[]> {
+export async function refreshStaleShims(orchDir: OrchDir, logger: Logger, harnesses: readonly string[], settings: OrchSettings | null): Promise<string[]> {
   const refreshed: string[] = [];
   const enabled = settings?.enabled.adapters ?? [];
   for (const id of enabled.filter((adapter) => harnesses.includes(adapter))) {

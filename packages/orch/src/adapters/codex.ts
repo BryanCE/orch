@@ -10,7 +10,7 @@ import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
-import type { Logger } from "../types/core.ts";
+import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 const CODEX_MODELS_CACHE = join(homedir(), ".codex", "models_cache.json");
@@ -35,7 +35,7 @@ function codexCachedModels(): { slug?: unknown; display_name?: unknown }[] {
  * this fallback covers `orch setup` and any codex session not launched
  * through orch's own argv. Never overwrites a foreign value (law #5).
  */
-function installCodexNotifyShim(orchDir: string, settings: OrchSettings, logger: Logger, root: string): void {
+function installCodexNotifyShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger, root: string): void {
   const shim = codexNotifyShimPath(root);
   // The DECLARED runtime, never the first one that happens to be on PATH — PATH order
   // is exactly how an install silently ends up running under something it never chose.
@@ -97,8 +97,8 @@ export class CodexAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = {
-    installShim: (orchDir: string, settings: OrchSettings, logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, settings, logger, opts),
-    diagnoseShim: (orchDir: string, settings: OrchSettings, logger: Logger): CheckResult => this.diagnoseShim(orchDir, settings, logger),
+    installShim: (orchDir: OrchDir, settings: OrchSettings, logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, settings, logger, opts),
+    diagnoseShim: (orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult => this.diagnoseShim(orchDir, settings, logger),
   };
   readonly defaultModel = null;
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
@@ -158,12 +158,12 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Repairing codex's notify wiring IS reinstalling it — installShim is idempotent. */
-  private reinstallFix(orchDir: string, settings: OrchSettings, logger: Logger): FixDescriptor {
+  private reinstallFix(orchDir: OrchDir, settings: OrchSettings, logger: Logger): FixDescriptor {
     return { description: "register orch's codex notify shim", apply: () => { this.installShim(orchDir, settings, logger); } };
   }
 
   /** Verify the top-level notify artifact written by installShim. */
-  diagnoseShim(orchDir: string, settings: OrchSettings, logger: Logger): CheckResult {
+  diagnoseShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult {
     const configPath = join(homedir(), ".codex", "config.toml");
     const shim = codexNotifyShimPath(packageRoot());
     if (!existsSync(shim)) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `${shim} is missing; run: bun run build:notify` };
@@ -180,7 +180,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Register the orch notify shim as codex's completion writer (D2/D2a). */
-  installShim(orchDir: string, settings: OrchSettings, logger: Logger, _opts?: ShimInstallOpts): void {
+  installShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger, _opts?: ShimInstallOpts): void {
     installCodexNotifyShim(orchDir, settings, logger, packageRoot());
   }
 }

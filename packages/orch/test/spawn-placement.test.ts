@@ -1,6 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openFleetHome, resolveSpawnPlacement, spawnBackend } from "../src/commands/spawn/placement.ts";
 import { homeHandle, openHome } from "../src/store/home-rows.ts";
@@ -8,11 +6,12 @@ import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, HomeSubject, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { createLogger } from "../src/log.ts";
 
+import type { OrchDir } from "../src/types/core.ts";
 /**
  * The spawn half.
  *
@@ -28,7 +27,7 @@ import { createLogger } from "../src/log.ts";
  * marked as orch's (E8).
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
 beforeEach(() => {
   isolateOrchEnv();
@@ -41,18 +40,18 @@ afterEach(() => {
   restoreOrchEnv();
 });
 
-function logger(directory: string) {
+function logger(directory: OrchDir) {
   return createLogger({ file: join(directory, "test.log"), level: "error" });
 }
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-placement-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-placement-");
   dirs.push(dir);
   orm(dir);
   return dir;
 }
 
-function seedOrch(dir: string, id: string): string {
+function seedOrch(dir: OrchDir, id: string): string {
   ensureHarness(dir, "pi", "pi", 1);
   insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
   return id;

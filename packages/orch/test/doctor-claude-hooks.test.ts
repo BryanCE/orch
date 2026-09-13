@@ -5,9 +5,10 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { claudeHookCommand, claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createLogger } from "../src/log.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 const directories: string[] = [];
 const settingsFile = path.join(os.homedir(), ".claude", "settings.json");
@@ -15,7 +16,7 @@ const originalSettings = fs.existsSync(settingsFile) ? fs.readFileSync(settingsF
 
 // diagnoseShim compares the enabled hook against the DECLARED runtime, so these tests need
 // an orch dir they control rather than whatever this machine happens to have configured.
-const orchHome = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-claude-hooks-orchdir-"));
+const orchHome: OrchDir = tempOrchDir("orch-doctor-claude-hooks-orchdir-");
 const originalOrchDir = process.env.ORCH_DIR;
 process.env.ORCH_DIR = orchHome;
 writeSettingsFixture(orchHome, { runtime: "node" });

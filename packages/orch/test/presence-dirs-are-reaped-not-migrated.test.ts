@@ -1,10 +1,11 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+
 import { join } from "node:path";
 import { loadPresence, reapDeadPresenceDirs } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
 /**
@@ -22,17 +23,17 @@ import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
  * those seven lasted.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-presence-reap-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-presence-reap-");
   dirs.push(dir);
   return dir;
 }
 
 /** Write a presence directory under whatever name is given. */
-function seedDir(root: string, name: string): string {
+function seedDir(root: OrchDir, name: string): string {
   const dir = join(root, "agents", name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key: name, agent: "pi", state: "working" }));
@@ -40,7 +41,7 @@ function seedDir(root: string, name: string): string {
 }
 
 /** A presence directory for an agent orch registered, whose recorded process is this runner. */
-function seedLiveDir(root: string, name: string): string {
+function seedLiveDir(root: OrchDir, name: string): string {
   seedAgent(name, {}, root);
   seedLiveProcess(root, name);
   return seedDir(root, name);

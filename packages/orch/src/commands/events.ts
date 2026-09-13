@@ -16,6 +16,7 @@ import type { NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry, OrchSettings } from "../types/settings.ts";
 import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
+import type { OrchDir } from "../types/core.ts";
 
 function looksLikePaneKey(key: string): boolean {
   return isAgentId(key);
@@ -45,7 +46,7 @@ export interface EventsContext {
  * stream to the space the agent was BORN in, so a moved or adopted agent kept
  * appearing in a space it had left and vanished from the one it occupies.
  */
-export function eventWithinSpaceWall(root: string, key: string, ceiling: string | null): boolean {
+export function eventWithinSpaceWall(root: OrchDir, key: string, ceiling: string | null): boolean {
   return withinSpaceCeiling(spaceOf(root, key), ceiling);
 }
 
@@ -153,7 +154,7 @@ export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCal
  * nothing owns nothing, so a watch armed before the first spawn is silence by
  * construction, and a monitor sat on it for three minutes saying nothing.
  */
-export function ownedAgentCount(scope: ResolvedCallerScope, root: string): number {
+export function ownedAgentCount(scope: ResolvedCallerScope, root: OrchDir): number {
   if (!scope.mine || scope.address === undefined) return 0;
   let owned = 0;
   for (const [agentId, record] of spawnedRecords(root)) {
@@ -232,7 +233,7 @@ export function parseEventsOptions(args: string[]): EventsOptions {
 }
 
 /** The presence keys a `--agent` narrowed stream accepts; every live scoped key when unnarrowed. */
-function eventsItems(options: EventsOptions, root: string, settings: OrchSettings): Set<string> {
+function eventsItems(options: EventsOptions, root: OrchDir, settings: OrchSettings): Set<string> {
   const items = new Set<string>();
   if (!options.targets.length) {
     const presences = scopeToSpace(
@@ -280,7 +281,7 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
   return `${title}  ${event.oldState}->${event.newState}${askingCount}`;
 }
 
-function eventWriter(options: EventsOptions, root: string): (event: NotifyEvent, streamSeq: number) => boolean {
+function eventWriter(options: EventsOptions, root: OrchDir): (event: NotifyEvent, streamSeq: number) => boolean {
   return (event, streamSeq): boolean => {
     if (options.filter?.has(event.newState)) return false;
     const space = event.space ?? spaceOf(root, event.key);
@@ -290,7 +291,7 @@ function eventWriter(options: EventsOptions, root: string): (event: NotifyEvent,
 }
 
 /** The durable question row rendered as the same asking event shape as a live transition. */
-function pendingQuestionEvent(question: PendingQuestionView, root: string): NotifyEvent {
+function pendingQuestionEvent(question: PendingQuestionView, root: OrchDir): NotifyEvent {
   return {
     key: question.agentId,
     space: spaceOf(root, question.agentId) ?? undefined,

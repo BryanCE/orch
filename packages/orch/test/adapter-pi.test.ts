@@ -1,12 +1,12 @@
+import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
-const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-pi-"));
+const orchDir: OrchDir = tempOrchDir("orch-adapter-pi-");
 
 const { PiAdapter, parsePiModelsOutput } = await import("../src/adapters/pi.ts");
 const { presenceDir } = await import("../src/presence/store.ts");

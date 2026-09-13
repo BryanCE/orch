@@ -1,17 +1,15 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { addTask } from "../src/queue.ts";
 import { checkUnscopedTasks, checkUnrunnableTasks } from "../src/doctor/presence.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
-const directories: string[] = [];
-function fixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-task-scope-doctor-")); directories.push(dir);
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-task-scope-doctor-"); directories.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('a','a','pi','/tmp','a',1)`);

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, gt, type SQL } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
@@ -56,7 +57,7 @@ function mintRequestId(): string {
   return id;
 }
 
-function paramsOf(orchDir: string, requestId: string): Record<string, string> {
+function paramsOf(orchDir: OrchDir, requestId: string): Record<string, string> {
   const rows = orm(orchDir)
     .select({ name: grantRequestParams.name, value: grantRequestParams.value })
     .from(grantRequestParams)
@@ -68,7 +69,7 @@ function paramsOf(orchDir: string, requestId: string): Record<string, string> {
 
 /** A stored row read back as a request. An unknown kind has no sentence to
  *  render and is not a request any human could answer, so it reads as absent. */
-function hydrate(orchDir: string, row: typeof grantRequests.$inferSelect): GrantRequest | null {
+function hydrate(orchDir: OrchDir, row: typeof grantRequests.$inferSelect): GrantRequest | null {
   if (!isGrantKind(row.kind)) return null;
   return {
     id: row.id,
@@ -81,7 +82,7 @@ function hydrate(orchDir: string, row: typeof grantRequests.$inferSelect): Grant
 }
 
 /** Record a refused action and mint the id a human quotes back to approve it. */
-export function recordGrantRequest(orchDir: string, action: GrantAction, requestedBy: string | null): GrantRequest {
+export function recordGrantRequest(orchDir: OrchDir, action: GrantAction, requestedBy: string | null): GrantRequest {
   const id = mintRequestId();
   const hash = actionHash(action);
   const requestedAt = Date.now();
@@ -97,7 +98,7 @@ export function recordGrantRequest(orchDir: string, action: GrantAction, request
 /** Requests in the `pending` state, narrowed by one further condition when the
  *  caller wants a single one. The state comes from the derived view, so what
  *  counts as pending is decided in exactly one place. */
-function pendingRows(orchDir: string, only?: SQL) {
+function pendingRows(orchDir: OrchDir, only?: SQL) {
   const pending = eq(grantStates.state, "pending");
   return orm(orchDir)
     .select({ request: grantRequests })
@@ -107,26 +108,26 @@ function pendingRows(orchDir: string, only?: SQL) {
 }
 
 /** Every request still awaiting an answer, newest first. */
-export function pendingGrantRequests(orchDir: string): GrantRequest[] {
+export function pendingGrantRequests(orchDir: OrchDir): GrantRequest[] {
   const rows = pendingRows(orchDir).orderBy(desc(grantRequests.requestedAt)).all();
   return rows.map((row) => hydrate(orchDir, row.request)).filter((request): request is GrantRequest => request !== null);
 }
 
-export function pendingGrantRequest(orchDir: string, id: string): GrantRequest | null {
+export function pendingGrantRequest(orchDir: OrchDir, id: string): GrantRequest | null {
   const row = pendingRows(orchDir, eq(grantRequests.id, id)).get();
   return row ? hydrate(orchDir, row.request) : null;
 }
 
 /** Approve one exact action. `hostId` records where the human answered, which is
  *  the machine that must have had a terminal for the approval to exist at all. */
-export function approveGrantRequest(orchDir: string, requestId: string, hostId: string): number {
+export function approveGrantRequest(orchDir: OrchDir, requestId: string, hostId: string): number {
   const approvedAt = Date.now();
   const expiresAt = approvedAt + GRANT_TTL_MS;
   orm(orchDir).insert(grantApprovals).values({ requestId, approvedAt, expiresAt, hostId }).run();
   return expiresAt;
 }
 
-export function denyGrantRequest(orchDir: string, requestId: string): void {
+export function denyGrantRequest(orchDir: OrchDir, requestId: string): void {
   orm(orchDir).insert(grantDenials).values({ requestId, deniedAt: Date.now() }).run();
 }
 
@@ -136,7 +137,7 @@ export function denyGrantRequest(orchDir: string, requestId: string): void {
  * another, and the insert into `grant_spends` is what makes it single-use: its
  * primary key rejects a second spend rather than trusting a caller to check.
  */
-export function spendGrant(orchDir: string, action: GrantAction, spentBy: string | null): boolean {
+export function spendGrant(orchDir: OrchDir, action: GrantAction, spentBy: string | null): boolean {
   return withTransaction(orchDir, () => {
     const db = orm(orchDir);
     const approved = db

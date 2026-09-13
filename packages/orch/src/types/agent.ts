@@ -4,7 +4,7 @@ import type { createAgentPresence } from "../agent/presence.ts";
 import type { AgentNotice, BridgeDelivery } from "../control/bridge-message.ts";
 import type { subscribeEvents } from "../daemon/rpc/client.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
-import type { JsonRecord } from "./core.ts";
+import type { JsonRecord, OrchDir } from "./core.ts";
 
 /**
  * The harness surface orch's in-agent control plane runs against.
@@ -280,7 +280,7 @@ export interface DriveState {
 }
 
 export interface DriveStateOptions {
-  directory?: string;
+  directory?: OrchDir;
   /** Raw agents.id for the caller, supplied by the current session identity. */
   currentOrchId?: string | null;
 }

@@ -3,6 +3,12 @@
 import type { EXTENSION_SOURCE_DIR } from "../bridge-bundles/metadata.ts";
 
 import type { PresenceEntry } from "./presence.ts";
+
+/** `$ORCH_DIR`: the directory holding settings.json, orch.db, agents/ and the orchd runtime
+ *  files. Branded so a settings file, a project root, a cwd or any other string cannot be
+ *  handed to code that expects the orch dir. Minted only by `orchDirAt` in src/services.ts. */
+export type OrchDir = string & { readonly __brand: "OrchDir" };
+
 /** Ordered lowest severity last: an index into this array IS the verbosity. */
 export const LOG_LEVELS = ["error", "warn", "info", "debug", "trace"] as const;
 
@@ -197,7 +203,7 @@ export interface SshResult {
 /** Filesystem scope a shim invocation is granted. Paths must be absolute. */
 export interface ShimScope {
   /** The resolved $ORCH_DIR — read AND written (presence records live here). */
-  orchDir: string;
+  orchDir: OrchDir;
   /** Additional read-only roots, e.g. the directory holding claude transcripts. */
   readOnly?: readonly string[];
 }

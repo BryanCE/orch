@@ -5,12 +5,19 @@ import { join } from "node:path";
 import { checkSkillLinks } from "../src/doctor/skills.ts";
 import { installSkills } from "../src/setup/skills.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 const temps: string[] = [];
 
 function tempDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
+  temps.push(dir);
+  return dir;
+}
+
+function makeOrchDir(prefix: string): OrchDir {
+  const dir = tempOrchDir(prefix);
   temps.push(dir);
   return dir;
 }
@@ -62,7 +69,7 @@ describe("skill store and harness links", () => {
     const pkgRoot = packagedSkill("orch", "current\n");
     const store = tempDir("orch-skill-store-");
     const harness = tempDir("orch-skill-harness-");
-    const orchDir = tempDir("orch-skill-dir-");
+    const orchDir = makeOrchDir("orch-skill-dir-");
     writeSettingsFixture(orchDir, { skills: { install: true, store, link: [harness] } });
     installSkills({ store, link: [] }, pkgRoot);
     mkdirSync(join(harness, "orch"), { recursive: true });
@@ -78,7 +85,7 @@ describe("skill store and harness links", () => {
     const pkgRoot = packagedSkill("orch", "current\n");
     const store = tempDir("orch-skill-store-");
     const harness = tempDir("orch-skill-harness-");
-    const orchDir = tempDir("orch-skill-dir-");
+    const orchDir = makeOrchDir("orch-skill-dir-");
     writeSettingsFixture(orchDir, { skills: { install: true, store, link: [harness] } });
     installSkills({ store, link: [harness] }, pkgRoot);
 
@@ -86,7 +93,7 @@ describe("skill store and harness links", () => {
   });
 
   test("doctor skips when the user turned the skill install off", () => {
-    const orchDir = tempDir("orch-skill-dir-");
+    const orchDir = makeOrchDir("orch-skill-dir-");
     writeSettingsFixture(orchDir, { skills: { install: false } });
 
     expect(checkSkillLinks(fileSettingsManager(orchDir).current()).status).toBe("skip");

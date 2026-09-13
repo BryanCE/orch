@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { ormForRead } from "./connection.ts";
 import type { AgentEnvironment, AgentHolder, AgentTuning, AgentView, EnvironmentAxisKey } from "../types/store.ts";
@@ -40,35 +41,35 @@ type ComposingEnvironment = Partial<Record<EnvironmentAxisKey, string | null>>;
  */
 interface EnvironmentAxis {
   readonly key: string;
-  readonly read: (orchDir: string, agentId: string) => string | null;
+  readonly read: (orchDir: OrchDir, agentId: string) => string | null;
 }
 
 /** The open row of an interval satellite is the one with no `until`. */
-function currentHandle(orchDir: string, agentId: string): string | null {
+function currentHandle(orchDir: OrchDir, agentId: string): string | null {
   const row = ormForRead(orchDir)?.select({ handle: agentHandles.handle }).from(agentHandles)
     .where(and(eq(agentHandles.agentId, agentId), isNull(agentHandles.until))).get();
   return row?.handle ?? null;
 }
 
-function currentSpace(orchDir: string, agentId: string): string | null {
+function currentSpace(orchDir: OrchDir, agentId: string): string | null {
   const row = ormForRead(orchDir)?.select({ spaceId: agentSpaces.spaceId }).from(agentSpaces)
     .where(and(eq(agentSpaces.agentId, agentId), isNull(agentSpaces.until))).get();
   return row?.spaceId ?? null;
 }
 
-function currentPlexer(orchDir: string, agentId: string): string | null {
+function currentPlexer(orchDir: OrchDir, agentId: string): string | null {
   const row = ormForRead(orchDir)?.select({ plexerId: agentPlexers.plexerId }).from(agentPlexers)
     .where(eq(agentPlexers.agentId, agentId)).get();
   return row?.plexerId ?? null;
 }
 
-function worktreePath(orchDir: string, agentId: string): string | null {
+function worktreePath(orchDir: OrchDir, agentId: string): string | null {
   const row = ormForRead(orchDir)?.select({ path: agentWorktrees.path }).from(agentWorktrees)
     .where(eq(agentWorktrees.agentId, agentId)).get();
   return row?.path ?? null;
 }
 
-function worktreeBranch(orchDir: string, agentId: string): string | null {
+function worktreeBranch(orchDir: OrchDir, agentId: string): string | null {
   const row = ormForRead(orchDir)?.select({ branch: agentWorktrees.branch }).from(agentWorktrees)
     .where(eq(agentWorktrees.agentId, agentId)).get();
   return row?.branch ?? null;
@@ -92,40 +93,40 @@ function isComplete(composed: ComposingEnvironment): composed is AgentEnvironmen
   return ENVIRONMENT_AXES.every((axis) => axis.key in composed);
 }
 
-export function environmentOf(orchDir: string, agentId: string): AgentEnvironment {
+export function environmentOf(orchDir: OrchDir, agentId: string): AgentEnvironment {
   const composed: ComposingEnvironment = {};
   for (const axis of ENVIRONMENT_AXES) composed[axis.key] = axis.read(orchDir, agentId);
   if (!isComplete(composed)) throw new Error("orch: an environment axis produced no value");
   return composed;
 }
 
-export function tuningOf(orchDir: string, agentId: string): AgentTuning {
+export function tuningOf(orchDir: OrchDir, agentId: string): AgentTuning {
   const row = ormForRead(orchDir)?.select({ model: agentTunings.model, thinking: agentTunings.thinking })
     .from(agentTunings).where(and(eq(agentTunings.agentId, agentId), isNull(agentTunings.until))).get();
   return { model: row?.model ?? null, thinking: row?.thinking ?? null };
 }
 
 /** The live lease, if one is open. A closed lease is history, not ownership. */
-export function holderOf(orchDir: string, agentId: string): AgentHolder | null {
+export function holderOf(orchDir: OrchDir, agentId: string): AgentHolder | null {
   const row = ormForRead(orchDir)?.select({ orchId: agentLeases.orchId, since: agentLeases.since })
     .from(agentLeases).where(and(eq(agentLeases.agentId, agentId), isNull(agentLeases.until))).get();
   return row ? { orchId: row.orchId, since: row.since } : null;
 }
 
 /** The spawner's name today, not the name it had when it spawned this agent. */
-function nameOf(orchDir: string, agentId: string | null): string | null {
+function nameOf(orchDir: OrchDir, agentId: string | null): string | null {
   if (agentId === null) return null;
   const row = ormForRead(orchDir)?.select({ name: agents.name }).from(agents).where(eq(agents.id, agentId)).get();
   return row?.name ?? null;
 }
 
-function endedAt(orchDir: string, agentId: string): number | null {
+function endedAt(orchDir: OrchDir, agentId: string): number | null {
   const row = ormForRead(orchDir)?.select({ endedAt: agentEndings.endedAt }).from(agentEndings)
     .where(eq(agentEndings.agentId, agentId)).get();
   return row?.endedAt ?? null;
 }
 
-export function agentView(orchDir: string, agentId: string): AgentView | null {
+export function agentView(orchDir: OrchDir, agentId: string): AgentView | null {
   const hub = ormForRead(orchDir)?.select().from(agents).where(eq(agents.id, agentId)).get();
   if (!hub) return null;
   return {
@@ -146,7 +147,7 @@ export function agentView(orchDir: string, agentId: string): AgentView | null {
 }
 
 /** Every agent, oldest first — the ordering the old `spawned` scan produced. */
-export function agentViews(orchDir: string): AgentView[] {
+export function agentViews(orchDir: OrchDir): AgentView[] {
   const ids = ormForRead(orchDir)?.select({ id: agents.id }).from(agents).orderBy(asc(agents.createdAt), asc(agents.id)).all() ?? [];
   const views: AgentView[] = [];
   for (const { id } of ids) {
@@ -158,6 +159,6 @@ export function agentViews(orchDir: string): AgentView[] {
 
 /** Agents that have not ended. Liveness of the PROCESS is a separate question
  *  answered by presence; this is the store's own record of what was closed. */
-export function liveAgentViews(orchDir: string): AgentView[] {
+export function liveAgentViews(orchDir: OrchDir): AgentView[] {
   return agentViews(orchDir).filter((view) => view.endedAt === null);
 }

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../../types/core.ts";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -14,7 +15,7 @@ import { agentEndings, agentLeases, agentProcesses, agents } from "../../db/sche
 import { RpcError } from "./wire.ts";
 
 export function announceUnleasedAgents(
-  orchDir: string,
+  orchDir: OrchDir,
   identity: RegisterSessionResponse,
   write: (text: string) => void = (text) => { process.stdout.write(text); },
 ): void {
@@ -23,11 +24,11 @@ export function announceUnleasedAgents(
   write(`${identity.unleased.length} unleased agent(s) exist - orch adopt ${identity.unleased[0]!.name} to take one, orch status to see them.\n`);
 }
 
-function announcementMarker(orchDir: string, sessionId: string): string {
+function announcementMarker(orchDir: OrchDir, sessionId: string): string {
   return join(orchDir, "announced", `${sessionId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
 }
 
-function claimUnleasedAnnouncement(orchDir: string, sessionId: string): boolean {
+function claimUnleasedAnnouncement(orchDir: OrchDir, sessionId: string): boolean {
   const marker = announcementMarker(orchDir, sessionId);
   try {
     if (existsSync(marker)) return false;
@@ -48,7 +49,7 @@ function claimedHostOs(claim: Readonly<Record<string, unknown>>): HostOs {
   return claim.hostOs;
 }
 
-export function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {
+export function unleasedAgents(orchDir: OrchDir, excludeId: string): UnleasedAgent[] {
   const held = orm(orchDir).select({ agentId: agentLeases.agentId }).from(agentLeases)
     .where(isNull(agentLeases.until)).all().map((row) => row.agentId);
   return orm(orchDir).select({ id: agents.id, name: agents.name }).from(agents)
@@ -88,7 +89,7 @@ function plexerRegistrationWarning(plexerId: string | null, plexerVersion: strin
   return `plexer ${plexerId} ${plexerVersion} is older than orch's supported ${range}; update ${plexerId}`;
 }
 
-function sessionAlreadyRegistered(orchDir: string, pid: number, startToken: string): boolean {
+function sessionAlreadyRegistered(orchDir: OrchDir, pid: number, startToken: string): boolean {
   return orm(orchDir).select({ id: agents.id }).from(agents)
     .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
@@ -104,7 +105,7 @@ function callerFacts(params: unknown, daemonToken: string): CallerFacts {
   return { claim, pid, startToken, harness, cwd, environment: claimedEnvironment(claim), hostOs: claimedHostOs(claim) };
 }
 
-export function registerSession(orchDir: string, params: unknown, daemonToken: string): RegisterSessionResponse {
+export function registerSession(orchDir: OrchDir, params: unknown, daemonToken: string): RegisterSessionResponse {
   const facts = callerFacts(params, daemonToken);
   const alreadyRegistered = sessionAlreadyRegistered(orchDir, facts.pid, facts.startToken);
   const identity = getOrCreateSessionAgent(orchDir, {
@@ -118,7 +119,7 @@ export function registerSession(orchDir: string, params: unknown, daemonToken: s
   return { ...identity, ...(registrationWarning ? { registrationWarning } : {}), unleased: alreadyRegistered ? [] : unleasedAgents(orchDir, identity.id) };
 }
 
-export function claimIdentity(orchDir: string, params: unknown, daemonToken: string): ClaimIdentityResponse {
+export function claimIdentity(orchDir: OrchDir, params: unknown, daemonToken: string): ClaimIdentityResponse {
   const facts = callerFacts(params, daemonToken);
   const id = typeof facts.claim.id === "string" ? facts.claim.id : "";
   if (!id) throw new RpcError("IDENTITY_REQUIRED", "claim-identity requires an agent id");

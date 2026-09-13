@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { deliverControl } from "../control/dispatch.ts";
@@ -28,6 +29,7 @@ import { decisionLogger } from "./decision-log.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { WorkOptions } from "../types/daemon.ts";
+import { orchDirAt } from "../services.ts";
 export type { WorkOptions };
 
 function agentIdle(entry: PresenceEntry): boolean {
@@ -44,7 +46,7 @@ interface Runner {
 /** The agent behind an idle process, or null when orch has no live row for it.
  *  A process with no row belongs to no pack, so no scope reaches it and no
  *  queued task may go to it. */
-function runnerOf(orchDir: string, entry: PresenceEntry): Runner | null {
+function runnerOf(orchDir: OrchDir, entry: PresenceEntry): Runner | null {
   const agentId = isAgentId(entry.key) ? entry.key : undefined;
   if (agentId === undefined) return null;
   const agent = agentById(orchDir, agentId);
@@ -53,7 +55,7 @@ function runnerOf(orchDir: string, entry: PresenceEntry): Runner | null {
 }
 
 /** Every live process orch has a row for, addressable by the id its attempts carry. */
-function runnersByAgent(orchDir: string, presence: Map<string, PresenceEntry>): Map<string, Runner> {
+function runnersByAgent(orchDir: OrchDir, presence: Map<string, PresenceEntry>): Map<string, Runner> {
   const runners = new Map<string, Runner>();
   for (const entry of presence.values()) {
     const runner = runnerOf(orchDir, entry);
@@ -88,28 +90,29 @@ async function waitForWorking(entry: PresenceEntry, task: TaskRec, timeoutMs: nu
 }
 
 async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec): Promise<void> {
+  const orchDir = orchDirAt(options.orchDir);
   // The key is the identity; everything else about the agent is COMPOSED from
   // the tables that own each fact, never decoded out of the address.
   const runnerId = currentAttempt(task)?.agentId ?? (isAgentId(entry.key) ? entry.key : undefined);
-  const view = runnerId === undefined ? null : agentView(options.orchDir, runnerId);
+  const view = runnerId === undefined ? null : agentView(orchDir, runnerId);
   const adapterId = view?.harnessId ?? entry.status?.agent;
   const rules = workerRules(options.settings.current());
   // The daemon is not this agent's spawner; provenance names it. Only a spawner
   // still writing live presence can receive the reply the clause instructs, and
   // a presence key is that spawner's minted id.
   const spawnerKey = view?.spawnedBy ?? entry.status?.spawnedBy;
-  const spawnerRepliable = typeof spawnerKey === "string" && agentProcessLive(options.orchDir, spawnerKey);
+  const spawnerRepliable = typeof spawnerKey === "string" && agentProcessLive(orchDir, spawnerKey);
   const header = workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...rules });
   const prompt = `${header}\n\n${task.text}`;
   // The claim's dispatch id rides every attempt: the bridge acks per id, so a
   // retry of the same id can never deliver the prompt twice, and the agent's
   // status/result echo the id the settle path verifies against.
   const dispatchId = currentAttempt(task)?.dispatchId ?? randomUUID();
-  const correlated = decisionLogger(options.orchDir, options.settings.current()).forCorrelation(dispatchId);
+  const correlated = decisionLogger(orchDir, options.settings.current()).forCorrelation(dispatchId);
   const log = runnerId === undefined ? correlated : correlated.forAgent(runnerId);
   const sendPrompt = async (): Promise<void> => {
     log.info("dispatch.delivering", { target: entry.key, handle: entry.key });
-    const outcome = await deliverControl(options.orchDir, options.settings.current(), entry.key, { kind: "run", text: prompt, id: dispatchId });
+    const outcome = await deliverControl(orchDir, options.settings.current(), entry.key, { kind: "run", text: prompt, id: dispatchId });
     if (outcome.outcome === "answer") {
       log.debug("boundary.answer", { target: entry.key, reason: outcome.reason });
     }
@@ -159,7 +162,7 @@ function taskEvent(entry: PresenceEntry, task: TaskRec, oldState: string, newSta
   };
 }
 
-function settleClaimedTasks(orchDir: string, settings: ReturnType<WorkOptions["settings"]["current"]>, emit: (event: NotifyEvent) => void): void {
+function settleClaimedTasks(orchDir: OrchDir, settings: ReturnType<WorkOptions["settings"]["current"]>, emit: (event: NotifyEvent) => void): void {
   const runners = runnersByAgent(orchDir, loadPresence(orchDir));
   for (const task of listTasks(orchDir)) {
     if (task.state !== "claimed") continue;
@@ -218,7 +221,7 @@ export function reaskQuestions(options: ReaskQuestionsOptions): void {
   }
 }
 
-function reaskEvent(orchDir: string, question: QuestionRow, nowMs: number, askCount: number, gaveUp: boolean): NotifyEvent {
+function reaskEvent(orchDir: OrchDir, question: QuestionRow, nowMs: number, askCount: number, gaveUp: boolean): NotifyEvent {
   const status = readPresenceStatus(join(presenceAgentDir(question.agentId, orchDir), STATUS_FILE));
   const event = composeAgentEvent(
     orchDir,
@@ -231,7 +234,7 @@ function reaskEvent(orchDir: string, question: QuestionRow, nowMs: number, askCo
   return { ...event, task: `Q: ${question.question}`, askCount, ...(gaveUp ? { gaveUp: true } : {}) };
 }
 
-function settleError(orchDir: string, settings: ReturnType<WorkOptions["settings"]["current"]>, task: TaskRec, error: string, entry: PresenceEntry, emit: (event: NotifyEvent) => void): void {
+function settleError(orchDir: OrchDir, settings: ReturnType<WorkOptions["settings"]["current"]>, task: TaskRec, error: string, entry: PresenceEntry, emit: (event: NotifyEvent) => void): void {
   // A failed attempt remains derived as failed until the next attempt INSERT.
   // Selection policy below enforces max_retries + 1 total attempts.
   const settled = recordTaskFailure(orchDir, task.id, error);
@@ -242,25 +245,26 @@ function settleError(orchDir: string, settings: ReturnType<WorkOptions["settings
 }
 
 async function assignTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec, emit: (event: NotifyEvent) => void): Promise<void> {
+  const orchDir = orchDirAt(options.orchDir);
   try {
     await (options.dispatch ?? ((entry, task) => dispatchTask(options, entry, task)))(entry, task);
     const dispatchAckTimeoutMs = options.settings.current().timeouts.dispatch_ack_ms;
     const state = await waitForTaskState(entry, task, dispatchAckTimeoutMs);
-    const current = requireTask(options.orchDir, task.id);
+    const current = requireTask(orchDir, task.id);
     if (state === "timeout") {
-      const failed = recordTaskFailure(options.orchDir, task.id, "agent did not acknowledge working");
+      const failed = recordTaskFailure(orchDir, task.id, "agent did not acknowledge working");
       emit(taskEvent(entry, failed, current.state, failed.state, "agent did not acknowledge working"));
       return;
     }
-    if (state === "error") return settleError(options.orchDir, options.settings.current(), current, "agent reported error", entry, emit);
+    if (state === "error") return settleError(orchDir, options.settings.current(), current, "agent reported error", entry, emit);
     if (state === "done") {
-      const done = recordTaskDone(options.orchDir, task.id, loadPresence(options.orchDir).get(entry.key)?.result);
-      deliverTaskResult(options.orchDir, options.settings.current(), task.id);
+      const done = recordTaskDone(orchDir, task.id, loadPresence(orchDir).get(entry.key)?.result);
+      deliverTaskResult(orchDir, options.settings.current(), task.id);
       emit(taskEvent(entry, done, current.state, done.state));
     }
   } catch (error) {
-    const current = requireTask(options.orchDir, task.id);
-    settleError(options.orchDir, options.settings.current(), current, String(error), entry, emit);
+    const current = requireTask(orchDir, task.id);
+    settleError(orchDir, options.settings.current(), current, String(error), entry, emit);
   }
 }
 
@@ -268,8 +272,9 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
  *  It emits TASK events only — presence transitions belong to `startPresenceWatch`, and
  *  deriving them here too is what published every agent transition twice. */
 export async function runWorkLoop(options: WorkOptions): Promise<void> {
+  const orchDir = orchDirAt(options.orchDir);
   const emit = options.onEvent ?? ((event: NotifyEvent): void => {
-    emitAndNotify(() => { /* noop */ }, options.settings.current().notify, event, options.orchDir, options.settings);
+    emitAndNotify(() => { /* noop */ }, options.settings.current().notify, event, orchDir, options.settings);
   });
   const questionState = new Map<string, QuestionReaskState>();
   let lastSweepAt = Number.NEGATIVE_INFINITY;
@@ -280,43 +285,43 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
       const sweepIntervalMs = settings.retention.sweep_interval_ms;
       if (sweepIntervalMs !== undefined && nowMs - lastSweepAt >= sweepIntervalMs) {
         lastSweepAt = nowMs;
-        const counts = sweepExpiredRows(options.orchDir, settings, new Date(nowMs));
+        const counts = sweepExpiredRows(orchDir, settings, new Date(nowMs));
         if (Object.values(counts).some((count) => count > 0)) {
-          decisionLogger(options.orchDir, settings).info("retention.swept", { ...counts });
+          decisionLogger(orchDir, settings).info("retention.swept", { ...counts });
         }
       }
       const questionSettings = settings.questions;
       if (questionSettings !== undefined) reaskQuestions({
-        questions: pendingQuestions(options.orchDir),
+        questions: pendingQuestions(orchDir),
         nowMs,
         intervalMs: questionSettings.renag_ms,
         limit: questionSettings.renag_limit,
         state: questionState,
-        emit: (question, askCount, gaveUp) => emit(reaskEvent(options.orchDir, question, nowMs, askCount, gaveUp)),
+        emit: (question, askCount, gaveUp) => emit(reaskEvent(orchDir, question, nowMs, askCount, gaveUp)),
       });
     }
     const maxRetries = settings?.queue.max_retries ?? options.maxRetries ?? 1;
-    const presence = loadPresence(options.orchDir);
-    settleClaimedTasks(options.orchDir, settings, emit);
+    const presence = loadPresence(orchDir);
+    settleClaimedTasks(orchDir, settings, emit);
     let assigned = 0;
-    const tasks = listTasks(options.orchDir);
+    const tasks = listTasks(orchDir);
     const idle = [...presence.values()].filter(agentIdle)
-      .map((entry) => runnerOf(options.orchDir, entry))
+      .map((entry) => runnerOf(orchDir, entry))
       .filter((runner): runner is Runner => runner !== null);
     for (const { entry, agentId } of idle) {
       // The facade resolves agent/pack/space eligibility from the registered
       // agent id and open pack intake. A foreign pack never sees this task.
-      const task = nextQueuedTask(options.orchDir, agentId, maxRetries, tasks);
+      const task = nextQueuedTask(orchDir, agentId, maxRetries, tasks);
       const dispatchId = randomUUID();
-      if (!task || !claimTask(options.orchDir, task.id, agentId, dispatchId)) continue;
+      if (!task || !claimTask(orchDir, task.id, agentId, dispatchId)) continue;
       assigned++;
-      const claimed = requireTask(options.orchDir, task.id);
+      const claimed = requireTask(orchDir, task.id);
       emit(taskEvent(entry, claimed, task.state, claimed.state));
       await assignTask(options, entry, claimed, emit);
       if (options.once || options.signal?.aborted) break;
     }
     if (options.once) {
-      settleClaimedTasks(options.orchDir, settings, emit);
+      settleClaimedTasks(orchDir, settings, emit);
       return;
     }
     const claimed = tasks.some((task) => task.state === "claimed");

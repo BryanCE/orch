@@ -7,7 +7,7 @@ import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
-import type { ExtensionName, Logger } from "../types/core.ts";
+import type { ExtensionName, Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 // orch's omp (oh-my-pi) integration. omp is its OWN harness: its own binary, its
@@ -37,7 +37,7 @@ function modelRow(entry: unknown): HarnessModel[] {
  *  the only supported reader. */
 const OMP_MODELS_ARGV = ["models", "--json"] as const;
 
-function queryOmpModels(orchDir: string): readonly HarnessModel[] {
+function queryOmpModels(orchDir: OrchDir): readonly HarnessModel[] {
   return parseOmpModelsOutput(readModelCatalogue(orchDir, adapterLogger(orchDir), "omp", OMP_MODELS_ARGV));
 }
 
@@ -87,14 +87,14 @@ class OmpAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = {
-    installShim: (orchDir: string, _settings: OrchSettings, _logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
-    diagnoseShim: (orchDir: string, _settings: OrchSettings, _logger: Logger): CheckResult => this.diagnoseShim(orchDir),
+    installShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
+    diagnoseShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger): CheckResult => this.diagnoseShim(orchDir),
   };
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = { warmModels: (): Promise<void> => this.warmModels() };
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
-  readonly presenceRegistration = { isRegistered: (key: string, orchDir: string): boolean => presenceFor(key, orchDir) !== undefined };
+  readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceFor(key, orchDir) !== undefined };
 
   /** Start omp directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {
@@ -122,7 +122,7 @@ class OmpAdapter implements AgentAdapter {
   }
 
   /** Read omp's authoritative status.json through the shared presence helpers. */
-  detectState(input: PiStateDetectionInput, orchDir: string): AgentState {
+  detectState(input: PiStateDetectionInput, orchDir: OrchDir): AgentState {
     return presenceAgentState(input.key, orchDir);
   }
 
@@ -142,7 +142,7 @@ class OmpAdapter implements AgentAdapter {
   }
 
   /** Read results.jsonl first, then fall back to the last assistant session entry. */
-  extractResult(input: PiResultExtractionInput, orchDir: string): string | undefined {
+  extractResult(input: PiResultExtractionInput, orchDir: OrchDir): string | undefined {
     return resultFromPresenceOrSession(input, orchDir);
   }
 
@@ -152,7 +152,7 @@ class OmpAdapter implements AgentAdapter {
   }
 
   /** Verify the extension link and bundle written by installShim. */
-  diagnoseShim(_orchDir: string): CheckResult {
+  diagnoseShim(_orchDir: OrchDir): CheckResult {
     return diagnoseExtensionLink(this.id, OMP_EXTENSION_DIR, OMP_EXTENSION);
   }
 
@@ -162,17 +162,17 @@ class OmpAdapter implements AgentAdapter {
   }
 
   /** Report what omp says it can run, asked of omp itself. */
-  listModels(orchDir?: string): readonly HarnessModel[] {
+  listModels(orchDir?: OrchDir): readonly HarnessModel[] {
     return orchDir === undefined ? [] : queryOmpModels(orchDir);
   }
 
   /** omp's registry is a shell-out; start it early so setup's next prompt covers the wait. */
-  warmModels(orchDir?: string): Promise<void> {
+  warmModels(orchDir?: OrchDir): Promise<void> {
     return orchDir === undefined ? Promise.resolve() : warmModelCatalogue("omp", OMP_MODELS_ARGV, orchDir);
   }
 
   /** Link the prebuilt omp-bridge bundle into omp's extension directory. */
-  installShim(_orchDir: string, opts?: ShimInstallOpts): void {
+  installShim(_orchDir: OrchDir, opts?: ShimInstallOpts): void {
     installExtensionLink(this.id, OMP_EXTENSION_DIR, OMP_EXTENSION, opts);
   }
 }

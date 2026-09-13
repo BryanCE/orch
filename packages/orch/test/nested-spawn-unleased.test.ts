@@ -1,12 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease, expireLease, leasesByOrch } from "../src/store/lease-rows.ts";
 import { agentView, liveAgentViews } from "../src/store/agent-view.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 
 /**
@@ -19,11 +17,11 @@ import { sql } from "drizzle-orm";
  * correct resting state — a live orch adopts deliberately (D2/D3).
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const d = mkdtempSync(join(tmpdir(), "orch-nested-spawn-"));
+function fixture(): OrchDir {
+  const d = tempOrchDir("orch-nested-spawn-");
   dirs.push(d);
   orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   insertAgent(d, { id: "grandparent", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "grandparent", createdAt: 1 });

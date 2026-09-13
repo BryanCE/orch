@@ -23,6 +23,7 @@ import { runSettingsEditor } from "../settings/shell.ts";
 import type { NotifierChoice } from "../types/notify.ts";
 import type { NotifyEntry, NotifyState, OrchSettings, SettingKind } from "../types/settings.ts";
 import type { Services } from "../types/services.ts";
+import type { OrchDir } from "../types/core.ts";
 
 /** The effective settings, or a plain-language exit. A load error (invalid settings, a
  *  legacy config.toml) must never reach the user as a stack trace or a partial table. */
@@ -35,7 +36,7 @@ function currentSettings(services: Pick<Services, "settings">): OrchSettings {
 }
 
 /** Read a raw nested setting so normalized defaults do not claim settings.json provenance. */
-function rawSetting(orchDirPath: string, ...keys: string[]): unknown {
+function rawSetting(orchDirPath: OrchDir, ...keys: string[]): unknown {
   try {
     let value: unknown = JSON.parse(files.readFileSync(settingsPath(orchDirPath), "utf8"));
     for (const key of keys) {

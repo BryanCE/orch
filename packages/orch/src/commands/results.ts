@@ -14,7 +14,7 @@ import { latestRunForKey } from "./runs.ts";
 import { selectRun } from "../store/run-rows.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
 import type { AgentView } from "../types/store.ts";
-import type { Entity, Logger } from "../types/core.ts";
+import type { Entity, Logger, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
@@ -47,7 +47,7 @@ function parseResultArgs(args: string[]): ResultOptions {
   return { json: enabled.has("--json"), force: enabled.has("--force"), target: positional[0] };
 }
 
-function writeRemoteResult(orchDir: string, settings: OrchSettings, target: string, options: ResultOptions): boolean {
+function writeRemoteResult(orchDir: OrchDir, settings: OrchSettings, target: string, options: ResultOptions): boolean {
   const remote = targetHost(settings.hosts, target);
   if (!remote) return false;
   forbidNonOperatorOverride(orchDir, "remote targets");
@@ -67,7 +67,7 @@ function writePresenceResult(result: unknown, json: boolean): boolean {
   return true;
 }
 
-function adapterResultText(orchDir: string, ent: Entity, adapter: AgentAdapter): string | undefined {
+function adapterResultText(orchDir: OrchDir, ent: Entity, adapter: AgentAdapter): string | undefined {
   return adapter.extractResult({ sessionPath: ent.sessionPath ?? undefined }, orchDir);
 }
 
@@ -90,7 +90,7 @@ function writeAdapterJson(ent: Entity, adapter: AgentAdapter, text: string): voi
   }, null, 2) + "\n");
 }
 
-function writeAdapterResult(orchDir: string, logger: Logger, ent: Entity, views: ReadonlyMap<string, AgentView>, json: boolean): boolean {
+function writeAdapterResult(orchDir: OrchDir, logger: Logger, ent: Entity, views: ReadonlyMap<string, AgentView>, json: boolean): boolean {
   const adapter = entityAdapter(ent, views);
   if (!adapter) return false;
   const text = adapterResultText(orchDir, ent, adapter);
@@ -117,7 +117,7 @@ function writeCurrentDispatchResult(services: Pick<Services, "orchDir" | "logger
   else process.stdout.write((typeof run.result === "string" ? run.result : resultText(run.result) ?? JSON.stringify(run.result)) + "\n");
 }
 
-function tryHistoricalTarget(orchDir: string, logger: Logger, target: string, json: boolean): boolean {
+function tryHistoricalTarget(orchDir: OrchDir, logger: Logger, target: string, json: boolean): boolean {
   if (loadPresence(orchDir).has(target)) return false;
   const historical = latestRunForKey(orchDir, target);
   return historical ? writeHistoricalResult(logger, historical, json, target) : false;
@@ -190,7 +190,7 @@ export async function cmdQuestions(services: Services, args: string[]): Promise<
 
 interface PendingQuestion { view: PendingQuestionView }
 
-function callerMaySeeQuestion(orchDir: string, agentId: string): boolean {
+function callerMaySeeQuestion(orchDir: OrchDir, agentId: string): boolean {
   if (callerKind(orchDir) === "operator") return true;
   const caller = selfId(orchDir);
   if (caller === undefined) return false;
@@ -212,7 +212,7 @@ function isPendingQuestionView(value: unknown): value is PendingQuestionView {
 }
 
 /** Read pending questions from orchd; the daemon owns their answerable state. */
-async function collectPendingQuestions(orchDir: string, args: string[]): Promise<{ pending: PendingQuestion[] }> {
+async function collectPendingQuestions(orchDir: OrchDir, args: string[]): Promise<{ pending: PendingQuestion[] }> {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const answer = await rpcCall(orchDir, "questions", { all: enabled.has("--all") });
   if (!isRecord(answer) || !Array.isArray(answer.questions)) {
@@ -225,7 +225,7 @@ async function collectPendingQuestions(orchDir: string, args: string[]): Promise
   };
 }
 
-async function cmdQuestionsLocal(orchDir: string, args: string[]): Promise<void> {
+async function cmdQuestionsLocal(orchDir: OrchDir, args: string[]): Promise<void> {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const all = enabled.has("--all");
   const { pending } = await collectPendingQuestions(orchDir, args);
@@ -272,7 +272,7 @@ export function formatAge(ts: unknown): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-async function localQuestionRows(orchDir: string, args: string[]): Promise<QuestionRow[]> {
+async function localQuestionRows(orchDir: OrchDir, args: string[]): Promise<QuestionRow[]> {
   const { pending } = await collectPendingQuestions(orchDir, args);
   return pending.map(({ view }) => ({
     key: view.key, name: view.name, age: formatAge(view.askedAt),

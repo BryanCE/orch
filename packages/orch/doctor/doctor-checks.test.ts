@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { binaryStatus } from "../src/doctor/bins.ts";
@@ -13,14 +12,15 @@ import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { seedAgent } from "../test/helpers/agent.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 
-const directories: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
 
-function tempDir(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-checks-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-doctor-checks-");
   directories.push(directory);
   return directory;
 }
@@ -28,7 +28,7 @@ function tempDir(): string {
 /** The one check under test, asked directly. Reaching it through `runDoctor` ran every
  *  other probe — ssh, backend detection, binary scans — to read one result, which is what
  *  made these time out on a slow machine while proving nothing extra. */
-function notifyResult(directory: string): CheckResult {
+function notifyResult(directory: OrchDir): CheckResult {
   return checkNotifySinks(settingsOf(directory), binaryStatus(["pi"]));
 }
 
@@ -47,12 +47,12 @@ async function withPath<T>(value: string, action: () => T | Promise<T>): Promise
   }
 }
 
-function writeSettings(directory: string, settings: Record<string, unknown>): void {
+function writeSettings(directory: OrchDir, settings: Record<string, unknown>): void {
   writeSettingsFixture(directory, settings);
 }
 
 /** The settings a test wrote, read back the way the runner reads them. */
-function settingsOf(directory: string): OrchSettings | null {
+function settingsOf(directory: OrchDir): OrchSettings | null {
   return fileSettingsManager(directory).currentOrNull();
 }
 

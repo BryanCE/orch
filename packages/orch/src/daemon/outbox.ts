@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { decisionLogger } from "./decision-log.ts";
 import { isAgentGone } from "../control/agent-gone.ts";
 import { isBridgeDetached } from "../control/bridge-links.ts";
@@ -35,7 +36,7 @@ type AttemptResult = "delivered" | "retried" | "awaiting" | "undeliverable" | "i
  * The only place a row changes state, so the caller delivering its own write and
  * the loop draining the backlog cannot disagree about what an outcome means.
  */
-async function attemptDelivery(orchDir: string, message: OutboxMessage, deps: OutboxDeps): Promise<AttemptResult> {
+async function attemptDelivery(orchDir: OrchDir, message: OutboxMessage, deps: OutboxDeps): Promise<AttemptResult> {
   const key = `${orchDir}\u0000${message.id}`;
   if (inFlight.has(key)) return "in-flight";
   if (!outboxMessageOpen(orchDir, message.id)) return "skipped";
@@ -98,14 +99,14 @@ async function attemptDelivery(orchDir: string, message: OutboxMessage, deps: Ou
  * Accepting a dispatch must never wait on the whole backlog: one orch's dead
  * agent held every other orch's send behind it until the RPC timed out.
  */
-export async function deliverOutboxMessage(orchDir: string, id: string, deps: OutboxDeps): Promise<void> {
+export async function deliverOutboxMessage(orchDir: OrchDir, id: string, deps: OutboxDeps): Promise<void> {
   const message = selectOutboxMessage(orchDir, id);
   if (message === undefined) return;
   await attemptDelivery(orchDir, message, deps);
 }
 
 /** Re-deliver every open row for a target when its bridge attaches. */
-export async function redeliverOpenRows(orchDir: string, target: string, deps: OutboxDeps): Promise<void> {
+export async function redeliverOpenRows(orchDir: OrchDir, target: string, deps: OutboxDeps): Promise<void> {
   for (const message of selectOpenOutboxForTarget(orchDir, target)) {
     await attemptDelivery(orchDir, message, deps);
   }
@@ -116,7 +117,7 @@ export async function redeliverOpenRows(orchDir: string, target: string, deps: O
  * including messages left unacknowledged before a restart.
  */
 export async function drainOutbox(
-  orchDir: string,
+  orchDir: OrchDir,
   deps: OutboxDeps,
 ): Promise<{ retried: number; awaiting: number }> {
   let retried = 0;

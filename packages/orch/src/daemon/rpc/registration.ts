@@ -1,3 +1,4 @@
+import type { OrchDir } from "../../types/core.ts";
 import { hostname } from "node:os";
 import { readFileSync } from "node:fs";
 import { isRecord } from "../../util.ts";
@@ -45,7 +46,7 @@ function callerEnvironment(): { plexer: string | undefined; plexerVersion: strin
 }
 
 /** Build the authenticated caller facts for session registration. */
-export function sessionClaim(orchDir: string, label?: string): Record<string, unknown> {
+export function sessionClaim(orchDir: OrchDir, label?: string): Record<string, unknown> {
   const token = readFileSync(endpointPaths(orchDir).token, "utf8").trim();
   const session = callerSession();
   const configuredHarness = nonEmpty(process.env.ORCH_HARNESS?.trim());

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files";
@@ -19,22 +18,23 @@ import { outboxMessageState, selectOutboxMessage, selectPendingOutbox } from "..
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { testServices } from "./helpers/services.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { isRecord } from "../src/util.ts";
 import { currentHostOs } from "../src/store/agent-rows.ts";
 
 import { row } from "./helpers/rows.ts";
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
-function tempOrchDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-rpc-"));
+function tempOrchDir(): OrchDir {
+  const dir = makeTempOrchDir("orch-rpc-");
   dirs.push(dir);
   return dir;
 }
@@ -82,7 +82,7 @@ async function tcpHello(server: RpcServer, params?: unknown): Promise<Record<str
   });
 }
 
-async function start(dir: string): Promise<RpcServer> {
+async function start(dir: OrchDir): Promise<RpcServer> {
   const server = await startRpcServer(dir, {
     echo: (params) => params,
     hang: neverAnswers,
@@ -101,7 +101,7 @@ interface FakeBridge {
   delivery: Promise<{ id: string; message: Record<string, unknown> }>;
 }
 
-async function fakeBridge(dir: string, key: string): Promise<FakeBridge> {
+async function fakeBridge(dir: OrchDir, key: string): Promise<FakeBridge> {
   const endpoint = existsSync(daemonRuntimeFiles(dir).socket) ? daemonRuntimeFiles(dir).socket : readPortFile(dir);
   if (endpoint === undefined) throw new Error("daemon endpoint is unavailable");
   let resolveDelivery: ((delivery: { id: string; message: Record<string, unknown> }) => void) | undefined;
@@ -125,7 +125,7 @@ async function fakeBridge(dir: string, key: string): Promise<FakeBridge> {
   return { link, attached, delivery };
 }
 
-async function startRealDaemon(dir: string, settings: Record<string, unknown>): Promise<() => Promise<void>> {
+async function startRealDaemon(dir: OrchDir, settings: Record<string, unknown>): Promise<() => Promise<void>> {
   const discovery = tempOrchDir();
   const previousDir = process.env.ORCH_DIR;
   const previousDiscovery = process.env.ORCH_DAEMON_DISCOVERY_DIR;

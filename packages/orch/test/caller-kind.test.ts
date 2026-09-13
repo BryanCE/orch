@@ -1,6 +1,5 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
@@ -11,14 +10,14 @@ import { forbidNonOperatorOverride } from "../src/commands/target.ts";
 import { ensureCallerRegistered } from "../src/identity/self.ts";
 import { isolateHarnessSession, isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { seedAgent } from "./helpers/agent.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
-function currentOrchDir(): string {
+function currentOrchDir(): OrchDir {
   const directory = process.env.ORCH_DIR;
   if (!directory) throw new Error("ORCH_DIR is required");
-  return directory;
+  return orchDirAt(directory);
 }
 
 function callerKind(): ReturnType<typeof daemonCallerKind> {
@@ -52,7 +51,7 @@ function setupOperator(): void {
 function setupClaimedAgent(token: string): string {
   isolateOrchEnv();
   restoreHarnessSession = isolateHarnessSession("pi");
-  const directory = mkdtempSync(join(tmpdir(), "orch-caller-kind-"));
+  const directory = tempOrchDir("orch-caller-kind-");
   directories.push(directory);
   process.env.ORCH_DIR = directory;
   const id = mintAgentId();
@@ -91,12 +90,12 @@ describe("caller kind", () => {
   test("an unregistered session asks the daemon registration seam", async () => {
     isolateOrchEnv();
     restoreHarnessSession = isolateHarnessSession("pi");
-    const directory = mkdtempSync(join(tmpdir(), "orch-caller-register-"));
+    const directory = tempOrchDir("orch-caller-register-");
     directories.push(directory);
     process.env.ORCH_DIR = directory;
     process.env[sessionEnv.marker] = "1";
     process.env[sessionEnv.sessionId] = "fresh-session";
-    let registeredDirectory: string | undefined;
+    let registeredDirectory: OrchDir | undefined;
     await ensureCallerRegistered(directory, (registered) => {
       registeredDirectory = registered;
       return Promise.resolve({ id: "registered-agent" });

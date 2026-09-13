@@ -1,9 +1,9 @@
+import { orchDirAt } from "../src/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
-import { mkdtempSync } from "node:fs";
-import { basename, join } from "node:path";
-import { tmpdir } from "node:os";
+import { basename } from "node:path";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
@@ -17,7 +17,7 @@ import { claimAgent, ensureHarness, insertAgent } from "../src/store/agent-rows.
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir.ts";
 import { DEAD_PID, seedAgent } from "./helpers/agent.ts";
 import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
 import { sql } from "drizzle-orm";
@@ -41,15 +41,15 @@ import { sql } from "drizzle-orm";
 const COMPOSITE_KEY = "headless~local~7x5hd4h610";
 
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
 const originalSessionKey = process.env.ORCH_SESSION_KEY;
 const originalHarnessMarker = process.env[HARNESS_SESSION_ENV.pi.marker];
 const originalSessionId = process.env[HARNESS_SESSION_ENV.pi.sessionId];
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-a1-ripple-"));
+function tempOrchDir(): OrchDir {
+  const directory = mintTempOrchDir("orch-a1-ripple-");
   directories.push(directory);
   process.env.ORCH_DIR = directory;
   return directory;
@@ -87,7 +87,7 @@ function fakeHarness(): HarnessApi {
 }
 
 function presenceFor() {
-  return createAgentPresence(process.env.ORCH_DIR!, {
+  return createAgentPresence(orchDirAt(process.env.ORCH_DIR!), {
     harness: fakeHarness(),
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",
@@ -142,7 +142,7 @@ describe("this process's own identity is the id and nothing else", () => {
     tempOrchDir();
     const id = mintAgentId();
     process.env[LAUNCH_ENV] = id;
-    expect(selfIdentity(process.env.ORCH_DIR!)).toEqual({ id });
+    expect(selfIdentity(orchDirAt(process.env.ORCH_DIR!))).toEqual({ id });
   });
 
 });
@@ -150,7 +150,7 @@ describe("this process's own identity is the id and nothing else", () => {
 describe("the fleet wall is lifted by the absence of a launch, not by a key's shape", () => {
   /** Two agents in one space, in two different projects. The wall is what keeps
    *  a worker's `all` flag from reaching the other project's fleet. */
-  function twoProjects(ownKey: string): { directory: string; foreignKey: string } {
+  function twoProjects(ownKey: string): { directory: OrchDir; foreignKey: string } {
     const directory = tempOrchDir();
     seedStatus(directory, ownKey, { agent: "pi", label: "caller", pid: process.pid, state: "idle" });
     const foreignKey = mintAgentId();
@@ -183,7 +183,7 @@ describe("who drives an agent is looked up by its id", () => {
   const HOLDER = "aaaaaaaaa1";
   const HELD = "bbbbbbbbb2";
 
-  function leased(): string {
+  function leased(): OrchDir {
     const directory = tempOrchDir();
     ensureHarness(directory, "pi", "Pi", 1);
     const database = orm(directory);

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import "../store/suppress-sqlite-warning.ts";
 import {
   acquireDaemonLock,
@@ -69,12 +70,12 @@ import type { Services } from "../types/services.ts";
  *  proves the pid is the SAME process instance, not a recycled number. */
 /** Whether the orchestrator holding a lease is still alive. Rule 11: a dead
  *  holder is not a collision, so its lease must never gate a driving verb. */
-function leaseHolderIsAlive(directory: string, holderId: string): boolean {
+function leaseHolderIsAlive(directory: OrchDir, holderId: string): boolean {
   return recordedProcessIsLive(directory, holderId);
 }
 
 /** Derive lease facts from the normalized agent/lease rows, never from presence or ownership files. */
-export function deriveLeasePayload(directory: string, key: string): LeaseStatusPayload {
+export function deriveLeasePayload(directory: OrchDir, key: string): LeaseStatusPayload {
   // An agent key IS its minted id (A1); a key that is not one names no agent and
   // stays unknown rather than being guessed at.
   const agentId = key;
@@ -97,7 +98,7 @@ const bootCodeHash = computeCodeHash(entrypoint);
 const startedAt = new Date();
 export interface DaemonState {
   readonly services: Services;
-  readonly directory: string;
+  readonly directory: OrchDir;
   readonly workController: AbortController;
   server: RpcServer | undefined;
   workLoop: Promise<void> | undefined;
@@ -119,7 +120,7 @@ export function idleShutdownDue(input: { idleMinutes: number; liveAgents: number
   return input.msSinceActivity >= input.idleMinutes * 60_000;
 }
 
-function liveAgentCount(directory: string): number {
+function liveAgentCount(directory: OrchDir): number {
   return [...loadPresence(directory).values()].filter((entry) => entry.alive).length;
 }
 
@@ -142,7 +143,7 @@ function fleetStatus(state: DaemonState): { rows: DaemonStatusRow[] } {
   };
 }
 
-async function socketAnswers(directory: string): Promise<boolean> {
+async function socketAnswers(directory: OrchDir): Promise<boolean> {
   try {
     await rpcCall(directory, "daemon-status", undefined, 200);
     return true;
@@ -190,7 +191,7 @@ function bridgeNotifyEvent(params: Record<string, unknown>): NotifyEvent {
 }
 
 /** Build the event carrying mail for a live session with no bridge route. */
-function sessionMessageEvent(directory: string, key: string, id: string, text: string): NotifyEvent {
+function sessionMessageEvent(directory: OrchDir, key: string, id: string, text: string): NotifyEvent {
   const view = agentView(directory, key);
   return {
     key,
@@ -521,7 +522,7 @@ export async function dispatch(state: DaemonState, params: unknown) {
   return confirmTextWrite(state, "dispatch", params);
 }
 
-function recordAgentQuestion(directory: string, params: unknown): { ok: true } {
+function recordAgentQuestion(directory: OrchDir, params: unknown): { ok: true } {
   const value = rpcParams(params);
   if (!isAgentNotice(value)) throw new Error("question params must be an agent question notice");
   const agentId = requiredString(value.agentId, "agentId");
@@ -530,7 +531,7 @@ function recordAgentQuestion(directory: string, params: unknown): { ok: true } {
   return { ok: true };
 }
 
-function listPendingQuestions(directory: string): { questions: PendingQuestionView[] } {
+function listPendingQuestions(directory: OrchDir): { questions: PendingQuestionView[] } {
   const questions = pendingQuestions(directory)
     .sort((left, right) => right.askedAt - left.askedAt)
     .map((row): PendingQuestionView => {
@@ -595,7 +596,7 @@ export async function answer(state: DaemonState, params: unknown) {
 
 /** `level` is an explicit override (a flag); everything else resolves the same
  *  way every other logger does, through `logLevelFor`. */
-function loggerFor(directory: string, level?: LogLevel): Logger {
+function loggerFor(directory: OrchDir, level?: LogLevel): Logger {
   const envLevel = process.env.ORCH_LOG_LEVEL;
   if (envLevel === undefined && level !== undefined) {
     return createLogger({ file: daemonRuntimeFiles(directory).log, level });
@@ -840,7 +841,7 @@ export async function startDaemon(): Promise<DaemonState> {
 
   let settingsLoaded = false;
   let previousSettings = services.settings.currentOrNull();
-  state.settingsWatch = watchSettings(directory, {
+  state.settingsWatch = watchSettings(services.settings, {
     load: () => {
       const next = services.settings.reload();
       if (next === null) throw new Error(absentSettingsMessage(services.settings.file));

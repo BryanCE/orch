@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // The running agent's orchd socket client: the only channel by which a bundled
 // harness asks orchd anything or reports anything. It knows no plexer and no store.
 //
@@ -17,7 +18,7 @@ import { isRecord } from "../util.ts";
 import type { ControlOutcomeReport, DaemonClient } from "../types/agent.ts";
 import type { SettingsManager } from "../types/services.ts";
 
-export function createDaemonClient(orchDir: string, settings: SettingsManager): DaemonClient {
+export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager): DaemonClient {
   const ackedMessageIds = new Set<string>();
   const pending = new Map<number, (result: unknown) => void>();
   let nextRequestId = 1;

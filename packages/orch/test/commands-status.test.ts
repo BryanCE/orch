@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { orchDirAt } from "../src/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { displayStatusState, formatNoRowsMessage, formatSpace, formatStatusTable, normalizeStatusRow, scopeFleetRows, statusRowFromEntity as composeStatusRow, warningStatusRow } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../src/policy/capacity.ts";
@@ -48,9 +47,10 @@ function statusRowFixture(overrides: Partial<StatusRow> = {}): StatusRow {
 }
 
 const seededEntity = entityFixture();
+const syntheticOrchDir: OrchDir = orchDirAt("/tmp");
 
 function statusRowFromEntity(entity: Entity, views: Parameters<typeof composeStatusRow>[1]): ReturnType<typeof composeStatusRow> {
-  return composeStatusRow(entity, views, undefined, {}, null, "/tmp");
+  return composeStatusRow(entity, views, undefined, {}, null, syntheticOrchDir);
 }
 
 describe("commands/status", () => {
@@ -180,7 +180,7 @@ describe("commands/status", () => {
     expect(statusRowFromEntity(seededEntity, new Map()).owner).toBe("no orch driving it");
   });
   test("lease-backed status attribution distinguishes my lease, another lease, and unleased rows", () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-status-"));
+    const dir = tempOrchDir("orch-status-");
     try {
       ensureHarness(dir, "pi", "pi", 1);
       insertAgent(dir, { id: "me", harnessId: "pi", cwd: "/tmp", name: "Orchestrator", createdAt: 1 });

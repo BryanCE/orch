@@ -12,7 +12,7 @@ import { agentViewIndex, presenceById } from "../target.ts";
 import { isAgentId } from "../../backends/identity.ts";
 import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../../policy/capacity.ts";
 import type { Backend } from "../../types/backend.ts";
-import type { Logger } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import type { Services } from "../../types/services.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
@@ -35,7 +35,7 @@ function attachedBridgeKeys(answer: unknown): ReadonlySet<string> {
 }
 
 /** Wait for every agent's bridge to attach; returns only the ones that attached. */
-export async function awaitBridgeAttach(orchDir: string, logger: Logger, created: { key: string; handle: string; name: string }[], json = false): Promise<CreatedAgent[]> {
+export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, created: { key: string; handle: string; name: string }[], json = false): Promise<CreatedAgent[]> {
   const pending = new Map(created.map((c) => [c.key, c]));
   const attached = new Map<string, CreatedAgent>();
   const deadline = Date.now() + 60_000;
@@ -81,7 +81,7 @@ export function reportShortfall(logger: Logger, requested: number, placed: numbe
 /** How many agents actually came up, or `null` when the harness cannot say.
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
-export async function confirmAgentsCameUp(orchDir: string, logger: Logger, adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<CreatedAgent[] | null> {
+export async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<CreatedAgent[] | null> {
   if (adapter.bridge) {
     return await awaitBridgeAttach(orchDir, logger, created, json);
   }
@@ -114,7 +114,7 @@ export function printLayout(backend: Backend, group: string, header: string) {
  *  orchd are UNMANAGED: no steer, model pin, or result reaches them, and printing
  *  the tiling and "Spawned N agent(s)" over that silence is what sent an operator
  *  dispatching into a fleet that answered nothing. Null when orchd answers. */
-export async function reportControlPlaneOutage(orchDir: string, logger: Logger, placementCount: number): Promise<string | null> {
+export async function reportControlPlaneOutage(orchDir: OrchDir, logger: Logger, placementCount: number): Promise<string | null> {
   const outage = await daemonOutage(orchDir);
   if (!outage) return null;
   logger.error("spawn.control-plane-unreachable", { panes: placementCount, error: outage });

@@ -1,5 +1,6 @@
 import {loadPresence, spawnedRecords} from "../presence/store.ts";
 import { sameSpace } from "./space.ts";
+import type { OrchDir } from "../types/core.ts";
 
 export function assertValidAgentName(name: string): void {
   if (!/^[a-z][a-z0-9_-]{0,31}$/.test(name)) {
@@ -17,7 +18,7 @@ export function assertValidAgentName(name: string): void {
  * space it actually occupied open to a duplicate. The name itself is the
  * agent's mutable label on the hub row, read through the same composed view.
  */
-export function assertNameFree(orchDir: string, name: string, space: string | null): void {
+export function assertNameFree(orchDir: OrchDir, name: string, space: string | null): void {
   assertValidAgentName(name);
   const presence = loadPresence(orchDir);
   const taken = [...spawnedRecords(orchDir).values()].find((view) =>

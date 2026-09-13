@@ -8,6 +8,7 @@ import { callerKind } from "../policy/caller.ts";
 import { die } from "./target.ts";
 import type { RunRecord } from "../types/store.ts";
 import type { Services } from "../types/services.ts";
+import type { OrchDir } from "../types/core.ts";
 
 const USAGE = "usage: orch runs [<target>] [-n <count>] [--json]";
 
@@ -97,7 +98,7 @@ export function cmdRuns(services: Services, args: string[]): void {
 }
 
 /** Find a latest historical row for an exact canonical key when its presence dir was reaped. */
-export function latestRunForKey(orchDir: string, key: string): RunRecord | undefined {
+export function latestRunForKey(orchDir: OrchDir, key: string): RunRecord | undefined {
   return selectRuns(orchDir, { agentKey: key, limit: 1 })[0];
 }
 

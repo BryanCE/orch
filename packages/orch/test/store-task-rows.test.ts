@@ -1,9 +1,8 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import {
   attemptsOf,
   insertCancellation,
@@ -18,14 +17,14 @@ import {
   taskById,
   taskState,
 } from "../src/store/task-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
-function fixture() { const d = mkdtempSync(join(tmpdir(), "orch-task-rows-")); dirs.push(d); return d; }
-function seed(d: string) {
+function fixture() { const d = tempOrchDir("orch-task-rows-"); dirs.push(d); return d; }
+function seed(d: OrchDir) {
   const db = orm(d);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"a"},${"a"},${"pi"},${"/tmp"},${"a"},${1})`);
@@ -34,7 +33,7 @@ function seed(d: string) {
   db.run(sql`INSERT INTO spaces(id,name,created_at) VALUES (${"s"},${"S"},${1})`);
 }
 
-function addTask(d: string, id: string, scope: { scopeAgentId: string } | { scopePackId: string } | { scopeSpaceId: string }, enqueuedBy = "a") {
+function addTask(d: OrchDir, id: string, scope: { scopeAgentId: string } | { scopePackId: string } | { scopeSpaceId: string }, enqueuedBy = "a") {
   enqueueTask(d, { id, text: id, opts: { id, nested: [1, true] }, enqueuedBy, ...scope });
 }
 

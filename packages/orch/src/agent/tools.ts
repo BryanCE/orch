@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // The pi-facing surface of the bridge for this agent's own run: `orch_ask`, the
 // command-lock interception, every pi lifecycle event handler that keeps
 // presence in sync, and the pi-event payload guards those handlers consume. The
@@ -97,7 +98,7 @@ function noOrchestratorAnswer(): BridgeToolResult {
 export function registerAgentTools(
   harness: HarnessApi,
   options: AgentToolsOptions,
-  orchDir: string,
+  orchDir: OrchDir,
   settings: SettingsManager,
 ): {
   onBlockedChange: (active: boolean, label: string | undefined) => void;

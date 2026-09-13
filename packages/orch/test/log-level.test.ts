@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { logLevelFor } from "../src/settings/read.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { isLogRecord } from "../src/log.ts";
 import { testServices } from "./helpers/services.ts";
 import { decisionLogger } from "../src/daemon/decision-log.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const previousOrchDir = process.env.ORCH_DIR;
 const previousLevel = process.env.ORCH_LOG_LEVEL;
 
@@ -22,8 +22,8 @@ afterEach(() => {
   else process.env.ORCH_LOG_LEVEL = previousLevel;
 });
 
-function fixture(settings: Record<string, unknown> = {}): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-log-level-"));
+function fixture(settings: Record<string, unknown> = {}): OrchDir {
+  const dir = tempOrchDir("orch-log-level-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   writeSettingsFixture(dir, settings);

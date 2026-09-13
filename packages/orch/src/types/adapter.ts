@@ -1,4 +1,5 @@
 import type { AgentState } from "../agent-state.ts";
+import type { OrchDir } from "./core.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { CheckResult } from "./doctor.ts";
 import type { Logger } from "./core.ts";
@@ -29,7 +30,7 @@ export interface SpawnOpts {
   /** Model patterns the harness should expose in its native cycle/picker, when configured. */
   readonly preferredModels?: readonly string[];
   /** Directory containing orch's presence protocol files. */
-  readonly orchDir?: string;
+  readonly orchDir?: OrchDir;
   /** Additional environment values required by the adapter process. */
   readonly env?: Readonly<Record<string, string>>;
   /** Explicit worker tool allowlist, when the launcher applies one. */
@@ -201,8 +202,8 @@ export interface WorkspaceTrustRole {
 }
 
 export interface ShimRole {
-  installShim(orchDir: string, settings: OrchSettings, logger: Logger, opts?: ShimInstallOpts): void | Promise<void>;
-  diagnoseShim(orchDir: string, settings: OrchSettings, logger: Logger): CheckResult | Promise<CheckResult>;
+  installShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger, opts?: ShimInstallOpts): void | Promise<void>;
+  diagnoseShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult | Promise<CheckResult>;
 }
 
 export interface DefaultModelRole {
@@ -224,7 +225,7 @@ export interface BridgeRole {
 }
 
 export interface PresenceRegistrationRole {
-  isRegistered(key: string, orchDir: string): boolean;
+  isRegistered(key: string, orchDir: OrchDir): boolean;
 }
 
 export interface AgentAdapter {
@@ -287,11 +288,11 @@ export interface AgentAdapter {
   /** Build argv for a detached backend, including the initial prompt. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[];
   /** Translate native process/session signals into a presence-protocol state. */
-  detectState(input: StateDetectionInput, orchDir: string): AgentState;
+  detectState(input: StateDetectionInput, orchDir: OrchDir): AgentState;
   /** Build the command or presence action used to deliver a steering message. */
   steer(request: SteerRequest): AdapterCommand | undefined;
   /** Extract the final assistant text that should be written to `results.jsonl`. */
-  extractResult(input: ResultExtractionInput, orchDir: string): string | undefined;
+  extractResult(input: ResultExtractionInput, orchDir: OrchDir): string | undefined;
 }
 
 /** State input for pi, identified by its orch presence key. */

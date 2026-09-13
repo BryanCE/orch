@@ -1,9 +1,7 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
-import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { drainOutbox } from "../src/daemon/outbox.ts";
 import { validateWriteParams } from "../src/daemon/orchd.ts";
@@ -14,7 +12,7 @@ import type { OutboxDelivery, RpcServer } from "../src/types/daemon.ts";
 
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
 afterEach(async () => {
@@ -22,8 +20,8 @@ afterEach(async () => {
   while (dirs.length > 0) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-hardening-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-hardening-");
   dirs.push(dir);
   return dir;
 }

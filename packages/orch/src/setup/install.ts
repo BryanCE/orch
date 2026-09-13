@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
 import * as os from "node:os";
@@ -188,7 +189,7 @@ export function planShimInstall(adapter: AgentAdapter): ShimBoundaryPlan {
 
 /** Install every selected adapter's integration through its own provider port (L4 Builder —
  * no identity branch). Returns the gaps: an adapter expected to install a shim but unable to. */
-export async function installAdapterShims(orchDir: string, settings: OrchSettings, logger: Logger, adapters: readonly AdapterId[], copy: boolean): Promise<string[]> {
+export async function installAdapterShims(orchDir: OrchDir, settings: OrchSettings, logger: Logger, adapters: readonly AdapterId[], copy: boolean): Promise<string[]> {
   // Every selected adapter, every run — installShim is idempotent and additive, and
   // an adapter skipped for being already-selected keeps whatever stale artifact the
   // last build left. An adapter with no installShim is a loud, recorded gap (D10):

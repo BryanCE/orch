@@ -1,3 +1,5 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { tempOrchDir } from "./helpers/tempdir.ts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -35,7 +37,7 @@ beforeAll(async () => {
 const originalOrchDir = process.env.ORCH_DIR;
 const originalOwner = process.env.ORCH_OWNER;
 const originalHarnessMarkers = Object.values(HARNESS_SESSION_ENV).map((env) => ({ marker: env.marker, value: process.env[env.marker] }));
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
 function restoreOrchEnv(): void {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
@@ -59,16 +61,16 @@ afterEach(() => {
 describe("reload", () => {
   test("does not write installed extension bundles", async () => {
     const before = bundlePaths.map((file) => ({ bytes: readFileSync(file), mtimeMs: statSync(file).mtimeMs }));
-    const tempOrchDir = mkdtempSync(join(tmpdir(), "orch-reload-"));
-    dirs.push(tempOrchDir);
-    process.env.ORCH_DIR = tempOrchDir;
+    const orchDir = tempOrchDir("orch-reload-");
+    dirs.push(orchDir);
+    process.env.ORCH_DIR = orchDir;
     process.env.ORCH_OWNER = "test-owner";
-    writeSettingsFixture(tempOrchDir, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    writeSettingsFixture(orchDir, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
 
     const harnessMarkers = Object.values(HARNESS_SESSION_ENV).map((env) => ({ marker: env.marker, value: process.env[env.marker] }));
     for (const { marker } of harnessMarkers) delete process.env[marker];
     try {
-      await cmdReload(createServices({ orchDir: tempOrchDir }), ["--all", "--json"]);
+      await cmdReload(createServices({ orchDir }), ["--all", "--json"]);
     } finally {
       for (const { marker, value } of harnessMarkers) {
         if (value === undefined) delete process.env[marker];

@@ -11,8 +11,8 @@ import {
 import { checkOsExecutors } from "../src/doctor/daemon.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { osSide } from "../src/util.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
-import type { OsSide } from "../src/types/core.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
+import type { OrchDir, OsSide } from "../src/types/core.ts";
 
 const oldDiscovery = process.env.ORCH_DAEMON_DISCOVERY_DIR;
 const roots: string[] = [];
@@ -72,7 +72,7 @@ describe("cross-OS execution is a backend, not a peer daemon", () => {
 
   test("doctor passes a daemon registered on the side orch is running on", () => {
     process.env.ORCH_DAEMON_DISCOVERY_DIR = tempDir("orch-executor-discovery-");
-    const store = tempDir("orch-executor-store-");
+    const store: OrchDir = tempOrchDir("orch-executor-store-");
     expect(acquireDaemonRegistration(store).acquired).toBe(true);
 
     const check = checkOsExecutors();
@@ -84,7 +84,7 @@ describe("cross-OS execution is a backend, not a peer daemon", () => {
   test("doctor answers, rather than failing, for a daemon on a side with no executor", () => {
     const discovery = tempDir("orch-executor-discovery-");
     process.env.ORCH_DAEMON_DISCOVERY_DIR = discovery;
-    const store = tempDir("orch-executor-store-");
+    const store: OrchDir = tempOrchDir("orch-executor-store-");
     const startToken = processStartToken(process.pid);
     if (startToken === undefined) throw new Error("this platform reports no process start token");
     writeFileSync(join(discovery, "orchd.registration"), JSON.stringify({

@@ -1,18 +1,16 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { resolveSetting } from "../src/settings/read.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const envName = "ORCH_DAEMON_PORT";
 const originalEnv = process.env[envName];
 
-function tempDir(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-settings-precedence-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-settings-precedence-");
   directories.push(directory);
   return directory;
 }

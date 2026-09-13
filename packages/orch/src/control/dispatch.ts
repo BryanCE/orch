@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { execFile } from "node:child_process";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { getBackend } from "../backends/registry.ts";
@@ -31,14 +32,14 @@ function isPromptAction(action: ControlAction): action is PromptAction {
 }
 
 /** Resolve the adapter recorded for a target via presence status, then the spawn registry. */
-export function resolveTargetAdapter(orchDir: string, target: string): AgentAdapter | undefined {
+export function resolveTargetAdapter(orchDir: OrchDir, target: string): AgentAdapter | undefined {
   const agent = loadPresence(orchDir).get(target)?.status?.agent ?? agentView(orchDir, target)?.harnessId;
   if (typeof agent !== "string" || !agent) return undefined;
   return resolveAdapter(agent);
 }
 
 /** Resolve the backend and native handle addressing a canonical target. */
-export function resolveTargetRoute(orchDir: string, target: string): { backend: Backend; handle: BackendHandle } | undefined {
+export function resolveTargetRoute(orchDir: OrchDir, target: string): { backend: Backend; handle: BackendHandle } | undefined {
   // Environment owns the live native handle; the identity carries no pane
   // information at all, so the composer is the only source for it.
   const environment = agentView(orchDir, target)?.environment;
@@ -73,7 +74,7 @@ function runAdapterCommand(command: AdapterCommand, timeoutMs: number): Promise<
  * this ruling for every harness; the adapter is named in the message, never branched on.
  */
 /** The store decides liveness; a live agent whose bridge is not yet attached queues, it is not gone. */
-function requireLiveAgent(orchDir: string, target: string, adapter: AgentAdapter, action: string): void {
+function requireLiveAgent(orchDir: OrchDir, target: string, adapter: AgentAdapter, action: string): void {
   if (!agentProcessLive(orchDir, target)) throw new AgentGoneError(target, `${adapter.id} process is gone; ${action} needs a respawn`);
 }
 
@@ -84,13 +85,13 @@ function requireLiveAgent(orchDir: string, target: string, adapter: AgentAdapter
  * answered while the pane sits in `asking` with no transition to notice. A pending
  * question has its own primitive; refuse and name it.
  */
-function refuseSteerWhileAsking(orchDir: string, target: string, action: PromptAction): void {
+function refuseSteerWhileAsking(orchDir: OrchDir, target: string, action: PromptAction): void {
   if (action.kind !== "steer") return;
   if (loadPresence(orchDir).get(target)?.status?.state !== "asking") return;
   throw new Error(`cannot steer ${target}: it is awaiting an answer - use 'orch answer ${target} "<text>"'`);
 }
 
-async function deliverPrompt(orchDir: string, target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<ControlBoundaryOutcome> {
+async function deliverPrompt(orchDir: OrchDir, target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<ControlBoundaryOutcome> {
   refuseSteerWhileAsking(orchDir, target, action);
   const bridgeAction = action.kind === "run" ? "dispatch" : "steer";
   if (adapter.bridge?.takes.includes(bridgeAction)) {
@@ -110,7 +111,7 @@ async function deliverPrompt(orchDir: string, target: string, adapter: AgentAdap
   return { outcome: "invoke", ack: "none" };
 }
 
-function deliverAnswer(orchDir: string, target: string, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>): ControlBoundaryOutcome {
+function deliverAnswer(orchDir: OrchDir, target: string, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>): ControlBoundaryOutcome {
   if (!adapter.bridge?.takes.includes("answer")) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot answer ${target}: adapter ${adapter.id} takes no answers` };
   }
@@ -127,7 +128,7 @@ function deliverAnswer(orchDir: string, target: string, adapter: AgentAdapter, a
  * through the presence control outcome, so a model the harness could not resolve
  * surfaces as an error instead of a false "accepted".
  */
-async function deliverModel(orchDir: string, settings: OrchSettings, target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
+async function deliverModel(orchDir: OrchDir, settings: OrchSettings, target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
   if (adapter.modelControl === null && !adapter.bridge?.takes.includes("model")) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot set the model on ${target}: adapter ${adapter.id} has no running-session model control` };
   }
@@ -154,7 +155,7 @@ async function deliverModel(orchDir: string, settings: OrchSettings, target: str
 /** The backend holding a target, and its current handle. Reads the registry pane
  *  handle first, then asks a handle-owning backend — a detached agent records no
  *  pane handle at all, so only the backend can name its live one. */
-function resolveBackendHandle(orchDir: string, target: string): { backend: Backend; handle: BackendHandle } | undefined {
+function resolveBackendHandle(orchDir: OrchDir, target: string): { backend: Backend; handle: BackendHandle } | undefined {
   const route = resolveTargetRoute(orchDir, target);
   if (route) return route;
   const backendId = agentView(orchDir, target)?.environment.plexer;
@@ -171,7 +172,7 @@ function resolveBackendHandle(orchDir: string, target: string): { backend: Backe
  * refused. The branch is on the backend's declared keystroke capability, never
  * its id.
  */
-function deliverLifecycle(orchDir: string, target: string, adapter: AgentAdapter, verb: LifecycleVerb): ControlBoundaryOutcome {
+function deliverLifecycle(orchDir: OrchDir, target: string, adapter: AgentAdapter, verb: LifecycleVerb): ControlBoundaryOutcome {
   if (adapter.lifecycleControl === null) {
     return { outcome: "answer", reason: "no-environment-role", text: `this environment does not provide ${verb}` };
   }
@@ -187,7 +188,7 @@ function deliverLifecycle(orchDir: string, target: string, adapter: AgentAdapter
 }
 
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */
-export async function deliverControl(orchDir: string, settings: OrchSettings, target: string, action: ControlAction): Promise<ControlBoundaryOutcome> {
+export async function deliverControl(orchDir: OrchDir, settings: OrchSettings, target: string, action: ControlAction): Promise<ControlBoundaryOutcome> {
   const timeoutMs = settings.timeouts.adapter_command_ms;
   const canonicalTarget = normalizeControlTarget(orchDir, target);
   const adapter = resolveTargetAdapter(orchDir, canonicalTarget);

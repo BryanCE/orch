@@ -1,4 +1,5 @@
 import type { PaneHud } from "../types/plexer.ts";
+import type { OrchDir } from "../types/core.ts";
 /**
  * The plexer-neutral pane-HUD port.
  *
@@ -30,8 +31,8 @@ const NO_HUD: PaneHud = {
 
 interface PaneHudProvider {
   /** True when this process is inside a live session of this provider's plexer. */
-  isActive: (id: string | null, orchDir: string) => boolean;
-  hud: (id: string | null, orchDir: string) => PaneHud;
+  isActive: (id: string | null, orchDir: OrchDir) => boolean;
+  hud: (id: string | null, orchDir: OrchDir) => PaneHud;
 }
 
 const PROVIDERS: readonly PaneHudProvider[] = [
@@ -46,6 +47,6 @@ const PROVIDERS: readonly PaneHudProvider[] = [
 ];
 
 /** The HUD for the plexer this process is running under, or an inert one. */
-export function activePaneHud(id: string | null, orchDir: string): PaneHud {
+export function activePaneHud(id: string | null, orchDir: OrchDir): PaneHud {
   return PROVIDERS.find((provider) => provider.isActive(id, orchDir))?.hud(id, orchDir) ?? NO_HUD;
 }

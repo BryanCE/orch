@@ -1,3 +1,4 @@
+import type { OrchDir } from "../../src/types/core.ts";
 import { peerView } from "../../src/daemon/peer-view.ts";
 import { isRecord } from "../../src/json.ts";
 import type { PeerView } from "../../src/daemon/peer-view.ts";
@@ -5,7 +6,7 @@ import type { DaemonClient } from "../../src/types/agent.ts";
 
 /** A DaemonClient that accepts everything, forwards nothing, and answers nothing —
  *  the shape a bridge sees when orchd is absent. */
-export function daemonClientForPeers(directory: string, keys: string[]): DaemonClient {
+export function daemonClientForPeers(directory: OrchDir, keys: string[]): DaemonClient {
   return {
     ...stubDaemonClient(),
     ask: (method, params) => {

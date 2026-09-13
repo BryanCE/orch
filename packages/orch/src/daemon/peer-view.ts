@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // What one agent may see of another: the store decides existence and liveness; presence only adds display state.
 import { deriveDriveState } from "../agent/drive-state.ts";
 import { depthOf, isDescendantOf } from "../policy/provenance.ts";
@@ -27,14 +28,14 @@ export interface PeerView {
 }
 
 /** Only a root agent or an unregistered caller may lift the fleet wall. */
-function mayCrossFleets(orchDir: string, callerId: string | null): boolean {
+function mayCrossFleets(orchDir: OrchDir, callerId: string | null): boolean {
   if (callerId === null) return true;
   return depthOf((id) => agentView(orchDir, id), callerId) === 0;
 }
 
 /** Roots may request every space; a deeper caller stays inside its own
  *  provenance subtree however the all-spaces flag is set. */
-function visibleKeys(orchDir: string, ownKey: string, keys: string[], allSpaces: boolean, callerProject?: string): string[] {
+function visibleKeys(orchDir: OrchDir, ownKey: string, keys: string[], allSpaces: boolean, callerProject?: string): string[] {
   const lookup = (id: string) => agentView(orchDir, id);
   if (!mayCrossFleets(orchDir, ownKey)) {
     return keys.filter((key) => isDescendantOf(lookup, key, ownKey));
@@ -48,7 +49,7 @@ function visibleKeys(orchDir: string, ownKey: string, keys: string[], allSpaces:
   });
 }
 
-export function peerView(orchDir: string, ownKey: string, keys: string[], allSpaces: boolean, callerProject?: string): PeerView {
+export function peerView(orchDir: OrchDir, ownKey: string, keys: string[], allSpaces: boolean, callerProject?: string): PeerView {
   const presence = loadPresence(orchDir);
   const views = liveAgentViews(orchDir)
     .filter((view) => view.id !== ownKey && agentProcessLive(orchDir, view.id))

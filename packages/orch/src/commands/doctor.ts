@@ -4,6 +4,7 @@ import { withSpinner } from "../setup/io.ts";
 import type { Services } from "../types/services.ts";
 import { renderTable } from "../table.ts";
 import type { CheckResult } from "../types/doctor.ts";
+import type { OrchDir } from "../types/core.ts";
 
 /** Only a genuine failure makes doctor exit non-zero. A warning names a situational condition
  * (outside a session, stale daemon code, a dead presence dir) that does not mean the install is
@@ -12,7 +13,7 @@ function failExit(results: readonly CheckResult[]): void {
   if (results.some((result) => result.status === "fail")) process.exitCode = 1;
 }
 
-async function runInteractiveDoctor(initial: CheckResult[], orchDirectory: string, servicesLogger: Services["logger"]): Promise<void> {
+async function runInteractiveDoctor(initial: CheckResult[], orchDirectory: OrchDir, servicesLogger: Services["logger"]): Promise<void> {
   let results = initial;
   renderDoctorResults(results);
   const fixable = results.filter((r) => r.fix).map((r) => ({ id: r.id, label: r.label, description: r.fix!.description, destructive: r.fix!.destructive }));

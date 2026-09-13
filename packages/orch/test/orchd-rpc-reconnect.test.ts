@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { join } from "node:path";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createServer, createConnection } from "node:net";
 import { isRpcResponse, readJsonMessages } from "../src/daemon/rpc/wire.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { subscribeEvents } from "../src/daemon/rpc/client.ts";
 import type { EventSubscription, RpcServer } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 function waitFor<T>(read: () => T[], length: number, timeoutMs = 5_000): Promise<T[]> {
   return new Promise((resolve, reject) => {
@@ -63,7 +61,7 @@ describe("RPC JSON framing", () => {
 
 describe("subscribeEvents reconnect", () => {
   test("resubscribes and receives events after the daemon restarts", async () => {
-    const orchDir = mkdtempSync(join(tmpdir(), "orchd-rpc-reconnect-"));
+    const orchDir: OrchDir = tempOrchDir("orchd-rpc-reconnect-");
     let server: RpcServer | undefined;
     let subscription: EventSubscription | undefined;
     const received: unknown[] = [];
@@ -96,7 +94,7 @@ describe("subscribeEvents reconnect", () => {
   });
 
   test("close stops the retry loop so a returning daemon delivers nothing", async () => {
-    const orchDir = mkdtempSync(join(tmpdir(), "orchd-rpc-reconnect-stop-"));
+    const orchDir: OrchDir = tempOrchDir("orchd-rpc-reconnect-stop-");
     let server: RpcServer | undefined;
     const received: unknown[] = [];
     try {

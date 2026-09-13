@@ -1,6 +1,6 @@
+import type { OrchDir } from "../../src/types/core.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { SETTINGS_SCHEMA } from "../../src/settings/schema.ts";
+import { SETTINGS_SCHEMA, settingsPath } from "../../src/settings/schema.ts";
 import { isRecord } from "../../src/util.ts";
 
 /** Derive an `enabled` composition from `defaults.adapter`/`defaults.backend` so fixtures that only set
@@ -31,9 +31,9 @@ export function settingsFixtureText(settings: Record<string, unknown> = {}): str
 /** Write a schemaVersion-stamped settings.json fixture into an orch dir. Returns the file path.
  * `runtime` is a required top-level key with no default-on-read, so fixtures get `node` unless
  * they declare their own — a fixture testing the absent/invalid runtime passes it explicitly. */
-export function writeSettingsFixture(orchDir: string, settings: Record<string, unknown> = {}): string {
+export function writeSettingsFixture(orchDir: OrchDir, settings: Record<string, unknown> = {}): string {
   mkdirSync(orchDir, { recursive: true });
-  const file = join(orchDir, "settings.json");
+  const file = settingsPath(orchDir);
   writeFileSync(file, settingsFixtureText(settings));
   return file;
 }

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
@@ -26,7 +25,8 @@ import { sql } from "drizzle-orm";
 import { createServices } from "../src/services.ts";
 
 import { numberField, row } from "./helpers/rows.ts";
-const tempDirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const tempDirs: OrchDir[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 const oldAgentKey = process.env[LAUNCH_ENV];
 afterEach(() => {
@@ -61,7 +61,7 @@ function policy(max_agents_per_pack: number, agents: AgentView[], spawnerId = "r
 
 describe("spawn policy caps", () => {
   test("spawn, dispatch, reset, and model share one resolved tuning", () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-tuning-resolution-"));
+    const dir = tempOrchDir("orch-tuning-resolution-");
     tempDirs.push(dir);
     writeSettingsFixture(dir, {
       enabled: { adapters: ["pi"], backends: ["headless"] },
@@ -96,7 +96,7 @@ describe("spawn policy caps", () => {
   });
   describe("worker prompt depth", () => {
     test("root worker maySpawn follows max_depth", () => {
-      const dir = mkdtempSync(join(tmpdir(), "orch-worker-depth-"));
+      const dir = tempOrchDir("orch-worker-depth-");
       tempDirs.push(dir);
       expect(maySpawnFrom(dir, "root", 1)).toBe(false);
       expect(maySpawnFrom(dir, "root", 2)).toBe(true);
@@ -153,7 +153,7 @@ describe("spawn policy caps", () => {
   });
 
   test("reads a pack cap override from settings", () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-spawn-policy-"));
+    const dir = tempOrchDir("orch-spawn-policy-");
     tempDirs.push(dir);
     writeSettingsFixture(dir, { fleet: { max_agents_per_pack: 2 } });
     const settings = fileSettingsManager(dir).current();
@@ -165,7 +165,7 @@ describe("spawn policy caps", () => {
   });
 
   test("a tab holds at most fleet.max_agents_per_tab agents, counting what it already holds", () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-spawn-policy-"));
+    const dir = tempOrchDir("orch-spawn-policy-");
     tempDirs.push(dir);
     writeSettingsFixture(dir, { fleet: { max_agents_per_tab: 3 } });
     const settings = fileSettingsManager(dir).current();
@@ -177,7 +177,7 @@ describe("spawn policy caps", () => {
   });
 
   test("a refused cmdSpawn makes no name, worktree, registry, or queue mutation", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-spawn-policy-refused-"));
+    const dir = tempOrchDir("orch-spawn-policy-refused-");
     tempDirs.push(dir);
     process.env.ORCH_DIR = dir;
     writeSettingsFixture(dir, {

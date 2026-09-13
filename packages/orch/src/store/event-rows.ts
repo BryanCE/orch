@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { asc, gt, lt } from "drizzle-orm";
 import { orm } from "./connection.ts";
 import { events } from "../db/schema.ts";
@@ -15,22 +16,22 @@ function eventPayload(event: unknown): string {
   return payload;
 }
 
-export function appendEvent(orchDir: string, ts: number, event: unknown): StoredEvent {
+export function appendEvent(orchDir: OrchDir, ts: number, event: unknown): StoredEvent {
   const row = orm(orchDir).insert(events).values({ ts, payload: eventPayload(event) }).returning().get();
   if (!row) throw new Error("event insert did not produce a row");
   return rowToStoredEvent(row);
 }
 
-export function selectEventsSince(orchDir: string, seq: number, limit: number): StoredEvent[] {
+export function selectEventsSince(orchDir: OrchDir, seq: number, limit: number): StoredEvent[] {
   return orm(orchDir).select().from(events).where(gt(events.seq, seq))
     .orderBy(asc(events.seq)).limit(limit).all().map(rowToStoredEvent);
 }
 
-export function oldestEventSeq(orchDir: string): number | undefined {
+export function oldestEventSeq(orchDir: OrchDir): number | undefined {
   const row = orm(orchDir).select({ seq: events.seq }).from(events).orderBy(asc(events.seq)).limit(1).get();
   return row === undefined ? undefined : Number(row.seq);
 }
 
-export function deleteEventsBefore(orchDir: string, cutoff: number): number {
+export function deleteEventsBefore(orchDir: OrchDir, cutoff: number): number {
   return Number(orm(orchDir).delete(events).where(lt(events.ts, cutoff)).run().changes);
 }

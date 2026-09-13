@@ -23,6 +23,7 @@ import { runSetupSmoke, smokeBlocker } from "../setup/smoke.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult } from "../types/doctor.ts";
+import type { OrchDir } from "../types/core.ts";
 
 export { compositionUnrecorded };
 
@@ -126,7 +127,7 @@ async function installSetupComposition(
   return gaps;
 }
 
-async function diagnoseAdapters(orchDir: string, settings: OrchSettings, logger: Services["logger"], adapters: readonly AdapterId[]): Promise<void> {
+async function diagnoseAdapters(orchDir: OrchDir, settings: OrchSettings, logger: Services["logger"], adapters: readonly AdapterId[]): Promise<void> {
   // Validate each selected (installed) adapter through its own provider port.
   for (const id of adapters) {
     const adapter = resolveAdapter(id);
@@ -214,7 +215,7 @@ async function configureNotifiers(services: Pick<Services, "orchDir" | "logger">
 /** The plain-language line for a command that needs a recorded setup when there is no TTY to walk
  * the wizard on. Names what is missing, the file, and the exact command that fixes it — a refusal
  * to proceed is communicated, never thrown as a stack trace. */
-export function setupRequiredMessage(orchDir: string): string {
+export function setupRequiredMessage(orchDir: OrchDir): string {
   // The accepted ids are compile-time constants, so the message lists them rather than printing
   // <id> and leaving the reader to go find them.
   return `orch is not set up yet - no harness/backend recorded in ${settingsPath(orchDir)}.\n`

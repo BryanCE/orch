@@ -1,18 +1,19 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { readFileSync } from "node:fs";
+
+
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { SETTINGS_FILE_SCHEMA, settingsPath } from "../src/settings/schema.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFullTree } from "../src/settings/write.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
-function tempDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-settings-registry-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-settings-registry-");
   dirs.push(directory);
   return directory;
 }

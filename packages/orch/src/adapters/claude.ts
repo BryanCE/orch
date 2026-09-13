@@ -15,7 +15,7 @@ import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, HarnessModel, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { CheckResult } from "../types/doctor.ts";
-import type { Logger } from "../types/core.ts";
+import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
@@ -41,7 +41,7 @@ function stateFrom(value: unknown): AgentState {
   return isAgentState(value) ? value : "unknown";
 }
 
-function presenceFor(key: string, orchDir: string): PresenceEntry | undefined {
+function presenceFor(key: string, orchDir: OrchDir): PresenceEntry | undefined {
   return loadPresence(orchDir).get(key);
 }
 
@@ -79,7 +79,7 @@ function pruneStaleShimHooks(list: unknown[], command: string): { list: unknown[
 }
 
 /** Wire the presence hook shim into ~/.claude/settings.json without disturbing unrelated hooks. */
-function installClaudeHooks(orchDir: string, settings: OrchSettings, logger: Logger, pkgRoot: string): void {
+function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Logger, pkgRoot: string): void {
   const claudeDir = path.join(HOME, ".claude");
   const claudeSettingsPath = path.join(claudeDir, "settings.json");
   let fileSettings: Record<string, unknown>;
@@ -161,7 +161,7 @@ function registeredHookCommands(settings: Record<string, unknown>, event: string
 }
 
 /** Events whose orch hook is unregistered or left over from a build under another runtime. */
-function staleHookEvents(settings: Record<string, unknown>, shim: string, runtime: OrchRuntime, orchDir: string): string[] {
+function staleHookEvents(settings: Record<string, unknown>, shim: string, runtime: OrchRuntime, orchDir: OrchDir): string[] {
   return CLAUDE_HOOK_EVENTS.filter((event) =>
     !registeredHookCommands(settings, event).includes(claudeHookCommand(shim, event, runtime, orchDir)));
 }
@@ -176,14 +176,14 @@ class ClaudeAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = {
-    installShim: (orchDir: string, settings: OrchSettings, logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, settings, logger, opts),
-    diagnoseShim: (orchDir: string, settings: OrchSettings, logger: Logger): CheckResult => this.diagnoseShim(orchDir, settings, logger),
+    installShim: (orchDir: OrchDir, settings: OrchSettings, logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, settings, logger, opts),
+    diagnoseShim: (orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult => this.diagnoseShim(orchDir, settings, logger),
   };
   readonly defaultModel = null;
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = null;
   readonly bridge = null;
-  readonly presenceRegistration = { isRegistered: (key: string, orchDir: string): boolean => loadPresence(orchDir).has(key) };
+  readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => loadPresence(orchDir).has(key) };
 
   /** State is authoritative only when the Claude settings hooks are installed. */
   readonly hookDriven = true;
@@ -215,7 +215,7 @@ class ClaudeAdapter implements AgentAdapter {
   }
 
   /** Read the status written by Claude's SessionStart/Stop/Notification hooks. */
-  detectState(input: ClaudeStateDetectionInput, orchDir: string): AgentState {
+  detectState(input: ClaudeStateDetectionInput, orchDir: OrchDir): AgentState {
     const presence = presenceFor(input.key, orchDir);
     if (presence) {
       const status = statusForPresence(presence);
@@ -239,7 +239,7 @@ class ClaudeAdapter implements AgentAdapter {
   }
 
   /** Prefer hook results.jsonl, then Claude transcript JSONL, then native output. */
-  extractResult(input: ClaudeResultExtractionInput, orchDir: string): string | undefined {
+  extractResult(input: ClaudeResultExtractionInput, orchDir: OrchDir): string | undefined {
     const presence = presenceFor(input.key, orchDir);
     const result = presence?.result;
     const resultText = textValue(isRecord(result) ? result.text : undefined);
@@ -268,12 +268,12 @@ class ClaudeAdapter implements AgentAdapter {
    *  definitions — every dispatch goes through orch itself. Skills are not installed
    *  here either: they are read by every harness, so setup writes them once into the
    *  configured roots rather than once per adapter. */
-  installShim(orchDir: string, settings: OrchSettings, logger: Logger, _opts?: ShimInstallOpts): void {
+  installShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger, _opts?: ShimInstallOpts): void {
     installClaudeHooks(orchDir, settings, logger, packageRoot());
   }
 
   /** Verify the same Claude hook entries written by installShim. */
-  diagnoseShim(orchDir: string, settings: OrchSettings, logger: Logger): CheckResult {
+  diagnoseShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult {
     const settingsPath = path.join(HOME, ".claude", "settings.json");
     const id = "claude-hooks";
     const label = "Claude hooks shim";

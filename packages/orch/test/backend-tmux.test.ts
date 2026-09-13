@@ -1,11 +1,10 @@
-import * as fs from "node:fs";
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { projectRoot } from "../src/util.ts";
 import { ENVIRONMENT_ENV } from "../src/agent/environment.ts";
 
@@ -145,7 +144,7 @@ const { foregroundOf } = await import("../src/commands/lifecycle/reload.ts");
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
 const originalTmuxEnv = process.env.TMUX;
-const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-tmux-"));
+const testOrchDir: OrchDir = tempOrchDir("orch-backend-tmux-");
 
 const fakeAdapter = makeFakeAdapter();
 
@@ -462,20 +461,20 @@ describe("an agent is launched with its fleet's project scope (1.13)", () => {
   // Without ORCH_PROJECT the worker resolves projectRoot() to its own cwd, and in a
   // worktree that is not the fleet's project - peers.ts then walls it out of its own fleet.
   test("a tmux agent in a worktree carries the FLEET's project, not its own cwd", () => {
-    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent1", cwd: WORKTREE, group: "@1", split: "right", orchDir: "/orch" });
+    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent1", cwd: WORKTREE, group: "@1", split: "right", orchDir: orchDirAt("/orch") });
 
     expect(launchEnv("split-window")).toContain(`ORCH_PROJECT=${FLEET_PROJECT}`);
     expect(launchEnv("split-window")).not.toContain(`ORCH_PROJECT=${WORKTREE}`);
   });
 
   test("a tmux agent opened in a fresh window carries it too", () => {
-    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent2", cwd: WORKTREE, orchDir: "/orch" });
+    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent2", cwd: WORKTREE, orchDir: orchDirAt("/orch") });
 
     expect(launchEnv("new-window")).toContain(`ORCH_PROJECT=${FLEET_PROJECT}`);
   });
 
   test("an empty value is dropped rather than exported as a configured blank", () => {
-    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent3", cwd: WORKTREE, group: "@1", orchDir: "" });
+    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent3", cwd: WORKTREE, group: "@1", orchDir: orchDirAt("") });
 
     expect(launchEnv("split-window").some((entry) => entry.startsWith("ORCH_DIR="))).toBe(false);
   });

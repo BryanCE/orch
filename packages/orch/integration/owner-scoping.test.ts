@@ -2,8 +2,7 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { allAdapters } from "../src/adapters/registry.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
@@ -15,7 +14,7 @@ import { orm } from "../src/store/connection.ts";
 import { callerOwnerToken } from "../src/commands/target.ts";
 import { selfId } from "../src/identity/self.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "../test/helpers/backend.ts";
 import { fakeAdapter } from "../test/helpers/adapter.ts";
 import { seedSpace } from "../test/helpers/space.ts";
@@ -27,12 +26,13 @@ import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
 import { withExitCode } from "../test/helpers/exit-code.ts";
 import { testServices } from "../test/helpers/services.ts";
 
+import type { OrchDir } from "../src/types/core.ts";
 const fixtureSettings = {
   enabled: { adapters: ["pi"], backends: ["headless"] },
   defaults: { adapter: "pi", backend: "headless" },
 };
 const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const children: ChildProcess[] = [];
 /** Processes started as nobody's child (see {@link spawnOrphanSleeper}), killed after each test. */
 const orphans: number[] = [];
@@ -66,15 +66,15 @@ beforeEach(() => {
   isolateOrchEnv();
 });
 
-function makeDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-owner-scope-"));
+function makeDir(): OrchDir {
+  const dir = tempOrchDir("orch-owner-scope-");
   dirs.push(dir);
   writeSettingsFixture(dir, fixtureSettings);
   process.env.ORCH_DIR = dir;
   return dir;
 }
 
-function recordProcess(dir: string, key: string, pid: number, startToken: string): void {
+function recordProcess(dir: OrchDir, key: string, pid: number, startToken: string): void {
   const db = orm(dir);
   db.run(sql`INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)`);
   db.run(sql`INSERT OR IGNORE INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)`);
@@ -82,7 +82,7 @@ function recordProcess(dir: string, key: string, pid: number, startToken: string
   db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
 }
 
-function runCli(dir: string, args: string[], owner?: string, extraEnv?: Record<string, string>): { status: number | null; output: string } {
+function runCli(dir: OrchDir, args: string[], owner?: string, extraEnv?: Record<string, string>): { status: number | null; output: string } {
   const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: dir };
   if (owner === undefined) delete env.ORCH_OWNER;
   else env.ORCH_OWNER = owner;

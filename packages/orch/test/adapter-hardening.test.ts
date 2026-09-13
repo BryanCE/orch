@@ -1,5 +1,5 @@
+import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, test } from "bun:test";
 import { piAdapter } from "../src/adapters/pi.ts";
@@ -12,10 +12,10 @@ import { testServices } from "./helpers/services.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 
-const temp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "orch-hardening-"));
+const temp = (): OrchDir => tempOrchDir("orch-hardening-");
 
 describe("adapter and runtime hardening", () => {
   test("malformed or empty adapter output never throws and yields no result", () => {
@@ -58,7 +58,7 @@ describe("adapter and runtime hardening", () => {
       // The caller mints the identity BEFORE launch (one key per agent); the
       // backend never generates a fallback key of its own.
       expect(() => backend.spawn(adapter, { orchDir: directory })).toThrow(/caller-minted presence key/);
-      expect(backend.handleLookup.handleFor(directory, "any-key")).toBeUndefined();
+      expect(backend.handleLookup.handleFor("any-key", directory)).toBeUndefined();
     } finally {
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;

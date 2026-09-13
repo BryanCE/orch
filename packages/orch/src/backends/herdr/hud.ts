@@ -17,6 +17,7 @@ import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import { isUnknownArray, optionalString, truncate } from "../../util.ts";
 import type { BridgeNotifyEvent, PaneLabels, PaneStatusSnapshot } from "../../types/plexer.ts";
+import type { OrchDir } from "../../types/core.ts";
 
 const HERDR_METADATA_SOURCE = "orch:bridge";
 const CUSTOM_STATUS_MAX = 32;
@@ -56,7 +57,7 @@ function herdrSocketPath(): string | undefined {
  * an agent that moved kept writing into a pane it had left. Environment is
  * mutable, so it is asked for on every call and never frozen at import.
  */
-export function herdrPaneHandle(id: string | null, orchDir: string): string | null {
+export function herdrPaneHandle(id: string | null, orchDir: OrchDir): string | null {
   // An id that is not minted names no agent orch registered, so there is no
   // environment to compose — never a pane handle to fall back on.
   if (!isAgentId(id)) return null;
@@ -78,7 +79,7 @@ export function herdrPaneHandle(id: string | null, orchDir: string): string | nu
  * internally, so selecting this provider never grants more than each function
  * already allowed itself.
  */
-export function herdrHudActive(id: string | null, orchDir: string): boolean {
+export function herdrHudActive(id: string | null, orchDir: OrchDir): boolean {
   return herdrPaneHandle(id, orchDir) !== null;
 }
 
@@ -112,7 +113,7 @@ function sendHerdrMetadata(paneId: string, customStatus: string): void {
  * emits when this process owns the herdr pane it would report against and the
  * derived status line actually changed.
  */
-export function createPaneStatusReporter(id: string | null, paneId: string | null, orchDir: string): (snapshot: PaneStatusSnapshot) => void {
+export function createPaneStatusReporter(id: string | null, paneId: string | null, orchDir: OrchDir): (snapshot: PaneStatusSnapshot) => void {
   let lastCustomStatus: string | undefined;
 
   // Report only against the pane this process actually occupies right now: a
@@ -197,7 +198,7 @@ function findPaneTab(tabs: unknown, pane: HerdrEntityLike | undefined): HerdrEnt
  * status write entirely; a lookup that fails leaves the previous labels in
  * place but still reports true.
  */
-export async function readPaneLabels(id: string | null, apply: (labels: PaneLabels) => void, orchDir: string): Promise<boolean> {
+export async function readPaneLabels(id: string | null, apply: (labels: PaneLabels) => void, orchDir: OrchDir): Promise<boolean> {
   const handle = herdrPaneHandle(id, orchDir);
   if (handle === null) return false;
   try {

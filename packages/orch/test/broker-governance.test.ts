@@ -1,8 +1,6 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { governWrite as daemonGovernWrite } from "../src/daemon/orchd.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { withTransaction, orm } from "../src/store/connection.ts";
@@ -13,16 +11,16 @@ import { processStartToken } from "../src/process-identity.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
 
-const dirs: string[] = [];
-function freshDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-gov-"));
+const dirs: OrchDir[] = [];
+function freshDir(): OrchDir {
+  const dir = tempOrchDir("orch-gov-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
   ensureHost(dir, "host", "host", "linux", 1);
   return dir;
 }
 
-function governWrite(directory: string, target: string, params: unknown): void {
+function governWrite(directory: OrchDir, target: string, params: unknown): void {
   const services = testServices({ orchDir: directory, settings: null });
   daemonGovernWrite({
     services,
@@ -41,12 +39,12 @@ function governWrite(directory: string, target: string, params: unknown): void {
 }
 
 /** Identity and nothing else: a minted id, with no environment welded into it. */
-function agent(dir: string, id: string): void {
+function agent(dir: OrchDir, id: string): void {
   insertAgent(dir, { id, name: id, spawnedBy: null, harnessId: "pi", cwd: dir, createdAt: 1 });
 }
 
 /** An orch whose recorded process instance is this test process: provably alive. */
-function liveOrch(dir: string, id: string): void {
+function liveOrch(dir: OrchDir, id: string): void {
   agent(dir, id);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
@@ -54,13 +52,13 @@ function liveOrch(dir: string, id: string): void {
 }
 
 /** An orch with a recorded process that is provably NOT this process instance. */
-function deadOrch(dir: string, id: string): void {
+function deadOrch(dir: OrchDir, id: string): void {
   agent(dir, id);
   orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${"not-this-process-instance"})`);
 }
 
 /** Environment is a satellite of the identity, on its own timeline. */
-function placeIn(dir: string, id: string, space: string): void {
+function placeIn(dir: OrchDir, id: string, space: string): void {
   orm(dir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, ${1})`);
   setSpace(dir, id, 1, space);
 }

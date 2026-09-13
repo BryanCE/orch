@@ -29,6 +29,7 @@ import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
 import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidNonOperatorOverride } from "./target.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
+import type { OrchDir } from "../types/core.ts";
 import type { OrchDirService, Services } from "../types/services.ts";
 
 export function validDaemonStatus(value: unknown): value is DaemonStatus {
@@ -41,13 +42,13 @@ export function validDaemonStatus(value: unknown): value is DaemonStatus {
     && (value.tcpEndpoint === undefined || typeof value.tcpEndpoint === "string");
 }
 
-async function fetchDaemonStatus(orchDir: string, timeoutMs = 5000): Promise<DaemonStatus> {
+async function fetchDaemonStatus(orchDir: OrchDir, timeoutMs = 5000): Promise<DaemonStatus> {
   const result = await rpcCall(orchDir, "daemon-status", undefined, timeoutMs);
   if (!validDaemonStatus(result)) throw new Error("orchd returned an invalid status");
   return result;
 }
 
-async function waitForDaemon(orchDir: string, previousStartedAt?: string): Promise<DaemonStatus> {
+async function waitForDaemon(orchDir: OrchDir, previousStartedAt?: string): Promise<DaemonStatus> {
   const deadline = Date.now() + 5000;
   return retryingAsync(
     "wait for orchd",
@@ -122,7 +123,7 @@ export async function writeRpc(services: Pick<Services, "orchDir" | "settings" |
   }
 }
 
-async function startDaemon(orchDir: string, logger: Services["logger"], foreground: boolean, json = false): Promise<void> {
+async function startDaemon(orchDir: OrchDir, logger: Services["logger"], foreground: boolean, json = false): Promise<void> {
   const directory = orchDir;
   const global = liveDaemonRegistration();
   if (global && path.resolve(global.orchDir) !== path.resolve(directory)) {
@@ -158,7 +159,7 @@ async function startDaemon(orchDir: string, logger: Services["logger"], foregrou
   else process.stdout.write(`started (pid ${status.pid})\n`);
 }
 
-async function stopDaemon(orchDir: string, json = false): Promise<void> {
+async function stopDaemon(orchDir: OrchDir, json = false): Promise<void> {
   const directory = orchDir;
   const lockPid = daemonLockPid(directory);
   if (!lockPid || !pidAlive(lockPid)) {
@@ -181,7 +182,7 @@ function reportDaemonDown(json: boolean, reason: string): void {
   process.exitCode = 1;
 }
 
-async function statusDaemon(orchDir: string, json: boolean): Promise<void> {
+async function statusDaemon(orchDir: OrchDir, json: boolean): Promise<void> {
   try {
     const status = await fetchDaemonStatus(orchDir);
     if (json) process.stdout.write(`${JSON.stringify(status)}\n`);
@@ -194,7 +195,7 @@ async function statusDaemon(orchDir: string, json: boolean): Promise<void> {
   }
 }
 
-async function reloadDaemon(orchDir: string, json = false): Promise<void> {
+async function reloadDaemon(orchDir: OrchDir, json = false): Promise<void> {
   const before = await fetchDaemonStatus(orchDir);
   await rpcCall(orchDir, "reload");
   const after = await waitForDaemon(orchDir, before.startedAt);

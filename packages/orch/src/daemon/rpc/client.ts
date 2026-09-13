@@ -1,3 +1,4 @@
+import type { OrchDir } from "../../types/core.ts";
 import { createConnection, type Socket } from "node:net";
 import { existsSync } from "node:fs";
 import { readPortPath } from "../../presence/socket-client.ts";
@@ -100,7 +101,7 @@ function stayedSilent(outcome: Socket | DialSilence): outcome is DialSilence {
  *  into a multi-second stall. A slow orchd is handled by giving the CALL a budget that
  *  matches its work. Absent only when BOTH endpoints proved nothing is listening —
  *  otherwise the daemon is merely unreachable and may be perfectly healthy. */
-async function connectDaemon(orchDir: string, timeoutMs: number): Promise<Socket> {
+async function connectDaemon(orchDir: OrchDir, timeoutMs: number): Promise<Socket> {
   const paths = endpointPaths(orchDir);
   const unix = await dialEndpoint(paths.socket, timeoutMs);
   if (!stayedSilent(unix)) return unix;
@@ -136,7 +137,7 @@ function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise
 }
 /** Make one request, probing the unix socket before the loopback-TCP port file. */
 export async function rpcCall(
-  orchDir: string,
+  orchDir: OrchDir,
   method: string,
   params?: unknown,
   timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -163,7 +164,7 @@ export async function rpcCall(
  * alive.
  */
 export function subscribeEvents(
-  orchDir: string,
+  orchDir: OrchDir,
   opts: { since?: number },
   onEvent: (event: unknown, seq: number) => void,
   onGap?: (oldestSeq: number) => void,

@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { ensurePrivateDir, errorMessage } from "../util.ts";
 import { namesSettingsFile } from "./schema.ts";
 import type { SettingsWatch, SettingsWatchOptions } from "../types/settings.ts";
+import type { SettingsManager } from "../types/services.ts";
 
 /** Manual reload trigger: touching this file reloads settings without editing it. */
 export const RELOAD_SIGNAL_FILE = "reload.signal";
@@ -24,8 +25,11 @@ export function triggersReload(filename: string | Buffer | null | undefined): bo
  * An invalid edit keeps the last-good settings and warns once per distinct failure
  * — a settings file saved broken mid-edit must not spam the log on every keystroke.
  */
-export function watchSettings(file: string, opts: SettingsWatchOptions): SettingsWatch {
+/** Watches the file the manager reads. Taking the manager, not a path, is what keeps an
+ *  orch dir from being handed in as the file: the watch then guards the dir's parent. */
+export function watchSettings(settings: Pick<SettingsManager, "file">, opts: SettingsWatchOptions): SettingsWatch {
   const { onChange, onWarn } = opts;
+  const file = settings.file;
   const directory = dirname(file);
   const debounceMs = opts.debounceMs ?? 250;
   const pollMs = opts.pollMs ?? 5_000;

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { asc } from "drizzle-orm";
@@ -16,7 +17,7 @@ interface MissingScope {
 /** A task whose scope names something the store no longer holds. One pass per
  *  axis, because the three scopes are three different references — a UNION of
  *  three selects said the same thing with three chances to mistype a column. */
-function missingScopes(orchDir: string): MissingScope[] {
+function missingScopes(orchDir: OrchDir): MissingScope[] {
   const db = orm(orchDir);
   const agentIds = new Set(db.select({ id: agents.id }).from(agents).all().map((row) => row.id));
   const spaceIds = new Set(db.select({ id: spaces.id }).from(spaces).all().map((row) => row.id));
@@ -43,7 +44,7 @@ function taskLine(task: TaskRec): string {
 }
 
 /** Surface unrunnable and stale work without attaching any automatic fix. */
-export function checkUnrunnableTasks(orchDir: string): CheckResult {
+export function checkUnrunnableTasks(orchDir: OrchDir): CheckResult {
   if (!existsSync(join(orchDir, "orch.db"))) {
     return { id: "unrunnable-tasks", label: "Unrunnable queue tasks", status: "ok", detail: "no queue" };
   }

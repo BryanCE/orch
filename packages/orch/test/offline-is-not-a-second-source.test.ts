@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fleetStatusRows } from "../src/commands/status.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { testServices } from "./helpers/services.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 /**
  * The DESIGN question was whether `orch status --offline`
@@ -26,7 +26,7 @@ import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
  * narrower view of the one.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const oldDir = process.env.ORCH_DIR;
 
 afterEach(() => {
@@ -35,15 +35,15 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-offline-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-offline-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   return dir;
 }
 
 /** A presence record; `alive` registers the agent with this runner as its recorded process. */
-function seedPresence(root: string, key: string, alive: boolean, state: string): void {
+function seedPresence(root: OrchDir, key: string, alive: boolean, state: string): void {
   if (alive) {
     seedAgent(key, {}, root);
     seedLiveProcess(root, key);
@@ -53,7 +53,7 @@ function seedPresence(root: string, key: string, alive: boolean, state: string):
   writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, agent: "pi", state }));
 }
 
-function noSettings(root: string): OrchSettings {
+function noSettings(root: OrchDir): OrchSettings {
   return testServices({ orchDir: root, settings: {} }).settings.current();
 }
 

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { NOTIFY_DEFAULT_ON } from "../settings/schema.ts";
@@ -24,7 +25,7 @@ export function checkNotifications(_bins: BinaryStatus): CheckResult {
 }
 
 /** Validate configured notifier entries and probe each adapter in isolation. */
-export async function checkNotifiers(orchDir: string, settings: OrchSettings | null): Promise<CheckResult> {
+export async function checkNotifiers(orchDir: OrchDir, settings: OrchSettings | null): Promise<CheckResult> {
   const id = "notifiers";
   const label = "Notifiers";
   let configured: NotifyEntry[];

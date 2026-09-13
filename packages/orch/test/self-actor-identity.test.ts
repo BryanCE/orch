@@ -1,21 +1,22 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
+
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { agentIdBySessionToken, getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
-function store(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-actor-"));
+function store(): OrchDir {
+  const dir = tempOrchDir("orch-actor-");
   dirs.push(dir);
   orm(dir);
   return dir;
 }
 
-function register(dir: string, sessionToken: string | null, pid: number) {
+function register(dir: OrchDir, sessionToken: string | null, pid: number) {
   return getOrCreateSessionAgent(dir, {
     pid, startToken: `tok-${pid}`, sessionToken, harnessId: "claude", cwd: "/w",
     label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,

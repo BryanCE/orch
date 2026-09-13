@@ -1,3 +1,4 @@
+import type { OrchDir } from "./types/core.ts";
 import { randomUUID } from "node:crypto";
 import { agentById } from "./store/agent-rows.ts";
 import { currentSpace } from "./store/interval-rows.ts";
@@ -51,7 +52,7 @@ export function isTaskOptions(value: unknown): value is TaskOptions {
   return true;
 }
 
-function mapTask(orchDir: string, row: TaskRow, knownState?: TaskState): TaskRec {
+function mapTask(orchDir: OrchDir, row: TaskRow, knownState?: TaskState): TaskRec {
   if (!isTaskOptions(row.opts)) throw new Error(`Malformed task options for task ${row.id}`);
   const attempts = attemptsOf(orchDir, row.id).map(mapAttempt);
   const newest = attempts.at(-1);
@@ -74,7 +75,7 @@ function mapTask(orchDir: string, row: TaskRow, knownState?: TaskState): TaskRec
   };
 }
 
-export function requireTask(orchDir: string, id: string): TaskRec {
+export function requireTask(orchDir: OrchDir, id: string): TaskRec {
   const row = taskById(orchDir, id);
   if (!row) throw new Error(`Unknown queue task: ${id}`);
   return mapTask(orchDir, row);
@@ -83,7 +84,7 @@ export function requireTask(orchDir: string, id: string): TaskRec {
 /** Packs an agent may put work into: the one it is a member of, plus every pack
  *  it currently holds a live agent in. Adoption earns the right; provenance on
  *  its own never grants it (Cq1). */
-export function packsOpenTo(orchDir: string, enqueuer: AgentRow): Set<string> {
+export function packsOpenTo(orchDir: OrchDir, enqueuer: AgentRow): Set<string> {
   const packs = new Set([enqueuer.rootAgentId]);
   for (const lease of leasesByOrch(orchDir, enqueuer.id)) {
     const held = agentById(orchDir, lease.agentId);
@@ -93,11 +94,11 @@ export function packsOpenTo(orchDir: string, enqueuer: AgentRow): Set<string> {
 }
 
 /** The space an agent is in right now, or null when it is in none. */
-export function spaceOf(orchDir: string, agentId: string): string | null {
+export function spaceOf(orchDir: OrchDir, agentId: string): string | null {
   return currentSpace(orchDir, agentId)?.spaceId ?? null;
 }
 
-function selectedScope(orchDir: string, enqueuedBy: string, selection: TaskScopeSelection) {
+function selectedScope(orchDir: OrchDir, enqueuedBy: string, selection: TaskScopeSelection) {
   const enqueuer = agentById(orchDir, enqueuedBy);
   if (!enqueuer) throw new Error(`Unknown task enqueuer: ${enqueuedBy}`);
   const chosen = [selection.agentId, selection.packId, selection.spaceId].filter((value) => value !== undefined);
@@ -126,7 +127,7 @@ function selectedScope(orchDir: string, enqueuedBy: string, selection: TaskScope
 
 /** Only the pack's own holder may speak for it. Same right as pack-scoped
  *  enqueue: membership, or a live lease on one of its members. */
-function requirePackRight(orchDir: string, packId: string, byAgentId: string): void {
+function requirePackRight(orchDir: OrchDir, packId: string, byAgentId: string): void {
   const actor = agentById(orchDir, byAgentId);
   if (!actor || actor.ending != null) throw new Error(`Unknown live agent: ${byAgentId}`);
   if (!packsOpenTo(orchDir, actor).has(packId)) {
@@ -135,14 +136,14 @@ function requirePackRight(orchDir: string, packId: string, byAgentId: string): v
 }
 
 /** Every intake a pack has ever recorded, open and closed, oldest first. */
-export function packIntakes(orchDir: string, packId: string): PackIntakeRec[] {
+export function packIntakes(orchDir: OrchDir, packId: string): PackIntakeRec[] {
   return intakesOf(orchDir, packId);
 }
 
 /** The consuming half of space scope (Cq3). Publishing into a space is only an
  *  offer; a pack takes work from that pool only once its holder opts it in. */
 export function openPackIntake(
-  orchDir: string,
+  orchDir: OrchDir,
   packId: string,
   spaceId: string,
   byAgentId: string,
@@ -155,7 +156,7 @@ export function openPackIntake(
 
 /** Withdraw a pack's consent. The offer stands; this pack stops consuming it. */
 export function closePackIntake(
-  orchDir: string,
+  orchDir: OrchDir,
   packId: string,
   spaceId: string,
   byAgentId: string,
@@ -170,7 +171,7 @@ export function closePackIntake(
 
 /** Enqueue into one typed scope. No explicit scope means the enqueuer's pack. */
 export function addTask(
-  orchDir: string,
+  orchDir: OrchDir,
   text: string,
   opts: TaskOptions = {},
   enqueuedBy: string,
@@ -181,16 +182,16 @@ export function addTask(
   return requireTask(orchDir, id);
 }
 
-export function listTasks(orchDir: string): TaskRec[] {
+export function listTasks(orchDir: OrchDir): TaskRec[] {
   return allTasks(orchDir).map((row) => mapTask(orchDir, row, row.state));
 }
 
-export function history(orchDir: string): TaskRec[] {
+export function history(orchDir: OrchDir): TaskRec[] {
   return listTasks(orchDir).filter((task) => task.state === "done" || task.state === "failed" || task.state === "cancelled");
 }
 
 export function cancelTask(
-  orchDir: string,
+  orchDir: OrchDir,
   id: string,
   cancelledBy: string,
   options: { human?: boolean } = {},
@@ -208,7 +209,7 @@ export function cancelTask(
 
 /** Edit task text/options only as its enqueuer and only before the first claim. */
 export function editTask(
-  orchDir: string,
+  orchDir: OrchDir,
   id: string,
   editedBy: string,
   changes: { text?: string; opts?: unknown },
@@ -223,7 +224,7 @@ export function editTask(
 }
 
 /** Take an orphaned task onto the taker's existing pack. */
-export function takeOnTask(orchDir: string, id: string, takerId: string): TaskRec {
+export function takeOnTask(orchDir: OrchDir, id: string, takerId: string): TaskRec {
   const taker = agentById(orchDir, takerId);
   if (!taker || taker.ending != null) throw new Error(`Unknown live task taker: ${takerId}`);
   rescopeTask(orchDir, id, taker.rootAgentId);
@@ -231,7 +232,7 @@ export function takeOnTask(orchDir: string, id: string, takerId: string): TaskRe
 }
 
 /** Reap is an explicit resolution for an unrunnable task, never a timer. */
-export function reapTask(orchDir: string, id: string, _byAgentId?: string): boolean {
+export function reapTask(orchDir: OrchDir, id: string, _byAgentId?: string): boolean {
   return deleteUnrunnableTask(orchDir, id);
 }
 
@@ -242,7 +243,7 @@ function agentMayClaim(task: TaskRec, agentId: string): boolean {
 }
 
 /** A claim is the attempt INSERT. A unique-index collision is the expected lost race. */
-export function claimTask(orchDir: string, id: string, agentId: string, dispatchId: string): boolean {
+export function claimTask(orchDir: OrchDir, id: string, agentId: string, dispatchId: string): boolean {
   const task = requireTask(orchDir, id);
   if ((task.state !== "queued" && task.state !== "failed") || !agentMayClaim(task, agentId)) return false;
   const eligible = openTasksInScope(orchDir, { agentId }).some((row) => row.id === id)
@@ -258,7 +259,7 @@ export function claimTask(orchDir: string, id: string, agentId: string, dispatch
   }
 }
 
-function scopeIncludesAgent(orchDir: string, task: TaskRec, agentId: string): boolean {
+function scopeIncludesAgent(orchDir: OrchDir, task: TaskRec, agentId: string): boolean {
   const agent = agentById(orchDir, agentId);
   if (!agent || agent.ending) return false;
   if (task.scopeAgentId !== null) return task.scopeAgentId === agentId;
@@ -270,7 +271,7 @@ function scopeIncludesAgent(orchDir: string, task: TaskRec, agentId: string): bo
 }
 
 /** FIFO selection among tasks claimable by this agent under scope and retry policy. */
-export function nextQueuedTask(orchDir: string, agentId: string, maxRetries: number, knownTasks?: TaskRec[]): TaskRec | undefined {
+export function nextQueuedTask(orchDir: OrchDir, agentId: string, maxRetries: number, knownTasks?: TaskRec[]): TaskRec | undefined {
   return (knownTasks ?? listTasks(orchDir))
     .filter((task) => (task.state === "queued" || task.state === "failed") && scopeIncludesAgent(orchDir, task, agentId))
     .filter((task) => task.attempts.length < maxRetries + 1)
@@ -287,14 +288,14 @@ function openAttempt(task: TaskRec): TaskAttemptRec {
   return attempt;
 }
 
-export function recordTaskDone(orchDir: string, id: string, result?: unknown): TaskRec {
+export function recordTaskDone(orchDir: OrchDir, id: string, result?: unknown): TaskRec {
   const task = requireTask(orchDir, id);
   const attempt = openAttempt(task);
   settleAttempt(orchDir, id, attempt.since, Math.max(Date.now(), attempt.since + 1), "done", { result });
   return requireTask(orchDir, id);
 }
 
-export function recordTaskFailure(orchDir: string, id: string, error: string): TaskRec {
+export function recordTaskFailure(orchDir: OrchDir, id: string, error: string): TaskRec {
   const task = requireTask(orchDir, id);
   const attempt = openAttempt(task);
   settleAttempt(orchDir, id, attempt.since, Math.max(Date.now(), attempt.since + 1), "failed", { error });

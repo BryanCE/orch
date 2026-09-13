@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { fleetStatusRows, renderStatusTable, statusRowFromEntity } from "../src/commands/status.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { StatusRow } from "../src/types/command.ts";
-import type { Entity } from "../src/types/core.ts";
+import type { Entity, OrchDir } from "../src/types/core.ts";
 import { testServices } from "./helpers/services.ts";
 function row(overrides: Partial<StatusRow> = {}): StatusRow {
   const base: StatusRow = {
@@ -24,7 +23,7 @@ function row(overrides: Partial<StatusRow> = {}): StatusRow {
 }
 
 const oldOrchDir = process.env.ORCH_DIR;
-const tempDirs: string[] = [];
+const tempDirs: OrchDir[] = [];
 
 afterEach(() => {
   if (oldOrchDir === undefined) delete process.env.ORCH_DIR;
@@ -46,7 +45,9 @@ function entityWithQuestion(): Entity {
 
 describe("status rendering has one row shape and one table renderer", () => {
   test("task and last text use the same spelling in the row and table cell", () => {
-    const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), undefined, {}, null, "/tmp");
+    const directory = tempOrchDir("orch-status-row-shape-");
+    tempDirs.push(directory);
+    const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), undefined, {}, null, directory);
     const table = renderStatusTable([statusRow], { showSpace: false, showOwner: false, showBranch: false }, { host: false, columns: new Set() });
     expect(statusRow.task).toBe("Q: approve");
     expect(table).toContain("Q: approve");
@@ -66,7 +67,7 @@ describe("status rendering has one row shape and one table renderer", () => {
   });
 
   test("fleet resolves caller inputs once while building three presence rows", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-status-rows-"));
+    const root = tempOrchDir("orch-status-rows-");
     tempDirs.push(root);
     process.env.ORCH_DIR = root;
     for (const key of ["fleet00001", "fleet00002", "fleet00003"]) {

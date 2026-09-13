@@ -11,7 +11,7 @@ import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { callerOwnerToken, die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
 import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
-import type { Logger } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import { homeHandle, openHome } from "../../store/home-rows.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../types/command.ts";
 import type { HomeSubject } from "../../types/backend.ts";
@@ -98,7 +98,7 @@ export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
 // launch credential — the name and the backend handle are recorded
 // beside it as plain fields, never folded into it. The caller owns error policy
 // (warn-and-continue vs die); this throws on backend failure.
-export function spawnOneIntoTab(orchDir: string, spec: TabSpawnSpec): CreatedAgent {
+export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAgent {
   assertNameFree(orchDir, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
   const spawner = spawnerIdentity(orchDir);
@@ -146,12 +146,12 @@ export function spawnOneIntoTab(orchDir: string, spec: TabSpawnSpec): CreatedAge
  *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
  *  is tiling one agent at a time — the balance only holds while every agent is
  *  placed by the same planner reading the same layout. */
-export function tileAgentIntoGroup(orchDir: string, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): CreatedAgent {
+export function tileAgentIntoGroup(orchDir: OrchDir, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): CreatedAgent {
   return spawnOneIntoTab(orchDir, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(orchDir: string, settings: SpawnSettings, name: string, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
+function placeAgent(orchDir: OrchDir, settings: SpawnSettings, name: string, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
   return tileAgentIntoGroup(orchDir, {
     backend,
@@ -176,7 +176,7 @@ function placeAgent(orchDir: string, settings: SpawnSettings, name: string, spac
 
 /** Fill a group with named agents. An agent that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-export function growFleetIntoGroup(orchDir: string, logger: Logger, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent[] {
+export function growFleetIntoGroup(orchDir: OrchDir, logger: Logger, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent[] {
   const created: CreatedAgent[] = [];
   for (const name of names) {
     try {

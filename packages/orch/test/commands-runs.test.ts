@@ -1,7 +1,8 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { cmdRuns, renderRuns } from "../src/commands/runs.ts";
 import { cmdResult } from "../src/commands/results.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
@@ -11,7 +12,7 @@ import { orm } from "../src/store/connection.ts";
 import { setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
@@ -53,7 +54,7 @@ function capture(run: () => void): { stdout: string; stderr: string } {
 /** Seed one agent the way A1 stores it: a minted id in `agents`, with its space
  *  and pane handle as environment satellites of that id - never a wide row keyed
  *  by the pane. */
-function seedPresence(root: string, key: string): void {
+function seedPresence(root: OrchDir, key: string): void {
   const dir = presenceAgentDir(key, root);
   mkdirSync(dir, { recursive: true });
   ensureHarness(root, "pi", "pi", 1);
@@ -68,8 +69,8 @@ function seedPresence(root: string, key: string): void {
 
 describe("commands/runs", () => {
   test("lists newest first and honors -n", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-runs-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-runs-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = root;
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
@@ -83,8 +84,8 @@ describe("commands/runs", () => {
   });
 
   test("target filter and json preserve RunRecord rows", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-runs-target-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-runs-target-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = root;
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
@@ -102,8 +103,8 @@ describe("commands/runs", () => {
   });
 
   test("result falls back to durable run history after presence reap", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-result-history-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-result-history-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = root;
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });

@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { acquireLease, adoptLease, currentLease, expireLease, handoffLease, leasesByOrch, releaseLease } from "../src/store/lease-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 import { row, numberField } from "./helpers/rows.ts";
 import { isRecord } from "../src/util.ts";
+import type { OrchDir } from "../src/types/core.ts";
 interface LeaseHistoryRow {
   since: number;
   until: number | null;
@@ -43,10 +41,10 @@ function leaseRows(values: unknown[]): LeaseRow[] {
   return values;
 }
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), "orch-store-leases-")); dirs.push(dir);
+  const dir = tempOrchDir("orch-store-leases-"); dirs.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   for (const id of ["a", "b", "o1", "o2"]) db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${id},${"pi"},${"/tmp"},${id},${1})`);

@@ -18,7 +18,7 @@ import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
-import type { ExtensionName, Logger, SessionEntry, ToolCallContentBlock } from "../types/core.ts";
+import type { ExtensionName, Logger, OrchDir, SessionEntry, ToolCallContentBlock } from "../types/core.ts";
 
 /** pi's own config root, and the files under it orch reads or writes. */
 const PI_AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
@@ -114,12 +114,12 @@ export function toolPolicyArgv(
   return argv;
 }
 
-export function presenceFor(key: string, orchDir: string): PresenceEntry | undefined {
+export function presenceFor(key: string, orchDir: OrchDir): PresenceEntry | undefined {
   return loadPresence(orchDir).get(key);
 }
 
 /** The presence state a pi-shaped harness's bridge last wrote for this agent. */
-export function presenceAgentState(key: string, orchDir: string): AgentState {
+export function presenceAgentState(key: string, orchDir: OrchDir): AgentState {
   const presence = presenceFor(key, orchDir);
   return presence ? stateFrom(statusForPresence(presence)?.state) : "unknown";
 }
@@ -151,11 +151,11 @@ export function parsePiModelsOutput(output: string): readonly HarnessModel[] {
 /** Ask pi itself which authenticated models it can run. */
 const PI_MODELS_ARGV = ["--list-models"] as const;
 
-export function adapterLogger(orchDir: string): Logger {
+export function adapterLogger(orchDir: OrchDir): Logger {
   return decisionLogger(orchDir, fileSettingsManager(orchDir).currentOrNull());
 }
 
-function queryPiModels(orchDir: string): readonly HarnessModel[] {
+function queryPiModels(orchDir: OrchDir): readonly HarnessModel[] {
   return parsePiModelsOutput(readModelCatalogue(orchDir, adapterLogger(orchDir), "pi", PI_MODELS_ARGV));
 }
 
@@ -314,7 +314,7 @@ export function installExtensionLink(
 }
 
 /** results.jsonl first, then the last assistant entry of the session file. */
-export function resultFromPresenceOrSession(input: PiResultExtractionInput, orchDir: string): string | undefined {
+export function resultFromPresenceOrSession(input: PiResultExtractionInput, orchDir: OrchDir): string | undefined {
   const result = presenceFor(input.key, orchDir)?.result;
   if (isRecord(result) && typeof result.text === "string" && result.text.trim()) return result.text.trim();
   if (!input.sessionPath) return undefined;
@@ -379,8 +379,8 @@ export class PiAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = { preTrustWorkspace: (cwd: string, cmd: string): void => this.preTrustWorkspace(cwd, cmd) };
   readonly shim = {
-    installShim: (orchDir: string, _settings: OrchSettings, _logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
-    diagnoseShim: (orchDir: string, _settings: OrchSettings, _logger: Logger): CheckResult => this.diagnoseShim
+    installShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
+    diagnoseShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger): CheckResult => this.diagnoseShim
       ? this.diagnoseShim(orchDir)
       : { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi integration shim disabled" },
   };
@@ -388,7 +388,7 @@ export class PiAdapter implements AgentAdapter {
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = { warmModels: (): Promise<void> => this.warmModels() };
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
-  readonly presenceRegistration = { isRegistered: (key: string, orchDir: string): boolean => presenceFor(key, orchDir) !== undefined };
+  readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceFor(key, orchDir) !== undefined };
 
   /** Start pi directly in an interactive backend session. Worker options use the same
    * composition as restricted launches, so tile/spawn cannot silently drop extensions. */
@@ -417,7 +417,7 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** Read pi's authoritative status.json through the shared presence helpers. */
-  detectState(input: PiStateDetectionInput, orchDir: string): AgentState {
+  detectState(input: PiStateDetectionInput, orchDir: OrchDir): AgentState {
     return presenceAgentState(input.key, orchDir);
   }
 
@@ -437,7 +437,7 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** Read results.jsonl first, then fall back to the last assistant session entry. */
-  extractResult(input: PiResultExtractionInput, orchDir: string): string | undefined {
+  extractResult(input: PiResultExtractionInput, orchDir: OrchDir): string | undefined {
     return resultFromPresenceOrSession(input, orchDir);
   }
 
@@ -447,7 +447,7 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** Verify the extension link and bundle written by installShim. */
-  diagnoseShim(_orchDir: string): CheckResult {
+  diagnoseShim(_orchDir: OrchDir): CheckResult {
     return diagnoseExtensionLink(this.id, PI_EXTENSION_DIR, PI_EXTENSION);
   }
 
@@ -463,17 +463,17 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** Ask pi's own registry through its supported model-listing command. */
-  listModels(orchDir?: string): readonly HarnessModel[] {
+  listModels(orchDir?: OrchDir): readonly HarnessModel[] {
     return orchDir === undefined ? [] : queryPiModels(orchDir);
   }
 
   /** pi's registry is a shell-out; start it early so setup's next prompt covers the wait. */
-  warmModels(orchDir?: string): Promise<void> {
+  warmModels(orchDir?: OrchDir): Promise<void> {
     return orchDir === undefined ? Promise.resolve() : warmModelCatalogue("pi", PI_MODELS_ARGV, orchDir);
   }
 
   /** Link the prebuilt bridge bundle into pi's extension directory. */
-  installShim(_orchDir: string, opts?: ShimInstallOpts): void {
+  installShim(_orchDir: OrchDir, opts?: ShimInstallOpts): void {
     installExtensionLink(this.id, PI_EXTENSION_DIR, PI_EXTENSION, opts);
   }
 }

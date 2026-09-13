@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { loadPresence, reapDeadPresenceDirs, reapSpawnedRecord } from "../presence/store.ts";
 import { allBackends } from "../backends/registry.ts";
 import { errorMessage } from "../util.ts";
@@ -20,7 +21,7 @@ import type { OrchSettings } from "../types/settings.ts";
  *  ownership and provenance are satellites of the hub row, so deleting the hub
  *  takes them with it; there is no second key to sweep, and no scan of a wide
  *  row is needed to discover the identities an agent is filed under. */
-function removeExpiredAgentRecords(orchDir: string, cutoff: Date): { count: number; ids: Set<string> } {
+function removeExpiredAgentRecords(orchDir: OrchDir, cutoff: Date): { count: number; ids: Set<string> } {
   // A parent is kept while any child row still points at it: `agents.spawned_by`
   // has no ON DELETE CASCADE, so reaping it first would orphan the child.
   const parents = orm(orchDir).selectDistinct({ id: agents.spawnedBy }).from(agents)
@@ -50,7 +51,7 @@ interface SweepEntry {
 }
 
 /** Reap old dead presence through the shared presence/clean path. */
-function removeExpiredAgentDirs(orchDir: string, cutoff: Date): number {
+function removeExpiredAgentDirs(orchDir: OrchDir, cutoff: Date): number {
   // Agent records and their presence directories share this ended-agent window.
   const recordsRemoved = removeExpiredAgentRecords(orchDir, cutoff);
   const result = reapDeadPresenceDirs(orchDir, cutoff);
@@ -67,7 +68,7 @@ function removeExpiredAgentDirs(orchDir: string, cutoff: Date): number {
 }
 
 /** Ask each backend that owns logs to prune its stale artifacts. */
-function removeExpiredLogs(orchDir: string, cutoff: Date): number {
+function removeExpiredLogs(orchDir: OrchDir, cutoff: Date): number {
   let removed = 0;
   for (const file of [daemonRuntimeFiles(orchDir).log, `${orchDir}/orch.log`]) {
     try {
@@ -106,7 +107,7 @@ function removeExpiredLogs(orchDir: string, cutoff: Date): number {
  * opinion about, and the shortcut for that was `{...} as OrchSettings`, which Rule 13
  * forbids. Rule 13's own remedy for a cast is "a wrong signature gets its signature
  * fixed", and this was the wrong signature. */
-export function sweepExpiredRows(orchDir: string, settings: Pick<OrchSettings, "retention">, now: Date): SweepCounts {
+export function sweepExpiredRows(orchDir: OrchDir, settings: Pick<OrchSettings, "retention">, now: Date): SweepCounts {
   const counts: SweepCounts = { queue: 0, outbox: 0, control_outcomes: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 };
   const cutoff = (days: number): Date => new Date(now.getTime() - days * DAY_MS);
   const entries: SweepEntry[] = [

@@ -1,8 +1,6 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createFleetMonitor, registerFleetMonitor } from "../src/agent/monitor.ts";
 import type { FleetMonitorOptions, HarnessApi, HarnessContext } from "../src/types/agent.ts";
 import type { CallerKind } from "../src/types/policy.ts";
@@ -18,7 +16,7 @@ interface Subscription {
 }
 const subscriptions: Subscription[] = [];
 const subscribeOptions: { since?: number }[] = [];
-const tempDirs: string[] = [];
+const tempDirs: OrchDir[] = [];
 
 // Keep this unit test at monitor's public seam: the monitor takes its event source
 // as an option, so transitions push deterministically and the initial replay cursor
@@ -65,8 +63,8 @@ function push(value: unknown): void {
   for (const subscription of subscriptions) if (!subscription.closed) subscription.callback(value, 1);
 }
 
-function dir(): string {
-  const path = mkdtempSync(join(tmpdir(), "orch-agent-monitor-"));
+function dir(): OrchDir {
+  const path = tempOrchDir("orch-agent-monitor-");
   tempDirs.push(path);
   return path;
 }

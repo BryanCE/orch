@@ -16,6 +16,7 @@ import { createCaptureRole } from "../../presence/roles.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
+import type { OrchDir } from "../../types/core.ts";
 import type { TmuxBackendDeps, TmuxHandle, TmuxPane } from "../../types/plexer.ts";
 
 const TMUX_BACKEND: BackendId = "tmux";
@@ -25,7 +26,7 @@ function tmuxEnvArgs(env: Readonly<Record<string, string>>): string[] {
 }
 
 /** Agent status read from the presence protocol for one pane's stamped key. */
-function statusForAgentKey(key: string, orchDir: string): string | null {
+function statusForAgentKey(key: string, orchDir: OrchDir): string | null {
   if (!key) return null;
   const status = readPresenceStatus(join(presenceAgentDir(key, orchDir), STATUS_FILE));
   return status?.state ?? null;
@@ -64,9 +65,9 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly id = TMUX_BACKEND;
   readonly process = new LocalProcessRole<TmuxHandle>(placedShellPid(() => this.foreground));
   private readonly homeExec: (args: string[]) => string;
-  private readonly orchDir: string | undefined;
+  private readonly orchDir: OrchDir | undefined;
 
-  constructor(deps: TmuxBackendDeps & { readonly orchDir?: string } = {}) {
+  constructor(deps: TmuxBackendDeps & { readonly orchDir?: OrchDir } = {}) {
     this.homeExec = deps.homeExec ?? ((args) => execTmux(args));
     this.orchDir = deps.orchDir;
     this.capture = this.orchDir === undefined

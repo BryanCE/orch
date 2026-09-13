@@ -1,8 +1,7 @@
-import * as fs from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
@@ -117,7 +116,7 @@ const restoreExecutor = setHerdrExecutor((_command, args) => {
   return "";
 });
 
-const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-herdr-"));
+const testDir: OrchDir = tempOrchDir("orch-backend-herdr-");
 const { HerdrBackend } = await import("../src/backends/herdr/index.ts");
 const backend = new HerdrBackend();
 
@@ -239,7 +238,7 @@ describe("HerdrBackend", () => {
   test("env reaches the pane through herdr's --env, not an argv prefix", () => {
     herdrArgv.length = 0;
     const key = mintAgentId();
-    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", targetHandle: "w0:p1", key, orchDir: "/tmp/orchdir", env: { FOO: "bar" } });
+    backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", targetHandle: "w0:p1", key, orchDir: orchDirAt("/tmp/orchdir"), env: { FOO: "bar" } });
 
     const split = herdrArgv[0] ?? [];
     expect(split).toContain("--env");

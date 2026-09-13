@@ -1,3 +1,4 @@
+import type { OrchDir } from "../../src/types/core.ts";
 import { orm } from "../../src/store/connection.ts";
 import { sql } from "drizzle-orm";
 
@@ -9,7 +10,7 @@ import { sql } from "drizzle-orm";
  * exist is refused. A fixture that spawns into a space therefore has to create
  * it first, exactly as a user would.
  */
-export function seedSpace(orchDir: string, id: string, name = id): void {
+export function seedSpace(orchDir: OrchDir, id: string, name = id): void {
   orm(orchDir)
     .run(sql`INSERT OR IGNORE INTO spaces (id, name, created_by, created_at) VALUES (${id}, ${name}, NULL, ${1})`);
 }

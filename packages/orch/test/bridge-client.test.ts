@@ -1,12 +1,12 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDaemonClient } from "../src/agent/daemon-client.ts";
 import { openJsonLineLink } from "../src/presence/socket-client.ts";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { isRecord } from "../src/util.ts";
 import { testServices } from "./helpers/services.ts";
@@ -17,13 +17,13 @@ interface Connection {
   readonly lines: Record<string, unknown>[];
 }
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const servers: Server[] = [];
 const sockets: Socket[] = [];
 const connections: Connection[] = [];
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-bridge-client-"));
+function tempOrchDir(): OrchDir {
+  const directory = mintTempOrchDir("orch-bridge-client-");
   directories.push(directory);
   return directory;
 }

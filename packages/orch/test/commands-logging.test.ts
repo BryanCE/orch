@@ -1,16 +1,17 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { cmdNotify } from "../src/commands/events.ts";
 import { cmdLogs, parseLogOptions } from "../src/commands/logs.ts";
 import { createLogger, isLogRecord } from "../src/log.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { testServices } from "./helpers/services.ts";
 
-const dirs: string[] = [];
-const oldDir = process.env.ORCH_DIR;
+const dirs: OrchDir[] = [];
+const oldDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
@@ -32,7 +33,7 @@ function captureStdout(run: () => void): string {
 
 /** Seed both sinks through the real logger, so a change to the record shape
  *  breaks the reader test instead of leaving it agreeing with a stale fixture. */
-function seedLogs(directory: string): void {
+function seedLogs(directory: OrchDir): void {
   const daemon = createLogger({ file: join(directory, "orchd.log"), level: "trace", now: () => 1_700_000_000_000 });
   daemon.forCorrelation("dispatch-7").forAgent("agentaaa01").info("dispatch.accepted", { target: "agentaaa01" });
   const later = createLogger({ file: join(directory, "orchd.log"), level: "trace", now: () => 1_700_000_005_000 });
@@ -42,8 +43,8 @@ function seedLogs(directory: string): void {
   cli.forCorrelation("dispatch-7").forAgent("agentaaa01").info("dispatch.cli-accepted", { target: "agentaaa01" });
 }
 
-function fixture(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-command-logs-"));
+function fixture(): OrchDir {
+  const directory = tempOrchDir("orch-command-logs-");
   dirs.push(directory);
   process.env.ORCH_DIR = directory;
   writeSettingsFixture(directory, { notify: [] });
@@ -128,7 +129,7 @@ describe("orch logs", () => {
 
 describe("command logging", () => {
   test("notify test records the diagnosis and keeps user output on stdout", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-command-logging-"));
+    const directory = tempOrchDir("orch-command-logging-");
     dirs.push(directory);
     process.env.ORCH_DIR = directory;
     writeSettingsFixture(directory, { notify: [] });

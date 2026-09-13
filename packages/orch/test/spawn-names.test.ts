@@ -1,21 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { assertNameFree, assertValidAgentName } from "../src/policy/name.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { endProcess, setSpace } from "../src/store/interval-rows.ts";
 import { runnerProcess } from "./helpers/agent.ts";
 
-const directories: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
 let previousOrchDir: string | undefined;
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-spawn-names-"));
+function makeTempOrchDir(): OrchDir {
+  const directory = tempOrchDir("orch-spawn-names-");
   directories.push(directory);
   process.env.ORCH_DIR = directory;
   return directory;
@@ -24,7 +22,7 @@ function tempOrchDir(): string {
 /** Register one agent. The key IS the minted id (A1) — the space it sits in is a
  *  separate fact written through the environment satellites, never a segment of
  *  the key. */
-function seedAgent(orchDir: string, name: string, space: string): string {
+function seedAgent(orchDir: OrchDir, name: string, space: string): string {
   const key = mintAgentId();
   seedSpace(orchDir, space);
   registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: orchDir, name, model: "test", space, spawner: null, process: runnerProcess() });
@@ -32,7 +30,7 @@ function seedAgent(orchDir: string, name: string, space: string): string {
 }
 
 /** A live named agent: a registered agent, whose recorded process is this runner, plus its status. */
-function seedLiveAgent(orchDir: string, name: string, space: string): string {
+function seedLiveAgent(orchDir: OrchDir, name: string, space: string): string {
   const key = seedAgent(orchDir, name, space);
   seedStatus(orchDir, key, { agent: "pi", state: "idle" });
   return key;
@@ -67,7 +65,7 @@ describe("agent name validation", () => {
 // DEAD agent releases its name.
 describe("a live name is claimed and a dead one is released", () => {
   test("a live agent holds its name against a second spawn", () => {
-    const orchDir = tempOrchDir();
+    const orchDir = makeTempOrchDir();
     seedLiveAgent(orchDir, "recon", "w1");
 
     expect(() => assertNameFree(orchDir, "recon", "w1")).toThrow(/already live/);
@@ -75,7 +73,7 @@ describe("a live name is claimed and a dead one is released", () => {
   });
 
   test("a dead agent frees its name", () => {
-    const orchDir = tempOrchDir();
+    const orchDir = makeTempOrchDir();
     const key = seedAgent(orchDir, "recon", "w1");
     seedStatus(orchDir, key, { agent: "pi", state: "idle" });
     endProcess(orchDir, key, Date.now()); // the recorded process is gone
@@ -84,7 +82,7 @@ describe("a live name is claimed and a dead one is released", () => {
   });
 
   test("another space's agent never blocks a name here", () => {
-    const orchDir = tempOrchDir();
+    const orchDir = makeTempOrchDir();
     seedLiveAgent(orchDir, "recon", "w2");
 
     expect(() => assertNameFree(orchDir, "recon", "w1")).not.toThrow();
@@ -97,7 +95,7 @@ describe("a live name is claimed and a dead one is released", () => {
 // space it actually occupies open to a duplicate.
 describe("name scope follows the agent's current space, not its birthplace", () => {
   test("moving an agent moves the name it holds", () => {
-    const orchDir = tempOrchDir();
+    const orchDir = makeTempOrchDir();
     const key = seedLiveAgent(orchDir, "recon", "w1");
 
     expect(() => assertNameFree(orchDir, "recon", "w1")).toThrow(/already live/);
@@ -113,7 +111,7 @@ describe("name scope follows the agent's current space, not its birthplace", () 
   });
 
   test("the collision names the agent by its minted id", () => {
-    const orchDir = tempOrchDir();
+    const orchDir = makeTempOrchDir();
     const key = seedLiveAgent(orchDir, "recon", "w1");
 
     expect(() => assertNameFree(orchDir, "recon", "w1")).toThrow(new RegExp(`already live as ${key}`));

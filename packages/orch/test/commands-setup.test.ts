@@ -1,3 +1,5 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { allAdapters } from "../src/adapters/registry.ts";
 import { cmdSetup } from "../src/commands/setup.ts";
@@ -7,15 +9,16 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 import { isRecord } from "../src/util.ts";
 import { testServices } from "./helpers/services.ts";
 
-const originalOrchDir = process.env.ORCH_DIR;
+const originalOrchDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 const originalHome = process.env.HOME;
 const originalPath = process.env.PATH;
-const tempDirs: string[] = [];
+const tempDirs: OrchDir[] = [];
+const tempHomeDirs: string[] = [];
 
 interface SetupSettings {
   schemaVersion: number;
@@ -46,6 +49,9 @@ afterEach(() => {
     const dir = tempDirs.pop()!;
     removeTempDir(dir);
   }
+  while (tempHomeDirs.length) {
+    removeTempDir(tempHomeDirs.pop()!);
+  }
 });
 
 describe("commands/setup", () => {
@@ -59,13 +65,13 @@ describe("commands/setup", () => {
     expect(await resolveActiveDefault(["pi", "claude"], false, false, () => Promise.resolve(null))).toBe("pi");
   });
   test("runs non-interactive setup against the requested ORCH_DIR and records the selected composition", async () => {
-    const orchDir = mkdtempSync(join(tmpdir(), "orch-setup-characterization-"));
+    const orchDir = tempOrchDir("orch-setup-characterization-");
     tempDirs.push(orchDir);
     process.env.ORCH_DIR = orchDir;
     // cmdSetup wires the bins for real, into $HOME/.local/bin or over whatever they already
     // resolve to on PATH. Both must be a sandbox or this rewrites the developer's own shims.
     const home = mkdtempSync(join(tmpdir(), "orch-setup-home-"));
-    tempDirs.push(home);
+    tempHomeDirs.push(home);
     const binDir = join(home, ".local", "bin");
     mkdirSync(binDir, { recursive: true });
     process.env.HOME = home;

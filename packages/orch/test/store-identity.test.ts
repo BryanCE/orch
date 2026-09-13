@@ -1,21 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores } from "../src/store/connection.ts";
 import { agentById, getOrCreateSessionAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
 import { currentProcess } from "../src/store/interval-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const tempDirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const tempDirs: OrchDir[] = [];
 
 afterEach(() => {
   closeAllStores();
   while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
-function fixture(): string {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-store-identity-"));
+function fixture(): OrchDir {
+  const orchDir = tempOrchDir("orch-store-identity-");
   tempDirs.push(orchDir);
   return orchDir;
 }

@@ -1,19 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
 import { emitAndNotify } from "../src/daemon/events.ts";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import { testServices } from "./helpers/services.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-event-identity-"));
+function tempOrchDir(): OrchDir {
+  const directory = makeTempOrchDir("orch-event-identity-");
   directories.push(directory);
   return directory;
 }
@@ -30,7 +29,7 @@ describe("published event identity", () => {
   test("stamps a per-agent ordinal so a redelivery is recognizable", () => {
     const published: unknown[] = [];
     const emit = (value: unknown): void => { published.push(value); };
-    const settings = testServices({ orchDir: "/tmp", settings: null }).settings;
+    const settings = testServices({ orchDir: tempOrchDir(), settings: null }).settings;
     emitAndNotify(emit, [], transition("seqaagent1", "idle", "working"), undefined, settings);
     emitAndNotify(emit, [], transition("seqaagent1", "working", "done"), undefined, settings);
     emitAndNotify(emit, [], transition("seqbagent1", "idle", "working"), undefined, settings);

@@ -1,8 +1,9 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { formatAge, cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
 import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
@@ -44,7 +45,7 @@ afterEach(() => {
   restoreOrchEnv();
 });
 
-function seedSettings(root: string): void {
+function seedSettings(root: OrchDir): void {
   writeSettingsFixture(root, SETTINGS_FIXTURE);
 }
 
@@ -55,13 +56,13 @@ function testTarget(id: string): { key: string; space: string } {
 }
 
 /** A registered agent in no space, alive through this runner's process. */
-function seedLiveAgent(root: string, key: string, harnessId = "pi"): void {
+function seedLiveAgent(root: OrchDir, key: string, harnessId = "pi"): void {
   ensureHarness(root, harnessId, harnessId, 1);
   insertAgent(root, { id: key, name: key, spawnedBy: null, harnessId, cwd: root, createdAt: 1 });
   seedLiveProcess(root, key);
 }
 
-function seedAgent(root: string, key: string, space: string, harnessId = "pi"): void {
+function seedAgent(root: OrchDir, key: string, space: string, harnessId = "pi"): void {
   seedLiveAgent(root, key, harnessId);
   orm(root).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, ${1})`);
   setSpace(root, key, 1, space);
@@ -85,15 +86,15 @@ async function captureStdoutAsync(run: () => Promise<void>): Promise<string> {
   return output.join("");
 }
 
-async function withQuestionsServer(root: string, questions: PendingQuestionView[], run: () => Promise<void>): Promise<void> {
+async function withQuestionsServer(root: OrchDir, questions: PendingQuestionView[], run: () => Promise<void>): Promise<void> {
   const server = await startRpcServer(root, { questions: () => ({ questions }) });
   try { await run(); } finally { await server.close(); }
 }
 
 describe("commands/results", () => {
   test.serial("renders daemon questions with the existing JSON shape", async () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-questions-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-questions-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const key = "questionag";
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -114,8 +115,8 @@ describe("commands/results", () => {
   });
 
   test.serial("renders exactly the pending questions returned by the daemon", async () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-questions-filter-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-questions-filter-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = root;
     seedSettings(root);
     try {
@@ -133,8 +134,8 @@ describe("commands/results", () => {
   });
 
   test.serial("surfaces a missing daemon instead of returning an empty list", async () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-questions-down-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-questions-down-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = root;
     seedSettings(root);
     try {
@@ -150,8 +151,8 @@ describe("commands/results", () => {
     expect(formatAge(new Date().toISOString())).toBe("0s");
   });
   test.serial("routes a seeded results.jsonl through the command module", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-result-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-result-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("resultaa42");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -168,8 +169,8 @@ describe("commands/results", () => {
     expect(output.join("")).toBe("finished\n");
   });
   test.serial("keeps every settled dispatch and reports the newest", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-result-history-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-result-history-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("resultaa45");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -188,8 +189,8 @@ describe("commands/results", () => {
     }
   });
   test.serial("falls back to adapter session text when results.jsonl is absent", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-result-fallback-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-result-fallback-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("resultaa43");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -207,8 +208,8 @@ describe("commands/results", () => {
     }
   });
   test.serial("uses results.jsonl even when the presence status has no agent", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-result-no-agent-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-result-no-agent-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("resultaa44");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -226,8 +227,8 @@ describe("commands/results", () => {
   });
 
   test.serial("orch tail resolves a non-pi target through that adapter's session view", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-tail-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-tail-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("tailaaa515");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -247,9 +248,9 @@ describe("commands/results", () => {
     expect(joined).not.toContain("earlier turn");
   });
 
-  function seedPiSession(): { root: string; key: string; restore: () => void } {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-pitail-"));
-    const old = process.env.ORCH_DIR;
+  function seedPiSession(): { root: OrchDir; key: string; restore: () => void } {
+    const root = tempOrchDir("orch-command-pitail-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("pitailaa70");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -297,8 +298,8 @@ describe("commands/results", () => {
   });
 
   test.serial("orch session shows zero entries for an adapter view without them", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-session-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-session-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("sessionn80");
     process.env.ORCH_DIR = root;
     seedSettings(root);

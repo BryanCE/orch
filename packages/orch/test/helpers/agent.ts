@@ -3,17 +3,19 @@ import { currentHostOs, ensureHost, ensurePlexer } from "../../src/store/agent-r
 import { recordProcess, setAgentPlexer, setHandle, setSpace } from "../../src/store/interval-rows.ts";
 import { adoptLease, currentLease } from "../../src/store/lease-rows.ts";
 import { orchDir } from "../../src/presence/writer.ts";
-import { processStartToken } from "../../src/process-identity.ts";
 import type { RecordedProcess } from "../../src/types/backend.ts";
 import type { AgentFacts } from "../../src/types/presence.ts";
 
-/** The test runner is the one process a fixture can prove alive, and a recorded
- *  process is (pid, startToken): a fixture that cannot state both halves is not
- *  a complete value, so it fails here rather than seeding a row no spawn writes. */
-function runnerProcess(): RecordedProcess {
-  const startToken = processStartToken(process.pid);
-  if (startToken === undefined) throw new Error("the OS could not prove which instance the test runner is");
-  return { pid: process.pid, startToken };
+/**
+ * The test runner is the one process a fixture can prove ALIVE, and it states no
+ * launch token because orch did not launch it.
+ *
+ * Never hand back a provable instance here. A fixture that does is claiming orch
+ * owns the suite's own process, and `orch close` then does exactly what it is
+ * asked: `bun test` dies mid-run to a SIGTERM with no failing assertion.
+ */
+export function runnerProcess(): RecordedProcess {
+  return { pid: process.pid, startToken: null };
 }
 
 /**

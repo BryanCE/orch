@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { deliverControl } from "../control/dispatch.ts";
 import { errorMessage } from "../util.ts";
 import {
@@ -10,9 +11,12 @@ import {
   recordTaskFailure,
   type TaskRec,
 } from "../queue.ts";
-import { emitAndNotify } from "./events.ts";
+import { composeAgentEvent, emitAndNotify } from "./events.ts";
 import { deliverTaskResult } from "./result-delivery.ts";
 import { loadPresence, statusForPresence } from "../presence/store.ts";
+import { pendingQuestions, type QuestionRow } from "../store/question-rows.ts";
+import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
+import { STATUS_FILE } from "../presence/schema.ts";
 import { loadSettings } from "../settings/read.ts";
 import { workerHeaderFor, workerRules } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
@@ -181,6 +185,53 @@ function settleClaimedTasks(orchDir: string, emit: (event: NotifyEvent) => void)
   }
 }
 
+export interface QuestionReaskState {
+  lastAskedAt: number;
+  askCount: number;
+  gaveUp: boolean;
+}
+
+export interface ReaskQuestionsOptions {
+  questions: readonly QuestionRow[];
+  nowMs: number;
+  intervalMs: number;
+  limit: number;
+  state: Map<string, QuestionReaskState>;
+  emit: (question: QuestionRow, askCount: number, gaveUp: boolean) => void;
+}
+
+/** Decide which open questions need another asking event. The store and clock are
+ * injected so this policy remains deterministic and does not sleep in its tests. */
+export function reaskQuestions(options: ReaskQuestionsOptions): void {
+  const pendingIds = new Set(options.questions.map((question) => question.id));
+  for (const id of options.state.keys()) {
+    if (!pendingIds.has(id)) options.state.delete(id);
+  }
+  for (const question of options.questions) {
+    const previous = options.state.get(question.id);
+    const current = previous ?? { lastAskedAt: question.askedAt, askCount: 1, gaveUp: false };
+    options.state.set(question.id, current);
+    if (current.gaveUp || options.nowMs - current.lastAskedAt < options.intervalMs) continue;
+    const askCount = Math.min(current.askCount + 1, options.limit);
+    const gaveUp = askCount >= options.limit;
+    options.state.set(question.id, { lastAskedAt: options.nowMs, askCount, gaveUp });
+    options.emit(question, askCount, gaveUp);
+  }
+}
+
+function reaskEvent(orchDir: string, question: QuestionRow, nowMs: number, askCount: number, gaveUp: boolean): NotifyEvent {
+  const status = readPresenceStatus(join(presenceAgentDir(question.agentId, orchDir), STATUS_FILE));
+  const event = composeAgentEvent(
+    orchDir,
+    question.agentId,
+    status,
+    { name: null, tab: null },
+    { previous: "asking", state: "asking" },
+    new Date(nowMs),
+  );
+  return { ...event, task: `Q: ${question.question}`, askCount, ...(gaveUp ? { gaveUp: true } : {}) };
+}
+
 function settleError(orchDir: string, task: TaskRec, error: string, entry: PresenceEntry, emit: (event: NotifyEvent) => void): void {
   // A failed attempt remains derived as failed until the next attempt INSERT.
   // Selection policy below enforces max_retries + 1 total attempts.
@@ -221,19 +272,29 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
   const emit = options.onEvent ?? ((event: NotifyEvent): void => {
     emitAndNotify(() => { /* noop */ }, loadSettings(options.orchDir).notify, event, options.orchDir);
   });
-  const sweepIntervalMs = 60 * 60 * 1000;
+  const questionState = new Map<string, QuestionReaskState>();
   let lastSweepAt = Number.NEGATIVE_INFINITY;
   while (!options.signal?.aborted) {
     const settings = options.getSettings?.();
     if (settings !== undefined) {
       const nowMs = Date.now();
-      if (nowMs - lastSweepAt >= sweepIntervalMs) {
+      const sweepIntervalMs = settings.retention.sweep_interval_ms;
+      if (sweepIntervalMs !== undefined && nowMs - lastSweepAt >= sweepIntervalMs) {
         lastSweepAt = nowMs;
         const counts = sweepExpiredRows(options.orchDir, settings, new Date(nowMs));
         if (Object.values(counts).some((count) => count > 0)) {
           decisionLogger(options.orchDir).info("retention.swept", { ...counts });
         }
       }
+      const questionSettings = settings.questions;
+      if (questionSettings !== undefined) reaskQuestions({
+        questions: pendingQuestions(options.orchDir),
+        nowMs,
+        intervalMs: questionSettings.renag_ms,
+        limit: questionSettings.renag_limit,
+        state: questionState,
+        emit: (question, askCount, gaveUp) => emit(reaskEvent(options.orchDir, question, nowMs, askCount, gaveUp)),
+      });
     }
     const maxRetries = settings?.queue.max_retries ?? options.maxRetries ?? 1;
     const presence = loadPresence();

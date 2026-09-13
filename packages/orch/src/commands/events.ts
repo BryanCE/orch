@@ -7,7 +7,7 @@ import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
 import { isRecord } from "../util.ts";
 import { isAgentId } from "../backends/identity.ts";
-import { subscribeEvents } from "../daemon/rpc/client.ts";
+import { rpcCall, subscribeEvents } from "../daemon/rpc/client.ts";
 import { ensureDaemon } from "../daemon/reach.ts";
 import { deliver } from "../notify/router.ts";
 import { notificationText } from "../notify/format.ts";
@@ -17,6 +17,7 @@ import { commandLogger } from "./logging.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
 import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
+import type { PendingQuestionView } from "../types/daemon.ts";
 
 function looksLikePaneKey(key: string): boolean {
   return isAgentId(key);
@@ -32,7 +33,7 @@ export interface EventsOptions {
   targets: string[];
 }
 
-interface EventsContext {
+export interface EventsContext {
   options: EventsOptions;
   accepts: (key: string) => boolean;
   emit: (event: NotifyEvent, streamSeq: number) => boolean;
@@ -270,7 +271,10 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
   // `orch status` columns; a stream that carried them made every transition read
   // like a status row and buried the one thing the line exists to say.
   const title = notificationText(textEvent, { colorize: true }).title;
-  return `${title}  ${event.oldState}->${event.newState}`;
+  const askingCount = event.newState === "asking" && typeof event.askCount === "number"
+    ? ` (asked ${event.askCount}x${event.gaveUp === true ? "; gave up" : ""})`
+    : "";
+  return `${title}  ${event.oldState}->${event.newState}${askingCount}`;
 }
 
 function eventWriter(options: EventsOptions): (event: NotifyEvent, streamSeq: number) => boolean {
@@ -282,6 +286,35 @@ function eventWriter(options: EventsOptions): (event: NotifyEvent, streamSeq: nu
   };
 }
 
+/** The durable question row rendered as the same asking event shape as a live transition. */
+function pendingQuestionEvent(question: PendingQuestionView): NotifyEvent {
+  return {
+    key: question.agentId,
+    space: spaceOf(orchDir(), question.agentId) ?? undefined,
+    agent: question.name,
+    name: question.name,
+    tab: null,
+    model: null,
+    oldState: "asking",
+    newState: "asking",
+    task: `Q: ${question.question}`,
+    ts: new Date(question.askedAt).toISOString(),
+    askCount: 1,
+  };
+}
+
+function pendingQuestionViews(value: unknown): PendingQuestionView[] {
+  if (!isRecord(value) || !Array.isArray(value.questions)) return [];
+  return value.questions.filter((question): question is PendingQuestionView =>
+    isRecord(question)
+    && typeof question.questionId === "string"
+    && typeof question.agentId === "string"
+    && typeof question.key === "string"
+    && (question.name === null || typeof question.name === "string")
+    && typeof question.question === "string"
+    && typeof question.askedAt === "number");
+}
+
 /**
  * The daemon is the only event source, and this subscription outlives it: a
  * daemon restart drops the socket, the subscriber redials with backoff and
@@ -289,7 +322,8 @@ function eventWriter(options: EventsOptions): (event: NotifyEvent, streamSeq: nu
  * session, so an orchestrator never has to poll `orch status` to notice a
  * worker went blocked.
  */
-function startEventsTransport(context: EventsContext): () => void {
+export function startEventsTransport(context: EventsContext): () => void {
+  const pending = rpcCall(orchDir(), "questions");
   const subscription = subscribeEvents(
     orchDir(),
     context.options.sinceSeq === undefined ? {} : { since: context.options.sinceSeq },
@@ -305,6 +339,17 @@ function startEventsTransport(context: EventsContext): () => void {
       process.stdout.write(formatEventGap(oldestSeq));
     },
   );
+  void pending.then((value) => {
+    for (const question of pendingQuestionViews(value)) {
+      if (!context.accepts(question.agentId)) continue;
+      if (context.emit(pendingQuestionEvent(question), 0) && context.options.once) {
+        subscription.close();
+        process.exit(0);
+      }
+    }
+  }).catch(() => {
+    // The live subscription remains authoritative if the snapshot RPC is unavailable.
+  });
   return () => subscription.close();
 }
 

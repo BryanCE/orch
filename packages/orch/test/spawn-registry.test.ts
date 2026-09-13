@@ -9,7 +9,7 @@ import { currentHandle, currentTuning } from "../src/store/interval-rows.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
-import { processStartToken } from "../src/process-identity.ts";
+import { runnerProcess } from "./helpers/agent.ts";
 
 import { row } from "./helpers/rows.ts";
 const dirs: string[] = [];
@@ -27,8 +27,6 @@ function register(dir: string, overrides: Partial<Parameters<typeof registerSpaw
   // A1: the key IS the minted id. The plexer and the space are environment,
   // written to their own satellites below — never welded into the identity.
   const key = "worker0001";
-  const startToken = processStartToken(process.pid);
-  if (!startToken) throw new Error("test process has no start token");
   registerSpawnedAgent(dir, {
     key,
     harnessId: "pi",
@@ -40,7 +38,7 @@ function register(dir: string, overrides: Partial<Parameters<typeof registerSpaw
     model: "openai/gpt-5",
     thinking: "high",
     spawner: "orch-agent",
-    process: { pid: process.pid, startToken },
+    process: runnerProcess(),
     now: 10,
     ...overrides,
   });

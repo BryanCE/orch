@@ -1,0 +1,60 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { startEventsTransport, parseEventsOptions } from "../src/commands/events.ts";
+import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
+import type { NotifyEvent } from "../src/types/notify.ts";
+import type { PendingQuestionView } from "../src/types/daemon.ts";
+import type { EventsContext } from "../src/commands/events.ts";
+
+const roots: string[] = [];
+
+afterEach(() => {
+  while (roots.length > 0) removeTempDir(roots.pop() ?? "");
+});
+
+describe("events pending-question snapshot", () => {
+  test("a late watcher receives every open question through the event writer", async () => {
+    const root = mkdtempSync(join(tmpdir(), "orch-events-open-"));
+    roots.push(root);
+    const previous = process.env.ORCH_DIR;
+    process.env.ORCH_DIR = root;
+    const question: PendingQuestionView = {
+      questionId: "q1",
+      agentId: "agent1",
+      key: "agent1",
+      name: "worker",
+      question: "Approve the change?",
+      askedAt: 100,
+    };
+    const server = await startRpcServer(root, { questions: () => ({ questions: [question] }) });
+    const received: { event: NotifyEvent; seq: number }[] = [];
+    const context: EventsContext = {
+      options: parseEventsOptions([]),
+      accepts: () => true,
+      emit: (event, seq) => {
+        received.push({ event, seq });
+        return true;
+      },
+    };
+    const cleanup = startEventsTransport(context);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(received).toHaveLength(1);
+      const first = received[0];
+      expect(first?.event.key).toBe("agent1");
+      expect(first?.event.oldState).toBe("asking");
+      expect(first?.event.newState).toBe("asking");
+      expect(first?.event.task).toBe("Q: Approve the change?");
+      expect(first?.event.askCount).toBe(1);
+      expect(first?.seq).toBe(0);
+    } finally {
+      cleanup();
+      await server.close();
+      if (previous === undefined) delete process.env.ORCH_DIR;
+      else process.env.ORCH_DIR = previous;
+    }
+  });
+});

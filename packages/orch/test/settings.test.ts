@@ -110,7 +110,8 @@ describe("loadSettings", () => {
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
       queue: { max_retries: 3 },
-      retention: { queue_days: 1, events_days: 2, runs_days: 3, outbox_days: 4, control_outcomes_days: 5, ended_agents_days: 6, logs_days: 7 },
+      retention: { queue_days: 1, events_days: 2, runs_days: 3, outbox_days: 4, control_outcomes_days: 5, ended_agents_days: 6, logs_days: 7, sweep_interval_ms: 3_600_000 },
+      questions: { renag_ms: 120_000, renag_limit: 5 },
       timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       locked_commands: [],
@@ -121,6 +122,16 @@ describe("loadSettings", () => {
       tiling: { first_split: "columns" },
       logging: { level: "debug" },
       skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
+    });
+  });
+
+  test("reads question re-ask and retention sweep settings", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { questions: { renag_ms: 42, renag_limit: 3 }, retention: { sweep_interval_ms: 77 } });
+
+    expect(loadSettings(directory)).toMatchObject({
+      questions: { renag_ms: 42, renag_limit: 3 },
+      retention: { sweep_interval_ms: 77 },
     });
   });
 
@@ -213,7 +224,8 @@ describe("loadSettings", () => {
       models: { allowed: {}, preferred: {} },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
       queue: { max_retries: 1 },
-      retention: { queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, ended_agents_days: 90, logs_days: 7 },
+      retention: { queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, ended_agents_days: 90, logs_days: 7, sweep_interval_ms: 3_600_000 },
+      questions: { renag_ms: 120_000, renag_limit: 5 },
       timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
       notify: [],
       locked_commands: [],
@@ -245,7 +257,8 @@ describe("loadSettings", () => {
       defaults: { models: {}, worktree: true },
       fleet: { max_depth: 3, max_agents_per_pack: 10, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: ["read"], verify_commands: [] },
-      retention: { logs_days: 2, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, ended_agents_days: 90 },
+      retention: { logs_days: 2, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, ended_agents_days: 90, sweep_interval_ms: 3_600_000 },
+      questions: { renag_ms: 120_000, renag_limit: 5 },
       timeouts: { dispatch_ack_ms: 10_000, wait_ms: 1234, adapter_command_ms: 60_000, notify_ms: 3_000 },
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 0, outbox_drain_ms: 1000, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       tiling: { first_split: "columns" },

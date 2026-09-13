@@ -33,6 +33,10 @@ export interface NotifyEvent {
   result?: string;
   /** Why the agent stopped, or the question blocking it. */
   reason?: string;
+  /** Number of times this question has been asked, including the original ask. */
+  askCount?: number;
+  /** True on the final asking event after the daemon gives up re-asking. */
+  gaveUp?: true;
   /** Context-window usage percentage. */
   ctxPercent?: number;
   /** Token usage counters reported by the agent. */

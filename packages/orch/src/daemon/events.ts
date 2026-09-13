@@ -451,7 +451,7 @@ const recentTransitions = new Map<string, number>();
  *  the fixed suppression window. The window starts at the published event, so
  *  repeated observations cannot indefinitely hide a genuine later transition. */
 export function isRepeatTransition(event: NotifyEvent, now = Date.now()): boolean {
-  const signature = `${event.key}|${event.oldState}>${event.newState}|${event.dispatchId ?? ""}|${event.task ?? ""}`;
+  const signature = `${event.key}|${event.oldState}>${event.newState}|${event.dispatchId ?? ""}|${event.task ?? ""}|${event.askCount ?? ""}|${event.gaveUp === true ? "gave-up" : ""}`;
   const lastPublished = recentTransitions.get(signature);
   const repeated = lastPublished !== undefined && now - lastPublished < REPEAT_WINDOW_MS;
   if (!repeated) recentTransitions.set(signature, now);

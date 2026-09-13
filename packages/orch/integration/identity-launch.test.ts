@@ -34,10 +34,10 @@ describe("launchCredential", () => {
   test("malformed value exits 1 and logs launch.invalid-key", () => {
     const directory = mkdtempSync(join(tmpdir(), "orch-identity-launch-"));
     directories.push(directory);
-    const script = `import { launchCredential } from './src/identity/launch.ts'; launchCredential();`;
+    const script = `import { launchCredential } from './src/identity/launch.ts'; launchCredential(${JSON.stringify(directory)});`;
     const result = spawnSync(process.execPath, ["-e", script], {
       cwd: join(import.meta.dir, ".."),
-      env: { ...process.env, [LAUNCH_ENV]: "malformed", ORCH_DIR: directory },
+      env: { ...process.env, [LAUNCH_ENV]: "malformed" },
       encoding: "utf8",
     });
     expect(result.status).toBe(1);

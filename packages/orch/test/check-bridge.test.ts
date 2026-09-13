@@ -101,6 +101,8 @@ describe("composition happens only at roots (checkCompositionRootLine)", () => {
       "src/daemon/orchd.ts",
       "extensions/pi/index.ts",
       "extensions/omp/index.ts",
+      "scripts/retire-daemon.ts",
+      "scripts/db/migrate.ts",
     ]) {
       expect(checkCompositionRootLine("const services = createServices();", relPath)).toBeUndefined();
     }

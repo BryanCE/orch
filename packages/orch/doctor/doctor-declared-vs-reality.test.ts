@@ -2,12 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
+import { applyFixes } from "../src/doctor/runner.ts";
 import { describeBackendEnvironments } from "../src/doctor/backends.ts";
 import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { readPresenceStatus } from "../src/presence/writer.ts";
+import { runTestDoctor } from "../test/helpers/doctor.ts";
 import { removeTempDir } from "../test/helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
@@ -108,7 +109,7 @@ describe("doctor declared-vs-reality", () => {
     orm(dir).run(sql`DELETE FROM agents WHERE id='target'`);
     orm(dir).run(sql.raw("PRAGMA foreign_keys = ON"));
 
-    const results = await runDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
+    const results = await runTestDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
     const result = results.find((entry) => entry.id === "unrunnable-tasks");
     expect(result?.status).toBe("warn");
     expect(result?.detail).toContain("missing-scope");
@@ -121,7 +122,7 @@ describe("doctor declared-vs-reality", () => {
     orm(dir).run(sql.raw("PRAGMA foreign_keys = OFF"));
     orm(dir).run(sql`INSERT INTO tasks(id,text,opts,enqueued_by,scope_agent_id,created_at) VALUES ('missing-scope','do it','{}','enqueuer','gone',1)`);
     orm(dir).run(sql.raw("PRAGMA foreign_keys = ON"));
-    const results = await runDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
+    const results = await runTestDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
     applyFixes(results);
     expect(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks WHERE id='missing-scope'`)).toEqual({ count: 1 });
   }, 30_000);

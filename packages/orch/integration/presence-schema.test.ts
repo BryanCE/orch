@@ -49,14 +49,14 @@ function readStatuses(): Record<string, PresenceStatus> {
   const script = `
     const store = await import(${JSON.stringify(storePath)});
     const statuses = {};
-    for (const [key, entry] of store.loadPresence()) {
+    for (const [key, entry] of store.loadPresence(${JSON.stringify(orchDir)})) {
       const status = store.statusForPresence(entry);
       if (status) statuses[key] = status;
     }
     console.log(JSON.stringify(statuses));
   `;
   const ran = Bun.spawnSync([process.execPath, "-e", script], {
-    env: { ...process.env, ORCH_DIR: orchDir },
+    env: process.env,
     stdout: "pipe",
     stderr: "pipe",
   });

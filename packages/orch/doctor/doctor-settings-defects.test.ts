@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { checkSettingsFile } from "../src/doctor/settings-file.ts";
-import { runDoctor } from "../src/doctor/runner.ts";
+import { runTestDoctor } from "../test/helpers/doctor.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 
 const directories: string[] = [];
@@ -98,7 +98,7 @@ describe("doctor settings defects", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { spawn_cap: 8 } });
 
-    const results = await runDoctor(directory, () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
+    const results = await runTestDoctor(directory, () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
     const result = results.find((entry) => entry.id === "spawn-limits");
     if (result === undefined) throw new Error("missing spawn-limits result");
 

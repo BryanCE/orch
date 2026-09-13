@@ -3,6 +3,7 @@ import { lstatSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSy
 import { homedir } from "node:os";
 import { dirname, join, sep, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { envOrchDir } from "../src/services.ts";
 import { EXTENSION_NAMES } from "../src/bridge-bundles/build.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle.ts";
@@ -25,7 +26,7 @@ const PACKAGE_NAME = "@bryance/orch";
 const PACKAGE_TARBALL_PREFIX = "bryance-orch-";
 
 const HOME = homedir();
-const ORCH_DIR = process.env.ORCH_DIR ?? join(HOME, ".orch");
+const ORCH_DIR = envOrchDir();
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLAUDE_HOOK_SHIM = "claude-hooks";
 

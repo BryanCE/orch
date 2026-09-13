@@ -10,11 +10,12 @@ import { orm } from "../src/store/connection.ts";
 import { sql } from "drizzle-orm";
 import { checkNotifiers, checkNotifySinks } from "../src/doctor/notify.ts";
 import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
-import { loadSettings } from "../src/settings/read.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { seedAgent } from "../test/helpers/agent.ts";
 import { removeTempDir } from "../test/helpers/tempdir.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
+import type { OrchSettings } from "../src/types/settings.ts";
 
 const directories: string[] = [];
 
@@ -28,7 +29,7 @@ function tempDir(): string {
  *  other probe — ssh, backend detection, binary scans — to read one result, which is what
  *  made these time out on a slow machine while proving nothing extra. */
 function notifyResult(directory: string): CheckResult {
-  return checkNotifySinks(directory, binaryStatus(["pi"]));
+  return checkNotifySinks(settingsOf(directory), binaryStatus(["pi"]));
 }
 
 
@@ -50,6 +51,11 @@ function writeSettings(directory: string, settings: Record<string, unknown>): vo
   writeSettingsFixture(directory, settings);
 }
 
+/** The settings a test wrote, read back the way the runner reads them. */
+function settingsOf(directory: string): OrchSettings | null {
+  return fileSettingsManager(directory).currentOrNull();
+}
+
 afterEach(() => {
   while (directories.length) removeTempDir(directories.pop()!);
 });
@@ -62,7 +68,7 @@ describe("doctor provenance-depth checks", () => {
     seedAgent("child00001", { name: "child", spawnedBy: "root000001" }, directory);
     seedAgent("deep000001", { name: "deep-worker", spawnedBy: "child00001" }, directory);
 
-    const result = checkProvenanceDepth(directory);
+    const result = checkProvenanceDepth(directory, settingsOf(directory));
 
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("deep-worker (deep000001)");
@@ -76,7 +82,7 @@ describe("doctor provenance-depth checks", () => {
     seedAgent("root000002", { name: "root" }, directory);
     seedAgent("child00002", { name: "child", spawnedBy: "root000002" }, directory);
 
-    const result = checkProvenanceDepth(directory);
+    const result = checkProvenanceDepth(directory, settingsOf(directory));
 
     expect(result).toMatchObject({
       id: "provenance-depth",
@@ -95,7 +101,7 @@ describe("doctor unclaimed-agent checks", () => {
     seedAgent("unclaim001", { name: "stuck-worker" }, directory);
     orm(directory).run(sql`UPDATE agents SET created_at = ${now - 180_000} WHERE id = ${"unclaim001"}`);
 
-    const result = checkUnclaimedAgents(directory, now);
+    const result = checkUnclaimedAgents(directory, settingsOf(directory), now);
 
     expect(result).toMatchObject({ id: "unclaimed-agents", label: "Unclaimed agents", status: "warn" });
     expect(result.detail).toContain("stuck-worker (unclaim001)");
@@ -110,7 +116,7 @@ describe("doctor unclaimed-agent checks", () => {
     orm(directory).run(sql`UPDATE agents SET created_at = ${now - 180_000} WHERE id = ${"claimed001"}`);
     expect(claimAgent(directory, "claimed001", "session-token", now - 100_000)).toEqual({ kind: "stamped" });
 
-    const result = checkUnclaimedAgents(directory, now);
+    const result = checkUnclaimedAgents(directory, settingsOf(directory), now);
 
     expect(result).toMatchObject({ status: "ok", detail: "no live agents remain unclaimed past doctor.unclaimed_after_ms" });
   });
@@ -122,7 +128,7 @@ describe("doctor unclaimed-agent checks", () => {
     seedAgent("fresh00001", { name: "fresh-worker" }, directory);
     orm(directory).run(sql`UPDATE agents SET created_at = ${now - 60_000} WHERE id = ${"fresh00001"}`);
 
-    const result = checkUnclaimedAgents(directory, now);
+    const result = checkUnclaimedAgents(directory, settingsOf(directory), now);
 
     expect(result).toMatchObject({ status: "ok", detail: "no live agents remain unclaimed past doctor.unclaimed_after_ms" });
   });
@@ -145,14 +151,14 @@ describe("doctor notification-sink checks", () => {
     const directory = tempDir();
     writeSettings(directory, { notify: [{ id: "webhook", url: "not a url" }] });
 
-    expect(() => loadSettings(directory)).toThrow(/notify/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/notify/);
   });
 
   test("uses the notify-send prerequisite install command in desktop remediation", async () => {
     const directory = tempDir();
     writeSettings(directory, { notify: [{ id: "desktop" }] });
 
-    const result = await withPath(path.join(directory, "empty-path"), () => checkNotifiers(directory));
+    const result = await withPath(path.join(directory, "empty-path"), () => checkNotifiers(directory, settingsOf(directory)));
     const install = PREREQUISITES["notify-send"]!.install!;
     expect(result.status).toBe("fail");
     expect(result.detail).toContain(`fix: install notify-send (\`${install}\`)`);
@@ -186,7 +192,7 @@ describe("doctor notification-sink checks", () => {
     const directory = tempDir();
     writeSettings(directory, { notify: [{ id: "command", command: [process.execPath], on: ["blocked", "error"] }] });
 
-    const result = await checkNotifiers(directory);
+    const result = await checkNotifiers(directory, settingsOf(directory));
     expect(result).toMatchObject({
       status: "warn",
       detail: 'command: effective "on" list omits "done"; fix: orch settings notify add command --on=blocked,error,done',
@@ -197,7 +203,7 @@ describe("doctor notification-sink checks", () => {
     const directory = tempDir();
     writeSettings(directory, { notify: [{ id: "command", on: ["done"], command: [process.execPath] }] });
 
-    expect(await checkNotifiers(directory)).toMatchObject({ status: "ok" });
+    expect(await checkNotifiers(directory, settingsOf(directory))).toMatchObject({ status: "ok" });
   });
 
   test("keeps unavailable notifier failures when done is omitted", async () => {
@@ -205,7 +211,7 @@ describe("doctor notification-sink checks", () => {
     const missingCommand = path.join(directory, "missing-notifier-command");
     writeSettings(directory, { notify: [{ id: "command", command: [missingCommand] }] });
 
-    const result = await checkNotifiers(directory);
+    const result = await checkNotifiers(directory, settingsOf(directory));
     expect(result.status).toBe("fail");
     expect(result.detail).toContain(`fix: install ${missingCommand}`);
   });

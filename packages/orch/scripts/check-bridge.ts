@@ -374,7 +374,8 @@ export function checkDispatcherCallLine(line: string, relPath: string): string |
 /** Rule: process composition happens at a root. Only src/services.ts reads ORCH_DIR, and
  * only the roots call createServices(): the CLI (src/commands/index.ts, src/commands/setup.ts
  * for the first-run wizard), the daemon (src/daemon/orchd.ts), the extensions
- * (extensions/pi/index.ts, extensions/omp/index.ts). Everything else receives values. */
+ * (extensions/pi/index.ts, extensions/omp/index.ts), and build tooling under scripts/, where
+ * every script is its own process. Everything else receives values. */
 const COMPOSITION_ROOTS = new Set([
   "src/commands/index.ts",
   "src/commands/setup.ts",
@@ -382,6 +383,10 @@ const COMPOSITION_ROOTS = new Set([
   "extensions/pi/index.ts",
   "extensions/omp/index.ts",
 ]);
+
+function isCompositionRoot(normalizedPath: string): boolean {
+  return COMPOSITION_ROOTS.has(normalizedPath) || normalizedPath.startsWith("scripts/");
+}
 const COMPOSITION_IMPORT = /\bimport\b[^;\n]*\b(?:loadSettings|loadSettingsOrNull|settingsLogLevel|commandLogger|orchDir)\b/;
 
 export function checkCompositionRootLine(line: string, relPath: string): string | undefined {
@@ -389,7 +394,7 @@ export function checkCompositionRootLine(line: string, relPath: string): string 
   if (line.includes("process.env.ORCH_DIR") && normalizedPath !== "src/services.ts") {
     return "process.env.ORCH_DIR may only be read in src/services.ts; pass orchDir from the composition root";
   }
-  if (/\bcreateServices\s*\(/.test(line) && !COMPOSITION_ROOTS.has(normalizedPath)) {
+  if (/\bcreateServices\s*\(/.test(line) && !isCompositionRoot(normalizedPath)) {
     // The function declaration is the composition seam itself, not a call site.
     if (!(normalizedPath === "src/services.ts" && /\bfunction\s+createServices\s*\(/.test(line))) {
       return "createServices() may only be called from a composition root";

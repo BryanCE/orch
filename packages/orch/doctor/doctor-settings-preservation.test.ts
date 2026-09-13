@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runDoctor } from "../src/doctor/runner.ts";
+import { runTestDoctor } from "../test/helpers/doctor.ts";
 import { removeTempDir } from "../test/helpers/tempdir.ts";
 
 const dirs: string[] = [];
@@ -19,7 +19,7 @@ describe("doctor settings preservation", () => {
     const file = join(dir, "settings.json");
     const custom = '{"custom":true, "models":{"pi":"keep-me"}}\n';
     writeFileSync(file, custom);
-    await runDoctor(dir, { yes: true });
+    await runTestDoctor(dir, { yes: true });
     expect(readFileSync(file, "utf8")).toBe(custom);
   }, 30_000);
 });

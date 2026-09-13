@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -22,15 +22,16 @@ import { sql } from "drizzle-orm";
 import { row } from "./helpers/rows.ts";
 import { withExitCode } from "./helpers/exit-code.ts";
 import { testServices } from "./helpers/services.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 const dirs: string[] = [];
-const oldOrchDir = process.env.ORCH_DIR;
+beforeEach(() => isolateOrchEnv());
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
-  if (oldOrchDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldOrchDir;
+  restoreOrchEnv();
 });
 
 function services(dir: string) {
-  return testServices({ orchDir: dir, settings: null });
+  return testServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } });
 }
 
 function daemonState(dir: string) {

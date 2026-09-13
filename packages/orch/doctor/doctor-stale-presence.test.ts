@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { runDoctor } from "../src/doctor/runner.ts";
+import { runTestDoctor } from "../test/helpers/doctor.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "../test/helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "../test/helpers/agent.ts";
@@ -51,7 +51,7 @@ describe("doctor stale presence safety", () => {
       cwd: "/home/bryan/Documents/orch",
       updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
     });
-    const result = staleResult(await runDoctor(directory));
+    const result = staleResult(await runTestDoctor(directory));
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("docs-2");
     expect(result.detail).toContain("project orch");
@@ -61,7 +61,7 @@ describe("doctor stale presence safety", () => {
   test("the removal fix is marked destructive so UIs never pre-select it", async () => {
     const directory = tempDir();
     writeDeadAgent(directory, DEAD_KEY, { pid: DEAD_PID, label: "docs-2", agent: "pi", cwd: "/x/orch" });
-    const result = staleResult(await runDoctor(directory));
+    const result = staleResult(await runTestDoctor(directory));
     expect(result.fix?.destructive).toBe(true);
     expect(result.fix?.description).toContain("docs-2");
   }, 30_000);
@@ -72,7 +72,7 @@ describe("doctor stale presence safety", () => {
     seedAgent(LIVE_KEY, { adapter: "pi", cwd: "/x/orch" }, directory);
     seedLiveProcess(directory, LIVE_KEY);
     writeDeadAgent(directory, LIVE_KEY, { schema: PRESENCE_SCHEMA, label: "alive", agent: "pi", cwd: "/x/orch" });
-    const result = staleResult(await runDoctor(directory));
+    const result = staleResult(await runTestDoctor(directory));
     expect(result.status).toBe("ok");
     expect(result.fix).toBeUndefined();
   });

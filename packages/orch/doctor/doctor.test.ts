@@ -6,10 +6,11 @@ import { Database } from "bun:sqlite";
 import { computeCodeHash } from "../src/daemon/lifecycle.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
-import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
+import { applyFixes } from "../src/doctor/runner.ts";
 import { checkStore } from "../src/doctor/store.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { isDrvFsPath } from "../src/doctor/settings-file.ts";
+import { runTestDoctor } from "../test/helpers/doctor.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { seedStatusInDir } from "../test/helpers/presence.ts";
 import { removeTempDir } from "../test/helpers/tempdir.ts";
@@ -31,7 +32,7 @@ function tempDir(): string {
   return directory;
 }
 
-function check(results: Awaited<ReturnType<typeof runDoctor>>, id: string) {
+function check(results: Awaited<ReturnType<typeof runTestDoctor>>, id: string) {
   const result = results.find((entry) => entry.id === id);
   if (!result) throw new Error(`missing ${id} result`);
   return result;
@@ -54,7 +55,7 @@ describe("runDoctor", () => {
     // doctor is the command you run WHEN orch is broken, so an install that has never been set up
     // must still get a full report: absence of settings is the answer for a check whose
     // subject is a settings section, never a defect.
-    const results = await runDoctor(tempDir(), () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
+    const results = await runTestDoctor(tempDir(), () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
 
     for (const entry of results.filter((row) => row.status === "fail")) {
       expect(entry.detail).not.toContain("settings.json");
@@ -68,7 +69,7 @@ describe("runDoctor", () => {
   test("checks a healthy store", async () => {
     const directory = tempDir();
     orm(directory);
-    const result = check(await runDoctor(directory), "store");
+    const result = check(await runTestDoctor(directory), "store");
     expect(result).toMatchObject({ status: "ok", label: "Store" });
     expect(result.detail).toContain("applied migration");
   });
@@ -106,12 +107,12 @@ describe("runDoctor", () => {
   });
 
   test("reports a normal ORCH_DIR on the Linux filesystem", async () => {
-    const result = check(await runDoctor(tempDir()), "orchdir-location");
+    const result = check(await runTestDoctor(tempDir()), "orchdir-location");
     expect(result.status).toBe("ok");
   });
 
   test("reports an absent daemon as optional", async () => {
-    const result = check(await runDoctor(tempDir()), "orchd");
+    const result = check(await runTestDoctor(tempDir()), "orchd");
     expect(result.status).toBe("ok");
     expect(result.detail).toContain("absent");
   });
@@ -121,7 +122,7 @@ describe("runDoctor", () => {
     const lockFile = path.join(directory, "orchd.lock");
     fs.writeFileSync(lockFile, JSON.stringify({ pid: 99999999, codeHash: "old", startedAt: "now" }));
 
-    const result = check(await runDoctor(directory), "orchd-lock");
+    const result = check(await runTestDoctor(directory), "orchd-lock");
     expect(result.status).toBe("fail");
     expect(result.detail).toContain(lockFile);
     expect(result.fix).toBeDefined();
@@ -140,8 +141,8 @@ describe("runDoctor", () => {
       startedAt: new Date().toISOString(),
     }));
 
-    expect(check(await runDoctor(directory), "orchd")).toMatchObject({ status: "ok" });
-    expect(check(await runDoctor(directory), "orchd-socket")).toMatchObject({ status: "ok" });
+    expect(check(await runTestDoctor(directory), "orchd")).toMatchObject({ status: "ok" });
+    expect(check(await runTestDoctor(directory), "orchd-socket")).toMatchObject({ status: "ok" });
   });
 
   test("warns when the live daemon code hash is stale", async () => {
@@ -152,7 +153,7 @@ describe("runDoctor", () => {
       startedAt: new Date().toISOString(),
     }));
 
-    const result = check(await runDoctor(directory), "orchd-staleness");
+    const result = check(await runTestDoctor(directory), "orchd-staleness");
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("orch daemon reload");
   });
@@ -161,7 +162,7 @@ describe("runDoctor", () => {
     const invalid = tempDir();
     const invalidLock = path.join(invalid, "orchd.lock");
     fs.writeFileSync(invalidLock, "not json");
-    const invalidResult = check(await runDoctor(invalid), "orchd-lock");
+    const invalidResult = check(await runTestDoctor(invalid), "orchd-lock");
     expect(invalidResult.status).toBe("fail");
     expect(invalidResult.detail).toContain(invalidLock);
     // An unreadable lock is removable: leaving it refuses every later daemon start.
@@ -174,7 +175,7 @@ describe("runDoctor", () => {
       codeHash: "oldagent01",
       startedAt: new Date().toISOString(),
     }));
-    const socketResult = check(await runDoctor(unanswerable), "orchd-socket");
+    const socketResult = check(await runTestDoctor(unanswerable), "orchd-socket");
     expect(socketResult.status).toBe("fail");
     expect(socketResult.detail).toContain("orch daemon start");
   });
@@ -229,7 +230,7 @@ describe("runDoctor", () => {
     const agent = path.join(directory, "agents", "formeragt1");
     fs.mkdirSync(agent, { recursive: true });
     seedStatusInDir(agent, { pid: 99999999 });
-    const results = await runDoctor(directory);
+    const results = await runTestDoctor(directory);
     const stale = check(results, "stale-presence");
 
     expect(stale.status).toBe("warn");
@@ -244,7 +245,7 @@ describe("runDoctor", () => {
     const previousPath = process.env.PATH;
     try {
       process.env.PATH = path.join(directory, "empty-bin");
-      const bins = check(await runDoctor(directory), "bins");
+      const bins = check(await runTestDoctor(directory), "bins");
       expect(bins).toMatchObject({ status: "ok", detail: "no adapters enabled" });
       expect(bins.fix).toBeUndefined();
     } finally {
@@ -292,7 +293,7 @@ describe("runDoctor", () => {
 
   test("validates configured notifier adapters", async () => {
     const empty = tempDir();
-    expect(check(await runDoctor(empty), "notifiers")).toMatchObject({
+    expect(check(await runTestDoctor(empty), "notifiers")).toMatchObject({
       status: "ok",
       detail: "no notifiers configured",
     });
@@ -300,7 +301,7 @@ describe("runDoctor", () => {
     const unavailable = tempDir();
     const missingCommand = path.join(unavailable, "missing-notifier-command");
     writeSettingsFixture(unavailable, { notify: [{ id: "command", command: [missingCommand] }] });
-    const commandFailure = check(await runDoctor(unavailable), "notifiers");
+    const commandFailure = check(await runTestDoctor(unavailable), "notifiers");
     expect(commandFailure.status).toBe("fail");
     expect(commandFailure.detail).toContain(`fix: install ${missingCommand}`);
 
@@ -309,7 +310,7 @@ describe("runDoctor", () => {
     // its filter can never report completion — which test/doctor-checks.test.ts covers.
     const command = tempDir();
     writeSettingsFixture(command, { notify: [{ id: "command", command: [process.execPath], on: ["blocked", "error", "done"] }] });
-    expect(check(await runDoctor(command), "notifiers")).toMatchObject({
+    expect(check(await runTestDoctor(command), "notifiers")).toMatchObject({
       status: "ok",
       detail: "1 configured notifier are available",
     });
@@ -320,19 +321,19 @@ describe("runDoctor", () => {
     writeSettingsFixture(invalid, { queue: { max_retries: "never" } });
     const missing = tempDir();
 
-    const settingsResult = check(await runDoctor(invalid), "settings");
+    const settingsResult = check(await runTestDoctor(invalid), "settings");
     expect(settingsResult.status).toBe("fail");
     expect(settingsResult.detail).toContain("settings.json");
-    expect(check(await runDoctor(missing), "settings")).toEqual({ id: "settings", label: "Settings validity", status: "ok", detail: "no settings.json" });
+    expect(check(await runTestDoctor(missing), "settings")).toEqual({ id: "settings", label: "Settings validity", status: "ok", detail: "no settings.json" });
   });
 
   test("never throws when individual checks encounter broken inputs", async () => {
     const directory = tempDir();
     fs.mkdirSync(path.join(directory, "agents"), { recursive: true });
-    expect(runDoctor(directory)).resolves.toBeArray();
+    await expect(runTestDoctor(directory)).resolves.toBeArray();
 
     const invalidAgents = tempDir();
     fs.writeFileSync(path.join(invalidAgents, "agents"), "not a directory");
-    expect(check(await runDoctor(invalidAgents), "extension-staleness")).toMatchObject({ status: "fail" });
+    expect(check(await runTestDoctor(invalidAgents), "extension-staleness")).toMatchObject({ status: "fail" });
   });
 });

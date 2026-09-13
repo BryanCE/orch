@@ -302,7 +302,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
 
     const cwd = opts.cwd ?? process.cwd();
-    const envArgs = tmuxEnvArgs(agentLaunchEnv({ ...opts, orchDir: opts.orchDir ?? process.env.ORCH_DIR }, TMUX_ENVIRONMENT_STAMP));
+    const envArgs = tmuxEnvArgs(agentLaunchEnv(opts, TMUX_ENVIRONMENT_STAMP));
 
     // A planned target pane wins over the group: `-t <window>` splits whatever
     // pane happens to be active there, which makes placement depend on focus.

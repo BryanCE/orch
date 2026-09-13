@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import { loadPresence } from "../../presence/store.ts";
-import { orchDir } from "../../presence/writer.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
 import { agentById, endAgent } from "../../store/agent-rows.ts";
 import { selfId, selfIdentity } from "../../identity/self.ts";
@@ -14,13 +13,15 @@ import { lifecycleLogger } from "./index.ts";
 import { rpcCall } from "../../daemon/rpc/client.ts";
 import { agentAddress, die, presenceById, resolveLifecycleTarget, splitOptionFlags } from "../target.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
+import type { Services } from "../../types/services.ts";
+import type { Logger } from "../../types/core.ts";
 import { currentProcess } from "../../store/interval-rows.ts";
 
 /** Read the launch identity from the normalized agent process interval. Presence
  * status carries liveness only and can never authorize a signal. */
-function recordedProcess(key: string): RecordedProcess | null {
+function recordedProcess(orchDir: string, key: string): RecordedProcess | null {
   try {
-    const row = currentProcess(orchDir(), key);
+    const row = currentProcess(orchDir, key);
     return row === undefined ? null : { pid: row.pid, startToken: row.startToken };
   } catch {
     return null;
@@ -50,8 +51,8 @@ interface ClosedAgent {
   readonly oldState: string;
 }
 
-function endClosedAgent(key: string): ClosedAgent | null {
-  const root = orchDir();
+function endClosedAgent(orchDir: string, key: string): ClosedAgent | null {
+  const root = orchDir;
   const agentId = key;
   const row = agentById(root, agentId);
   if (row && !row.ending) {
@@ -63,8 +64,8 @@ function endClosedAgent(key: string): ClosedAgent | null {
   return null;
 }
 
-function publishClosedAgent(closed: ClosedAgent): void {
-  void rpcCall(orchDir(), "agent-closed", closed).catch(() => { /* the daemon may not be running */ });
+function publishClosedAgent(orchDir: string, closed: ClosedAgent): void {
+  void rpcCall(orchDir, "agent-closed", closed).catch(() => { /* the daemon may not be running */ });
 }
 
 /** One target's result from a multi-target close, with the reason it failed. */
@@ -113,20 +114,20 @@ interface CloseTarget {
  * the sweep. A bulk close that closes nothing leaves every name reserved, which
  * is exactly when respawning is the only way out.
  */
-function sweepTargets(): CloseTarget[] {
-  const presence = presenceById();
+function sweepTargets(services: Pick<Services, "orchDir" | "logger">): CloseTarget[] {
+  const presence = presenceById(loadPresence(services.orchDir));
   const targets: CloseTarget[] = [];
-  for (const view of liveAgentViews(orchDir())) {
+  for (const view of liveAgentViews(services.orchDir)) {
     const address = agentAddress(view, presence);
     const backend = getBackend(view.environment.plexer ?? "") ?? null;
     if (!backend) {
-      lifecycleLogger(address).warn("close.unknown-backend", { backend: view.environment.plexer, handle: address });
+      lifecycleLogger(services.logger, address).warn("close.unknown-backend", { backend: view.environment.plexer, handle: address });
       process.stdout.write(`skipping ${address}: unknown backend ${JSON.stringify(view.environment.plexer)} (reaping the record)\n`);
     }
     const handle = view.environment.handle;
     const paneState = handle === null ? false : plexerStillHasPane(backend, handle);
     targets.push({
-      backend, handle, key: address, recorded: recordedProcess(address),
+      backend, handle, key: address, recorded: recordedProcess(services.orchDir, address),
       // Unknown inventory still permits a real recorded handle to be handed to
       // the plexer; a null handle is never replaced with the agent id.
       placeKnown: handle !== null && paneState !== false,
@@ -136,9 +137,9 @@ function sweepTargets(): CloseTarget[] {
 }
 
 /** Resolve the targets named on the command line. */
-function namedTargets(positional: readonly string[]): CloseTarget[] {
+function namedTargets(services: Services, positional: readonly string[]): CloseTarget[] {
   return positional.map((target) => {
-    const resolved = resolveLifecycleTarget(target);
+    const resolved = resolveLifecycleTarget(services.orchDir, target);
     // Driving sessions must resolve through their open lease; the operator remains
     // unscoped. Close authority is the additional provenance check in cmdClose.
     // `resolveLifecycleTarget` also supplies process-oriented fallbacks (pid/key).
@@ -148,7 +149,7 @@ function namedTargets(positional: readonly string[]): CloseTarget[] {
       backend: resolved.backend,
       handle,
       key: resolved.key,
-      recorded: recordedProcess(resolved.key),
+      recorded: recordedProcess(services.orchDir, resolved.key),
       // A pane-capable backend's stale registry row may outlive its pane. Do
       // not invoke a provider with an opaque identity handle in that case.
       placeKnown: handle !== null && (resolved.backend.placementInventory === null || resolved.entity.paneId !== null),
@@ -265,7 +266,7 @@ function killEventStreams(): number {
  *  Prose on stderr is not something a caller
  *  can act on, and a payload carrying only the successes cannot tell a full
  *  sweep from a half one. A target named twice is closed once. */
-function closeEachTarget(targets: readonly CloseTarget[], json: boolean): { results: CloseOutcome[]; closed: string[]; ok: number } {
+function closeEachTarget(logger: Logger, orchDir: string, targets: readonly CloseTarget[], json: boolean): { results: CloseOutcome[]; closed: string[]; ok: number } {
   const results: CloseOutcome[] = [];
   const closed: string[] = [];
   const seen = new Set<string>();
@@ -275,13 +276,13 @@ function closeEachTarget(targets: readonly CloseTarget[], json: boolean): { resu
     const handle = target.handle === null ? null : describeHandle(target.handle);
     const { failure, signalled, closedByBackend } = attemptClose(target);
     if (failure !== null) {
-      lifecycleLogger(target.key).error("close.failed", { handle, error: failure });
+      lifecycleLogger(logger, target.key).error("close.failed", { handle, error: failure });
       results.push({ target: target.key, handle, outcome: "error", error: failure });
       process.stdout.write(`Could not close ${target.key}: ${failure}\n`);
       continue;
     }
-    const ended = endClosedAgent(target.key);
-    if (ended) publishClosedAgent(ended);
+    const ended = endClosedAgent(orchDir, target.key);
+    if (ended) publishClosedAgent(orchDir, ended);
     closed.push(target.key);
     results.push({ target: target.key, handle, outcome: "done", error: null });
     if (!json) process.stdout.write(`Closed ${target.key}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
@@ -309,7 +310,7 @@ function reportClose(
   if (requested && ok !== requested) process.exitCode = 1;
 }
 
-export function cmdClose(args: string[]) {
+export function cmdClose(services: Services, args: string[]) {
   const usage = "usage: orch close <target>... | --all [--stream] [--json]";
   const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json"]);
   const all = enabled.has("--all");
@@ -320,22 +321,22 @@ export function cmdClose(args: string[]) {
   if (!all && !positional.length) die(usage);
 
   const authority = callerAuthority(selfIdentity());
-  const named = namedTargets(positional);
-  const refusal = named.map((target) => refuseClose(orchDir(), authority, target.key)).find((reason) => reason !== null);
+  const named = namedTargets(services, positional);
+  const refusal = named.map((target) => refuseClose(services.orchDir, authority, target.key)).find((reason) => reason !== null);
   if (refusal !== undefined && refusal !== null) die(refusal);
   // A sweep skips what is not the caller's; a named target is refused.
-  const swept = all ? sweepTargets().filter((target) => refuseClose(orchDir(), authority, target.key) === null) : [];
+  const swept = all ? sweepTargets(services).filter((target) => refuseClose(services.orchDir, authority, target.key) === null) : [];
 
-  reportClose(closeEachTarget([...swept, ...named], json), { all, stream, json });
+  reportClose(closeEachTarget(services.logger, services.orchDir, [...swept, ...named], json), { all, stream, json });
 }
 
-export function cmdAbort(args: string[]) {
+export function cmdAbort(services: Services, args: string[]) {
   const json = args.includes("--json");
   const target = args.find((arg) => arg !== "--json" && arg !== "--force");
   if (!target) die("usage: orch abort <target> [--force] [--json]");
   // Abort itself has no close-authority gate. Lifecycle resolution still scopes a
   // driving session by its open lease; the operator remains unscoped.
-  const { backend, handle, entity } = resolveLifecycleTarget(target);
+  const { backend, handle, entity } = resolveLifecycleTarget(services.orchDir, target);
   const input = backend.agentInput;
   if (!entity.paneId || !input) {
     const reason = !entity.paneId ? "no-pane" : "no-environment-role";

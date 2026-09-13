@@ -1,6 +1,5 @@
 import { rpcCall } from "../../daemon/rpc/client.ts";
-import { orchDir } from "../../presence/writer.ts";
-import { loadSettings } from "../../settings/read.ts";
+import { loadPresence } from "../../presence/store.ts";
 import { maySpawnFrom } from "../../policy/spawner.ts";
 import { workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
@@ -12,16 +11,17 @@ import { selfId } from "../../identity/self.ts";
 import { agentViewIndex, presenceById } from "../target.ts";
 import { isAgentId } from "../../backends/identity.ts";
 import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../../policy/capacity.ts";
-import { commandLogger } from "../logging.ts";
 import type { Backend } from "../../types/backend.ts";
+import type { Logger } from "../../types/core.ts";
+import type { OrchSettings } from "../../types/settings.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { CreatedAgent } from "../../types/command.ts";
 import { pinModels } from "./models.ts";
 import type { SpawnSettings } from "./flags.ts";
 
 
-export function spawnLogger(key?: string) {
-  return key !== undefined && isAgentId(key) ? commandLogger().forAgent(key) : commandLogger();
+export function spawnLogger(logger: Logger, key?: string): Logger {
+  return key !== undefined && isAgentId(key) ? logger.forAgent(key) : logger;
 }
 
 /** Return the keys whose bridge is attached in one daemon status response. */
@@ -34,7 +34,7 @@ function attachedBridgeKeys(answer: unknown): ReadonlySet<string> {
 }
 
 /** Wait for every agent's bridge to attach; returns only the ones that attached. */
-export async function awaitBridgeAttach(created: { key: string; handle: string; name: string }[], json = false): Promise<CreatedAgent[]> {
+export async function awaitBridgeAttach(orchDir: string, logger: Logger, created: { key: string; handle: string; name: string }[], json = false): Promise<CreatedAgent[]> {
   const pending = new Map(created.map((c) => [c.key, c]));
   const attached = new Map<string, CreatedAgent>();
   const deadline = Date.now() + 60_000;
@@ -42,7 +42,7 @@ export async function awaitBridgeAttach(created: { key: string; handle: string; 
   while (pending.size && Date.now() < deadline) {
     let answer: unknown = null;
     try {
-      answer = await rpcCall(orchDir(), "status");
+      answer = await rpcCall(orchDir, "status");
     } catch {
       // The daemon may be briefly unavailable while a bridge starts; keep polling
       // until the same spawn deadline used by the old registration wait.
@@ -61,7 +61,7 @@ export async function awaitBridgeAttach(created: { key: string; handle: string; 
   // traffic. Reporting it on stdout while exiting 0 is what let a scripted fleet
   // launch read as success and dispatch into agents that never came up.
   for (const agent of pending.values()) {
-    spawnLogger(agent.key).error("spawn.stalled", { handle: agent.handle, name: agent.name });
+    spawnLogger(logger, agent.key).error("spawn.stalled", { handle: agent.handle, name: agent.name });
     process.stdout.write(`  STALLED ${agent.handle}  ${agent.name} - bridge never attached; try: orch restart ${agent.name}\n`);
   }
   if (pending.size) process.exitCode = 1;
@@ -70,9 +70,9 @@ export async function awaitBridgeAttach(created: { key: string; handle: string; 
 
 /** A launch that placed fewer agents than were asked for FAILED; a warning line
  *  and a zero exit is how "spawn 3" quietly delivering 1 read as success. */
-export function reportShortfall(requested: number, placed: number): void {
+export function reportShortfall(logger: Logger, requested: number, placed: number): void {
   if (placed >= requested) return;
-  commandLogger().error("spawn.shortfall", { requested, placed });
+  logger.error("spawn.shortfall", { requested, placed });
   process.stdout.write(`placed ${placed} of ${requested} requested agent(s)\n`);
   process.exitCode = 1;
 }
@@ -80,11 +80,11 @@ export function reportShortfall(requested: number, placed: number): void {
 /** How many agents actually came up, or `null` when the harness cannot say.
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
-export async function confirmAgentsCameUp(adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<CreatedAgent[] | null> {
+export async function confirmAgentsCameUp(orchDir: string, logger: Logger, adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<CreatedAgent[] | null> {
   if (adapter.bridge) {
-    return await awaitBridgeAttach(created, json);
+    return await awaitBridgeAttach(orchDir, logger, created, json);
   }
-  commandLogger().warn("spawn.unverified", { adapter: adapter.id, count: created.length });
+  logger.warn("spawn.unverified", { adapter: adapter.id, count: created.length });
   process.stdout.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
   return null;
 }
@@ -113,28 +113,27 @@ export function printLayout(backend: Backend, group: string, header: string) {
  *  orchd are UNMANAGED: no steer, model pin, or result reaches them, and printing
  *  the tiling and "Spawned N agent(s)" over that silence is what sent an operator
  *  dispatching into a fleet that answered nothing. Null when orchd answers. */
-export async function reportControlPlaneOutage(placementCount: number): Promise<string | null> {
+export async function reportControlPlaneOutage(logger: Logger, placementCount: number): Promise<string | null> {
   const outage = await daemonOutage();
   if (!outage) return null;
-  commandLogger().error("spawn.control-plane-unreachable", { panes: placementCount, error: outage });
+  logger.error("spawn.control-plane-unreachable", { panes: placementCount, error: outage });
   process.stdout.write(`CONTROL PLANE UNREACHABLE - ${placementCount} pane(s) are UNMANAGED: ${outage}\n`);
   process.exitCode = 1;
   return outage;
 }
 
-export async function reportSpawnResults(settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
-  const settingsFile = loadSettings(orchDir());
-  const maySpawn = maySpawnFrom(orchDir(), selfId(), settingsFile.fleet.max_depth);
+export async function reportSpawnResults(orchDir: string, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
+  const maySpawn = maySpawnFrom(orchDir, selfId(), settingsFile.fleet.max_depth);
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.handle}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
     printLayout(backend, group, "\nFinal tiling:");
   }
-  reportShortfall(settings.n, created.length);
-  const registeredAgents = await confirmAgentsCameUp(resolveAdapterOrDie(settings.adapter), created, settings.json);
+  reportShortfall(logger, settings.n, created.length);
+  const registeredAgents = await confirmAgentsCameUp(orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settings.json);
   const registered = registeredAgents?.length ?? null;
   if (!settings.json) {
-    const views = agentViewIndex();
-    const presence = presenceById();
+    const views = agentViewIndex(orchDir);
+    const presence = presenceById(loadPresence(orchDir));
     const caller = selfId();
     const callerRoot = caller === undefined
       ? created.map((agent) => views.get(agent.key)?.rootAgentId).find((root): root is string => root !== undefined)
@@ -147,12 +146,12 @@ export async function reportSpawnResults(settings: SpawnSettings, group: string,
     const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
     for (const agent of created) {
       if (!registeredKeys.has(agent.key)) {
-        spawnLogger(agent.key).warn("spawn.not-registered", { name: agent.name });
+        spawnLogger(logger, agent.key).warn("spawn.not-registered", { name: agent.name });
         process.stdout.write(`not pinned: ${agent.name} never registered\n`);
       }
     }
   }
-  const warnings = await pinModels(registeredAgents ?? [], settings.model, settings.thinking);
+  const warnings = await pinModels(logger, registeredAgents ?? [], settings.model, settings.thinking);
   const dispatches: { name: string; key: string; dispatchId: string }[] = [];
   if (registeredAgents && settings.prompts.length > 0) {
     const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
@@ -171,12 +170,12 @@ export async function reportSpawnResults(settings: SpawnSettings, group: string,
         if (!settings.json) process.stdout.write(`dispatched ${agent.name} ${dispatchId}\n`);
       } catch (error: unknown) {
         const message = errorMessage(error);
-        spawnLogger(agent.key).error("spawn.dispatch-failed", { name: agent.name, error: message });
+        spawnLogger(logger, agent.key).error("spawn.dispatch-failed", { name: agent.name, error: message });
         process.stdout.write(`warning: could not dispatch ${agent.name}: ${message}\n`);
       }
     }
   }
-  const outage = warnings.length ? await reportControlPlaneOutage(created.length) : null;
+  const outage = warnings.length ? await reportControlPlaneOutage(logger, created.length) : null;
   if (settings.json) process.stdout.write(JSON.stringify({
     backend: settings.backend,
     tab: tabLabel,

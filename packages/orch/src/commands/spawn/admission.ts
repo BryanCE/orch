@@ -1,4 +1,3 @@
-import { orchDir } from "../../presence/writer.ts";
 import { recordGrantRequest, spendGrant } from "../../store/grant-rows.ts";
 import { assertValidAgentName } from "../../policy/name.ts";
 import { spawnerIdentity } from "../../policy/spawner.ts";
@@ -6,6 +5,7 @@ import { term } from "../../policy/vocabulary.ts";
 import { depthOf } from "../../policy/provenance.ts";
 import { SpawnRefusalError } from "../../refusal.ts";
 import { refreshStaleShims } from "../../doctor/runner.ts";
+import { loadPresence } from "../../presence/store.ts";
 import { errorMessage } from "../../util.ts";
 import { agentViewIndex, die, presenceById } from "../target.ts";
 import { callerSpace } from "../../identity/self.ts";
@@ -58,8 +58,8 @@ export function spawnPolicyError(
   return null;
 }
 
-export function assertSpawnPolicy(settings: Pick<OrchSettings, "fleet">, space: string | null, requested: number): void {
-  const refusal = spawnPolicyError(settings, space, requested, agentViewIndex(), presenceById(), spawnerIdentity().key);
+export function assertSpawnPolicy(orchDir: string, settings: Pick<OrchSettings, "fleet">, space: string | null, requested: number): void {
+  const refusal = spawnPolicyError(settings, space, requested, agentViewIndex(orchDir), presenceById(loadPresence(orchDir)), spawnerIdentity().key);
   if (refusal) throw new SpawnRefusalError(`spawn refused: ${refusal}`);
 }
 
@@ -73,11 +73,12 @@ export function assertTabCapacity(settings: Pick<OrchSettings, "fleet">, tab: st
 }
 
 export function assertSpawnCapacity(
+  orchDir: string,
   settings: Pick<OrchSettings, "fleet">,
   space: string | null,
   requested: number,
-  views: ReadonlyMap<string, AgentView> = agentViewIndex(),
-  presence: ReadonlyMap<string, PresenceEntry> = presenceById(),
+  views: ReadonlyMap<string, AgentView> = agentViewIndex(orchDir),
+  presence: ReadonlyMap<string, PresenceEntry> = presenceById(loadPresence(orchDir)),
 ): void {
   const counts = liveSpawnCounts(views, presence);
   const capacity = computeFleetCapacity(views, presence, settings);
@@ -106,10 +107,10 @@ export function newSpaceAction(settings: SpawnSettings, backend: Backend): Grant
 /** Opening a space puts a window on the human's screen, so a caller with no
  *  space of its own may not take one unasked. There is no flag to pass here:
  *  a flag is typed by whoever runs the command, which is the agent. */
-export function assertNewSpaceGranted(settings: SpawnSettings, backend: Backend, callerAgentId: string | null): void {
+export function assertNewSpaceGranted(orchDir: string, settings: SpawnSettings, backend: Backend, callerAgentId: string | null): void {
   const action = newSpaceAction(settings, backend);
-  if (spendGrant(orchDir(), action, callerAgentId)) return;
-  const request = recordGrantRequest(orchDir(), action, callerAgentId);
+  if (spendGrant(orchDir, action, callerAgentId)) return;
+  const request = recordGrantRequest(orchDir, action, callerAgentId);
   die(`orch is not running inside a ${backend.id} space, so this spawn would open a NEW ${backend.id} space.\n`
     + `Ask the user to approve it in another terminal:\n\n    orch grant ${request.id}\n\n`
     + `then retry this exact command. Or pass --space <id> to place the fleet in an open space,`
@@ -117,14 +118,14 @@ export function assertNewSpaceGranted(settings: SpawnSettings, backend: Backend,
 }
 /** Everything that can refuse a spawn, run before it creates anything. A refused
  *  spawn leaves no handle, no worktree and no queue entry. */
-export async function admitSpawn(settings: SpawnSettings): Promise<void> {
+export async function admitSpawn(orchDir: string, settings: SpawnSettings): Promise<void> {
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.
-  assertSpawnPolicy(settings, settings.space ?? callerSpace(), settings.n);
+  assertSpawnPolicy(orchDir, settings, settings.space ?? callerSpace(), settings.n);
   assertLaunchModelAllowed(settings.adapter, settings.model);
   // Shim refresh is a launch side effect, so it happens only after policy
   // accepts, and only for the harness actually being launched.
-  await refreshStaleShims(orchDir(), [settings.adapter]);
+  await refreshStaleShims(orchDir, [settings.adapter]);
   // Herdr rejects an invalid prefix, so no placement side effect may precede it.
   try {
     assertValidAgentName(settings.prefix);

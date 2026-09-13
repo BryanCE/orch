@@ -1,4 +1,3 @@
-import { loadSettings } from "../settings/read.ts";
 import { getBackend } from "../backends/registry.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { buildEntities, callerMayResolve, parseTarget, refuseForeignTarget, resolveTarget } from "../entities.ts";
@@ -9,14 +8,13 @@ import { operatorControls } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { runSSH } from "../remote.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
-import { orchDir } from "../presence/writer.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { ambiguousTargetRefusal, die } from "../refusal.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
-import type { HostSettings } from "../types/settings.ts";
+import type { HostSettings, OrchSettings } from "../types/settings.ts";
 import type { LifecycleTarget } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
 
@@ -71,7 +69,7 @@ function looksLikePaneKey(key: string): boolean {
 /** Every agent the store knows, indexed by its minted id. The index itself is
  *  built in exactly ONE place (src/presence/store.ts); a second copy is how two
  *  callers end up disagreeing about what the fleet is. */
-export function agentViewIndex(root = orchDir()): Map<string, AgentView> {
+export function agentViewIndex(root: string): Map<string, AgentView> {
   return spawnedRecords(root);
 }
 
@@ -98,10 +96,10 @@ export function agentAddress(view: AgentView, presence: ReadonlyMap<string, Pres
 }
 
 /** The live lease holder for one identity key, or null when nothing holds it. */
-export function leaseHolderOf(key: string): string | null {
+export function leaseHolderOf(orchDir: string, key: string): string | null {
   if (!isAgentId(key)) return null;
   try {
-    return currentLease(orchDir(), key)?.orchId ?? null;
+    return currentLease(orchDir, key)?.orchId ?? null;
   } catch {
     return null;
   }
@@ -111,9 +109,9 @@ export function livePanePresenceEntries(): PresenceEntry[] {
   return [...loadPresence().values()].filter((pres) => pres.alive && looksLikePaneKey(pres.key));
 }
 
-export function targetHost(target: string): { host: string; target: string } | null {
+export function targetHost(hosts: OrchSettings["hosts"], target: string): { host: string; target: string } | null {
   try {
-    const ref = parseTarget(target, loadSettings(orchDir()).hosts);
+    const ref = parseTarget(target, hosts);
     return ref.host ? { host: ref.host, target: ref.target } : null;
   } catch (error: unknown) {
     die(errorMessage(error));
@@ -126,8 +124,13 @@ export function remoteCommandArgs(host: HostSettings, command: string, args: rea
   return `${prefix}orch ${[command, ...args].map(quote).join(" ")}`;
 }
 
-export function remoteWrite(hostName: string, command: string, args: readonly string[]): void {
-  const host = loadSettings(orchDir()).hosts[hostName];
+export function remoteWrite(
+  hosts: OrchSettings["hosts"],
+  hostName: string,
+  command: string,
+  args: readonly string[],
+): void {
+  const host = hosts[hostName];
   const destination = host?.dest;
   if (!host || !destination) die(`Host "${hostName}" has no SSH destination.`);
   const result = runSSH(destination, remoteCommandArgs(host, command, args), { timeoutMs: host.timeout_ms });
@@ -179,12 +182,12 @@ export function actorSpace(token: string): string | null {
  *  Ownership is the OPEN lease and nothing else (Rule 11) — `heldBy`, never a
  *  column on a wide row and never a second id space. Failing that, the human
  *  operator of a space controls every agent composed into it. */
-export function ownsAgent(agent: Pick<AgentView, "id" | "heldBy">): boolean {
+export function ownsAgent(orchDir: string, agent: Pick<AgentView, "id" | "heldBy">): boolean {
   const token = callerOwnerToken();
   if (!token) return false;
   if (agent.heldBy?.orchId === token) return true;
   return !callerIsSpawnedAgent()
-    && operatorControls(orchDir(), token, agent.id, actorSpace(token), true);
+    && operatorControls(orchDir, token, agent.id, actorSpace(token), true);
 }
 
 /** Return the exact session address that spawned this caller. */
@@ -198,6 +201,7 @@ export function spawnedBySelf(record: { spawnedBy?: string }): boolean {
 }
 
 export function assertAgentOwned(
+  orchDir: string,
   target: string,
   entity: Pick<Entity, "key">,
   force = false,
@@ -209,13 +213,14 @@ export function assertAgentOwned(
   }
   // Ownership is the open lease and nothing else. A closed one is history, and
   // history never gates a write (Rule 11).
-  const holder = views ? viewForKey(views, entity.key)?.heldBy?.orchId ?? null : leaseHolderOf(entity.key);
-  if (holder !== null && !ownsAgent({ id: entity.key, heldBy: { orchId: holder, since: 0 } })) {
+  const holder = views ? viewForKey(views, entity.key)?.heldBy?.orchId ?? null : leaseHolderOf(orchDir, entity.key);
+  if (holder !== null && !ownsAgent(orchDir, { id: entity.key, heldBy: { orchId: holder, since: 0 } })) {
     die(`Target "${target}" is owned by ${holder}. Use --force to override.`);
   }
 }
 
 export function backendTarget(
+  orchDir: string,
   target: string,
   command: string,
   views?: ReadonlyMap<string, AgentView>,
@@ -223,7 +228,7 @@ export function backendTarget(
   const ent = resolveTarget(target);
   // The plexer is an ENVIRONMENT axis composed onto the agent, never a segment
   // of its key: an agent that moves plexers keeps the identity it was minted with.
-  const view = viewForKey(views ?? agentViewIndex(), ent.key);
+  const view = viewForKey(views ?? agentViewIndex(orchDir), ent.key);
   const plexer = view?.environment.plexer ?? ent.backend;
   const backend = plexer === null ? undefined : getBackend(plexer);
   if (!backend) die(`orch ${command}: backend ${JSON.stringify(plexer)} is not registered.`);
@@ -350,8 +355,8 @@ function lifecycleHandle(ent: Entity, view: AgentView | undefined): BackendHandl
  * Close is cleanup, so it must still resolve a dead or headless record after
  * the backend has stopped reporting the pane.
  */
-export function resolveLifecycleTarget(target: string): LifecycleTarget {
-  const allViews = agentViewIndex();
+export function resolveLifecycleTarget(orchDir: string, target: string): LifecycleTarget {
+  const allViews = agentViewIndex(orchDir);
   const views = new Map([...allViews].filter(([key]) => callerMayResolve({ key })));
   const presence = presenceById();
   const entities = buildEntities({ skipBackends: true }).filter((entity) => callerMayResolve(entity));

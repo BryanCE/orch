@@ -1,29 +1,29 @@
 import { buildEntities, recipientFor, recipientLabel, resolvePane, resolveTarget } from "../../entities.ts";
 import { isAgentId } from "../../backends/identity.ts";
-import { orchDir, readPresenceStatus } from "../../presence/writer.ts";
+import { readPresenceStatus } from "../../presence/writer.ts";
 import { retryingSync } from "../../retry.ts";
 import { isRecord } from "../../util.ts";
-import { loadSettings } from "../../settings/read.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { workerPrompt } from "../../worker-prompt.ts";
 import { workerHeaderContext } from "../../policy/spawner.ts";
 import { entityAdapter } from "../status.ts";
 import { parseGovernance, writeRpc } from "../daemon.ts";
 import { agentViewIndex, backendTarget, die, ownsAgent, parseTargetPrompt, requireCallerOwnerToken, viewForKey } from "../target.ts";
-import { commandLogger } from "../logging.ts";
+import type { SettingsService } from "../../types/services.ts";
+import type { Logger } from "../../types/core.ts";
 
-export function lifecycleLogger(key: string) {
-  return isAgentId(key) ? commandLogger().forAgent(key) : commandLogger();
+export function lifecycleLogger(logger: Logger, key: string) {
+  return isAgentId(key) ? logger.forAgent(key) : logger;
 }
 
 /** Dispatch a prompt and retry once when the pane never enters working state. */
-export async function cmdRun(args: string[]): Promise<void> {
+export async function cmdRun(services: SettingsService, args: string[]): Promise<void> {
   const raw = args.includes("--raw");
   const json = args.includes("--json");
   const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
   const { ent, pane } = resolvePane(target, { crossSpace: gov.crossSpace });
-  const settings = loadSettings(orchDir());
+  const settings = services.settings.current();
   const headerContext = workerHeaderContext(settings);
   const result = await writeRpc("dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent), headerContext) }, gov);
   const recipient = recipientFor(ent.key);
@@ -31,9 +31,9 @@ export async function cmdRun(args: string[]): Promise<void> {
   else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}.\n`);
 }
 
-export function cmdWait(args: string[]) {
+export function cmdWait(services: SettingsService, args: string[]) {
   let status = "done";
-  const defaultTimeout = loadSettings(orchDir()).timeouts.wait_ms;
+  const defaultTimeout = services.settings.current().timeouts.wait_ms;
   let timeout = defaultTimeout;
   const json = args.includes("--json");
   const positional: string[] = [];

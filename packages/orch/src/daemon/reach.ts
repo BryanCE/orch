@@ -26,14 +26,13 @@ import { announceUnleasedAgents } from "./rpc/session-registry.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./rpc/wire.ts";
 import { rpcCall } from "./rpc/client.ts";
 import { isLiveAgentIdentity } from "../store/agent-rows.ts";
-import { orchDir } from "../presence/writer.ts";
 import { commandLogger } from "../commands/logging.ts";
 import { errorMessage, isRecord, pidAlive, sleep } from "../util.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse } from "../types/daemon.ts";
 
 /** The pid in the daemon lock, once the lifecycle layer has vetted the record.
  *  A pid alone is never authority to signal — see {@link provenDaemonPid}. */
-export function daemonLockPid(directory = orchDir()): number | undefined {
+export function daemonLockPid(directory: string): number | undefined {
   return readDaemonLock(directory)?.pid ?? liveDaemonRegistration(directory)?.pid;
 }
 
@@ -131,7 +130,7 @@ export function unreachableRefusal(directory: string): string {
 }
 
 /** orchd's silence as text a human should read, or null when it answers. */
-export async function daemonOutage(directory = orchDir()): Promise<string | null> {
+export async function daemonOutage(directory: string): Promise<string | null> {
   const probe = await probeDaemon(directory);
   if (probe === "answered") return null;
   if (probe === "unreachable") return unreachableRefusal(directory);

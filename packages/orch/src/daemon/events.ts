@@ -9,7 +9,6 @@ import { loadPresence } from "../presence/store.ts";
 import { agentView, agentViews } from "../store/agent-view.ts";
 import { computeFleetCapacity, packsUsed } from "../policy/capacity.ts";
 import { modelSpec } from "../policy/thinking.ts";
-import { loadSettings } from "../settings/read.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { upsertRun } from "../store/run-rows.ts";
 import { truncate } from "../util.ts";
@@ -23,6 +22,7 @@ import type { PresenceStatus } from "../types/presence.ts";
 import type { PresenceMetadata, PresenceWatch, PresenceWatchOptions } from "../types/daemon.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
+import type { SettingsManager } from "../types/services.ts";
 
 function property(value: object, key: string): unknown {
   return Reflect.get(value, key) as unknown;
@@ -468,7 +468,8 @@ export function emitAndNotify(
   emit: (event: NotifyEvent) => void,
   sinks: NotifyEntry[],
   event: NotifyEvent,
-  orchDir: string | undefined = undefined,
+  orchDir: string | undefined,
+  settings: SettingsManager,
   now = Date.now(),
 ): void {
   if (isRepeatTransition(event, now)) return;
@@ -482,9 +483,9 @@ export function emitAndNotify(
       const views = new Map(agentViews(orchDir).map((view) => [view.id, view]));
       const presence = loadPresence(orchDir);
       const view = views.get(event.key);
-      const settings = loadSettings(orchDir);
-      const computed = computeFleetCapacity(views, presence, settings, { packRootId: view?.rootAgentId });
-      return { packUsed: packsUsed(computed), packCap: settings.fleet.max_agents_per_pack };
+      const currentSettings = settings.current();
+      const computed = computeFleetCapacity(views, presence, currentSettings, { packRootId: view?.rootAgentId });
+      return { packUsed: packsUsed(computed), packCap: currentSettings.fleet.max_agents_per_pack };
     })();
   const canonical: NotifyEvent = { ...named, seq, ...(capacity === undefined ? {} : { capacity }) };
   emit(canonical);

@@ -1,7 +1,7 @@
 import { confirm, isCancel } from "@clack/prompts";
 import * as files from "node:fs";
 import { refreshAdapterCatalogues, resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
-import { loadSettings, reapUnreadableSettings } from "../settings/read.ts";
+import { reapUnreadableSettings } from "../settings/read.ts";
 import { settingsPath } from "../settings/schema.ts";
 import { writeSettingsNotify, writeSettingsSkills } from "../settings/write.ts";
 import { ORCH_RUNTIMES } from "../runtime.ts";
@@ -13,8 +13,8 @@ import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.t
 import { describeSkillPlacement, installSkills, packagedSkillNames, type SkillRoots } from "../setup/skills.ts";
 import { setupIntro, setupOutro, selectNotifiers } from "../setup/wizard.ts";
 import { presenceDir } from "../presence/store.ts";
-import { orchDir } from "../presence/writer.ts";
-import { commandLogger } from "./logging.ts";
+import type { OrchDirService, Services } from "../types/services.ts";
+import { createServices } from "../services.ts";
 import { compositionUnrecorded, resolveSetupComposition, recordComposition } from "../setup/composition.ts";
 import type { SetupComposition } from "../setup/composition.ts";
 import { parseSetupOptions } from "../setup/flags.ts";
@@ -47,6 +47,7 @@ async function askSkillsConsent(roots: SkillRoots, recorded: boolean): Promise<b
 /** Resolve skills consent from `--skills`/`--no-skills`, the prompt, or what is already
  *  recorded, then write the store and its harness links when allowed. */
 async function offerSkills(
+  services: Pick<Services, "orchDir" | "settings">,
   args: string[],
   interactive: boolean,
   ask: (roots: SkillRoots, recorded: boolean) => Promise<boolean> = askSkillsConsent,
@@ -54,11 +55,11 @@ async function offerSkills(
   // A build that packaged no skills has nothing to consent to; asking would offer an
   // empty list and then write nothing.
   if (!packagedSkillNames().length) return;
-  const { install: recorded, store, link } = loadSettings(orchDir()).skills;
+  const { install: recorded, store, link } = services.settings.current().skills;
   const roots = { store, link };
   const forced = args.includes("--skills") ? true : args.includes("--no-skills") ? false : undefined;
   const install = forced ?? (interactive ? await ask(roots, recorded) : recorded);
-  writeSettingsSkills(orchDir(), { install });
+  writeSettingsSkills(services.orchDir, { install });
   process.stdout.write("Skills:\n");
   if (!install) {
     process.stdout.write("  not installed - turn it back on with: orch settings skills --install\n");
@@ -91,7 +92,7 @@ export async function offerReapMalformedRecords(
   return true;
 }
 
-async function initializeSetup(options: SetupOptions): Promise<void> {
+async function initializeSetup(options: SetupOptions, services: OrchDirService): Promise<void> {
   // Before the first prompt, and for every harness rather than the ones about to be picked:
   // the registry queries then run under the whole wizard instead of stalling the model step.
   if (options.refresh) await refreshAdapterCatalogues();
@@ -100,20 +101,25 @@ async function initializeSetup(options: SetupOptions): Promise<void> {
 
   // setup is the ONE recovery path: a settings.json from an older schema (or otherwise invalid)
   // is malformed data, not something to migrate — reap it so re-recording can proceed.
-  const reaped = reapUnreadableSettings(orchDir());
+  const reaped = reapUnreadableSettings(services.orchDir);
   if (reaped) process.stdout.write(`  previous settings.json was unreadable (older schema or invalid values) - moved aside to ${reaped}, re-recording from scratch\n`);
 }
 
-async function installSetupComposition(composition: SetupComposition, options: SetupOptions, args: string[]): Promise<string[] | null> {
+async function installSetupComposition(
+  services: Pick<Services, "orchDir" | "settings" | "logger">,
+  composition: SetupComposition,
+  options: SetupOptions,
+  args: string[],
+): Promise<string[] | null> {
   recordComposition(composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
   if (!(await installPrerequisites(composition.adapters, composition.backends, options.interactive, options.yes, options.noInstall))) return null;
   process.stdout.write("Presence dir:\n");
   files.mkdirSync(presenceDir(), { recursive: true });
   process.stdout.write(`  ${presenceDir()}\n`);
   const gaps = await installAdapterShims(composition.adapters, options.copy);
-  await offerSkills(args, options.interactive);
+  await offerSkills(services, args, options.interactive);
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
-  if (options.interactive) await configureNotifiers();
+  if (options.interactive) await configureNotifiers(services);
   wireBinaries(options.copy);
   alignEntrypointToRuntime(composition.runtime);
   await diagnoseAdapters(composition.adapters);
@@ -130,11 +136,11 @@ async function diagnoseAdapters(adapters: readonly AdapterId[]): Promise<void> {
   }
 }
 
-async function runDoctorPass(interactive: boolean): Promise<CheckResult[]> {
+async function runDoctorPass(services: OrchDirService, interactive: boolean): Promise<CheckResult[]> {
   process.stdout.write("Running doctor checks...\n");
-  let doctorResults = await runDoctor(orchDir());
+  let doctorResults = await runDoctor(services.orchDir);
   // Re-run after a reap so the passed/total count reflects the reaped records, not the pre-reap state.
-  if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(orchDir());
+  if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(services.orchDir);
   process.stdout.write(`Doctor: ${doctorResults.filter((result) => result.status === "ok" || result.status === "skip").length}/${doctorResults.length} checks passed\n`);
   return doctorResults;
 }
@@ -161,22 +167,22 @@ async function finishSetup(options: SetupOptions, gaps: readonly string[]): Prom
 
 /** Onboarding wizard: record the composition, install prerequisites and adapter shims, wire bins,
  * then run a closing doctor pass. Each step is a single-purpose helper; this orchestrates them. */
-export async function cmdSetup(args: string[]) {
+export async function cmdSetup(services: Services, args: string[]) {
   const options = parseSetupOptions(args);
-  await initializeSetup(options);
+  await initializeSetup(options, services);
 
   const composition = await resolveSetupComposition(options);
   if (composition === null) return;
-  const gaps = await installSetupComposition(composition, options, args);
+  const gaps = await installSetupComposition(services, composition, options, args);
   if (gaps === null) return;
 
-  await runDoctorPass(options.interactive);
+  await runDoctorPass(services, options.interactive);
   await finishSetup(options, gaps);
 }
 
 /** Interactive notifier onboarding: probe all notifiers, pick a set, collect each one's
  * declared fields, and persist them as settings.json `notify` entries. A cancel skips the step. */
-async function configureNotifiers(): Promise<void> {
+async function configureNotifiers(services: Pick<Services, "orchDir" | "logger">): Promise<void> {
   const choices = await probeNotifiers();
   if (!choices.length) return;
   const picked = await selectNotifiers(choices);
@@ -196,11 +202,11 @@ async function configureNotifiers(): Promise<void> {
   }
   const result = await buildSelectedNotifyEntries(selections);
   for (const error of result.errors) {
-    commandLogger().warn("setup.notifier-missing-fields", { notifier: error.id, missing: error.missing.join(", ") });
+    services.logger.warn("setup.notifier-missing-fields", { notifier: error.id, missing: error.missing.join(", ") });
     process.stdout.write(`  notifier ${error.id}: missing required fields - ${error.missing.join(", ")}\n`);
   }
   if (result.entries.length) {
-    writeSettingsNotify(orchDir(), result.entries);
+    writeSettingsNotify(services.orchDir, result.entries);
     process.stdout.write(`  recorded ${result.entries.length} notifier(s): ${result.entries.map((entry) => entry.id).join(", ")}\n`);
   }
 }
@@ -208,10 +214,10 @@ async function configureNotifiers(): Promise<void> {
 /** The plain-language line for a command that needs a recorded setup when there is no TTY to walk
  * the wizard on. Names what is missing, the file, and the exact command that fixes it — a refusal
  * to proceed is communicated, never thrown as a stack trace. */
-export function setupRequiredMessage(): string {
+export function setupRequiredMessage(orchDir: string): string {
   // The accepted ids are compile-time constants, so the message lists them rather than printing
   // <id> and leaving the reader to go find them.
-  return `orch is not set up yet - no harness/backend recorded in ${settingsPath(orchDir())}.\n`
+  return `orch is not set up yet - no harness/backend recorded in ${settingsPath(orchDir)}.\n`
     + `Run: orch setup\n`
     + `Non-interactive: orch setup --yes --agent <${ADAPTER_IDS.join("|")}> `
     + `--backend <${BACKEND_IDS.join("|")}> [--runtime ${ORCH_RUNTIMES.join("|")}]`;
@@ -220,7 +226,9 @@ export function setupRequiredMessage(): string {
 /** Walk the first run through the setup wizard, then dispatch the original command via the injected dispatcher. */
 export async function runFirstTimeSetup(argv: string[], dispatch: (argv: string[]) => void): Promise<void> {
   process.stdout.write("First run - no harness/backend recorded yet, walking through setup.\n\n");
-  await cmdSetup([]);
+  // The wizard runs before the CLI root has settings to build from.
+  const services = createServices();
+  await cmdSetup(services, []);
   // A cancelled wizard records nothing, so the original command must not run.
   // `process.exitCode`, never `process.exit()`: exiting truncates whatever the
   // wizard already wrote (src/commands/index.ts:272 states the same rule).

@@ -1,5 +1,4 @@
 import * as filesystem from "node:fs";
-import * as path from "node:path";
 import { z } from "zod";
 // settings.ts is a leaf module imported during almost every module graph's init
 // (notify.ts → settings.ts among others). It must never import the provider
@@ -14,6 +13,7 @@ import type { AdapterId } from "../types/adapter.ts";
 import { SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA, type SettingsFile, settingsPath } from "./schema.ts";
 import type { OrchSettings, SettingSource } from "../types/settings.ts";
 import type { LogLevel } from "../types/core.ts";
+import { fileSettingsManager } from "./manager.ts";
 
 /** Describe a rejected provider id so the operator sees the value and the closed set,
  *  never a raw enum dump. `enabled.adapters[0]` and `defaults.adapter` both name one adapter. */
@@ -218,17 +218,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
  * install — setup's own gate. Every other caller uses `loadSettings`, which treats an
  * absent file as the loud error it is. A malformed file still throws here. */
 export function loadSettingsOrNull(orchDir: string): OrchSettings | null {
-  const file = settingsPath(orchDir);
-  const root = readSettingsFile(file);
-  if (root === null) {
-    // Rule 8: a legacy config.toml is never read or migrated — its presence is an error.
-    const legacy = path.join(orchDir, "config.toml");
-    if (filesystem.existsSync(legacy)) {
-      throw new Error(`${legacy}: legacy config.toml detected - settings now live in ${file}; re-run orch setup (the old values are not read)`);
-    }
-    return null;
-  }
-  return settingsFromFile(file, root);
+  return fileSettingsManager(orchDir).currentOrNull();
 }
 
 /** A validated file root to the fully-populated settings every reader uses. */
@@ -250,11 +240,7 @@ export function absentSettingsMessage(file: string): string {
  * settings.json is a loud error naming the file and `orch setup`, never a silent empty
  * settings. Use `loadSettingsOrNull` only where first-run really must be distinguished. */
 export function loadSettings(orchDir: string): OrchSettings {
-  const settings = loadSettingsOrNull(orchDir);
-  if (settings === null) {
-    throw new Error(absentSettingsMessage(settingsPath(orchDir)));
-  }
-  return settings;
+  return fileSettingsManager(orchDir).current();
 }
 
 /** The declared JS runtime for this install. The ONE read of the runtime key — nothing

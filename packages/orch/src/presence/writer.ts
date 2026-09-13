@@ -27,20 +27,20 @@ export function orchDir(): string {
 }
 
 /** The root holding every agent's presence directory. */
-export function presenceRoot(root = orchDir()): string {
+export function presenceRoot(root: string): string {
   return join(root, "agents");
 }
 
 /** The presence directory for one agent. The presence key IS the directory name
  * — keys are already filesystem-safe (percent-escaped), so there is no remapping. */
-export function presenceAgentDir(key: string, root = orchDir()): string {
+export function presenceAgentDir(key: string, root: string): string {
   return join(presenceRoot(root), key);
 }
 
 /** Create (recursively) and return the agent's presence directory, or undefined
  * when it cannot be created. Callers exit silently on undefined: an unwritable
  * presence dir means there is no orch to report to, which is not an error. */
-export function ensurePresenceAgentDir(key: string, root = orchDir()): string | undefined {
+export function ensurePresenceAgentDir(key: string, root: string): string | undefined {
   const directory = presenceAgentDir(key, root);
   try {
     mkdirSync(directory, { recursive: true });

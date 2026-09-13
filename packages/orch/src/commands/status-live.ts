@@ -1,13 +1,13 @@
 import { subscribeEvents } from "../daemon/rpc/client.ts";
 import { ensureDaemon } from "../daemon/reach.ts";
 import { ensureCallerRegistered } from "../identity/self.ts";
-import { orchDir } from "../presence/writer.ts";
 import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, dim } from "../tui/screen.ts";
 import { die, forbidNonOperatorOverride } from "./target.ts";
 import { formatStatusTable, readStatusResult } from "./status.ts";
 import type { StatusOptions, StatusTableOptions } from "./status.ts";
 import type { StatusRow } from "../types/command.ts";
 import type { EventSubscription } from "../types/daemon.ts";
+import type { Services } from "../types/services.ts";
 
 function twoDigits(value: number): string {
   return value.toString().padStart(2, "0");
@@ -85,10 +85,10 @@ export function renderLiveStatus(
 }
 
 /** Run the terminal-bound live status view until the user quits or the process is signalled. */
-export async function cmdStatusLive(options: StatusOptions): Promise<void> {
+export async function cmdStatusLive(services: Services, options: StatusOptions): Promise<void> {
   if (options.json) die("--live renders a terminal table; drop --json");
   if (process.stdout.isTTY !== true || process.stdin.isTTY !== true) die("--live needs a terminal");
-  await ensureDaemon(orchDir());
+  await ensureDaemon(services.orchDir);
   await ensureCallerRegistered();
   if (options.spaceWide) forbidNonOperatorOverride("--space-wide");
   if (options.allPanes) forbidNonOperatorOverride("--all-panes");
@@ -102,7 +102,7 @@ export async function cmdStatusLive(options: StatusOptions): Promise<void> {
   const refreshController = createRefreshController(async () => {
     if (stopped) return;
     try {
-      const result = await readStatusResult(options);
+      const result = await readStatusResult(services, options);
       if (stopped) return;
       rows = result.rows;
       host = result.host;
@@ -128,7 +128,7 @@ export async function cmdStatusLive(options: StatusOptions): Promise<void> {
   let subscription: EventSubscription | undefined;
   try {
     process.stdout.write(ENTER_ALT_SCREEN);
-    subscription = subscribeEvents(orchDir(), {}, () => refresh());
+    subscription = subscribeEvents(services.orchDir, {}, () => refresh());
     process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.on("data", onKey);

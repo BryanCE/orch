@@ -1,11 +1,10 @@
 import * as files from "node:fs";
-import { loadSettings, resolveWithSource } from "../settings/read.ts";
+import { resolveWithSource } from "../settings/read.ts";
 import { NOTIFY_DEFAULT_ON, settingsPath, SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { displaySetting, displayValue } from "../settings/display.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
 import { describeSkillPlacement, installSkills } from "../setup/skills.ts";
-import { orchDir } from "../presence/writer.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { readAssignFlag, validateSetupFlag } from "../setup/flags.ts";
 import { resolveHarnessModels } from "../setup/composition.ts";
@@ -23,12 +22,13 @@ import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell.ts";
 import type { NotifierChoice } from "../types/notify.ts";
 import type { NotifyEntry, NotifyState, OrchSettings, SettingKind } from "../types/settings.ts";
+import type { Services } from "../types/services.ts";
 
 /** The effective settings, or a plain-language exit. A load error (invalid settings, a
  *  legacy config.toml) must never reach the user as a stack trace or a partial table. */
-function currentSettings(): OrchSettings {
+function currentSettings(services: Pick<Services, "settings">): OrchSettings {
   try {
-    return loadSettings(orchDir());
+    return services.settings.current();
   } catch (error: unknown) {
     die(errorMessage(error));
   }
@@ -79,7 +79,7 @@ export function shouldLaunchSettingsEditor(args: readonly string[], isTTY = proc
   return isTTY && args.length === 0;
 }
 
-function setSingleSetting(args: string[]): boolean {
+function setSingleSetting(services: Pick<Services, "orchDir">, args: string[]): boolean {
   const [key, input, ...extra] = args;
   if (key === undefined || key.startsWith("--") || input === undefined || extra.length > 0) return false;
   const spec = SETTINGS_REGISTRY.find((setting) => setting.key === key);
@@ -90,15 +90,15 @@ function setSingleSetting(args: string[]): boolean {
   }
   const parsed = parseSettingValue(spec, input);
   if (!parsed.ok) die(`${key}: ${parsed.reason}.`);
-  try { writeRegisteredSetting(orchDir(), key, parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
+  try { writeRegisteredSetting(services.orchDir, key, parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
   process.stdout.write(`${key} = ${formatValue(parsed.value)}\n`);
   return true;
 }
 
-function switchDefault(key: "adapter" | "backend", value: string): void {
+function switchDefault(services: Pick<Services, "orchDir">, key: "adapter" | "backend", value: string): void {
   try {
-    if (key === "adapter") writeRegisteredSetting(orchDir(), "defaults.adapter", validateSetupFlag(key, value, ADAPTER_IDS));
-    else writeRegisteredSetting(orchDir(), "defaults.backend", validateSetupFlag(key, value, BACKEND_IDS));
+    if (key === "adapter") writeRegisteredSetting(services.orchDir, "defaults.adapter", validateSetupFlag(key, value, ADAPTER_IDS));
+    else writeRegisteredSetting(services.orchDir, "defaults.backend", validateSetupFlag(key, value, BACKEND_IDS));
   } catch (error: unknown) {
     die(errorMessage(error));
   }
@@ -111,8 +111,8 @@ function switchDefault(key: "adapter" | "backend", value: string): void {
  * default it launches on, then the one list that is both what it may launch and what its
  * own picker cycles.
  */
-export async function cmdSettingsModels(args: string[]): Promise<void> {
-  const settings = currentSettings();
+export async function cmdSettingsModels(services: Services, args: string[]): Promise<void> {
+  const settings = currentSettings(services);
   const enabled = settings.enabled.adapters;
   if (!enabled.length) die("no harnesses are installed - run: orch setup");
   const only = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
@@ -125,9 +125,9 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
   if (chosen === null) return;
   // Only the targeted harnesses were prompted, so each map merges over what is already
   // recorded; a harness this run never asked about keeps every list it had.
-  writeRegisteredSetting(orchDir(), "defaults.models", { ...settings.defaults.models, ...chosen.defaults });
-  writeRegisteredSetting(orchDir(), "models.preferred", { ...settings.models.preferred, ...chosen.preferred });
-  writeRegisteredSetting(orchDir(), "models.allowed", { ...settings.models.allowed, ...chosen.allowed });
+  writeRegisteredSetting(services.orchDir, "defaults.models", { ...settings.defaults.models, ...chosen.defaults });
+  writeRegisteredSetting(services.orchDir, "models.preferred", { ...settings.models.preferred, ...chosen.preferred });
+  writeRegisteredSetting(services.orchDir, "models.allowed", { ...settings.models.allowed, ...chosen.allowed });
   for (const id of targets) {
     const recorded = chosen.defaults[id];
     if (!recorded) {
@@ -148,7 +148,7 @@ export async function cmdSettingsModels(args: string[]): Promise<void> {
  * disk never disagree; `--no-install` records the refusal and leaves whatever the user
  * has there alone, since those files are theirs to remove.
  */
-export function cmdSettingsSkills(args: string[]): void {
+export function cmdSettingsSkills(services: Services, args: string[]): void {
   const storeFlag = readAssignFlag(args, "--store");
   const linkFlag = readAssignFlag(args, "--link");
   const install = args.includes("--install") ? true : args.includes("--no-install") ? false : undefined;
@@ -159,11 +159,11 @@ export function cmdSettingsSkills(args: string[]): void {
   if (storeFlag !== undefined && !storeFlag.trim()) die("--store needs a directory.");
   if (linkFlag !== undefined && !link?.length) die("--link needs at least one directory.");
 
-  const current = currentSettings().skills;
+  const current = currentSettings(services).skills;
   const wanted = install ?? current.install;
-  writeRegisteredSetting(orchDir(), "skills.install", wanted);
-  if (storeFlag !== undefined) writeRegisteredSetting(orchDir(), "skills.store", storeFlag.trim());
-  if (link !== undefined) writeRegisteredSetting(orchDir(), "skills.link", link);
+  writeRegisteredSetting(services.orchDir, "skills.install", wanted);
+  if (storeFlag !== undefined) writeRegisteredSetting(services.orchDir, "skills.store", storeFlag.trim());
+  if (link !== undefined) writeRegisteredSetting(services.orchDir, "skills.link", link);
   const roots = { store: storeFlag?.trim() ?? current.store, link: link ?? current.link };
   process.stdout.write(
     `skills.install = ${wanted}\nskills.store   = ${roots.store}\nskills.link    = ${roots.link.join(", ")}\n`,
@@ -220,13 +220,13 @@ function notifyEntryRow(entry: NotifyEntry): string {
   return `  ${entry.id.padEnd(8)}  ${(entry.on ?? NOTIFY_DEFAULT_ON).join(",").padEnd(26)}  ${notifyEntryTarget(entry)}\n`;
 }
 
-function printNotifyEntries(json: boolean): void {
-  const configured = currentSettings().notify;
+function printNotifyEntries(services: Services, json: boolean): void {
+  const configured = currentSettings(services).notify;
   if (json) {
     process.stdout.write(JSON.stringify(configured, null, 2) + "\n");
     return;
   }
-  process.stdout.write(`notify  ${settingsPath(orchDir())}\n\n`);
+  process.stdout.write(`notify  ${services.settings.file}\n\n`);
   if (!configured.length) {
     process.stdout.write("  (none configured)\n");
     return;
@@ -236,7 +236,7 @@ function printNotifyEntries(json: boolean): void {
 }
 
 /** Record one sink over whatever it already had, so a re-add changes only what the flags name. */
-async function addNotifyEntry(args: string[]): Promise<void> {
+async function addNotifyEntry(services: Services, args: string[]): Promise<void> {
   const [id, ...flags] = args;
   if (id === undefined || id.startsWith("--")) die(NOTIFY_USAGE);
   const choices = await probeNotifiers();
@@ -244,7 +244,7 @@ async function addNotifyEntry(args: string[]): Promise<void> {
   if (!choice) die(`Unknown notify sink "${id}". Supported: ${choices.map((notifier) => notifier.id).join(", ")}.`);
   rejectUndeclaredFlags(flags, choice.requiredFields);
 
-  const recorded = currentSettings().notify.find((entry) => entry.id === id);
+  const recorded = currentSettings(services).notify.find((entry) => entry.id === id);
   const recordedFields: Record<string, unknown> = {};
   if (recorded !== undefined) {
     for (const [key, value] of Object.entries(recorded)) recordedFields[key] = value;
@@ -259,60 +259,60 @@ async function addNotifyEntry(args: string[]): Promise<void> {
   const missing = written.errors.flatMap((error) => error.missing);
   if (missing.length) die(`${id} needs ${missing.map((field) => `--${field}=<value>`).join(" ")}.`);
 
-  const configured = currentSettings().notify;
+  const configured = currentSettings(services).notify;
   const replacement = written.entries[0];
   if (replacement === undefined) die(`${id} produced no settings entry.`);
   const merged = configured.some((entry) => entry.id === id)
     ? configured.map((entry) => entry.id === id ? replacement : entry)
     : [...configured, replacement];
-  writeNotifyEntries(orchDir(), merged);
-  process.stdout.write(`notify  ${settingsPath(orchDir())}\n\n`);
+  writeNotifyEntries(services.orchDir, merged);
+  process.stdout.write(`notify  ${services.settings.file}\n\n`);
   for (const entry of written.entries) process.stdout.write(notifyEntryRow(entry));
   if (!choice.available) process.stdout.write(`\n  ${choice.remediation}\n`);
   process.stdout.write("\nverify delivery with: orch doctor\n");
 }
 
-function removeNotifyEntry(args: string[]): void {
+function removeNotifyEntry(services: Services, args: string[]): void {
   const [id] = args;
   if (id === undefined) die(NOTIFY_USAGE);
-  const configured = currentSettings().notify;
+  const configured = currentSettings(services).notify;
   const entry = configured.find((candidate) => candidate.id === id);
   if (!entry) die(`No "${id}" notify sink is configured. Configured: ${configured.map((candidate) => candidate.id).join(", ") || "(none)"}.`);
-  writeNotifyEntries(orchDir(), configured.filter((candidate) => candidate.id !== entry.id));
-  process.stdout.write(`removed notify sink ${id} from ${settingsPath(orchDir())}\n`);
+  writeNotifyEntries(services.orchDir, configured.filter((candidate) => candidate.id !== entry.id));
+  process.stdout.write(`removed notify sink ${id} from ${services.settings.file}\n`);
 }
 
 /** List, add, or remove the settings.json `notify` sinks the daemon delivers through. */
-export async function cmdSettingsNotify(args: string[]): Promise<void> {
+export async function cmdSettingsNotify(services: Services, args: string[]): Promise<void> {
   const [verb, ...rest] = args;
   if (verb === undefined || verb === "list" || verb.startsWith("--")) {
-    printNotifyEntries(args.includes("--json"));
+    printNotifyEntries(services, args.includes("--json"));
     return;
   }
-  if (verb === "add") return addNotifyEntry(rest);
-  if (verb === "remove") return removeNotifyEntry(rest);
+  if (verb === "add") return addNotifyEntry(services, rest);
+  if (verb === "remove") return removeNotifyEntry(services, rest);
   die(NOTIFY_USAGE);
 }
 
 /** Print each resolvable setting with its winning source, or switch the active default via --harness/--plexer. */
-export async function cmdSettings(args: string[]): Promise<void> {
+export async function cmdSettings(services: Services, args: string[]): Promise<void> {
   if (shouldLaunchSettingsEditor(args)) {
     try {
-      await runSettingsEditor(orchDir());
+      await runSettingsEditor(services.settings.file);
     } catch (error: unknown) {
       die(errorMessage(error));
     }
     return;
   }
-  if (setSingleSetting(args)) return;
+  if (setSingleSetting(services, args)) return;
   const harness = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
   const plexer = readAssignFlag(args, "--plexer") ?? readAssignFlag(args, "--backend");
   const json = args.includes("--json");
 
-  const settings = currentSettings();
+  const settings = currentSettings(services);
 
-  if (harness !== undefined) switchDefault("adapter", harness);
-  if (plexer !== undefined) switchDefault("backend", plexer);
+  if (harness !== undefined) switchDefault(services, "adapter", harness);
+  if (plexer !== undefined) switchDefault(services, "backend", plexer);
   if (harness !== undefined || plexer !== undefined) return;
 
   // One model row per installed harness: each names models in its own vocabulary,
@@ -333,7 +333,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
   // second name. A setting nobody can print is a setting nobody can find.
   for (const spec of SETTINGS_REGISTRY) {
     const configured = spec.read(settings);
-    const raw = rawSetting(orchDir(), ...spec.key.split("."));
+    const raw = rawSetting(services.orchDir, ...spec.key.split("."));
     const environment = spec.env === undefined ? undefined : process.env[spec.env];
     const value = environment !== undefined ? envSettingValue(environment, spec.type) : configured ?? null;
     const source = environment !== undefined ? "env" : raw !== undefined ? "settings.json" : "default";
@@ -352,7 +352,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
 
   const width = Math.max(...provenance.map((row) => row.key.length));
   const valueWidth = Math.max(...provenance.map((row) => row.display.length));
-  process.stdout.write(`settings  ${settingsPath(orchDir())}\n\n`);
+  process.stdout.write(`settings  ${services.settings.file}\n\n`);
   for (const { key, display, source } of provenance) {
     process.stdout.write(`  ${key.padEnd(width)}  ${display.padEnd(valueWidth)}  ${source}\n`);
   }
@@ -378,7 +378,7 @@ export async function cmdSettings(args: string[]): Promise<void> {
  * A bare level sets the global default; `--harness=<id>` sets that harness's override,
  * and `--clear` with `--harness` removes it.
  */
-export function cmdSettingsThinking(args: string[]): void {
+export function cmdSettingsThinking(services: Services, args: string[]): void {
   const harnessFlag = args.find((argument) => argument.startsWith("--harness="))?.slice("--harness=".length);
   const clear = args.includes("--clear");
   const level = args.find((argument) => !argument.startsWith("--"));
@@ -388,15 +388,15 @@ export function cmdSettingsThinking(args: string[]): void {
   }
   if (clear) {
     if (harnessFlag === undefined) throw new Error("--clear needs --harness=<id>: the global default always has a value");
-    const current = currentSettings().defaults.thinking_by_harness ?? {};
+    const current = currentSettings(services).defaults.thinking_by_harness ?? {};
     const byHarness = { ...current };
     delete byHarness[harnessFlag];
-    writeRegisteredSetting(orchDir(), "defaults.thinking_by_harness", byHarness);
+    writeRegisteredSetting(services.orchDir, "defaults.thinking_by_harness", byHarness);
     process.stdout.write(`cleared the thinking override for ${harnessFlag}\n`);
     return;
   }
   if (level === undefined) {
-    const settings = currentSettings();
+    const settings = currentSettings(services);
     process.stdout.write(`thinking  ${settings.defaults.thinking ?? SETTINGS_DEFAULTS.defaults.thinking}\n`);
     for (const [harness, value] of Object.entries(settings.defaults.thinking_by_harness ?? {})) {
       process.stdout.write(`thinking (${harness})  ${String(value)}\n`);
@@ -407,11 +407,11 @@ export function cmdSettingsThinking(args: string[]): void {
     throw new Error(`unknown thinking level ${JSON.stringify(level)}; valid levels: ${THINKING_LEVELS.join(", ")}`);
   }
   if (harnessFlag === undefined) {
-    writeRegisteredSetting(orchDir(), "defaults.thinking", level);
+    writeRegisteredSetting(services.orchDir, "defaults.thinking", level);
     process.stdout.write(`thinking  ${level}\n`);
   } else {
-    const current = currentSettings().defaults.thinking_by_harness ?? {};
-    writeRegisteredSetting(orchDir(), "defaults.thinking_by_harness", { ...current, [harnessFlag]: level });
+    const current = currentSettings(services).defaults.thinking_by_harness ?? {};
+    writeRegisteredSetting(services.orchDir, "defaults.thinking_by_harness", { ...current, [harnessFlag]: level });
     process.stdout.write(`thinking (${harnessFlag})  ${level}\n`);
   }
 }

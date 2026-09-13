@@ -1,7 +1,7 @@
 import { deriveDriveState, DEAD_HOLDER_DRIVER } from "../agent/drive-state.ts";
 import { formatTimestamp } from "../format.ts";
 import { removePresenceAgentDir } from "../presence/store.ts";
-import { orchDir, presenceAgentDir } from "../presence/writer.ts";
+import { presenceAgentDir } from "../presence/writer.ts";
 import { rpcRegisterSession } from "../daemon/reach.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { asc, eq } from "drizzle-orm";
@@ -14,11 +14,12 @@ import { promptMultiselect } from "../setup/io.ts";
 import { assertValidAgentName } from "../policy/name.ts";
 import type { AgentRow } from "../types/store.ts";
 import type { LeaseCommandResult, LeaseOptions } from "../types/command.ts";
+import type { Services } from "../types/services.ts";
 export type { LeaseCommandResult, LeaseOptions };
 
 /** Resolve the caller's orch identity in one seam for every lease command. */
-async function resolveSelfOrchId(): Promise<string> {
-  return launchCredential() ?? (await rpcRegisterSession(orchDir())).id;
+async function resolveSelfOrchId(directory: string): Promise<string> {
+  return launchCredential() ?? (await rpcRegisterSession(directory)).id;
 }
 
 
@@ -178,14 +179,14 @@ function parseTarget(args: string[], usage: string): { target: string; json: boo
   return { target: positional[0]!, json, steal };
 }
 
-export async function cmdDetach(args: string[]): Promise<void> {
+export async function cmdDetach(services: Services, args: string[]): Promise<void> {
   const { target, json, steal } = parseTarget(args, "usage: orch detach <target> [--steal] [--json]");
-  const result = detachAgent(orchDir(), target, await resolveSelfOrchId(), { steal });
+  const result = detachAgent(services.orchDir, target, await resolveSelfOrchId(services.orchDir), { steal });
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, released: result.released }) + "\n");
   else process.stdout.write(result.released ? `Detached ${result.name}.\n` : `${result.name}: no lease (already detached).\n`);
 }
 
-export async function cmdAdopt(args: string[]): Promise<void> {
+export async function cmdAdopt(services: Services, args: string[]): Promise<void> {
   const json = args.includes("--json");
   const all = args.includes("--all");
   const steal = args.includes("--steal");
@@ -194,18 +195,18 @@ export async function cmdAdopt(args: string[]): Promise<void> {
   // C4: --steal takes ONE agent from ONE live orch, deliberately. A sweep that
   // silently took every live orch's fleet would be the opposite of deliberate.
   if (all && steal) throw new Error("orch adopt --all never steals; name the agent to take it from a live orch.");
-  const orchId = await resolveSelfOrchId();
+  const orchId = await resolveSelfOrchId(services.orchDir);
   const results: LeaseCommandResult[] = [];
   if (all) {
-    for (const agent of liveAgents(orchDir())) {
+    for (const agent of liveAgents(services.orchDir)) {
       if (agent.id === orchId) continue;
-      try { results.push(adoptAgent(orchDir(), agent.id, orchId)); } catch (error: unknown) {
+      try { results.push(adoptAgent(services.orchDir, agent.id, orchId)); } catch (error: unknown) {
         if (error instanceof Error && error.message.toLowerCase().includes("leased by live orch")) continue;
         throw error;
       }
     }
   } else {
-    results.push(adoptAgent(orchDir(), positional[0]!, orchId, { steal }));
+    results.push(adoptAgent(services.orchDir, positional[0]!, orchId, { steal }));
   }
   const adopted = results.filter((result) => result.adopted);
   if (json) process.stdout.write(JSON.stringify({ adopted: adopted.map((result) => ({ target: result.id, name: result.name })) }) + "\n");
@@ -320,25 +321,25 @@ function reapDead(directory: string, callerId: string, json: boolean): void {
   else printReaped(results);
 }
 
-export async function cmdReap(args: string[]): Promise<void> {
+export async function cmdReap(services: Services, args: string[]): Promise<void> {
   const json = args.includes("--json");
   if (args.includes("--dead")) {
     const positional = args.filter((arg) => arg !== "--dead" && arg !== "--json");
     if (positional.length) throw new Error("usage: orch reap <target> | --dead [--json]");
-    const directory = orchDir();
-    reapDead(directory, await resolveSelfOrchId(), json);
+    const directory = services.orchDir;
+    reapDead(directory, await resolveSelfOrchId(directory), json);
     return;
   }
 
   const positional = args.filter((arg) => arg !== "--json");
   if (positional.length === 0) {
     if (process.stdin.isTTY !== true) throw new Error("usage: orch reap <target> | --dead [--json]");
-    await reapInteractive(orchDir(), await resolveSelfOrchId());
+    await reapInteractive(services.orchDir, await resolveSelfOrchId(services.orchDir));
     return;
   }
 
   const { target } = parseTarget(args, "usage: orch reap <target> [--json]");
-  const result = reapAgent(orchDir(), target);
+  const result = reapAgent(services.orchDir, target);
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, reaped: true }) + "\n");
   else process.stdout.write(`Reaped ${result.name}.\n`);
   await Promise.resolve();

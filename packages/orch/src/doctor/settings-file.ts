@@ -1,6 +1,5 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { loadSettingsOrNull } from "../settings/read.ts";
 import { settingsDefects } from "../settings/defects.ts";
 import { settingsPath } from "../settings/schema.ts";
 import { displayValue } from "../settings/display.ts";
@@ -9,9 +8,9 @@ import { errorMessage } from "../util.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
-export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
+export async function checkSpawnLimits(settings: OrchSettings | null): Promise<CheckResult> {
   await Promise.resolve();
-  const fleet: OrchSettings["fleet"] | undefined = loadSettingsOrNull(orchDir)?.fleet;
+  const fleet: OrchSettings["fleet"] | undefined = settings?.fleet;
   const globalCap = fleet?.max_agents_total;
   const violations = globalCap === undefined || fleet === undefined
     ? []
@@ -25,9 +24,9 @@ export async function checkSpawnLimits(orchDir: string): Promise<CheckResult> {
   };
 }
 
-export async function checkCommandLocks(orchDir: string): Promise<CheckResult> {
+export async function checkCommandLocks(settings: OrchSettings | null): Promise<CheckResult> {
   await Promise.resolve();
-  const config = loadSettingsOrNull(orchDir);
+  const config = settings;
   if (!config || config.locked_commands.length === 0) return { id: "command-locks", label: "Command locks", status: "skip", detail: "no locked_commands configured" };
   return {
     id: "command-locks",

@@ -9,7 +9,7 @@ function resolveRoot(root: RootSource): string {
 }
 
 /** Read only orch-owned captured status/result files; no plexer screen is consulted. */
-export function createCaptureRole(root: RootSource = (() => orchDir())): CaptureRole {
+export function createCaptureRole(root: RootSource): CaptureRole {
   return {
     read(agentId: string, request: CaptureRequest): CapturedOutput {
       const entry = loadPresence(resolveRoot(root)).get(agentId);
@@ -24,5 +24,5 @@ export function createCaptureRole(root: RootSource = (() => orchDir())): Capture
 }
 
 /** Shared capture role for providers whose environment uses orch's local presence files. */
-export const capture: CaptureRole = createCaptureRole();
+export const capture: CaptureRole = createCaptureRole(() => orchDir());
 

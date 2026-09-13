@@ -2,14 +2,12 @@ import { launchCredential } from "./launch.ts";
 import { agentIdByProcess, agentIdBySessionToken } from "../store/agent-rows.ts";
 import { environmentOf } from "../store/agent-view.ts";
 import { callerSession } from "../adapters/session-env.ts";
-import { rpcRegisterSession } from "../daemon/reach.ts";
 import { callerKind } from "../policy/caller.ts";
-import { orchDir } from "../presence/writer.ts";
 import { processStartToken } from "../process-identity.ts";
 import type { CallerSession, SelfIdentity } from "../types/core.ts";
 
 /** The id orch handed this process, or null when orch has never registered it. */
-export function selfIdentity(): SelfIdentity | null {
+export function selfIdentity(orchDir: string): SelfIdentity | null {
   // A spawned agent was handed its own id at launch; that IS orch's record of it.
   // The key is the whole id, so there is nothing to parse out of it — and a key
   // that is not a minted id names no agent orch ever registered.
@@ -41,24 +39,25 @@ export function sessionProcessPid(session: CallerSession | null): number {
 }
 
 /** The id to stamp as owner/actor on a write, or undefined when unregistered. */
-export function selfId(): string | undefined {
-  return selfIdentity()?.id;
+export function selfId(orchDir: string): string | undefined {
+  return selfIdentity(orchDir)?.id;
 }
 
 /** Register an unregistered driving harness before commands read its identity. */
 export async function ensureCallerRegistered(
-  registerSession: (directory: string) => Promise<unknown> = rpcRegisterSession,
+  orchDir: string,
+  registerSession: (directory: string) => Promise<unknown>,
 ): Promise<void> {
-  if (callerSession() === null || callerKind() !== "session" || selfId() !== undefined) return;
-  await registerSession(orchDir());
+  if (callerSession() === null || callerKind(orchDir) !== "session" || selfId(orchDir) !== undefined) return;
+  await registerSession(orchDir);
 }
 
 /** The space one agent is composed into. A missing row is a real ANSWER: an
  *  agent in no space is unscoped, and inventing a place for it is exactly what
  *  produced the fictional "local" (Rule 11, A7). */
-export function spaceOfAgent(id: string): string | null {
+export function spaceOfAgent(orchDir: string, id: string): string | null {
   try {
-    return environmentOf(orchDir(), id).space;
+    return environmentOf(orchDir, id).space;
   } catch {
     return null;
   }
@@ -74,7 +73,7 @@ export function spaceOfAgent(id: string): string | null {
  * a second copy that asked the backend instead of resolving the minted id could
  * not see a driving session, which carries no launch credential at all.
  */
-export function callerSpace(): string | null {
-  const id = selfId();
-  return id === undefined ? null : spaceOfAgent(id);
+export function callerSpace(orchDir: string): string | null {
+  const id = selfId(orchDir);
+  return id === undefined ? null : spaceOfAgent(orchDir, id);
 }

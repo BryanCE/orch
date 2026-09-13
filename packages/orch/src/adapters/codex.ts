@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { errnoCode, errorMessage, isRecord, packageRoot, shellQuote } from "../util.ts";
 import { declaredRuntime } from "../settings/read.ts";
-import { orchDir } from "../presence/writer.ts";
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import { detectCodexState, extractCodexResult, readCodexSessionView } from "./codex-events.ts";
 import type { AgentState } from "./adapter.ts";
@@ -34,12 +33,12 @@ function codexCachedModels(): { slug?: unknown; display_name?: unknown }[] {
  * this fallback covers `orch setup` and any codex session not launched
  * through orch's own argv. Never overwrites a foreign value (law #5).
  */
-function installCodexNotifyShim(root: string): void {
+function installCodexNotifyShim(root: string, orchDir: string): void {
   const shim = codexNotifyShimPath(root);
   // The DECLARED runtime, never the first one that happens to be on PATH — PATH order
   // is exactly how an install silently ends up running under something it never chose.
-  const runtime = declaredRuntime(orchDir());
-  const argv = codexNotifyArgv(shim, runtime, { orchDir: orchDir() });
+  const runtime = declaredRuntime(orchDir);
+  const argv = codexNotifyArgv(shim, runtime, { orchDir });
   const codexDir = join(homedir(), ".codex");
   const configPath = join(codexDir, "config.toml");
 
@@ -96,7 +95,7 @@ export class CodexAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = {
-    installShim: (): void => this.installShim(),
+    installShim: (orchDir: string): void => this.installShim(orchDir),
     diagnoseShim: (): CheckResult => this.diagnoseShim(),
   };
   readonly defaultModel = null;
@@ -179,8 +178,8 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Register the orch notify shim as codex's completion writer (D2/D2a). */
-  installShim(): void {
-    installCodexNotifyShim(packageRoot());
+  installShim(orchDir: string): void {
+    installCodexNotifyShim(packageRoot(), orchDir);
   }
 }
 

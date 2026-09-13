@@ -1,7 +1,5 @@
-import { loadSettings, loadSettingsOrNull } from "./settings/read.ts";
 import { allBackends } from "./backends/registry.ts";
 import { loadPresence } from "./presence/store.ts";
-import { orchDir } from "./presence/writer.ts";
 import { agentById } from "./store/agent-rows.ts";
 import { checkWall, sameSpace, spaceOf } from "./policy/space.ts";
 import { errorMessage } from "./util.ts";
@@ -18,7 +16,7 @@ export type { Recipient } from "./types/core.ts";
 import type { Backend, BackendTarget } from "./types/backend.ts";
 import type { AgentView } from "./types/store.ts";
 import type { PresenceEntry } from "./types/presence.ts";
-import type { HostSettings } from "./types/settings.ts";
+import type { HostSettings, OrchSettings } from "./types/settings.ts";
 import type { Entity, Recipient } from "./types/core.ts";
 
 interface TargetRef {
@@ -27,12 +25,12 @@ interface TargetRef {
 }
 
 /** Split `<host>/<target>` without changing the meaning of targets without `/`. */
-export function parseTarget(target: string, hosts?: Record<string, HostSettings>): TargetRef {
+export function parseTarget(target: string, hosts: Record<string, HostSettings>): TargetRef {
   const slash = target.indexOf("/");
   if (slash < 0) return { host: null, target };
   const host = target.slice(0, slash);
   const remainder = target.slice(slash + 1);
-  const configured = hosts ?? loadSettings(orchDir()).hosts;
+  const configured = hosts;
   if (!host || !remainder) throw new Error(`Invalid target "${target}". Expected <host>/<target>.`);
   if (!Object.prototype.hasOwnProperty.call(configured, host)) {
     const names = Object.keys(configured).sort();
@@ -47,7 +45,7 @@ export function formatTarget(ref: TargetRef): string {
 
 /** Every agent the store knows, indexed by its minted id — the ONLY key the
  *  store has. A store that does not exist yet is an empty fleet, not a crash. */
-function viewsById(root = orchDir()): Map<string, AgentView> {
+function viewsById(root: string): Map<string, AgentView> {
   const index = new Map<string, AgentView>();
   try {
     for (const view of agentViews(root)) index.set(view.id, view);
@@ -77,20 +75,20 @@ function indexPresenceById(presence: ReadonlyMap<string, PresenceEntry>): Map<st
 }
 
 /** Resolve an identity key to the agent an operator knows. */
-function normalizedAgentName(key: string): string | null {
-  try { return agentById(orchDir(), key)?.name ?? null; } catch { return null; }
+function normalizedAgentName(root: string, key: string): string | null {
+  try { return agentById(root, key)?.name ?? null; } catch { return null; }
 }
 
-function recipientName(status: PresenceEntry["status"], space: string, key: string): string {
-  return normalizedAgentName(key) ?? status?.label ?? status?.agent ?? abstractAgentLabel(space, key);
+function recipientName(root: string, status: PresenceEntry["status"], space: string, key: string): string {
+  return normalizedAgentName(root, key) ?? status?.label ?? status?.agent ?? abstractAgentLabel(space, key);
 }
 
-export function recipientFor(key: string, views = viewsById()): Recipient {
+export function recipientFor(root: string, key: string, views = viewsById(root)): Recipient {
   const view = viewForKey(views, key);
-  const status = loadPresence().get(key)?.status ?? null;
-  const space = view?.environment.space ?? spaceOf(orchDir(), key) ?? "space";
+  const status = loadPresence(root).get(key)?.status ?? null;
+  const space = view?.environment.space ?? spaceOf(root, key) ?? "space";
   return {
-    name: recipientName(status, space, key),
+    name: recipientName(root, status, space, key),
     // The harness is the agent's own, never the plexer it happens to sit in.
     harness: view?.harnessId ?? status?.agent ?? null,
     multiplexer: view?.environment.plexer ?? null,
@@ -109,14 +107,14 @@ function naturalPaneOrder(id: string): [string, number] {
   return match ? [match[1]!, parseInt(match[2]!, 10)] : [id, 0];
 }
 
-export function entitySpace(e: Entity): string | null {
-  return e.space ?? spaceOf(orchDir(), e.key);
+export function entitySpace(root: string, e: Entity): string | null {
+  return e.space ?? spaceOf(root, e.key);
 }
 
-export function scopeEntitiesToSpace(entities: Entity[], opts?: { all?: boolean }): Entity[] {
+export function scopeEntitiesToSpace(root: string, entities: Entity[], opts?: { all?: boolean }): Entity[] {
   const current = callerSpace();
   if (opts?.all === true || current === null) return entities;
-  return entities.filter((entity) => sameSpace(entitySpace(entity), current));
+  return entities.filter((entity) => sameSpace(entitySpace(root, entity), current));
 }
 
 /** The fleet as one read: every agent by id, the presence that names it, and
@@ -136,16 +134,14 @@ type Census = ReadonlyMap<string, ReadonlyMap<string, BackendTarget>>;
 /** The plexers the settings enable. Every registered plexer used to be probed on
  *  every command, so a fleet of headless agents paid a retrying tmux and herdr
  *  listing (seconds each) that the settings had already ruled out. */
-function enabledBackends(): Backend[] {
-  const settings = loadSettingsOrNull(orchDir());
-  if (settings === null) return [];
+function enabledBackends(settings: OrchSettings): Backend[] {
   const enabled = new Set(settings.enabled.backends);
   return allBackends().filter((backend) => enabled.has(backend.id));
 }
 
-function paneCensus(): Census {
+function paneCensus(settings: OrchSettings): Census {
   const census = new Map<string, ReadonlyMap<string, BackendTarget>>();
-  for (const backend of enabledBackends()) {
+  for (const backend of enabledBackends(settings)) {
     if (!backend.placementInventory || !backend.isAvailable()) continue;
     try {
       census.set(backend.id, new Map(backend.placementInventory.list().map((target) => [String(target.handle), target])));
@@ -164,6 +160,7 @@ function handlesByKey(fleet: Fleet, backend: Backend): Map<string, string> {
 }
 
 function entityFromBackendTarget(
+  root: string,
   backend: Backend,
   target: BackendTarget,
   keyByHandle: Map<string, string>,
@@ -182,7 +179,7 @@ function entityFromBackendTarget(
     ended: view?.endedAt != null,
     // Orch's registry owns the name; the backend's own pane label is only a
     // fallback for panes orch never spawned.
-    name: normalizedAgentName(key) ?? target.name,
+    name: normalizedAgentName(root, key) ?? target.name,
     tabLabel: target.groupLabel,
     agent: target.agent,
     focused: target.focused,
@@ -200,16 +197,16 @@ function entityFromBackendTarget(
     // a tmux session. It is environment, never orch's space, and preferring it
     // here is exactly how `wF` got shown as a name the user had chosen. orch's
     // space is read from orch's own record or it is absent.
-    space: spaceOf(orchDir(), key),
+    space: spaceOf(root, key),
   };
 }
 
-function entitiesFromBackend(backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
+function entitiesFromBackend(root: string, backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
   const listed = fleet.census.get(backend.id);
   if (listed === undefined) return [];
   const keyByHandle = handlesByKey(fleet, backend);
   return [...listed.values()]
-    .map((target) => entityFromBackendTarget(backend, target, keyByHandle, fleet, usedPresence));
+    .map((target) => entityFromBackendTarget(root, backend, target, keyByHandle, fleet, usedPresence));
 }
 
 function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "agent" | "sessionPath"> {
@@ -220,7 +217,7 @@ function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "agent" | "ses
   };
 }
 
-function presenceOnlyEntity(entry: PresenceEntry, fleet: Fleet): Entity {
+function presenceOnlyEntity(root: string, entry: PresenceEntry, fleet: Fleet): Entity {
   const view = viewForKey(fleet.views, entry.key);
   const statusFields = presenceStatusFields(entry);
   // U1: a pane is environment, so orch's own record answers for it. The agent's
@@ -232,21 +229,21 @@ function presenceOnlyEntity(entry: PresenceEntry, fleet: Fleet): Entity {
     paneId: confirmedHandle(fleet.census, plexer, view?.environment.handle ?? null),
     managed: view !== undefined,
     ended: view?.endedAt != null,
-    name: normalizedAgentName(entry.key) ?? null,
+    name: normalizedAgentName(root, entry.key) ?? null,
     tabLabel: null,
     focused: false,
     backendStatus: null,
     backend: plexer,
     presence: entry,
     presenceOnly: true,
-    space: view?.environment.space ?? spaceOf(orchDir(), entry.key),
+    space: view?.environment.space ?? spaceOf(root, entry.key),
   };
 }
 
-function entitiesFromPresence(fleet: Fleet, usedPresence: Set<string>): Entity[] {
+function entitiesFromPresence(root: string, fleet: Fleet, usedPresence: Set<string>): Entity[] {
   return [...fleet.presence.values()]
     .filter((entry) => !usedPresence.has(entry.key))
-    .map((entry) => presenceOnlyEntity(entry, fleet));
+    .map((entry) => presenceOnlyEntity(root, entry, fleet));
 }
 
 /** The handle the environment confirms it still has, else null. Only an
@@ -288,14 +285,14 @@ function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
   return found;
 }
 
-export function buildEntities(options: { skipBackends?: boolean } = {}): Entity[] {
-  const presence = loadPresence();
-  const fleet: Fleet = { views: viewsById(), presence, presenceById: indexPresenceById(presence), census: paneCensus() };
+export function buildEntities(root: string, settings: OrchSettings, options: { skipBackends?: boolean } = {}): Entity[] {
+  const presence = loadPresence(root);
+  const fleet: Fleet = { views: viewsById(root), presence, presenceById: indexPresenceById(presence), census: paneCensus(settings) };
   const usedPresence = new Set<string>();
   const backendEntities = options.skipBackends
     ? []
-    : enabledBackends().flatMap((backend) => entitiesFromBackend(backend, fleet, usedPresence));
-  const entities = [...backendEntities, ...entitiesFromPresence(fleet, usedPresence)];
+    : enabledBackends(settings).flatMap((backend) => entitiesFromBackend(root, backend, fleet, usedPresence));
+  const entities = [...backendEntities, ...entitiesFromPresence(root, fleet, usedPresence)];
   return [...entities, ...entitiesFromStore(fleet, entities)];
 }
 
@@ -332,12 +329,12 @@ function stillRunning(entity: Entity): boolean {
 
 /** A session or spawned agent may resolve only an agent it currently holds.
  *  Ownership is the open lease, never the immutable spawner or a display label. */
-export function callerMayResolve(entity: Pick<Entity, "key">): boolean {
+export function callerMayResolve(root: string, entity: Pick<Entity, "key">): boolean {
   if (callerKind() === "operator") return true;
   const caller = selfId();
   if (caller === undefined) return false;
   try {
-    return holdsLease(orchDir(), entity.key, caller);
+    return holdsLease(root, entity.key, caller);
   } catch {
     return false;
   }
@@ -388,22 +385,22 @@ function matchInPool(entities: Entity[], localTarget: string, target: string, ho
 // default — crossing the wall is never an accident of typing a foreign key.
 // A host-prefixed (<host>/<target>) or --all target opts out; headless runs
 // (no current space) are unscoped.
-export function resolveTarget(target: string, opts?: { all?: boolean; crossSpace?: boolean }): Entity {
+export function resolveTarget(root: string, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): Entity {
   let ref: TargetRef;
   try {
-    ref = parseTarget(target);
+    ref = parseTarget(target, settings.hosts);
   } catch (error: unknown) {
     die(errorMessage(error));
   }
   const localTarget = ref.target;
-  const everything = buildEntities();
+  const everything = buildEntities(root, settings);
   const crossSpace = opts?.crossSpace === true;
   const crossWall = opts?.all === true || crossSpace || ref.host !== null;
-  const pool = scopeEntitiesToSpace(everything, { all: crossWall });
+  const pool = scopeEntitiesToSpace(root, everything, { all: crossWall });
 
   const match = matchInPool(pool, localTarget, target, ref.host);
   if (match) {
-    if (callerMayResolve(match)) return match;
+    if (callerMayResolve(root, match)) return match;
     refuseForeignTarget(target);
   }
 
@@ -412,15 +409,15 @@ export function resolveTarget(target: string, opts?: { all?: boolean; crossSpace
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
       // The wall decision lives in policy/space.ts alone; this only relays it.
-      const decision = checkWall(orchDir(), selfId() ?? null, foreign.key, { crossSpace: false });
+      const decision = checkWall(root, selfId() ?? null, foreign.key, { crossSpace: false });
       if (!decision.allowed) die(decision.reason ?? "space-wall denied the write");
     }
   }
   die(`No target matches "${target}". Run 'orch panes' to list.`);
 }
 
-export function resolvePane(target: string, opts?: { all?: boolean; crossSpace?: boolean }): { ent: Entity; pane: string } {
-  const ent = resolveTarget(target, opts);
+export function resolvePane(root: string, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): { ent: Entity; pane: string } {
+  const ent = resolveTarget(root, settings, target, opts);
   if (!ent.paneId) die(`Target "${target}" has no pane.`);
   return { ent, pane: ent.paneId };
 }

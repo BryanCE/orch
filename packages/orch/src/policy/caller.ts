@@ -1,17 +1,16 @@
 import { launchCredential } from "../identity/launch.ts";
 import { callerSession } from "../adapters/session-env.ts";
-import { orchDir } from "../presence/writer.ts";
 import { agentById } from "../store/agent-rows.ts";
 import type { CallerKind } from "../types/policy.ts";
 
 export type { CallerKind };
 
 /** Classify the caller from its harness marker and, for workers, its claim. */
-export function callerKind(): CallerKind {
+export function callerKind(orchDir: string): CallerKind {
   const session = callerSession();
   const id = launchCredential();
   if (id !== null) {
-    const row = agentById(orchDir(), id);
+    const row = agentById(orchDir, id);
     const sessionToken = session?.sessionId;
     if (row?.claimedAt !== null && row?.claimedAt !== undefined
       && row.sessionToken !== null && row.sessionToken !== undefined

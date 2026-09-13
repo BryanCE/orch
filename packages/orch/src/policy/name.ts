@@ -1,5 +1,4 @@
 import {loadPresence, spawnedRecords} from "../presence/store.ts";
-import { orchDir } from "../presence/writer.ts";
 import { sameSpace } from "./space.ts";
 
 export function assertValidAgentName(name: string): void {
@@ -18,10 +17,10 @@ export function assertValidAgentName(name: string): void {
  * space it actually occupied open to a duplicate. The name itself is the
  * agent's mutable label on the hub row, read through the same composed view.
  */
-export function assertNameFree(name: string, space: string | null): void {
+export function assertNameFree(orchDir: string, name: string, space: string | null): void {
   assertValidAgentName(name);
   const presence = loadPresence();
-  const taken = [...spawnedRecords(orchDir()).values()].find((view) =>
+  const taken = [...spawnedRecords(orchDir).values()].find((view) =>
     view.name === name
     && sameSpace(view.environment.space, space)
     && presence.get(view.id)?.alive === true);

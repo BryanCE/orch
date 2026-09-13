@@ -1,6 +1,5 @@
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { loadSettingsOrNull } from "../settings/read.ts";
 import { NOTIFY_DEFAULT_ON } from "../settings/schema.ts";
 import { createNotifierRegistry } from "../notify/router.ts";
 import { commandArgv } from "../notify/sinks.ts";
@@ -9,7 +8,7 @@ import { allBackends } from "../backends/registry.ts";
 import { binaryOnPath, errorMessage, packageRoot } from "../util.ts";
 import { notifierRemediation } from "../notify/remediation.ts";
 import type { BinaryStatus, CheckResult } from "../types/doctor.ts";
-import type { NotifyEntry } from "../types/settings.ts";
+import type { NotifyEntry, OrchSettings } from "../types/settings.ts";
 
 export function checkNotifications(_bins: BinaryStatus): CheckResult {
   if (allBackends().some((backend) => backend.isAvailable() && backend.isInsideSession())) {
@@ -25,14 +24,14 @@ export function checkNotifications(_bins: BinaryStatus): CheckResult {
 }
 
 /** Validate configured notifier entries and probe each adapter in isolation. */
-export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
+export async function checkNotifiers(settings: OrchSettings | null): Promise<CheckResult> {
   const id = "notifiers";
   const label = "Notifiers";
   let configured: NotifyEntry[];
   try {
     // An install with no settings.json has no notifiers, which is a healthy state to report.
     // Only a settings.json that exists and is malformed is a failure worth naming here.
-    configured = loadSettingsOrNull(orchDir)?.notify ?? [];
+    configured = settings?.notify ?? [];
   } catch (error: unknown) {
     return { id, label, status: "fail", detail: errorMessage(error) };
   }
@@ -68,10 +67,10 @@ export async function checkNotifiers(orchDir: string): Promise<CheckResult> {
   return { id, label, status: "ok", detail: `${configured.length} configured notifier${configured.length === 1 ? "" : "s"} are available` };
 }
 
-export function checkNotifySinks(orchDir: string, bins: BinaryStatus): CheckResult {
+export function checkNotifySinks(settings: OrchSettings | null, bins: BinaryStatus): CheckResult {
   const id = "notify-sinks";
   const label = "Notification sinks";
-  const sinks = loadSettingsOrNull(orchDir)?.notify ?? [];
+  const sinks = settings?.notify ?? [];
   if (!sinks.length) return { id, label, status: "ok", detail: "no notify sinks configured" };
 
   const desktop = checkNotifications(bins);

@@ -1,8 +1,6 @@
 import { mintAgentId } from "../backends/identity.ts";
 import { resolveBackend } from "../backends/registry.ts";
-import { loadSettings } from "../settings/read.ts";
 import { selfId } from "../identity/self.ts";
-import { orchDir } from "../presence/writer.ts";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { agentSpaces, agents, spaces } from "../db/schema.ts";
@@ -10,6 +8,7 @@ import { clearHome, homeHandle, homeLabel, openHome } from "../store/home-rows.t
 import { die, splitOptionFlags } from "./target.ts";
 import { errorMessage } from "../util.ts";
 import type { SpaceEnvironment } from "../types/command.ts";
+import type { Services } from "../types/services.ts";
 
 /**
  * `orch space` — orch's OWN grouping of work.
@@ -184,9 +183,9 @@ export function runSpace(env: SpaceEnvironment, args: string[]): void {
   else throw new Error(USAGE);
 }
 
-export function cmdSpace(args: string[]): void {
-  const directory = orchDir();
-  const settings = loadSettings(directory);
+export function cmdSpace(services: Services, args: string[]): void {
+  const directory = services.orchDir;
+  const settings = services.settings.current();
   const backend = resolveBackend({ configured: settings.defaults.backend ?? null });
   const env: SpaceEnvironment = {
     directory,

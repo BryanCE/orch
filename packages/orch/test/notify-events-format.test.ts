@@ -120,7 +120,7 @@ describe("notification and presence event formatting", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = fakeFetch((value) => { body = value; });
     try {
-      const delivered = await deliver(rootOrchDir, { id: "webhook", on: ["done"], url: "https://example.test/hook" }, event());
+      const delivered = await deliver(rootOrchDir, null, { id: "webhook", on: ["done"], url: "https://example.test/hook" }, event());
       expect(delivered).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;

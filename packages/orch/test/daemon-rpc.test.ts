@@ -329,7 +329,8 @@ describe("daemon RPC", () => {
     const dir = tempOrchDir();
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
     servers.push(server);
-    expect(await tcpHello(server, { token: "wrong-token" })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
+    // A complete claim, so the wire accepts the shape and the handler is what refuses it.
+    expect(await tcpHello(server, { token: "wrong-token", pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
   });
 
   test("writes the daemon token with owner-only permissions", async () => {

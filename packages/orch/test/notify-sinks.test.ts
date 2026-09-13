@@ -13,7 +13,7 @@ describe("notification entries", () => {
   test("desktop entries use the canonical notifier registry", async () => {
     const desktop = createBuiltinNotifiers().find((notifier) => notifier.id === "desktop");
     if (!desktop) throw new Error("desktop notifier missing");
-    const registry = createNotifierRegistry(orchDir(), [{ ...desktop, available: () => true, deliver: () => Promise.resolve(true) }]);
+    const registry = createNotifierRegistry(orchDir(), null, [{ ...desktop, available: () => true, deliver: () => Promise.resolve(true) }]);
     expect(await registry.deliver({ id: "desktop", on: ["done"] }, event)).toBe(true);
   });
 });

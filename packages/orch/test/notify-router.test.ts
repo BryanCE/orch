@@ -22,7 +22,7 @@ function notifier(id: Notifier["id"], seen: (config: Record<string, unknown>) =>
 describe("notify router", () => {
   test("delivers only when on includes the event state", async () => {
     let count = 0;
-    const registry = createNotifierRegistry(orchDir(), [notifier("webhook", () => { count += 1; })]);
+    const registry = createNotifierRegistry(orchDir(), null, [notifier("webhook", () => { count += 1; })]);
     const excluded: NotifyEntry = { id: "webhook", on: ["error"], url: "https://example.test" };
     const included: NotifyEntry = { id: "webhook", on: ["done"], url: "https://example.test" };
     await registry.deliver(excluded, event);
@@ -32,7 +32,7 @@ describe("notify router", () => {
 
   test("passes typed webhook and command configuration", async () => {
     const seen: Record<string, unknown>[] = [];
-    const registry = createNotifierRegistry(orchDir(), [
+    const registry = createNotifierRegistry(orchDir(), null, [
       notifier("webhook", (config) => seen.push(config)),
       notifier("command", (config) => seen.push(config)),
     ]);
@@ -46,7 +46,7 @@ describe("notify router", () => {
 
   test("surfaces notifier errors", async () => {
     const failure = new Error("delivery failed");
-    const registry = createNotifierRegistry(orchDir(), [{ ...notifier("webhook", () => { /* config unused here */ }), deliver: () => Promise.reject(failure) }]);
+    const registry = createNotifierRegistry(orchDir(), null, [{ ...notifier("webhook", () => { /* config unused here */ }), deliver: () => Promise.reject(failure) }]);
     const thrown: unknown = await registry.deliver({ id: "webhook", on: ["done"], url: "https://example.test" }, event).then(() => null, (error: unknown) => error);
     expect(thrown).toBe(failure);
   });

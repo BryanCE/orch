@@ -40,7 +40,12 @@ class NotifierRegistry {
   private readonly emitWarning: (message: string) => void;
   readonly timeoutMs: number;
 
-  constructor(orchDir: OrchDir, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { timeoutMs?: number; warn?: (message: string) => void } = {}) {
+  /** The settings every availability probe is judged against. What a sink reads
+   *  from them is the sink's business; the router only carries them through the port. */
+  private readonly settings: OrchSettings | null;
+
+  constructor(orchDir: OrchDir, settings: OrchSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { timeoutMs?: number; warn?: (message: string) => void } = {}) {
+    this.settings = settings;
     this.timeoutMs = options.timeoutMs ?? SETTINGS_DEFAULTS.timeouts.notify_ms;
     this.emitWarning = options.warn ?? ((message) => warning(orchDir, message));
     this.notifiers = new Map(notifiers.flatMap((notifier) => isNotifyId(notifier.id) ? [[notifier.id, notifier]] : []));
@@ -61,7 +66,7 @@ class NotifierRegistry {
     // Send throws real errors. A delivery failure reaches the caller unchanged;
     // it is never converted to `false`.
     if (entry.id === "command" && !commandAvailable(config)) return false;
-    if (!(await notifier.available(null))) return false;
+    if (!(await notifier.available(this.settings))) return false;
     return await notifier.deliver(event, config);
   }
 
@@ -86,7 +91,7 @@ class NotifierRegistry {
     const config = configFor(entry);
     try {
       if (entry.id === "command" && !commandAvailable(config)) return { available: false, reason: "configured command is not on PATH" };
-      return await notifier.available(null) ? { available: true } : { available: false, reason: "host integration unavailable" };
+      return await notifier.available(this.settings) ? { available: true } : { available: false, reason: "host integration unavailable" };
     } catch (error: unknown) { return { available: false, error: oneLine(error) }; }
   }
 
@@ -103,14 +108,14 @@ class NotifierRegistry {
   }
 }
 
-export function createNotifierRegistry(orchDir: OrchDir, notifiers?: readonly Notifier[], options: { timeoutMs?: number; warn?: (message: string) => void } = {}): NotifierRegistry {
-  return new NotifierRegistry(orchDir, notifiers, options);
+export function createNotifierRegistry(orchDir: OrchDir, settings: OrchSettings | null, notifiers?: readonly Notifier[], options: { timeoutMs?: number; warn?: (message: string) => void } = {}): NotifierRegistry {
+  return new NotifierRegistry(orchDir, settings, notifiers, options);
 }
 
-export async function deliver(orchDir: OrchDir, entry: NotifyEntry, event: NotifyEvent): Promise<boolean> {
-  return createNotifierRegistry(orchDir).deliver(entry, event);
+export async function deliver(orchDir: OrchDir, settings: OrchSettings | null, entry: NotifyEntry, event: NotifyEvent): Promise<boolean> {
+  return createNotifierRegistry(orchDir, settings).deliver(entry, event);
 }
 
-export function notify(orchDir: OrchDir, entries: readonly NotifyEntry[], event: NotifyEvent): void {
-  createNotifierRegistry(orchDir).notify(entries, event);
+export function notify(orchDir: OrchDir, settings: OrchSettings | null, entries: readonly NotifyEntry[], event: NotifyEvent): void {
+  createNotifierRegistry(orchDir, settings).notify(entries, event);
 }

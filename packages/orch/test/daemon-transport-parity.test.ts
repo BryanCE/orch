@@ -100,9 +100,12 @@ describe("both transports carry one mechanism", () => {
     const { server, orchDir } = await start();
     const path = endpointPaths(orchDir).socket;
 
+    // An absent token is a malformed claim, refused at the wire before any
+    // credential is compared. The point is still the same: one refusal, one
+    // code, whichever transport carried it.
     const overUnix = await ask({ path }, hello(undefined));
     const overTcp = await ask({ port: tcpPort(server) }, hello(undefined));
-    expect(overUnix).toMatchObject({ error: { code: "IDENTITY_REQUIRED" } });
+    expect(overUnix).toMatchObject({ error: { code: "INVALID_PARAMS" } });
     expect(overTcp).toEqual(overUnix);
   });
 

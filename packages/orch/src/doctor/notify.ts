@@ -38,7 +38,7 @@ export async function checkNotifiers(orchDir: OrchDir, settings: OrchSettings | 
   }
   if (!configured.length) return { id, label, status: "ok", detail: "no notifiers configured" };
 
-  const registry = createNotifierRegistry(orchDir);
+  const registry = createNotifierRegistry(orchDir, settings);
   const failures: string[] = [];
   const warnings: string[] = [];
   for (const [index, entry] of configured.entries()) {

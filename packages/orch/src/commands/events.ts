@@ -106,14 +106,15 @@ export async function cmdNotify(services: Services, args: string[]) {
     task: "orch notify test",
     ts: new Date().toISOString(),
   };
-  const sinks = services.settings.current().notify;
+  const settings = services.settings.current();
+  const sinks = settings.notify;
   if (!sinks.length) {
     services.logger.error("notify.test.no-sinks", { sinkCount: 0 });
     process.stdout.write("notify test: no sinks configured\n");
     process.exitCode = 1;
     return;
   }
-  const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliver(services.orchDir, sink, event) })));
+  const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliver(services.orchDir, settings, sink, event) })));
   if (json) process.stdout.write(JSON.stringify(results.map(({ sink, ok }) => ({ sink: sinkLabel(sink), ok }))) + "\n");
   else for (const { sink, ok } of results) process.stdout.write(`notify ${sinkLabel(sink)}: ${ok ? "ok" : "fail"}\n`);
   if (results.some((result) => !result.ok)) process.exitCode = 1;

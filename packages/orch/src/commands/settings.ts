@@ -240,7 +240,7 @@ function printNotifyEntries(services: Services, json: boolean): void {
 async function addNotifyEntry(services: Services, args: string[]): Promise<void> {
   const [id, ...flags] = args;
   if (id === undefined || id.startsWith("--")) die(NOTIFY_USAGE);
-  const choices = await probeNotifiers();
+  const choices = await probeNotifiers(currentSettings(services));
   const choice = choices.find((notifier) => notifier.id === id);
   if (!choice) die(`Unknown notify sink "${id}". Supported: ${choices.map((notifier) => notifier.id).join(", ")}.`);
   rejectUndeclaredFlags(flags, choice.requiredFields);

@@ -183,8 +183,8 @@ export async function cmdSetup(services: Services, args: string[]) {
 
 /** Interactive notifier onboarding: probe all notifiers, pick a set, collect each one's
  * declared fields, and persist them as settings.json `notify` entries. A cancel skips the step. */
-async function configureNotifiers(services: Pick<Services, "orchDir" | "logger">): Promise<void> {
-  const choices = await probeNotifiers();
+async function configureNotifiers(services: Pick<Services, "orchDir" | "logger" | "settings">): Promise<void> {
+  const choices = await probeNotifiers(services.settings.currentOrNull());
   if (!choices.length) return;
   const picked = await selectNotifiers(choices);
   if (!picked?.length) return;

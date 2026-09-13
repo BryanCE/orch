@@ -7,6 +7,7 @@ import type { NotifyEvent } from "../src/types/notify.ts";
 import type { PendingQuestionView } from "../src/types/daemon.ts";
 import type { EventsContext } from "../src/commands/events.ts";
 import { testServices } from "./helpers/services.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 import type { OrchDir } from "../src/types/core.ts";
 const roots: OrchDir[] = [];
 
@@ -28,7 +29,7 @@ describe("events pending-question snapshot", () => {
       question: "Approve the change?",
       askedAt: 100,
     };
-    const server = await startRpcServer(root, { questions: () => ({ questions: [question] }) });
+    const server = await startRpcServer(root, stubRpcHandlers({ questions: () => ({ questions: [question] }) }));
     const received: { event: NotifyEvent; seq: number }[] = [];
     const context: EventsContext = {
       options: parseEventsOptions([]),

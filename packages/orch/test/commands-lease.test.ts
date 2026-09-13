@@ -205,6 +205,6 @@ describe("lease commands", () => {
     acquireLease(dir, key, "foreign-orch", 2);
 
     // governWrite is the daemon gate used by reset (and dispatch/steer/model).
-    expect(() => governWrite(daemonState(dir), key, { target: key, actor: "caller-orch", text: "reset" })).toThrow(/foreign-orch/);
+    expect(() => governWrite(daemonState(dir), key, { actor: "caller-orch" })).toThrow(/foreign-orch/);
   });
 });

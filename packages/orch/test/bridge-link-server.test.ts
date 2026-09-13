@@ -11,6 +11,7 @@ import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const directories: OrchDir[] = [];
@@ -63,9 +64,9 @@ function liveKey(directory: OrchDir): string {
 
 async function start(onBridgeAttached?: (key: string) => void): Promise<RpcServer> {
   const directory = directories[directories.length - 1]!;
-  const server = await startRpcServer(directory, {
+  const server = await startRpcServer(directory, stubRpcHandlers({
     attach: () => ({ attached: true, open: 1 }),
-  }, { onBridgeAttached });
+  }), { onBridgeAttached });
   servers.push(server);
   return server;
 }
@@ -168,7 +169,7 @@ describe("daemon bridge links", () => {
     const socket = await connected(server);
     const lines = observe(socket);
     socket.write(`${JSON.stringify({ id: 1, method: "attach", params: {} })}\n`);
-    expect(await lineAt(lines, 0)).toEqual({ id: 1, error: { code: "INVALID_REQUEST", message: "attach requires key" } });
+    expect(await lineAt(lines, 0)).toMatchObject({ id: 1, error: { code: "INVALID_PARAMS" } });
     expect(server.attachedBridgeCount()).toBe(0);
     socket.destroy();
   });

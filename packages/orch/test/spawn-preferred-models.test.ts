@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { RPC_PARAMS } from "../src/daemon/rpc/protocol.ts";
 import { adapterCommand } from "../src/commands/spawn/models.ts";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
-import { optionalModelSpecs } from "../src/daemon/orchd.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { PiAdapter, piAdapter } from "../src/adapters/pi.ts";
@@ -35,6 +35,7 @@ afterEach(() => {
 });
 
 const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"];
+const HEADLESS_BASE = { key: "agent-a", adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go" };
 
 const settings = (preferred: string[]): OrchSettings => ({
   ...SETTINGS_DEFAULTS,
@@ -162,14 +163,15 @@ describe("the preferred quicklist reaches every launch route", () => {
 
 describe("orchd rules on the quicklist it is sent", () => {
   test("accepts an absent value and an array of specs", () => {
-    expect(optionalModelSpecs(undefined, "preferredModels")).toBeUndefined();
-    expect(optionalModelSpecs(QUICKLIST, "preferredModels")).toEqual(QUICKLIST);
+    expect(RPC_PARAMS["spawn-headless"].safeParse(HEADLESS_BASE).success).toBe(true);
+    const parsed = RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: QUICKLIST });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.preferredModels).toEqual(QUICKLIST);
   });
 
   test("refuses a joined string or a blank entry instead of coercing it", () => {
-    // A joined string would reach the harness as one model id no registry lists.
-    expect(() => optionalModelSpecs(QUICKLIST.join(","), "preferredModels")).toThrow(/array of non-empty model specs/);
-    expect(() => optionalModelSpecs([""], "preferredModels")).toThrow(/array of non-empty model specs/);
-    expect(() => optionalModelSpecs([1], "preferredModels")).toThrow(/array of non-empty model specs/);
+    expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: QUICKLIST.join(",") }).success).toBe(false);
+    expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: [""] }).success).toBe(false);
+    expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: [1] }).success).toBe(false);
   });
 });

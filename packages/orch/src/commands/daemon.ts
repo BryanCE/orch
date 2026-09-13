@@ -13,6 +13,7 @@ import {
 import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { DaemonAbsentError, DaemonUnreachableError } from "../daemon/rpc/wire.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
+import type { GovernedMethod, ParamsOf, ResultOf, Governance } from "../daemon/rpc/protocol.ts";
 import {
   awaitDaemonProbe,
   BIND_GRACE_MS,
@@ -25,27 +26,15 @@ import {
   translateDaemonError,
   unreachableRefusal,
 } from "../daemon/reach.ts";
-import { errorMessage, isRecord, pidAlive } from "../util.ts";
+import { errorMessage, pidAlive } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
 import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidNonOperatorOverride } from "./target.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
 import type { OrchDir } from "../types/core.ts";
 import type { OrchDirService, Services } from "../types/services.ts";
 
-export function validDaemonStatus(value: unknown): value is DaemonStatus {
-  return isRecord(value)
-    && typeof value.pid === "number"
-    && typeof value.startedAt === "string"
-    && typeof value.uptimeSec === "number"
-    && typeof value.codeHash === "string"
-    && typeof value.socket === "string"
-    && (value.tcpEndpoint === undefined || typeof value.tcpEndpoint === "string");
-}
-
 async function fetchDaemonStatus(orchDir: OrchDir, timeoutMs = 5000): Promise<DaemonStatus> {
-  const result = await rpcCall(orchDir, "daemon-status", undefined, timeoutMs);
-  if (!validDaemonStatus(result)) throw new Error("orchd returned an invalid status");
-  return result;
+  return rpcCall(orchDir, "daemon-status", undefined, timeoutMs);
 }
 
 async function waitForDaemon(orchDir: OrchDir, previousStartedAt?: string): Promise<DaemonStatus> {
@@ -87,7 +76,7 @@ export function parseGovernance(services: OrchDirService, args: string[]): { gov
 /** One write to orchd, stamped with the caller's actor and governance. Throws the
  *  refusal text a human should read; the caller owns what an unreachable daemon costs.
  *  Use {@link writeRpc} when that cost is the whole command. */
-export async function callDaemon(services: Pick<Services, "orchDir" | "settings" | "logger">, method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
+export async function callDaemon<M extends GovernedMethod>(services: Pick<Services, "orchDir" | "settings" | "logger">, method: M, params: ParamsOf<M>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<ResultOf<M>> {
   const directory = services.orchDir;
   if (timeoutMs === undefined && (method === "steer" || method === "answer")) {
     const { timeouts } = services.settings.current();
@@ -98,14 +87,17 @@ export async function callDaemon(services: Pick<Services, "orchDir" | "settings"
   // The write actor is the same token spawn stamps as owner (ORCH_OWNER, else
   // the id orch issued); anything else and an orchestrator cannot steer its own fleet.
   const actor = callerOwnerToken(directory) ?? null;
-  const enriched: Record<string, unknown> = { ...params };
-  if (actor !== null) {
-    enriched.actor = actor;
-    enriched.actorSpace = actorSpace(directory, actor);
-    enriched.actorIsOperator = !callerIsSpawnedAgent(directory);
-  }
-  if (gov.steal) enriched.steal = true;
-  if (gov.crossSpace) enriched.crossSpace = true;
+  const actorLocation = actor === null ? null : actorSpace(directory, actor);
+  const governance: Governance = {
+    ...(actor === null ? {} : {
+      actor,
+      ...(actorLocation === null ? {} : { actorSpace: actorLocation }),
+      actorIsOperator: !callerIsSpawnedAgent(directory),
+    }),
+    ...(gov.steal ? { steal: true } : {}),
+    ...(gov.crossSpace ? { crossSpace: true } : {}),
+  };
+  const enriched: ParamsOf<M> = { ...params, ...governance };
   try {
     await ensureDaemon(directory, services.logger);
     return await rpcCall(directory, method, enriched, timeoutMs);
@@ -115,7 +107,7 @@ export async function callDaemon(services: Pick<Services, "orchDir" | "settings"
 }
 
 /** The daemon write whose failure ends the command. */
-export async function writeRpc(services: Pick<Services, "orchDir" | "settings" | "logger">, method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
+export async function writeRpc<M extends GovernedMethod>(services: Pick<Services, "orchDir" | "settings" | "logger">, method: M, params: ParamsOf<M>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<ResultOf<M>> {
   try {
     return await callDaemon(services, method, params, gov, timeoutMs);
   } catch (error: unknown) {
@@ -197,7 +189,7 @@ async function statusDaemon(orchDir: OrchDir, json: boolean): Promise<void> {
 
 async function reloadDaemon(orchDir: OrchDir, json = false): Promise<void> {
   const before = await fetchDaemonStatus(orchDir);
-  await rpcCall(orchDir, "reload");
+  await rpcCall(orchDir, "reload", undefined);
   const after = await waitForDaemon(orchDir, before.startedAt);
   if (json) process.stdout.write(JSON.stringify({ reloaded: true, pid: after.pid, codeHash: after.codeHash }) + "\n");
   else process.stdout.write(`reloaded (pid ${after.pid}, hash ${after.codeHash})\n`);

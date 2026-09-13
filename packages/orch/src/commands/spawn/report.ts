@@ -5,7 +5,7 @@ import { workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { readGroupLayout } from "../../backends/tiling.ts";
 import { dispatchToAgent } from "../control.ts";
-import { errorMessage, isRecord, sleep } from "../../util.ts";
+import { errorMessage, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/reach.ts";
 import { selfId } from "../../identity/self.ts";
 import { agentViewIndex, presenceById } from "../target.ts";
@@ -19,6 +19,7 @@ import type { AgentAdapter } from "../../types/adapter.ts";
 import type { CreatedAgent } from "../../types/command.ts";
 import { pinModels } from "./models.ts";
 import type { SpawnSettings } from "./flags.ts";
+import type { ResultOf } from "../../daemon/rpc/protocol.ts";
 
 
 export function spawnLogger(logger: Logger, key?: string): Logger {
@@ -26,12 +27,8 @@ export function spawnLogger(logger: Logger, key?: string): Logger {
 }
 
 /** Return the keys whose bridge is attached in one daemon status response. */
-function attachedBridgeKeys(answer: unknown): ReadonlySet<string> {
-  if (!isRecord(answer) || !Array.isArray(answer.rows)) return new Set();
-  return new Set(answer.rows.flatMap((row) => {
-    if (!isRecord(row) || row.bridgeAttached !== true || typeof row.key !== "string") return [];
-    return [row.key];
-  }));
+function attachedBridgeKeys(answer: ResultOf<"status"> | null): ReadonlySet<string> {
+  return new Set(answer?.rows.filter((row) => row.bridgeAttached === true).map((row) => row.key));
 }
 
 /** Wait for every agent's bridge to attach; returns only the ones that attached. */
@@ -41,9 +38,9 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
   const deadline = Date.now() + 60_000;
   if (!json) process.stdout.write("\nWaiting for agents to attach:\n");
   while (pending.size && Date.now() < deadline) {
-    let answer: unknown = null;
+    let answer: ResultOf<"status"> | null = null;
     try {
-      answer = await rpcCall(orchDir, "status");
+      answer = await rpcCall(orchDir, "status", undefined);
     } catch {
       // The daemon may be briefly unavailable while a bridge starts; keep polling
       // until the same spawn deadline used by the old registration wait.

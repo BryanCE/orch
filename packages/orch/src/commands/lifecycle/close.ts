@@ -14,6 +14,7 @@ import { rpcCall } from "../../daemon/rpc/client.ts";
 import { agentAddress, die, presenceById, resolveLifecycleTarget, splitOptionFlags } from "../target.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
+import type { ParamsOf } from "../../daemon/rpc/protocol.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import { currentProcess } from "../../store/interval-rows.ts";
 
@@ -46,10 +47,7 @@ function processRemains(role: ProcessRole, recorded: RecordedProcess): boolean {
  *  lease and its whole lease history — so a live orch's holding vanished the
  *  moment anyone closed the agent it drove, and retention (which sweeps ended
  *  rows) had nothing left to sweep. */
-interface ClosedAgent {
-  readonly key: string;
-  readonly oldState: string;
-}
+type ClosedAgent = ParamsOf<"agent-closed">;
 
 function endClosedAgent(orchDir: OrchDir, key: string): ClosedAgent | null {
   const root = orchDir;

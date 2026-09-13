@@ -4,6 +4,7 @@ import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { subscribeEvents } from "../src/daemon/rpc/client.ts";
 import type { EventSubscription, RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 function waitFor<T>(read: () => T[], length: number): Promise<T[]> {
   return new Promise((resolve, reject) => {
@@ -29,7 +30,7 @@ describe("orchd event subscription", () => {
     let first: EventSubscription | undefined;
     let second: EventSubscription | undefined;
     try {
-      server = await startRpcServer(orchDir, {});
+      server = await startRpcServer(orchDir, stubRpcHandlers());
       server.emit({ name: "one" });
       server.emit({ name: "two" });
       server.emit({ name: "three" });

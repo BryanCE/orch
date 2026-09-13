@@ -6,6 +6,7 @@ import { rpcCall } from "../src/daemon/rpc/client.ts";
 import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 /**
  * One `bindUnix(server, paths)`.
@@ -55,16 +56,16 @@ describe("one bind for the unix endpoint (2.4)", () => {
     let first: RpcServer | undefined;
     let reclaimed: RpcServer | undefined;
     try {
-      first = await startRpcServer(fresh, { echo: (params: unknown) => params });
+      first = await startRpcServer(fresh, stubRpcHandlers({ ack: () => ({ ok: true }) }));
 
       // A socket path left by a dead instance, and this process holds the lock.
       writeFileSync(join(stale, "orchd.sock"), "");
       writeFileSync(join(stale, "orchd.port"), "65000\n");
-      reclaimed = await startRpcServer(stale, { echo: (params: unknown) => params }, { holdsDaemonLock: true });
+      reclaimed = await startRpcServer(stale, stubRpcHandlers({ ack: () => ({ ok: true }) }), { holdsDaemonLock: true });
 
       expect(reclaimed.transport).toBe(first.transport);
       expect(existsSync(join(stale, "orchd.port"))).toBe(existsSync(join(fresh, "orchd.port")));
-      expect(await rpcCall(stale, "echo", { via: "reclaimed" })).toEqual({ via: "reclaimed" });
+      expect(await rpcCall(stale, "ack", { id: "reclaimed" })).toEqual({ ok: true });
     } finally {
       if (first) await first.close();
       if (reclaimed) await reclaimed.close();

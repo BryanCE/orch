@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { createDaemonClient } from "./daemon-client.ts";
 import { registerFleetMonitor } from "./monitor.ts";
 import { createAgentPresence } from "./presence.ts";
-import { agentEnvironment, isBlockedSignal, isPaneLabels } from "./environment.ts";
+import { agentEnvironment, isBlockedSignal } from "./environment.ts";
 import { registerAgentTools } from "./tools.ts";
 import type { FleetStatusRenderer, HarnessApi, HarnessBridge, HarnessIdentity } from "../types/agent.ts";
 import type { SettingsManager } from "../types/services.ts";
@@ -40,7 +40,7 @@ export function registerHarnessBridge(
   async function refreshLabels(): Promise<void> {
     if (!environment.labels) return;
     const labels = await daemon.ask("environment-labels", { id: identity.agentId });
-    if (!isPaneLabels(labels)) return;
+    if (labels === undefined || labels === null) return;
     // A live pane label refines the name; an unlabeled pane never erases the
     // launch-stamped one.
     if (labels.label) presence.state.label = labels.label;
@@ -52,7 +52,9 @@ export function registerHarnessBridge(
     presence,
     daemon,
     identity,
-    notify: (event) => { void daemon.ask("notify", { ...event }); },
+    notify: (event) => {
+      void daemon.ask("notify", event);
+    },
     refreshLabels,
   }, options.orchDir, options.settings);
 

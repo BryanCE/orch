@@ -201,25 +201,12 @@ function callerMaySeeQuestion(orchDir: OrchDir, agentId: string): boolean {
   }
 }
 
-function isPendingQuestionView(value: unknown): value is PendingQuestionView {
-  if (!isRecord(value)) return false;
-  return typeof value.questionId === "string"
-    && typeof value.agentId === "string"
-    && typeof value.key === "string"
-    && (typeof value.name === "string" || value.name === null)
-    && typeof value.question === "string"
-    && typeof value.askedAt === "number";
-}
-
 /** Read pending questions from orchd; the daemon owns their answerable state. */
 async function collectPendingQuestions(orchDir: OrchDir, args: string[]): Promise<{ pending: PendingQuestion[] }> {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const answer = await rpcCall(orchDir, "questions", { all: enabled.has("--all") });
-  if (!isRecord(answer) || !Array.isArray(answer.questions)) {
-    throw new Error("Daemon returned an invalid questions payload.");
-  }
   return {
-    pending: answer.questions.filter(isPendingQuestionView)
+    pending: answer.questions
       .filter((view) => callerMaySeeQuestion(orchDir, view.agentId))
       .map((view) => ({ view })),
   };

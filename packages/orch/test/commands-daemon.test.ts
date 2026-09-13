@@ -2,7 +2,8 @@ import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseGovernance, validDaemonStatus } from "../src/commands/daemon.ts";
+import { parseGovernance } from "../src/commands/daemon.ts";
+import { RPC_RESULTS } from "../src/daemon/rpc/protocol.ts";
 import { daemonLockPid } from "../src/daemon/reach.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { testServices } from "./helpers/services.ts";
@@ -21,8 +22,15 @@ describe("commands/daemon", () => {
     delete process.env[sessionId];
     try {
       expect(parseGovernance(testServices({ orchDir: directory }), ["--steal", "x", "--cross-space"])).toEqual({ gov: { steal: true, crossSpace: true }, rest: ["x"] });
-      expect(validDaemonStatus({ pid: 1, startedAt: "now", uptimeSec: 1, codeHash: "h", socket: "s" })).toBe(true);
-      expect(validDaemonStatus({ pid: "1" })).toBe(false);
+      expect(RPC_RESULTS["daemon-status"].safeParse({
+        pid: 1,
+        startedAt: "now",
+        uptimeSec: 1,
+        codeHash: "h",
+        socket: "s",
+        subsystems: { workLoop: "running", presenceWatch: "running", settingsWatch: "running" },
+      }).success).toBe(true);
+      expect(RPC_RESULTS["daemon-status"].safeParse({ pid: "1" }).success).toBe(false);
     } finally {
       removeTempDir(directory);
       restoreHarness();

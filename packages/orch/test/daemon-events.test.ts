@@ -21,6 +21,7 @@ import { sql } from "drizzle-orm";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { testServices } from "./helpers/services.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 const directories: OrchDir[] = [];
 const servers: RpcServer[] = [];
@@ -120,9 +121,9 @@ describe("daemon presence events", () => {
     const key = mintAgentId();
     seedAgent(orchDir, key);
     writeStatus(orchDir, key, "working");
-    const server = await startRpcServer(orchDir, {
+    const server = await startRpcServer(orchDir, stubRpcHandlers({
       "subscribe-events": () => ({ subscribed: true }),
-    });
+    }));
     servers.push(server);
     const watcher = startPresenceWatch({ orchDir, onEvent: (event) => server.emit(event) });
     presenceWatches.push(watcher);

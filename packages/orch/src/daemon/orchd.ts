@@ -18,7 +18,7 @@ import { watchSettings } from "../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch } from "./events.ts";
 import { loadPresence } from "../presence/store.ts";
-import { errorMessage, errorTrace, isRecord } from "../util.ts";
+import { errorMessage, errorTrace } from "../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -31,7 +31,7 @@ import { acknowledgeDelivery, confirmDelivery } from "../control/ack.ts";
 import type { ControlOutcomeReport } from "../types/agent.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
 import { assertModelAllowed } from "../policy/model.ts";
-import { isThinkingLevel, modelSpec } from "../policy/thinking.ts";
+import { modelSpec } from "../policy/thinking.ts";
 import { resolveTuning } from "../policy/tuning.ts";
 import { deliverOutboxMessage, drainOutbox, redeliverOpenRows } from "./outbox.ts";
 import { acceptMail } from "./mail.ts";
@@ -40,18 +40,17 @@ import { normalizeControlTarget } from "../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../control/dispatch.ts";
 import { isAgentGone } from "../control/agent-gone.ts";
 import { bridgeAttached } from "../control/bridge-links.ts";
-import { isAgentNotice, isBridgeMessage } from "../control/bridge-message.ts";
+import { isBridgeMessage } from "../control/bridge-message.ts";
 import { resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
-import { isLifecycleVerb } from "../adapters/adapter.ts";
 import { headlessBackend } from "../backends/registry.ts";
 import { fleetStatusRows } from "../commands/status.ts";
 import { agentView, liveAgentViews } from "../store/agent-view.ts";
 import { createLogger } from "../log.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { decisionLogger } from "./decision-log.ts";
-import type { AdapterId, LifecycleVerb } from "../types/adapter.ts";
-import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
-import type { DaemonStatusRow, LeaseStatusPayload, OutboxDelivery, OutboxDeps, PendingQuestionView, PresenceMetadata, PresenceWatch, RpcHandlers, RpcServer } from "../types/daemon.ts";
+import type { AdapterId } from "../types/adapter.ts";
+import type { DaemonStatusRow, LeaseStatusPayload, OutboxDelivery, OutboxDeps, PendingQuestionView, PresenceMetadata, PresenceWatch, RpcHandler, RpcHandlers, RpcServer } from "../types/daemon.ts";
+import type { Governance, ParamsOf } from "./rpc/protocol.ts";
 import type { SettingsWatch, OrchSettings } from "../types/settings.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { LogContext, LogLevel, Logger } from "../types/core.ts";
@@ -125,11 +124,33 @@ function liveAgentCount(directory: OrchDir): number {
 }
 
 /** Every served call proves the daemon is in use; the idle clock restarts. */
+function touchHandler<M extends Exclude<keyof RpcHandlers, "register-session" | "claim-identity">>(state: DaemonState, handler: RpcHandler<M>): RpcHandler<M> {
+  return (params, emit, context) => { state.lastActivityAt = Date.now(); return handler(params, emit, context); };
+}
+
 function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandlers {
-  return Object.fromEntries(Object.entries(handlers).map(([method, handler]): [string, RpcHandlers[string]] => [
-    method,
-    (params, emit, context) => { state.lastActivityAt = Date.now(); return handler(params, emit, context); },
-  ]));
+  return {
+    "daemon-status": touchHandler(state, handlers["daemon-status"]),
+    "subscribe-events": touchHandler(state, handlers["subscribe-events"]),
+    "environment-labels": touchHandler(state, handlers["environment-labels"]),
+    "peer-view": touchHandler(state, handlers["peer-view"]),
+    notify: touchHandler(state, handlers.notify),
+    status: touchHandler(state, handlers.status),
+    attach: touchHandler(state, handlers.attach),
+    dispatch: touchHandler(state, handlers.dispatch),
+    steer: touchHandler(state, handlers.steer),
+    message: touchHandler(state, handlers.message),
+    answer: touchHandler(state, handlers.answer),
+    "set-model": touchHandler(state, handlers["set-model"]),
+    lifecycle: touchHandler(state, handlers.lifecycle),
+    "spawn-headless": touchHandler(state, handlers["spawn-headless"]),
+    "agent-closed": touchHandler(state, handlers["agent-closed"]),
+    question: touchHandler(state, handlers.question),
+    questions: touchHandler(state, handlers.questions),
+    ack: touchHandler(state, handlers.ack),
+    "control-outcome": touchHandler(state, handlers["control-outcome"]),
+    reload: touchHandler(state, handlers.reload),
+  };
 }
 
 /** The fleet as the daemon sees it, in orch's one status-row shape. Serving a reduced
@@ -150,44 +171,6 @@ async function socketAnswers(directory: OrchDir): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/** One RPC's params, checked only for being a JSON object — every field reads back
- *  as `unknown` and each handler narrows the ones it needs. */
-function rpcParams(params: unknown): Record<string, unknown> {
-  if (typeof params !== "object" || params === null || Array.isArray(params)) {
-    throw new Error("RPC params must be an object");
-  }
-  return params as Record<string, unknown>;
-}
-
-function requiredString(value: unknown, name: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${name} is required`);
-  return value;
-}
-
-/** A notification a bridge raised, rebuilt field by field. It arrives as JSON
- *  from another process, so every member is narrowed here rather than trusted:
- *  the event is constructed, never asserted. */
-function bridgeNotifyEvent(params: Record<string, unknown>): NotifyEvent {
-  const nullableString = (value: unknown): string | null => typeof value === "string" ? value : null;
-  const event: NotifyEvent = {
-    key: requiredString(params.key, "key"),
-    agent: nullableString(params.agent),
-    tab: nullableString(params.tab),
-    model: nullableString(params.model),
-    oldState: requiredString(params.oldState, "oldState"),
-    newState: requiredString(params.newState, "newState"),
-    ts: requiredString(params.ts, "ts"),
-  };
-  const space = optionalString(params.space);
-  if (space !== undefined) event.space = space;
-  const task = optionalString(params.task);
-  if (task !== undefined) event.task = task;
-  const reason = optionalString(params.reason);
-  if (reason !== undefined) event.reason = reason;
-  if (typeof params.cost === "number") event.cost = params.cost;
-  return event;
 }
 
 /** Build the event carrying mail for a live session with no bridge route. */
@@ -271,14 +254,6 @@ function outboxDeps(state: DaemonState): OutboxDeps {
   };
 }
 
-export function validateWriteParams(params: unknown): { target: string; text: string } {
-  const value = rpcParams(params);
-  return {
-    target: requiredString(value.target, "target"),
-    text: requiredString(value.text, "text"),
-  };
-}
-
 /** Enforce the space wall, then lease authority, before a write is accepted.
  *
  * A1: ownership IS the lease. There is no second `ownership` id space beside
@@ -288,19 +263,18 @@ export function validateWriteParams(params: unknown): { target: string; text: st
  * is a stale row, and gating on one strands a whole fleet with nothing able to
  * drive it. Exclusion is never authorization: `abort`/`close`/`reap` do not come
  * through here at all. */
-export function governWrite(state: DaemonState, target: string, params: unknown, context: LogContext = {}): void {
+export function governWrite(state: DaemonState, target: string, params: Governance, context: LogContext = {}): void {
   const directory = state.directory;
   const settings = state.services.settings;
-  const value = rpcParams(params);
-  const actor = typeof value.actor === "string" && value.actor.length > 0 ? value.actor : null;
-  const steal = value.steal === true;
-  const actorSpace = typeof value.actorSpace === "string" ? value.actorSpace : null;
-  const actorIsOperator = value.actorIsOperator === true;
+  const actor = params.actor && params.actor.length > 0 ? params.actor : null;
+  const steal = params.steal === true;
+  const actorSpace = params.actorSpace ?? null;
+  const actorIsOperator = params.actorIsOperator === true;
   const configuredSettings = settings.currentOrNull();
   const configuredCrossSpace = configuredSettings === null
     ? SETTINGS_DEFAULTS.fleet.cross_space
     : configuredSettings.fleet.cross_space;
-  const crossSpace = value.crossSpace === true || configuredCrossSpace;
+  const crossSpace = params.crossSpace === true || configuredCrossSpace;
   const wall = checkWall(directory, actor, target, { crossSpace });
   if (!wall.allowed) throw new Error(wall.reason ?? "space wall denied the write");
   const targetId = target;
@@ -341,9 +315,9 @@ export function governWrite(state: DaemonState, target: string, params: unknown,
   logLeaseGrant();
 }
 
-async function acceptTextWrite(state: DaemonState, action: "dispatch" | "steer", params: unknown, id: string): Promise<"none" | "expected"> {
+async function acceptTextWrite<M extends "dispatch" | "steer">(state: DaemonState, action: M, params: ParamsOf<M>, id: string): Promise<"none" | "expected"> {
   const directory = state.directory;
-  const { target, text } = validateWriteParams(params);
+  const { target, text } = params;
   const log = decisionLogger(directory, state.services.settings.currentOrNull()).forCorrelation(id);
   withTransaction(directory, () => {
     governWrite(state, target, params, { correlationId: id });
@@ -378,7 +352,7 @@ async function deliverAcceptedText(state: DaemonState, id: string): Promise<"non
   return "none";
 }
 
-async function confirmTextWrite(state: DaemonState, action: "dispatch" | "steer", params: unknown): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
+async function confirmTextWrite<M extends "dispatch" | "steer">(state: DaemonState, action: M, params: ParamsOf<M>): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
   const id = randomUUID();
   const timeoutMs = state.services.settings.current().timeouts.dispatch_ack_ms;
   let ack: "acknowledged" | "unavailable";
@@ -391,33 +365,6 @@ async function confirmTextWrite(state: DaemonState, action: "dispatch" | "steer"
   return { accepted: true, id, ack };
 }
 
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/** Extra env as it arrives over RPC: absent, or a flat record of strings. The
- *  CLI passes the SPAWNER's identity through here — orchd launches the process,
- *  but its own env knows nothing about the session that asked for the spawn. */
-export function optionalEnvRecord(value: unknown, name: string): Record<string, string> | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value)
-    || Object.values(value).some((entry) => typeof entry !== "string")) {
-    throw new Error(`${name} must be a record of string env values`);
-  }
-  return value as Record<string, string>;
-}
-
-/** A model quicklist as it arrives over RPC: absent, or an array of non-empty specs. A joined
- *  string is REJECTED rather than coerced — it would reach the harness as one model id no
- *  registry lists, and the picker it was meant to fill would come up empty. */
-export function optionalModelSpecs(value: unknown, name: string): string[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.some((spec) => typeof spec !== "string" || spec.trim().length === 0)) {
-    throw new Error(`${name} must be an array of non-empty model specs`);
-  }
-  return value as string[];
-}
-
 /**
  * Launch one headless agent from INSIDE the daemon.
  *
@@ -426,37 +373,31 @@ export function optionalModelSpecs(value: unknown, name: string): string[] | und
  * to do registers, finds no work, and dies before anything can be sent to it.
  * orchd owns the launch because it already owns delivery and outlives the CLI.
  */
-function requiredThinking(value: unknown, name: string): ThinkingLevel {
-  if (!isThinkingLevel(value)) throw new Error(`${name} must be a valid thinking level`);
-  return value;
-}
-
-function spawnHeadless(state: DaemonState, params: unknown): { key: string; pid: number } {
+function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): { key: string; pid: number } {
   const directory = state.directory;
-  const value = rpcParams(params);
-  const key = requiredString(value.key, "key");
-  const adapterId = requiredString(value.adapter, "adapter");
+  const key = params.key;
+  const adapterId = params.adapter;
   const adapter = resolveAdapter(adapterId);
   if (!adapter) throw new Error(`cannot spawn ${key}: unknown adapter ${adapterId}`);
   // Required AND ruled on: a launch with no model runs on whatever the harness
   // defaults to, and a shorthand one gets fuzzy-matched onto whatever registry
   // entry shares a prefix. Both end with the fleet on a model nobody asked for.
-  const model = requiredString(value.model, "model");
-  const thinking = requiredThinking(value.thinking, "thinking");
+  const model = params.model;
+  const thinking = params.thinking;
   assertModelAllowed(state.services.settings.current(), adapter, model);
   const handle = headlessBackend.spawn(adapter, {
     key,
-    env: optionalEnvRecord(value.env, "env"),
+    env: params.env,
     orchDir: directory,
-    cwd: optionalString(value.cwd),
-    prompt: requiredString(value.prompt, "prompt"),
+    cwd: params.cwd,
+    prompt: params.prompt,
     model,
     thinking,
     // The quicklist the harness's own picker gets. It is NOT a second gate: the launch model
     // was ruled on above, and a model outside this list stays launchable.
-    preferredModels: optionalModelSpecs(value.preferredModels, "preferredModels"),
-    tools: optionalString(value.tools),
-    workers: value.workers as WorkerPolicy | undefined,
+    preferredModels: params.preferredModels,
+    tools: params.tools,
+    workers: params.workers,
   });
   return { key, pid: handle.pid };
 }
@@ -464,12 +405,11 @@ function spawnHeadless(state: DaemonState, params: unknown): { key: string; pid:
 // Throws when the agent refuses or never confirms; the RPC error carries that
 // reason to the caller, so `orch model` can never print "accepted" for a model
 // the agent did not take.
-async function setModel(state: DaemonState, params: unknown): Promise<{ ok: true; applied: string }> {
+async function setModel(state: DaemonState, params: ParamsOf<"set-model">): Promise<{ ok: true; applied: string }> {
   const directory = state.directory;
   const settings = state.services.settings;
-  const value = rpcParams(params);
-  const target = requiredString(value.target, "target");
-  const model = requiredString(value.model, "model");
+  const target = params.target;
+  const model = params.model;
   governWrite(state, target, params);
   await deliverControl(directory, settings.current(), target, { kind: "model", model, id: randomUUID() });
   return { ok: true, applied: model };
@@ -478,12 +418,11 @@ async function setModel(state: DaemonState, params: unknown): Promise<{ ok: true
 /** Apply a lifecycle verb from inside the daemon. A console-less agent is relaunched
  *  to satisfy the verb, and a relaunch must happen here: the spawner holds the new
  *  process's stdin, and only orchd outlives the agent it starts. */
-function publishClosedAgent(state: DaemonState, params: unknown): { ok: true } {
+function publishClosedAgent(state: DaemonState, params: ParamsOf<"agent-closed">): { ok: true } {
   const directory = state.directory;
   const settings = state.services.settings;
-  const value = rpcParams(params);
-  const key = requiredString(value.key, "key");
-  const oldState = requiredString(value.oldState, "oldState");
+  const key = params.key;
+  const oldState = params.oldState;
   const view = agentView(directory, key);
   if (!view) throw new Error(`agent ${key} does not exist`);
   if (view.endedAt === null) throw new Error(`agent ${key} has not ended`);
@@ -502,32 +441,28 @@ function publishClosedAgent(state: DaemonState, params: unknown): { ok: true } {
   return { ok: true };
 }
 
-async function applyLifecycle(state: DaemonState, params: unknown): Promise<{ ok: true; verb: LifecycleVerb }> {
+async function applyLifecycle(state: DaemonState, params: ParamsOf<"lifecycle">): Promise<{ ok: true; verb: ParamsOf<"lifecycle">["verb"] }> {
   const directory = state.directory;
   const settings = state.services.settings;
-  const value = rpcParams(params);
-  const target = requiredString(value.target, "target");
-  const verb = requiredString(value.verb, "verb");
-  if (!isLifecycleVerb(verb)) throw new Error(`unknown lifecycle verb ${JSON.stringify(verb)}`);
+  const target = params.target;
+  const verb = params.verb;
   governWrite(state, target, params);
   await deliverControl(directory, settings.current(), target, { kind: "lifecycle", verb });
   return { ok: true, verb };
 }
 
-export async function steer(state: DaemonState, params: unknown) {
+export async function steer(state: DaemonState, params: ParamsOf<"steer">) {
   return confirmTextWrite(state, "steer", params);
 }
 
-export async function dispatch(state: DaemonState, params: unknown) {
+export async function dispatch(state: DaemonState, params: ParamsOf<"dispatch">) {
   return confirmTextWrite(state, "dispatch", params);
 }
 
-function recordAgentQuestion(directory: OrchDir, params: unknown): { ok: true } {
-  const value = rpcParams(params);
-  if (!isAgentNotice(value)) throw new Error("question params must be an agent question notice");
-  const agentId = requiredString(value.agentId, "agentId");
+function recordAgentQuestion(directory: OrchDir, params: ParamsOf<"question">): { ok: true } {
+  const agentId = params.agentId;
   if (agentById(directory, agentId) === null) throw new Error(`question agent ${agentId} does not exist`);
-  recordQuestion(directory, { id: value.questionId, agentId, question: value.question, askedAt: value.askedAt });
+  recordQuestion(directory, { id: params.questionId, agentId, question: params.question, askedAt: params.askedAt });
   return { ok: true };
 }
 
@@ -548,13 +483,12 @@ function listPendingQuestions(directory: OrchDir): { questions: PendingQuestionV
   return { questions };
 }
 
-async function message(state: DaemonState, params: unknown): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
+async function message(state: DaemonState, params: ParamsOf<"message">): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
   const directory = state.directory;
   const settings = state.services.settings;
-  const value = rpcParams(params);
-  const from = requiredString(value.from, "from");
-  const target = requiredString(value.target, "target");
-  const text = requiredString(value.text, "text");
+  const from = params.from;
+  const target = params.target;
+  const text = params.text;
   const accepted = acceptMail(directory, settings.currentOrNull(), from, target, text);
   const timeoutMs = settings.current().timeouts.dispatch_ack_ms;
   let ack: "acknowledged" | "unavailable";
@@ -567,15 +501,14 @@ async function message(state: DaemonState, params: unknown): Promise<{ accepted:
   return { accepted: true, id: accepted.id, ack };
 }
 
-export async function answer(state: DaemonState, params: unknown) {
+export async function answer(state: DaemonState, params: ParamsOf<"answer">): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
   const directory = state.directory;
   const settings = state.services.settings;
-  const value = rpcParams(params);
-  const target = requiredString(value.target, "target");
-  const text = requiredString(value.text, "text");
+  const target = params.target;
+  const text = params.text;
   const targetId = target;
   const current = pendingQuestion(directory, targetId);
-  const requestedQuestionId = value.questionId === undefined ? undefined : requiredString(value.questionId, "questionId");
+  const requestedQuestionId = params.questionId;
   if (current === undefined || (requestedQuestionId !== undefined && current.id !== requestedQuestionId)) {
     throw new Error(requestedQuestionId === undefined
       ? `${target} is not asking a question`
@@ -591,7 +524,7 @@ export async function answer(state: DaemonState, params: unknown) {
     }
     return outcome.ack;
   });
-  return { ok: true, id, ack };
+  return { accepted: true, id, ack };
 }
 
 /** `level` is an explicit override (a flag); everything else resolves the same
@@ -724,7 +657,7 @@ export async function startDaemon(): Promise<DaemonState> {
     const settings = services.settings.current();
     state.logger = loggerFor(directory, services.settings.current().logging?.level);
     const tcpPort = settings.daemon.tcp_port;
-    state.server = await startRpcServer(directory, touchOnCall(state, {
+    const handlers: RpcHandlers = {
       "daemon-status": () => ({
         pid: process.pid,
         startedAt: startedAt.toISOString(),
@@ -742,25 +675,22 @@ export async function startDaemon(): Promise<DaemonState> {
       // A bundled harness links no plexer, so the two things it used to ask its
       // pane directly it now asks orchd, the only process that talks to one.
       "environment-labels": async (params) => {
-        const id = requiredString(rpcParams(params).id, "id");
+        const id = params.id;
         let reported: PaneLabels | null = null;
         await activePaneHud(id, directory).readLabels((labels) => { reported = labels; });
         return reported;
       },
       "peer-view": (params) => {
-        const value = rpcParams(params);
-        const keys = Array.isArray(value.keys) ? value.keys.filter((key): key is string => typeof key === "string") : [];
-        const callerProject = typeof value.projectRoot === "string" ? value.projectRoot : undefined;
-        return peerView(directory, requiredString(value.ownKey, "ownKey"), keys, value.allSpaces === true, callerProject);
+        const keys = params.keys ?? [];
+        return peerView(directory, params.ownKey, keys, params.allSpaces === true, params.projectRoot);
       },
-      notify: (params) => {
-        const event = bridgeNotifyEvent(rpcParams(params));
+      notify: (event) => {
         activePaneHud(event.key, directory).notify(event);
         return { ok: true };
       },
       status: () => fleetStatus(state),
       attach: (params) => {
-        const key = requiredString(rpcParams(params).key, "key");
+        const key = params.key;
         return { attached: true, open: selectOpenOutboxForTarget(directory, key).length };
       },
       dispatch: (params) => dispatch(state, params),
@@ -774,8 +704,7 @@ export async function startDaemon(): Promise<DaemonState> {
       questions: () => listPendingQuestions(directory),
       answer: (params) => answer(state, params),
       ack: (params) => {
-        const value = rpcParams(params);
-        const id = requiredString(value.id, "id");
+        const id = params.id;
         const row = selectOutboxMessage(directory, id);
         markOutboxDelivered(directory, id);
         if (row === undefined) decisionLogger(directory, services.settings.currentOrNull()).forCorrelation(id).debug("dispatch.acked", { target: null });
@@ -784,23 +713,13 @@ export async function startDaemon(): Promise<DaemonState> {
         return { ok: true };
       },
       "control-outcome": (params) => {
-        const value = rpcParams(params);
-        const error = typeof value.error === "string" ? value.error : undefined;
-        const rawApplied = value.applied;
-        const applied = isRecord(rawApplied) && typeof rawApplied.model === "string"
-          && (rawApplied.thinking === undefined || isThinkingLevel(rawApplied.thinking))
-          ? {
-              model: rawApplied.model,
-              ...(rawApplied.thinking === undefined ? {} : { thinking: rawApplied.thinking }),
-            }
-          : undefined;
         const report: ControlOutcomeReport = {
-          id: requiredString(value.id, "id"),
-          key: requiredString(value.key, "key"),
-          command: requiredString(value.command, "command"),
-          requested: isRecord(value.requested) ? value.requested : {},
-          ...(applied === undefined ? {} : { applied }),
-          ...(error === undefined ? {} : { error }),
+          id: params.id,
+          key: params.key,
+          command: params.command,
+          requested: params.requested ?? {},
+          ...(params.applied === undefined ? {} : { applied: params.applied }),
+          ...(params.error === undefined ? {} : { error: params.error }),
         };
         insertControlOutcome(directory, {
           id: report.id,
@@ -808,7 +727,7 @@ export async function startDaemon(): Promise<DaemonState> {
           command: report.command,
           requested: report.requested,
           settledAt: Date.now(),
-          ...(error === undefined ? {} : { error }),
+          ...(params.error === undefined ? {} : { error: params.error }),
         });
         settleControlOutcome(report);
         return { ok: true };
@@ -819,7 +738,8 @@ export async function startDaemon(): Promise<DaemonState> {
         }, 10);
         return { ok: true };
       },
-    }), {
+    };
+    state.server = await startRpcServer(directory, touchOnCall(state, handlers), {
       holdsDaemonLock: true,
       tcpPort,
       onTcpError: (error, port) => state.logger?.error("daemon.tcp-listener-failed", { port, error: errorMessage(error) }),

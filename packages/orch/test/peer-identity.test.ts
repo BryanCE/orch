@@ -14,7 +14,9 @@ import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
-import { daemonClientForPeers } from "./helpers/daemon-client.ts";
+import { askFrom, daemonClientForPeers } from "./helpers/daemon-client.ts";
+import { peerView } from "../src/daemon/peer-view.ts";
+import type { ParamsOf, ResultOf } from "../src/daemon/rpc/protocol.ts";
 
 const IDENTITY_ENV = [
   "ORCH_DIR", LAUNCH_ENV, "ORCH_SESSION_KEY", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
@@ -29,15 +31,24 @@ function noPeersDaemon(directory: OrchDir) {
 }
 let savedEnv: Record<string, string | undefined> = {};
 
-function recordingDaemon(directory: OrchDir, keys: string[], messageResponse: unknown) {
+function recordingDaemon(directory: OrchDir, keys: string[], messageResponse: ResultOf<"message"> | undefined) {
   const daemon = daemonClientForPeers(directory, keys);
-  const peerViewDaemon = daemonClientForPeers(directory, keys);
-  const calls: { method: string; params?: Record<string, unknown> }[] = [];
-  daemon.ask = (method, params) => {
-    calls.push({ method, params });
-    if (method === "peer-view") return peerViewDaemon.ask(method, params);
-    return Promise.resolve(messageResponse);
+  const calls: { method: string; params: ParamsOf<"message"> | ParamsOf<"peer-view"> }[] = [];
+  const peerHandler = (params: ParamsOf<"peer-view">): ResultOf<"peer-view"> => {
+    calls.push({ method: "peer-view", params });
+    return peerView(directory, params.ownKey, (params.keys ?? []).length ? params.keys ?? [] : keys, params.allSpaces === true, params.projectRoot);
   };
+  if (messageResponse === undefined) {
+    daemon.ask = askFrom({ "peer-view": peerHandler });
+  } else {
+    daemon.ask = askFrom({
+      "peer-view": peerHandler,
+      message: (params) => {
+        calls.push({ method: "message", params });
+        return messageResponse;
+      },
+    });
+  }
   return { daemon, calls };
 }
 

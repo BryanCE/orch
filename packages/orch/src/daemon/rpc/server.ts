@@ -5,10 +5,11 @@ import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { readDaemonLock } from "../lifecycle.ts";
 import { attachBridge, detachBridge, attachedBridgeKeys, type BridgeLink } from "../../control/bridge-links.ts";
 import type { BridgeDelivery } from "../../control/bridge-message.ts";
-import { ensurePrivateDir, errorMessage, isRecord, osSide } from "../../util.ts";
+import { ensurePrivateDir, errorMessage, osSide } from "../../util.ts";
 import type { SessionAgentIdentity } from "../../types/store.ts";
-import type { EndpointPaths, RpcEventEmitter, RpcHandlers, RpcServer, RpcServerOptions } from "../../types/daemon.ts";
-import { RpcError, endpointPaths, errorResponse, framedLineReader, lineResponse, parseRequest } from "./wire.ts";
+import type { EndpointPaths, RpcEventEmitter, RpcHandlers, RpcRequestContext, RpcServer, RpcServerOptions } from "../../types/daemon.ts";
+import type { IdentityMethod, ParamsOf, RpcMethod } from "./protocol.ts";
+import { RpcError, endpointPaths, errorResponse, framedLineReader, lineResponse, parseRequest, type RpcRequest } from "./wire.ts";
 import { ReplayBuffer } from "./replay.ts";
 import { isRegisterSessionResponse } from "./registration.ts";
 import { registerSession, claimIdentity } from "./session-registry.ts";
@@ -32,20 +33,15 @@ type AttachOutcome =
 function attachRequest(
   orchDir: OrchDir,
   socket: Socket,
-  request: { id: unknown; method: string; params: unknown },
+  request: Extract<RpcRequest, { method: "attach" }>,
   state: ConnectionState,
   onBridgeAttached?: (key: string) => void,
 ): AttachOutcome {
   if (request.method !== "attach") return { kind: "not-attach" };
-  const params = isRecord(request.params) ? request.params : undefined;
-  const key = params?.key;
-  if (typeof key !== "string" || key.length === 0) {
-    lineResponse(socket, errorResponse(request.id, "INVALID_REQUEST", "attach requires key"));
-    return { kind: "refused" };
-  }
+  const key = request.params.key;
   detachConnectionBridge(orchDir, state);
   const link: BridgeLink = {
-    push: (delivery: BridgeDelivery) => lineResponse(socket, { event: { kind: "delivery", ...delivery } }),
+    push: (delivery: BridgeDelivery) => lineResponse(socket, { kind: "event", event: { kind: "delivery", ...delivery } }),
   };
   // A bridge for an agent this store does not know is refused on its own socket; it never ends the daemon.
   try {
@@ -58,25 +54,29 @@ function attachRequest(
   return { kind: "attached", notify: () => onBridgeAttached?.(key) };
 }
 
+function invoke<M extends Exclude<RpcMethod, IdentityMethod>>(
+  handlers: RpcHandlers,
+  method: M,
+  params: ParamsOf<M>,
+  emit: RpcEventEmitter,
+  context: RpcRequestContext,
+): unknown {
+  return handlers[method](params, emit, context);
+}
+
 function dispatchRequest(
   socket: Socket,
-  request: { id: unknown; method: string; params: unknown },
+  request: Exclude<RpcRequest, { method: IdentityMethod }>,
   handlers: RpcHandlers,
   emit: RpcEventEmitter,
   state: ConnectionState,
   transport: "unix" | "tcp",
   notifyBridgeAttached?: () => void,
 ): void {
-  const handler = handlers[request.method];
-  if (!handler) {
-    lineResponse(socket, errorResponse(request.id, "METHOD_NOT_FOUND", `Unknown method: ${request.method}`));
-    notifyBridgeAttached?.();
-    return;
-  }
   Promise.resolve()
-    .then(() => handler(request.params, emit, { transport, identity: state.identity }))
+    .then(() => invoke(handlers, request.method, request.params, emit, { transport, identity: state.identity }))
     .then((result) => {
-      lineResponse(socket, { id: request.id, result });
+      lineResponse(socket, { kind: "reply", id: request.id, result });
       notifyBridgeAttached?.();
     })
     .catch((error: unknown) => {
@@ -109,26 +109,27 @@ function handleLine(
         : claimIdentity(orchDir, request.params, daemonToken))
       .then((identity) => {
         if (isRegisterSessionResponse(identity)) state.identity = identity;
-        lineResponse(socket, { id: request.id, result: identity });
+        lineResponse(socket, { kind: "reply", id: request.id, result: identity });
       })
       .catch((error: unknown) => {
-        lineResponse(socket, errorResponse(request.id, error instanceof RpcError ? String(error.code) : "HANDLER_ERROR", errorMessage(error)));
+        lineResponse(socket, errorResponse(request.id, error instanceof RpcError ? error.code : "HANDLER_ERROR", errorMessage(error)));
       });
     return;
   }
   if (request.method === "subscribe-events") {
-    const params = isRecord(request.params) ? request.params : undefined;
-    const since = params?.since;
-    if (typeof since === "number" && Number.isInteger(since)) {
+    const since = request.params.since;
+    if (since !== undefined) {
       const replay = replayBuffer.since(since);
-      if (replay.gap) lineResponse(socket, { gap: true, oldestSeq: replay.oldestSeq });
-      for (const buffered of replay.events) lineResponse(socket, buffered);
+      if (replay.gap && replay.oldestSeq !== undefined) lineResponse(socket, { kind: "gap", oldestSeq: replay.oldestSeq });
+      for (const buffered of replay.events) lineResponse(socket, { kind: "event", ...buffered });
     }
     subscriptions.add(socket);
   }
-  const attach = attachRequest(orchDir, socket, request, state, onBridgeAttached);
+  const attach: AttachOutcome = request.method === "attach"
+    ? attachRequest(orchDir, socket, request, state, onBridgeAttached)
+    : { kind: "not-attach" };
   if (attach.kind === "refused") return;
-  const emit: RpcEventEmitter = (event) => lineResponse(socket, { event });
+  const emit: RpcEventEmitter = (event) => lineResponse(socket, { kind: "event", event });
   dispatchRequest(socket, request, handlers, emit, state, transport, attach.kind === "attached" ? attach.notify : undefined);
 }
 
@@ -343,7 +344,7 @@ function makeRpcServer(
     close,
     emit: (event) => {
       const buffered = replayBuffer.push(event);
-      for (const socket of subscriptions) lineResponse(socket, buffered);
+      for (const socket of subscriptions) lineResponse(socket, { kind: "event", ...buffered });
     },
     subscriberCount: () => subscriptions.size,
     attachedBridgeCount: () => attachedBridgeKeys().length,

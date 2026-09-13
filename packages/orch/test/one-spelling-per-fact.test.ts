@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { isRpcResponse } from "../src/daemon/rpc/wire.ts";
+import { parseRpcLine } from "../src/daemon/rpc/wire.ts";
 import { ensureHost, currentHostOs } from "../src/store/agent-rows.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { hosts } from "../src/db/schema.ts";
@@ -39,8 +39,8 @@ describe("one spelling per shared fact", () => {
     expect(isRecord([])).toBe(false);
     expect(isRecord(null)).toBe(false);
     expect(isRecord({ answer: 42 })).toBe(true);
-    expect(isRpcResponse([])).toBe(false);
-    expect(isRpcResponse(null)).toBe(false);
+    expect(parseRpcLine([])).toBeNull();
+    expect(parseRpcLine(null)).toBeNull();
   });
 
   test("removed identity method has no source spelling", () => {

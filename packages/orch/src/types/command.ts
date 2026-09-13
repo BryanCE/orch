@@ -3,6 +3,7 @@ import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, Til
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentEnvironment, AgentView } from "./store.ts";
 import type { Entity, LogLevel, OrchDir, WorkerHeaderContext } from "./core.ts";
+import type { ResultOf } from "../daemon/rpc/protocol.ts";
 export interface DeadAgentSweepOptions {
   /** Root to inspect; omitted for the operator's configured ORCH_DIR. */
   root?: OrchDir;
@@ -17,14 +18,7 @@ export interface DispatchToAgentOptions {
   gov?: WriteGovernance;
 }
 
-export interface DaemonStatus {
-  pid: number;
-  startedAt: string;
-  uptimeSec: number;
-  codeHash: string;
-  socket: string;
-  tcpEndpoint?: string;
-}
+export type DaemonStatus = ResultOf<"daemon-status">;
 
 export interface WriteGovernance {
   steal?: boolean;

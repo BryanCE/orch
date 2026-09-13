@@ -64,7 +64,7 @@ describe("daemon decision trail", () => {
     const token = processStartToken(process.pid);
     orm(directory).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"live-holder"},${2},${"host"},${process.pid},${token})`);
 
-    expect(() => governWrite(daemonState(directory), "target", { actor: "caller", target: "target", text: "hello" })).toThrow(/leased by/);
+    expect(() => governWrite(daemonState(directory), "target", { actor: "caller" })).toThrow(/leased by/);
 
     const [record] = records(directory);
     if (record === undefined) throw new Error("missing lease refusal record");
@@ -87,7 +87,7 @@ describe("daemon decision trail", () => {
     agent(directory, "dead-holder");
     acquireLease(directory, "target", "dead-holder", 2);
 
-    expect(() => governWrite(daemonState(directory), "target", { actor: "caller", target: "target", text: "hello" })).not.toThrow();
+    expect(() => governWrite(daemonState(directory), "target", { actor: "caller" })).not.toThrow();
 
     const [record] = records(directory);
     if (record === undefined) throw new Error("missing lease grant record");

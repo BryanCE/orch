@@ -225,7 +225,6 @@ export async function dispatchToAgent(services: Pick<Services, "orchDir" | "sett
     { target: key, text: workerPrompt(text, options.raw ?? false, options.adapter, options.context ?? {}) },
     options.gov,
   );
-  if (!isRecord(delivered) || delivered.accepted !== true || typeof delivered.id !== "string" || (delivered.ack !== "acknowledged" && delivered.ack !== "unavailable")) throw new Error("dispatch response missing acceptance details");
   // The CLI end of the correlation chain. The id is minted by
   // the daemon, so this is the first moment the CLI can name the dispatch it just
   // made — without this record half the system writes nothing anywhere, ever.

@@ -1,4 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
+import type { Governance } from "../src/daemon/rpc/protocol.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { governWrite as daemonGovernWrite } from "../src/daemon/orchd.ts";
@@ -20,7 +21,9 @@ function freshDir(): OrchDir {
   return dir;
 }
 
-function governWrite(directory: OrchDir, target: string, params: unknown): void {
+type TestGovernance = Governance & { target?: string; text?: string };
+
+function governWrite(directory: OrchDir, target: string, params: TestGovernance): void {
   const services = testServices({ orchDir: directory, settings: null });
   daemonGovernWrite({
     services,

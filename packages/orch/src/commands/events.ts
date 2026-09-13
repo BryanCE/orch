@@ -307,18 +307,6 @@ function pendingQuestionEvent(question: PendingQuestionView, root: OrchDir): Not
   };
 }
 
-function pendingQuestionViews(value: unknown): PendingQuestionView[] {
-  if (!isRecord(value) || !Array.isArray(value.questions)) return [];
-  return value.questions.filter((question): question is PendingQuestionView =>
-    isRecord(question)
-    && typeof question.questionId === "string"
-    && typeof question.agentId === "string"
-    && typeof question.key === "string"
-    && (question.name === null || typeof question.name === "string")
-    && typeof question.question === "string"
-    && typeof question.askedAt === "number");
-}
-
 /**
  * The daemon is the only event source, and this subscription outlives it: a
  * daemon restart drops the socket, the subscriber redials with backoff and
@@ -327,7 +315,7 @@ function pendingQuestionViews(value: unknown): PendingQuestionView[] {
  * worker went blocked.
  */
 export function startEventsTransport(context: EventsContext, services: Pick<Services, "orchDir" | "logger">): () => void {
-  const pending = rpcCall(services.orchDir, "questions");
+  const pending = rpcCall(services.orchDir, "questions", undefined);
   const subscription = subscribeEvents(
     services.orchDir,
     context.options.sinceSeq === undefined ? {} : { since: context.options.sinceSeq },
@@ -344,7 +332,7 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
     },
   );
   void pending.then((value) => {
-    for (const question of pendingQuestionViews(value)) {
+    for (const question of value.questions) {
       if (!context.accepts(question.agentId)) continue;
       if (context.emit(pendingQuestionEvent(question, services.orchDir), 0) && context.options.once) {
         subscription.close();

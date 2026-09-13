@@ -10,6 +10,7 @@ import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { DaemonAbsentError } from "../src/daemon/rpc/wire.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 import type { PendingQuestionView } from "../src/types/daemon.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
@@ -87,7 +88,7 @@ async function captureStdoutAsync(run: () => Promise<void>): Promise<string> {
 }
 
 async function withQuestionsServer(root: OrchDir, questions: PendingQuestionView[], run: () => Promise<void>): Promise<void> {
-  const server = await startRpcServer(root, { questions: () => ({ questions }) });
+  const server = await startRpcServer(root, stubRpcHandlers({ questions: () => ({ questions }) }));
   try { await run(); } finally { await server.close(); }
 }
 

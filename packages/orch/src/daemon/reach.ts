@@ -22,13 +22,13 @@ import {
   unprovenLockRefusal,
 } from "./lifecycle.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
-import { isRegisterSessionResponse, sessionClaim } from "./rpc/registration.ts";
+import { sessionClaim } from "./rpc/registration.ts";
 import { announceUnleasedAgents } from "./rpc/session-registry.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./rpc/wire.ts";
 import { rpcCall } from "./rpc/client.ts";
 import { isLiveAgentIdentity } from "../store/agent-rows.ts";
 import type { Logger } from "../types/core.ts";
-import { errorMessage, isRecord, pidAlive, sleep } from "../util.ts";
+import { errorMessage, pidAlive, sleep } from "../util.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse } from "../types/daemon.ts";
 
 /** The pid in the daemon lock, once the lifecycle layer has vetted the record.
@@ -201,7 +201,7 @@ export async function rpcRegisterSession(orchDir: OrchDir, logger: Logger, label
   try {
     await ensureDaemon(orchDir, logger);
     const identity = await rpcCall(orchDir, "register-session", sessionClaim(orchDir, label), timeoutMs);
-    if (!isLiveAgentIdentity(orchDir, identity) || !isRegisterSessionResponse(identity)) {
+    if (!isLiveAgentIdentity(orchDir, identity)) {
       throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed session registration");
     }
     announceUnleasedAgents(orchDir, identity);
@@ -220,7 +220,7 @@ export async function rpcClaimIdentity(orchDir: OrchDir, logger: Logger, id: str
   try {
     await ensureDaemon(orchDir, logger);
     const identity = await rpcCall(orchDir, "claim-identity", { ...sessionClaim(orchDir), id, sessionToken: token }, timeoutMs);
-    if (!isRecord(identity) || typeof identity.id !== "string" || identity.id !== id) {
+    if (identity.id !== id) {
       throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity claim");
     }
     return { id: identity.id };

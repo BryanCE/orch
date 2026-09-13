@@ -11,6 +11,7 @@ import { checkStore } from "../src/doctor/store.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { isDrvFsPath } from "../src/doctor/settings-file.ts";
 import { runTestDoctor } from "../test/helpers/doctor.ts";
+import { daemonStatusFixture, stubRpcHandlers } from "../test/helpers/rpc-handlers.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { seedStatus } from "../test/helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
@@ -133,7 +134,7 @@ describe("runDoctor", () => {
 
   test("accepts a live daemon and an answerable socket", async () => {
     const directory = tempDir();
-    const server = await startRpcServer(directory, { "daemon-status": () => ({ ok: true }) });
+    const server = await startRpcServer(directory, stubRpcHandlers({ "daemon-status": () => daemonStatusFixture() }));
     servers.push(server);
     const entrypoint = path.join(import.meta.dir, "../src/daemon/orchd.ts");
     fs.writeFileSync(path.join(directory, "orchd.lock"), JSON.stringify({

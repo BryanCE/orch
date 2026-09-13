@@ -1,27 +1,16 @@
 import type { OrchDir } from "../../types/core.ts";
 import { hostname } from "node:os";
 import { readFileSync } from "node:fs";
-import { isRecord } from "../../util.ts";
 import { callerSession } from "../../adapters/session-env.ts";
 import { sessionProcessPid } from "../../identity/self.ts";
 import { allBackends } from "../../backends/registry.ts";
 import { endpointPaths } from "./wire.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";
-
-function isUnleasedAgent(value: unknown): value is RegisterSessionResponse["unleased"][number] {
-  return isRecord(value) && typeof value.id === "string" && typeof value.name === "string";
-}
+import { RPC_RESULTS, type SessionClaim } from "./protocol.ts";
 
 /** Validate every field carried by a session registration before trusting it. */
 export function isRegisterSessionResponse(value: unknown): value is RegisterSessionResponse {
-  return isRecord(value)
-    && typeof value.id === "string"
-    && value.id.length > 0
-    && typeof value.label === "string"
-    && value.kind === "session"
-    && Array.isArray(value.unleased)
-    && value.unleased.every(isUnleasedAgent)
-    && (value.registrationWarning === undefined || typeof value.registrationWarning === "string");
+  return RPC_RESULTS["register-session"].safeParse(value).success;
 }
 
 function nonEmpty(value: string | undefined): string | undefined {
@@ -46,7 +35,7 @@ function callerEnvironment(): { plexer: string | undefined; plexerVersion: strin
 }
 
 /** Build the authenticated caller facts for session registration. */
-export function sessionClaim(orchDir: OrchDir, label?: string): Record<string, unknown> {
+export function sessionClaim(orchDir: OrchDir, label?: string): SessionClaim {
   const token = readFileSync(endpointPaths(orchDir).token, "utf8").trim();
   const session = callerSession();
   const configuredHarness = nonEmpty(process.env.ORCH_HARNESS?.trim());

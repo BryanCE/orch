@@ -1,24 +1,29 @@
 import type { OrchDir } from "../../types/core.ts";
+import { z } from "zod";
 import { type Socket } from "node:net";
 import { liveDaemonRegistration } from "../lifecycle.ts";
 import { daemonRuntimeFiles } from "../runtime-files.ts";
-import { isRecord } from "../../util.ts";
 import type { EndpointPaths } from "../../types/daemon.ts";
+import {
+  RPC_PARAMS,
+  type ParamsOf,
+  type RpcErrorCode,
+  type RpcMethod,
+  isRpcErrorCode,
+  isRpcMethod,
+} from "./protocol.ts";
 
 /** Nothing holds the endpoint: every dial was refused or found no endpoint at all. */
 export class DaemonAbsentError extends Error {
   readonly code = "DAEMON_ABSENT";
 
-  /** `lastLogLine` is what orchd last wrote before going: the one thing an operator
-   *  needs when a start attempt ends in silence, so it travels with the refusal. */
   constructor(orchDir: OrchDir, lastLogLine: string | null = null) {
     super(`orchd daemon is absent (${orchDir})${lastLogLine === null ? "" : `; last log line: ${lastLogLine}`}`);
     this.name = "DaemonAbsentError";
   }
 }
 
-/** A dial or request outran its budget. Says nothing about liveness — a loaded
- *  machine starves a healthy daemon — so no caller may signal a pid on it. */
+/** A dial or request outran its budget. Says nothing about liveness. */
 export class DaemonUnreachableError extends Error {
   readonly code = "DAEMON_UNREACHABLE";
 
@@ -29,10 +34,10 @@ export class DaemonUnreachableError extends Error {
 }
 
 export class RpcError extends Error {
-  readonly code: string | number;
+  readonly code: RpcErrorCode;
   readonly data: unknown;
 
-  constructor(code: string | number, message: string, data?: unknown) {
+  constructor(code: RpcErrorCode, message: string, data?: unknown) {
     super(message);
     this.name = "RpcError";
     this.code = code;
@@ -40,74 +45,56 @@ export class RpcError extends Error {
   }
 }
 
-export interface RpcResponse {
-  id?: unknown;
-  event?: unknown;
-  seq?: number;
-  gap?: boolean;
-  oldestSeq?: number;
-  result?: unknown;
-  error?: { code?: string | number; message?: string; data?: unknown } | string;
+export type RpcLine =
+  | { kind: "reply"; id: number | null; result: unknown }
+  | { kind: "error"; id: number | null; error: { code: RpcErrorCode; message: string; data?: unknown } }
+  | { kind: "event"; seq?: number; event: unknown }
+  | { kind: "gap"; oldestSeq: number };
+
+const replySchema = z.object({ id: z.number().nullable(), result: z.unknown() }).strict();
+const errorSchema = z.object({
+  id: z.number().nullable(),
+  error: z.object({
+    code: z.custom<RpcErrorCode>(isRpcErrorCode),
+    message: z.string(),
+    data: z.unknown().optional(),
+  }).strict(),
+}).strict();
+const eventSchema = z.object({ event: z.unknown(), seq: z.number().int().optional() }).strict();
+const gapSchema = z.object({ gap: z.literal(true), oldestSeq: z.number().int() }).strict();
+
+export function parseRpcLine(value: unknown): RpcLine | null {
+  const reply = replySchema.safeParse(value);
+  if (reply.success) return { kind: "reply", id: reply.data.id, result: reply.data.result };
+  const error = errorSchema.safeParse(value);
+  if (error.success) return { kind: "error", id: error.data.id, error: error.data.error };
+  const event = eventSchema.safeParse(value);
+  if (event.success) {
+    if (event.data.seq === undefined) return { kind: "event", event: event.data.event };
+    return { kind: "event", seq: event.data.seq, event: event.data.event };
+  }
+  const gap = gapSchema.safeParse(value);
+  if (gap.success) return { kind: "gap", oldestSeq: gap.data.oldestSeq };
+  return null;
 }
 
-/**
- * Which members a line actually carries. `hasOwnProperty`, not `in` and not an
- * `undefined` check: an explicitly-null `id` or an event whose payload is
- * `undefined` are both present-but-malformed, and the two must stay tellable
- * apart from a member that was never sent.
- */
-function presentMembers(value: Record<string, unknown>): {
-  id: boolean; result: boolean; error: boolean; event: boolean; gap: boolean;
-} {
-  const present = (name: string): boolean => Object.prototype.hasOwnProperty.call(value, name);
-  return { id: present("id"), result: present("result"), error: present("error"), event: present("event"), gap: present("gap") };
+export function encodeLine(line: RpcLine): string {
+  switch (line.kind) {
+    case "reply":
+      return `${JSON.stringify({ id: line.id, result: line.result })}\n`;
+    case "error":
+      return `${JSON.stringify({ id: line.id, error: line.error })}\n`;
+    case "event":
+      return `${JSON.stringify(line.seq === undefined ? { event: line.event } : { event: line.event, seq: line.seq })}\n`;
+    case "gap":
+      return `${JSON.stringify({ gap: true, oldestSeq: line.oldestSeq })}\n`;
+    default: {
+      const exhaustive: never = line;
+      throw new Error(`unknown RPC line kind: ${String(exhaustive)}`);
+    }
+  }
 }
 
-type PresentMembers = ReturnType<typeof presentMembers>;
-
-/** The `error` member of a reply: bare text, or `{ code, message, data? }`. */
-function isRpcErrorField(error: unknown): boolean {
-  if (typeof error === "string") return true;
-  if (!isRecord(error)) return false;
-  return (typeof error.code === "string" || typeof error.code === "number") && typeof error.message === "string";
-}
-
-/** A request id is absent, null (a notification), or a number. Never anything else. */
-function wellFormedId(value: Record<string, unknown>, has: PresentMembers): boolean {
-  return !has.id || value.id === null || typeof value.id === "number";
-}
-
-/** `seq` and `oldestSeq` may appear on any line, but never with the wrong type. */
-function wellFormedSequenceFields(value: Record<string, unknown>): boolean {
-  if ("seq" in value && (typeof value.seq !== "number" || !Number.isSafeInteger(value.seq))) return false;
-  return !("oldestSeq" in value) || typeof value.oldestSeq === "number";
-}
-
-/** A gap notice carries `gap: true` AND the oldest sequence still replayable. */
-function wellFormedGap(value: Record<string, unknown>, has: PresentMembers): boolean {
-  return !has.gap || (value.gap === true && typeof value.oldestSeq === "number");
-}
-
-/** Every payload member that IS present is well formed, and a reply carries
- *  exactly one of result/error — never both, never neither. */
-function wellFormedPayload(value: Record<string, unknown>, has: PresentMembers): boolean {
-  if (has.result && has.error) return false;
-  if (has.id && !has.result && !has.error) return false;
-  if (has.event && value.event === undefined) return false;
-  if (!wellFormedGap(value, has)) return false;
-  return !has.error || isRpcErrorField(value.error);
-}
-
-export function isRpcResponse(value: unknown): value is RpcResponse {
-  if (!isRecord(value)) return false;
-  const has = presentMembers(value);
-  // A line is one of three things: a reply (id), an event push, or a gap notice.
-  if (!has.id && !has.event && !has.gap) return false;
-  if (!wellFormedId(value, has)) return false;
-  if (!wellFormedSequenceFields(value)) return false;
-  if (!wellFormedPayload(value, has)) return false;
-  return has.event || has.gap || has.result || has.error;
-}
 export const DEFAULT_TIMEOUT_MS = 5_000;
 export function endpointPaths(orchDir: OrchDir): EndpointPaths {
   const registration = liveDaemonRegistration(orchDir);
@@ -116,37 +103,87 @@ export function endpointPaths(orchDir: OrchDir): EndpointPaths {
   return { socket: files.socket, port: files.port, token: files.token };
 }
 
-export function lineResponse(socket: Socket, response: RpcResponse): void {
-  if (!socket.destroyed) socket.write(`${JSON.stringify(response)}\n`);
+export function lineResponse(socket: Socket, line: RpcLine): void {
+  if (!socket.destroyed) socket.write(encodeLine(line));
 }
 
-export function errorResponse(id: unknown, code: string, message: string): RpcResponse {
-  return { id, error: { code, message } };
+export function errorResponse(id: number | null, code: RpcErrorCode, message: string): Extract<RpcLine, { kind: "error" }> {
+  return { kind: "error", id, error: { code, message } };
 }
 
-export function parseRequest(line: string): { id: unknown; method: string; params: unknown } | RpcResponse {
-  let request: unknown;
+export function responseError(line: Extract<RpcLine, { kind: "error" }>): RpcError {
+  return new RpcError(line.error.code, line.error.message, line.error.data);
+}
+
+export type RpcRequest = { [M in RpcMethod]: { id: number | null; method: M; params: ParamsOf<M> } }[RpcMethod];
+
+export function encodeRequest<M extends RpcMethod>(id: number, method: M, params: ParamsOf<M>): string {
+  return `${JSON.stringify({ id, method, params })}\n`;
+}
+
+export function parseRequest(line: string): RpcRequest | Extract<RpcLine, { kind: "error" }> {
+  let parsed: unknown;
   try {
-    request = JSON.parse(line);
+    parsed = JSON.parse(line);
   } catch {
     return errorResponse(null, "INVALID_REQUEST", "Malformed JSON request");
   }
-  if (!isRecord(request)) {
-    return errorResponse(null, "INVALID_REQUEST", "Request must be a JSON object");
+  if (!isRecord(parsed)) return errorResponse(null, "INVALID_REQUEST", "Request must be a JSON object");
+  const id = parsed.id;
+  if (id !== undefined && id !== null && typeof id !== "number") {
+    return errorResponse(null, "INVALID_REQUEST", "Request id must be a number or null");
   }
-  const value = request;
-  if (typeof value.method !== "string" || value.method.length === 0) {
-    return errorResponse(value.id ?? null, "INVALID_REQUEST", "Request method must be a non-empty string");
+  if (typeof parsed.method !== "string") {
+    return errorResponse(id ?? null, "INVALID_REQUEST", "Request method must be a non-empty string");
   }
-  return { id: value.id ?? null, method: value.method, params: value.params };
+  const requestId = id ?? null;
+  if (!isRpcMethod(parsed.method)) return errorResponse(requestId, "METHOD_NOT_FOUND", `Unknown method: ${parsed.method}`);
+  return parseTypedRequest(parsed.method, requestId, parsed.params);
 }
-/**
- * Drive `onLine` for each newline-framed line arriving on `socket`, buffering
- * partial lines across chunks. This owns only the framing loop — encoding,
- * split-on-newline, and cross-chunk buffering. Callers keep their own error,
- * close, and per-line parse semantics by attaching those listeners themselves
- * and doing any trim/parse inside `onLine`.
- */
+
+function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown): RpcRequest | Extract<RpcLine, { kind: "error" }> {
+  switch (method) {
+    case "daemon-status": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "subscribe-events": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "environment-labels": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "peer-view": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "notify": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "status": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "attach": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "dispatch": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "steer": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "message": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "answer": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "set-model": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "lifecycle": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "spawn-headless": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "agent-closed": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "question": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "questions": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "ack": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "control-outcome": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "reload": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "register-session": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "claim-identity": return parseOne(method, RPC_PARAMS[method], id, value);
+    default: {
+      const exhaustive: never = method;
+      throw new Error(`unknown RPC method: ${String(exhaustive)}`);
+    }
+  }
+}
+
+interface RpcRequestFor<M extends RpcMethod> { id: number | null; method: M; params: ParamsOf<M> }
+
+function parseOne<M extends RpcMethod>(method: M, schema: z.ZodType<ParamsOf<M>>, id: number | null, value: unknown): RpcRequestFor<M> | Extract<RpcLine, { kind: "error" }> {
+  const params = schema.safeParse(value);
+  if (!params.success) return errorResponse(id, "INVALID_PARAMS", params.error.message);
+  return makeRequest(method, id, params.data);
+}
+
+function makeRequest<M extends RpcMethod>(method: M, id: number | null, params: ParamsOf<M>): RpcRequestFor<M> {
+  return { id, method, params };
+}
+
 export function framedLineReader(socket: Socket, onLine: (line: string) => void): void {
   let buffer = "";
   socket.setEncoding("utf8");
@@ -161,21 +198,21 @@ export function framedLineReader(socket: Socket, onLine: (line: string) => void)
     }
   });
 }
-export function responseError(response: RpcResponse): RpcError {
-  const error = response.error;
-  if (typeof error === "string") return new RpcError("RPC_ERROR", error);
-  return new RpcError(error?.code ?? "RPC_ERROR", error?.message ?? "RPC request failed", error?.data);
-}
 
-export function readJsonMessages(socket: Socket, onMessage: (message: RpcResponse) => void): void {
+export function readJsonMessages(socket: Socket, onMessage: (line: RpcLine) => void): void {
   framedLineReader(socket, (raw) => {
     const line = raw.trim();
     if (!line) return;
     try {
       const parsed: unknown = JSON.parse(line);
-      if (isRpcResponse(parsed)) onMessage(parsed);
+      const message = parseRpcLine(parsed);
+      if (message !== null) onMessage(message);
     } catch {
       // Ignore malformed unsolicited data from the server.
     }
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

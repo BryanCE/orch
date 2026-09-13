@@ -57,7 +57,7 @@ function parseConnections(server: Server): void {
         if (isRecord(parsed)) {
           connection.lines.push(parsed);
           if (typeof parsed.id === "number") {
-            socket.write(`${JSON.stringify({ id: parsed.id, result: { attached: true, ok: true } })}\n`);
+            socket.write(`${JSON.stringify({ id: parsed.id, result: { attached: true, open: 0, ok: true } })}\n`);
           }
         }
         buffer = buffer.slice(newline + 1);

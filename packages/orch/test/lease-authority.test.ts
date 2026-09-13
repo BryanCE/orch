@@ -64,7 +64,7 @@ describe("C3 foreign agents are untouchable", () => {
     agent(dir, "worker", "worker");
     acquireLease(dir, "worker", "orch-a", 2);
     // dispatch / steer / model / reset all reach the same daemon gate.
-    expect(() => governWrite(daemonState(dir), "worker", { target: "worker", actor: "caller-orch", text: "x" }))
+    expect(() => governWrite(daemonState(dir), "worker", { actor: "caller-orch" }))
       .toThrow(/orch-a/);
     // The lease commands answer with the same rule, without a daemon.
     expect(() => detachAgent(dir, "worker", "caller-orch")).toThrow(/leased by live orch orch-a/);
@@ -79,7 +79,7 @@ describe("C3 foreign agents are untouchable", () => {
     agent(dir, "caller-orch");
     agent(dir, "worker", "worker");
     acquireLease(dir, "worker", "zombie-orch", 2);
-    expect(() => governWrite(daemonState(dir), "worker", { target: "worker", actor: "caller-orch", text: "x" })).not.toThrow();
+    expect(() => governWrite(daemonState(dir), "worker", { actor: "caller-orch" })).not.toThrow();
     expect(adoptAgent(dir, "worker", "caller-orch")).toMatchObject({ adopted: true });
   });
 

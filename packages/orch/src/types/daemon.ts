@@ -5,6 +5,7 @@ import type { OrchDir, OsSide } from "./core.ts";
 import type { SettingsManager } from "./services.ts";
 import type { PresenceEntry } from "./presence.ts";
 import type { TaskRec } from "./queue.ts";
+import type { IdentityMethod, ParamsOf, ResultOf, RpcMethod } from "../daemon/rpc/protocol.ts";
 
 export interface LockRecord {
   pid: number;
@@ -12,8 +13,6 @@ export interface LockRecord {
   startedAt: string;
   startToken?: string;
 }
-
-export type RpcParams = unknown;
 
 export type RpcEventEmitter = (event: unknown) => void;
 
@@ -34,9 +33,9 @@ export interface ClaimIdentityResponse {
   readonly id: string;
 }
 
-export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter, context: RpcRequestContext) => unknown;
-
-export type RpcHandlers = Record<string, RpcHandler>;
+export type RpcHandler<M extends RpcMethod> = (params: ParamsOf<M>, emit: RpcEventEmitter, context: RpcRequestContext) => ResultOf<M> | Promise<ResultOf<M>>;
+/** Complete: one handler per method, the identity handshake excluded (the server answers those itself). */
+export type RpcHandlers = { readonly [M in Exclude<RpcMethod, IdentityMethod>]: RpcHandler<M> };
 
 /** Where one daemon instance is reachable and how a caller proves itself: the
  *  unix socket path, the loopback port file beside it, and the token file. */

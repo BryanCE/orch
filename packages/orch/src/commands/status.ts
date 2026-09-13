@@ -27,7 +27,8 @@ import {
   splitOptionFlags,
   viewForKey,
 } from "./target.ts";
-import { isRecord, truncate } from "../util.ts";
+import { truncate } from "../util.ts";
+import { isDaemonStatusRow } from "../daemon/rpc/protocol.ts";
 import type { AgentAdapter, SessionView } from "../types/adapter.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
@@ -210,33 +211,6 @@ function snapshot(rows: StatusRow[], backendAnswered: boolean): FleetSnapshot {
  * missing `state` or carries a number where a string belongs then reaches every
  * renderer, and the crash lands far from the boundary that let it in.
  */
-function isStatusRow(value: unknown): value is StatusRow {
-  if (!isRecord(value)) return false;
-  const strings = ["key", "model", "modelShort", "state"] as const;
-  const nullableStrings = [
-    "paneId", "name", "tab", "agent", "owner", "spawnedBy", "spawnedByLabel", "worktree",
-    "branch", "cwd", "task", "dispatchId", "lastText", "backendStatus", "backend",
-    "sessionPath", "presenceDir",
-  ] as const;
-  const booleans = ["managed", "focused", "stateFallback", "exited", "alive", "presenceOnly"] as const;
-  for (const field of strings) if (typeof value[field] !== "string") return false;
-  for (const field of nullableStrings) if (value[field] !== null && typeof value[field] !== "string") return false;
-  for (const field of booleans) if (typeof value[field] !== "boolean") return false;
-  if (value.ownerId !== undefined && value.ownerId !== null && typeof value.ownerId !== "string") return false;
-  if (value.bridgeAttached !== null && typeof value.bridgeAttached !== "boolean") return false;
-  if (typeof value.cost !== "number") return false;
-  if (value.ctxPercent !== null && typeof value.ctxPercent !== "number") return false;
-  // `capabilities` is a nullable composed view, not a flag bag: null means no
-  // backend owns the row, which is an answer renderers already read (E13/E14).
-  return value.capabilities === null || isRecord(value.capabilities);
-}
-
-/** Keep only the rows that really are rows. A malformed one is dropped at the
- *  boundary rather than carried inward as a lie about its shape. */
-function statusRowsFrom(values: readonly unknown[]): StatusRow[] {
-  return values.filter(isStatusRow);
-}
-
 async function readFleetRows(settings: OrchSettings | null, orchDir: OrchDir, spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
   if (settings === null) return snapshot([], false);
   if (offline) {
@@ -244,12 +218,10 @@ async function readFleetRows(settings: OrchSettings | null, orchDir: OrchDir, sp
     return snapshot(rows, rows.some((row) => row.backend != null));
   }
   try {
-    const answer = await rpcCall(orchDir, "status");
-    if (isRecord(answer) && Array.isArray(answer.rows)) {
-      const rows = statusRowsFrom(answer.rows);
-      // RPC availability is not backend availability; only inventory-bearing rows count.
-      return snapshot(rows, rows.some((row) => row.backend != null));
-    }
+    const answer = await rpcCall(orchDir, "status", undefined);
+    const rows = answer.rows;
+    // RPC availability is not backend availability; only inventory-bearing rows count.
+    return snapshot(rows, rows.some((row) => row.backend != null));
   } catch {
     // Daemon absent or refusing: fall through to the file protocol.
   }
@@ -743,7 +715,7 @@ async function remoteStatusResults(hosts: OrchSettings["hosts"], offline: boolea
 
 function validRemoteValues(result: RemoteStatusResult): StatusRow[] {
   if (!result.ok || !Array.isArray(result.value)) return [];
-  return statusRowsFrom(result.value);
+  return result.value.filter(isDaemonStatusRow);
 }
 
 /** The narrowing a remote host's rows still owe after they arrive: one space, one agent. */

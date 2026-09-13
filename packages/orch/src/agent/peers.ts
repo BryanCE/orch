@@ -38,7 +38,7 @@ function isDriveState(value: unknown): value is DriveState {
     && typeof value.mine === "boolean";
 }
 
-function isPeerView(value: unknown): value is PeerView {
+export function isPeerView(value: unknown): value is PeerView {
   if (!isRecord(value) || (value.peers !== undefined && !Array.isArray(value.peers)) || !Array.isArray(value.visible) || !isRecord(value.spaces) || !isRecord(value.drive)) return false;
   return (value.peers === undefined || value.peers.every((peer) => isRecord(peer)
     && typeof peer.key === "string"
@@ -53,16 +53,15 @@ function isPeerView(value: unknown): value is PeerView {
 
 async function peerViewFor(daemon: DaemonClient, ownKey: string, keys: string[], allSpaces: boolean): Promise<PeerView | undefined> {
   const answer = await daemon.ask("peer-view", { ownKey, keys, allSpaces, projectRoot: projectRoot() });
-  return isPeerView(answer) ? answer : undefined;
+  return answer;
 }
 
 async function livePeers(orchDir: OrchDir, daemon: DaemonClient, ownKey: string, allSpaces = false): Promise<{ peers: Peer[]; view: PeerView } | undefined> {
   try {
-    const requested = (await daemon.ask("peer-view", { ownKey, keys: [], allSpaces, projectRoot: projectRoot() }));
+    const view = await daemon.ask("peer-view", { ownKey, keys: [], allSpaces, projectRoot: projectRoot() });
     // The daemon owns enumeration and liveness; request the fleet through its
     // canonical peer-view response rather than inspecting presence locally.
-    const view = isPeerView(requested) ? requested : undefined;
-    if (!view) return undefined;
+    if (view === undefined) return undefined;
     const peers = (view.peers ?? [])
       .filter((peer) => peer.key !== ownKey)
       .map((peer) => ({
@@ -204,7 +203,7 @@ export async function sendPeerMessage(orchDir: OrchDir, daemon: DaemonClient, ta
     multiplexer: null,
     transportId: resolved.peer.key,
   });
-  if (isRecord(response) && response.ack === "acknowledged") return `sent to ${label}`;
+  if (response.ack === "acknowledged") return `sent to ${label}`;
   return `sent to ${label} (queued, not yet read)`;
 }
 

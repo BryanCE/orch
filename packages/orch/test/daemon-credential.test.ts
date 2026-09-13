@@ -6,6 +6,7 @@ import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 /**
  * Credential is the `0600` token file in `$ORCH_DIR`; same-uid is the whole
@@ -33,8 +34,7 @@ function tempDir(): OrchDir {
 }
 
 async function start(orchDir: OrchDir): Promise<RpcServer> {
-  const server = await startRpcServer(orchDir, {});
-  servers.push(server);
+  const server = await startRpcServer(orchDir, stubRpcHandlers());  servers.push(server);
   return server;
 }
 

@@ -12,6 +12,7 @@ import { isRecord } from "../src/util.ts";
 import { currentHostOs } from "../src/store/agent-rows.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
+import { stubRpcHandlers } from "../test/helpers/rpc-handlers.ts";
 /**
  * Peer credentials rejected — node exposes neither `SO_PEERCRED` nor process
  * ancestry portably.
@@ -36,7 +37,7 @@ afterEach(async () => {
 async function start(): Promise<{ orchDir: OrchDir; token: string }> {
   const orchDir = tempOrchDir("orch-peercred-");
   dirs.push(orchDir);
-  servers.push(await startRpcServer(orchDir, {}));
+  servers.push(await startRpcServer(orchDir, stubRpcHandlers()));
   return { orchDir, token: readFileSync(endpointPaths(orchDir).token, "utf8").trim() };
 }
 
@@ -93,7 +94,7 @@ describe("the daemon asks for a token and nothing else", () => {
     // had crept in.
     const reply = await ask(endpointPaths(orchDir).socket, {
       id: 1, method: "register-session",
-      params: { token, pid: stranger, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() },
+      params: { token, pid: stranger, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() },
     });
     expect(reply.error).toBeUndefined();
     expect(reply.result).toBeDefined();
@@ -105,7 +106,7 @@ describe("the daemon asks for a token and nothing else", () => {
 
     const reply = await ask(endpointPaths(orchDir).socket, {
       id: 1, method: "register-session",
-      params: { pid: stranger, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() },
+      params: { token: "", pid: stranger, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() },
     });
     expect(reply).toMatchObject({ error: { code: "IDENTITY_REQUIRED" } });
   });

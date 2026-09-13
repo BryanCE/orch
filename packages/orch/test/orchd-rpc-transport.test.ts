@@ -6,13 +6,14 @@ import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 function tempOrchDir(): OrchDir {
   return freshOrchDir("orch-rpc-transport-");
 }
 
 function handlers() {
-  return { echo: (params: unknown) => params };
+  return stubRpcHandlers({ ack: () => ({ ok: true }) });
 }
 
 describe("orchd RPC transports", () => {
@@ -22,7 +23,7 @@ describe("orchd RPC transports", () => {
     try {
       server = await startRpcServer(dir, handlers());
       expect(server.transport).toBe("unix");
-      expect(await rpcCall(dir, "echo", { transport: "unix" })).toEqual({ transport: "unix" });
+      expect(await rpcCall(dir, "ack", { id: "unix" })).toEqual({ ok: true });
     } finally {
       if (server) await server.close();
       removeTempDir(dir);
@@ -37,7 +38,7 @@ describe("orchd RPC transports", () => {
       writeFileSync(socketPath, "occupied");
       server = await startRpcServer(dir, handlers());
       expect(server.transport).toBe("tcp");
-      expect(await rpcCall(dir, "echo", { transport: "tcp" })).toEqual({ transport: "tcp" });
+      expect(await rpcCall(dir, "ack", { id: "tcp" })).toEqual({ ok: true });
     } finally {
       if (server) await server.close();
       removeTempDir(dir);

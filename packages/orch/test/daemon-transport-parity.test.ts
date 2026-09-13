@@ -8,6 +8,7 @@ import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
 import { currentHostOs } from "../src/store/agent-rows.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 /**
  * ONE MECHANISM on both transports; TCP is a FALLBACK, never a client class.
@@ -32,7 +33,7 @@ async function start(): Promise<{ server: RpcServer; orchDir: OrchDir; token: st
   // A companion loopback port, which orch binds on its own only where a client
   // cannot dial the unix socket (Windows). Requesting it here is what makes the
   // two transports comparable at all — it is not what makes TCP a client class.
-  const server = await startRpcServer(orchDir, {}, { tcpPort: 0 });
+  const server = await startRpcServer(orchDir, stubRpcHandlers(), { tcpPort: 0 });
   servers.push(server);
   return { server, orchDir, token: readFileSync(endpointPaths(orchDir).token, "utf8").trim() };
 }
@@ -69,7 +70,7 @@ function tcpPort(server: RpcServer): number {
 }
 
 function hello(token: unknown): unknown {
-  return { id: 1, method: "register-session", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() } };
+  return { id: 1, method: "register-session", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() } };
 }
 
 describe("both transports carry one mechanism", () => {

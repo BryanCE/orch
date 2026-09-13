@@ -10,6 +10,9 @@ import { sql } from "drizzle-orm";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { row } from "./helpers/rows.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import type { SessionClaim } from "../src/daemon/rpc/protocol.ts";
+import { parseRequest } from "../src/daemon/rpc/wire.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
@@ -20,8 +23,8 @@ function tempDir(): OrchDir {
   return dir;
 }
 
-function params(token: string, sessionToken: string): Record<string, unknown> {
-  return { token, sessionToken, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() };
+function params(token: string, sessionToken: string): SessionClaim {
+  return { token, sessionToken, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() };
 }
 
 afterEach(async () => {
@@ -34,9 +37,9 @@ describe("daemon identity RPCs", () => {
     const dir = tempDir();
     ensureHarness(dir, "pi", "pi", 1);
     insertAgent(dir, { id: "agent-minted", name: "worker", harnessId: "pi", cwd: dir, createdAt: 1 });
-    servers.push(await startRpcServer(dir, {}));
+    servers.push(await startRpcServer(dir, stubRpcHandlers()));
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const result = await rpcCall(dir, "claim-identity", { ...params(token, "session-a"), id: "agent-minted" });
+    const result = await rpcCall(dir, "claim-identity", { ...params(token, "session-a"), id: "agent-minted", sessionToken: "session-a" });
     expect(result).toEqual({ id: "agent-minted" });
     const stored = row(orm(dir), sql`SELECT claimed_at, session_token FROM agents WHERE id = 'agent-minted'`);
     if (typeof stored !== "object" || stored === null || !("claimed_at" in stored) || !("session_token" in stored)) throw new Error("claim row missing");
@@ -46,11 +49,11 @@ describe("daemon identity RPCs", () => {
 
   test("claim-identity refuses an unknown id by naming it", async () => {
     const dir = tempDir();
-    servers.push(await startRpcServer(dir, {}));
+    servers.push(await startRpcServer(dir, stubRpcHandlers()));
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     let failure: unknown;
     try {
-      await rpcCall(dir, "claim-identity", { ...params(token, "session-a"), id: "missing-agent" });
+      await rpcCall(dir, "claim-identity", { ...params(token, "session-a"), id: "missing-agent", sessionToken: "session-a" });
     } catch (error: unknown) {
       failure = error;
     }
@@ -60,7 +63,7 @@ describe("daemon identity RPCs", () => {
 
   test("register-session mints one id per session token", async () => {
     const dir = tempDir();
-    servers.push(await startRpcServer(dir, {}));
+    servers.push(await startRpcServer(dir, stubRpcHandlers()));
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     const first = await rpcCall(dir, "register-session", params(token, "session-a"));
     const second = await rpcCall(dir, "register-session", params(token, "session-a"));
@@ -71,15 +74,8 @@ describe("daemon identity RPCs", () => {
     expect(second.id).toBe(first.id);
   });
 
-  test("the removed method is unknown", async () => {
-    const dir = tempDir();
-    servers.push(await startRpcServer(dir, {}));
-    let failure: unknown;
-    try {
-      await rpcCall(dir, "hello", {});
-    } catch (error: unknown) {
-      failure = error;
-    }
-    expect(failure).toMatchObject({ code: "METHOD_NOT_FOUND" });
+  test("the removed method is unknown", () => {
+    const failure = parseRequest('{"id":1,"method":"hello","params":{}}');
+    expect(failure).toMatchObject({ kind: "error", error: { code: "METHOD_NOT_FOUND" } });
   });
 });

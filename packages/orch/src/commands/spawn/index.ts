@@ -375,6 +375,6 @@ export async function cmdTile(services: Services, args: string[]) {
     process.stdout.write(`Added ${agent.handle} (${autoName}) to group ${layout.group} running ${adapter}.\n`);
     printLayout(selectedBackend, tab.id, "\nFinal tiling:");
   }
-  await pinModels(services, services.logger, [{ key: agent.key, handle: agent.handle, name: autoName }], model, thinking);
+  await pinModels(services, services.logger, [{ key: agent.key, handle: agent.handle, name: autoName, model, thinking }]);
 }
 

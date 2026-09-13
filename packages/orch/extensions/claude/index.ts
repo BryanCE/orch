@@ -54,10 +54,9 @@ function modelValue(input: JsonRecord): { provider?: string; id?: string } | und
   return undefined;
 }
 
-const session = presenceSession();
-if (session.kind === "not-orch") process.exit(0);
-
 const input = readJsonStdin();
+const session = presenceSession(textValue(input.session_id ?? input.sessionId) ?? null);
+if (session.kind === "not-orch") process.exit(0);
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
 const transcriptPath = textValue(input.transcript_path ?? input.transcriptPath);

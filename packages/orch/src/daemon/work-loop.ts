@@ -27,7 +27,7 @@ import { agentView } from "../store/agent-view.ts";
 import { sweepExpiredRows } from "./retention.ts";
 import { decisionLogger } from "./decision-log.ts";
 import type { PresenceEntry } from "../types/presence.ts";
-import type { NotifyEvent } from "../types/notify.ts";
+import type { NotifyEvent, TaskState } from "../types/notify.ts";
 import type { WorkOptions } from "../types/daemon.ts";
 import { orchDirAt } from "../services.ts";
 export type { WorkOptions };
@@ -145,9 +145,10 @@ async function waitForTaskState(entry: PresenceEntry, task: TaskRec, timeoutMs: 
   return "timeout";
 }
 
-function taskEvent(entry: PresenceEntry, task: TaskRec, oldState: string, newState: string, lastError?: string): NotifyEvent {
+function taskEvent(entry: PresenceEntry, task: TaskRec, oldState: TaskState, newState: TaskState, lastError?: string): NotifyEvent {
   const status = statusForPresence(entry);
   return {
+    type: "task",
     // Cq4: the lifecycle/result event belongs to the enqueuer, not the runner.
     key: task.enqueuedBy,
     space: task.scopeSpaceId ?? undefined,
@@ -228,10 +229,17 @@ function reaskEvent(orchDir: OrchDir, question: QuestionRow, nowMs: number, askC
     question.agentId,
     status,
     { name: null, tab: null },
-    { previous: "asking", state: "asking" },
+    { previous: "asking", state: "asking", askCount, gaveUp },
     new Date(nowMs),
   );
-  return { ...event, task: `Q: ${question.question}`, askCount, ...(gaveUp ? { gaveUp: true } : {}) };
+  switch (event.type) {
+    case "asking":
+      return { ...event, task: `Q: ${question.question}` };
+    default: {
+      const exhaustive: never = event;
+      return exhaustive;
+    }
+  }
 }
 
 function settleError(orchDir: OrchDir, settings: ReturnType<WorkOptions["settings"]["current"]>, task: TaskRec, error: string, entry: PresenceEntry, emit: (event: NotifyEvent) => void): void {

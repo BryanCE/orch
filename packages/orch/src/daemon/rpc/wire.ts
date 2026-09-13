@@ -4,6 +4,8 @@ import { type Socket } from "node:net";
 import { liveDaemonRegistration } from "../lifecycle.ts";
 import { daemonRuntimeFiles } from "../runtime-files.ts";
 import type { EndpointPaths } from "../../types/daemon.ts";
+import type { NotifyEvent } from "../../types/notify.ts";
+import { notifyEventSchema } from "../../notify/event.ts";
 import {
   RPC_PARAMS,
   type ParamsOf,
@@ -48,7 +50,7 @@ export class RpcError extends Error {
 export type RpcLine =
   | { kind: "reply"; id: number | null; result: unknown }
   | { kind: "error"; id: number | null; error: { code: RpcErrorCode; message: string; data?: unknown } }
-  | { kind: "event"; seq?: number; event: unknown }
+  | { kind: "event"; seq?: number; event: NotifyEvent }
   | { kind: "gap"; oldestSeq: number };
 
 const replySchema = z.object({ id: z.number().nullable(), result: z.unknown() }).strict();
@@ -60,7 +62,7 @@ const errorSchema = z.object({
     data: z.unknown().optional(),
   }).strict(),
 }).strict();
-const eventSchema = z.object({ event: z.unknown(), seq: z.number().int().optional() }).strict();
+const eventSchema = z.object({ event: notifyEventSchema, seq: z.number().int().optional() }).strict();
 const gapSchema = z.object({ gap: z.literal(true), oldestSeq: z.number().int() }).strict();
 
 export function parseRpcLine(value: unknown): RpcLine | null {

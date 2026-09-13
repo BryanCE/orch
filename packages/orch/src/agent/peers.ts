@@ -92,10 +92,10 @@ async function livePeers(orchDir: OrchDir, daemon: DaemonClient, ownKey: string,
 const UNREACHABLE_SPAWNER_ADVICE = " Write your result and end the turn; it is collected from your result file.";
 
 /** Resolve the stamped spawner from the daemon's live peer view. */
-async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient): Promise<Peer | undefined> {
+async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient, ownKey: string): Promise<Peer | undefined> {
   const key = optionalString(process.env.ORCH_SPAWNER);
   if (!key) return undefined;
-  const view = await peerViewFor(daemon, "", [key], true);
+  const view = await peerViewFor(daemon, ownKey, [key], true);
   const peer = (view?.peers ?? []).find((candidate) => candidate.key === key);
   return peer === undefined ? undefined : {
     key,
@@ -108,18 +108,18 @@ async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient): Promise<
 }
 
 /** Whether the stamped spawner has a live process and status record. */
-export async function spawnerReachable(orchDir: OrchDir, daemon: DaemonClient): Promise<boolean> {
-  return await liveSpawnerPeer(orchDir, daemon) !== undefined;
+export async function spawnerReachable(orchDir: OrchDir, daemon: DaemonClient, ownKey: string): Promise<boolean> {
+  return await liveSpawnerPeer(orchDir, daemon, ownKey) !== undefined;
 }
 
 /** The caller's own orchestrator, resolved by the address its launch stamped.
  *  The fleet wall never applies here: the spawner handed this worker its own
  *  address at launch, and replying to it is the one always-valid cross-scope edge. */
-async function resolveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient): Promise<PeerResolution> {
+async function resolveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient, ownKey: string): Promise<PeerResolution> {
   const key = optionalString(process.env.ORCH_SPAWNER);
   const label = optionalString(process.env.ORCH_SPAWNER_LABEL);
   if (!key) return { error: `error: no spawner address recorded for this agent${label ? ` (spawned by ${label})` : ""}.${UNREACHABLE_SPAWNER_ADVICE}` };
-  const peer = await liveSpawnerPeer(orchDir, daemon);
+  const peer = await liveSpawnerPeer(orchDir, daemon, ownKey);
   if (!peer) {
     return { error: `error: spawner ${label ?? key} (${key}) has no live status record to reply to.${UNREACHABLE_SPAWNER_ADVICE}` };
   }
@@ -127,7 +127,7 @@ async function resolveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient): Promi
 }
 
 export async function resolvePeer(orchDir: OrchDir, daemon: DaemonClient, target: string, ownKey: string, allRequested = false): Promise<PeerResolution> {
-  if (target === "spawner" || (target.length > 0 && target === optionalString(process.env.ORCH_SPAWNER))) return await resolveSpawnerPeer(orchDir, daemon);
+  if (target === "spawner" || (target.length > 0 && target === optionalString(process.env.ORCH_SPAWNER))) return await resolveSpawnerPeer(orchDir, daemon, ownKey);
   const live = await livePeers(orchDir, daemon, ownKey, allRequested);
   if (!live) return { error: "error: peer view unavailable" };
   const exact = live.peers.find((peer) => peer.key === target);
@@ -161,9 +161,9 @@ function summarizePeer(peer: Peer, view: PeerView, spawnerKey: string | undefine
 
 /** The caller's spawner as a listable row, when fleet scoping hid it. A worker
  *  must always see who orchestrates it, whatever space shape that session has. */
-async function hiddenSpawnerSummary(orchDir: OrchDir, daemon: DaemonClient, rows: PeerSummary[], view: PeerView, spawnerKey: string | undefined): Promise<PeerSummary | null> {
+async function hiddenSpawnerSummary(orchDir: OrchDir, daemon: DaemonClient, ownKey: string, rows: PeerSummary[], view: PeerView, spawnerKey: string | undefined): Promise<PeerSummary | null> {
   if (!spawnerKey || rows.some((row) => row.key === spawnerKey)) return null;
-  const resolved = await resolveSpawnerPeer(orchDir, daemon);
+  const resolved = await resolveSpawnerPeer(orchDir, daemon, ownKey);
   if ("error" in resolved) return null;
   return summarizePeer(resolved.peer, view, spawnerKey);
 }
@@ -179,7 +179,7 @@ export async function peerSummaries(orchDir: OrchDir, daemon: DaemonClient, ownK
   if (!live) return [];
   const spawnerKey = optionalString(process.env.ORCH_SPAWNER);
   const rows = live.peers.map((peer) => summarizePeer(peer, live.view, spawnerKey));
-  const spawner = await hiddenSpawnerSummary(orchDir, daemon, rows, live.view, spawnerKey);
+  const spawner = await hiddenSpawnerSummary(orchDir, daemon, ownKey, rows, live.view, spawnerKey);
   return spawner ? [spawner, ...rows] : rows;
 }
 

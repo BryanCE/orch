@@ -1,53 +1,45 @@
+import type { AgentState } from "../agent-state.ts";
 import type { OrchSettings } from "./settings.ts";
+import type { TaskRec } from "./queue.ts";
 
-export interface NotifyEvent {
-  host?: string;
-  /** Live usage and configured cap for the event agent's pack at publish time. */
-  capacity?: { readonly packUsed: number; readonly packCap: number; };
-  key: string;
-  /** Origin space, for display only; absent when the agent has no placement. */
-  space?: string;
-  /** Human-assigned agent name. */
-  agent: string | null;
-  /** Human/registry display name. */
-  name?: string | null;
-  /** Dispatch id associated with this transition. */
-  dispatchId?: string;
-  /** Identity of the session that spawned this agent. */
-  spawnedBy?: string;
-  /** Human label of the session that spawned this agent. */
-  spawnedByLabel?: string;
-  tab: string | null;
-  /** Model id plus thinking level, e.g. terra:medium. */
-  model: string | null;
-  oldState: string;
-  newState: string;
-  /** This agent's transition ordinal, stamped once as the event is published.
-   *  `(key, seq)` is the event's identity: a consumer that has already acted on
-   *  a seq can drop a redelivery instead of collecting the same result twice. */
-  seq?: number;
-  task?: string;
-  cost?: number;
-  ts: string;
-  lastError?: string;
-  /** Final assistant text reported when the agent is done. */
-  lastText?: string;
-  /** Text delivered to this agent's session; present only on a `message` event. */
-  mail?: { readonly id: string; readonly text: string };
-  result?: string;
-  /** Why the agent stopped, or the question blocking it. */
-  reason?: string;
-  /** Number of times this question has been asked, including the original ask. */
-  askCount?: number;
-  /** True on the final asking event after the daemon gives up re-asking. */
-  gaveUp?: true;
-  /** Context-window usage percentage. */
-  ctxPercent?: number;
-  /** Token usage counters reported by the agent. */
-  tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
-  /** Files touched by the agent during this run. */
-  filesTouched?: string[];
-};
+/** What every event says about who it is about. */
+export interface EventIdentity {
+  readonly key: string;
+  readonly ts: string;
+  /** Stamped once by the daemon as the event is published; `(key, seq)` is the event's identity. */
+  readonly seq?: number;
+  readonly agent: string | null;
+  readonly name?: string | null;
+  readonly space?: string;
+  readonly tab: string | null;
+  readonly model: string | null;
+  readonly host?: string;
+  readonly spawnedBy?: string;
+  readonly spawnedByLabel?: string;
+}
+
+/** What a live agent reports about its run; present on transition and asking events only. */
+export interface AgentActivity {
+  readonly dispatchId?: string;
+  readonly task?: string;
+  readonly cost?: number;
+  readonly lastError?: string;
+  readonly lastText?: string;
+  readonly reason?: string;
+  readonly ctxPercent?: number;
+  readonly tokens?: { readonly input?: number; readonly output?: number; readonly cacheRead?: number; readonly cacheWrite?: number };
+  readonly filesTouched?: readonly string[];
+  readonly capacity?: { readonly packUsed: number; readonly packCap: number };
+}
+
+export type TaskState = TaskRec["state"];
+
+export type NotifyEvent =
+  | (EventIdentity & AgentActivity & { readonly type: "transition"; readonly oldState: AgentState; readonly newState: Exclude<AgentState, "asking"> })
+  | (EventIdentity & AgentActivity & { readonly type: "asking"; readonly oldState: AgentState; readonly newState: "asking"; readonly askCount: number; readonly gaveUp: boolean })
+  | (EventIdentity & { readonly type: "message"; readonly newState: "message"; readonly dispatchId: string; readonly mail: { readonly id: string; readonly text: string } })
+  | (EventIdentity & { readonly type: "closed"; readonly oldState: AgentState; readonly newState: "closed" })
+  | (EventIdentity & { readonly type: "task"; readonly oldState: TaskState; readonly newState: TaskState; readonly task: string; readonly lastError?: string });
 
 /** A required configuration value collected for a notifier. */
 export interface NotifierConfigField {

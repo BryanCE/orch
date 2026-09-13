@@ -12,6 +12,7 @@ import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir
 import { helpTopic } from "../src/commands/help.ts";
 import { subscribeEvents } from "../src/daemon/rpc/client.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
+import type { NotifyEvent } from "../src/types/notify.ts";
 
 describe("commands/events", () => {
   test("owned renderers and tool help do not expose the retired workspace term", () => {
@@ -79,7 +80,7 @@ describe("commands/events", () => {
     subscription.close();
   });
   test("renders opaque plexer coordinates without relabeling them as spaces", () => {
-    const event = { key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: "finished", ts: "now" };
+    const event: NotifyEvent = { type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: "finished", ts: "now" };
     const json = renderEvent(event, true, 4);
     const parsed: unknown = JSON.parse(json);
     expect(parsed).toMatchObject({ space: "wF", streamSeq: 4 });
@@ -100,13 +101,13 @@ describe("commands/events", () => {
   // transition read like a status row and buried what the line exists to say.
   test("message events render the full delivered mail text", () => {
     const mail = "[from worker (worker-key)] hello orchestrator";
-    const line = renderEvent({ key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "message", newState: "message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4);
+    const line = renderEvent({ type: "message", key: "agent", space: "wF", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "dispatch-message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4);
     expect(line).toEndWith(mail);
     expect(line).not.toContain("message->message");
   });
 
   test("an event line says what happened, never the fleet's books", () => {
-    const event = { key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now", cost: 0.04, capacity: { packUsed: 7, packCap: 10 } };
+    const event: NotifyEvent = { type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now" };
     const line = renderEvent(event, false, 4);
     expect(line).toEndWith("working->done");
     expect(line).not.toContain("pack");
@@ -114,7 +115,7 @@ describe("commands/events", () => {
   });
 
   test("rejects malformed event and labels sinks", () => {
-    expect(isNotifyEvent({ key: "k", oldState: "idle", newState: "done", ts: "now" })).toBe(true);
+    expect(isNotifyEvent({ type: "transition", key: "k", oldState: "idle", newState: "done", ts: "now" })).toBe(true);
     expect(isNotifyEvent({ key: "k" })).toBe(false);
     expect(sinkLabel({ id: "command", command: ["echo", "ok"] })).toBe("command echo ok");
   });

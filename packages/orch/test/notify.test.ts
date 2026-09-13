@@ -7,7 +7,7 @@ import type { OrchDir } from "../src/types/core.ts";
 
 const orchDir = (): OrchDir => orchDirAt(".");
 
-const event: NotifyEvent = { key: "k", agent: null, tab: null, model: null, oldState: "working", newState: "done", ts: "2026-01-01T00:00:00.000Z" };
+const event: NotifyEvent = { key: "k", agent: null, tab: null, model: null, type: "transition", oldState: "working", newState: "done", ts: "2026-01-01T00:00:00.000Z" };
 
 describe("notification routing", () => {
   test("an excluded state does not invoke its notifier", async () => {

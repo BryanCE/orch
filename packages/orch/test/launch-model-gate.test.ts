@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { assertModelAllowed, assertModelOffered } from "../src/policy/model.ts";
+import { assertModelAllowed, assertModelOffered, expandModelSpec } from "../src/policy/model.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -67,6 +67,39 @@ describe("the model gate rules by harness membership, not by format", () => {
   test("cannot check a harness that publishes no catalogue, and does not pretend to", () => {
     const catalogue = testServices({ orchDir: makeDir() }).models;
     expect(() => assertModelOffered(silentHarness, catalogue, "anything-at-all")).not.toThrow();
+  });
+});
+
+describe("short model names expand against the allowed harness catalogue", () => {
+  test("expands a short name with one listed match", () => {
+    const settings = fileSettingsManager(makeDir()).current();
+    expect(expandModelSpec(settings, "codex", [{ spec: "openai-codex/gpt-5.6-luna" }], "luna"))
+      .toEqual({ kind: "expanded", spec: "openai-codex/gpt-5.6-luna", from: "luna" });
+  });
+
+  test("reports multiple matches as ambiguous in sorted order", () => {
+    const settings = fileSettingsManager(makeDir()).current();
+    expect(expandModelSpec(settings, "codex", [
+      { spec: "openai-codex/gpt-5.6-luna" },
+      { spec: "openai-codex/gpt-5.6-gpt" },
+    ], "gpt"))
+      .toEqual({
+        kind: "ambiguous",
+        from: "gpt",
+        candidates: ["openai-codex/gpt-5.6-gpt", "openai-codex/gpt-5.6-luna"],
+      });
+  });
+
+  test("passes through a full listed spec", () => {
+    const settings = fileSettingsManager(makeDir()).current();
+    expect(expandModelSpec(settings, "codex", [{ spec: "openai-codex/gpt-5.6-luna" }], "openai-codex/gpt-5.6-luna"))
+      .toEqual({ kind: "listed", spec: "openai-codex/gpt-5.6-luna" });
+  });
+
+  test("does not expand a match excluded by models.allowed", () => {
+    const settings = fileSettingsManager(makeDir({ models: { allowed: { codex: ["openai-codex/gpt-5.6-sol"] } } })).current();
+    expect(expandModelSpec(settings, "codex", [{ spec: "openai-codex/gpt-5.6-luna" }], "luna"))
+      .toEqual({ kind: "unlisted", from: "luna" });
   });
 });
 

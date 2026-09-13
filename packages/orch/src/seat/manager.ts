@@ -12,7 +12,8 @@
 import { Context, Effect, Fiber, Layer, Runtime, Stream } from "effect";
 import { SETTLED_STATES } from "./domain.ts";
 import { PackSource } from "./source.ts";
-import type { PackEnrichment, PackManagerShape, PackReadView, PackSnapshot, PackSourceShape, PackTransition } from "../types/seat.ts";
+import type { PackEnrichment, PackManagerShape, PackReadView, PackSnapshot, PackSourceShape } from "../types/seat.ts";
+import type { NotifyEvent } from "../types/notify.ts";
 
 const MAX_TRACKED = 128;
 const TASK_MAX_LENGTH = 4_096;
@@ -80,7 +81,7 @@ const makeManager = Effect.gen(function* () {
   };
 
   /** The identity wall: an event joins the pack only when THIS session spawned its agent. */
-  const isOwn = (transition: PackTransition): boolean => {
+  const isOwn = (transition: NotifyEvent): boolean => {
     const own = source.ownKey();
     return own !== undefined && transition.spawnedBy === own;
   };
@@ -103,7 +104,7 @@ const makeManager = Effect.gen(function* () {
     }
   };
 
-  const foldTransition = (transition: PackTransition) => {
+  const foldTransition = (transition: NotifyEvent) => {
     if (!isOwn(transition)) return;
     if (transition.newState === "exited") {
       // A closed pane leaves the board; orch's registry keeps the history.
@@ -112,29 +113,34 @@ const makeManager = Effect.gen(function* () {
       return;
     }
     const existing = entries.get(transition.key);
-    const at = transition.ts ? Date.parse(transition.ts) || Date.now() : Date.now();
+    const task = "task" in transition ? transition.task : undefined;
+    const lastError = "lastError" in transition ? transition.lastError : undefined;
+    const cost = "cost" in transition ? transition.cost : undefined;
+    const dispatchId = "dispatchId" in transition ? transition.dispatchId : undefined;
+    const at = Date.parse(transition.ts) || Date.now();
+    const name = transition.name ?? transition.agent ?? transition.key;
     if (existing) {
       const s = existing.snapshot;
-      s.name = transition.name;
+      s.name = name;
       s.state = transition.newState;
       s.model = transition.model ?? s.model;
-      s.task = (transition.task ?? s.task).slice(0, TASK_MAX_LENGTH);
-      s.lastError = transition.lastError ?? (transition.newState === "error" ? s.lastError : undefined);
-      s.cost = transition.cost ?? s.cost;
-      s.dispatchId = transition.dispatchId ?? s.dispatchId;
+      s.task = (task ?? s.task).slice(0, TASK_MAX_LENGTH);
+      s.lastError = lastError ?? (transition.newState === "error" ? s.lastError : undefined);
+      s.cost = cost ?? s.cost;
+      s.dispatchId = dispatchId ?? s.dispatchId;
       s.lastTransitionAt = at;
       enrich(existing);
     } else {
       const entry: Entry = {
         snapshot: {
           key: transition.key,
-          name: transition.name,
+          name,
           state: transition.newState,
           model: transition.model,
-          task: (transition.task ?? "").slice(0, TASK_MAX_LENGTH),
-          lastError: transition.lastError,
-          cost: transition.cost,
-          dispatchId: transition.dispatchId,
+          task: (task ?? "").slice(0, TASK_MAX_LENGTH),
+          lastError,
+          cost,
+          dispatchId,
           createdAt: at,
           lastTransitionAt: at,
           info: {},

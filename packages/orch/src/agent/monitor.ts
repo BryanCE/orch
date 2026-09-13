@@ -17,8 +17,9 @@ import type { OrchDir } from "../types/core.ts";
 // restarts on its own. Nothing here is plexer-aware: the view is built purely
 // from the events, so no pane, tab or socket concept enters this file.
 import { subscribeEvents } from "../daemon/rpc/client.ts";
+import { isNotifyEvent } from "../notify/event.ts";
 import { callerKind } from "../policy/caller.ts";
-import { isRecord, truncate } from "../util.ts";
+import { truncate } from "../util.ts";
 import type { FleetAgentRow, FleetMonitor, FleetMonitorOptions, FleetReadModel, HarnessApi, HarnessContext } from "../types/agent.ts";
 import type { EventSubscription } from "../types/daemon.ts";
 import type { NotifyEvent } from "../types/notify.ts";
@@ -50,13 +51,6 @@ function plainStatus(_context: HarnessContext, agents: readonly FleetAgentRow[])
   if (counts.failed) parts.push(`${counts.failed} failed`);
   if (counts.done) parts.push(`${counts.done} done`);
   return `orch: ${parts.join(" · ")} — /fleet to view`;
-}
-
-function isNotifyEvent(value: unknown): value is NotifyEvent {
-  return isRecord(value)
-    && typeof value.key === "string"
-    && typeof value.oldState === "string"
-    && typeof value.newState === "string";
 }
 
 /** Short display name for an agent, falling back to its opaque key. */
@@ -107,6 +101,9 @@ export function createFleetMonitor(orchDir: OrchDir, options: FleetMonitorOption
       seen.delete(event.key);
       return;
     }
+    const task = "task" in event ? event.task : undefined;
+    const lastError = "lastError" in event ? event.lastError : undefined;
+    const cost = "cost" in event ? event.cost : undefined;
     seen.set(event.key, {
       spawnedBy: event.spawnedBy,
       row: {
@@ -114,8 +111,8 @@ export function createFleetMonitor(orchDir: OrchDir, options: FleetMonitorOption
         name: agentLabel(event),
         state: event.newState,
         model: event.model ?? null,
-        task: truncate(event.task ?? event.lastError ?? "", TASK_WIDTH),
-        cost: event.cost,
+        task: truncate(task ?? lastError ?? "", TASK_WIDTH),
+        cost,
         ts: event.ts,
       },
     });
@@ -128,9 +125,11 @@ export function createFleetMonitor(orchDir: OrchDir, options: FleetMonitorOption
   // An alert is announced once, on the transition INTO the state — re-announcing
   // on every later event would make the notification worthless.
   function announce(event: NotifyEvent): void {
-    if (!context?.hasUI || !isOwn(event)) return;
+    if (!context?.hasUI || !isOwn(event) || !("oldState" in event)) return;
     if (!ALERT_STATES.has(event.newState) || ALERT_STATES.has(event.oldState)) return;
-    const detail = event.task ?? event.lastError ?? event.newState;
+    const task = "task" in event ? event.task : undefined;
+    const lastError = "lastError" in event ? event.lastError : undefined;
+    const detail = task ?? lastError ?? event.newState;
     context.ui.notify(`${agentLabel(event)}: ${truncate(detail, TASK_WIDTH)}`, event.newState === "blocked" ? "warning" : "error");
   }
 

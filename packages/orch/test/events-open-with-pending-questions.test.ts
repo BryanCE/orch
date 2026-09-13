@@ -44,11 +44,12 @@ describe("events pending-question snapshot", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(received).toHaveLength(1);
       const first = received[0];
-      expect(first?.event.key).toBe("agent1");
-      expect(first?.event.oldState).toBe("asking");
-      expect(first?.event.newState).toBe("asking");
-      expect(first?.event.task).toBe("Q: Approve the change?");
-      expect(first?.event.askCount).toBe(1);
+      expect(first?.event.type).toBe("asking");
+      if (first === undefined || first.event.type !== "asking") throw new Error("expected asking event");
+      expect(first.event.key).toBe("agent1");
+      expect(first.event.oldState).toBe("asking");
+      expect(first.event.newState).toBe("asking");
+      expect(first.event.askCount).toBe(1);
       expect(first?.seq).toBe(0);
     } finally {
       transport.close();

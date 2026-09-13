@@ -56,7 +56,7 @@ function context(status: (string | undefined)[] = [], widgets: unknown[] = []): 
 }
 
 function event(key: string, spawnedBy: string, name: string) {
-  return { key, spawnedBy, name, agent: name, model: null, oldState: "idle", newState: "working", tab: null, ts: new Date().toISOString() };
+  return { type: "transition", key, spawnedBy, name, agent: name, model: null, oldState: "idle", newState: "working", tab: null, ts: new Date().toISOString() };
 }
 
 function push(value: unknown): void {

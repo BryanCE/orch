@@ -3,6 +3,7 @@
 import type { createAgentPresence } from "../agent/presence.ts";
 import type { AgentNotice, BridgeDelivery } from "../control/bridge-message.ts";
 import type { subscribeEvents } from "../daemon/rpc/client.ts";
+import type { AgentState } from "../agent-state.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { JsonRecord, OrchDir } from "./core.ts";
 import type { ParamsOf, ResultOf, RpcMethod } from "../daemon/rpc/protocol.ts";
@@ -249,8 +250,8 @@ export interface BridgeNotification {
   agent: string | null;
   tab: string | null;
   model: string | null;
-  oldState: string;
-  newState: string;
+  oldState: AgentState;
+  newState: AgentState;
   task?: string;
   cost?: number;
   ts: string;

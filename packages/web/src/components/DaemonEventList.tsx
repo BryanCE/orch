@@ -6,7 +6,8 @@ function DaemonEventRow({ event }: { event: DaemonEvent }) {
     : typeof event.agent === "string" && event.agent.length > 0
       ? event.agent
       : typeof event.key === "string" ? event.key : "Unknown agent";
-  const oldState = typeof event.oldState === "string" ? event.oldState : "?";
+  const type = typeof event.type === "string" ? event.type : "?";
+  const oldState = typeof event.oldState === "string" ? event.oldState : undefined;
   const newState = typeof event.newState === "string" ? event.newState : "?";
   const timestamp = typeof event.ts === "string" ? event.ts : undefined;
   const displayTime = timestamp === undefined ? "Unknown time" : new Date(timestamp).toLocaleString();
@@ -16,7 +17,8 @@ function DaemonEventRow({ event }: { event: DaemonEvent }) {
       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-3">
         <span className="min-w-0 truncate text-sm font-medium">{name}</span>
         <span className="shrink-0 font-mono text-xs text-muted-foreground">
-          {oldState} → {newState}
+          <span className="mr-2 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide">{type}</span>
+          {oldState === undefined ? newState : `${oldState} → ${newState}`}
         </span>
         <time className="shrink-0 text-xs text-muted-foreground" dateTime={timestamp}>{displayTime}</time>
       </summary>

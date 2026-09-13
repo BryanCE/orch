@@ -154,7 +154,7 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
     const plan = settings.agents.find((candidate) => candidate.name === agent.name);
     return plan === undefined ? [] : [{ ...agent, model: plan.model, thinking: plan.thinking }];
   });
-  const warnings = (await Promise.all(pinEntries.map((entry) => pinModels(services, logger, [{ key: entry.key, handle: entry.handle, name: entry.name }], entry.model, entry.thinking)))).flat();
+  const warnings = await pinModels(services, logger, pinEntries);
   const dispatches: { name: string; key: string; dispatchId: string }[] = [];
   if (registeredAgents && settings.agents.some((agent) => agent.prompt !== null)) {
     const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));

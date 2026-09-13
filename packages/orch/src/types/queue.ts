@@ -43,7 +43,8 @@ export interface AttemptRow {
   error: string | null;
 }
 
-export type TaskState = "queued" | "claimed" | "done" | "failed" | "cancelled" | "unrunnable";
+export const TASK_STATES = ["queued", "claimed", "done", "failed", "cancelled", "unrunnable"] as const;
+export type TaskState = (typeof TASK_STATES)[number];
 
 /** The same one-scope rule for a READ, phrased in the caller's vocabulary. */
 export type ScopeQuery =

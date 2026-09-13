@@ -1,4 +1,5 @@
 import type { SessionAgentIdentity } from "./store.ts";
+import type { Logger } from "./core.ts";
 import type { StatusRow } from "./command.ts";
 import type { NotifyEvent } from "./notify.ts";
 import type { OrchDir } from "./core.ts";
@@ -16,7 +17,7 @@ export interface LockRecord {
   startToken?: string;
 }
 
-export type RpcEventEmitter = (event: unknown) => void;
+export type RpcEventEmitter = (event: NotifyEvent) => void;
 
 export interface RpcRequestContext {
   readonly transport: "unix" | "tcp";
@@ -54,13 +55,15 @@ export interface RpcServerOptions {
   tcpPort?: number;
   /** Report a TCP bind failure without taking down the unix listener. */
   onTcpError?: (error: unknown, port: number) => void;
+  /** Logger used to contain failures in event subscribers. */
+  logger?: Logger;
   /** Report a bridge attach after its RPC reply has been written. */
   onBridgeAttached?: (key: string) => void;
 };
 
 export interface BufferedEvent {
   seq: number;
-  event: unknown;
+  event: NotifyEvent;
 }
 
 export interface ReplayResult {
@@ -73,7 +76,7 @@ export interface RpcServer {
   /** Stop accepting connections and remove the endpoint files. */
   close(): Promise<void>;
   /** Push an event to every connection subscribed with subscribe-events. */
-  emit(event: unknown): void;
+  emit(event: NotifyEvent): void;
   /** How many connections currently hold a subscribe-events subscription. */
   subscriberCount(): number;
   /** How many bridge keys currently have an attached connection. */

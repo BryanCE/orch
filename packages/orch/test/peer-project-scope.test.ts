@@ -97,4 +97,17 @@ describe("peer discovery walls on the project", () => {
     expect(view.visible).toEqual([]);
     expect("error" in await resolvePeer(directory, daemonClientForPeerView(view), "foreigner", ownKey, true)).toBe(true);
   });
+
+  test("a worker sees its orchestrator in visible and peers", () => {
+    const directory = makeOrchDir();
+    const orchestratorKey = "orchestrator1";
+    seedAgent(orchestratorKey, {}, directory);
+    seedLiveProcess(directory, orchestratorKey);
+    seedAgent(ownKey, { spawnedBy: orchestratorKey }, directory);
+    seedLiveProcess(directory, ownKey);
+
+    const view = peerView(directory, ownKey, [orchestratorKey], false);
+    expect(view.visible).toEqual([orchestratorKey]);
+    expect(view.peers?.map((peer) => peer.key)).toEqual([orchestratorKey]);
+  });
 });

@@ -2,11 +2,12 @@ import type { OrchDir } from "../types/core.ts";
 import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { commandArgv, commandAvailable, createBuiltinNotifiers, stringArray } from "./sinks.ts";
 import { oneLine } from "./format.ts";
-import { AGENT_STATES, type AgentState } from "../adapters/adapter.ts";
+import type { AgentState } from "../adapters/adapter.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
 import { decisionLogger } from "../daemon/decision-log.ts";
 import type { OrchSettings } from "../types/settings.ts";
+import { eventState } from "./event.ts";
 
 function warning(orchDir: OrchDir, message: string): void { decisionLogger(orchDir, null).warn("notify.failed", { message }); }
 
@@ -18,8 +19,6 @@ function isNotifyId(value: string): value is NotifyEntry["id"] {
 }
 
 function statesFor(entry: NotifyEntry): readonly AgentState[] { return entry.on ?? NOTIFY_DEFAULT_ON; }
-function eventState(event: NotifyEvent): AgentState | undefined { return AGENT_STATES.find((state) => state === event.newState); }
-
 function configFor(entry: NotifyEntry): Record<string, unknown> {
   if (entry.id === "webhook") return { url: entry.url };
   if (entry.id === "command") return { command: commandArgv(entry.command) };

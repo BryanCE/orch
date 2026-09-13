@@ -6,6 +6,8 @@ import { readDaemonLock } from "../lifecycle.ts";
 import { attachBridge, detachBridge, attachedBridgeKeys, type BridgeLink } from "../../control/bridge-links.ts";
 import type { BridgeDelivery } from "../../control/bridge-message.ts";
 import { ensurePrivateDir, errorMessage } from "../../util.ts";
+import { decisionLogger } from "../decision-log.ts";
+import { createEventBus, type EventBus } from "../event-bus.ts";
 import { hostOs } from "../../host.ts";
 import type { SessionAgentIdentity } from "../../types/store.ts";
 import type { EndpointPaths, RpcEventEmitter, RpcHandlers, RpcRequestContext, RpcServer, RpcServerOptions } from "../../types/daemon.ts";
@@ -213,6 +215,11 @@ export async function startRpcServer(
   const sockets = new Set<Socket>();
   const connectionCleanups = new Set<() => void>();
   const replayBuffer = new ReplayBuffer(orchDir);
+  const bus = createEventBus(options.logger ?? decisionLogger(orchDir, null));
+  const unsubscribeBus = bus.on((event) => {
+    const buffered = replayBuffer.push(event);
+    for (const socket of subscriptions) lineResponse(socket, { kind: "event", ...buffered });
+  });
   const daemonToken = writeDaemonToken(paths.token);
   const attachFor = (transport: "unix" | "tcp") => (socket: Socket): void => {
     sockets.add(socket);
@@ -228,14 +235,14 @@ export async function startRpcServer(
   const server = createServer(attachUnix);
   if (await bindUnix(server, paths, reclaimableSocket(orchDir, options))) {
     const tcpServer = await startTcpServer(attachTcp, options, paths);
-    return makeRpcServer(server, tcpServer, sockets, connectionCleanups, subscriptions, replayBuffer, paths, "unix", tcpEndpointOf(tcpServer));
+    return makeRpcServer(server, tcpServer, sockets, connectionCleanups, subscriptions, bus, unsubscribeBus, paths, "unix", tcpEndpointOf(tcpServer));
   }
   try { server.close(); } catch {}
   const tcpServer = createServer(attachTcp);
   await listen(tcpServer, { host: "127.0.0.1", port: options.tcpPort ?? 0 });
   const boundPort = boundTcpPort(tcpServer);
   writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
-  return makeRpcServer(tcpServer, undefined, sockets, connectionCleanups, subscriptions, replayBuffer, paths, "tcp", `tcp://127.0.0.1:${boundPort}`);
+  return makeRpcServer(tcpServer, undefined, sockets, connectionCleanups, subscriptions, bus, unsubscribeBus, paths, "tcp", `tcp://127.0.0.1:${boundPort}`);
 }
 
 /**
@@ -324,7 +331,8 @@ function makeRpcServer(
   sockets: Set<Socket>,
   connectionCleanups: Set<() => void>,
   subscriptions: Set<Socket>,
-  replayBuffer: ReplayBuffer,
+  bus: EventBus,
+  unsubscribeBus: () => void,
   paths: { socket: string; port: string; token: string },
   transport: "unix" | "tcp",
   tcpEndpoint?: string,
@@ -339,14 +347,12 @@ function makeRpcServer(
     try { unlinkSync(paths.socket); } catch {}
     try { unlinkSync(paths.port); } catch {}
     try { unlinkSync(paths.token); } catch {}
+    unsubscribeBus();
     subscriptions.clear();
   };
   return {
     close,
-    emit: (event) => {
-      const buffered = replayBuffer.push(event);
-      for (const socket of subscriptions) lineResponse(socket, { kind: "event", ...buffered });
-    },
+    emit: (event) => bus.emit(event),
     subscriberCount: () => subscriptions.size,
     attachedBridgeCount: () => attachedBridgeKeys().length,
     transport,

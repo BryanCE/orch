@@ -17,8 +17,11 @@ function tempOrchDir(): OrchDir {
   return directory;
 }
 
-function transition(key: string, oldState: string, newState: string): NotifyEvent {
-  return { key, agent: "worker", tab: null, model: null, oldState, newState, ts: new Date().toISOString() };
+type TransitionOldState = Extract<NotifyEvent, { type: "transition" }>["oldState"];
+type TransitionNewState = Extract<NotifyEvent, { type: "transition" }>["newState"];
+
+function transition(key: string, oldState: TransitionOldState, newState: TransitionNewState): NotifyEvent {
+  return { type: "transition", key, agent: "worker", tab: null, model: null, oldState, newState, ts: new Date().toISOString() };
 }
 
 afterEach(() => {

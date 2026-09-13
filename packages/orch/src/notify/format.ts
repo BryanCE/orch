@@ -63,7 +63,7 @@ interface NotificationPayload {
   name: string | null;
   tab: string | null;
   model: string | null;
-  oldState: string;
+  oldState: string | null;
   newState: string;
   /** Transition ordinal for this agent; `(key, seq)` identifies the event. */
   seq: number | null;
@@ -77,6 +77,7 @@ interface NotificationPayload {
 function notificationPayload(event: NotifyEvent): NotificationPayload {
   const space = eventSpace(event);
   const { title, body } = notificationText(event);
+  const cost = "cost" in event ? event.cost : undefined;
   return {
     title,
     body,
@@ -88,13 +89,13 @@ function notificationPayload(event: NotifyEvent): NotificationPayload {
     name: event.name ?? null,
     tab: event.tab,
     model: event.model,
-    oldState: event.oldState,
+    oldState: "oldState" in event ? event.oldState : null,
     newState: event.newState,
     seq: event.seq ?? null,
-    task: event.task ?? null,
-    cost: event.cost ?? null,
+    task: "task" in event ? event.task ?? null : null,
+    cost: cost ?? null,
     ts: event.ts,
-    lastError: event.lastError ?? null,
+    lastError: "lastError" in event ? event.lastError ?? null : null,
   };
 }
 
@@ -107,14 +108,34 @@ export function notificationText(event: NotifyEvent, options: { colorize?: boole
   const agent = eventAgent(event, space);
   const color = spaceColor(space);
   const state = oneLine(textValue(event.newState) ?? "unknown").toUpperCase();
-  let summary = event.task ?? "state changed";
-  // A finished agent is summarized by what it REPORTED, not by what it was asked. An
-  // empty lastText is no report at all, so it falls through to the task rather than
-  // rendering a blank line — `textValue` says "absent or blank" where `||` only implied it.
-  if (event.newState === "done") summary = textValue(event.lastText) ?? textValue(event.task) ?? "state changed";
-  else if (event.newState === "error") summary = event.lastError ?? event.task ?? "agent error";
-  else if (event.newState === "blocked") summary = event.task ?? "agent needs input";
-  else if (event.newState === "message") summary = event.mail?.text ?? "message";
+  let summary: string;
+  switch (event.type) {
+    case "transition":
+      // A finished agent is summarized by what it REPORTED, not by what it was asked. An
+      // empty lastText is no report at all, so it falls through to the task rather than
+      // rendering a blank line — `textValue` says "absent or blank" where `||` only implied it.
+      if (event.newState === "done") summary = textValue(event.lastText) ?? textValue(event.task) ?? "state changed";
+      else if (event.newState === "error") summary = event.lastError ?? event.task ?? "agent error";
+      else if (event.newState === "blocked") summary = event.task ?? "agent needs input";
+      else summary = event.task ?? "state changed";
+      break;
+    case "asking":
+      summary = event.task ?? "agent is asking";
+      break;
+    case "message":
+      summary = event.mail.text;
+      break;
+    case "closed":
+      summary = "closed";
+      break;
+    case "task":
+      summary = event.task;
+      break;
+    default: {
+      const exhaustive: never = event;
+      return exhaustive;
+    }
+  }
   summary = oneLine(summary).replace(/^Q:\s*/i, "").slice(0, 60);
   const spaceLabel = `[${space}]`;
   const coloredSpace = options.colorize ? `${spaceAnsi(space)}${spaceLabel}\u001b[0m` : spaceLabel;
@@ -122,8 +143,9 @@ export function notificationText(event: NotifyEvent, options: { colorize?: boole
   const details: string[] = [title, `Space: ${space} (${color})`];
   if (event.tab) details.push(`Tab: ${event.tab}`);
   if (event.model) details.push(`Model: ${event.model}`);
-  if (event.task && event.newState !== "blocked") details.push(`Task: ${oneLine(event.task)}`);
-  if (event.lastError && event.newState !== "error") details.push(`Error: ${oneLine(event.lastError)}`);
-  if (typeof event.cost === "number") details.push(`Cost: $${event.cost.toFixed(2)}`);
+  if ("task" in event && event.task && event.newState !== "blocked") details.push(`Task: ${oneLine(event.task)}`);
+  if ("lastError" in event && event.lastError && event.newState !== "error") details.push(`Error: ${oneLine(event.lastError)}`);
+  const cost = "cost" in event ? event.cost : undefined;
+  if (typeof cost === "number") details.push(`Cost: $${cost.toFixed(2)}`);
   return { title, body: details.join("\n") };
 }

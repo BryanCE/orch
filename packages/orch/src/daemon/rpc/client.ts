@@ -8,7 +8,8 @@ import type { EventSubscription } from "../../types/daemon.ts";
 import { parseRpcResult, type ParamsOf, type ResultOf, type RpcMethod } from "./protocol.ts";
 import { DaemonAbsentError, DaemonUnreachableError, RpcError, type RpcLine, DEFAULT_TIMEOUT_MS, encodeRequest, endpointPaths, readJsonMessages, responseError } from "./wire.ts";
 import { sessionClaim } from "./registration.ts";
-import { isRecord } from "../../util.ts";
+import { errorMessage, isRecord } from "../../util.ts";
+import type { NotifyEvent } from "../../types/notify.ts";
 
 // Bounds for the self-healing event subscription's reconnect loop. A daemon can
 // return at any time (restart, reload, machine wake), so retries never give up;
@@ -178,7 +179,7 @@ export async function rpcCall<M extends RpcMethod>(
 export function subscribeEvents(
   orchDir: OrchDir,
   opts: { since?: number },
-  onEvent: (event: unknown, seq: number) => void,
+  onEvent: (event: NotifyEvent, seq: number) => void,
   onGap?: (oldestSeq: number) => void,
   identify = false,
 ): EventSubscription {
@@ -230,7 +231,11 @@ export function subscribeEvents(
             case "event":
               if (line.seq !== undefined) {
                 last = Math.max(last, line.seq);
-                onEvent(line.event, line.seq);
+                try {
+                  onEvent(line.event, line.seq);
+                } catch (error: unknown) {
+                  decisionLogger(orchDir, null).warn("events.handler-failed", { error: errorMessage(error) });
+                }
               }
               break;
             case "reply":

@@ -2,7 +2,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { runtimeArgv, type OrchRuntime } from "../runtime.ts";
 import { shellQuote } from "../util.ts";
-import { LAUNCH_ENV } from "../identity/launch.ts";
 import type { OrchDir } from "../types/core.ts";
 
 // Claude's hook wire format lives here, in the claude adapter family (law #2:
@@ -20,8 +19,7 @@ export function claudeHookShimPath(root: string): string {
  * runtime declared in settings.json. orch requires ONE declared runtime — the
  * hook installer never probes PATH to pick one, and the invocation form comes
  * from the shared `runtimeArgv` builder so claude, codex, and pi agree.
- * The env gate makes non-orch sessions skip the shim without spawning a runtime
- * at all; the shim also self-gates, so this is defense in depth.
+ * The shim self-gates, so non-orch sessions exit without recording presence.
  *
  * `orchDir` scopes deno's filesystem permissions; it is unused by node and bun,
  * which take no permission flags. Every argv element is quoted — the runtime path
@@ -33,5 +31,5 @@ export function claudeHookCommand(shim: string, event: string, runtime: OrchRunt
   // named in the hook payload to recover the last assistant message.
   const transcriptRoot = path.join(os.homedir(), ".claude");
   const argv = runtimeArgv(runtime, shim, [event], { orchDir, readOnly: [transcriptRoot] });
-  return `[ -n "$${LAUNCH_ENV}" ] || exit 0; ${argv.map(shellQuote).join(" ")}`;
+  return argv.map(shellQuote).join(" ");
 }

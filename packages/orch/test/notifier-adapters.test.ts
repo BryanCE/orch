@@ -9,7 +9,7 @@ const orchDir = (): OrchDir => orchDirAt(".");
 
 const event: NotifyEvent = {
   key: "demo:worker", space: "demo", agent: "worker", tab: "tab-1", model: "model-1",
-  oldState: "working", newState: "blocked", task: "Q: approve deployment", ts: "2026-01-01T00:00:00.000Z",
+  type: "transition", oldState: "working", newState: "blocked", task: "Q: approve deployment", ts: "2026-01-01T00:00:00.000Z",
 };
 
 describe("notifier registry and built-in adapters", () => {

@@ -23,6 +23,36 @@ function isAllowedModel(settings: OrchSettings, harness: AdapterId, bareModel: s
   return patterns.some((pattern) => globToRegex(pattern).test(bareModel));
 }
 
+export type ModelExpansion =
+  | { readonly kind: "listed"; readonly spec: string }
+  | { readonly kind: "expanded"; readonly spec: string; readonly from: string }
+  | { readonly kind: "ambiguous"; readonly from: string; readonly candidates: readonly string[] }
+  | { readonly kind: "unlisted"; readonly from: string };
+
+/** Expand a short model name (`luna`) to the one listed, allowed spec that contains it
+ * (`openai-codex/gpt-5.6-luna`). Exactly one match expands; zero is unlisted; more than one
+ * is ambiguous and names them. A bare spec that is itself listed, or a harness that
+ * enumerates nothing, passes through as listed. */
+export function expandModelSpec(
+  settings: OrchSettings,
+  harness: AdapterId,
+  offered: readonly HarnessModel[],
+  bare: string,
+): ModelExpansion {
+  if (offered.length === 0 || offered.some((model) => model.spec === bare)) {
+    return { kind: "listed", spec: bare };
+  }
+
+  const candidates = offered
+    .filter((model) => model.spec.toLowerCase().includes(bare.toLowerCase()))
+    .filter((model) => isAllowedModel(settings, harness, model.spec))
+    .map((model) => model.spec);
+  if (candidates.length > 1) return { kind: "ambiguous", from: bare, candidates: candidates.sort() };
+  const spec = candidates[0];
+  if (spec !== undefined) return { kind: "expanded", spec, from: bare };
+  return { kind: "unlisted", from: bare };
+}
+
 /** The handful of listed specs closest to a rejected one, for the refusal message. */
 function nearestOffered(offered: readonly HarnessModel[], bare: string): string[] {
   const needle = bare.toLowerCase();

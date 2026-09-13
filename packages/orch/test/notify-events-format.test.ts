@@ -54,24 +54,31 @@ function fakeFetch(captureBody: (body: string) => void): FetchFunction {
   });
 }
 
-function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
-  return {
+type TransitionEvent = Extract<NotifyEvent, { type: "transition" }>;
+
+function event(overrides: Partial<TransitionEvent> = {}): NotifyEvent {
+  const base: TransitionEvent = {
     key: EVENT_KEY,
     space: "w6",
     agent: "w-2",
     tab: null,
     model: null,
+    type: "transition",
     oldState: "working",
     newState: "done",
     task: "build the thing",
     ts: "2026-01-01T00:00:00.000Z",
-    ...overrides,
   };
+  return { ...base, ...overrides };
 }
 
 function transition(orchDir: OrchDir, key: string, status: object, previous = "working") {
   const states = new Map([[key, previous]]);
   return derivePresenceTransition(orchDir, key, { pid: process.pid, ...status }, { name: "worker", tab: null }, states);
+}
+
+function eventTask(value: NotifyEvent | undefined): string | undefined {
+  return value && "task" in value ? value.task : undefined;
 }
 
 describe("notification and presence event formatting", () => {
@@ -111,7 +118,18 @@ describe("notification and presence event formatting", () => {
   });
 
   test("message notification titles contain delivered mail text", () => {
-    const title = notificationText(event({ oldState: "message", newState: "message", mail: { id: "mail-1", text: "[from worker (worker-key)] hello orchestrator" } }), { colorize: false }).title;
+    const title = notificationText({
+      key: EVENT_KEY,
+      space: "w6",
+      agent: "w-2",
+      tab: null,
+      model: null,
+      type: "message",
+      newState: "message",
+      dispatchId: "dispatch-1",
+      mail: { id: "mail-1", text: "[from worker (worker-key)] hello orchestrator" },
+      ts: "2026-01-01T00:00:00.000Z",
+    }, { colorize: false }).title;
     expect(title).toContain("[from worker (worker-key)] hello orchestrator");
   });
 
@@ -151,14 +169,14 @@ describe("notification and presence event formatting", () => {
   test("presence eventTask strips worker preamble, truncates plain tasks, and formats questions", () => {
     const orchDir = tempOrchDir();
     const dispatched = `${workerHeaderFor(undefined)}\n\nbuild the real thing`;
-    expect(transition(orchDir, TASK_KEY, { state: "done", task: dispatched })?.task).toBe("build the real thing");
+    expect(eventTask(transition(orchDir, TASK_KEY, { state: "done", task: dispatched }))).toBe("build the real thing");
 
     const longTask = "x".repeat(100);
-    expect(transition(orchDir, TASK_KEY, { state: "done", task: longTask })?.task).toBe(`${"x".repeat(77)}...`);
+    expect(eventTask(transition(orchDir, TASK_KEY, { state: "done", task: longTask }))).toBe(`${"x".repeat(77)}...`);
     const longDispatched = `${workerHeaderFor(undefined)}\n\n${"x".repeat(TASK_MAX + 20)}`;
     expect(prepareWorkerTask(longDispatched, TASK_MAX)).toBe(`${"x".repeat(TASK_MAX - 3)}...`);
-    expect(transition(orchDir, TASK_KEY, { state: "done", task: longDispatched })?.task).toBe(`${"x".repeat(77)}...`);
-    expect(transition(orchDir, TASK_KEY, { state: "working", asking: { question: "  Need   approval?  " } })?.task).toBe("Q: Need approval?");
+    expect(eventTask(transition(orchDir, TASK_KEY, { state: "done", task: longDispatched }))).toBe(`${"x".repeat(77)}...`);
+    expect(eventTask(transition(orchDir, TASK_KEY, { state: "working", asking: { question: "  Need   approval?  " } }))).toBe("Q: Need approval?");
   });
 
   // A1: the event's space is COMPOSED from the agent's own environment satellite,

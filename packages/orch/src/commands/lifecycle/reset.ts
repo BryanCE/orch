@@ -73,7 +73,7 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   }
   // A reset that could not re-pin its model left the agent on the wrong one, and
   // re-running reset is idempotent — unlike a spawn, nothing duplicates on retry.
-  if ((await pinModels(services, services.logger, cleared, model, thinking)).length) process.exitCode = 1;
+  if ((await pinModels(services, services.logger, cleared.map((agent) => ({ ...agent, model, thinking })))).length) process.exitCode = 1;
   const results = cleared.map((agent) => ({ target: agent.handle, cleared: true, ready: true }));
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
   else process.stdout.write(`Pinned ${cleared.length} reset agent(s) to ${modelSpec(model, thinking)}.\n`);

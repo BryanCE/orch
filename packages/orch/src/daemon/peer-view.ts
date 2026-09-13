@@ -33,12 +33,12 @@ function mayCrossFleets(orchDir: OrchDir, callerId: string | null): boolean {
   return depthOf((id) => agentView(orchDir, id), callerId) === 0;
 }
 
-/** Roots may request every space; a deeper caller stays inside its own
- *  provenance subtree however the all-spaces flag is set. */
+/** Roots may request every space; a non-root caller sees its descendants and
+ *  its ancestors — a reply to the spawner is the ancestor case. */
 function visibleKeys(orchDir: OrchDir, ownKey: string, keys: string[], allSpaces: boolean, callerProject?: string): string[] {
   const lookup = (id: string) => agentView(orchDir, id);
   if (!mayCrossFleets(orchDir, ownKey)) {
-    return keys.filter((key) => isDescendantOf(lookup, key, ownKey));
+    return keys.filter((key) => isDescendantOf(lookup, key, ownKey) || isDescendantOf(lookup, ownKey, key));
   }
   const scoped = scopeToSpace(orchDir, keys, (key) => key, spaceOf(orchDir, ownKey), { all: allSpaces });
   if (allSpaces || callerProject === undefined) return scoped;

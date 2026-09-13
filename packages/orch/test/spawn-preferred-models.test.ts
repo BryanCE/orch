@@ -11,6 +11,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import type { Backend, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../src/types/adapter.ts";
+import type { ThinkingLevel } from "../src/types/policy.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
@@ -111,7 +112,8 @@ describe("the preferred quicklist reaches every launch route", () => {
     seedSpace(directory, "wsA");
     const { backend, allSeen } = capturingPaneBackend();
 
-    for (const [name, model, thinking] of [["quick-a", "openai/gpt-5.6", "medium"], ["quick-b", "anthropic/claude-sonnet-4.5", "high"]] as const) {
+    const agents = [["quick-a", "openai/gpt-5.6", "medium"], ["quick-b", "anthropic/claude-sonnet-4.5", "high"]] satisfies readonly (readonly [string, string, ThinkingLevel])[];
+    for (const [name, model, thinking] of agents) {
       spawnOneIntoTab(directory, {
         backend,
         adapter: piAdapter,

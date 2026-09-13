@@ -6,11 +6,11 @@ import { claudeHookCommand } from "../src/adapters/claude-hooks.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 
 describe("Claude hook command", () => {
-  test("gates execution on the launch environment variable", () => {
+  test("runs for every Claude session and lets the shim self-gate", () => {
     const orchDir: OrchDir = orchDirAt("/tmp/orch");
     const command = claudeHookCommand("/tmp/claude-hooks.js", "Stop", "node", orchDir);
 
-    expect(command).toContain(`$${LAUNCH_ENV}`);
+    expect(command).not.toContain(`$${LAUNCH_ENV}`);
     const source = readFileSync(new URL("../src/adapters/claude-hooks.ts", import.meta.url), "utf8");
     expect(source).not.toContain(LAUNCH_ENV);
   });

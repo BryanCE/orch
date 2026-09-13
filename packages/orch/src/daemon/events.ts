@@ -23,6 +23,9 @@ import type { RunRecord } from "../types/store.ts";
 import type { PresenceStatus } from "../types/presence.ts";
 import type { PresenceMetadata, PresenceWatch, PresenceWatchOptions } from "../types/daemon.ts";
 import type { NotifyEvent } from "../types/notify.ts";
+import { eventState } from "../notify/event.ts";
+
+type AgentNotifyEvent = Extract<NotifyEvent, { readonly type: "transition" }>;
 import type { NotifyEntry } from "../types/settings.ts";
 import type { SettingsManager } from "../types/services.ts";
 
@@ -39,7 +42,7 @@ function eventModel(status: unknown): string | null {
   return modelSpec(id, optionalString(property(status, "thinking")));
 }
 
-function eventTokens(status: object): NotifyEvent["tokens"] | undefined {
+function eventTokens(status: object): AgentNotifyEvent["tokens"] | undefined {
   const raw = property(status, "tokens");
   if (!raw || typeof raw !== "object") return undefined;
   const input = property(raw, "input");
@@ -49,7 +52,7 @@ function eventTokens(status: object): NotifyEvent["tokens"] | undefined {
   const values = [input, output, cacheRead, cacheWrite];
   if (values.some((value) => value !== undefined && typeof value !== "number")) return undefined;
   if (values.every((value) => value === undefined)) return undefined;
-  const normalized: NonNullable<NotifyEvent["tokens"]> = {};
+  const normalized: NonNullable<AgentNotifyEvent["tokens"]> = {};
   if (typeof input === "number") normalized.input = input;
   if (typeof output === "number") normalized.output = output;
   if (typeof cacheRead === "number") normalized.cacheRead = cacheRead;
@@ -155,7 +158,7 @@ interface PresenceActivityFields {
   lastText: string | undefined;
   reason: string | undefined;
   ctxPercent: number | undefined;
-  tokens: NotifyEvent["tokens"];
+  tokens: AgentNotifyEvent["tokens"];
   filesTouched: string[] | undefined;
 }
 
@@ -201,13 +204,13 @@ export function composeAgentEvent(
   key: string,
   status: unknown,
   metadata: PresenceMetadata,
-  transition: { previous: AgentState; state: AgentState },
+  transition: { previous: AgentState; state: AgentState; askCount?: number; gaveUp?: boolean },
   now = new Date(),
 ): NotifyEvent {
   const value = statusObject(status);
   const identity = identityFields(orchDir, key, value, metadata);
   const activity = activityFields(value, transition.state);
-  return {
+  const base = {
     key,
     space: identity.space,
     agent: identity.agent,
@@ -217,17 +220,24 @@ export function composeAgentEvent(
     spawnedByLabel: identity.spawnedByLabel,
     tab: identity.tab,
     model: identity.model,
+    ts: now.toISOString(),
+    ...activity,
+  };
+  if (transition.state === "asking") {
+    return {
+      ...base,
+      type: "asking",
+      oldState: transition.previous,
+      newState: "asking",
+      askCount: transition.askCount ?? 1,
+      gaveUp: transition.gaveUp ?? false,
+    };
+  }
+  return {
+    ...base,
+    type: "transition",
     oldState: transition.previous,
     newState: transition.state,
-    task: activity.task,
-    cost: activity.cost,
-    ts: now.toISOString(),
-    lastError: activity.lastError,
-    lastText: activity.lastText,
-    reason: activity.reason,
-    ctxPercent: activity.ctxPercent,
-    tokens: activity.tokens,
-    filesTouched: activity.filesTouched,
   };
 }
 
@@ -279,10 +289,12 @@ function runRecordForTransition(
   // when it is absent; the transition timestamp is the daemon's observation of
   // when this run was first seen. upsertRun preserves an earlier value on update.
   const startedAt = typeof status.startedAt === "string" ? Date.parse(status.startedAt) : Date.parse(event.ts);
+  const state = eventState(event);
+  if (state === undefined) return undefined;
   const run: RunRecord = {
     dispatchId,
     agentKey: key,
-    state: event.newState,
+    state,
     startedAt,
   };
   // The harness is a fact of the agent's identity row, read through the composer.
@@ -294,7 +306,7 @@ function runRecordForTransition(
   if (view) run.adapter = view.harnessId;
   if (status.model && typeof status.model.id === "string") run.model = status.model.id;
   if (typeof status.task === "string") run.task = status.task;
-  if (TERMINAL_STATES.has(event.newState) && typeof status.finishedAt === "string") {
+  if (TERMINAL_STATES.has(state) && typeof status.finishedAt === "string") {
     const finishedAt = Date.parse(status.finishedAt);
     if (Number.isFinite(finishedAt)) run.finishedAt = finishedAt;
   }
@@ -370,7 +382,6 @@ export function startPresenceWatch(options: PresenceWatchOptions): PresenceWatch
         const text = property(result, "text");
         if (typeof text === "string" && text.length > 0) {
           resultText = text;
-          event.result = truncate(text, 2000);
         }
       }
     }
@@ -454,7 +465,41 @@ const recentTransitions = new Map<string, number>();
  *  the fixed suppression window. The window starts at the published event, so
  *  repeated observations cannot indefinitely hide a genuine later transition. */
 export function isRepeatTransition(event: NotifyEvent, now = Date.now()): boolean {
-  const signature = `${event.key}|${event.oldState}>${event.newState}|${event.dispatchId ?? ""}|${event.task ?? ""}|${event.askCount ?? ""}|${event.gaveUp === true ? "gave-up" : ""}`;
+  let oldState = "";
+  let dispatchId = "";
+  let task = "";
+  let askCount = "";
+  let gaveUp = "";
+  switch (event.type) {
+    case "transition":
+    case "asking":
+    case "closed":
+    case "transition":
+    case "asking":
+      oldState = event.oldState;
+      dispatchId = event.dispatchId ?? "";
+      task = event.task ?? "";
+      if (event.type === "asking") {
+        askCount = String(event.askCount);
+        gaveUp = event.gaveUp ? "gave-up" : "";
+      }
+      break;
+    case "closed":
+      oldState = event.oldState;
+      break;
+    case "task":
+      oldState = event.oldState;
+      task = event.task;
+      break;
+    case "message":
+      dispatchId = event.dispatchId;
+      break;
+    default: {
+      const exhaustive: never = event;
+      return exhaustive;
+    }
+  }
+  const signature = `${event.key}|${oldState}>${event.newState}|${dispatchId}|${task}|${askCount}|${gaveUp}`;
   const lastPublished = recentTransitions.get(signature);
   const repeated = lastPublished !== undefined && now - lastPublished < REPEAT_WINDOW_MS;
   if (!repeated) recentTransitions.set(signature, now);
@@ -480,16 +525,18 @@ export function emitAndNotify(
   const seq = (published.get(event.key) ?? 0) + 1;
   published.set(event.key, seq);
   const named = event.agent?.trim() ? event : { ...event, agent: abstractAgentLabel(space, event.key), space };
-  const capacity = orchDir === undefined
-    ? event.capacity
-    : (() => {
-      const views = new Map(agentViews(orchDir).map((view) => [view.id, view]));
-      const presence = loadPresence(orchDir);
-      const view = views.get(event.key);
-      const currentSettings = settings.current();
-      const computed = computeFleetCapacity(views, presence, currentSettings, { packRootId: view?.rootAgentId });
-      return { packUsed: packsUsed(computed), packCap: currentSettings.fleet.max_agents_per_pack };
-    })();
+  const capacity = event.type !== "transition" && event.type !== "asking"
+    ? undefined
+    : orchDir === undefined
+      ? event.capacity
+      : (() => {
+        const views = new Map(agentViews(orchDir).map((view) => [view.id, view]));
+        const presence = loadPresence(orchDir);
+        const view = views.get(event.key);
+        const currentSettings = settings.current();
+        const computed = computeFleetCapacity(views, presence, currentSettings, { packRootId: view?.rootAgentId });
+        return { packUsed: packsUsed(computed), packCap: currentSettings.fleet.max_agents_per_pack };
+      })();
   const canonical: NotifyEvent = { ...named, seq, ...(capacity === undefined ? {} : { capacity }) };
   emit(canonical);
   if (orchDir !== undefined) notify(orchDir, settings.currentOrNull(), sinks, canonical);

@@ -2,6 +2,7 @@ import type { Effect, Stream } from "effect";
 import type { PackAbortError, PackSendError } from "../seat/domain.ts";
 import type { DaemonClient } from "./agent.ts";
 import type { OrchDir } from "./core.ts";
+import type { NotifyEvent } from "./notify.ts";
 
 /** One transition as orch's daemon publishes it; the pack's only event source. */
 export interface PackTransition {
@@ -85,7 +86,7 @@ export interface PackRuntime {
 
 export interface PackSourceShape {
   /** Every daemon transition, unfiltered; the manager applies the identity wall. */
-  readonly transitions: Stream.Stream<PackTransition>;
+  readonly transitions: Stream.Stream<NotifyEvent>;
   /** This session's own identity; the pack is the agents THIS key spawned. */
   ownKey(): string | undefined;
   /** Presence facts for one agent, straight off disk. */

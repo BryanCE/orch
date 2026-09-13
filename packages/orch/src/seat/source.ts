@@ -14,30 +14,24 @@ import { Context, Effect, Layer, Stream } from "effect";
 import { subscribeEvents } from "../daemon/rpc/client.ts";
 import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
 import { sendPeerMessage } from "../agent/peers.ts";
-import { isRecord } from "../util.ts";
+import { isNotifyEvent } from "../notify/event.ts";
 import * as path from "node:path";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { PackAbortError, PackSendError } from "./domain.ts";
-import type { PackEnrichment, PackSourceConfig, PackSourceShape, PackTransition } from "../types/seat.ts";
+import type { PackEnrichment, PackSourceConfig, PackSourceShape } from "../types/seat.ts";
+import type { NotifyEvent } from "../types/notify.ts";
 
 export class PackSource extends Context.Tag("orch/seat/PackSource")<PackSource, PackSourceShape>() {}
 
-function isTransition(value: unknown): value is PackTransition & Record<string, unknown> {
-  return isRecord(value)
-    && typeof value.key === "string"
-    && typeof value.oldState === "string"
-    && typeof value.newState === "string";
-}
-
-function transitionName(value: PackTransition & Record<string, unknown>): string {
+function transitionName(value: NotifyEvent): string {
   const name = value.name ?? value.agent;
   return typeof name === "string" && name !== "" ? name : value.key;
 }
 
 function makePackSource(config: PackSourceConfig): PackSourceShape {
-  const transitions = Stream.async<PackTransition>((emit) => {
+  const transitions = Stream.async<NotifyEvent>((emit) => {
     const subscription = subscribeEvents(config.orchDir, { since: 0 }, (event) => {
-      if (!isTransition(event)) return;
+      if (!isNotifyEvent(event)) return;
       void emit.single({ ...event, name: transitionName(event) });
     }, undefined, true);
     return Effect.sync(() => subscription.close());

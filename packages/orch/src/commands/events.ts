@@ -3,11 +3,13 @@ import { callerSpace, ensureCallerRegistered } from "../identity/self.ts";
 import { scopeToSpace, withinSpaceCeiling } from "../policy/space.ts";
 import { agentInMineScope, agentInScope, resolveCallerScope } from "../policy/scope.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
-import { isRecord } from "../util.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { rpcCall, subscribeEvents } from "../daemon/rpc/client.ts";
 import { ensureDaemon, rpcRegisterSession } from "../daemon/reach.ts";
 import { deliver } from "../notify/router.ts";
+import { isNotifyEvent } from "../notify/event.ts";
+
+export { isNotifyEvent };
 import { notificationText, oneLine } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { die, forbidNonOperatorOverride } from "./target.ts";
@@ -17,6 +19,7 @@ import type { NotifyEntry, OrchSettings } from "../types/settings.ts";
 import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
 import type { OrchDir } from "../types/core.ts";
+import { isAgentState } from "../agent-state.ts";
 
 export interface EventsTransport {
   /** Settles when the stream is finished: `--once` matched, or close() was called. */
@@ -102,8 +105,9 @@ export async function cmdNotify(services: Services, args: string[]) {
     if (cleanArgs[i] === "--state") state = cleanArgs[++i] ?? "";
     else die("usage: orch notify test [--state <state>] [--json]");
   }
-  if (!state) die("usage: orch notify test [--state <state>] [--json]");
+  if (!state || !isAgentState(state) || state === "asking") die("usage: orch notify test [--state <state>] [--json]");
   const event: NotifyEvent = {
+    type: "transition",
     key: "test:notify",
     agent: "notify-test",
     tab: "notify",
@@ -282,11 +286,25 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
   // `orch status` columns; a stream that carried them made every transition read
   // like a status row and buried the one thing the line exists to say.
   const title = notificationText(textEvent, { colorize: true }).title;
-  const askingCount = event.newState === "asking" && typeof event.askCount === "number"
-    ? ` (asked ${event.askCount}x${event.gaveUp === true ? "; gave up" : ""})`
-    : "";
-  if (event.mail) return `${title}  ${oneLine(event.mail.text)}`;
-  return `${title}  ${event.oldState}->${event.newState}${askingCount}`;
+  let detail: string;
+  switch (event.type) {
+    case "message":
+      detail = oneLine(event.mail.text);
+      break;
+    case "asking":
+      detail = `${event.oldState}->asking (asked ${event.askCount}x${event.gaveUp ? "; gave up" : ""})`;
+      break;
+    case "transition":
+    case "closed":
+    case "task":
+      detail = `${event.oldState}->${event.newState}`;
+      break;
+    default: {
+      const exhaustive: never = event;
+      return exhaustive;
+    }
+  }
+  return `${title}  ${detail}`;
 }
 
 function eventWriter(options: EventsOptions, root: OrchDir): (event: NotifyEvent, streamSeq: number) => boolean {
@@ -307,11 +325,13 @@ function pendingQuestionEvent(question: PendingQuestionView, root: OrchDir): Not
     name: question.name,
     tab: null,
     model: null,
+    type: "asking",
     oldState: "asking",
     newState: "asking",
     task: `Q: ${question.question}`,
     ts: new Date(question.askedAt).toISOString(),
     askCount: 1,
+    gaveUp: false,
   };
 }
 
@@ -363,14 +383,6 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
     // The live subscription remains authoritative if the snapshot RPC is unavailable.
   });
   return transport;
-}
-
-export function isNotifyEvent(value: unknown): value is NotifyEvent {
-  return isRecord(value)
-    && typeof value.key === "string"
-    && typeof value.oldState === "string"
-    && typeof value.newState === "string"
-    && typeof value.ts === "string";
 }
 
 export function sinkLabel(sink: NotifyEntry): string {

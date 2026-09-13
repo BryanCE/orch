@@ -5,13 +5,14 @@ import { isPeerView } from "../../agent/peers.ts";
 import { isPaneLabels } from "../../agent/environment.ts";
 import { isLifecycleVerb } from "../../adapters/adapter.ts";
 import { isThinkingLevel } from "../../policy/thinking.ts";
+import { AGENT_STATES } from "../../agent-state.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../../types/policy.ts";
 import type { PeerView } from "../peer-view.ts";
 import { isAgentNotice, type AgentNotice } from "../../control/bridge-message.ts";
 import type { PaneLabels } from "../../types/plexer.ts";
 import type { LifecycleVerb } from "../../types/adapter.ts";
 import type { DaemonStatusRow, PendingQuestionView } from "../../types/daemon.ts";
-import type { NotifyEvent } from "../../types/notify.ts";
+import type { BridgeNotification } from "../../types/agent.ts";
 
 const RPC_ERROR_CODES = [
   "INVALID_REQUEST", "INVALID_PARAMS", "METHOD_NOT_FOUND", "HANDLER_ERROR",
@@ -47,14 +48,14 @@ const notifyParams = z.object({
   agent: z.string().nullable(),
   tab: z.string().nullable(),
   model: z.string().nullable(),
-  oldState: nonBlank,
-  newState: nonBlank,
+  oldState: z.enum(AGENT_STATES),
+  newState: z.enum(AGENT_STATES),
   ts: nonBlank,
   space: optionalText,
   task: optionalText,
   lastError: optionalText,
   cost: z.number().optional(),
-}) satisfies z.ZodType<NotifyEvent>;
+}) satisfies z.ZodType<BridgeNotification>;
 
 const SESSION_CLAIM = z.object({
   token: z.string(),

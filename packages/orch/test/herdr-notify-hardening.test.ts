@@ -61,17 +61,20 @@ const adapter = makeFakeAdapter({
   interactiveArgv: () => ["printf", 'quoted "value" spaces $HOME'],
 });
 
-function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
-  return {
+type TransitionEvent = Extract<NotifyEvent, { type: "transition" }>;
+
+function event(overrides: Partial<TransitionEvent> = {}): NotifyEvent {
+  const base: TransitionEvent = {
     key: "p9",
     agent: null,
     tab: null,
     model: null,
+    type: "transition",
     oldState: "working",
     newState: "done",
     ts: "2026-01-01T00:00:00.000Z",
-    ...overrides,
   };
+  return { ...base, ...overrides };
 }
 
 afterAll(() => {

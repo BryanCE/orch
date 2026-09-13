@@ -178,13 +178,13 @@ async function socketAnswers(directory: OrchDir): Promise<boolean> {
 function sessionMessageEvent(directory: OrchDir, key: string, id: string, text: string): NotifyEvent {
   const view = agentView(directory, key);
   return {
+    type: "message",
     key,
     space: view?.environment.space ?? undefined,
     agent: view?.name ?? null,
     name: view?.name ?? null,
     tab: null,
     model: null,
-    oldState: "message",
     newState: "message",
     dispatchId: id,
     ts: new Date().toISOString(),
@@ -428,6 +428,7 @@ function publishClosedAgent(state: DaemonState, params: ParamsOf<"agent-closed">
   if (!view) throw new Error(`agent ${key} does not exist`);
   if (view.endedAt === null) throw new Error(`agent ${key} has not ended`);
   const event: NotifyEvent = {
+    type: "closed",
     key,
     space: view.environment.space ?? undefined,
     agent: view.name,
@@ -690,8 +691,11 @@ export async function startDaemon(): Promise<DaemonState> {
         const keys = params.keys ?? [];
         return peerView(directory, params.ownKey, keys, params.allSpaces === true, params.projectRoot);
       },
-      notify: (event) => {
-        activePaneHud(event.key, directory).notify(event);
+      notify: (event: ParamsOf<"notify">) => {
+        const composed: NotifyEvent = event.newState === "asking"
+          ? { type: "asking", ...event, askCount: 1, gaveUp: false }
+          : { type: "transition", ...event };
+        activePaneHud(event.key, directory).notify(composed);
         return { ok: true };
       },
       status: () => fleetStatus(state),

@@ -912,3 +912,1397 @@ packages/orch/test/peer-identity.test.ts:
 (pass) the spawner address invariant > an address that IS stamped resolves to a live status record [37.96ms]
 (pass) peer identity in messaging > peer summaries render an unplaced agent without a local place name [44.55ms]
 (pass) peer identity in messaging > orch_send reports the peer's NAME and calls the message RPC [46.63ms]
+(pass) peer identity in messaging > orch_send reports queued when the message is not acknowledged [41.63ms]
+(pass) peer identity in messaging > orch_send reports when the daemon is unreachable [47.13ms]
+(pass) peer identity in messaging > peers resolve by display name exactly like by key [40.46ms]
+(pass) peer identity in messaging > "spawner" reaches the stamped spawner session across fleet scoping [39.12ms]
+(pass) peer identity in messaging > a spawner with no live status record is refused BY NAME, not with a bare key [36.44ms]
+
+packages/orch/test/bridge-reasserts-pin.test.ts:
+(pass) bridge reasserts orch model pins > reasserts after session_start and reports the applied pin [5.81ms]
+(pass) bridge reasserts orch model pins > reasserts one time for a foreign level and ignores apply events [3.59ms]
+(pass) bridge reasserts orch model pins > a harness clamp does not create a reassert loop [2.47ms]
+
+packages/orch/test/transfer-does-not-disturb.test.ts:
+(pass) a transfer touches the lease and nothing else > a handoff changes the holder and leaves every other fact identical [55.79ms]
+(pass) a transfer touches the lease and nothing else > the agent's process is not restarted or re-attached [50.95ms]
+(pass) a transfer touches the lease and nothing else > no control write is delivered to the agent [58.32ms]
+(pass) a transfer touches the lease and nothing else > adoption of an unheld agent disturbs it no more than a handoff does [56.41ms]
+(pass) a transfer touches the lease and nothing else > the holding that ended is kept as history, not erased by the transfer [62.06ms]
+
+packages/orch/test/commands-runs.test.ts:
+(pass) commands/runs > lists newest first and honors -n [45.45ms]
+(pass) commands/runs > target filter and json preserve RunRecord rows [49.10ms]
+(pass) commands/runs > running rows render as running, not zero duration [0.13ms]
+(pass) commands/runs > result falls back to durable run history after presence reap [30.39ms]
+
+packages/orch/test/dispatch-channel-first.test.ts:
+(pass) work reaches an agent through its link > a headless agent receives a dispatch through the link [42.36ms]
+(pass) work reaches an agent through its link > a capless adapter still gets the not-placed boundary answer [45.42ms]
+
+packages/orch/test/settings-notify.test.ts:
+(pass) orch settings notify > records a sink with the field that sink declares [103.76ms]
+(pass) orch settings notify > re-adding one sink replaces it in place and keeps the fields the call omits [953.48ms]
+(pass) orch settings notify > accepts asking as a first-class sink state [129.18ms]
+(pass) orch settings notify > remove drops only the named sink [213.18ms]
+(pass) orch settings notify > list reports each sink with the states it fires on, defaults included [196.00ms]
+(pass) orch settings notify > an empty notify array lists as none configured [0.42ms]
+(pass) orch settings notify > the notify row lists every sink, the states it may fire on, and the fields each carries [65.91ms]
+(pass) orch settings notify > the notify row writes the picked sinks, states included, and drops the ones left off [1.33ms]
+(pass) orch settings notify > the notify row refuses an unknown sink, a carrying sink with nothing to carry, and an unknown state [0.41ms]
+
+packages/orch/test/notify.test.ts:
+(pass) notification routing > an excluded state does not invoke its notifier [2.37ms]
+
+packages/orch/test/backend-tmux.test.ts:
+(pass) TmuxBackend > current identity uses the explicit id, not the launch environment [0.44ms]
+(pass) TmuxBackend > does not expose legacy top-level group methods [0.06ms]
+(pass) TmuxBackend > composes a complete group role bundle [0.04ms]
+(pass) TmuxBackend > exposes tmux pane roles [0.05ms]
+(pass) TmuxBackend > reads the pane shell pid as the pane process [0.36ms]
+(pass) TmuxBackend > reports tmux availability [0.21ms]
+(pass) TmuxBackend > reflects the TMUX environment [0.07ms]
+(pass) TmuxBackend > rejects an empty handle without invoking tmux [0.06ms]
+(pass) TmuxBackend > the pane inventory surfaces only orch-spawned panes [0.27ms]
+(pass) TmuxBackend > status-facing inventory displays the tmux session workspace [0.08ms]
+(pass) TmuxBackend > inventory status is read from the pane's presence status.json [0.33ms]
+(pass) TmuxBackend > inventory status is null when no presence status.json exists [0.07ms]
+(pass) TmuxBackend > waitAgentStatus polls presence status.json until it matches or times out [251.03ms]
+(pass) TmuxBackend > waiting fails immediately when the pane has no presence key [0.12ms]
+(pass) TmuxBackend > the pane screen returns captured text and throws when capture-pane fails [1750.76ms]
+(pass) TmuxBackend > setLabel and renameAgent write two distinct pane options [0.28ms]
+(pass) TmuxBackend > placement.open splits the requested target with cwd and environment [0.27ms]
+(pass) TmuxBackend > spawn places the agent into an existing group via split-window when opts.group is set [0.32ms]
+(pass) TmuxBackend > spawn splits the planned target pane, not whatever pane the window has active [0.09ms]
+(pass) TmuxBackend > groupLayout reports every pane in a window with its cell geometry [0.20ms]
+(pass) TmuxBackend > spawn opens a new window via new-window when no group is given [0.15ms]
+(pass) TmuxBackend > groups() and workspaces() are scoped to windows/sessions containing an orch pane [0.28ms]
+(pass) TmuxBackend > createGroup opens a window and reports its root pane, throwing on failure [0.17ms]
+(pass) an agent is launched with its fleet's project scope (1.13) > a tmux agent in a worktree carries the FLEET's project, not its own cwd [0.39ms]
+(pass) an agent is launched with its fleet's project scope (1.13) > a tmux agent opened in a fresh window carries it too [0.17ms]
+(pass) an agent is launched with its fleet's project scope (1.13) > an empty value is dropped rather than exported as a configured blank [0.15ms]
+
+packages/orch/test/identity.test.ts:
+(pass) serializeIdentity / parseIdentity > a key is the minted id verbatim [0.45ms]
+(pass) serializeIdentity / parseIdentity > round-trips a minted id [0.06ms]
+(pass) serializeIdentity / parseIdentity > a key is one flat filesystem-safe segment with nothing to split [0.10ms]
+(pass) serializeIdentity / parseIdentity > two spawns never collide, so no plexer is needed to namespace them [9.57ms]
+(pass) isAgentId > accepts a minted id [0.09ms]
+(pass) isAgentId > rejects everything that is not one [0.08ms]
+(pass) malformed input > rejects malformed ids [0.03ms]
+
+packages/orch/test/commands-lease.test.ts:
+(pass) lease commands > detach releases the lease and is a no-op when already unleased [44.80ms]
+(pass) lease commands > a LIVE foreign holder still excludes everyone else [41.69ms]
+(pass) lease commands > adopt takes an unleased agent and a dead holder [39.69ms]
+(pass) lease commands > adopt refuses a holder with a live recorded process [39.63ms]
+(pass) lease commands > reap refuses when a live descendant exists, regardless of lease [41.60ms]
+(pass) lease commands > reap refuses while the recorded process is alive [31.54ms]
+(pass) lease commands > reap is never lease-gated and removes the record and presence [41.83ms]
+{"outcome":"answer","reason":"no-environment-role","text":"this pane environment does not provide abort"}
+(pass) lease commands > abort proceeds with a foreign live-holder lease [73.86ms]
+{"closed":["1jwqwdbm0c"],"results":[{"target":"1jwqwdbm0c","handle":"close-handle","outcome":"done","error":null}],"requested":1,"ok":1,"stream":false}
+(pass) lease commands > close proceeds with a foreign live-holder lease [61.24ms]
+{"target":"etylq1oc16","name":"reap-worker","reaped":true}
+(pass) lease commands > reap proceeds with a foreign live-holder lease [61.08ms]
+(pass) lease commands > reset driving verb refuses a foreign live-holder lease [45.48ms]
+
+packages/orch/test/event-identity.test.ts:
+(pass) published event identity > stamps a per-agent ordinal so a redelivery is recognizable [0.22ms]
+(pass) the work loop is not a second presence-transition source > an agent state change publishes nothing from the queue loop [149.25ms]
+
+packages/orch/test/adapter-pi.test.ts:
+(pass) PiAdapter > uses pi interactively, pif headlessly, and declares honest capabilities [0.19ms]
+(pass) PiAdapter > restricted workers explicitly load the bundled pi extension [0.09ms]
+(pass) PiAdapter > declares its lifecycle slash-commands [0.05ms]
+(pass) PiAdapter > reads state from the presence status through store helpers [18.21ms]
+(pass) PiAdapter > reads results.jsonl and falls back to the last assistant session text [1.10ms]
+(pass) PiAdapter > parses pi's supported model table without importing harness internals [0.27ms]
+
+packages/orch/test/daemon-lifecycle.test.ts:
+(pass) daemon lifecycle > acquires once and refuses a second live owner [0.92ms]
+(pass) daemon lifecycle > reclaims a dead lock only when its socket does not answer [0.61ms]
+(pass) daemon lifecycle > reclaims an unreadable lock, which a crash truncated and no daemon owns [0.75ms]
+(pass) daemon lifecycle > refuses an unreadable lock while the socket still answers [0.29ms]
+(pass) daemon lifecycle > clears the lock, socket and port a departed daemon owned, keeping the log [0.43ms]
+(pass) daemon lifecycle > refuses a stale lock when the socket probe cannot answer [0.41ms]
+(pass) daemon lifecycle > retries if a stale lock disappears during reclaim [0.46ms]
+Bun is a fast JavaScript runtime, package manager, bundler, and test runner. (1.4.0+34cbb9a40)
+
+Usage: bun <command> [...flags] [...args]
+
+Commands:
+  run       ./my-script.ts       Execute a file with Bun
+            lint                 Run a package.json script
+  test                           Run unit tests with Bun
+  x         vite                 Execute a package binary (CLI), installing if needed (bunx)
+  repl                           Start a REPL session with Bun
+  exec                           Run a shell script directly with Bun
+
+  install                        Install dependencies for a package.json (bun i)
+  add       @remix-run/dev       Add a dependency to package.json (bun a)
+  remove    babel-core           Remove a dependency from package.json (bun rm)
+  update    @evan/duckdb         Update outdated dependencies
+  audit                          Check installed packages for vulnerabilities
+  dedupe                         Remove duplicate versions from the lockfile
+  prune                          Remove packages that are not in the lockfile from node_modules
+  outdated                       Display latest versions of outdated dependencies
+  link      [<package>]          Register or link a local npm package
+  unlink                         Unregister a local npm package
+  publish                        Publish a package to the npm registry
+  patch <pkg>                    Prepare a package for patching
+  pm <subcommand>                Additional package management utilities
+  info      @zarfjs/zarf         Display package metadata from the registry
+  why       zod                  Explain why a package is installed
+
+  build     ./a.ts ./b.jsx       Bundle TypeScript & JavaScript into a single file
+
+  init                           Start an empty Bun project from a built-in template
+  create    vite                 Create a new project from a template (bun c)
+  upgrade                        Upgrade to latest version of Bun.
+
+  <command> --help               Print help text for command.
+
+Learn more about Bun:            https://bun.com/docs
+Join our Discord community:      https://bun.com/discord
+(pass) daemon lifecycle > daemonizes to an explicit orch dir and supports attached foreground mode [23.14ms]
+(pass) daemon lifecycle > reexecs with the current argv and hands over the lock [1.66ms]
+Bun is a fast JavaScript runtime, package manager, bundler, and test runner. (1.4.0+34cbb9a40)
+
+Usage: bun <command> [...flags] [...args]
+
+Commands:
+  run       ./my-script.ts       Execute a file with Bun
+            lint                 Run a package.json script
+  test                           Run unit tests with Bun
+  x         next                 Execute a package binary (CLI), installing if needed (bunx)
+  repl                           Start a REPL session with Bun
+  exec                           Run a shell script directly with Bun
+
+  install                        Install dependencies for a package.json (bun i)
+  add       tailwindcss          Add a dependency to package.json (bun a)
+  remove    babel-core           Remove a dependency from package.json (bun rm)
+  update    elysia               Update outdated dependencies
+  audit                          Check installed packages for vulnerabilities
+  dedupe                         Remove duplicate versions from the lockfile
+  prune                          Remove packages that are not in the lockfile from node_modules
+  outdated                       Display latest versions of outdated dependencies
+  link      [<package>]          Register or link a local npm package
+  unlink                         Unregister a local npm package
+  publish                        Publish a package to the npm registry
+  patch <pkg>                    Prepare a package for patching
+  pm <subcommand>                Additional package management utilities
+  info      @shumai/shumai       Display package metadata from the registry
+  why       hono                 Explain why a package is installed
+
+  build     ./a.ts ./b.jsx       Bundle TypeScript & JavaScript into a single file
+
+  init                           Start an empty Bun project from a built-in template
+  create    svelte               Create a new project from a template (bun c)
+  upgrade                        Upgrade to latest version of Bun.
+
+  <command> --help               Print help text for command.
+
+Learn more about Bun:            https://bun.com/docs
+Join our Discord community:      https://bun.com/discord
+(pass) daemon lifecycle > rejects a recycled pid identity [0.78ms]
+(pass) daemon lifecycle > foreign machine registration cannot be signalled for another store [0.83ms]
+(pass) daemon lifecycle > only a provable lock owner may be signalled [0.35ms]
+(pass) daemon lifecycle > hash is stable and changes when entrypoint content changes [0.21ms]
+
+packages/orch/test/control-ack.test.ts:
+(pass) control delivery acknowledgements > waits for the matching reader acknowledgement [0.26ms]
+(pass) control delivery acknowledgements > captures an acknowledgement arriving during delivery [0.08ms]
+(pass) control delivery acknowledgements > never claims consumption for an unacknowledged channel [0.05ms]
+(pass) control delivery acknowledgements > times out without claiming that delivery was cancelled [2.64ms]
+(pass) control delivery acknowledgements > propagates a failed send and removes its waiter [0.13ms]
+
+packages/orch/test/port-seam-errors.test.ts:
+(pass) port seam error contract > provider mutation errors preserve argv, exit status, stderr, and stdout [0.22ms]
+(pass) port seam error contract > provider query errors throw instead of returning a sentinel [0.09ms]
+
+packages/orch/test/one-control-dispatcher.test.ts:
+(pass) there is exactly one control dispatcher > no module outside src/control declares a control dispatcher [3.39ms]
+(pass) there is exactly one control dispatcher > no dispatcher is exported under two names [7.16ms]
+
+packages/orch/test/spawn-name-list.test.ts:
+(pass) spawn names every agent positionally, at creation > the positional arguments are the names, one per pane [0.10ms]
+(pass) spawn names every agent positionally, at creation > the pane count is how many names were given [0.03ms]
+(pass) spawn names every agent positionally, at creation > spawning with no name at all is refused [0.10ms]
+(pass) spawn names every agent positionally, at creation > a bare count is not a name and is refused [0.10ms]
+(pass) spawn names every agent positionally, at creation > the same name twice would collide, so it is refused before anything is created [0.04ms]
+(pass) spawn names every agent positionally, at creation > every name is validated, so one bad name creates nothing [0.03ms]
+(pass) spawn names every agent positionally, at creation > --name is gone: naming is positional, so the flag is an unknown flag [0.05ms]
+(pass) spawn names every agent positionally, at creation > claimSpawnNames takes the resolved names and asserts each is free [0.49ms]
+
+packages/orch/test/no-placement-row-over-the-composed-view.test.ts:
+(pass) no Placement row is reassembled over the composed view (2.1) > there is no second lookup module projecting the environment into a flat row [0.05ms]
+(pass) no Placement row is reassembled over the composed view (2.1) > the space wall reads the OPEN space interval, so a moved agent is walled by where it IS [55.44ms]
+(pass) no Placement row is reassembled over the composed view (2.1) > a string that names no registered agent is in no space rather than an error [26.84ms]
+
+packages/orch/test/store-lease-rows.test.ts:
+(pass) agent lease rows > fencing ids are monotonic across agents and never reused after reap [40.59ms]
+(pass) agent lease rows > a second open lease is rejected [51.87ms]
+(pass) agent lease rows > release and expiry close rows with matching reason and exact until [44.40ms]
+(pass) agent lease rows > handoff closes current and inserts a newer row without changing prior facts [42.66ms]
+(pass) agent lease rows > adoption closes prior and inserts a strictly newer adopter row [40.49ms]
+(pass) agent lease rows > adoption with no open lease is plain acquire and leaves closed history untouched [42.24ms]
+(pass) agent lease rows > handoff rolls back close when successor insert fails [39.72ms]
+(pass) agent lease rows > wrong-holder release and handoff are rejected [38.08ms]
+(pass) agent lease rows > an agent cannot lease itself [34.42ms]
+(pass) agent lease rows > expiry inserts nothing new [42.50ms]
+(pass) agent lease rows > reads return only open rows [53.12ms]
+
+packages/orch/test/unleased-stays-adoptable.test.ts:
+(pass) unleased and idle stays alive and adoptable (D3) > a decade of retention sweeps never ages out an unleased idle agent [34.59ms]
+(pass) unleased and idle stays alive and adoptable (D3) > and it is still adoptable afterwards — the point of keeping it [37.08ms]
+(pass) unleased and idle stays alive and adoptable (D3) > the sweep reaps only agents that actually ENDED, never merely unleased ones [39.04ms]
+(pass) unleased and idle stays alive and adoptable (D3) > repeated sweeps are stable: an unleased agent survives every one of them [43.59ms]
+
+packages/orch/test/port-seam-channel.test.ts:
+(pass) orch bridge links and capture roles > headless delivery reaches the link and the ack settles its outbox row [54.17ms]
+(pass) orch bridge links and capture roles > live session delivery settles mail without a bridge or pane route [50.67ms]
+(pass) orch bridge links and capture roles > a spawned agent whose bridge is detached stays queued for that bridge [60.70ms]
+(pass) orch bridge links and capture roles > dead session without a bridge or pane route is undeliverable [46.67ms]
+(pass) orch bridge links and capture roles > capture reads status and result from the orch presence record [23.41ms]
+
+packages/orch/test/one-spelling-per-fact.test.ts:
+(pass) one spelling per shared fact > osSide and the store agree for an injected Windows platform [40.10ms]
+(pass) one spelling per shared fact > the shared record guard rejects arrays and null [0.13ms]
+(pass) one spelling per shared fact > removed identity method has no source spelling [3.50ms]
+(pass) one spelling per shared fact > settings reads have no literal fallbacks [9.22ms]
+(pass) one spelling per shared fact > launch env has one spelling [6.68ms]
+(pass) one spelling per shared fact > removed spawn cap has no source or README spelling [2.92ms]
+
+packages/orch/test/outbox-replay.test.ts:
+(pass) outbox restart replay > replays failed messages after restart without duplicates [37.49ms]
+
+packages/orch/test/settings-thinking.test.ts:
+(pass) orch settings thinking > writes the global default and reads back through loadSettings [0.85ms]
+(pass) orch settings thinking > writes a per-harness override without disturbing the global default [0.58ms]
+thinking  xhigh
+(pass) orch settings thinking > the command sets the level a user names [0.77ms]
+thinking (pi)  low
+(pass) orch settings thinking > the command sets a per-harness level with --harness [0.60ms]
+(pass) orch settings thinking > a level orch does not know is refused, naming the valid levels [0.25ms]
+(pass) orch settings thinking > clearing a per-harness override falls back to the global default [0.56ms]
+
+packages/orch/test/lease-authority.test.ts:
+(pass) C3 foreign agents are untouchable > every driving verb is refused while a live foreign orch holds the lease [42.99ms]
+(pass) C3 foreign agents are untouchable > a DEAD foreign holder is not a collision [44.75ms]
+(pass) C3 foreign agents are untouchable > the composed holder IS the open lease, with nothing beside it [39.94ms]
+(pass) C4 steal > adopt refuses a live holder, and --steal takes it [49.15ms]
+(pass) C4 steal > detach refuses a live holder, and --steal releases it [45.16ms]
+(pass) C4a fencing token > lease ids are monotonic across handoff and adoption [40.14ms]
+(pass) C4a fencing token > a stale fence cannot release the current holder's lease [40.49ms]
+(pass) C4a fencing token > openLeaseId is null when nothing is leased [31.25ms]
+(pass) C4b reads are never gated > status and events read straight through a live foreign lease [38.80ms]
+(pass) C4c/C4d name resolution > duplicate names are legal and an ambiguous target asks for the id [39.10ms]
+(pass) C4c/C4d name resolution > a unique name resolves, and an unknown target is a lookup miss [33.69ms]
+(pass) C4e naming at creation > a nameless spawn is refused [0.32ms]
+(pass) C4e naming at creation > a self-registering session gets <harness>-<first 8 of its id> [34.03ms]
+(pass) C4f self-rename > an agent renames itself whether or not a lease is in force [40.80ms]
+(pass) C4f self-rename > renaming another agent is driving and obeys the lease [40.95ms]
+(pass) C4f self-rename > an invalid name is refused [31.85ms]
+(pass) C5 a transfer does not disturb the agent > adoption writes lease rows and touches nothing else [48.64ms]
+(pass) C7 live by lease, history by provenance > adoption moves the live view and leaves provenance untouched [43.45ms]
+
+packages/orch/test/work-notify.test.ts:
+(pass) orch presence notifications > delivers a presence transition through a configured command sink [71.07ms]
+
+packages/orch/test/cli-backends-tmux.test.ts:
+(pass) tmux backend registry and capabilities > is registered [0.13ms]
+(pass) tmux backend registry and capabilities > explicit selection follows tmux availability [0.26ms]
+(pass) tmux backend registry and capabilities > exposes pane roles [0.10ms]
+(pass) tmux backend registry and capabilities > reflects the TMUX environment [0.04ms]
+(pass) tmux backend registry and capabilities > a tmux agent's key is the minted id, never its pane [0.05ms]
+(pass) tmux backend registry and capabilities > selects an available placing environment, whichever one the caller sits in [0.11ms]
+(pass) tmux backend registry and capabilities > falls back to headless only when no environment can place an agent [0.05ms]
+(pass) tmux backend registry and capabilities > an installed plexer is selectable from outside its session, and refuses in its own words [0.27ms]
+(pass) tmux backend registry and capabilities > herdr is selectable from outside a herdr session [0.07ms]
+(pass) tmux backend registry and capabilities > refuses cross-session tmux steer without --cross-space [55.27ms]
+
+packages/orch/test/setup-wizard.test.ts:
+(pass) setup model picker > switches large catalogues to searchable bounded mode and preserves effort [0.31ms]
+(pass) setup model picker > keeps the compact selector for small catalogues [0.10ms]
+(pass) setup model list picker > large catalogues use the bounded searchable multiselect [0.24ms]
+(pass) setup model list picker > the prompt names both jobs the list does, and that an empty one forbids nothing [0.08ms]
+(pass) setup model list picker > stored values start checked, and clearing them returns an empty selection [0.34ms]
+
+packages/orch/test/work-loop-identity.test.ts:
+(pass) Cq8/Cq1: the work loop claims as the registered agent, never as a plexer key > a claim records the minted agent id, not the presence key [54.54ms]
+(pass) Cq8/Cq1: the work loop claims as the registered agent, never as a plexer key > an idle process with no registered agent row is never handed pack work [45.52ms]
+(pass) Cq8/Cq1: the work loop claims as the registered agent, never as a plexer key > Cq1: the pack drains its own queue with its orch dead and no lease in force [70.29ms]
+
+packages/orch/test/space-policy.test.ts:
+(pass) a space is user-created, and absence falls back to the repo root > placing an agent in a space nobody created is refused, not minted [31.90ms]
+(pass) a space is user-created, and absence falls back to the repo root > two unspaced agents in the SAME repo root can reach each other [35.70ms]
+(pass) a space is user-created, and absence falls back to the repo root > two unspaced agents in DIFFERENT repo roots cannot [38.16ms]
+(pass) a space is user-created, and absence falls back to the repo root > an agent placed in no space reports none, even inside a plexer workspace [42.11ms]
+(pass) a space is user-created, and absence falls back to the repo root > recording a spawn never conjures the space it names [26.93ms]
+(pass) a space is user-created, and absence falls back to the repo root > a space still walls, and it outranks the repo root [44.15ms]
+(pass) space policy > reads the space from the environment satellite, and absence is null [61.37ms]
+(pass) space policy > resolves space names through records and functions [0.24ms]
+(pass) space policy > compares agents by the space each is composed into [67.43ms]
+(pass) space policy > enforces the space wall across every plexer alike [93.13ms]
+(pass) space policy > scopes agents to the current space [49.38ms]
+(pass) space policy > a null current space leaves items unscoped [27.85ms]
+(pass) space policy > 2.7 status displays the composed space, not text sliced from a key [51.51ms]
+(pass) space policy > 6.6 structured identity drives status and policy, not serialized key text [54.61ms]
+
+packages/orch/test/notify-events-format.test.ts:
+(pass) notification and presence event formatting > spaceColor is stable and returns a palette hex [0.18ms]
+(pass) notification and presence event formatting > nameless events use an identity-derived agent label [0.52ms]
+(pass) notification and presence event formatting > named events prefer the human name over the harness id [0.16ms]
+(pass) notification and presence event formatting > notificationText pins the canonical done, error, and blocked golden vectors [0.22ms]
+(pass) notification and presence event formatting > message notification titles contain delivered mail text [0.05ms]
+(pass) notification and presence event formatting > webhook payload includes space and spaceColor [0.56ms]
+(pass) notification and presence event formatting > presence eventTask strips worker preamble, truncates plain tasks, and formats questions [32.70ms]
+(pass) notification and presence event formatting > derivePresenceTransition composes the space from the agent's environment [33.91ms]
+
+packages/orch/test/store-events.test.ts:
+(pass) event store rows > appendEvent assigns increasing sequence numbers and round-trips payload [32.71ms]
+(pass) event store rows > appendEvent keeps sequence numbers across store reopen [46.97ms]
+(pass) event store rows > pruned sequence numbers are never reused [42.14ms]
+(pass) event store rows > selectEventsSince filters by sequence, orders ascending, and honours limit [36.76ms]
+(pass) event store rows > oldestEventSeq reports undefined when empty and the surviving lowest sequence after pruning [33.91ms]
+
+packages/orch/test/bridge-terminal.test.ts:
+(pass) bridge terminal turn seam > empty and tool-only turn_end turns still publish a terminal idle state [1.81ms]
+(pass) bridge terminal turn seam > a settled turn with assistant text publishes done [1.15ms]
+
+packages/orch/test/events-scope-notice.test.ts:
+(pass) events scope notice > names the default live scope and its wideners [0.09ms]
+(pass) events scope notice > names the all-agent live scope and its history widener [0.07ms]
+(pass) events scope notice > a redirected stream is a harness reading transitions, and gets no banner [0.02ms]
+(pass) events scope notice > does not announce when history was requested [0.07ms]
+(pass) events scope notice > writes one notice before starting the live transport [0.14ms]
+(pass) events scope notice > does not write a notice when history was requested [0.05ms]
+(pass) events scope notice > says so when the caller owns no agents [0.08ms]
+(pass) events scope notice > stays out of a --json stream, which a parser is reading [0.04ms]
+(pass) events scope notice > does not announce when explicit targets were requested [0.05ms]
+
+packages/orch/test/status-owner-column.test.ts:
+(pass) the rendered status table carries the owner column > each row's OWNER cell holds that row's lease fact [0.75ms]
+(pass) the rendered status table carries the owner column > a dead holder reads as unleased under a table that all shares one owner [0.15ms]
+(pass) the rendered status table carries the owner column > the owner column is dropped only when no row knows its lease [0.09ms]
+
+packages/orch/test/pack-gets-its-own-home.test.ts:
+(pass) a pack gets its own marked plexer home (E8, E9, E10) > the coordinate is STORED against the pack and is never orch's own id [39.19ms]
+(pass) a pack gets its own marked plexer home (E8, E9, E10) > the home orch opens is MARKED as orch's, never a bare directory name [30.01ms]
+(pass) a pack gets its own marked plexer home (E8, E9, E10) > a space's home and a pack's home use the SAME role and different tables [48.85ms]
+(pass) a pack gets its own marked plexer home (E8, E9, E10) > a home recorded in another plexer is not this one's to drive [33.44ms]
+(pass) a pack gets its own marked plexer home (E8, E9, E10) > closing a pack's home clears the row, so the next open is a fresh one [46.44ms]
+
+packages/orch/test/doctor-claude-hooks.test.ts:
+(pass) doctor Claude hooks shim check > accepts orch hooks pointing at the current shim [1.72ms]
+(pass) doctor Claude hooks shim check > accepts the node hook form when %s is the declared runtime [1.44ms]
+(pass) doctor Claude hooks shim check > accepts the deno hook form when %s is the declared runtime [289.93ms]
+(pass) doctor Claude hooks shim check > accepts the bun hook form when %s is the declared runtime [1.26ms]
+(pass) doctor Claude hooks shim check > reports a deno hook as stale when node is declared [145.37ms]
+(pass) doctor Claude hooks shim check > reports a bun hook as stale when node is declared [1.14ms]
+(pass) doctor Claude hooks shim check > warns when orch hooks are missing with setup fix hint [0.92ms]
+(pass) doctor Claude hooks shim check > warns on the legacy ungated bun command form [0.90ms]
+(pass) doctor Claude hooks shim check > warns when hooks point at a stale shim [1.50ms]
+(pass) doctor Claude hooks shim check > treats an absent settings file as not configured [0.44ms]
+(pass) doctor Claude hooks shim check > handles malformed settings gracefully [0.43ms]
+
+packages/orch/test/worker-prompt.test.ts:
+(pass) worker prompt capability composition > spawn clause follows maySpawn and stripping preserves the task [0.30ms]
+(pass) worker prompt capability composition > orch run composition selects the same header per adapter [0.13ms]
+(pass) worker prompt capability composition > the worker header does not instruct a lock that does not lock [0.07ms]
+(pass) worker prompt capability composition > the header addresses the agent, and names no plexer furniture [0.15ms]
+(pass) worker prompt capability composition > the verify clause names the configured commands, and asks for the repository's own when there are none [0.09ms]
+(pass) worker prompt capability composition > locked-commands clause names the commands, and asks for a report rather than a lock [0.07ms]
+(pass) worker prompt capability composition > no locked-commands clause when the list is empty [0.06ms]
+(pass) worker prompt capability composition > the reply-to-spawner clause needs a reachable spawner, not just a bridge-enabled worker [0.06ms]
+(pass) worker prompt capability composition > unreachable spawner tells the worker to finish and end without relaying [0.08ms]
+(pass) worker prompt capability composition > reachable spawner permits replying to the spawner only [0.04ms]
+(pass) worker prompt capability composition > a reachable spawner still earns no clause when the worker has no bridge [0.07ms]
+(pass) worker prompt capability composition > the ask clause follows the bridge actions [0.13ms]
+(pass) worker prompt capability composition > events strip both worker header variants [23.49ms]
+
+packages/orch/test/adapter-hardening.test.ts:
+(pass) adapter and runtime hardening > malformed or empty adapter output never throws and yields no result [0.42ms]
+(pass) adapter and runtime hardening > rejects unknown settings keys with a useful path [0.83ms]
+(pass) adapter and runtime hardening > doctor returns failures for malformed notifier config and broken agent directories [1.04ms]
+(pass) adapter and runtime hardening > headless refuses to spawn without a caller-minted presence key [0.62ms]
+
+packages/orch/test/identity-is-not-environment.test.ts:
+(pass) A1 — identity carries no environment > Identity declares no plexer and no plexer grouping [0.07ms]
+(pass) A1 — identity carries no environment > a key is the minted id itself, with no separator to split [0.05ms]
+(pass) A1 — identity carries no environment > the module never spells the sentinels that stand in for a missing place [0.05ms]
+(pass) A1 — identity carries no environment > minted ids are unique per spawn [2.12ms]
+
+packages/orch/test/commands-target.test.ts:
+(pass) commands/target > splits known flags and preserves positional args [0.06ms]
+(pass) commands/target > extracts target and joined prompt [0.09ms]
+(pass) commands/target > reads only structured result text [0.04ms]
+(pass) commands/target > quotes remote args and ORCH_DIR safely [0.07ms]
+23 |     try {
+24 |       // Only a minted id names an agent; a plexer/space key names an environment.
+25 |       for (const [key, pid] of [["live000001", process.pid], ["not-an-identity", process.pid], ["dead000001", 999999]] as const) {
+26 |         seedStatus(root, key, { key, pid });
+27 |       }
+28 |       expect(livePanePresenceEntries().map((entry) => entry.key)).toEqual(["live000001"]);
+                                                                       ^
+error: expect(received).toEqual(expected)
+
+- [
+-   "live000001",
+- ]
++ []
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (/home/bryan/orch/packages/orch/test/commands-target.test.ts:28:67)
+(fail) commands/target > lists only live serialized identity presence entries [22.11ms]
+
+packages/orch/test/outbox.test.ts:
+(pass) outbox delivery > selects pending messages and delivers each message once [35.67ms]
+(pass) outbox delivery > checks one message's pending state without scanning the outbox [32.53ms]
+(pass) outbox delivery > keeps failed messages pending until their backoff expires [34.28ms]
+
+packages/orch/test/reload-no-bundle-write.test.ts:
+{"results":[],"ok":0,"total":0,"hard":false,"signaled":"reload.signal"}
+(pass) reload > does not write installed extension bundles [1.56ms]
+
+packages/orch/test/commands-queue.test.ts:
+(pass) commands/queue > cmdQueue list emits the selected JSON view [40.42ms]
+(pass) commands/queue > round-trips add/list/cancel on an isolated store [32.05ms]
+No queue tasks.
+(pass) commands/queue > renders empty queues without throwing [0.18ms]
+
+packages/orch/test/store-task-rows.test.ts:
+(pass) task and attempt rows > malformed task rows are refused instead of handed back as typed data [47.43ms]
+(pass) task and attempt rows > malformed attempt rows are refused instead of handing back NaN [41.03ms]
+(pass) task and attempt rows > enqueue accepts exactly one typed scope and round-trips JSON opts [39.12ms]
+(pass) task and attempt rows > queued tasks can be edited only by their enqueuer [47.23ms]
+(pass) task and attempt rows > two concurrent claims have one winner and one index violation [400.10ms]
+(pass) task and attempt rows > failed attempts remain in history and retries are new attempts [345.84ms]
+(pass) task and attempt rows > settlement stores exact integer instants and outcome payloads [100.52ms]
+(pass) task and attempt rows > task state precedence covers queued, claimed, failed, done and cancelled [76.11ms]
+(pass) task and attempt rows > intakes are half-open history and duplicate open intake is rejected [43.84ms]
+
+packages/orch/test/no-sibling-relay.test.ts:
+(pass) a worker with no reachable spawner does not relay (L6) > an unset spawner refuses, and the refusal names the agent's own report path [3.50ms]
+(pass) a worker with no reachable spawner does not relay (L6) > the refusal never suggests another agent as an alternative route [0.75ms]
+(pass) a worker with no reachable spawner does not relay (L6) > a spawner that is stamped but has no live status record refuses by NAME and still says to report [0.59ms]
+
+packages/orch/test/orch-bugs-4-5.test.ts:
+(pass) orch bugs 4 and 5 launch contracts > interactive launch routes use one argv composition [0.29ms]
+(pass) orch bugs 4 and 5 launch contracts > headless launch routes use one argv composition [0.20ms]
+(pass) orch bugs 4 and 5 launch contracts > inherited extension policy emits every discovered extension [0.09ms]
+
+packages/orch/test/doctor-declared-vs-reality-tuning.test.ts:
+(pass) doctor declared tuning versus reality > matching model and effort produces no finding [46.53ms]
+(pass) doctor declared tuning versus reality > different effort reports both ladder specs [40.20ms]
+(pass) doctor declared tuning versus reality > different model reports both ladder specs [40.13ms]
+(pass) doctor declared tuning versus reality > missing status produces no tuning finding [42.11ms]
+
+packages/orch/test/settings-view.test.ts:
+(pass) settings view > visibleEntryIndices matches key and group case-insensitively [0.28ms]
+(pass) settings view > windowBounds keeps the focus inside the budget and clamps at both ends [0.20ms]
+(pass) settings view > frame shows group headers, values, provenance tags, and the focused help [0.87ms]
+(pass) settings view > frame with a filter narrows the list and draws the filter line [0.08ms]
+(pass) settings view > frame reports an empty filter match instead of a blank screen [0.04ms]
+(pass) settings view > a long list is windowed with more-above/more-below markers [0.51ms]
+(pass) settings view > overlays render choices, checkboxes, and input with error [0.20ms]
+(pass) settings view > a checkbox row shows what its choice carries [0.05ms]
+(pass) settings view > displayValue keeps scalars bare and JSON-encodes shapes [0.04ms]
+
+packages/orch/test/bridge-client.test.ts:
+(pass) bridge daemon client > attaches, receives deliveries, acks on the link, and reconnects [77.02ms]
+(pass) bridge daemon client > dead endpoints resolve undefined without invoking handlers [0.78ms]
+
+packages/orch/test/port-seam-boundary.test.ts:
+(pass) port seam command boundary > headless target is answered without invoking its pane role [0.07ms]
+(pass) port seam command boundary > paned environment without a role is answered at the boundary [0.04ms]
+(pass) port seam command boundary > an invocation preserves the provider failure [0.08ms]
+
+packages/orch/test/notify-sinks.test.ts:
+(pass) notification entries > desktop entries use the canonical notifier registry [0.22ms]
+
+packages/orch/test/session-env.test.ts:
+(pass) shim environment > allows the launch environment variable [0.06ms]
+
+packages/orch/test/remote.test.ts:
+(pass) host-prefixed targets > round-trips local and host-prefixed grammar [0.07ms]
+(pass) host-prefixed targets > reports unknown host and configured names [0.06ms]
+
+packages/orch/test/broker-ownership.test.ts:
+(pass) broker ownership and space governance > the composed holder is the only ownership record, and adoption moves it [41.59ms]
+(pass) broker ownership and space governance > refuses cross-space writes unless explicitly overridden [50.74ms]
+(pass) broker ownership and space governance > moving an agent between spaces moves the wall, not its identity [49.63ms]
+
+packages/orch/test/work-survives-its-spawner.test.ts:
+(pass) work survives its spawner, always (D1) > ending the spawner leaves the child live, unended and still listed [39.99ms]
+(pass) work survives its spawner, always (D1) > a grandchild is untouched when the middle agent ends [49.31ms]
+(pass) work survives its spawner, always (D1) > the store has no lifetime column and no fate-sharing flag anywhere [0.35ms]
+(pass) work survives its spawner, always (D1) > spawn offers no flag that decides whether work outlives its spawner [0.58ms]
+(pass) work survives its spawner, always (D1) > closing the spawner never writes an ending for anything it spawned [34.84ms]
+
+packages/orch/test/session.test.ts:
+(pass) parseSession > returns an empty view for null and missing paths [0.08ms]
+(pass) parseSession > handles model, thinking, user, assistant, tool, and unknown entries [0.75ms]
+(pass) parseSession > joins text blocks and ignores non-text blocks [0.27ms]
+
+packages/orch/test/session-refresh-repoints-identity.test.ts:
+(pass) session refresh identity continuity > same process with a new token repoints the existing agent and preserves its lease [45.91ms]
+(pass) session refresh identity continuity > same token with a new process keeps the agent and repoints its process interval [35.55ms]
+(pass) session refresh identity continuity > a new token and a new process mint a new agent [41.21ms]
+(pass) session refresh identity continuity > a process anchored by an ended agent mints instead of repointing [38.52ms]
+
+packages/orch/test/status-renders-one-row-shape.test.ts:
+(pass) status rendering has one row shape and one table renderer > task and last text use the same spelling in the row and table cell [5.71ms]
+(pass) status rendering has one row shape and one table renderer > local and remote rows share the renderer; remote adds only HOST [0.30ms]
+(pass) status rendering has one row shape and one table renderer > fleet resolves caller inputs once while building three presence rows [25.66ms]
+
+packages/orch/test/commands-help.test.ts:
+(pass) per-command help topics > daemon help names every subcommand and the idle shutdown setting [0.05ms]
+(pass) per-command help topics > aliases resolve to their command's topic [0.03ms]
+(pass) per-command help topics > logs help names every filter the command accepts [0.07ms]
+(pass) per-command help topics > an unknown name has no topic [0.02ms]
+(pass) per-command help topics > every topic is printable text ending in a newline [0.08ms]
+
+packages/orch/test/spawn-names.test.ts:
+(pass) agent name validation > rejects names outside herdr's naming rule [0.16ms]
+(pass) agent name validation > accepts lowercase names with hyphens and underscores [0.04ms]
+(pass) a live name is claimed and a dead one is released > a live agent holds its name against a second spawn [50.79ms]
+(pass) a live name is claimed and a dead one is released > a dead agent frees its name [64.19ms]
+(pass) a live name is claimed and a dead one is released > another space's agent never blocks a name here [47.41ms]
+(pass) name scope follows the agent's current space, not its birthplace > moving an agent moves the name it holds [53.24ms]
+(pass) name scope follows the agent's current space, not its birthplace > the collision names the agent by its minted id [53.03ms]
+
+packages/orch/test/identity-self.test.ts:
+(pass) selfIdentity > returns the launch id without touching the store [0.62ms]
+
+packages/orch/test/adapter-session-env.test.ts:
+(pass) adapter-owned session environment > resolves each caller harness through the public session resolver [0.89ms]
+(pass) adapter-owned session environment > keeps harness env literals inside adapter modules [11.71ms]
+(pass) adapter-owned session environment > a registered adapter resolves a novel marker without resolver changes [0.24ms]
+
+packages/orch/test/spawn-preferred-models.test.ts:
+(pass) the preferred quicklist reaches every launch route > a pane spawn hands the exact array to the backend [52.08ms]
+(pass) the preferred quicklist reaches every launch route > an unconfigured quicklist stays empty rather than becoming a default one [51.89ms]
+(pass) the preferred quicklist reaches every launch route > the previewed command is the command a launch runs [0.94ms]
+(pass) the preferred quicklist reaches every launch route > a headless launch forwards the quicklist into the adapter's own options [43.62ms]
+(pass) orchd rules on the quicklist it is sent > accepts an absent value and an array of specs [0.16ms]
+(pass) orchd rules on the quicklist it is sent > refuses a joined string or a blank entry instead of coercing it [0.14ms]
+
+packages/orch/test/settings-precedence.test.ts:
+(pass) settings precedence > returns a defaults value when no override is set [1.03ms]
+(pass) settings precedence > applies defaults when settings, env, and flag are absent [0.61ms]
+(pass) settings precedence > uses env over settings and flag over env [0.54ms]
+(pass) settings precedence > parses notify entries and hosts into expected shapes [2.00ms]
+(pass) settings precedence > reports a helpful validation error for invalid settings [2.08ms]
+
+packages/orch/test/bridge-link-server.test.ts:
+(pass) daemon bridge links > attaches, replies, notifies after the reply write, and pushes deliveries [36.70ms]
+(pass) daemon bridge links > a socket close detaches its bridge [48.39ms]
+(pass) daemon bridge links > a second socket replaces the first link [47.55ms]
+(pass) daemon bridge links > attach for an agent the store does not know is refused and the server keeps serving [36.38ms]
+(pass) daemon bridge links > attach without a key is rejected [7.63ms]
+(pass) daemon bridge links > server close detaches every bridge [34.78ms]
+
+packages/orch/test/launch-stamp.test.ts:
+(pass) canonical launch stamp > claude and codex launches produce the same status shape [0.23ms]
+
+packages/orch/test/self-actor-identity.test.ts:
+(pass) a driving session's write-actor is the agent orch registered for it > the session token resolves to the id hello minted, so the actor equals its own lease holder [34.58ms]
+(pass) a driving session's write-actor is the agent orch registered for it > a token orch has never seen resolves to nothing rather than a fabricated id [19.94ms]
+(pass) a driving session's write-actor is the agent orch registered for it > one session keeps ONE id across calls, whatever pid the shell reports [39.22ms]
+
+packages/orch/test/daemon-transport-parity.test.ts:
+(pass) both transports carry one mechanism > a bound TCP port does not displace the unix socket or become its own service [4.35ms]
+(pass) both transports carry one mechanism > the credential is demanded identically on both [5.07ms]
+(pass) both transports carry one mechanism > a missing credential is refused identically on both [4.40ms]
+(pass) both transports carry one mechanism > the same token registers the same session whichever transport carried it [55.75ms]
+
+packages/orch/test/peer-lease-visibility.test.ts:
+(pass) peer summaries carry ownership as a lease > a peer the caller holds reports the caller as the live holder [66.77ms]
+(pass) peer summaries carry ownership as a lease > a peer nobody ever took reports no orch driving it [59.50ms]
+(pass) peer summaries carry ownership as a lease > a dead holder is not a live one [50.08ms]
+(pass) the compact listing separates orphans from live work > unleased peers sit in their own bucket, below the driven ones [63.98ms]
+(pass) the compact listing separates orphans from live work > a held peer names its holder, and an unleased one never reads as yours [59.21ms]
+(pass) the compact listing separates orphans from live work > with nothing unleased the bucket does not appear at all [57.65ms]
+
+packages/orch/test/remote-fanout.test.ts:
+(pass) async remote fan-out > parses valid JSON from a host [23.46ms]
+(pass) async remote fan-out > returns a typed dead-host failure [20.66ms]
+(pass) async remote fan-out > returns a typed timeout failure [508.05ms]
+(pass) async remote fan-out > returns a typed non-JSON failure [18.71ms]
+(pass) async remote fan-out > fans out and keeps per-host failures without throwing [505.17ms]
+
+packages/orch/test/reap-picker.test.ts:
+(pass) reapCandidates > classifies unleased dead holders and leased dead processes [0.12ms]
+(pass) reapCandidates > classifies empty input [0.03ms]
+(pass) cmdReap > prints the --dead --json result shape [41.23ms]
+(pass) cmdReap > refuses bare reap when stdin is not a TTY [0.30ms]
+
+packages/orch/test/adapter-roles.test.ts:
+(pass) adapter role composition > composes complete roles per adapter [4.16ms]
+(pass) adapter role composition > answers with zero exit code when a shim role is absent [0.13ms]
+
+packages/orch/test/commands-logging.test.ts:
+(pass) orch logs > --dispatch selects one dispatch across both sinks, oldest first [1.20ms]
+(pass) orch logs > --agent selects one agent's records [0.46ms]
+(pass) orch logs > --level selects one severity [0.36ms]
+(pass) orch logs > --since drops everything older than the instant given [0.37ms]
+(pass) orch logs > --since 0 keeps every record instead of being read as a missing value [0.38ms]
+(pass) orch logs > renders a readable line: instant, level, event, correlation, agent, fields [0.32ms]
+(pass) orch logs > --json emits the records themselves [0.37ms]
+(pass) command logging > notify test records the diagnosis and keeps user output on stdout [1.02ms]
+
+packages/orch/test/offline-is-not-a-second-source.test.ts:
+(pass) --offline is a narrower view of ONE source, not a second one (M8) > offline and online read the same agents from the same presence files [45.09ms]
+(pass) --offline is a narrower view of ONE source, not a second one (M8) > offline reports the SAME state the agent reported, never a second opinion [50.36ms]
+(pass) --offline is a narrower view of ONE source, not a second one (M8) > there is exactly ONE row builder, and --offline only narrows what it asks [0.25ms]
+(pass) --offline is a narrower view of ONE source, not a second one (M8) > offline is the one path that never dials or starts the daemon [0.15ms]
+
+packages/orch/test/one-writer-records-a-spawned-agent.test.ts:
+(pass) one writer records a spawned agent (2.1) > registerSpawnedAgent alone writes the COMPLETE record — space and lease included [51.36ms]
+(pass) one writer records a spawned agent (2.1) > a spawn leaves NOTHING for a second writer to fill in [56.74ms]
+(pass) one writer records a spawned agent (2.1) > a spawn into NO space records no space and hands the plexer only its coordinate [50.71ms]
+(pass) one writer records a spawned agent (2.1) > the presence store no longer offers a second way to record an agent [0.68ms]
+
+packages/orch/test/spawn-registry.test.ts:
+(pass) spawn agent registration > writes the hub, environment, tuning, and lease [44.95ms]
+(pass) spawn agent registration > an agent that states no plexer and no handle gets neither row [42.67ms]
+(pass) spawn agent registration > worktree row is present only for a worktree launch [63.68ms]
+(pass) spawn agent registration > an unknown or absent spawner produces a root pack of one and no lease [47.36ms]
+
+packages/orch/test/settings-repair.test.ts:
+(pass) settings repair choices > offers rename, set, drop, then leave when all repairs apply [0.10ms]
+(pass) settings repair choices > offers only rename when there is only a suggestion [0.03ms]
+(pass) settings repair choices > offers only set when there is only an expected value [0.02ms]
+(pass) settings repair choices > always offers leave, and cannot drop a file-level defect [0.02ms]
+(pass) settings repair reducer > starts every defect at leave and focus at zero [0.06ms]
+(pass) settings repair reducer > refuses choices the focused defect does not offer and reports why [0.16ms]
+(pass) settings repair reducer > clamps focus at both ends and clears a prior reason [0.07ms]
+(pass) settings repair reducer > maps non-leave choices to repairs in defect order [0.13ms]
+(pass) settings repair reducer > leave produces no repair [0.03ms]
+(pass) settings repair reducer > empty defects make every action a no-op [0.05ms]
+
+packages/orch/test/backend-headless.test.ts:
+(pass) HeadlessBackend > refuses to spawn with no prompt — a headless agent runs its prompt and exits [0.21ms]
+(pass) HeadlessBackend > spawns a detached process and records its handle [38.76ms]
+(pass) HeadlessBackend > completes a headless dispatch round-trip and leaves a readable result [51.66ms]
+(pass) HeadlessBackend > records and mirrors the headless log for Codex session-tail parsing [22.63ms]
+(pass) HeadlessBackend > signals a matching recorded process through the injected killer [0.24ms]
+(pass) HeadlessBackend > refuses to signal a pid whose process instance was replaced [0.14ms]
+(pass) HeadlessBackend > never signals a dead pid [0.15ms]
+
+packages/orch/test/commands-spawn.test.ts:
+(pass) commands/spawn > refuses an invalid name before resolving or creating a workspace [1.41ms]
+(pass) commands/spawn > refuses spawn without a name before any spawn mutations [23.31ms]
+(pass) commands/spawn > rejects removed spawn cap flag as unknown [0.12ms]
+(pass) commands/spawn > rejects --detached as an unknown spawn flag [1.09ms]
+(pass) commands/spawn > the positionals are the agent names [0.09ms]
+(pass) commands/spawn > collects repeated prompts in agent order [0.07ms]
+(pass) commands/spawn > each pi flavor launches its own binary and preserves raw prompt [0.12ms]
+
+packages/orch/test/queue-reaping.test.ts:
+(pass) Cq10/Cq11: unrunnable is a fact, stale is a clock, and only one of them is reapable > a failed task whose scope is gone is unrunnable and survives every retention sweep [59.56ms]
+(pass) Cq10/Cq11: unrunnable is a fact, stale is a clock, and only one of them is reapable > unrunnable is about who is alive now — a new pack member makes it claimable again [45.41ms]
+(pass) Cq10/Cq11: unrunnable is a fact, stale is a clock, and only one of them is reapable > stale is surfaced beside its state and never deleted on age [55.45ms]
+(pass) Cq12: an orphaned task has take-on, leave and reap, all deliberate > take-on re-scopes to the taker's own pack and the work becomes claimable there [52.29ms]
+(pass) Cq12: an orphaned task has take-on, leave and reap, all deliberate > take-on refuses a taker that is not itself live [45.83ms]
+
+packages/orch/test/broker-governance.test.ts:
+(pass) daemon governWrite enforcement > an unscoped actor is refused while a live orch holds the lease [39.23ms]
+(pass) daemon governWrite enforcement > an unscoped actor may write to an unleased target [30.98ms]
+(pass) daemon governWrite enforcement > the lease holder may write to its own agent [45.85ms]
+(pass) daemon governWrite enforcement > a foreign live holder in the same space is refused and named [41.36ms]
+(pass) daemon governWrite enforcement > a dead holder is not a collision [43.73ms]
+(pass) daemon governWrite enforcement > --steal on a driving verb does not take a live holder's lease [43.57ms]
+(pass) daemon governWrite enforcement > a cross-space write is refused by the wall before the lease [46.51ms]
+(pass) daemon governWrite enforcement > --cross-space clears the wall but the lease still applies [48.75ms]
+(pass) daemon governWrite enforcement > the space operator writes to a same-space leased agent without taking the lease [47.57ms]
+(pass) daemon governWrite enforcement > a foreign space's operator still hits the wall [44.59ms]
+(pass) daemon governWrite enforcement > a refused enqueue leaves the lease exactly as it was [37.09ms]
+(pass) daemon governWrite enforcement > a granted write and its enqueue commit together [48.29ms]
+(pass) daemon governWrite enforcement > an unleased target is writable by any same-space actor [40.22ms]
+
+packages/orch/test/unleased-agents.test.ts:
+(pass) registration unleased agent hint > includes unleased workers but never session identities [37.94ms]
+
+packages/orch/test/ambiguous-target-says-what-to-do.test.ts:
+(pass) an ambiguous target names the failure and the way out (U3) > the message names the failure, the target string, and every candidate [0.07ms]
+(pass) an ambiguous target names the failure and the way out (U3) > it says what to send instead, so the caller is not left guessing [0.03ms]
+(pass) an ambiguous target names the failure and the way out (U3) > it is a refusal, not an exit — the caller can act on it [0.03ms]
+(pass) an ambiguous target names the failure and the way out (U3) > resolveAgentView raises that same one message [0.15ms]
+
+packages/orch/test/bridge-links.test.ts:
+(pass) bridge links > attach holds the link under the canonical key and push reaches it [33.82ms]
+(pass) bridge links > a second attach for the same key replaces the first [37.41ms]
+(pass) bridge links > detach removes only the link still held [33.87ms]
+(pass) bridge links > push with no link throws BridgeDetachedError [42.47ms]
+(pass) bridge links > an unknown target is refused before the registry is consulted [0.40ms]
+(pass) bridge message guards > accept every action shape [0.20ms]
+(pass) bridge message guards > refuse a missing field, an unknown action, and a non-record [0.15ms]
+(pass) bridge message guards > a delivery is an id plus a message [0.13ms]
+
+packages/orch/test/space-walls.test.ts:
+(pass) space helpers > reads space ids from the environment satellite, never from the key [0.58ms]
+(pass) space helpers > an agent that moves space keeps its identity and reports the new space [4.62ms]
+(pass) space helpers > derives an entity space from the store [0.61ms]
+(pass) space helpers > returns the same entities when all spaces are requested [0.27ms]
+(pass) space wall writes > allows a write within the same space [0.64ms]
+(pass) space wall writes > denies a cross-space write with both spaces in the reason [0.41ms]
+(pass) space wall writes > applies the same wall rule whatever plexer the agents sit in [1.96ms]
+(pass) space wall writes > allows a cross-space write with an explicit override [0.37ms]
+(pass) space wall writes > allows unplaced targets [0.23ms]
+
+packages/orch/test/one-query-stack-over-the-connection.test.ts:
+(pass) one query stack over the connection (2.3) > the store exposes no raw-SQL port beside the typed one [0.05ms]
+(pass) one query stack over the connection (2.3) > nothing in the repo prepares a statement through the deleted port [13.78ms]
+
+packages/orch/test/presence-dirs-are-reaped-not-migrated.test.ts:
+(pass) a presence dir in the old shape is reaped, never migrated (J4) > a composite-named dir is not presence, whatever its file claims [40.44ms]
+(pass) a presence dir in the old shape is reaped, never migrated (J4) > the sweep REMOVES it rather than leaving it for a migration that never comes [45.82ms]
+(pass) a presence dir in the old shape is reaped, never migrated (J4) > nothing renames, rewrites or re-keys the old directory [0.46ms]
+(pass) a presence dir in the old shape is reaped, never migrated (J4) > a dead dir in the CURRENT shape is still reaped the ordinary way [28.18ms]
+
+packages/orch/test/store-catalogue.test.ts:
+(pass) catalogue rows > empty store reads an empty Map [31.41ms]
+(pass) catalogue rows > write then read round-trips at and stdout [32.89ms]
+(pass) catalogue rows > writing the same command twice keeps one row with newer values [32.77ms]
+(pass) catalogue rows > an entry with empty stdout is not stored [19.45ms]
+(pass) catalogue rows > clearCatalogues empties the store [30.18ms]
+(pass) catalogue rows > two commands coexist and updating one does not touch the other [33.10ms]
+
+packages/orch/test/events-open-with-pending-questions.test.ts:
+(pass) events pending-question snapshot > a late watcher receives every open question through the event writer [52.72ms]
+
+packages/orch/test/spawn-limits.test.ts:
+(pass) spawn limits > schema loads global and workspace caps [0.87ms]
+(pass) spawn limits > rejects invalid cap %s with file and key [1.09ms]
+(pass) spawn limits > rejects invalid cap %s with file and key [0.44ms]
+(pass) spawn limits > rejects invalid cap %s with file and key [0.39ms]
+(pass) spawn limits > omitted fleet caps normalize to defaults [0.28ms]
+(pass) spawn limits > global boundary refusal data counts the whole request [1.71ms]
+(pass) spawn limits > one workspace may use the full global allotment [0.69ms]
+(pass) spawn limits > workspace cap is independent of global headroom [0.68ms]
+(pass) spawn limits > uncapped space is bounded only by global count [0.60ms]
+(pass) spawn limits > foreign pack members do not consume the caller's pack cap [1.16ms]
+(pass) spawn limits > an agent whose recorded process is gone frees capacity [2.69ms]
+(pass) spawn limits > foreign panes never count [0.46ms]
+(pass) spawn limits > doctor reports an unsatisfiable workspace cap without a fix [0.43ms]
+(pass) spawn limits > doctor accepts satisfiable limits [0.34ms]
+
+packages/orch/test/store-values.test.ts:
+(pass) store row values > uses null for optional database values without JSON text [0.03ms]
+(pass) store row values > sets only non-null fields [0.03ms]
+
+packages/orch/test/agent-model-unwelded.test.ts:
+(pass) A1 — the four facts are never welded > no table welds identity, provenance, ownership and environment into one row [0.32ms]
+(pass) A1 — the four facts are never welded > ownership is a lease table, not a second id space [0.22ms]
+(pass) A1 — the four facts are never welded > the agents hub carries identity and provenance only [0.17ms]
+(pass) A1 — the four facts are never welded > no table anywhere carries a lifetime [3.93ms]
+
+packages/orch/test/orchd-rpc-subscribe.test.ts:
+(pass) orchd event subscription > replays only events missed between subscriptions [58.48ms]
+
+packages/orch/test/status-headless.test.ts:
+(pass) headless status visibility > drops an exited agent that finished, however much it recorded [0.24ms]
+(pass) headless status visibility > --filter removes the states it names; --agent brings one dead agent back [0.08ms]
+(pass) headless status visibility > --filter drops live rows in the states it names [0.08ms]
+(pass) headless status visibility > drops a dead row with no result or terminal state [0.06ms]
+(pass) headless status visibility > keeps a live row [0.03ms]
+(pass) headless status visibility > --space-wide widens the scope without resurrecting empty dead rows [0.04ms]
+(pass) headless status visibility > uses agent language without backend details when no backend was asked [0.06ms]
+
+packages/orch/test/seat-index.test.ts:
+(pass) seat pure seams > errorMessage preserves non-Error thrown values [0.90ms]
+(pass) seat pure seams > hasTheme discriminates missing and valid themes [0.44ms]
+(pass) seat pure seams > countStates groups active, blocked, failed, and settled states [0.12ms]
+(pass) seat pure seams > formatSeatStatus renders state counts and view hint [0.17ms]
+(pass) seat pure seams > reconcileDashboardSelection preserves id and guards missing snapshots [5.90ms]
+
+packages/orch/test/queue-cli-scope.test.ts:
+(pass) Cq2: all three scopes are choosable at enqueue > --agent, --pack and --space each select exactly one typed scope [49.45ms]
+(pass) Cq2: all three scopes are choosable at enqueue > a name resolves to one id, and an ambiguous name asks for the id [52.40ms]
+(pass) Cq2: all three scopes are choosable at enqueue > two scope flags at once are refused [47.94ms]
+(pass) Cq9: reading the queue is open > listing and history carry no caller and hide no other pack's work [43.60ms]
+
+packages/orch/test/orchd-rpc-transport.test.ts:
+(pass) orchd RPC transports > round-trips over the default unix transport [5.11ms]
+(pass) orchd RPC transports > round-trips over the TCP fallback transport [5.00ms]
+
+packages/orch/test/settings-repair-roundtrip.test.ts:
+(pass) repairing a settings.json the schema rejects > reports every rejected key without touching the file [2.06ms]
+(pass) repairing a settings.json the schema rejects > a removed key is never guessed at - it offers no rename [1.20ms]
+(pass) repairing a settings.json the schema rejects > the choices a person makes leave the file loadable [2.56ms]
+(pass) repairing a settings.json the schema rejects > a typo keeps its value: renaming carries it to the real key [1.32ms]
+(pass) repairing a settings.json the schema rejects > leaving every defect alone writes nothing at all [1.25ms]
+
+packages/orch/test/pi-model-control.test.ts:
+(pass) splitThinkingSuffix > splits a valid ladder effort off the bare id [0.06ms]
+(pass) splitThinkingSuffix > leaves a bare model untouched [0.04ms]
+(pass) splitThinkingSuffix > keeps a trailing colon token that is not a thinking level as part of the id [0.04ms]
+(pass) resolveRegistryModel — task 12.7 suffixed lookup > looks up the BARE id and returns the effort suffix separately [0.25ms]
+(pass) resolveRegistryModel — task 12.7 suffixed lookup > retries until a still-booting registry answers [2.53ms]
+(pass) resolveRegistryModel — task 12.7 suffixed lookup > throws when the registry never yields the model [0.31ms]
+(pass) resolveRegistryModel — task 12.7 suffixed lookup > rejects a token without a provider/id shape [0.08ms]
+(pass) createModelControl.applyControlCommand > applies a suffixed model command and records a success outcome [0.45ms]
+(pass) createModelControl.applyControlCommand > records a failure outcome when the model is rejected [1754.12ms]
+
+packages/orch/test/doctor-backends.test.ts:
+(pass) doctor backend and presence checks > reports every registered backend and composed roles [1.43ms]
+(pass) doctor backend and presence checks > passes with herdr active while an enabled tmux sits outside a session [0.21ms]
+(pass) doctor backend and presence checks > marks the active backend and renders one backend per line [0.14ms]
+(pass) doctor backend and presence checks > warns (not fails) when the available active backend is outside a live session [0.10ms]
+(pass) doctor backend and presence checks > fails when any enabled backend is unavailable, active or not [0.08ms]
+(pass) doctor backend and presence checks > honours the configured default over the probe order [0.12ms]
+(pass) doctor backend and presence checks > reports only records missing the current schema stamp [27.35ms]
+
+packages/orch/test/os-side.test.ts:
+(pass) osSide > supports both platform branches independent of ambient host [0.03ms]
+
+packages/orch/test/commands-events.test.ts:
+(pass) commands/events > owned renderers and tool help do not expose the retired workspace term [0.31ms]
+(pass) commands/events > bare events is scoped to this session's agents and renders readable lines [0.05ms]
+(pass) commands/events > parses the scope flags [0.03ms]
+(pass) commands/events > parses the wake-up flags [0.04ms]
+(pass) commands/events > --filter names the states to drop and is never the default [0.09ms]
+(pass) commands/events > includes an adopted agent whose open lease is mine [0.04ms]
+(pass) commands/events > includes a reused pane leased by me even when another session spawned it [0.02ms]
+(pass) commands/events > includes an unleased agent spawned by this session [0.02ms]
+(pass) commands/events > excludes an agent spawned by a different session [0.02ms]
+(pass) commands/events > --space-wide passes agents from both sessions [0.03ms]
+(pass) commands/events > excludes an agent while another orch holds its lease [0.02ms]
+(pass) commands/events > describes durable replay and reports pruned history gaps [0.04ms]
+(pass) commands/events > names one agent by name or by identity key [0.04ms]
+(pass) commands/events > a subscription with no daemon keeps redialing instead of exiting [0.12ms]
+(pass) commands/events > renders opaque plexer coordinates without relabeling them as spaces [0.24ms]
+(pass) commands/events > message events render the full delivered mail text [0.11ms]
+(pass) commands/events > an event line says what happened, never the fleet's books [0.08ms]
+(pass) commands/events > rejects malformed event and labels sinks [0.09ms]
+(pass) commands/events space wall > an agent is heard only inside the space it currently occupies [44.08ms]
+(pass) commands/events space wall > moving an agent moves its events with it [52.98ms]
+(pass) commands/events space wall > an unplaced caller has no wall and hears the machine [45.67ms]
+(pass) commands/events space wall > a key naming no registered agent is in no space [0.31ms]
+
+packages/orch/test/close-reports-every-target.test.ts:
+(pass) close reports an outcome for every target it was given (U2) > --json carries a per-target outcome, not just the successes [71.46ms]
+(pass) close reports an outcome for every target it was given (U2) > a failed target reports outcome error WITH the real error text [55.67ms]
+(pass) close reports an outcome for every target it was given (U2) > a pane the plexer no longer has is CLOSED, not failed [59.27ms]
+(pass) close reports an outcome for every target it was given (U2) > the exit code still reflects whether every target closed [61.14ms]
+
+packages/orch/test/commands-space.test.ts:
+(pass) orch space — orch's own grouping > a space is created, listed, renamed and deleted with no space-home role [39.67ms]
+(pass) orch space — orch's own grouping > create refuses a name already in use [31.76ms]
+(pass) orch space — orch's own grouping > delete refuses a space that still holds agents [35.67ms]
+(pass) orch space — the plexer's home > create makes a home and records only its coordinate [46.11ms]
+(pass) orch space — the plexer's home > list reports that a space has a home without naming the coordinate [30.11ms]
+(pass) orch space — the plexer's home > rename renames orch's space and its home [38.09ms]
+(pass) orch space — the plexer's home > delete closes the home and drops its coordinate [36.58ms]
+(pass) orch space — the plexer's home > focus focuses the recorded coordinate [34.94ms]
+(pass) orch space — the plexer's home > a home made in another plexer is not this environment's to focus [35.61ms]
+(pass) orch space — absence is an answer > focus with no space-home role names the space and what is missing [28.77ms]
+(pass) orch space — absence is an answer > the plain-text answer names the space too [30.22ms]
+(pass) orch space — vocabulary and wiring > cmdSpace lists through the resolved environment [22.23ms]
+(pass) orch space — vocabulary and wiring > orch ws is gone [0.15ms]
+(pass) orch space — vocabulary and wiring > space help never says workspace and offers create/rename/delete [0.09ms]
+(pass) orch space — vocabulary and wiring > no space output ever says workspace [28.76ms]
+
+packages/orch/test/lifecycle-reports-a-partial-run.test.ts:
+(pass) a partial reload or restart is reported, not exited > reload --json writes the whole payload and sets exitCode, never exits [29.37ms]
+(pass) a partial reload or restart is reported, not exited > restart --json writes the whole payload and sets exitCode, never exits [28.24ms]
+
+packages/orch/test/store-interval-rows.test.ts:
+(pass) interval satellites > only one open interval is allowed [38.71ms]
+(pass) interval satellites > half-open adjacency is legal [41.00ms]
+(pass) interval satellites > clearSpace closes without opening [53.18ms]
+(pass) interval satellites > agent plexer is immutable one-shot [35.66ms]
+(pass) interval satellites > process restart history closes at the successor since [42.11ms]
+(pass) interval satellites > process rows carry host and process identity [38.77ms]
+(pass) interval satellites > process start_token round-trips [39.69ms]
+(pass) interval satellites > space move history closes at the successor since [39.29ms]
+(pass) interval satellites > tuning change history closes at the successor since [45.09ms]
+(pass) interval satellites > handle history preserves each renumbered handle [34.74ms]
+(pass) interval satellites > interval instants are stored as INTEGER values [55.06ms]
+(pass) interval satellites > process wrapper rolls back predecessor close when successor fails [39.15ms]
+(pass) interval satellites > space wrapper rolls back predecessor close when successor fails [39.31ms]
+(pass) interval satellites > tuning carries model and nullable thinking [51.77ms]
+
+packages/orch/test/commands-control.test.ts:
+(pass) commands/control > parses dispatch flags without losing prompt words [5.60ms]
+(pass) commands/control > parses --then destination and note [0.17ms]
+(pass) commands/control > adds worker header unless raw [0.10ms]
+
+packages/orch/test/outbox-ack.test.ts:
+(pass) socket outbox acknowledgements > an ack settles an awaiting row and later delivery skips it [47.54ms]
+(pass) socket outbox acknowledgements > a detached bridge retries a pending row and logs the reason [30.53ms]
+(pass) socket outbox acknowledgements > a gone agent settles its row as undeliverable on the first attempt [35.20ms]
+(pass) socket outbox acknowledgements > failed delivery at the cap settles, while one attempt earlier retries [40.42ms]
+(pass) socket outbox acknowledgements > redelivery covers every open row for one target, regardless of nextAttemptAt [43.27ms]
+(pass) socket outbox acknowledgements > open-row selection excludes settled rows [40.88ms]
+(pass) socket outbox acknowledgements > malformed stored payloads are rejected [43.10ms]
+
+packages/orch/test/claim-agent.test.ts:
+(pass) claim agent > unclaimed + A → stamped [33.93ms]
+(pass) claim agent > claimed A, claim A → unchanged [33.32ms]
+(pass) claim agent > claimed A, reclaimAgent(id) then B → stamped with B [38.07ms]
+(pass) claim agent > claimed A, plain claim B → refused claimed-by-other, row unchanged [31.42ms]
+(pass) claim agent > unknown id → refused unknown-agent [27.50ms]
+
+packages/orch/test/dispatch-prompt-file.test.ts:
+(pass) a dispatch prompt can come from a file instead of argv > --file is parsed off the positionals [0.08ms]
+(pass) a dispatch prompt can come from a file instead of argv > the file body is the prompt, apostrophes and newlines intact [0.44ms]
+(pass) a dispatch prompt can come from a file instead of argv > without --file the positionals after the target are the prompt [0.04ms]
+(pass) a dispatch prompt can come from a file instead of argv > a typed prompt and --file together is a refusal, never a silent winner [0.31ms]
+(pass) a dispatch prompt can come from a file instead of argv > an empty file is refused: a dispatch with no prompt is not a dispatch [0.23ms]
+(pass) a dispatch prompt can come from a file instead of argv > a missing file names itself in the refusal [0.14ms]
+(pass) --with points the agent at context it opens on demand > --with is repeatable and parsed off the positionals [0.04ms]
+(pass) --with points the agent at context it opens on demand > a file reference is absolute and typed as a file [0.26ms]
+(pass) --with points the agent at context it opens on demand > a directory reference is typed as a directory [0.15ms]
+(pass) --with points the agent at context it opens on demand > a missing path dies at dispatch, naming the flag [0.10ms]
+(pass) --with points the agent at context it opens on demand > the task tells the agent where to look and to open paths only when needed; content is never inlined [0.05ms]
+(pass) --with points the agent at context it opens on demand > no references leaves the instructions untouched [0.02ms]
+
+packages/orch/test/daemon-decision-trail.test.ts:
+(pass) daemon decision trail > records a lease refused against a live holder [37.64ms]
+(pass) daemon decision trail > records a lease granted over a dead holder [35.99ms]
+(pass) daemon decision trail > records a not-placed boundary answer with its reason [32.38ms]
+
+packages/orch/test/commands-daemon.test.ts:
+(pass) commands/daemon > parses governance and validates daemon status [0.24ms]
+(pass) commands/daemon > reads a lock pid only from a complete lock record [0.61ms]
+
+packages/orch/test/every-agent-has-a-link.test.ts:
+(pass) every agent has an attached link > agents in placed, headless, and handleless environments receive the same push [85.13ms]
+(pass) every agent has an attached link > an agent with no handle is still addressable through its link [38.35ms]
+
+packages/orch/test/daemon-repins-on-settings-change.test.ts:
+(pass) daemon settings tuning re-pin > pins every live agent to the resolved settings default [4.87ms]
+(pass) daemon settings tuning re-pin > does not pin when tuning settings did not change [0.61ms]
+(pass) daemon settings tuning re-pin > continues re-pinning after one agent fails [0.64ms]
+
+packages/orch/test/no-stderr-writes.test.ts:
+(pass) orch has one diagnosis channel (the logger) and one output channel (stdout) > no runtime source writes to process.stderr [6.57ms]
+(pass) orch has one diagnosis channel (the logger) and one output channel (stdout) > the scan actually covers the tree it claims to [0.62ms]
+
+packages/orch/test/errno-guard.test.ts:
+(pass) errnoCode reads a syscall error code, and only a real one > returns the code of a real node syscall error [0.06ms]
+(pass) errnoCode reads a syscall error code, and only a real one > a plain Error carries no code, so there is none to report [0.03ms]
+(pass) errnoCode reads a syscall error code, and only a real one > a non-object never yields a code instead of crashing on it [0.12ms]
+(pass) errnoCode reads a syscall error code, and only a real one > a code-shaped field of the wrong type is not a code [0.03ms]
+(pass) isAgentState verifies the state rather than asserting it > accepts a declared state [0.05ms]
+(pass) isAgentState verifies the state rather than asserting it > rejects anything not declared, including non-strings [0.07ms]
+
+packages/orch/test/command-space-fields.test.ts:
+(pass) command space fields > status and wall entities use the composed space, and it is nowhere in the key [41.99ms]
+(pass) command space fields > skipBackends keeps the authoritative presence entity shape [42.30ms]
+(pass) command space fields > status reports a mixed pi and Claude fleet with the same identity fields [51.13ms]
+
+packages/orch/test/bridge-apply.test.ts:
+(pass) presence bridge delivery > applies dispatch before ack, dedupes redelivery, and detaches [1.09ms]
+(pass) presence bridge delivery > applies model deliveries through model control [10.79ms]
+(pass) presence bridge delivery > resolves matching answers and drops answers for other questions [0.87ms]
+
+packages/orch/test/store-connection-guards.test.ts:
+(pass) store migration guards > a store predating the migrations is refused, not rebuilt over [27.29ms]
+(pass) store migration guards > names live presence as the thing to close before rebuilding [49.39ms]
+(pass) a slave never reaps or recreates the store > a spawned agent hitting a schema-mismatched store errors and mutates nothing [40.73ms]
+(pass) a slave never reaps or recreates the store > a recreate is refused while a live presence dir exists, for the user too [36.40ms]
+(pass) a slave never reaps or recreates the store > the user may recreate once nothing is live [47.51ms]
+(pass) a slave never reaps or recreates the store > a spawned agent is refused a recreate even with nothing live [85.26ms]
+
+packages/orch/test/retention.test.ts:
+(pass) retention sweep > retention windows are independently configurable [30.25ms]
+(pass) retention sweep > uses each table's own window and keeps queued and claimed tasks [89.76ms]
+(pass) retention sweep > returns zero counts when every row is inside its window [38.75ms]
+(pass) retention sweep > continues sweeping when one table delete fails [41.69ms]
+(pass) retention sweep > reaps expired agents by identity, taking every satellite with them [42.72ms]
+(pass) retention sweep > reaps dead dirs by recorded instants, not a fresh directory mtime [35.03ms]
+(pass) retention sweep > keeps dead dirs with a newer recorded instant despite an old mtime [22.88ms]
+(pass) retention sweep > reaps malformed dead dirs with no recorded instant [22.27ms]
+(pass) retention sweep > keeps result-only recorded instant despite an old mtime [26.73ms]
+(pass) retention sweep > never reaps a live presence dir regardless of age [69.09ms]
+(pass) retention sweep > sweeps old logs but preserves logs for live agents [41.56ms]
+(pass) retention sweep > does not sweep again one minute after the first tick [29.94ms]
+(pass) retention sweep > prunes orch's own logs past the age cap [25.95ms]
+(pass) retention sweep > prunes orch's own logs past the size cap even when freshly written [39.60ms]
+
+packages/orch/test/commands-status.test.ts:
+(pass) commands/status > zero-row message reports gathered counts and backend response [0.05ms]
+(pass) commands/status > dead rows never display stale live state [0.03ms]
+(pass) commands/status > shared row boundary normalizes stale state for every renderer [0.04ms]
+(pass) commands/status > a human at a terminal has no identity to narrow by and no space to be held inside [0.06ms]
+(pass) commands/status > --agent narrows to one row by id, key, or name, exited or not [0.13ms]
+(pass) commands/status > an agent sees what it spawned, and never past its own space > the default is the agents this caller spawned [0.04ms]
+(pass) commands/status > an agent sees what it spawned, and never past its own space > --space-wide widens to the caller's space, which is the wall [0.03ms]
+(pass) commands/status > an agent sees what it spawned, and never past its own space > a human widening sees every space, including the one the agent could not [0.03ms]
+(pass) commands/status > derives status row fields from seeded presence [4.88ms]
+(pass) commands/status > marks dead presence as exited [4.14ms]
+(pass) commands/status > asking presence is surfaced as a question while still reporting live state [5.07ms]
+(pass) commands/status > shared status row carries presence-derived fields [5.25ms]
+(pass) commands/status > row carries the owning backend's declared capabilities [11.90ms]
+(pass) commands/status > an agent whose backend orch cannot name reports no capabilities [4.84ms]
+(pass) commands/status > status owner ignores spawning provenance when no lease exists [14.00ms]
+(pass) commands/status > lease-backed status attribution distinguishes my lease, another lease, and unleased rows [52.83ms]
+(pass) commands/status > default table separates minted identity from pane environment [0.68ms]
+(pass) commands/status > human table shows harness and working directory facts [0.42ms]
+(pass) commands/status > json branch and local table branch derive identical rows apart from host [9.68ms]
+(pass) commands/status > capacity footer uses configured caps and shows one pack per root [0.44ms]
+(pass) commands/status > formats workspace labels and warnings [0.13ms]
+
+packages/orch/test/one-shape-only.test.ts:
+(pass) one current shape only > a live presence record with a malformed identity is a doctor failure [0.76ms]
+(pass) one current shape only > doctor backend reports have one detection spelling [0.41ms]
+
+packages/orch/test/work-loop-binding.test.ts:
+(pass) work loop attempt binding > statusSpeaksForTask verifies the current attempt dispatch id [0.55ms]
+(pass) Cq4: results go to the enqueuer, not the runner > every task event the work loop publishes is keyed to whoever enqueued it [72.22ms]
+
+packages/orch/test/settings-watch.test.ts:
+(pass) watchSettings > loads initially and applies a valid edit after the debounce [22.45ms]
+(pass) watchSettings > keeps the last-good settings, warns once, and recovers [400.28ms]
+(pass) watchSettings > reloads on a touched reload.signal without a settings edit [21.62ms]
+(pass) watchSettings > stop prevents further callbacks [401.53ms]
+
+packages/orch/test/vocabulary.test.ts:
+(pass) vocabulary is a display map, and a role is tree position > a role is derived from the tree, never stored [35.77ms]
+(pass) vocabulary is a display map, and a role is tree position > no table carries a role column: there is nothing to disagree with the tree [25.04ms]
+(pass) vocabulary is a display map, and a role is tree position > renaming an agent or moving its lease never changes its role [45.41ms]
+(pass) vocabulary is a display map, and a role is tree position > every role term orch displays comes from the one map [0.15ms]
+(pass) vocabulary is a display map, and a role is tree position > no module outside the map spells a role term into a user-facing string [12.23ms]
+
+packages/orch/test/backend-space-home.test.ts:
+(pass) tmux space home > focus switches the client to the session holding the space [0.17ms]
+(pass) tmux space home > create names the session after the space and returns its root window and pane [0.27ms]
+(pass) tmux space home > rename and close address the session coordinate [0.07ms]
+(pass) tmux space home > list reports every session as a coordinate with a label [0.07ms]
+(pass) a home orch opens is never unmarked (E8) > an unlabelled pack home is named for the pack it was opened for [0.12ms]
+(pass) a home orch opens is never unmarked (E8) > an unlabelled space home is named for the space, not for the pack [0.05ms]
+(pass) a home orch opens is never unmarked (E8) > a subject id the plexer would refuse is made safe, never passed through [0.05ms]
+(pass) a home orch opens is never unmarked (E8) > a caller-supplied label is used verbatim [0.06ms]
+
+packages/orch/test/queue-scope.test.ts:
+(pass) queue scope invariants > a failed pack task retries on another pack member, while an agent task stays pinned [63.72ms]
+(pass) queue scope invariants > cancel is allowed for the enqueuer or a lease holder of a targeted agent [52.23ms]
+(pass) queue scope invariants > cancel refuses a caller who is neither enqueuer nor targeted lease holder [42.05ms]
+(pass) queue scope invariants > edit is allowed only for the enqueuer while queued [45.61ms]
+(pass) queue scope invariants > an orphan has exactly take-on, leave, and reap resolutions [46.76ms]
+(pass) queue scope invariants > stale queued work is surfaced distinctly and never deleted by age [39.19ms]
+(pass) queue scope invariants > two concurrent claims have one winner and one one_open_attempt violation [45.88ms]
+
+packages/orch/test/settings-repair-screen.test.ts:
+(pass) repair action labels > names the key a rename lands on, so the destination is never a guess [0.05ms]
+(pass) repair action labels > names the value a set writes [0.04ms]
+(pass) repair action labels > drop and leave say only what they do [0.02ms]
+(pass) repair frame > shows every defect with the value the person wrote [3.63ms]
+(pass) repair frame > promises that nothing changes before a save, because nothing does [0.07ms]
+(pass) repair frame > every defect starts at leave, so opening the screen destroys nothing [0.07ms]
+(pass) repair frame > a chosen repair is shown as what it will do [0.05ms]
+(pass) repair frame > the focused row's offered keys are shown, so no choice has to be guessed [0.05ms]
+(pass) repair frame > the count reads as English for one defect and for many [0.06ms]
+(pass) repair frame > no row runs past the terminal width, tag included [0.09ms]
+(pass) repair frame > the file being repaired is named in the header [0.03ms]
+
+packages/orch/test/store-agent-rows.test.ts:
+(pass) agent store rows > insertAgent writes both NULL; agentById reads both back [32.53ms]
+(pass) agent store rows > insertAgent materializes the provenance root [32.31ms]
+(pass) agent store rows > endAgent records who closed it, nullable for death [49.34ms]
+(pass) agent store rows > liveAgents excludes agents with an ending [59.53ms]
+(pass) agent store rows > packMembers selects the materialized root [48.90ms]
+(pass) agent store rows > unknown harness is rejected by the foreign key [20.54ms]
+(pass) agent store rows > unknown spawnedBy is rejected by the foreign key [23.99ms]
+(pass) agent store rows > label maps both null and a value [35.37ms]
+(pass) agent store rows > created_at is an INTEGER epoch millisecond [35.25ms]
+(pass) agent store rows > worktreeOf distinguishes repo agents from worktree agents [576.37ms]
+(pass) agent store rows > renameAgent is id-keyed and leaves identity history unchanged [134.16ms]
+(pass) agent store rows > lookup ensure operations are insert-or-ignore [36.02ms]
+(pass) agent store rows > childrenOf returns direct descendants [49.31ms]
+
+packages/orch/test/agent-monitor.test.ts:
+(pass) agent fleet monitor > surfaces only agents spawned by this session [1.04ms]
+(pass) agent fleet monitor > empty model renders no status line or widget [0.32ms]
+(pass) agent fleet monitor > worker process registers no monitor regardless of events [0.36ms]
+(pass) agent fleet monitor > does not replay history into a plain pi session [0.40ms]
+
+packages/orch/test/adapter-bundle-diagnosis.test.ts:
+(pass) adapter bundle installation > reports a missing shipped bundle as a structured diagnosis [0.33ms]
+pi extensions:
+(pass) adapter bundle installation > diagnoses a missing shipped bundle without writing [0.40ms]
+
+packages/orch/test/close-authority.test.ts:
+(pass) who may end an agent (D7) > the human may close anything [42.06ms]
+(pass) who may end an agent (D7) > an orch may close the slaves it owns, at any depth [53.20ms]
+(pass) who may end an agent (D7) > an agent may NOT close another orch's slaves, and is told whose it is [47.58ms]
+(pass) who may end an agent (D7) > an agent may not close a peer orch either [43.80ms]
+(pass) who may end an agent (D7) > an agent may always close itself — acting on yourself is not driving a fleet [42.73ms]
+(pass) who may end an agent (D7) > adopting grants the right to end, and the spawner keeps it [43.22ms]
+(pass) who may end an agent (D7) > a provenance cycle terminates instead of hanging [40.32ms]
+
+packages/orch/test/commands-models.test.ts:
+(pass) orch models lists the whole catalogue > shows every offered model, quicklisted or not, allowed or not [0.32ms]
+(pass) orch models lists the whole catalogue > marks the launch default (thinking suffix removed) and the quicklist members [0.10ms]
+(pass) orch models lists the whole catalogue > keeps harness sections in configured order [0.05ms]
+(pass) orch models lists the whole catalogue > a harness that enumerates nothing gets an empty section, not another's models [0.09ms]
+(pass) orch models filters > --preferred narrows to the quicklist and renumbers what is shown [0.05ms]
+(pass) orch models filters > --search matches spec and label case-insensitively [0.07ms]
+(pass) orch models filters > filters combine, and no match is an empty result rather than the full list [0.03ms]
+(pass) orch models --pick prints one spec > a numeric pick reads the displayed index of a single harness [0.10ms]
+(pass) orch models --pick prints one spec > an exact spec pick resolves after filtering [0.05ms]
+(pass) orch models --pick prints one spec > ambiguous, missing, zero, and out-of-range picks fail [0.34ms]
+(pass) orch models --json > emits the pinned harness/model shape [0.13ms]
+
+packages/orch/test/settings-registry.test.ts:
+(pass) settings registry > declares every schema setting exactly once [0.80ms]
+(pass) settings registry > every registry read resolves against loaded settings [2.18ms]
+(pass) settings registry > fleet help explains what each limit counts [0.27ms]
+(pass) settings registry > fleet.max_depth round-trips through the full-tree writer [1.58ms]
+(pass) settings registry > fleet.max_depth rejects zero through the registered writer [1.29ms]
+(pass) settings registry > fleet.max_depth writes its value to settings.json [1.20ms]
+(pass) settings registry > contains no duplicate keys [0.12ms]
+
+packages/orch/test/backend-herdr-predicates.test.ts:
+(pass) herdr environment predicates > neither variable set [0.12ms]
+(pass) herdr environment predicates > HERDR_ENV=1 only [0.02ms]
+(pass) herdr environment predicates > HERDR_PANE_ID only
+(pass) herdr environment predicates > both variables set
+
+packages/orch/test/doctor-unscoped-tasks.test.ts:
+(pass) doctor task scopes > a facade-enqueued task has exactly one typed scope [36.23ms]
+(pass) doctor task scopes > the database rejects an unscoped task instead of keeping a legacy queue row [34.87ms]
+(pass) doctor task scopes > doctor lists unrunnable tasks and deliberate resolutions without deleting [38.47ms]
+
+packages/orch/test/commands-results.test.ts:
+(pass) commands/results > renders daemon questions with the existing JSON shape [54.87ms]
+(pass) commands/results > renders exactly the pending questions returned by the daemon [3.71ms]
+(pass) commands/results > surfaces a missing daemon instead of returning an empty list [0.72ms]
+(pass) commands/results > formats invalid and recent timestamps [0.05ms]
+(pass) commands/results > routes a seeded results.jsonl through the command module [38.17ms]
+(pass) commands/results > keeps every settled dispatch and reports the newest [41.17ms]
+(pass) commands/results > falls back to adapter session text when results.jsonl is absent [42.10ms]
+(pass) commands/results > uses results.jsonl even when the presence status has no agent [35.55ms]
+(pass) commands/results > orch tail resolves a non-pi target through that adapter's session view [40.99ms]
+(pass) commands/results > orch tail renders pi's per-turn entries with role rows and a tool-call summary [42.57ms]
+(pass) commands/results > orch tail -n keeps last-N rendered entries for a pi session [46.96ms]
+(pass) commands/results > orch session reports the pi entry count [39.07ms]
+(pass) commands/results > orch session shows zero entries for an adapter view without them [50.52ms]
+
+packages/orch/test/settings.test.ts:
+(pass) loadSettings > refuses to invent settings when settings.json is missing [0.42ms]
+(pass) loadSettings > requires a top-level runtime and never defaults it [0.69ms]
+(pass) loadSettings > rejects an unrecognized runtime naming the accepted values [0.54ms]
+(pass) loadSettings > rejects a runtime misplaced under defaults [0.82ms]
+(pass) loadSettings > reads the declared runtime [0.56ms]
+(pass) loadSettings > parses every supported settings section [0.84ms]
+(pass) loadSettings > reads question re-ask and retention sweep settings [0.35ms]
+(pass) loadSettings > rejects a file without the current schemaVersion [0.31ms]
+(pass) loadSettings > rejects invalid JSON loudly [0.18ms]
+(pass) loadSettings > names the key path for invalid fields [0.35ms]
+(pass) loadSettings > rejects unknown settings keys [0.29ms]
+(pass) loadSettings > rejects removed spawn cap setting by name [0.30ms]
+(pass) loadSettings > parses models.allowed as a per-harness pattern map [0.28ms]
+(pass) loadSettings > rejects renamed fleet keys and loads their replacements [1.13ms]
+(pass) loadSettings > rejects old settings keys [0.85ms]
+(pass) loadSettings > rejects legacy notify type and unknown ids [0.60ms]
+(pass) loadSettings > applies every settings default when sections are absent [0.29ms]
+(pass) loadSettings > preserves configured values while defaulting each missing section value [0.52ms]
+(pass) loadSettings > rejects non-positive and non-integer retention windows [0.64ms]
+(pass) loadSettings > rejects a host without dest [0.31ms]
+(pass) loadSettings > rejects an unknown id in enabled.adapters [0.35ms]
+(pass) loadSettings > rejects defaults.adapter not present in enabled.adapters [0.26ms]
+(pass) loadSettings > rejects when settings.json is absent but a legacy config.toml exists [0.26ms]
+(pass) allowedModelPatterns > restricts nothing when settings contain no patterns [0.13ms]
+(pass) allowedModelPatterns > returns the configured patterns when set [0.39ms]
+(pass) writeSettingsRuntime > records the runtime as a top-level scalar with no defaults or enabled entry [0.35ms]
+(pass) writeSettingsRuntime > re-recording the same runtime leaves the file unchanged [0.55ms]
+(pass) writeSettingsRuntime > a different runtime replaces the single value in place [0.43ms]
+(pass) reapUnreadableSettings > moves an out-of-schema file aside so setup can re-record [0.53ms]
+(pass) reapUnreadableSettings > leaves a readable file alone [0.32ms]
+(pass) writeSettingsEnabled > round-trips both provider arrays [0.46ms]
+(pass) writeSettingsDefault > creates settings.json with the schemaVersion stamp and records entries [0.81ms]
+(pass) writeSettingsDefault > replaces an existing entry without disturbing other sections [0.75ms]
+(pass) writeSettingsDefault > is idempotent when rewriting the same value [0.87ms]
+(pass) writeSettingsDefault > refuses to write through an out-of-version settings file [0.35ms]
+(pass) writeSettingsDefault > switches defaults.adapter between two enabled ids and loads clean [0.55ms]
+(pass) writeSettingsFullTree > round-trips defaults without inventing max_agents_total [0.87ms]
+(pass) settings precedence > uses the fallback when env and settings.json omit a setting [0.29ms]
+(pass) settings precedence > uses the settings.json value over the fallback [0.28ms]
+(pass) settings precedence > uses the ORCH_* environment value over settings.json [0.31ms]
+(pass) settings precedence > uses an explicit flag override over the environment [0.03ms]
+(pass) resolveSetting > uses flag, environment coercion, settings, then fallback in precedence order [0.05ms]
+(pass) resolveWithSource > rejects an environment value with the wrong shape [0.09ms]
+(pass) resolveWithSource > reports the winning source at each precedence level [0.06ms]
+(pass) models.preferred and models.allowed are independent > loadSettings parses a per-harness preferred quicklist [0.28ms]
+(pass) models.preferred and models.allowed are independent > an absent preferred map normalizes to an empty map, not to allowed [0.24ms]
+(pass) models.preferred and models.allowed are independent > writing one list leaves the other byte-for-value intact [1.48ms]
+(pass) models.preferred and models.allowed are independent > an empty list is recorded as no list at all, so a cleared picker really clears [0.69ms]
+(pass) models.preferred and models.allowed are independent > the full tree seeds both maps when absent and preserves both when present [1.81ms]
+(pass) models.preferred and models.allowed are independent > the allowlist gate reads models.allowed only [0.50ms]
+
+packages/orch/test/reap-walks-provenance.test.ts:
+(pass) reap walks the provenance tree (H3) > an ended agent with a still-present descendant is NOT reaped [50.61ms]
+(pass) reap walks the provenance tree (H3) > the tree is reaped from the LEAF up, one sweep per level [48.38ms]
+(pass) reap walks the provenance tree (H3) > a LIVE descendant blocks the reap even when the parent ended long ago [41.84ms]
+(pass) reap walks the provenance tree (H3) > provenance has no ON DELETE CASCADE, so no reap can erase a subtree [38.49ms]
+
+packages/orch/test/control-dispatch.test.ts:
+(pass) deliverControl bridge dispatch > pushes run and steer with their action ids [68.72ms]
+(pass) deliverControl bridge dispatch > reports a detached bridge for a live agent [43.06ms]
+(pass) deliverControl bridge dispatch > reports a gone agent before pushing to its link [61.64ms]
+(pass) deliverControl bridge dispatch > answers only when status has no pending question [50.97ms]
+(pass) deliverControl bridge dispatch > pushes an answer with the asking question id [48.94ms]
+(pass) deliverControl bridge dispatch > pushes model changes and waits for the control outcome [356.32ms]
+(pass) deliverControl bridge dispatch > rejects an outcome whose applied pin differs from the request [350.88ms]
+(pass) deliverControl bridge dispatch > uses the backend input path when the adapter bridge takes no steers [57.55ms]
+
+packages/orch/test/backend-herdr.test.ts:
+(pass) HerdrBackend > current identity uses the explicit id, not the launch environment [0.59ms]
+(pass) HerdrBackend > composes a complete group role bundle [0.05ms]
+(pass) HerdrBackend > starts an authority-bearing herdr agent with the adapter command [0.64ms]
+(pass) HerdrBackend > starts the mapped herdr harness kind in the pane it created [0.16ms]
+(pass) HerdrBackend > agent_not_ready keeps the pane and does not close it [0.13ms]
+(pass) HerdrBackend > a caller pane is split rather than given a new tab [0.09ms]
+(pass) HerdrBackend > pane and tab creation always preserves focus [0.12ms]
+(pass) HerdrBackend > split direction clamps to herdr's right|down [0.08ms]
+(pass) HerdrBackend > env reaches the pane through herdr's --env, not an argv prefix [0.14ms]
+(pass) HerdrBackend > a handed-over pane is launched into directly, never split or closed [0.06ms]
+(pass) HerdrBackend > a group is created with the environment its own pane will launch under [0.16ms]
+(pass) HerdrBackend > a group with no coordinate is refused, not placed wherever herdr is focused [0.05ms]
+(pass) HerdrBackend > a pane with no coordinate is refused the same way [0.04ms]
+(pass) HerdrBackend > the inventory answers which workspace holds a pane, and null for one herdr no longer lists [0.09ms]
+(pass) HerdrBackend > the pane host closes a pane through herdr [0.04ms]
+(pass) HerdrBackend > a planned target pane is split directly, never re-seated afterwards [0.10ms]
+(pass) HerdrBackend > a grouped spawn with no planned target splits a pane already in that tab, never the caller's pane [0.28ms]
+(pass) HerdrBackend > a same-tab re-seat bounces through a throwaway tab so herdr executes it [0.15ms]
+(pass) HerdrBackend > adopts herdr's replacement pane id after move [0.03ms]
+(pass) HerdrBackend > refuses a live herdr agent name before start [0.17ms]
+(pass) HerdrBackend > reads recent unwrapped pane output [0.05ms]
+(pass) HerdrBackend > a refused move surfaces herdr's reason instead of claiming success [0.06ms]
+(pass) HerdrBackend > groupLayout reads tab geometry straight off the pane listing [0.13ms]
+(pass) HerdrBackend > pane input reports gone handles without retrying and retries plain failures [1751.47ms]
+(pass) HerdrBackend > pane rename failure reaches the role caller [0.23ms]
+(pass) HerdrBackend > waiting uses agent wait --until, not the removed top-level wait [0.12ms]
+(pass) HerdrBackend space home > opens an orch-marked workspace for a pack the caller did not label [0.47ms]
+(pass) HerdrBackend space home > a space home the human named keeps that name [0.19ms]
+(pass) HerdrBackend space home > create hands back the plexer coordinate, the root tab and the root pane, and says none of them [0.23ms]
+
+packages/orch/test/one-retry-policy.test.ts:
+(pass) one retry policy > retries flaky async and sync operations through the shared helper [4.39ms]
+(pass) one retry policy > uses the policy's declared backoff schedule [0.13ms]
+(pass) one retry policy > surfaces the last error after exactly attempts tries [0.18ms]
+
+packages/orch/test/broker-daemon-hardening.test.ts:
+(pass) broker daemon hardening > dispatch/steer validation rejects null, arrays, and non-string fields [0.14ms]
+(pass) broker daemon hardening > ack is idempotent when the same id is acknowledged twice [31.55ms]
+(pass) broker daemon hardening > a throwing delivery is retried and does not poison later messages [29.68ms]
+(pass) broker daemon hardening > concurrent drains do not redeliver one message id [35.20ms]
+(pass) broker daemon hardening > replay after the newest sequence is empty without a gap [25.48ms]
+(pass) broker daemon hardening > malformed request gets an error and the connection remains usable [4.76ms]
+
+packages/orch/test/peer-project-scope.test.ts:
+(pass) peer discovery walls on the project > a same-workspace peer from another project is invisible by default [54.54ms]
+(pass) peer discovery walls on the project > all_workspaces deliberately lifts the project wall [39.71ms]
+(pass) peer discovery walls on the project > a cross-project target does not resolve for sends without the explicit flag [42.71ms]
+(pass) peer discovery walls on the project > a record with no project stamp is malformed and never listed [40.44ms]
+(pass) peer discovery walls on the project > a spawned agent's all_workspaces flag is ignored [56.28ms]
+
+packages/orch/test/peer-tools-registration.test.ts:
+(pass) peer tool registration > does not register orch_send when no spawner address exists [0.92ms]
+(pass) peer tool registration > does not register orch_send when the spawner pid is dead [33.33ms]
+(pass) peer tool registration > registers orch_send when the spawner has a live status record [39.92ms]
+
+packages/orch/test/session-sees-only-held-agents.test.ts:
+(pass) session agent visibility > shows only agents held by the current session, not its provenance children [0.20ms]
+(pass) session agent visibility > an operator sees every agent in every space [0.10ms]
+(pass) session agent visibility > a session cannot reset a foreign-held agent [42.02ms]
+(pass) session agent visibility > a session cannot read runs by the exact key of a foreign-held agent [59.87ms]
+(pass) session agent visibility > a session cannot widen status with --space-wide [17.87ms]
+(pass) session agent visibility > a session cannot resolve a foreign target, even when it shares provenance [42.86ms]
+
+packages/orch/test/pid-liveness.test.ts:
+(pass) pidAlive liveness contract (shared by pi peers) > EPERM means the process exists under another user — alive [0.12ms]
+(pass) pidAlive liveness contract (shared by pi peers) > ESRCH means no such process — dead [0.03ms]
+(pass) pidAlive liveness contract (shared by pi peers) > the current process is alive [0.02ms]
+(pass) pidAlive liveness contract (shared by pi peers) > non-positive and non-numeric pids are rejected without signalling [0.04ms]
+
+packages/orch/test/notifier-adapters.test.ts:
+(pass) notifier registry and built-in adapters > reports notifier reachability from one configured entry [0.19ms]
+(pass) notifier registry and built-in adapters > webhook POST contains the canonical payload [0.40ms]
+(pass) notifier registry and built-in adapters > a notifier error is the caller's real error [0.17ms]
+
+packages/orch/test/orchd-rpc-replay.test.ts:
+(pass) orchd RPC replay buffer > assigns monotonic sequence numbers and replays after a sequence [33.88ms]
+(pass) orchd RPC replay buffer > replays from inside the surviving range without a gap [29.51ms]
+(pass) orchd RPC replay buffer > reports a gap when the requested sequence predates retained history [31.71ms]
+(pass) orchd RPC replay buffer > empty history has no gap or oldest sequence [20.54ms]
+(pass) orchd RPC replay buffer > limits replay size without pruning durable events [1835.98ms]
+
+packages/orch/test/commands-index.test.ts:
+(pass) commands/index > does not gate help or noninteractive commands [0.05ms]
+(pass) commands/index > reads a package version string [0.10ms]
+(pass) commands/index > announces unleased agents once per session [0.30ms]
+(pass) commands/index > dispatches representative commands and reports unknown commands [1.01ms]
+
+packages/orch/test/store-outbox.test.ts:
+(pass) outbox store rows > inserts pending messages and orders them by creation time [26.93ms]
+(pass) outbox store rows > reports one message's pending state [28.18ms]
+(pass) outbox store rows > bumps attempts and hides a message until its next attempt time [30.36ms]
+(pass) outbox store rows > deletes delivered messages older than the cutoff [37.73ms]
+
+packages/orch/test/adapter-model-flag.test.ts:
+(pass) interactive launches carry the resolved model (12.6) > pi.interactiveCmd includes --model when set and omits it cleanly when not [0.07ms]
+(pass) interactive launches carry the resolved model (12.6) > pi.restrictedInteractiveCmd includes --model when set and omits it cleanly when not [0.09ms]
+(pass) interactive launches carry the resolved model (12.6) > claude.interactiveCmd includes --model when set and omits it cleanly when not [0.04ms]
+(pass) interactive launches carry the resolved model (12.6) > codex.interactiveCmd includes a quoted --model when set and omits it cleanly when not [0.03ms]
+(pass) preferred models fill the harness's native picker quicklist > pi interactive builders pass the quicklist as one quoted --models argument [0.09ms]
+(pass) preferred models fill the harness's native picker quicklist > pi headless builders pass the quicklist as one verbatim argv entry [0.07ms]
+(pass) preferred models fill the harness's native picker quicklist > pi omits --models cleanly for an absent or empty quicklist [0.12ms]
+(pass) preferred models fill the harness's native picker quicklist > pi keeps quicklist order and provider punctuation intact [0.05ms]
+(pass) preferred models fill the harness's native picker quicklist > omp interactive builders pass the quicklist as one quoted --models argument [0.04ms]
+(pass) preferred models fill the harness's native picker quicklist > omp headless builders pass the quicklist as one verbatim argv entry [0.02ms]
+(pass) preferred models fill the harness's native picker quicklist > omp omits --models cleanly for an absent or empty quicklist [0.04ms]
+(pass) preferred models fill the harness's native picker quicklist > omp keeps quicklist order and provider punctuation intact
+(pass) preferred models fill the harness's native picker quicklist > a model outside the quicklist is still what the launch runs on [0.09ms]
+
+packages/orch/test/a-backend-exposes-each-operation-once.test.ts:
+(pass) a backend exposes each operation exactly once (2.2) > herdr publishes no operation beside the role that owns it [0.19ms]
+(pass) a backend exposes each operation exactly once (2.2) > tmux publishes no operation beside the role that owns it [0.12ms]
+(pass) a backend exposes each operation exactly once (2.2) > headless publishes no operation beside the role that owns it [0.08ms]
+
+packages/orch/test/pack-membership.test.ts:
+(pass) a pack is the provenance root > a registered session is an orch of a pack of one [41.94ms]
+(pass) a pack is the provenance root > membership is inherited from the spawner at any depth, never re-rooted [38.34ms]
+(pass) a pack is the provenance root > every agent is in exactly one pack, and two packs never share a member [46.30ms]
+(pass) a pack is the provenance root > a pack of one grows without re-rooting, and the root stays the orch [35.88ms]
+(pass) a pack is the provenance root > a lease or a move never changes which pack an agent is in [41.85ms]
+(pass) a pack is the provenance root > an agent cannot be spawned by someone who does not exist [31.54ms]
+
+packages/web/src/lib/fleet.test.ts:
+(pass) web environment projection > novel plexers still render a detached environment [0.41ms]
+(pass) web environment projection > missing space is absent rather than local [0.06ms]
+(pass) web environment projection > pane coordinates are not chosen names [0.04ms]
+(pass) web environment projection > unknown daemon states use the neutral fallback [0.04ms]
+(pass) web environment projection > uses names from orch rows and falls back to the minted id [0.05ms]
+(pass) web environment projection > uses the orch space name and id [0.04ms]
+(pass) web environment projection > history groups ended agents by provenance root [0.09ms]
+(pass) web environment projection > live projection excludes ended rows [0.10ms]
+(pass) web environment projection > renderers contain no provider-id branches or backend capability imports [0.36ms]
+
+packages/web/src/lib/web-shell.test.ts:
+(pass) web shell and fleet views > the app shell scrolls only its content region [0.24ms]
+(pass) web shell and fleet views > no route declares a scroll frame of its own [0.45ms]
+(pass) web shell and fleet views > unleased agents are partitioned into an orphan bucket [0.20ms]
+(pass) web shell and fleet views > history groups exited agents by the agent that spawned them [0.09ms]
+(pass) web shell and fleet views > live work groups under its current lease holder [0.29ms]
+(pass) web shell and fleet views > adopted work is filed under its current holder [0.15ms]
+(pass) web shell and fleet views > unheld agents remain visible under the unheld group [0.09ms]
+(pass) web shell and fleet views > dead holders become unheld and do not drive work [0.09ms]
+(pass) web shell and fleet views > lease groups preserve every flat space member [0.13ms]
+(pass) web shell and fleet views > visible names never expose a plexer coordinate or the forbidden term [0.12ms]
+
+1 tests failed:
+(fail) commands/target > lists only live serialized identity presence entries [22.11ms]
+
+ 1641 pass
+ 1 fail
+ 7566 expect() calls
+Ran 1642 tests across 255 files. [69.57s]

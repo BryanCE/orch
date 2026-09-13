@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseTargetPrompt, resultText, splitOptionFlags, remoteCommandArgs, livePanePresenceEntries } from "../src/commands/target.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
@@ -21,10 +22,11 @@ describe("commands/target", () => {
     const root = mkdtempSync(join(tmpdir(), "orch-command-target-"));
     const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
     try {
-      // Only a minted id names an agent; a plexer/space key names an environment.
-      for (const [key, pid] of [["live000001", process.pid], ["not-an-identity", process.pid], ["dead000001", 999999]] as const) {
-        seedStatus(root, key, { key, pid });
-      }
+      // Only a minted id names an agent; a plexer/space key names an environment. The store says who is live.
+      seedAgent("live000001", {}, root);
+      seedLiveProcess(root, "live000001");
+      seedAgent("dead000001", {}, root);
+      for (const key of ["live000001", "not-an-identity", "dead000001"]) seedStatus(root, key, { key });
       expect(livePanePresenceEntries().map((entry) => entry.key)).toEqual(["live000001"]);
     } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });

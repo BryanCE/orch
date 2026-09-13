@@ -57,7 +57,8 @@ export interface SetupOptions {
   backendFlag: string | undefined;
   modelFlags: string[];
   refresh: boolean;
-  noSmoke: boolean;
+  /** Opt-in: the smoke spawns a real agent and spends real tokens. */
+  smoke: boolean;
 }
 
 export function parseSetupOptions(args: string[]): SetupOptions {
@@ -72,6 +73,6 @@ export function parseSetupOptions(args: string[]): SetupOptions {
     backendFlag: readAssignFlag(args, "--backend") ?? readAssignFlag(args, "--plexer"),
     modelFlags: readModelFlags(args),
     refresh: args.includes("--refresh"),
-    noSmoke: args.includes("--no-smoke"),
+    smoke: args.includes("--smoke"),
   };
 }

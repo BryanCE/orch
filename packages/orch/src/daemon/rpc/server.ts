@@ -22,26 +22,38 @@ function detachConnectionBridge(state: ConnectionState): void {
   detachBridge(state.bridge.key, state.bridge.link);
   state.bridge = undefined;
 }
+/** A refused attach has already been answered on its socket, so the request ends there. */
+type AttachOutcome =
+  | { readonly kind: "not-attach" }
+  | { readonly kind: "refused" }
+  | { readonly kind: "attached"; readonly notify: () => void };
+
 function attachRequest(
   socket: Socket,
   request: { id: unknown; method: string; params: unknown },
   state: ConnectionState,
   onBridgeAttached?: (key: string) => void,
-): (() => void) | undefined {
-  if (request.method !== "attach") return undefined;
+): AttachOutcome {
+  if (request.method !== "attach") return { kind: "not-attach" };
   const params = isRecord(request.params) ? request.params : undefined;
   const key = params?.key;
   if (typeof key !== "string" || key.length === 0) {
     lineResponse(socket, errorResponse(request.id, "INVALID_REQUEST", "attach requires key"));
-    return undefined;
+    return { kind: "refused" };
   }
   detachConnectionBridge(state);
   const link: BridgeLink = {
     push: (delivery: BridgeDelivery) => lineResponse(socket, { event: { kind: "delivery", ...delivery } }),
   };
-  attachBridge(key, link);
+  // A bridge for an agent this store does not know is refused on its own socket; it never ends the daemon.
+  try {
+    attachBridge(key, link);
+  } catch (error: unknown) {
+    lineResponse(socket, errorResponse(request.id, "UNKNOWN_AGENT", errorMessage(error)));
+    return { kind: "refused" };
+  }
   state.bridge = { key, link };
-  return () => onBridgeAttached?.(key);
+  return { kind: "attached", notify: () => onBridgeAttached?.(key) };
 }
 
 function dispatchRequest(
@@ -112,9 +124,10 @@ function handleLine(
     }
     subscriptions.add(socket);
   }
-  const notifyBridgeAttached = attachRequest(socket, request, state, onBridgeAttached);
+  const attach = attachRequest(socket, request, state, onBridgeAttached);
+  if (attach.kind === "refused") return;
   const emit: RpcEventEmitter = (event) => lineResponse(socket, { event });
-  dispatchRequest(socket, request, handlers, emit, state, transport, notifyBridgeAttached);
+  dispatchRequest(socket, request, handlers, emit, state, transport, attach.kind === "attached" ? attach.notify : undefined);
 }
 
 

@@ -88,7 +88,7 @@ describe("commands/setup", () => {
       shim: { value: replacements.shim, configurable: true, enumerable: true, writable: true },
     });
     try {
-      await cmdSetup(["--yes", "--no-install", "--no-skills", "--no-smoke", "--agent=pi", "--backend=headless", "--runtime=node"]);
+      await cmdSetup(["--yes", "--no-install", "--no-skills", "--agent=pi", "--backend=headless", "--runtime=node"]);
     } finally {
       Object.defineProperties(adapter, {
         modelWarm: { value: original.modelWarm, configurable: true, enumerable: true, writable: true },

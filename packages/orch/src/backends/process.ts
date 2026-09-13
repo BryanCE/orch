@@ -4,6 +4,17 @@ import type { InstanceProbe } from "../process-identity.ts";
 import type { ForegroundRole, ProcessRole, RecordedProcess, StartRequest, StartedProcess } from "../types/backend.ts";
 import type { BackendHandle, LocalProcessRoleDeps } from "../types/backend.ts";
 
+/** The process orch is running in, and the one that invoked it. */
+export function isOwnProcess(pid: number): boolean {
+  return pid === process.pid || pid === process.ppid;
+}
+
+/** The default signal: never orch itself, never its parent. */
+export function signalOtherProcess(pid: number, signal: NodeJS.Signals): void {
+  if (isOwnProcess(pid)) throw new Error(`cannot signal process ${pid}: orch is running in it`);
+  process.kill(pid, signal);
+}
+
 function startLocalProcess(request: StartRequest): StartedProcess {
   const [executable, ...args] = request.argv;
   if (!executable) throw new Error("process start requires a non-empty argv");
@@ -37,7 +48,7 @@ export class LocalProcessRole<Handle = BackendHandle> implements ProcessRole<Han
     this.alive = deps.isAlive ?? processIsAlive;
     this.token = deps.startToken ?? processStartToken;
     this.startProcess = deps.spawn ?? startLocalProcess;
-    this.signalProcess = deps.signal ?? ((pid, signal) => process.kill(pid, signal));
+    this.signalProcess = deps.signal ?? signalOtherProcess;
     this.probe = { isAlive: this.alive, startToken: this.token };
   }
 
@@ -47,8 +58,7 @@ export class LocalProcessRole<Handle = BackendHandle> implements ProcessRole<Han
 
   running(handle: Handle): RecordedProcess {
     const pid = this.pidOf(handle);
-    // A handle running no process would be recorded as an agent orch can neither
-    // watch nor end. An unprovable instance still runs, so it is not a failure.
+    // A handle with no process cannot be recorded as an agent.
     if (pid === null) throw new Error(`this environment reports no process for ${String(handle)}`);
     return { pid, startToken: this.token(pid) ?? null };
   }
@@ -59,11 +69,6 @@ export class LocalProcessRole<Handle = BackendHandle> implements ProcessRole<Han
   }
 
   kill(process: RecordedProcess, signal: NodeJS.Signals): void {
-    // Reading tolerates an unproven instance. SIGNALLING never does: the OS may
-    // have recycled that pid onto something else, and orch would end a stranger.
-    if (process.startToken === null) {
-      throw new Error(`cannot signal process ${process.pid}: orch cannot prove it is still this agent`);
-    }
     const state = this.state(process);
     if (state !== "alive") throw new Error(`cannot kill process ${process.pid}: process instance is ${state}`);
     this.signalProcess(process.pid, signal);

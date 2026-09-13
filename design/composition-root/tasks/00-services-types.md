@@ -1,0 +1,40 @@
+# 00-services-types
+
+Owns: `src/types/services.ts` (new)
+
+Do: create the file with exactly this content, adjusting only import paths if they are wrong.
+
+```ts
+import type { OrchSettings } from "./settings.ts";
+import type { Logger } from "./core.ts";
+
+/** Parsed settings for one process. `current()` is cheap after the first call:
+ *  the parsed value is held until `reload()`. The daemon's file watcher calls
+ *  `reload()`; the CLI never needs to. */
+export interface SettingsManager {
+  /** The settings file path, for messages only. */
+  readonly file: string;
+  /** Throws the "does not exist ... Run: orch setup" error when the file is absent. */
+  current(): OrchSettings;
+  /** Null when the file is absent. A malformed file still throws. */
+  currentOrNull(): OrchSettings | null;
+  /** Drop the held value and re-read storage. Returns what `currentOrNull()` now returns. */
+  reload(): OrchSettings | null;
+}
+
+/** Everything a process is composed from. Built once per root (CLI, daemon,
+ *  extension registration), passed down, never rebuilt below a root. */
+export interface Services {
+  readonly orchDir: string;
+  readonly settings: SettingsManager;
+  readonly logger: Logger;
+}
+
+export type OrchDirService = Pick<Services, "orchDir">;
+export type SettingsService = Pick<Services, "settings">;
+export type LoggerService = Pick<Services, "logger">;
+```
+
+`Logger` is exported from `src/types/core.ts` (see `src/commands/logging.ts:4` for the import). `OrchSettings` is `src/types/settings.ts:23`.
+
+Check: lint, tc. Tests: none named.

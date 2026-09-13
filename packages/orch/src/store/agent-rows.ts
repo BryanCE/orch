@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, type SQL } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, type SQL } from "drizzle-orm";
 import { mintAgentId } from "../backends/identity.ts";
 import { isRecord, osSide } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
@@ -6,6 +6,7 @@ import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPl
 import { environmentOf } from "./agent-view.ts";
 import { setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
+import { decisionLogger } from "../daemon/decision-log.ts";
 import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostOs, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
 
 /** This machine's OS as the store names it. Throws rather than guess: an
@@ -149,6 +150,21 @@ export function agentIdByProcess(orchDir: string, pid: number, startToken: strin
   return row?.id ?? null;
 }
 
+/** The live session agent for one process instance and harness. A worker can
+ * share a process-shaped record, so the session token and harness facts are
+ * both part of this continuity lookup. */
+function sessionAgentIdByProcess(orchDir: string, pid: number, startToken: string, harnessId: string): string | null {
+  const row = orm(orchDir).select({ id: agents.id }).from(agents)
+    .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
+    .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
+    .where(and(
+      eq(agentProcesses.pid, pid), eq(agentProcesses.startToken, startToken),
+      eq(agents.harnessId, harnessId), isNotNull(agents.sessionToken), isNull(agentEndings.agentId),
+    ))
+    .limit(1).get();
+  return row?.id ?? null;
+}
+
 /** Register a caller as an agent.
  *
  * Continuity comes from the harness's own session token when it exports one:
@@ -218,14 +234,22 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
   ensureHarness(orchDir, input.harnessId, input.harnessId, input.now);
   ensureHost(orchDir, input.hostId, input.hostName, input.hostOs, input.now);
   recordPlexer(orchDir, input);
+  let repointedAgentId: string | null = null;
   const identity = withTransaction<SessionAgentIdentity>(orchDir, () => {
     const db = orm(orchDir);
     const token = input.sessionToken ?? null;
-    const existing = token === null
-      ? agentIdByProcess(orchDir, input.pid, input.startToken)
-      : liveAgentId(orchDir, eq(agents.sessionToken, token));
+    const existingByToken = token === null ? null : liveAgentId(orchDir, eq(agents.sessionToken, token));
+    const existing = existingByToken
+      ?? (token === null
+        ? agentIdByProcess(orchDir, input.pid, input.startToken)
+        : sessionAgentIdByProcess(orchDir, input.pid, input.startToken, input.harnessId));
     if (existing !== null) {
-      db.update(agents).set({ label: input.label }).where(eq(agents.id, existing)).run();
+      if (token !== null && existingByToken === null) {
+        db.update(agents).set({ label: input.label, sessionToken: token }).where(eq(agents.id, existing)).run();
+        repointedAgentId = existing;
+      } else {
+        db.update(agents).set({ label: input.label }).where(eq(agents.id, existing)).run();
+      }
       // The session outlives any one process instance. An agent may hold only ONE
       // open process interval (the `one_live_process` unique index), so a
       // superseded one is CLOSED before the current instance opens its own -
@@ -264,6 +288,9 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
   // Placement runs AFTER the registration transaction: `closeThenOpen` opens its
   // own, and sqlite has no nested one. It is idempotent, so a crash in between
   // is repaired by the session's next registration rather than leaving a second row.
+  if (repointedAgentId !== null) {
+    decisionLogger(orchDir).info("session.repointed", { agentId: repointedAgentId, harnessId: input.harnessId });
+  }
   placeSession(orchDir, identity.id, input);
   return identity;
 }

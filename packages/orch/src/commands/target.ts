@@ -1,7 +1,7 @@
 import { loadSettings } from "../settings/read.ts";
 import { getBackend } from "../backends/registry.ts";
 import { isAgentId } from "../backends/identity.ts";
-import { buildEntities, parseTarget, resolveTarget } from "../entities.ts";
+import { buildEntities, callerMayResolve, parseTarget, refuseForeignTarget, resolveTarget } from "../entities.ts";
 import { callerSpace, selfId, spaceOfAgent } from "../identity/self.ts";
 import { callerKind } from "../policy/caller.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
@@ -150,6 +150,7 @@ export function callerOwnerToken(): string | undefined {
 
 /** Refuse bulk operations that cannot identify their calling orchestrator. */
 export function requireCallerOwnerToken(): string {
+  forbidNonOperatorOverride("--all");
   const token = callerOwnerToken();
   if (!token) die(`Bulk operation refused: set ORCH_OWNER to identify this ${term("orch")}.`);
   return token;
@@ -162,8 +163,10 @@ export function callerIsSpawnedAgent(): boolean {
 
 /** Owner-gate overrides are operator-only. A spawned agent may touch exactly
  *  what it spawned — no flag widens that, ever. */
-export function forbidAgentOverride(flag: string): void {
-  if (callerIsSpawnedAgent()) die(`${flag} is operator-only: a spawned agent may only touch agents it spawned.`);
+export function forbidNonOperatorOverride(flag: string): void {
+  if (callerKind() !== "operator") {
+    die(`${flag} is operator-only: a driving session may only touch agents it holds.`);
+  }
 }
 
 /** The space one agent is composed into. A space is an ENVIRONMENT axis read
@@ -205,7 +208,7 @@ export function assertAgentOwned(
   views?: ReadonlyMap<string, AgentView>,
 ): void {
   if (force) {
-    forbidAgentOverride("--force");
+    forbidNonOperatorOverride("--force");
     return;
   }
   // Ownership is the open lease and nothing else. A closed one is history, and
@@ -352,14 +355,19 @@ function lifecycleHandle(ent: Entity, view: AgentView | undefined): BackendHandl
  * the backend has stopped reporting the pane.
  */
 export function resolveLifecycleTarget(target: string): LifecycleTarget {
-  const views = agentViewIndex();
+  const allViews = agentViewIndex();
+  const views = new Map([...allViews].filter(([key]) => callerMayResolve({ key })));
   const presence = presenceById();
-  const entities = buildEntities();
+  const entities = buildEntities().filter((entity) => callerMayResolve(entity));
   const inventory = resolveFromInventory(entities, views, target);
   const composed = inventory.ent ? inventory : resolveFromViews(entities, views, presence, target);
   const view = composed.view ?? (composed.ent ? viewForKey(views, composed.ent.key) : undefined);
   const ent = composed.ent
     ?? (composed.view ? entityFromView(composed.view, presence) : resolveTarget(target, { all: true }));
+  // Lifecycle resolution must obey the same open-lease wall as ordinary target
+  // resolution. The operator remains unscoped so the human can still close a
+  // foreign agent; a driving session gets the ordinary unknown-target refusal.
+  if (!callerMayResolve(ent)) refuseForeignTarget(target);
   const backendId = view?.environment.plexer ?? ent.backend;
   const backend = backendId ? getBackend(backendId) : undefined;
   if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(backendId)}.`);

@@ -14,7 +14,7 @@ import { FakePanedBackend, fakePane, withRegisteredBackend } from "../test/helpe
 import { seedSpace } from "../test/helpers/space.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { removeTempDir } from "../test/helpers/tempdir.ts";
-import { placeAgent, seedAgent } from "../test/helpers/agent.ts";
+import { placeAgent, seedAgent, seedDeadAgent } from "../test/helpers/agent.ts";
 import { withExitCode } from "../test/helpers/exit-code.ts";
 import { sql } from "drizzle-orm";
 
@@ -250,7 +250,7 @@ describe("close always works", () => {
     const dir = makeDir();
     const key = "duplicate1";
     seedSpace(dir, "foreign-space");
-    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle: "pane-duplicate", owner: "caller" });
+    seedDeadAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle: "pane-duplicate", owner: "caller" });
     const oldExitCode = process.exitCode;
     const originalExit = process.exit.bind(process);
     const replacementExit: (code?: string | number | null) => void = (code) => {
@@ -273,7 +273,7 @@ describe("close always works", () => {
     const key = "deadpane01";
     const handle = "99999999";
     seedSpace(dir, "foreign-space");
-    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
+    seedDeadAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, "status.json"), JSON.stringify({

@@ -7,6 +7,8 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { claimAgent } from "../src/store/agent-rows.ts";
 import { callerKind } from "../src/policy/caller.ts";
+import { forbidNonOperatorOverride } from "../src/commands/target.ts";
+import { ensureCallerRegistered } from "../src/identity/self.ts";
 import { isolateHarnessSession, isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -51,22 +53,59 @@ describe("caller kind", () => {
     expect(callerKind()).toBe("agent");
   });
 
-  test("id + other token is human", () => {
+  test("a harness marker is a session even when its token differs", () => {
     const id = setupClaimedAgent("session-a");
     process.env[LAUNCH_ENV] = id;
     process.env[sessionEnv.sessionId] = "session-b";
-    expect(callerKind()).toBe("human");
+    expect(callerKind()).toBe("session");
   });
 
-  test("id + no token is human", () => {
+  test("a harness marker is a session without a launch credential", () => {
+    setupClaimedAgent("session-a");
+    delete process.env[LAUNCH_ENV];
+    expect(callerKind()).toBe("session");
+  });
+
+  test("no harness marker is the operator", () => {
+    isolateOrchEnv();
+    expect(callerKind()).toBe("operator");
+  });
+
+  test("an unregistered session asks the daemon registration seam", async () => {
+    isolateOrchEnv();
+    restoreHarnessSession = isolateHarnessSession("pi");
+    const directory = mkdtempSync(join(tmpdir(), "orch-caller-register-"));
+    directories.push(directory);
+    process.env.ORCH_DIR = directory;
+    process.env[sessionEnv.marker] = "1";
+    process.env[sessionEnv.sessionId] = "fresh-session";
+    let registeredDirectory: string | undefined;
+    await ensureCallerRegistered((registered) => {
+      registeredDirectory = registered;
+      return Promise.resolve({ id: "registered-agent" });
+    });
+    expect(registeredDirectory).toBe(directory);
+  });
+
+  test("override flags are allowed only for the operator", () => {
+    isolateOrchEnv();
+    expect(() => forbidNonOperatorOverride("--force")).not.toThrow();
+  });
+
+  test("override flags refuse a driving session", () => {
+    setupClaimedAgent("session-a");
+    delete process.env[LAUNCH_ENV];
+    expect(() => forbidNonOperatorOverride("--force")).toThrow(
+      "--force is operator-only: a driving session may only touch agents it holds.",
+    );
+  });
+
+  test("override flags refuse a spawned agent", () => {
     const id = setupClaimedAgent("session-a");
     process.env[LAUNCH_ENV] = id;
-    delete process.env[sessionEnv.sessionId];
-    expect(callerKind()).toBe("human");
-  });
-
-  test("no id is human", () => {
-    isolateOrchEnv();
-    expect(callerKind()).toBe("human");
+    process.env[sessionEnv.sessionId] = "session-a";
+    expect(() => forbidNonOperatorOverride("--steal")).toThrow(
+      "--steal is operator-only: a driving session may only touch agents it holds.",
+    );
   });
 });

@@ -29,7 +29,7 @@ import {
 import { orchDir } from "../presence/writer.ts";
 import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
-import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidAgentOverride } from "./target.ts";
+import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidNonOperatorOverride } from "./target.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
 
 export function validDaemonStatus(value: unknown): value is DaemonStatus {
@@ -79,8 +79,8 @@ export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: s
   }
   // Refused at parse time so the message names the flag, before any wall or
   // resolution failure can obscure it. callDaemon re-checks for programmatic gov.
-  if (gov.steal) forbidAgentOverride("--steal");
-  if (gov.crossSpace) forbidAgentOverride("--cross-space");
+  if (gov.steal) forbidNonOperatorOverride("--steal");
+  if (gov.crossSpace) forbidNonOperatorOverride("--cross-space");
   return { gov, rest };
 }
 
@@ -93,8 +93,8 @@ export async function callDaemon(method: string, params: Record<string, unknown>
     const { timeouts } = loadSettings(directory);
     timeoutMs = timeouts.adapter_command_ms + timeouts.dispatch_ack_ms;
   }
-  if (gov.steal) forbidAgentOverride("--steal");
-  if (gov.crossSpace) forbidAgentOverride("--cross-space");
+  if (gov.steal) forbidNonOperatorOverride("--steal");
+  if (gov.crossSpace) forbidNonOperatorOverride("--cross-space");
   // The write actor is the same token spawn stamps as owner (ORCH_OWNER, else
   // the id orch issued); anything else and an orchestrator cannot steer its own fleet.
   const actor = callerOwnerToken() ?? null;

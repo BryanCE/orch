@@ -8,6 +8,7 @@ import { callerAuthority, refuseClose } from "../../policy/close-authority.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
 import { getBackend } from "../../backends/registry.ts";
+import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
 import { rpcCall } from "../../daemon/rpc/client.ts";
@@ -138,7 +139,8 @@ function sweepTargets(): CloseTarget[] {
 function namedTargets(positional: readonly string[]): CloseTarget[] {
   return positional.map((target) => {
     const resolved = resolveLifecycleTarget(target);
-    // Never gated by the LEASE. Who may end this is close-authority.ts, applied in cmdClose.
+    // Driving sessions must resolve through their open lease; the operator remains
+    // unscoped. Close authority is the additional provenance check in cmdClose.
     // `resolveLifecycleTarget` also supplies process-oriented fallbacks (pid/key).
     // Close may hand only the environment's actual pane handle to placer.
     const handle = resolved.view !== null ? resolved.view.environment.handle : resolved.entity.paneId;
@@ -252,9 +254,8 @@ function killEventStreams(): number {
   try {
     pids = execFileSync("pgrep", ["-f", "orch events"]).toString().trim().split("\n").filter(Boolean).map(Number);
   } catch { /* no stream running */ }
-  const skip = new Set([process.pid, process.ppid]);
-  const kill = pids.filter((pid) => !skip.has(pid));
-  for (const pid of kill) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
+  const kill = pids.filter((pid) => !isOwnProcess(pid));
+  for (const pid of kill) { try { signalOtherProcess(pid, "SIGTERM"); } catch { /* already gone */ } }
   return kill.length;
 }
 
@@ -332,8 +333,8 @@ export function cmdAbort(args: string[]) {
   const json = args.includes("--json");
   const target = args.find((arg) => arg !== "--json" && arg !== "--force");
   if (!target) die("usage: orch abort <target> [--force] [--json]");
-  // Abort is an unconditional ending operation: resolve from orch's registry so
-  // a foreign-space target is still reachable, and never apply owner gates.
+  // Abort itself has no close-authority gate. Lifecycle resolution still scopes a
+  // driving session by its open lease; the operator remains unscoped.
   const { backend, handle, entity } = resolveLifecycleTarget(target);
   const input = backend.agentInput;
   if (!entity.paneId || !input) {

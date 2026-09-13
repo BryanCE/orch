@@ -145,18 +145,14 @@ async function finishSetup(options: SetupOptions, gaps: readonly string[]): Prom
     process.exitCode = 1;
     return;
   }
-  // Closing smoke round-trip reports its verdict but never gates setup's exit code.
-  if (options.interactive && !options.noSmoke) {
+  // The smoke spawns a real agent and spends real tokens, so it runs only when asked for.
+  if (options.smoke) {
     const blocker = smokeBlocker();
     if (blocker) process.stdout.write(`Smoke test skipped - ${blocker}.\n`);
     else {
       process.stdout.write("Smoke test - verifying orch can deliver work (headless spawn on a prompt + result)...");
       await runSetupSmoke(process.cwd());
     }
-  } else if (!options.interactive) {
-    process.stdout.write("Smoke test skipped (non-interactive) - run `orch setup` on a TTY to verify orch can deliver work.\n");
-  } else {
-    process.stdout.write("Smoke test skipped (--no-smoke).\n");
   }
   const doneMessage = "Done. Open a plexer workspace and try: orch spawn 2 --tab Team1";
   if (options.interactive) setupOutro(doneMessage);

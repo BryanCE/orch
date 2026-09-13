@@ -195,8 +195,10 @@ export interface StatusRow {
   name: string | null;
   tab: string | null;
   agent: string | null;
-  /** Current live lease holder, or an explicit no-driving status when unleased. */
+  /** Current live lease holder's display label, or an explicit no-driving status when unleased. */
   owner: string | null;
+  /** Current live lease holder's minted agent id; null when unleased. */
+  ownerId?: string | null;
   spawnedBy: string | null;
   spawnedByLabel: string | null;
   worktree: string | null;

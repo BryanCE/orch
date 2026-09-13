@@ -6,13 +6,17 @@ import type { CallerKind } from "../types/policy.ts";
 
 export type { CallerKind };
 
-/** Whether this process is the claimed session for its launch credential. */
+/** Classify the caller from its harness marker and, for workers, its claim. */
 export function callerKind(): CallerKind {
+  const session = callerSession();
   const id = launchCredential();
-  if (id === null) return "human";
-  const row = agentById(orchDir(), id);
-  if (row === null) return "human";
-  if (row.claimedAt === null || row.sessionToken === null) return "human";
-  const sessionToken = callerSession()?.sessionId;
-  return sessionToken !== undefined && sessionToken !== null && row.sessionToken === sessionToken ? "agent" : "human";
+  if (id !== null) {
+    const row = agentById(orchDir(), id);
+    const sessionToken = session?.sessionId;
+    if (row?.claimedAt !== null && row?.claimedAt !== undefined
+      && row.sessionToken !== null && row.sessionToken !== undefined
+      && sessionToken !== null && sessionToken !== undefined
+      && row.sessionToken === sessionToken) return "agent";
+  }
+  return session === null ? "operator" : "session";
 }

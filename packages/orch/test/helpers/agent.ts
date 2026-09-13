@@ -6,16 +6,17 @@ import { orchDir } from "../../src/presence/writer.ts";
 import type { RecordedProcess } from "../../src/types/backend.ts";
 import type { AgentFacts } from "../../src/types/presence.ts";
 
-/**
- * The test runner is the one process a fixture can prove ALIVE, and it states no
- * launch token because orch did not launch it.
- *
- * Never hand back a provable instance here. A fixture that does is claiming orch
- * owns the suite's own process, and `orch close` then does exactly what it is
- * asked: `bun test` dies mid-run to a SIGTERM with no failing assertion.
- */
+/** The test runner: the one pid a fixture can count on being alive. */
 export function runnerProcess(): RecordedProcess {
   return { pid: process.pid, startToken: null };
+}
+
+/** A pid no process holds, so a seeded record reads as a dead one. */
+export const DEAD_PID = 2147483646;
+
+/** A dead recorded process: close ends the row and signals nothing. */
+export function deadProcess(): RecordedProcess {
+  return { pid: DEAD_PID, startToken: null };
 }
 
 /**
@@ -27,7 +28,7 @@ export function runnerProcess(): RecordedProcess {
  * seed: this maps the fixture's stated facts onto `SpawnRegistration` and
  * states nothing the caller did not.
  */
-export function seedAgent(key: string, facts: AgentFacts = {}, directory = orchDir()): void {
+function seedAgentWith(process: RecordedProcess, key: string, facts: AgentFacts = {}, directory = orchDir()): void {
   registerSpawnedAgent(directory, {
     key,
     harnessId: facts.adapter ?? "pi",
@@ -35,7 +36,7 @@ export function seedAgent(key: string, facts: AgentFacts = {}, directory = orchD
     placed: false,
     ...(facts.handle === undefined ? {} : { handle: facts.handle }),
     ...(facts.space === undefined ? {} : { space: facts.space }),
-    cwd: facts.cwd ?? process.cwd(),
+    cwd: facts.cwd ?? globalThis.process.cwd(),
     name: facts.name ?? key,
     model: facts.model ?? "",
     spawner: facts.spawnedBy ?? null,
@@ -43,8 +44,18 @@ export function seedAgent(key: string, facts: AgentFacts = {}, directory = orchD
     ...(facts.worktree !== undefined && facts.branch !== undefined
       ? { worktree: { path: facts.worktree, branch: facts.branch } }
       : {}),
-    process: runnerProcess(),
+    process,
   });
+}
+
+/** Seed an agent whose process is the live test runner. */
+export function seedAgent(key: string, facts: AgentFacts = {}, directory = orchDir()): void {
+  seedAgentWith(runnerProcess(), key, facts, directory);
+}
+
+/** Seed an agent whose recorded process is already dead. Use it for any agent a test closes for real. */
+export function seedDeadAgent(key: string, facts: AgentFacts = {}, directory = orchDir()): void {
+  seedAgentWith(deadProcess(), key, facts, directory);
 }
 
 /**

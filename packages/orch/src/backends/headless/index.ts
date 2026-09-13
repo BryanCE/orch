@@ -10,7 +10,7 @@ import { environmentStamp } from "../../agent/environment.ts";
 /** A detached agent has no pane: no labels to read, no blocked signal to relay. */
 const HEADLESS_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: null });
 import { LAUNCH_ENV } from "../../identity/launch.ts";
-import { LocalProcessRole } from "../process.ts";
+import { LocalProcessRole, signalOtherProcess } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { capture } from "../../presence/roles.ts";
@@ -146,12 +146,12 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
 
   constructor(deps: HeadlessBackendDeps = {}) {
     this.isPidAlive = deps.pidAlive ?? ((pid) => pidAlive(pid));
-    this.killer = deps.killer ?? ((pid, signal) => process.kill(pid, signal));
+    this.killer = deps.killer ?? signalOtherProcess;
     this.process = new LocalProcessRole<HeadlessHandle>(headlessPid, {
       isAlive: this.isPidAlive,
       signal: (pid, signal) => {
         if (signal === "SIGTERM") this.killer(pid, signal);
-        else process.kill(pid, signal);
+        else signalOtherProcess(pid, signal);
       },
     });
   }

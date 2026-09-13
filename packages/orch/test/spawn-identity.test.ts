@@ -13,6 +13,7 @@ import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
+import { runnerProcess } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -20,7 +21,6 @@ import type { BackendHandle, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 import { sql } from "drizzle-orm";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
-import { processStartToken } from "../src/process-identity.ts";
 
 const dirs: string[] = [];
 
@@ -189,12 +189,10 @@ describe("A1: spawn registration records the space as an environment axis", () =
   test("a spawn into a space writes agent_spaces, and the composer reads it back", () => {
     const dir = registryFixture("wsA");
     const key = mintAgentId();
-    const startToken = processStartToken(process.pid);
-    if (!startToken) throw new Error("test process has no start token");
 
     registerSpawnedAgent(dir, {
       key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%42",
-      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: { pid: process.pid, startToken }, now: 10,
+      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: runnerProcess(), now: 10,
     });
 
     // The space is its own open interval, not a column beside the plexer.
@@ -209,14 +207,12 @@ describe("A1: spawn registration records the space as an environment axis", () =
   test("a spawn stating no space records NO ROW — a missing axis is a missing row", () => {
     const dir = registryFixture();
     const key = mintAgentId();
-    const startToken = processStartToken(process.pid);
-    if (!startToken) throw new Error("test process has no start token");
 
     registerSpawnedAgent(dir, {
       // States no plexer and no space: a capless agent is in no plexer, and that
       // is an ANSWER, not a gap for a second writer to close.
       key, harnessId: "pi", placed: false,
-      cwd: "/repo", name: "detached-1", model: "openai/gpt-5", spawner: null, process: { pid: process.pid, startToken }, now: 10,
+      cwd: "/repo", name: "detached-1", model: "openai/gpt-5", spawner: null, process: runnerProcess(), now: 10,
     });
 
     // Not a NULL column, not the invented place called "local": no row at all.
@@ -230,12 +226,10 @@ describe("A1: spawn registration records the space as an environment axis", () =
     const dir = registryFixture("wsA");
     orm(dir).run(sql`INSERT INTO spaces (id, name, created_by, created_at) VALUES ('wsB', 'wsB', NULL, 1)`);
     const key = mintAgentId();
-    const startToken = processStartToken(process.pid);
-    if (!startToken) throw new Error("test process has no start token");
 
     registerSpawnedAgent(dir, {
       key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%42",
-      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: { pid: process.pid, startToken }, now: 10,
+      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: runnerProcess(), now: 10,
     });
     setSpace(dir, key, 20, "wsB");
 

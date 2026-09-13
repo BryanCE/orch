@@ -2,6 +2,8 @@ import { launchCredential } from "./launch.ts";
 import { agentIdByProcess, agentIdBySessionToken } from "../store/agent-rows.ts";
 import { environmentOf } from "../store/agent-view.ts";
 import { callerSession } from "../adapters/session-env.ts";
+import { rpcRegisterSession } from "../daemon/reach.ts";
+import { callerKind } from "../policy/caller.ts";
 import { orchDir } from "../presence/writer.ts";
 import { processStartToken } from "../process-identity.ts";
 import type { CallerSession, SelfIdentity } from "../types/core.ts";
@@ -41,6 +43,14 @@ export function sessionProcessPid(session: CallerSession | null): number {
 /** The id to stamp as owner/actor on a write, or undefined when unregistered. */
 export function selfId(): string | undefined {
   return selfIdentity()?.id;
+}
+
+/** Register an unregistered driving harness before commands read its identity. */
+export async function ensureCallerRegistered(
+  registerSession: (directory: string) => Promise<unknown> = rpcRegisterSession,
+): Promise<void> {
+  if (callerSession() === null || callerKind() !== "session" || selfId() !== undefined) return;
+  await registerSession(orchDir());
 }
 
 /** The space one agent is composed into. A missing row is a real ANSWER: an

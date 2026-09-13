@@ -5,6 +5,7 @@ import { renderTable } from "../table.ts";
 import { collapse, resolveTarget } from "../entities.ts";
 import { truncate } from "../util.ts";
 import { formatTimestamp } from "../format.ts";
+import { callerKind } from "../policy/caller.ts";
 import { die } from "./target.ts";
 import type { RunRecord } from "../types/store.ts";
 
@@ -79,10 +80,12 @@ export function cmdRuns(args: string[]): void {
   const { target, limit, json } = readArgs(args);
   let agentKey: string | undefined;
   if (target !== undefined) {
-    // Historical rows use canonical agent keys. A reaped exact key has no entity
-    // left for resolveTarget, so retain that canonical read path; other spellings
-    // (names, handles, suffixes) use the normal resolver.
-    const reapedExactKey = !loadPresence().has(target) && latestRunForKey(target) !== undefined;
+    // Operators may still query a reaped exact key from durable history. Driving
+    // sessions use the normal resolver exclusively, so a foreign key cannot
+    // bypass lease scoping; names and handles always use that resolver too.
+    const reapedExactKey = callerKind() === "operator"
+      && !loadPresence().has(target)
+      && latestRunForKey(target) !== undefined;
     agentKey = reapedExactKey ? target : resolveTarget(target).key;
   }
   const runs = selectRuns(orchDir(), { ...(agentKey === undefined ? {} : { agentKey }), ...(limit === undefined ? {} : { limit }) });

@@ -18,7 +18,7 @@ import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { DEAD_PID, seedAgent } from "./helpers/agent.ts";
 import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
 import { sql } from "drizzle-orm";
 
@@ -40,9 +40,6 @@ import { sql } from "drizzle-orm";
 /** The composite this whole change deletes. Never a valid key again. */
 const COMPOSITE_KEY = "headless~local~7x5hd4h610";
 
-/** A pid no process holds, so a seeded record reads as a dead one: doctor holds
- *  back its verdict on a record whose session is still running. */
-const DEAD_PID = 2147483646;
 
 const directories: string[] = [];
 const originalOrchDir = process.env.ORCH_DIR;

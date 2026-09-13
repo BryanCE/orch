@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFleetMonitor, registerFleetMonitor } from "../src/agent/monitor.ts";
 import type { FleetMonitorOptions, HarnessApi, HarnessContext } from "../src/types/agent.ts";
+import type { CallerKind } from "../src/types/policy.ts";
 
 // Stated through the monitor's options, not mocked into the policy module: a
 // bun module mock outlives the file that installs it and would answer for every
 // later test in this process.
-let caller: "human" | "agent" = "human";
+let caller: CallerKind = "operator";
 
 interface Subscription {
   callback: (event: unknown, seq: number) => void;
@@ -38,7 +39,7 @@ afterEach(() => {
   subscriptions.length = 0;
   subscribeOptions.length = 0;
   for (const path of tempDirs.splice(0)) removeTempDir(path);
-  caller = "human";
+  caller = "operator";
 });
 
 function context(status: (string | undefined)[] = [], widgets: unknown[] = []): HarnessContext {

@@ -13,6 +13,7 @@ import { processStartToken } from "../src/process-identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { Entity } from "../src/types/core.ts";
 import type { StatusRow } from "../src/types/command.ts";
+import type { CallerScope } from "../src/commands/status.ts";
 import { presenceEntryFixture } from "./helpers/presence.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import { sql } from "drizzle-orm";
@@ -82,11 +83,11 @@ describe("commands/status", () => {
   });
 
   describe("an agent sees what it spawned, and never past its own space", () => {
-    const orch = { id: "orch1", ceiling: "w1" };
+    const orch: CallerScope = { id: "orch1", ceiling: "w1", kind: "session" };
     const rows = [
-      statusRowFixture({ key: "mine", spaceId: "w1", spawnedBy: "orch1" }),
-      statusRowFixture({ key: "sibling", spaceId: "w1", spawnedBy: "orch2" }),
-      statusRowFixture({ key: "elsewhere", spaceId: "w2", spawnedBy: "orch1" }),
+      statusRowFixture({ key: "mine", spaceId: "w1", spawnedBy: "orch1", ownerId: "orch1" }),
+      statusRowFixture({ key: "sibling", spaceId: "w1", spawnedBy: "orch2", ownerId: "orch2" }),
+      statusRowFixture({ key: "elsewhere", spaceId: "w2", spawnedBy: "orch1", ownerId: "orch1" }),
     ];
 
     test("the default is the agents this caller spawned", () => {

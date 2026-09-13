@@ -1,6 +1,6 @@
 import { loadSettings } from "../settings/read.ts";
 import { resolveTarget, spaceOf } from "../entities.ts";
-import { callerSpace } from "../identity/self.ts";
+import { callerSpace, ensureCallerRegistered } from "../identity/self.ts";
 import { scopeToSpace, withinSpaceCeiling } from "../policy/space.ts";
 import { agentInMineScope, agentInScope, resolveCallerScope } from "../policy/scope.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
@@ -12,7 +12,7 @@ import { ensureDaemon } from "../daemon/reach.ts";
 import { deliver } from "../notify/router.ts";
 import { notificationText } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
-import { die } from "./target.ts";
+import { die, forbidNonOperatorOverride } from "./target.ts";
 import { commandLogger } from "./logging.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
@@ -54,6 +54,8 @@ export function eventWithinSpaceWall(root: string, key: string, ceiling: string 
 export async function cmdEvents(args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(orchDir());
+  await ensureCallerRegistered();
+  if (options.scope === "any") forbidNonOperatorOverride("--space-wide");
   const items = eventsItems(options);
   const scope = await resolveCallerScope(options.scope, orchDir());
   const accepts = (key: string): boolean => {

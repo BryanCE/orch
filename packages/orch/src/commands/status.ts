@@ -12,14 +12,17 @@ import { runRemoteAsync } from "../remote.ts";
 import { orchDir } from "../presence/writer.ts";
 import { renderTable } from "../table.ts";
 import { spaceName as resolveSpaceName, withinSpaceCeiling } from "../policy/space.ts";
-import { selfId, spaceOfAgent } from "../identity/self.ts";
+import { ensureCallerRegistered, selfId, spaceOfAgent } from "../identity/self.ts";
+import { callerKind } from "../policy/caller.ts";
 import { ensureDaemonOrWarn } from "../daemon/reach.ts";
 import { dim } from "../tui/screen.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
+import { currentLease } from "../store/lease-rows.ts";
 import {
   agentViewIndex,
   die,
   firstNonEmptyText,
+  forbidNonOperatorOverride,
   presenceById,
   resultText,
   splitOptionFlags,
@@ -32,6 +35,7 @@ import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { EnvironmentCapabilityView, StatusRow } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
+import type { CallerKind } from "../types/policy.ts";
 
 const isTTY = process.stdout.isTTY;
 const DETACHED_ENVIRONMENT = "headless";
@@ -60,6 +64,14 @@ export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView>
 
 function currentOrchId(): string | null {
   return spawnerIdentity().key;
+}
+
+function currentLeaseOwner(directory: string, agentId: string): string | null {
+  try {
+    return currentLease(directory, agentId)?.orchId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function formatOwnerCell(row: Pick<StatusRow, "owner">): string {
@@ -210,6 +222,7 @@ function isStatusRow(value: unknown): value is StatusRow {
   for (const field of strings) if (typeof value[field] !== "string") return false;
   for (const field of nullableStrings) if (value[field] !== null && typeof value[field] !== "string") return false;
   for (const field of booleans) if (typeof value[field] !== "boolean") return false;
+  if (value.ownerId !== undefined && value.ownerId !== null && typeof value.ownerId !== "string") return false;
   if (value.bridgeAttached !== null && typeof value.bridgeAttached !== "boolean") return false;
   if (typeof value.cost !== "number") return false;
   if (value.ctxPercent !== null && typeof value.ctxPercent !== "number") return false;
@@ -245,40 +258,41 @@ async function readFleetRows(spaces: OrchSettings["spaces"], offline: boolean): 
 
 /**
  * Who is asking, and how far they may see. One rule for every caller: you see what you
- * spawned, and `--all` widens no further than your space. A human shell that spawned a fleet
- * drives and owns it exactly as an orchestrator does — the values differ (a human sits in no
- * space, so nothing caps them), never the rule.
+ * currently holds, and widening flags are operator-only. An operator sees the machine;
+ * a session or agent sees only its open leases, never an agent merely spawned in the past.
  */
 export interface CallerScope {
-  /** The caller's agent id, or null for a human at a terminal. */
+  /** The caller's agent id, or null for an operator without an agent row. */
   id: string | null;
-  /** The space an agent caller may never see past, even with `--all`. */
+  /** The space a session or agent caller may never see past. */
   ceiling: string | null;
+  kind: CallerKind;
 }
 
 export function callerScope(): CallerScope {
+  const kind = callerKind();
   const id = selfId() ?? null;
-  return { id, ceiling: id === null ? null : spaceOfAgent(id) };
+  return { id, ceiling: kind === "operator" || id === null ? null : spaceOfAgent(id), kind };
 }
 
 /**
- * The rows this caller should see. By default an agent sees the agents IT spawned, so
- * "is anyone idle?" never counts another orchestrator's fleet or the asker itself.
- * `--space-wide` widens to the rest of the caller's space and stops at the wall; a human
- * sits in no space, has no wall, and sees the machine. `--all-panes` is the separate
+ * The rows this caller should see. By default a session or agent sees only the agents
+ * whose current lease it holds, so "is anyone idle?" never counts another holder's fleet.
+ * `--space-wide` is operator-only; an operator sits outside the session scope and sees the
+ * machine. `--all-panes` is the separate
  * question of panes orch did not spawn, and `--filter` removes the states it names.
  */
 export function scopeFleetRows(
   rows: readonly StatusRow[],
   opts: { spaceWide: boolean; allPanes: boolean; states?: ReadonlySet<string>; agent?: string; space?: string; caller?: CallerScope },
 ): StatusRow[] {
-  const caller = opts.caller ?? { id: null, ceiling: null };
+  const caller: CallerScope = opts.caller ?? { id: null, ceiling: null, kind: "operator" };
   return rows.filter((row) => {
     if (opts.space !== undefined && row.spaceId !== opts.space) return false;
     if (opts.agent !== undefined && !statusRowMatches(row, opts.agent)) return false;
     if (!opts.allPanes && !row.managed) return false;
     if (!withinSpaceCeiling(row.spaceId, caller.ceiling)) return false;
-    if (caller.id !== null && !opts.spaceWide && row.spawnedBy !== caller.id) return false;
+    if (caller.kind !== "operator" && !opts.spaceWide && (caller.id === null || row.ownerId !== caller.id)) return false;
     if (opts.states?.has(displayStatusState(row))) return false;
     // The table is the fleet as it is NOW. An agent that has exited is history —
     // `orch result` and `orch tail` still read it — and keeping every dead one
@@ -642,6 +656,7 @@ export function statusRowFromEntity(
     tab: entity.tabLabel,
     agent: entity.agent,
     owner: deriveDriveState(entity.key, { currentOrchId: orchId, directory }).owner,
+    ownerId: currentLeaseOwner(directory, entity.key),
     ...provenance,
     focused: entity.focused,
     model: modelFull,
@@ -696,15 +711,14 @@ export function fleetStatusRows(spaces: OrchSettings["spaces"], options: FleetSt
 }
 
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
-async function localStatusRows(options: StatusOptions, spaces: OrchSettings["spaces"]): Promise<FleetSnapshot> {
+async function localStatusRows(options: StatusOptions, spaces: OrchSettings["spaces"], caller?: CallerScope): Promise<FleetSnapshot> {
   const snapshot = await readFleetRows(spaces, options.offline);
-  const scoped = scopeFleetRows(snapshot.rows, { ...options, states: options.filter.states, caller: callerScope() });
-  return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
+  const scoped = scopeFleetRows(snapshot.rows, { ...options, states: options.filter.states, caller });  return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
 
 export function warningStatusRow(host: string, warning: string): StatusRow {
   return {
-    key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", owner: null,
+    key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", owner: null, ownerId: null,
     spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
     focused: false, model: "", modelShort: "", state: "warning", stateFallback: false, staleExtension: false,
     exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,
@@ -752,15 +766,15 @@ function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[])
 }
 
 /** Fetch and scope the same rows used by both the one-shot and live status views. */
-export async function readStatusResult(options: StatusOptions): Promise<StatusResult> {
+export async function readStatusResult(options: StatusOptions, caller: CallerScope = callerScope()): Promise<StatusResult> {
   const settings = loadSettingsOrNull(orchDir());
   const hosts = settings?.hosts ?? {};
   const spaces = settings?.spaces ?? {};
-  if (options.local || Object.keys(hosts).length === 0) {
-    const local = await localStatusRows(options, spaces);
+  if (options.local || caller.kind !== "operator" || Object.keys(hosts).length === 0) {
+    const local = await localStatusRows(options, spaces, caller);
     return { ...local, host: false };
   }
-  const localSnapshot = await localStatusRows(options, spaces);
+  const localSnapshot = await localStatusRows(options, spaces, caller);
   const remoteResults = await remoteStatusResults(hosts, options.offline);
   const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, { space: options.space, agent: options.agent });
   const remote = remoteSummary(remoteResults);
@@ -780,6 +794,13 @@ function capacityOutput(settings: OrchSettings): { capacity: ReturnType<typeof c
 
 /** The one-shot status table. `--live` is routed away before this runs (`status-verb.ts`). */
 export async function cmdStatus(options: StatusOptions): Promise<void> {
+  if (!options.offline) {
+    await ensureDaemonOrWarn(orchDir());
+    await ensureCallerRegistered();
+  }
+  const caller = callerScope();
+  if (options.spaceWide) forbidNonOperatorOverride("--space-wide");
+  if (options.allPanes) forbidNonOperatorOverride("--all-panes");
   if (options.capacity) {
     const settings = loadSettingsOrNull(orchDir());
     if (settings === null) throw new Error("capacity unavailable: settings.json does not exist");
@@ -791,8 +812,7 @@ export async function cmdStatus(options: StatusOptions): Promise<void> {
     }
     return;
   }
-  if (!options.offline) await ensureDaemonOrWarn(orchDir());
-  const result = await readStatusResult(options);
+  const result = await readStatusResult(options, caller);
   const settings = options.json ? null : loadSettingsOrNull(orchDir());
   if (options.json) {
     process.stdout.write(JSON.stringify(result.rows.map((row) => filterRowKeys(row, options.filter.columns)), null, 2) + "\n");

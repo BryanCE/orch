@@ -8,6 +8,8 @@ import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
 import { agentViews } from "./store/agent-view.ts";
 import { callerSpace, selfId } from "./identity/self.ts";
+import { callerKind } from "./policy/caller.ts";
+import { currentLease } from "./store/lease-rows.ts";
 import { ambiguousTargetRefusal, CommandRefusal } from "./refusal.ts";
 
 export { spaceOf } from "./policy/space.ts";
@@ -322,6 +324,23 @@ function stillRunning(entity: Entity): boolean {
   return !entity.ended && entity.presence?.alive !== false;
 }
 
+/** A session or spawned agent may resolve only an agent it currently holds.
+ *  Ownership is the open lease, never the immutable spawner or a display label. */
+export function callerMayResolve(entity: Pick<Entity, "key">): boolean {
+  if (callerKind() === "operator") return true;
+  const caller = selfId();
+  if (caller === undefined) return false;
+  try {
+    return currentLease(orchDir(), entity.key)?.orchId === caller;
+  } catch {
+    return false;
+  }
+}
+
+export function refuseForeignTarget(target: string): never {
+  die(`No target matches "${target}". Run 'orch panes' to list.`);
+}
+
 /**
  * The agents answering to the NAME `localTarget`: the running ones alone when any
  * is running, else the ones that have stopped.
@@ -377,9 +396,13 @@ export function resolveTarget(target: string, opts?: { all?: boolean; crossSpace
   const pool = scopeEntitiesToSpace(everything, { all: crossWall });
 
   const match = matchInPool(pool, localTarget, target, ref.host);
-  if (match) return match;
+  if (match) {
+    if (callerMayResolve(match)) return match;
+    refuseForeignTarget(target);
+  }
 
   if (!crossWall) {
+    if (callerKind() !== "operator") refuseForeignTarget(target);
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
       // The wall decision lives in policy/space.ts alone; this only relays it.

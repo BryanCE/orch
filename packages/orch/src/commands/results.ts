@@ -3,11 +3,14 @@ import { isAgentId } from "../backends/identity.ts";
 import { collapse, resolveTarget, spaceOf } from "../entities.ts";
 import { loadPresence } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
+import { selfId } from "../identity/self.ts";
+import { callerKind } from "../policy/caller.ts";
+import { currentLease } from "../store/lease-rows.ts";
 import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
-import { assertAgentOwned, die, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
+import { assertAgentOwned, die, forbidNonOperatorOverride, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { latestRunForKey } from "./runs.ts";
 import { selectRun } from "../store/run-rows.ts";
@@ -47,6 +50,7 @@ function parseResultArgs(args: string[]): ResultOptions {
 function writeRemoteResult(target: string, options: ResultOptions): boolean {
   const remote = targetHost(target);
   if (!remote) return false;
+  forbidNonOperatorOverride("remote targets");
   const host = loadSettings(orchDir()).hosts[remote.host];
   const destination = host?.dest;
   if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
@@ -124,11 +128,16 @@ export function cmdResult(args: string[]) {
   const target = options.target;
   if (!target) die("usage: orch result <target> [--force] [--json]");
   if (writeRemoteResult(target, options)) return;
-  // A reaped presence directory leaves no entity for resolveTarget. An exact
-  // canonical key still addresses its durable run history, so use that only
-  // when the live presence path is absent.
-  if (tryHistoricalTarget(target, options.json)) return;
-  const ent = resolveTarget(target);
+  let ent: Entity;
+  try {
+    ent = resolveTarget(target);
+  } catch (error: unknown) {
+    // A reaped presence directory leaves no entity for resolveTarget. Only the
+    // operator may use its exact canonical key to address durable run history;
+    // a session must not learn whether a foreign key ever existed.
+    if (callerKind() === "operator" && tryHistoricalTarget(target, options.json)) return;
+    throw error;
+  }
   // Names are a flat namespace across every orchestrator, so an unscoped read
   // hands one session's work product to another as if it were its own.
   assertAgentOwned(target, ent, options.force);
@@ -143,10 +152,11 @@ export function cmdResult(args: string[]) {
 
 export async function cmdQuestions(args: string[]): Promise<void> {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
+  if (enabled.has("--all")) forbidNonOperatorOverride("--all");
   const json = enabled.has("--json");
   const localOnly = enabled.has("--local");
   const hosts = loadSettings(orchDir()).hosts;
-  if (localOnly || Object.keys(hosts).length === 0) {
+  if (localOnly || callerKind() !== "operator" || Object.keys(hosts).length === 0) {
     await cmdQuestionsLocal(args);
     return;
   }
@@ -164,7 +174,7 @@ export async function cmdQuestions(args: string[]): Promise<void> {
       rows.push(warningQuestionRow(name, `Host "${name}" returned an invalid questions payload.`));
       continue;
     }
-    for (const value of result.value) if (value && typeof value === "object") rows.push({ ...(value as QuestionRow), host: name });
+    for (const value of result.value) if (isQuestionRow(value)) rows.push({ ...value, host: name });
   }
   if (json) {
     process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
@@ -179,6 +189,17 @@ export async function cmdQuestions(args: string[]): Promise<void> {
 }
 
 interface PendingQuestion { view: PendingQuestionView }
+
+function callerMaySeeQuestion(agentId: string): boolean {
+  if (callerKind() === "operator") return true;
+  const caller = selfId();
+  if (caller === undefined) return false;
+  try {
+    return currentLease(orchDir(), agentId)?.orchId === caller;
+  } catch {
+    return false;
+  }
+}
 
 function isPendingQuestionView(value: unknown): value is PendingQuestionView {
   if (!isRecord(value)) return false;
@@ -197,7 +218,11 @@ async function collectPendingQuestions(args: string[]): Promise<{ pending: Pendi
   if (!isRecord(answer) || !Array.isArray(answer.questions)) {
     throw new Error("Daemon returned an invalid questions payload.");
   }
-  return { pending: answer.questions.filter(isPendingQuestionView).map((view) => ({ view })) };
+  return {
+    pending: answer.questions.filter(isPendingQuestionView)
+      .filter((view) => callerMaySeeQuestion(view.agentId))
+      .map((view) => ({ view })),
+  };
 }
 
 async function cmdQuestionsLocal(args: string[]): Promise<void> {
@@ -258,6 +283,14 @@ async function localQuestionRows(args: string[]): Promise<QuestionRow[]> {
 
 function warningQuestionRow(host: string, warning: string): QuestionRow {
   return { key: `warning:${host}`, name: "WARNING", age: "-", question: warning, host, warning };
+}
+
+function isQuestionRow(value: unknown): value is QuestionRow {
+  if (!isRecord(value)) return false;
+  return typeof value.key === "string"
+    && (value.name === null || typeof value.name === "string")
+    && typeof value.age === "string"
+    && typeof value.question === "string";
 }
 
 /** Resolve the target's adapter and require a declared session-tail capability, or die. */

@@ -149,6 +149,19 @@ describe("daemon bridge links", () => {
     second.destroy();
   });
 
+  test("attach for an agent the store does not know is refused and the server keeps serving", async () => {
+    const server = await start();
+    const socket = await connected(server);
+    const lines = observe(socket);
+    socket.write(`${JSON.stringify({ id: 1, method: "attach", params: { key: "unknownagnt" } })}\n`);
+    expect(await lineAt(lines, 0)).toMatchObject({ id: 1, error: { code: "UNKNOWN_AGENT" } });
+    expect(server.attachedBridgeCount()).toBe(0);
+    const key = liveKey(directories[0]!);
+    socket.write(`${JSON.stringify({ id: 2, method: "attach", params: { key } })}\n`);
+    expect(await lineAt(lines, 1)).toEqual({ id: 2, result: { attached: true, open: 1 } });
+    expect(server.attachedBridgeCount()).toBe(1);
+  });
+
   test("attach without a key is rejected", async () => {
     const server = await start();
     const socket = await connected(server);

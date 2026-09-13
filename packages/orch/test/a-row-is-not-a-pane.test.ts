@@ -9,6 +9,7 @@ import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-row
 import { setHandle } from "../src/store/interval-rows.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { testServices } from "./helpers/services.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
@@ -74,7 +75,7 @@ function seedLivePresence(dir: string, id: string): void {
 
 function entityFor(id: string, panes: readonly ReturnType<typeof fakePane>[]) {
   const backend = new FakePanedBackend({ id: "headless", panes });
-  return withRegisteredBackend(backend, () => buildEntities().find((entity) => entity.key === id));
+  return withRegisteredBackend(backend, () => buildEntities(testServices({ orchDir: process.env.ORCH_DIR!, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } })).find((entity) => entity.key === id));
 }
 
 describe("a row is not evidence that a pane exists (U1, U4)", () => {

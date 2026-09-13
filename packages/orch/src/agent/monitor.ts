@@ -167,7 +167,7 @@ export function registerFleetMonitor(
   orchDir: string,
   options: FleetMonitorOptions,
 ): FleetReadModel | undefined {
-  const ownCallerKind = options.callerKind ?? callerKind;
+  const ownCallerKind = options.callerKind ?? (() => callerKind(orchDir));
   if (ownCallerKind() === "agent") return undefined;
   const monitor = createFleetMonitor(orchDir, options);
   harness.on("session_start", (_event, context) => {

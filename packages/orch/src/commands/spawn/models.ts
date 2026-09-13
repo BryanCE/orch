@@ -9,6 +9,7 @@ import { callDaemon } from "../daemon.ts";
 import type { AdapterId } from "../../types/adapter.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 import type { Logger, RetryPolicy } from "../../types/core.ts";
+import type { Services } from "../../types/services.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 
 
@@ -32,11 +33,11 @@ export function adapterCommand(
  *  that reports success without one is how a fleet silently ran the wrong model. */
 const MODEL_PIN_RETRY: RetryPolicy = { attempts: 5, delayMs: 200, backoff: 2 };
 
-async function deliverModelPin(key: string, model: string): Promise<string | null> {
+async function deliverModelPin(services: Pick<Services, "orchDir" | "settings">, key: string, model: string): Promise<string | null> {
   try {
     await retryingAsync(
       `pin model for ${key}`,
-      () => callDaemon("set-model", { target: key, model }),
+      () => callDaemon(services, "set-model", { target: key, model }),
       MODEL_PIN_RETRY,
     );
     return null;
@@ -50,6 +51,7 @@ async function deliverModelPin(key: string, model: string): Promise<string | nul
  *  its failure is a warning the caller reads, never an exit code that tells an
  *  automated caller to retry a spawn that already created agents. */
 export async function pinModels(
+  services: Pick<Services, "orchDir" | "settings">,
   logger: Logger,
   created: { key: string; handle: string; name: string }[],
   model: string,
@@ -65,7 +67,7 @@ export async function pinModels(
   const results = await Promise.all(created.map(async ({ key, handle, name }) => ({
     handle,
     name,
-    failure: await deliverModelPin(key, spec),
+    failure: await deliverModelPin(services, key, spec),
   })));
   const warnings = results
     .filter((result) => result.failure)

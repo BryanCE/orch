@@ -19,7 +19,7 @@ export async function probeNotifiers(): Promise<NotifierChoice[]> {
   return Promise.all(notifiers.map(async (notifier) => {
     let available = false;
     try {
-      available = await notifier.available();
+      available = await notifier.available(null);
     } catch {
       available = false;
     }

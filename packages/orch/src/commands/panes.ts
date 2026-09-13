@@ -10,6 +10,7 @@ import { displaySpace } from "./status.ts";
 import { spaceName } from "../policy/space.ts";
 import { setHandle } from "../store/interval-rows.ts";
 import { ambiguousTargetRefusal } from "../refusal.ts";
+import { loadPresence } from "../presence/store.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSplit, TilePlacement } from "../types/backend.ts";
 
 type BoundaryPlan<T> =
@@ -56,13 +57,13 @@ export function cmdPanes(services: Services, args: string[]) {
   }
 }
 
-function requirePaneTarget(services: Pick<Services, "orchDir">, target: string, command: string): { backend: Backend; handle: string; key: string } {
-  return backendTarget(services.orchDir, target, command);
+function requirePaneTarget(services: Pick<Services, "orchDir" | "settings">, target: string, command: string): { backend: Backend; handle: string; key: string } {
+  return backendTarget(services.orchDir, services.settings.current(), target, command);
 }
 
 /** Resolve a pane a command is about to mutate: a foreign-owned agent refuses without --force. */
-function requireOwnedPaneTarget(services: Pick<Services, "orchDir">, target: string, command: string, force: boolean): { backend: Backend; handle: string; key: string } {
-  const resolved = backendTarget(services.orchDir, target, command);
+function requireOwnedPaneTarget(services: Pick<Services, "orchDir" | "settings">, target: string, command: string, force: boolean): { backend: Backend; handle: string; key: string } {
+  const resolved = backendTarget(services.orchDir, services.settings.current(), target, command);
   assertAgentOwned(services.orchDir, target, { key: resolved.key }, force);
   return resolved;
 }
@@ -179,7 +180,7 @@ export function cmdTabs(services: Services, args: string[]) {
 function assertGroupAgentsOwned(services: Pick<Services, "orchDir">, backend: Backend, group: string, force: boolean): void {
   if (force) return;
   const handles = new Set((backend.placementInventory?.list() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
-  const presence = presenceById();
+  const presence = presenceById(loadPresence(services.orchDir));
   for (const view of agentViewIndex(services.orchDir).values()) {
     // Ownership is the open lease; the pane handle is environment. A group is a
     // set of PLACES, so it is matched on the handle and refused on the lease.

@@ -1,5 +1,5 @@
 import { subscribeEvents } from "../daemon/rpc/client.ts";
-import { ensureDaemon } from "../daemon/reach.ts";
+import { ensureDaemon, rpcRegisterSession } from "../daemon/reach.ts";
 import { ensureCallerRegistered } from "../identity/self.ts";
 import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, dim } from "../tui/screen.ts";
 import { die, forbidNonOperatorOverride } from "./target.ts";
@@ -89,9 +89,9 @@ export async function cmdStatusLive(services: Services, options: StatusOptions):
   if (options.json) die("--live renders a terminal table; drop --json");
   if (process.stdout.isTTY !== true || process.stdin.isTTY !== true) die("--live needs a terminal");
   await ensureDaemon(services.orchDir);
-  await ensureCallerRegistered();
-  if (options.spaceWide) forbidNonOperatorOverride("--space-wide");
-  if (options.allPanes) forbidNonOperatorOverride("--all-panes");
+  await ensureCallerRegistered(services.orchDir, rpcRegisterSession);
+  if (options.spaceWide) forbidNonOperatorOverride(services.orchDir, "--space-wide");
+  if (options.allPanes) forbidNonOperatorOverride(services.orchDir, "--all-panes");
 
   let stopped = false;
   let resolveDone: (() => void) | undefined;

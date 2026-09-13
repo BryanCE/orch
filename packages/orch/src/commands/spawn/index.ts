@@ -44,7 +44,7 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
   const adapter = resolveAdapterOrDie(settings.adapter);
   const maySpawn = maySpawnFrom(services.orchDir, selfId(services.orchDir), settingsFile.fleet.max_depth);
   const created: CreatedAgent[] = [];
-  const names = claimSpawnNames(settings.names, space);
+  const names = claimSpawnNames(services.orchDir, settings.names, space);
   for (const [index, name] of names.entries()) {
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
     adapter.workspaceTrust?.preTrustWorkspace(cwd, settings.cmd);
@@ -57,7 +57,7 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
       const spawner = spawnerIdentity(services.orchDir);
       // orchd launches a real harness process inside this call, so it gets the adapter-command
       // budget, not the 5s default meant for a question orchd answers from memory.
-      await callDaemon("spawn-headless", {
+      await callDaemon(services, "spawn-headless", {
         key,
         adapter: settings.adapter,
         cwd,
@@ -110,9 +110,9 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
 }
 
 /** Spawn every requested agent into an already-open tab, balancing as it fills. */
-async function spawnIntoExistingTab(services: Pick<Services, "orchDir" | "logger">, settingsFile: OrchSettings, settings: SpawnSettings, group: BackendGroup, space: string | null, workspace: string | undefined, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): Promise<void> {
+async function spawnIntoExistingTab(services: Pick<Services, "orchDir" | "logger" | "settings">, settingsFile: OrchSettings, settings: SpawnSettings, group: BackendGroup, space: string | null, workspace: string | undefined, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): Promise<void> {
   const created = growFleetIntoGroup(services.orchDir, services.logger, settings, space, workspace, group.id, backend, names, spawnerAgentId, role);
-  await reportSpawnResults(services.orchDir, services.logger, settingsFile, settings, group.id, group.label ?? group.id, created, backend);
+  await reportSpawnResults(services, services.logger, settingsFile, settings, group.id, group.label ?? group.id, created, backend);
 }
 
 /** Announce a fleet whose control plane is down, and fail the launch. Agents without
@@ -262,7 +262,7 @@ function seatFleet(orchDir: string, backend: Backend, groupHome: GroupHomeRole, 
 }
 
 async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "settings">, settingsFile: OrchSettings, settings: SpawnSettings): Promise<void> {
-  await admitSpawn(services.orchDir, settings);
+  await admitSpawn(services.orchDir, settingsFile, settings);
   // A spawned agent already carries its id; only a driving session registers.
   const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(services.orchDir)).id;
   const spawner: Spawner = { id: spawnerAgentId, environment: environmentOf(services.orchDir, spawnerAgentId) };
@@ -274,7 +274,7 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
   const placement = placeSpawn(services.orchDir, settings, backend, spawner);
   const { space } = placement;
   const adapter = resolveAdapterOrDie(settings.adapter);
-  const names = claimSpawnNames(settings.names, space);
+  const names = claimSpawnNames(services.orchDir, settings.names, space);
   // `--tab <existing>` fills that tab instead of opening a new one, auto-balancing
   // as it fills, so no follow-up move/tile is needed. There is no implicit
   // "grow the fleet under this prefix" path: names are per-slice and unnumbered
@@ -295,7 +295,7 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
     try { groupHome.close(group.id); } catch { /* best effort */ }
     die("all spawns failed");
   }
-  await reportSpawnResults(services.orchDir, services.logger, settingsFile, settings, group.id, group.label ?? settings.label, created, backend);
+  await reportSpawnResults(services, services.logger, settingsFile, settings, group.id, group.label ?? settings.label, created, backend);
 }
 
 export async function cmdSpawn(services: Services, args: string[]) {
@@ -369,6 +369,6 @@ export async function cmdTile(services: Services, args: string[]) {
     process.stdout.write(`Added ${agent.handle} (${autoName}) to group ${layout.group} running ${adapter}.\n`);
     printLayout(selectedBackend, tab.id, "\nFinal tiling:");
   }
-  await pinModels(services.logger, [{ key: agent.key, handle: agent.handle, name: autoName }], model, thinking);
+  await pinModels(services, services.logger, [{ key: agent.key, handle: agent.handle, name: autoName }], model, thinking);
 }
 

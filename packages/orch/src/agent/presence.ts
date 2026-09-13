@@ -132,7 +132,7 @@ interface AgentPresenceState {
   asking: { question: string; id: string; ts: string } | undefined;
 }
 
-export function createAgentPresence(options: AgentPresenceOptions) {
+export function createAgentPresence(orchDir: string, options: AgentPresenceOptions) {
   const { harness, daemon, extensionHash } = options;
 
   let dir: string | undefined;
@@ -406,7 +406,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     if (dir) return;
     const key = computeKey(hasUI);
     if (!key) return;
-    const candidate = ensurePresenceAgentDir(key);
+    const candidate = ensurePresenceAgentDir(key, orchDir);
     if (!candidate) return;
     dir = candidate;
     Object.assign(state, launchStamp(state, options.identity.agentId, key));

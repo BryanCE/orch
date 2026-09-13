@@ -222,7 +222,7 @@ export interface BridgeRole {
 }
 
 export interface PresenceRegistrationRole {
-  isRegistered(key: string): boolean;
+  isRegistered(key: string, orchDir: string): boolean;
 }
 
 export interface AgentAdapter {
@@ -285,11 +285,11 @@ export interface AgentAdapter {
   /** Build argv for a detached backend, including the initial prompt. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[];
   /** Translate native process/session signals into a presence-protocol state. */
-  detectState(input: StateDetectionInput): AgentState;
+  detectState(input: StateDetectionInput, orchDir: string): AgentState;
   /** Build the command or presence action used to deliver a steering message. */
   steer(request: SteerRequest): AdapterCommand | undefined;
   /** Extract the final assistant text that should be written to `results.jsonl`. */
-  extractResult(input: ResultExtractionInput): string | undefined;
+  extractResult(input: ResultExtractionInput, orchDir: string): string | undefined;
 }
 
 /** State input for pi, identified by its orch presence key. */

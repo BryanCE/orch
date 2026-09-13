@@ -16,6 +16,7 @@ import { createPackRuntime } from "./runtime.ts";
 import { openPackDashboard } from "./ui/takeover.ts";
 import { isRecord } from "../util.ts";
 import type { HarnessApi, HarnessContext } from "../types/agent.ts";
+import type { SettingsManager } from "../types/services.ts";
 import type { OrchSeatOptions, PackRuntime, PackSnapshot } from "../types/seat.ts";
 
 /** The pi UI surface this seat actually uses. Declared as what we need rather than
@@ -88,14 +89,14 @@ function isDashboardContext(value: unknown): value is ExtensionCommandContext {
   return typeof ui === "object" && ui !== null && "custom" in ui && typeof ui.custom === "function";
 }
 
-export function registerOrchSeat(pi: SeatRegistrationApi, options: OrchSeatOptions): void {
+export function registerOrchSeat(pi: SeatRegistrationApi, settings: SettingsManager, options: OrchSeatOptions): void {
   let runtime: PackRuntime | undefined;
   let unsubscribe: (() => void) | undefined;
   /** Last state seen per agent, for alerting on the transition INTO an alert state. */
   const lastStates = new Map<string, string>();
 
   const ensureRuntime = (): PackRuntime => {
-    runtime ??= createPackRuntime({ orchDir: options.orchDir, ownKey: options.ownKey, daemon: createDaemonClient(options.orchDir) });
+    runtime ??= createPackRuntime({ orchDir: options.orchDir, ownKey: options.ownKey, daemon: createDaemonClient(options.orchDir, settings) });
     return runtime;
   };
 

@@ -52,30 +52,30 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
     const root = tempOrchDir();
     const key = seedPaneAgent(root, "herdr", "%3");
     expect(process.env[LAUNCH_ENV]).toBeUndefined();
-    expect(herdrPaneHandle(key)).toBe("%3");
-    expect(herdrHudActive(key)).toBe(true);
+    expect(herdrPaneHandle(key, root)).toBe("%3");
+    expect(herdrHudActive(key, root)).toBe(true);
   });
 
   test("the handle follows the agent when it moves pane", () => {
     const root = tempOrchDir();
     const key = seedPaneAgent(root, "herdr", "%3");
     // The identity key never changes; only the environment does.
-    placeAgent(key, { adapter: "pi", handle: "%9" });
-    expect(herdrPaneHandle(key)).toBe("%9");
+    placeAgent(key, { adapter: "pi", handle: "%9" }, root);
+    expect(herdrPaneHandle(key, root)).toBe("%9");
     expect(process.env[LAUNCH_ENV]).toBeUndefined();
   });
 
   test("an agent on another plexer is not a herdr pane", () => {
     const root = tempOrchDir();
     const key = seedPaneAgent(root, "tmux", "%1");
-    expect(herdrPaneHandle(key)).toBeNull();
-    expect(herdrHudActive(key)).toBe(false);
+    expect(herdrPaneHandle(key, root)).toBeNull();
+    expect(herdrHudActive(key, root)).toBe(false);
   });
 
   test("a process orch never launched is not a herdr pane", () => {
-    tempOrchDir();
-    expect(herdrPaneHandle(null)).toBeNull();
-    expect(herdrHudActive(null)).toBe(false);
+    const root = tempOrchDir();
+    expect(herdrPaneHandle(null, root)).toBeNull();
+    expect(herdrHudActive(null, root)).toBe(false);
   });
 
   test("a key that is not a minted id resolves to no pane at all", () => {
@@ -83,7 +83,8 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
     // A NEGATIVE case, kept verbatim: the dead composite key looks like it
     // carries a plexer and a handle, and nothing may read them back out of it.
     const malformed = "herdr~wF~%3";
-    expect(herdrPaneHandle(malformed)).toBeNull();
-    expect(herdrHudActive(malformed)).toBe(false);
+    const root = process.env.ORCH_DIR!;
+    expect(herdrPaneHandle(malformed, root)).toBeNull();
+    expect(herdrHudActive(malformed, root)).toBe(false);
   });
 });

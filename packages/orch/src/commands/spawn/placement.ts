@@ -135,7 +135,7 @@ export function spawnOneIntoTab(orchDir: string, spec: TabSpawnSpec): CreatedAge
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
     spawner: spec.spawnerAgentId ?? null,
-    owner: callerOwnerToken(),
+    owner: callerOwnerToken(orchDir),
     worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
     process: spec.backend.process.running(handle),
   });

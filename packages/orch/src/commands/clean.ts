@@ -148,7 +148,7 @@ export function cmdClean(services: Services, args: string[]) {
   // A sweep reaps records and worktrees the caller does not own, which is
   // destructive maintenance: the user's or the pack orch's call, never a
   // slave's. It refuses before reading anything, so nothing is mutated.
-  if (callerIsSpawnedAgent()) die("orch clean is operator-only: a spawned agent never reaps records it does not own. Ask the user or your orch to run it.");
+  if (callerIsSpawnedAgent(services.orchDir)) die("orch clean is operator-only: a spawned agent never reaps records it does not own. Ask the user or your orch to run it.");
   const json = args.includes("--json");
   const options = validateCleanArgs(args.filter((arg) => arg !== "--json"));
   const malformed = removeMalformedAgentDirs(json, services.orchDir);

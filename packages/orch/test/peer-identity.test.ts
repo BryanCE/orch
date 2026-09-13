@@ -59,14 +59,14 @@ afterEach(() => {
 
 describe("spawner identity", () => {
   test("a bare operator with no session markers is just the operator", () => {
-    tempOrchDir();
-    expect(spawnerIdentity()).toEqual({ key: null, label: "operator" });
+    const orchDir = tempOrchDir();
+    expect(spawnerIdentity(orchDir)).toEqual({ key: null, label: "operator" });
   });
 
   test("an unregistered Claude Code session is labelled by its harness, with no id", () => {
-    tempOrchDir();
+    const orchDir = tempOrchDir();
     process.env.CLAUDECODE = "1";
-    expect(spawnerIdentity()).toEqual({ key: null, label: "claude session" });
+    expect(spawnerIdentity(orchDir)).toEqual({ key: null, label: "claude session" });
   });
 
   test("a session orch has registered IS addressable, by the id orch minted", () => {
@@ -80,14 +80,14 @@ describe("spawner identity", () => {
       pid: 4242, startToken: "tok", sessionToken: "e2277e83-74d9", harnessId: "claude",
       cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
     });
-    expect(spawnerIdentity().key).toBe(registered.id);
+    expect(spawnerIdentity(orchDir).key).toBe(registered.id);
   });
 
   test("an unregistered session has no id to hand out, and does not invent one", () => {
-    tempOrchDir();
+    const orchDir = tempOrchDir();
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION_ID = "never-registered";
-    expect(spawnerIdentity().key).toBeNull();
+    expect(spawnerIdentity(orchDir).key).toBeNull();
   });
 
   test("an orch-spawned orchestrator acts as the id orch minted for it", () => {
@@ -99,7 +99,7 @@ describe("spawner identity", () => {
     process.env[LAUNCH_ENV] = key;
     // Identity is the minted id and nothing else: the launch key IS that id, so
     // there is no plexer and no grouping riding inside it to travel as identity.
-    expect(spawnerIdentity().key).toBe("lead0000ab");
+    expect(spawnerIdentity(orchDir).key).toBe("lead0000ab");
   });
 
   test("agentIdentityEnv stamps a reply address only when the spawner has one", () => {
@@ -160,8 +160,8 @@ describe("spawner identity", () => {
  * never existed.
  */
 describe("the spawner address invariant", () => {
-  function stampedSpawnerAddress(): string | undefined {
-    return agentIdentityEnv("worker-1", spawnerIdentity()).ORCH_SPAWNER;
+  function stampedSpawnerAddress(orchDir: string): string | undefined {
+    return agentIdentityEnv("worker-1", spawnerIdentity(orchDir)).ORCH_SPAWNER;
   }
 
   test("an UNREGISTERED session stamps no address, so no worker is handed an unreachable one", () => {

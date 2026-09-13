@@ -68,7 +68,7 @@ async function waitForDaemon(orchDir: string, previousStartedAt?: string): Promi
 }
 
 /** Extract governance flags and strip them from the positional args. */
-export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: string[] } {
+export function parseGovernance(orchDir: string, args: string[]): { gov: WriteGovernance; rest: string[] } {
   const gov: WriteGovernance = {};
   const rest: string[] = [];
   for (const arg of args) {
@@ -78,8 +78,8 @@ export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: s
   }
   // Refused at parse time so the message names the flag, before any wall or
   // resolution failure can obscure it. callDaemon re-checks for programmatic gov.
-  if (gov.steal) forbidNonOperatorOverride("--steal");
-  if (gov.crossSpace) forbidNonOperatorOverride("--cross-space");
+  if (gov.steal) forbidNonOperatorOverride(orchDir, "--steal");
+  if (gov.crossSpace) forbidNonOperatorOverride(orchDir, "--cross-space");
   return { gov, rest };
 }
 
@@ -92,16 +92,16 @@ export async function callDaemon(services: Pick<Services, "orchDir" | "settings"
     const { timeouts } = services.settings.current();
     timeoutMs = timeouts.adapter_command_ms + timeouts.dispatch_ack_ms;
   }
-  if (gov.steal) forbidNonOperatorOverride("--steal");
-  if (gov.crossSpace) forbidNonOperatorOverride("--cross-space");
+  if (gov.steal) forbidNonOperatorOverride(directory, "--steal");
+  if (gov.crossSpace) forbidNonOperatorOverride(directory, "--cross-space");
   // The write actor is the same token spawn stamps as owner (ORCH_OWNER, else
   // the id orch issued); anything else and an orchestrator cannot steer its own fleet.
-  const actor = callerOwnerToken() ?? null;
+  const actor = callerOwnerToken(directory) ?? null;
   const enriched: Record<string, unknown> = { ...params };
   if (actor !== null) {
     enriched.actor = actor;
-    enriched.actorSpace = actorSpace(actor);
-    enriched.actorIsOperator = !callerIsSpawnedAgent();
+    enriched.actorSpace = actorSpace(directory, actor);
+    enriched.actorIsOperator = !callerIsSpawnedAgent(directory);
   }
   if (gov.steal) enriched.steal = true;
   if (gov.crossSpace) enriched.crossSpace = true;

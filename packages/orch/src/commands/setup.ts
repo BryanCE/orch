@@ -111,41 +111,41 @@ async function installSetupComposition(
   options: SetupOptions,
   args: string[],
 ): Promise<string[] | null> {
-  recordComposition(composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
+  recordComposition(services.orchDir, composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
   if (!(await installPrerequisites(composition.adapters, composition.backends, options.interactive, options.yes, options.noInstall))) return null;
   process.stdout.write("Presence dir:\n");
-  files.mkdirSync(presenceDir(), { recursive: true });
-  process.stdout.write(`  ${presenceDir()}\n`);
+  files.mkdirSync(presenceDir(services.orchDir), { recursive: true });
+  process.stdout.write(`  ${presenceDir(services.orchDir)}\n`);
   const gaps = await installAdapterShims(composition.adapters, options.copy);
   await offerSkills(services, args, options.interactive);
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
   if (options.interactive) await configureNotifiers(services);
   wireBinaries(options.copy);
   alignEntrypointToRuntime(composition.runtime);
-  await diagnoseAdapters(composition.adapters);
+  await diagnoseAdapters(services.orchDir, composition.adapters);
   return gaps;
 }
 
-async function diagnoseAdapters(adapters: readonly AdapterId[]): Promise<void> {
+async function diagnoseAdapters(orchDir: string, adapters: readonly AdapterId[]): Promise<void> {
   // Validate each selected (installed) adapter through its own provider port.
   for (const id of adapters) {
     const adapter = resolveAdapter(id);
     if (!adapter.shim) continue;
-    const result = await adapter.shim.diagnoseShim();
+    const result = await adapter.shim.diagnoseShim(orchDir);
     process.stdout.write(`  ${result.status.toUpperCase()} ${result.label}: ${result.detail}\n`);
   }
 }
 
 async function runDoctorPass(services: OrchDirService, interactive: boolean): Promise<CheckResult[]> {
   process.stdout.write("Running doctor checks...\n");
-  let doctorResults = await runDoctor(services.orchDir);
+  let doctorResults = await runDoctor(services.orchDir, {});
   // Re-run after a reap so the passed/total count reflects the reaped records, not the pre-reap state.
-  if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(services.orchDir);
+  if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(services.orchDir, {});
   process.stdout.write(`Doctor: ${doctorResults.filter((result) => result.status === "ok" || result.status === "skip").length}/${doctorResults.length} checks passed\n`);
   return doctorResults;
 }
 
-async function finishSetup(options: SetupOptions, gaps: readonly string[]): Promise<void> {
+async function finishSetup(services: Services, options: SetupOptions, gaps: readonly string[]): Promise<void> {
   if (gaps.length) {
     process.stdout.write("Setup incomplete:\n" + gaps.map((gap) => `  - ${gap}`).join("\n") + "\n");
     process.exitCode = 1;
@@ -153,11 +153,11 @@ async function finishSetup(options: SetupOptions, gaps: readonly string[]): Prom
   }
   // The smoke spawns a real agent and spends real tokens, so it runs only when asked for.
   if (options.smoke) {
-    const blocker = smokeBlocker();
+    const blocker = smokeBlocker(services.settings.current());
     if (blocker) process.stdout.write(`Smoke test skipped - ${blocker}.\n`);
     else {
       process.stdout.write("Smoke test - verifying orch can deliver work (headless spawn on a prompt + result)...");
-      await runSetupSmoke(process.cwd());
+      await runSetupSmoke(services, process.cwd());
     }
   }
   const doneMessage = "Done. Open a plexer workspace and try: orch spawn 2 --tab Team1";
@@ -171,13 +171,13 @@ export async function cmdSetup(services: Services, args: string[]) {
   const options = parseSetupOptions(args);
   await initializeSetup(options, services);
 
-  const composition = await resolveSetupComposition(options);
+  const composition = await resolveSetupComposition(services.settings.current(), options);
   if (composition === null) return;
   const gaps = await installSetupComposition(services, composition, options, args);
   if (gaps === null) return;
 
   await runDoctorPass(services, options.interactive);
-  await finishSetup(options, gaps);
+  await finishSetup(services, options, gaps);
 }
 
 /** Interactive notifier onboarding: probe all notifiers, pick a set, collect each one's
@@ -232,7 +232,7 @@ export async function runFirstTimeSetup(argv: string[], dispatch: (argv: string[
   // A cancelled wizard records nothing, so the original command must not run.
   // `process.exitCode`, never `process.exit()`: exiting truncates whatever the
   // wizard already wrote (src/commands/index.ts:272 states the same rule).
-  if (compositionUnrecorded()) {
+  if (compositionUnrecorded(services.orchDir)) {
     process.exitCode = 1;
     return;
   }

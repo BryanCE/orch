@@ -41,7 +41,7 @@ function renameAgent(
     process.stdout.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
     return null;
   }
-  assertNameFree(name, view.environment.space ?? "");
+  assertNameFree(services.orchDir, name, view.environment.space ?? "");
   if (!isAgentId(key) || !renameNormalizedAgent(services.orchDir, key, name)) return null;
   const role = backend.agentNaming;
   if (!role) throw new Error("target environment has no agent naming role");
@@ -70,7 +70,7 @@ export function cmdRename(services: Services, args: string[]) {
   const name = positional[1];
   if (!target || !name) die("usage: orch rename <target> <name> [--pane] [--force]");
   const views = agentViewIndex(services.orchDir);
-  const { backend, handle, key } = backendTarget(services.orchDir, target, "rename", views);
+  const { backend, handle, key } = backendTarget(services.orchDir, services.settings.current(), target, "rename", views);
   assertAgentOwned(services.orchDir, target, { key }, force, views);
   // Renaming an agent moves a label only: orch's registry owns the name, the
   // identity key never changes, and every session/daemon route survives it.

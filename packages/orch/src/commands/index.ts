@@ -30,8 +30,9 @@ import { cmdDoctor } from "./doctor.ts";
 import { cmdDetach, cmdAdopt, cmdReap } from "./lease.ts";
 import { helpTopic } from "./help.ts";
 import { die } from "./target.ts";
-import { commandLogger } from "./logging.ts";
 import { term } from "../policy/vocabulary.ts";
+import { createServices } from "../services.ts";
+import type { Logger, Services } from "../types/services.ts";
 
 function usage() {
   process.stdout.write(
@@ -272,10 +273,10 @@ function exemptFromSetupGate(cmd: string | undefined): boolean {
 }
 
 /** True on a clean slate: no selections recorded yet, a TTY to prompt on, and a command that needs them. */
-export function needsFirstRunSetup(cmd: string | undefined): boolean {
+export function needsFirstRunSetup(orchDir: string, cmd: string | undefined): boolean {
   if (exemptFromSetupGate(cmd)) return false;
   if (!process.stdin.isTTY) return false;
-  return compositionUnrecorded();
+  return compositionUnrecorded(orchDir);
 }
 
 /** `orch <cmd> -h|--help` and `orch help <cmd>` both name one command's topic. */
@@ -286,7 +287,7 @@ function requestedHelpTopic(cmd: string | undefined, rest: string[]): string | n
   return null;
 }
 
-type Handler = (args: string[]) => void | Promise<void>;
+type Handler = (services: Services, args: string[]) => void | Promise<void>;
 
 /**
  * The CLI boundary: report a failure and set the process's exit code.
@@ -296,86 +297,87 @@ type Handler = (args: string[]) => void | Promise<void>;
  * command unwinds. Every failure is logged here before it is rendered; refusals
  * and unexpected failures follow the same boundary behavior.
  */
-export function reportCommandFailure(error: unknown): void {
-  commandLogger().error("command.failed", { error: errorMessage(error) });
+export function reportCommandFailure(logger: Logger, error: unknown): void {
+  logger.error("command.failed", { error: errorMessage(error) });
   process.stdout.write(errorMessage(error) + "\n");
   process.exitCode = 1;
 }
 
-function dispatchAsync(task: Promise<unknown>): void {
-  void task.catch(reportCommandFailure);
+function dispatchAsync(logger: Logger, task: Promise<unknown>): void {
+  void task.catch((error: unknown) => reportCommandFailure(logger, error));
 }
 
 const commandHandlers: Record<string, Handler> = {
-  status: (args) => dispatchAsync(cmdStatusVerb(args)),
-  events: (args) => dispatchAsync(cmdEvents(args)),
-  logs: (args) => cmdLogs(args),
-  notify: (args) => dispatchAsync(cmdNotify(args)),
-  questions: (args) => dispatchAsync(cmdQuestions(args)),
-  runs: (args) => cmdRuns(args),
-  queue: (args) => dispatchAsync(cmdQueue(args)),
-  daemon: (args) => dispatchAsync(cmdDaemon(args)),
-  doctor: (args) => dispatchAsync(cmdDoctor(args)),
-  work: (args) => dispatchAsync(cmdWork(args)),
-  review: (args) => {
-    if (args.length === 0) dispatchAsync(cmdReviewInteractive());
-    else dispatchAsync(cmdReview(args));
+  status: (services, args) => dispatchAsync(services.logger, cmdStatusVerb(services, args)),
+  events: (services, args) => dispatchAsync(services.logger, cmdEvents(services, args)),
+  logs: (services, args) => cmdLogs(services, args),
+  notify: (services, args) => dispatchAsync(services.logger, cmdNotify(services, args)),
+  questions: (services, args) => dispatchAsync(services.logger, cmdQuestions(services, args)),
+  runs: (services, args) => cmdRuns(services, args),
+  queue: (services, args) => dispatchAsync(services.logger, cmdQueue(services, args)),
+  daemon: (services, args) => dispatchAsync(services.logger, cmdDaemon(services, args)),
+  doctor: (services, args) => dispatchAsync(services.logger, cmdDoctor(services, args)),
+  work: (services, args) => dispatchAsync(services.logger, cmdWork(services, args)),
+  review: (services, args) => {
+    if (args.length === 0) dispatchAsync(services.logger, cmdReviewInteractive(services));
+    else dispatchAsync(services.logger, cmdReview(services, args));
   },
-  answer: (args) => dispatchAsync(cmdAnswer(args)),
-  result: (args) => cmdResult(args),
-  steer: (args) => dispatchAsync(cmdSteer(args)),
-  pipe: (args) => dispatchAsync(cmdPipe(args)),
-  broadcast: (args) => dispatchAsync(cmdBroadcast(args)),
-  tail: (args) => cmdTail(args),
-  session: (args) => cmdSession(args),
-  panes: (args) => cmdPanes(args),
-  spawn: (args) => dispatchAsync(cmdSpawn(args)),
-  tile: (args) => dispatchAsync(cmdTile(args)),
-  run: (args) => dispatchAsync(cmdRun(args)),
-  model: (args) => dispatchAsync(cmdModel(args)),
-  models: (args) => cmdModels(args),
-  wait: (args) => cmdWait(args),
-  dispatch: (args) => dispatchAsync(cmdDispatch(args)),
-  reload: (args) => dispatchAsync(cmdReload(args)),
-  reset: (args) => dispatchAsync(cmdNew(args)),
-  new: (args) => dispatchAsync(cmdNew(args)),
-  restart: (args) => dispatchAsync(cmdRestart(args)),
-  rename: (args) => cmdRename(args),
-  close: (args) => cmdClose(args),
-  kill: (args) => cmdClose(args),
-  detach: (args) => dispatchAsync(cmdDetach(args)),
-  adopt: (args) => dispatchAsync(cmdAdopt(args)),
-  reap: (args) => dispatchAsync(cmdReap(args)),
-  abort: (args) => cmdAbort(args),
-  keys: (args) => cmdKeys(args),
-  peek: (args) => cmdPeek(args),
-  tabs: (args) => cmdTabs(args),
-  tab: (args) => cmdTab(args),
-  focus: (args) => cmdFocus(args),
-  zoom: (args) => cmdZoom(args),
-  move: (args) => cmdMove(args),
-  space: (args) => cmdSpace(args),
-  clean: (args) => cmdClean(args),
-  grant: (args) => dispatchAsync(cmdGrant(args)),
-  settings: (args) => {
-    if (args[0] === "models") dispatchAsync(cmdSettingsModels(args.slice(1)));
-    else if (args[0] === "notify") dispatchAsync(cmdSettingsNotify(args.slice(1)));
-    else if (args[0] === "skills") cmdSettingsSkills(args.slice(1));
-    else if (args[0] === "thinking") cmdSettingsThinking(args.slice(1));
-    else dispatchAsync(cmdSettings(args));
+  answer: (services, args) => dispatchAsync(services.logger, cmdAnswer(services, args)),
+  result: (services, args) => cmdResult(services, args),
+  steer: (services, args) => dispatchAsync(services.logger, cmdSteer(services, args)),
+  pipe: (services, args) => dispatchAsync(services.logger, cmdPipe(services, args)),
+  broadcast: (services, args) => dispatchAsync(services.logger, cmdBroadcast(services, args)),
+  tail: (services, args) => cmdTail(services, args),
+  session: (services, args) => cmdSession(services, args),
+  panes: (services, args) => cmdPanes(services, args),
+  spawn: (services, args) => dispatchAsync(services.logger, cmdSpawn(services, args)),
+  tile: (services, args) => dispatchAsync(services.logger, cmdTile(services, args)),
+  run: (services, args) => dispatchAsync(services.logger, cmdRun(services, args)),
+  model: (services, args) => dispatchAsync(services.logger, cmdModel(services, args)),
+  models: (services, args) => cmdModels(services, args),
+  wait: (services, args) => cmdWait(services, args),
+  dispatch: (services, args) => dispatchAsync(services.logger, cmdDispatch(services, args)),
+  reload: (services, args) => dispatchAsync(services.logger, cmdReload(services, args)),
+  reset: (services, args) => dispatchAsync(services.logger, cmdNew(services, args)),
+  new: (services, args) => dispatchAsync(services.logger, cmdNew(services, args)),
+  restart: (services, args) => dispatchAsync(services.logger, cmdRestart(services, args)),
+  rename: (services, args) => cmdRename(services, args),
+  close: (services, args) => cmdClose(services, args),
+  kill: (services, args) => cmdClose(services, args),
+  detach: (services, args) => dispatchAsync(services.logger, cmdDetach(services, args)),
+  adopt: (services, args) => dispatchAsync(services.logger, cmdAdopt(services, args)),
+  reap: (services, args) => dispatchAsync(services.logger, cmdReap(services, args)),
+  abort: (services, args) => cmdAbort(services, args),
+  keys: (services, args) => cmdKeys(services, args),
+  peek: (services, args) => cmdPeek(services, args),
+  tabs: (services, args) => cmdTabs(services, args),
+  tab: (services, args) => cmdTab(services, args),
+  focus: (services, args) => cmdFocus(services, args),
+  zoom: (services, args) => cmdZoom(services, args),
+  move: (services, args) => cmdMove(services, args),
+  space: (services, args) => cmdSpace(services, args),
+  clean: (services, args) => cmdClean(services, args),
+  grant: (services, args) => dispatchAsync(services.logger, cmdGrant(services, args)),
+  settings: (services, args) => {
+    if (args[0] === "models") dispatchAsync(services.logger, cmdSettingsModels(services, args.slice(1)));
+    else if (args[0] === "notify") dispatchAsync(services.logger, cmdSettingsNotify(services, args.slice(1)));
+    else if (args[0] === "skills") cmdSettingsSkills(services, args.slice(1));
+    else if (args[0] === "thinking") cmdSettingsThinking(services, args.slice(1));
+    else dispatchAsync(services.logger, cmdSettings(services, args));
   },
-  setup: (args) => dispatchAsync(cmdSetup(args)),
-  "--version": () => { void process.stdout.write(`orch ${VERSION}\n`); },
-  "-V": () => { void process.stdout.write(`orch ${VERSION}\n`); },
-  version: () => { void process.stdout.write(`orch ${VERSION}\n`); },
-  help: () => usage(),
-  "-h": () => usage(),
-  "--help": () => usage(),
+  setup: (services, args) => dispatchAsync(services.logger, cmdSetup(services, args)),
+  "--version": (_services, _args) => { void process.stdout.write(`orch ${VERSION}\n`); },
+  "-V": (_services, _args) => { void process.stdout.write(`orch ${VERSION}\n`); },
+  version: (_services, _args) => { void process.stdout.write(`orch ${VERSION}\n`); },
+  help: (_services, _args) => usage(),
+  "-h": (_services, _args) => usage(),
+  "--help": (_services, _args) => usage(),
 };
 
 export function runCommand(argv: string[]): void {
   const cmd = argv[0];
   let rest = argv.slice(1);
+  const services = createServices();
   // Help must never require setup, a daemon, or a current install to read.
   const topic = requestedHelpTopic(cmd, rest);
   if (topic !== null) { process.stdout.write(topic); return; }
@@ -383,13 +385,13 @@ export function runCommand(argv: string[]): void {
   // prints exactly what is missing and the command that fixes it. `die` exits, so the switch
   // below is only ever reached with a real recorded configuration.
   try {
-    if (needsFirstRunSetup(cmd)) {
+    if (needsFirstRunSetup(services.orchDir, cmd)) {
       void runFirstTimeSetup(argv, runCommand).catch((error: unknown) => die(errorMessage(error)));
       return;
     }
     // Nothing recorded and no TTY to walk the wizard on: say exactly what to run, rather than
     // letting an unconfigured command surface a config error deeper in.
-    if (!exemptFromSetupGate(cmd) && compositionUnrecorded()) die(setupRequiredMessage());
+    if (!exemptFromSetupGate(cmd) && compositionUnrecorded(services.orchDir)) die(setupRequiredMessage(services.orchDir));
     const sanitized = preflightSkew(argv);
     rest = sanitized.slice(1);
   } catch (error: unknown) {
@@ -398,15 +400,15 @@ export function runCommand(argv: string[]): void {
     die(errorMessage(error));
   }
   if (cmd === undefined) {
-    dispatchAsync(cmdStatusVerb(argv));
+    dispatchAsync(cmdStatusVerb(services, argv));
     return;
   }
   const handler = commandHandlers[cmd];
   if (handler !== undefined) {
-    void handler(rest);
+    void handler(services, rest);
     return;
   }
-  if (cmd.startsWith("--")) dispatchAsync(cmdStatusVerb(argv));
+  if (cmd.startsWith("--")) dispatchAsync(cmdStatusVerb(services, argv));
   else {
     commandLogger().error("command.unknown", { command: cmd });
     process.stdout.write(`Unknown command: ${cmd}\n\n`);

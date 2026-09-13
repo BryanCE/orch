@@ -1,6 +1,7 @@
 import { acceptMail } from "./mail.ts";
 import { attemptsOf, taskById, type AttemptRow } from "../store/task-rows.ts";
 import { agentById } from "../store/agent-rows.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 /**
  * Cq4 — "Results go to the enqueuer, not the runner — cross-pack delivery is
@@ -15,7 +16,7 @@ import { agentById } from "../store/agent-rows.ts";
  * Best-effort on purpose: the task is already settled when this runs, and an
  * undeliverable result must never unsettle it or throw into the work loop.
  */
-export function deliverTaskResult(orchDir: string, taskId: string): void {
+export function deliverTaskResult(orchDir: string, settings: OrchSettings | null, taskId: string): void {
   const task = taskById(orchDir, taskId);
   if (!task) return;
   const attempts = attemptsOf(orchDir, taskId);
@@ -35,7 +36,7 @@ export function deliverTaskResult(orchDir: string, taskId: string): void {
     : `[failed on ${runnerName}] ${task.text}\n${settled.error ?? "no error recorded"}`;
 
   try {
-    acceptMail(orchDir, settled.agentId, task.enqueuedBy, body);
+    acceptMail(orchDir, settings, settled.agentId, task.enqueuedBy, body);
   } catch {
     // A missing or walled enqueuer has nowhere to receive; that is an answer,
     // not a failure, and the settlement stands either way.

@@ -9,7 +9,7 @@ import { isAgentId } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
-import { agentViewIndex, assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
+import { agentViewIndex, assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, ownerTokenOrDie, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
@@ -108,17 +108,18 @@ export async function cmdBroadcast(services: Services, args: string[]) {
   const text = positional[0];
   const targets = positional.slice(1);
   if (!text) die('usage: orch broadcast "<text>" [target ...|--all]');
+  const explicitAll = all;
   if (!targets.length) all = true;
   const destinations = new Map<string, PresenceEntry>();
   if (all) {
-    requireCallerOwnerToken();
-    for (const pres of livePanePresenceEntries()) {
+    if (explicitAll) requireCallerOwnerToken(services.orchDir); else ownerTokenOrDie(services.orchDir);
+    for (const pres of livePanePresenceEntries(services.orchDir)) {
       const record = spawnedRecords(services.orchDir).get(pres.key);
       if (record && ownsAgent(services.orchDir, record)) destinations.set(pres.key, pres);
     }
   }
   for (const target of targets) {
-    const ent = requirePresenceTarget(target);
+    const ent = requirePresenceTarget(services.orchDir, services.settings.current(), target);
     assertAgentOwned(services.orchDir, target, ent, force);
     destinations.set(ent.presence!.key, ent.presence!);
   }

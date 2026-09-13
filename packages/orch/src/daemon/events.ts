@@ -489,5 +489,5 @@ export function emitAndNotify(
     })();
   const canonical: NotifyEvent = { ...named, seq, ...(capacity === undefined ? {} : { capacity }) };
   emit(canonical);
-  notify(sinks, canonical);
+  if (orchDir !== undefined) notify(orchDir, sinks, canonical);
 }

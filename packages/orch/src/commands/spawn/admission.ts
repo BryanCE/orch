@@ -118,14 +118,14 @@ export function assertNewSpaceGranted(orchDir: string, settings: SpawnSettings, 
 }
 /** Everything that can refuse a spawn, run before it creates anything. A refused
  *  spawn leaves no handle, no worktree and no queue entry. */
-export async function admitSpawn(orchDir: string, settings: SpawnSettings): Promise<void> {
+export async function admitSpawn(orchDir: string, settingsFile: OrchSettings, settings: SpawnSettings): Promise<void> {
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.
   assertSpawnPolicy(orchDir, settings, settings.space ?? callerSpace(orchDir), settings.n);
   assertLaunchModelAllowed(orchDir, settings.adapter, settings.model);
   // Shim refresh is a launch side effect, so it happens only after policy
   // accepts, and only for the harness actually being launched.
-  await refreshStaleShims(orchDir, [settings.adapter]);
+  await refreshStaleShims(orchDir, [settings.adapter], settingsFile);
   // Herdr rejects an invalid prefix, so no placement side effect may precede it.
   try {
     assertValidAgentName(settings.prefix);

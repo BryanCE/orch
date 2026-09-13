@@ -83,8 +83,8 @@ export function cmdRuns(services: Services, args: string[]): void {
     // Operators may still query a reaped exact key from durable history. Driving
     // sessions use the normal resolver exclusively, so a foreign key cannot
     // bypass lease scoping; names and handles always use that resolver too.
-    const reapedExactKey = callerKind() === "operator"
-      && !loadPresence().has(target)
+    const reapedExactKey = callerKind(services.orchDir) === "operator"
+      && !loadPresence(services.orchDir).has(target)
       && latestRunForKey(services.orchDir, target) !== undefined;
     agentKey = reapedExactKey ? target : resolveTarget(services.orchDir, services.settings.current(), target).key;
   }

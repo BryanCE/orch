@@ -39,7 +39,7 @@ export async function callerScopeAddress(directory: string, options: { register?
   const launched = launchCredential();
   if (launched !== null) return launched;
   if (callerSession() === null) return undefined;
-  const known = selfId();
+  const known = selfId(directory);
   if (known !== undefined) return known;
   // Registration needs the daemon; an offline read takes the unregistered answer.
   if (options.register === false) return undefined;

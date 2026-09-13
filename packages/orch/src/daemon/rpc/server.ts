@@ -17,9 +17,9 @@ interface ConnectionState {
   bridge?: { key: string; link: BridgeLink };
 }
 
-function detachConnectionBridge(state: ConnectionState): void {
+function detachConnectionBridge(orchDir: string, state: ConnectionState): void {
   if (state.bridge === undefined) return;
-  detachBridge(state.bridge.key, state.bridge.link);
+  detachBridge(orchDir, state.bridge.key, state.bridge.link);
   state.bridge = undefined;
 }
 /** A refused attach has already been answered on its socket, so the request ends there. */
@@ -29,6 +29,7 @@ type AttachOutcome =
   | { readonly kind: "attached"; readonly notify: () => void };
 
 function attachRequest(
+  orchDir: string,
   socket: Socket,
   request: { id: unknown; method: string; params: unknown },
   state: ConnectionState,
@@ -41,13 +42,13 @@ function attachRequest(
     lineResponse(socket, errorResponse(request.id, "INVALID_REQUEST", "attach requires key"));
     return { kind: "refused" };
   }
-  detachConnectionBridge(state);
+  detachConnectionBridge(orchDir, state);
   const link: BridgeLink = {
     push: (delivery: BridgeDelivery) => lineResponse(socket, { event: { kind: "delivery", ...delivery } }),
   };
   // A bridge for an agent this store does not know is refused on its own socket; it never ends the daemon.
   try {
-    attachBridge(key, link);
+    attachBridge(orchDir, key, link);
   } catch (error: unknown) {
     lineResponse(socket, errorResponse(request.id, "UNKNOWN_AGENT", errorMessage(error)));
     return { kind: "refused" };
@@ -124,7 +125,7 @@ function handleLine(
     }
     subscriptions.add(socket);
   }
-  const attach = attachRequest(socket, request, state, onBridgeAttached);
+  const attach = attachRequest(orchDir, socket, request, state, onBridgeAttached);
   if (attach.kind === "refused") return;
   const emit: RpcEventEmitter = (event) => lineResponse(socket, { event });
   dispatchRequest(socket, request, handlers, emit, state, transport, attach.kind === "attached" ? attach.notify : undefined);
@@ -144,7 +145,7 @@ function attachConnection(
   const state: ConnectionState = {};
   const detach = () => {
     subscriptions.delete(socket);
-    detachConnectionBridge(state);
+    detachConnectionBridge(orchDir, state);
   };
   framedLineReader(socket, (line) =>
     handleLine(socket, line.replace(/\r$/, ""), handlers, subscriptions, replayBuffer, orchDir, transport, state, daemonToken, onBridgeAttached),

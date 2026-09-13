@@ -13,7 +13,7 @@
 //             switch lands one tick later rather than not at all.
 import { fileURLToPath } from "node:url";
 import { hashExtensionFile, registerHarnessBridge } from "../../src/agent/harness-bridge.ts";
-import { orchDir } from "../../src/presence/writer.ts";
+import { createServices } from "../../src/services.ts";
 import { registerOrchSeat } from "../../src/seat/index.ts";
 import type { HarnessApi, HarnessIdentity } from "../../src/types/agent.ts";
 
@@ -23,12 +23,17 @@ const OMP_IDENTITY: HarnessIdentity = { agentId: "omp", settleEvent: "session_st
 const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
 function ompExtension(harness: HarnessApi): void {
-  const bridge = registerHarnessBridge(harness, OMP_IDENTITY, EXTENSION_HASH, { fleet: false });
+  const services = createServices();
+  const bridge = registerHarnessBridge(harness, OMP_IDENTITY, EXTENSION_HASH, {
+    fleet: false,
+    orchDir: services.orchDir,
+    settings: services.settings,
+  });
   // omp's extension surface is pi-shaped, so the orchestrator seat (status
   // line, /orch-view dashboard, per-agent views) ships here too — enabling omp
   // as a harness in setup/settings is the consent for this integration.
-  registerOrchSeat(harness, {
-    orchDir: orchDir(),
+  registerOrchSeat(harness, services.settings, {
+    orchDir: services.orchDir,
     ownKey: bridge.ownKey,
   });
 }

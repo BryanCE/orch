@@ -191,7 +191,7 @@ export function cmdSpace(services: Services, args: string[]): void {
     directory,
     plexerId: backend.id,
     spaceHome: backend.spaceHome,
-    actorId: selfId() ?? null,
+    actorId: selfId(directory) ?? null,
   };
   try {
     runSpace(env, args);

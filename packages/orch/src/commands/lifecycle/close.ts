@@ -56,7 +56,7 @@ function endClosedAgent(orchDir: string, key: string): ClosedAgent | null {
   const agentId = key;
   const row = agentById(root, agentId);
   if (row && !row.ending) {
-    const by = selfId();
+    const by = selfId(root);
     endAgent(root, agentId, Date.now(), by !== undefined && agentById(root, by) ? by : null);
     const oldState = loadPresence(root).get(key)?.status?.state ?? "exited";
     return { key, oldState };
@@ -138,8 +138,9 @@ function sweepTargets(services: Pick<Services, "orchDir" | "logger">): CloseTarg
 
 /** Resolve the targets named on the command line. */
 function namedTargets(services: Services, positional: readonly string[]): CloseTarget[] {
+  const settings = services.settings.current();
   return positional.map((target) => {
-    const resolved = resolveLifecycleTarget(services.orchDir, target);
+    const resolved = resolveLifecycleTarget(services.orchDir, settings, target);
     // Driving sessions must resolve through their open lease; the operator remains
     // unscoped. Close authority is the additional provenance check in cmdClose.
     // `resolveLifecycleTarget` also supplies process-oriented fallbacks (pid/key).
@@ -320,7 +321,7 @@ export function cmdClose(services: Services, args: string[]) {
   if (positional.some((argument) => argument.startsWith("--"))) die(usage);
   if (!all && !positional.length) die(usage);
 
-  const authority = callerAuthority(selfIdentity());
+  const authority = callerAuthority(selfIdentity(services.orchDir));
   const named = namedTargets(services, positional);
   const refusal = named.map((target) => refuseClose(services.orchDir, authority, target.key)).find((reason) => reason !== null);
   if (refusal !== undefined && refusal !== null) die(refusal);
@@ -336,7 +337,7 @@ export function cmdAbort(services: Services, args: string[]) {
   if (!target) die("usage: orch abort <target> [--force] [--json]");
   // Abort itself has no close-authority gate. Lifecycle resolution still scopes a
   // driving session by its open lease; the operator remains unscoped.
-  const { backend, handle, entity } = resolveLifecycleTarget(services.orchDir, target);
+  const { backend, handle, entity } = resolveLifecycleTarget(services.orchDir, services.settings.current(), target);
   const input = backend.agentInput;
   if (!entity.paneId || !input) {
     const reason = !entity.paneId ? "no-pane" : "no-environment-role";

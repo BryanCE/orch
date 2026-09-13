@@ -147,12 +147,17 @@ export function callerOwnerToken(root: string): string | undefined {
   return selfId(root);
 }
 
-/** Refuse bulk operations that cannot identify their calling orchestrator. */
-export function requireCallerOwnerToken(root: string): string {
-  forbidNonOperatorOverride(root, "--all");
+/** The calling orchestrator's token, or a refusal naming the fix. No operator gate: the caller acts on its own agents. */
+export function ownerTokenOrDie(root: string): string {
   const token = callerOwnerToken(root);
   if (!token) die(`Bulk operation refused: set ORCH_OWNER to identify this ${term("orch")}.`);
   return token;
+}
+
+/** Refuse bulk operations that cannot identify their calling orchestrator. */
+export function requireCallerOwnerToken(root: string): string {
+  forbidNonOperatorOverride(root, "--all");
+  return ownerTokenOrDie(root);
 }
 
 /** True when this process was launched as an orch-spawned agent. */

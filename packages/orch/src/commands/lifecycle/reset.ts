@@ -15,16 +15,16 @@ import type { Services } from "../../types/services.ts";
 
 interface ClearedAgent { key: string; handle: string; name: string }
 
-function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags } {
+function parseResetArgs(services: Pick<Services, "orchDir" | "settings">, args: string[]): { targets: string[]; flags: AgentFlags } {
   const targets: string[] = [];
   const flags: AgentFlags = {};
-  if (args.includes("--all")) requireCallerOwnerToken();
+  if (args.includes("--all")) requireCallerOwnerToken(services.orchDir);
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!;
     if (arg === "--json" || arg === "--force") continue;
     if (arg === "--model") { flags.modelFlag = args[++index]; continue; }
     if (arg === "--thinking") { flags.thinkingFlag = args[++index]; continue; }
-    if (arg === "--all") targets.push(...ownedAgentKeys());
+    if (arg === "--all") targets.push(...ownedAgentKeys(services));
     else targets.push(arg);
   }
   return { targets, flags };
@@ -34,7 +34,7 @@ function parseResetArgs(args: string[]): { targets: string[]; flags: AgentFlags 
 export async function clearSession(services: Pick<Services, "orchDir" | "settings">, target: string, force: boolean): Promise<ClearedAgent> {
   // Resolved through the lifecycle resolver, which answers for an agent placed
   // nowhere; the placement resolver rejects the whole headless fleet outright.
-  const { entity: ent, handle } = resolveLifecycleTarget(services.orchDir, target);
+  const { entity: ent, handle } = resolveLifecycleTarget(services.orchDir, services.settings.current(), target);
   const label = describeHandle(handle);
   assertAgentOwned(services.orchDir, target, ent, force);
   const statusPath = path.join(presenceAgentDir(ent.key, services.orchDir), STATUS_FILE);
@@ -52,19 +52,19 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
 export async function cmdNew(services: Services, args: string[]): Promise<void> {
   const json = args.includes("--json");
   const force = args.includes("--force");
-  const { targets, flags } = parseResetArgs(args);
+  const { targets, flags } = parseResetArgs(services, args);
   if (!targets.length) die("usage: orch reset <target>... | --all [--model <model>] [--thinking <level>] [--json]");
+  const settings = services.settings.current();
   // Check ownership before resolving model configuration: a driving verb must
   // name a live foreign holder even when this caller has no model selected.
   for (const target of targets) {
-    const { entity: ent } = resolveLifecycleTarget(services.orchDir, target);
+    const { entity: ent } = resolveLifecycleTarget(services.orchDir, settings, target);
     assertAgentOwned(services.orchDir, target, ent, force);
   }
-  const settings = services.settings.current();
   const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
   const tuning = resolveTuningOrDie(flags, settings, adapter.id);
   const { model, thinking } = tuning;
-  assertLaunchModelAllowed(adapter.id, model);
+  assertLaunchModelAllowed(services.orchDir, adapter.id, model);
   const cleared: ClearedAgent[] = [];
   for (const target of targets) {
     const agent = await clearSession(services, target, force);
@@ -73,7 +73,7 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   }
   // A reset that could not re-pin its model left the agent on the wrong one, and
   // re-running reset is idempotent — unlike a spawn, nothing duplicates on retry.
-  if ((await pinModels(cleared, model, thinking)).length) process.exitCode = 1;
+  if ((await pinModels(services, services.logger, cleared, model, thinking)).length) process.exitCode = 1;
   const results = cleared.map((agent) => ({ target: agent.handle, cleared: true, ready: true }));
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
   else process.stdout.write(`Pinned ${cleared.length} reset agent(s) to ${modelSpec(model, thinking)}.\n`);

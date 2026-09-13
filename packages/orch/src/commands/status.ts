@@ -12,10 +12,11 @@ import { renderTable } from "../table.ts";
 import { spaceName as resolveSpaceName, withinSpaceCeiling } from "../policy/space.ts";
 import { ensureCallerRegistered, selfId, spaceOfAgent } from "../identity/self.ts";
 import { callerKind } from "../policy/caller.ts";
-import { ensureDaemonOrWarn } from "../daemon/reach.ts";
+import { ensureDaemonOrWarn, rpcRegisterSession } from "../daemon/reach.ts";
 import { dim } from "../tui/screen.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
 import { currentLease } from "../store/lease-rows.ts";
+import { loadPresence } from "../presence/store.ts";
 import {
   agentViewIndex,
   die,
@@ -61,8 +62,8 @@ export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView>
   return getAdapter(viewForKey(views, ent.key)?.harnessId ?? ent.presence?.status?.agent ?? ent.agent ?? "");
 }
 
-function currentOrchId(): string | null {
-  return spawnerIdentity().key;
+function currentOrchId(orchDir: string): string | null {
+  return spawnerIdentity(orchDir).key;
 }
 
 function currentLeaseOwner(directory: string, agentId: string): string | null {
@@ -236,9 +237,10 @@ function statusRowsFrom(values: readonly unknown[]): StatusRow[] {
   return values.filter(isStatusRow);
 }
 
-async function readFleetRows(orchDir: string, spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
+async function readFleetRows(settings: OrchSettings | null, orchDir: string, spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
+  if (settings === null) return snapshot([], false);
   if (offline) {
-    const rows = fleetStatusRows(spaces, { offline: true, directory: orchDir });
+    const rows = fleetStatusRows(settings, spaces, { offline: true, directory: orchDir });
     return snapshot(rows, rows.some((row) => row.backend != null));
   }
   try {
@@ -251,7 +253,7 @@ async function readFleetRows(orchDir: string, spaces: OrchSettings["spaces"], of
   } catch {
     // Daemon absent or refusing: fall through to the file protocol.
   }
-  const rows = fleetStatusRows(spaces, { directory: orchDir });
+  const rows = fleetStatusRows(settings, spaces, { directory: orchDir });
   return snapshot(rows, rows.some((row) => row.backend != null));
 }
 
@@ -268,10 +270,10 @@ export interface CallerScope {
   kind: CallerKind;
 }
 
-export function callerScope(): CallerScope {
-  const kind = callerKind();
-  const id = selfId() ?? null;
-  return { id, ceiling: kind === "operator" || id === null ? null : spaceOfAgent(id), kind };
+export function callerScope(orchDir: string): CallerScope {
+  const kind = callerKind(orchDir);
+  const id = selfId(orchDir) ?? null;
+  return { id, ceiling: kind === "operator" || id === null ? null : spaceOfAgent(orchDir, id), kind };
 }
 
 /**
@@ -702,20 +704,20 @@ interface FleetStatusOptions {
   directory: string;
 }
 
-export function fleetStatusRows(spaces: OrchSettings["spaces"], options: FleetStatusOptions): StatusRow[] {
+export function fleetStatusRows(settings: OrchSettings, spaces: OrchSettings["spaces"], options: FleetStatusOptions): StatusRow[] {
   const directory = options.directory;
   const views = agentViewIndex(directory);
   const staleHashes = options.bundleHashes?.() ?? new Set(shippedBundleHashes());
   // Resolve these process-wide inputs once so a fleet never performs a caller
   // lookup for every individual row.
-  const orchId = options.orchId?.() ?? currentOrchId();
-  return sortEntities(buildEntities({ skipBackends: options.offline === true }))
+  const orchId = options.orchId?.() ?? currentOrchId(directory);
+  return sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }))
     .map((entity) => statusRowFromEntity(entity, views, staleHashes, spaces, orchId, directory));
 }
 
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
-async function localStatusRows(orchDir: string, options: StatusOptions, spaces: OrchSettings["spaces"], caller?: CallerScope): Promise<FleetSnapshot> {
-  const snapshot = await readFleetRows(orchDir, spaces, options.offline);
+async function localStatusRows(settings: OrchSettings | null, orchDir: string, options: StatusOptions, spaces: OrchSettings["spaces"], caller?: CallerScope): Promise<FleetSnapshot> {
+  const snapshot = await readFleetRows(settings, orchDir, spaces, options.offline);
   const scoped = scopeFleetRows(snapshot.rows, { ...options, states: options.filter.states, caller });  return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
 
@@ -772,16 +774,16 @@ function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[])
 export async function readStatusResult(
   services: OrchDirService & SettingsService,
   options: StatusOptions,
-  caller: CallerScope = callerScope(),
+  caller: CallerScope = callerScope(services.orchDir),
 ): Promise<StatusResult> {
   const settings = services.settings.currentOrNull();
   const hosts = settings === null ? {} : settings.hosts;
   const spaces = settings === null ? {} : settings.spaces;
   if (options.local || caller.kind !== "operator" || Object.keys(hosts).length === 0) {
-    const local = await localStatusRows(services.orchDir, options, spaces, caller);
+    const local = await localStatusRows(settings, services.orchDir, options, spaces, caller);
     return { ...local, host: false };
   }
-  const localSnapshot = await localStatusRows(services.orchDir, options, spaces, caller);
+  const localSnapshot = await localStatusRows(settings, services.orchDir, options, spaces, caller);
   const remoteResults = await remoteStatusResults(hosts, options.offline);
   const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, { space: options.space, agent: options.agent });
   const remote = remoteSummary(remoteResults);
@@ -795,19 +797,19 @@ export async function readStatusResult(
 }
 
 function capacityOutput(orchDir: string, settings: OrchSettings): { capacity: ReturnType<typeof computeFleetCapacity>; line: string } {
-  const capacity = computeFleetCapacity(agentViewIndex(orchDir), presenceById(), settings);
-  return { capacity, line: formatCapacityLine(capacity, currentOrchId() ?? undefined) };
+  const capacity = computeFleetCapacity(agentViewIndex(orchDir), presenceById(loadPresence(orchDir)), settings);
+  return { capacity, line: formatCapacityLine(capacity, currentOrchId(orchDir) ?? undefined) };
 }
 
 /** The one-shot status table. `--live` is routed away before this runs (`status-verb.ts`). */
 export async function cmdStatus(services: Services, options: StatusOptions): Promise<void> {
   if (!options.offline) {
     await ensureDaemonOrWarn(services.orchDir);
-    await ensureCallerRegistered();
+    await ensureCallerRegistered(services.orchDir, rpcRegisterSession);
   }
-  const caller = callerScope();
-  if (options.spaceWide) forbidNonOperatorOverride("--space-wide");
-  if (options.allPanes) forbidNonOperatorOverride("--all-panes");
+  const caller = callerScope(services.orchDir);
+  if (options.spaceWide) forbidNonOperatorOverride(services.orchDir, "--space-wide");
+  if (options.allPanes) forbidNonOperatorOverride(services.orchDir, "--all-panes");
   if (options.capacity) {
     const settings = services.settings.currentOrNull();
     if (settings === null) throw new Error("capacity unavailable: settings.json does not exist");

@@ -385,8 +385,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return args;
   }
 
-  private paneEnvFlags(opts: BackendSpawnOpts): string[] {
-    return Object.entries(agentLaunchEnv(opts)).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+  private paneEnvFlags(opts: Pick<BackendSpawnOpts, "env">): string[] {
+    return Object.entries(opts.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
   }
 
   /**
@@ -394,7 +394,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
    * existing pane and picks its own executable, so orch makes the pane and runs
    * its own adapter command line in it.
    */
-  private openPane(workspace: string, opts: BackendSpawnOpts, splitFrom: HerdrHandle | null): HerdrHandle {
+  private openPane(workspace: string, opts: Pick<BackendSpawnOpts, "cwd" | "env" | "split">, splitFrom: HerdrHandle | null): HerdrHandle {
     const flags = ["--cwd", opts.cwd ?? process.cwd(), ...this.paneEnvFlags(opts), "--no-focus"];
     // No pane to split from — a shell outside herdr — so the agent gets a tab.
     const opened: { command: string; args: string[] } = splitFrom

@@ -35,10 +35,10 @@ describe("adapter and runtime hardening", () => {
   test("doctor returns failures for malformed notifier config and broken agent directories", async () => {
     const directory = temp();
     writeSettingsFixture(directory, { queue: { max_retries: "never" } });
-    expect(await checkNotifiers(directory)).toMatchObject({ status: "fail", id: "notifiers" });
+    expect(await checkNotifiers(loadSettings(directory), directory)).toMatchObject({ status: "fail", id: "notifiers" });
     const agents = path.join(directory, "agents");
     fs.writeFileSync(agents, "not a directory");
-    expect(await checkExtensionStaleness(directory, path.join(directory, "missing.js"))).toMatchObject({ status: "fail", id: "extension-staleness" });
+    expect(await checkExtensionStaleness(loadSettings(directory), path.join(directory, "missing.js"))).toMatchObject({ status: "fail", id: "extension-staleness" });
     removeTempDir(directory);
   });
 
@@ -54,7 +54,7 @@ describe("adapter and runtime hardening", () => {
     try {
       // The caller mints the identity BEFORE launch (one key per agent); the
       // backend never generates a fallback key of its own.
-      expect(() => backend.spawn(adapter, {})).toThrow(/caller-minted presence key/);
+      expect(() => backend.spawn(adapter, { orchDir: directory })).toThrow(/caller-minted presence key/);
       expect(backend.handleLookup.handleFor("any-key")).toBeUndefined();
     } finally {
       if (previous === undefined) delete process.env.ORCH_DIR;

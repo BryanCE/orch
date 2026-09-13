@@ -112,7 +112,7 @@ export function entitySpace(root: string, e: Entity): string | null {
 }
 
 export function scopeEntitiesToSpace(root: string, entities: Entity[], opts?: { all?: boolean }): Entity[] {
-  const current = callerSpace();
+  const current = callerSpace(root);
   if (opts?.all === true || current === null) return entities;
   return entities.filter((entity) => sameSpace(entitySpace(root, entity), current));
 }
@@ -330,8 +330,8 @@ function stillRunning(entity: Entity): boolean {
 /** A session or spawned agent may resolve only an agent it currently holds.
  *  Ownership is the open lease, never the immutable spawner or a display label. */
 export function callerMayResolve(root: string, entity: Pick<Entity, "key">): boolean {
-  if (callerKind() === "operator") return true;
-  const caller = selfId();
+  if (callerKind(root) === "operator") return true;
+  const caller = selfId(root);
   if (caller === undefined) return false;
   try {
     return holdsLease(root, entity.key, caller);
@@ -405,11 +405,11 @@ export function resolveTarget(root: string, settings: OrchSettings, target: stri
   }
 
   if (!crossWall) {
-    if (callerKind() !== "operator") refuseForeignTarget(target);
+    if (callerKind(root) !== "operator") refuseForeignTarget(target);
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
       // The wall decision lives in policy/space.ts alone; this only relays it.
-      const decision = checkWall(root, selfId() ?? null, foreign.key, { crossSpace: false });
+      const decision = checkWall(root, selfId(root) ?? null, foreign.key, { crossSpace: false });
       if (!decision.allowed) die(decision.reason ?? "space-wall denied the write");
     }
   }

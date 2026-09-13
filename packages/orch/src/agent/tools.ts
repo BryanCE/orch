@@ -109,7 +109,7 @@ export function registerAgentTools(
   let blockedNotified = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
 
-  registerPeerTools(harness, presence, daemon);
+  registerPeerTools(orchDir, harness, presence, daemon);
 
   harness.registerTool({
     name: "orch_ask",

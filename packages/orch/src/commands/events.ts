@@ -6,7 +6,7 @@ import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { isRecord } from "../util.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { rpcCall, subscribeEvents } from "../daemon/rpc/client.ts";
-import { ensureDaemon } from "../daemon/reach.ts";
+import { ensureDaemon, rpcRegisterSession } from "../daemon/reach.ts";
 import { deliver } from "../notify/router.ts";
 import { notificationText, oneLine } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
@@ -52,8 +52,8 @@ export function eventWithinSpaceWall(root: string, key: string, ceiling: string 
 export async function cmdEvents(services: Services, args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(services.orchDir);
-  await ensureCallerRegistered();
-  if (options.scope === "any") forbidNonOperatorOverride("--space-wide");
+  await ensureCallerRegistered(services.orchDir, rpcRegisterSession);
+  if (options.scope === "any") forbidNonOperatorOverride(services.orchDir, "--space-wide");
   const items = eventsItems(options, services.orchDir, services.settings.current());
   const scope = await resolveCallerScope(options.scope, services.orchDir);
   const accepts = (key: string): boolean => {
@@ -62,14 +62,14 @@ export async function cmdEvents(services: Services, args: string[]) {
     if (key === scope.address) return true;
     const inScope = options.targets.length
       ? items.has(key)
-      : agentId !== null && eventWithinSpaceWall(services.orchDir, agentId, callerSpace());
+      : agentId !== null && eventWithinSpaceWall(services.orchDir, agentId, callerSpace(services.orchDir));
     if (!inScope) return false;
     const leaseOwner = currentLease(services.orchDir, agentId ?? key)?.orchId ?? null;
     return agentInScope({
       spaceWide: !scope.mine,
       mineAddress: scope.address,
       leaseOwner,
-      recordSpawnedBy: spawnedRecords().get(agentId ?? key)?.spawnedBy ?? undefined,
+      recordSpawnedBy: spawnedRecords(services.orchDir).get(agentId ?? key)?.spawnedBy ?? undefined,
     });
   };
   const context: EventsContext = { options, accepts, emit: eventWriter(options, services.orchDir) };
@@ -112,7 +112,7 @@ export async function cmdNotify(services: Services, args: string[]) {
     process.exitCode = 1;
     return;
   }
-  const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliver(sink, event) })));
+  const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliver(services.orchDir, sink, event) })));
   if (json) process.stdout.write(JSON.stringify(results.map(({ sink, ok }) => ({ sink: sinkLabel(sink), ok }))) + "\n");
   else for (const { sink, ok } of results) process.stdout.write(`notify ${sinkLabel(sink)}: ${ok ? "ok" : "fail"}\n`);
   if (results.some((result) => !result.ok)) process.exitCode = 1;
@@ -237,9 +237,9 @@ function eventsItems(options: EventsOptions, root: string, settings: OrchSetting
   if (!options.targets.length) {
     const presences = scopeToSpace(
       root,
-      [...loadPresence().values()].filter((presence) => presence.alive && looksLikePaneKey(presence.key)),
+      [...loadPresence(root).values()].filter((presence) => presence.alive && looksLikePaneKey(presence.key)),
       (presence) => presence.key,
-      callerSpace(),
+      callerSpace(root),
       { all: false },
     );
     for (const presence of presences) items.add(presence.key);

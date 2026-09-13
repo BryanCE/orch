@@ -109,7 +109,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const log = runnerId === undefined ? correlated : correlated.forAgent(runnerId);
   const sendPrompt = async (): Promise<void> => {
     log.info("dispatch.delivering", { target: entry.key, handle: entry.key });
-    const outcome = await deliverControl(entry.key, { kind: "run", text: prompt, id: dispatchId });
+    const outcome = await deliverControl(options.orchDir, options.settings.current(), entry.key, { kind: "run", text: prompt, id: dispatchId });
     if (outcome.outcome === "answer") {
       log.debug("boundary.answer", { target: entry.key, reason: outcome.reason });
     }
@@ -159,8 +159,8 @@ function taskEvent(entry: PresenceEntry, task: TaskRec, oldState: string, newSta
   };
 }
 
-function settleClaimedTasks(orchDir: string, emit: (event: NotifyEvent) => void): void {
-  const runners = runnersByAgent(orchDir, loadPresence());
+function settleClaimedTasks(orchDir: string, settings: ReturnType<WorkOptions["settings"]["current"]>, emit: (event: NotifyEvent) => void): void {
+  const runners = runnersByAgent(orchDir, loadPresence(orchDir));
   for (const task of listTasks(orchDir)) {
     if (task.state !== "claimed") continue;
     const attempt = currentAttempt(task);
@@ -177,10 +177,10 @@ function settleClaimedTasks(orchDir: string, emit: (event: NotifyEvent) => void)
     if (!statusSpeaksForTask(status, task)) continue;
     if (status?.state === "done") {
       const settled = recordTaskDone(orchDir, task.id, agent.result);
-      deliverTaskResult(orchDir, task.id);
+      deliverTaskResult(orchDir, settings, task.id);
       emit(taskEvent(agent, settled, task.state, settled.state));
     }
-    if (status?.state === "error") settleError(orchDir, task, typeof status?.lastError === "string" ? status.lastError : "agent reported error", agent, emit);
+    if (status?.state === "error") settleError(orchDir, settings, task, typeof status?.lastError === "string" ? status.lastError : "agent reported error", agent, emit);
   }
 }
 
@@ -231,13 +231,13 @@ function reaskEvent(orchDir: string, question: QuestionRow, nowMs: number, askCo
   return { ...event, task: `Q: ${question.question}`, askCount, ...(gaveUp ? { gaveUp: true } : {}) };
 }
 
-function settleError(orchDir: string, task: TaskRec, error: string, entry: PresenceEntry, emit: (event: NotifyEvent) => void): void {
+function settleError(orchDir: string, settings: ReturnType<WorkOptions["settings"]["current"]>, task: TaskRec, error: string, entry: PresenceEntry, emit: (event: NotifyEvent) => void): void {
   // A failed attempt remains derived as failed until the next attempt INSERT.
   // Selection policy below enforces max_retries + 1 total attempts.
   const settled = recordTaskFailure(orchDir, task.id, error);
   // Cq4: a failure reports back too — silence is the worst outcome for the
   // orch that asked, and it may be in another pack with nothing else to read.
-  deliverTaskResult(orchDir, task.id);
+  deliverTaskResult(orchDir, settings, task.id);
   emit(taskEvent(entry, settled, task.state, settled.state, error));
 }
 
@@ -252,15 +252,15 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
       emit(taskEvent(entry, failed, current.state, failed.state, "agent did not acknowledge working"));
       return;
     }
-    if (state === "error") return settleError(options.orchDir, current, "agent reported error", entry, emit);
+    if (state === "error") return settleError(options.orchDir, options.settings.current(), current, "agent reported error", entry, emit);
     if (state === "done") {
-      const done = recordTaskDone(options.orchDir, task.id, loadPresence().get(entry.key)?.result);
-      deliverTaskResult(options.orchDir, task.id);
+      const done = recordTaskDone(options.orchDir, task.id, loadPresence(options.orchDir).get(entry.key)?.result);
+      deliverTaskResult(options.orchDir, options.settings.current(), task.id);
       emit(taskEvent(entry, done, current.state, done.state));
     }
   } catch (error) {
     const current = requireTask(options.orchDir, task.id);
-    settleError(options.orchDir, current, String(error), entry, emit);
+    settleError(options.orchDir, options.settings.current(), current, String(error), entry, emit);
   }
 }
 
@@ -269,7 +269,7 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
  *  deriving them here too is what published every agent transition twice. */
 export async function runWorkLoop(options: WorkOptions): Promise<void> {
   const emit = options.onEvent ?? ((event: NotifyEvent): void => {
-    emitAndNotify(() => { /* noop */ }, options.settings.current().notify, event, options.orchDir);
+    emitAndNotify(() => { /* noop */ }, options.settings.current().notify, event, options.orchDir, options.settings);
   });
   const questionState = new Map<string, QuestionReaskState>();
   let lastSweepAt = Number.NEGATIVE_INFINITY;
@@ -296,8 +296,8 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
       });
     }
     const maxRetries = settings?.queue.max_retries ?? options.maxRetries ?? 1;
-    const presence = loadPresence();
-    settleClaimedTasks(options.orchDir, emit);
+    const presence = loadPresence(options.orchDir);
+    settleClaimedTasks(options.orchDir, settings, emit);
     let assigned = 0;
     const tasks = listTasks(options.orchDir);
     const idle = [...presence.values()].filter(agentIdle)
@@ -316,7 +316,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
       if (options.once || options.signal?.aborted) break;
     }
     if (options.once) {
-      settleClaimedTasks(options.orchDir, emit);
+      settleClaimedTasks(options.orchDir, settings, emit);
       return;
     }
     const claimed = tasks.some((task) => task.state === "claimed");

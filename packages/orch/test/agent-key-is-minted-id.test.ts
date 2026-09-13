@@ -87,7 +87,7 @@ function fakeHarness(): HarnessApi {
 }
 
 function presenceFor() {
-  return createAgentPresence({
+  return createAgentPresence(tempOrchDir(), {
     harness: fakeHarness(),
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",
@@ -142,7 +142,7 @@ describe("this process's own identity is the id and nothing else", () => {
     tempOrchDir();
     const id = mintAgentId();
     process.env[LAUNCH_ENV] = id;
-    expect(selfIdentity()).toEqual({ id });
+    expect(selfIdentity(process.env.ORCH_DIR!)).toEqual({ id });
   });
 
 });

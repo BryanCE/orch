@@ -19,7 +19,7 @@ export function assertValidAgentName(name: string): void {
  */
 export function assertNameFree(orchDir: string, name: string, space: string | null): void {
   assertValidAgentName(name);
-  const presence = loadPresence();
+  const presence = loadPresence(orchDir);
   const taken = [...spawnedRecords(orchDir).values()].find((view) =>
     view.name === name
     && sameSpace(view.environment.space, space)

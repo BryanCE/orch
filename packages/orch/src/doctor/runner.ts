@@ -62,7 +62,7 @@ async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
       const adapter = resolveAdapter(adapterId!);
       const backend = getBackend(backendId!);
       if (!backend) return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail", detail: `unknown backend ${JSON.stringify(backendId)}` };
-      const diagnosis = adapter.shim ? await adapter.shim.diagnoseShim() : { id: `shim-${adapterId}`, label: `${adapterId} integration`, status: "skip" as const, detail: `${adapterId} declares no integration shim` };
+      const diagnosis = adapter.shim ? await adapter.shim.diagnoseShim(orchDir) : { id: `shim-${adapterId}`, label: `${adapterId} integration`, status: "skip" as const, detail: `${adapterId} declares no integration shim` };
       return { ...diagnosis, id, label: `${adapterId} + ${backendId} live pair`, detail: `${adapterId}/${backendId}: ${diagnosis.detail}` };
     } catch (error: unknown) {
       return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail" as const, detail: errorMessage(error) };
@@ -97,7 +97,7 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
       : { id: `bin-${id}`, label: `${id} binary`, status: "fail", detail: `${id} is not on PATH` }),
     isolated(`shim-${id}`, `${id} integration`, async () => {
       const adapter = resolveAdapter(id);
-      return adapter.shim ? await adapter.shim.diagnoseShim() : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
+      return adapter.shim ? await adapter.shim.diagnoseShim(orchDir) : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
     }),
     isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(settings, id)),
   ]).flat();
@@ -131,7 +131,7 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     settingsDependent(orchDir, settings, "command-locks", "Command locks", (current) => checkCommandLocks(current)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
     settingsDependent(orchDir, settings, "notify-sinks", "Notification sinks", (current) => checkNotifySinks(current, bins)),
-    settingsDependent(orchDir, settings, "notifiers", "Notifiers", (current) => checkNotifiers(current)),
+    settingsDependent(orchDir, settings, "notifiers", "Notifiers", (current) => checkNotifiers(orchDir, current)),
     isolated("orchdir-location", "ORCH_DIR location", () => checkOrchDirLocation(orchDir)),
     isolated("orchd-registration", "orchd registration", checkDaemonRegistration),
     isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),
@@ -169,7 +169,7 @@ export async function refreshStaleShims(orchDir: string, harnesses: readonly str
     try {
       const adapter = resolveAdapter(id);
       if (!adapter.shim) continue;
-      const diagnosis = await adapter.shim.diagnoseShim();
+      const diagnosis = await adapter.shim.diagnoseShim(orchDir);
       if (diagnosis.status === "ok" || diagnosis.status === "skip") continue;
       if (!diagnosis.fix) continue;
       // An undeclared `destructive` means a safe fix; only a declared one is left for the operator.

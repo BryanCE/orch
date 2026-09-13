@@ -13,6 +13,7 @@ import { isAgentId } from "../../backends/identity.ts";
 import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../../policy/capacity.ts";
 import type { Backend } from "../../types/backend.ts";
 import type { Logger } from "../../types/core.ts";
+import type { Services } from "../../types/services.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { CreatedAgent } from "../../types/command.ts";
@@ -122,7 +123,8 @@ export async function reportControlPlaneOutage(orchDir: string, logger: Logger, 
   return outage;
 }
 
-export async function reportSpawnResults(orchDir: string, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
+export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings">, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
+  const { orchDir } = services;
   const maySpawn = maySpawnFrom(orchDir, selfId(orchDir), settingsFile.fleet.max_depth);
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.handle}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
@@ -151,7 +153,7 @@ export async function reportSpawnResults(orchDir: string, logger: Logger, settin
       }
     }
   }
-  const warnings = await pinModels(orchDir, logger, registeredAgents ?? [], settings.model, settings.thinking);
+  const warnings = await pinModels(services, logger, registeredAgents ?? [], settings.model, settings.thinking);
   const dispatches: { name: string; key: string; dispatchId: string }[] = [];
   if (registeredAgents && settings.prompts.length > 0) {
     const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
@@ -162,7 +164,7 @@ export async function reportSpawnResults(orchDir: string, logger: Logger, settin
       }
       const text = settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!;
       try {
-        const { id: dispatchId } = await dispatchToAgent(orchDir, agent.key, text, {
+        const { id: dispatchId } = await dispatchToAgent(services, logger, agent.key, text, {
           adapter: resolveAdapterOrDie(settings.adapter),
           context: { maySpawn, spawnerRepliable: true, ...workerRules(settingsFile) },
         });

@@ -24,7 +24,7 @@ export function checkNotifications(_bins: BinaryStatus): CheckResult {
 }
 
 /** Validate configured notifier entries and probe each adapter in isolation. */
-export async function checkNotifiers(settings: OrchSettings | null): Promise<CheckResult> {
+export async function checkNotifiers(orchDir: string, settings: OrchSettings | null): Promise<CheckResult> {
   const id = "notifiers";
   const label = "Notifiers";
   let configured: NotifyEntry[];
@@ -37,7 +37,7 @@ export async function checkNotifiers(settings: OrchSettings | null): Promise<Che
   }
   if (!configured.length) return { id, label, status: "ok", detail: "no notifiers configured" };
 
-  const registry = createNotifierRegistry();
+  const registry = createNotifierRegistry(orchDir);
   const failures: string[] = [];
   const warnings: string[] = [];
   for (const [index, entry] of configured.entries()) {

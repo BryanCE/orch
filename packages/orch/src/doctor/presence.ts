@@ -21,13 +21,13 @@ function humanAge(ms: number): string {
 }
 
 /** One human-legible line identifying a presence dir — so nobody deletes a live session blind. */
-function describePresenceDir(entry: PresenceEntry, orchDir?: string): string {
+function describePresenceDir(entry: PresenceEntry, orchDir: string): string {
   const { key, description = {} } = entry;
   const label = description.label?.trim() ?? "";
   const cwd = description.cwd ?? null;
   const project = cwd ? path.basename(cwd) : null;
   const agent = description.agent ?? null;
-  const space = orchDir ? agentView(orchDir, key)?.environment.space ?? null : null;
+  const space = agentView(orchDir, key)?.environment.space ?? null;
   const stamp = description.updatedAt ?? description.finishedAt ?? null;
   const seen = stamp ? `last seen ${humanAge(Date.now() - Date.parse(stamp))}` : null;
   const head = label ? `${label} (${key})` : key;
@@ -36,7 +36,7 @@ function describePresenceDir(entry: PresenceEntry, orchDir?: string): string {
     .join(" | ");
 }
 
-export function checkMalformedPresenceRecords(orchDir?: string): CheckResult {
+export function checkMalformedPresenceRecords(orchDir: string): CheckResult {
   const entries = loadPresence(orchDir);
   if (!entries.size && !filesystem.existsSync(presenceDir(orchDir))) {
     return { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no presence records", ignoredRecords: [] };

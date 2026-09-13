@@ -67,8 +67,8 @@ export async function cmdReview(services: Services, args: string[]): Promise<voi
     const feedback = messageIndex >= 0 ? args[messageIndex + 1] : undefined;
     const allowedReject = new Set(["reject", target, "-m", feedback, "--json"]);
     if (messageIndex < 0 || !feedback || args.some((arg) => !allowedReject.has(arg))) die('usage: orch review reject <target> -m "feedback" [--json]');
-    if (!loadPresence().get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
-    await writeRpc("steer", { target: item.key, text: feedback });
+    if (!loadPresence(services.orchDir).get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
+    await writeRpc(services, "steer", { target: item.key, text: feedback });
     if (json) process.stdout.write(JSON.stringify({ target: item.target, rejected: true }) + "\n");
     else process.stdout.write(`Rejected ${item.target}; feedback re-dispatched in the same worktree.\n`);
     return;
@@ -114,7 +114,7 @@ export async function cmdReviewInteractive(services: Services): Promise<void> {
 function reviewItems(orchDir: string): ReviewItem[] {
   // A1: worktree and branch are ENVIRONMENT axes composed onto an agent, and
   // presence joins to that agent by its minted id — not by a pane key.
-  const presence = presenceById();
+  const presence = presenceById(loadPresence(orchDir));
   const items: ReviewItem[] = [];
   for (const view of agentViewIndex(orchDir).values()) {
     const { worktree, branch } = view.environment;

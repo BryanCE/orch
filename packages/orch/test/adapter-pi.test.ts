@@ -13,7 +13,7 @@ const { presenceDir } = await import("../src/presence/store.ts");
 const adapter = new PiAdapter();
 
 function storePresenceDir(): string {
-  return presenceDir();
+  return presenceDir(orchDir);
 }
 const fixtureKeys = new Set<string>();
 

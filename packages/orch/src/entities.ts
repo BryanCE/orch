@@ -10,7 +10,7 @@ import { agentViews } from "./store/agent-view.ts";
 import { callerSpace, selfId } from "./identity/self.ts";
 import { callerKind } from "./policy/caller.ts";
 import { holdsLease } from "./store/lease-rows.ts";
-import { ambiguousTargetRefusal, CommandRefusal } from "./refusal.ts";
+import { ambiguousTargetRefusal, die } from "./refusal.ts";
 
 export { spaceOf } from "./policy/space.ts";
 export { recipientLabel } from "./recipient.ts";
@@ -309,10 +309,6 @@ export function sortEntities(entities: Entity[]): Entity[] {
   });
   only.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
   return [...live, ...only];
-}
-
-function die(message: string): never {
-  throw new CommandRefusal(message);
 }
 
 function dedupeEntities(entities: Entity[]): Entity[] {

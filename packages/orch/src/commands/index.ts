@@ -30,7 +30,6 @@ import { cmdDoctor } from "./doctor.ts";
 import { cmdDetach, cmdAdopt, cmdReap } from "./lease.ts";
 import { helpTopic } from "./help.ts";
 import { die } from "./target.ts";
-import { CommandRefusal } from "../refusal.ts";
 import { commandLogger } from "./logging.ts";
 import { term } from "../policy/vocabulary.ts";
 
@@ -294,13 +293,11 @@ type Handler = (args: string[]) => void | Promise<void>;
  *
  * `process.exitCode` rather than `process.exit()` so buffered stdout still
  * flushes and no work is severed mid-write; the process ends on its own once the
- * command unwinds. A refusal has already been logged by `die`, so it is only
- * rendered here; anything else is an unexpected failure and gets a log record.
+ * command unwinds. Every failure is logged here before it is rendered; refusals
+ * and unexpected failures follow the same boundary behavior.
  */
 export function reportCommandFailure(error: unknown): void {
-  if (!(error instanceof CommandRefusal)) {
-    commandLogger().error("command.failed", { error: errorMessage(error) });
-  }
+  commandLogger().error("command.failed", { error: errorMessage(error) });
   process.stdout.write(errorMessage(error) + "\n");
   process.exitCode = 1;
 }

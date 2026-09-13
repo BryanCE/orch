@@ -43,7 +43,7 @@ export function watchSettings(orchDir: string, opts: SettingsWatchOptions): Sett
     debounceTimer = undefined;
     if (stopped) return;
     try {
-      const settings = loadSettings(orchDir);
+      const settings = opts.load === undefined ? loadSettings(orchDir) : opts.load();
       badState = undefined;
       onChange(settings);
     } catch (error: unknown) {

@@ -12,8 +12,7 @@ import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { orchDir } from "../presence/writer.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { errorMessage, isRecord } from "../util.ts";
-import { ambiguousTargetRefusal, CommandRefusal } from "../refusal.ts";
-import { commandLogger } from "./logging.ts";
+import { ambiguousTargetRefusal, die } from "../refusal.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
@@ -21,10 +20,7 @@ import type { HostSettings } from "../types/settings.ts";
 import type { LifecycleTarget } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
 
-export function die(msg: string): never {
-  commandLogger().error("command.failed", { error: msg });
-  throw new CommandRefusal(msg);
-}
+export { die } from "../refusal.ts";
 
 export function firstNonEmptyText(...values: (string | null | undefined)[]): string {
   return values.find((value) => Boolean(value)) ?? "";

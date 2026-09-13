@@ -36,15 +36,8 @@ function unknownProviderId(root: unknown, path: readonly PropertyKey[]):
   };
 }
 
-/** Parse and schema-validate `settings.json`, or null when the file is absent. Throws loudly on any defect. */
-export function readSettingsFile(file: string): SettingsFile | null {
-  let text: string;
-  try {
-    text = filesystem.readFileSync(file, "utf8");
-  } catch (error: unknown) {
-    if (errnoCode(error) === "ENOENT") return null;
-    throw error;
-  }
+/** Parse and schema-validate settings text. `file` is only used in messages. Throws loudly on any defect. */
+export function parseSettingsText(text: string, file: string): SettingsFile {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -75,6 +68,18 @@ export function readSettingsFile(file: string): SettingsFile | null {
     throw new Error(`${file}: this settings file has invalid values:\n${z.prettifyError(result.error)}\nFix those keys by hand, or re-record the file with: orch setup`);
   }
   return result.data;
+}
+
+/** Parse and schema-validate `settings.json`, or null when the file is absent. Throws loudly on any defect. */
+export function readSettingsFile(file: string): SettingsFile | null {
+  let text: string;
+  try {
+    text = filesystem.readFileSync(file, "utf8");
+  } catch (error: unknown) {
+    if (errnoCode(error) === "ENOENT") return null;
+    throw error;
+  }
+  return parseSettingsText(text, file);
 }
 
 /** Move an unreadable `settings.json` aside so `orch setup` can re-record from scratch, and
@@ -223,6 +228,11 @@ export function loadSettingsOrNull(orchDir: string): OrchSettings | null {
     }
     return null;
   }
+  return settingsFromFile(file, root);
+}
+
+/** A validated file root to the fully-populated settings every reader uses. */
+export function settingsFromFile(file: string, root: SettingsFile): OrchSettings {
   requireEnabledComposition(file, root);
   return {
     runtime: root.runtime,
@@ -231,13 +241,18 @@ export function loadSettingsOrNull(orchDir: string): OrchSettings | null {
   };
 }
 
+/** Message shown when settings.json is absent. */
+export function absentSettingsMessage(file: string): string {
+  return `${file} does not exist - orch has no built-in settings and does nothing by default.\nRun: orch setup`;
+}
+
 /** Load and validate `$orchDir/settings.json`. orch has NO built-in defaults: an absent
  * settings.json is a loud error naming the file and `orch setup`, never a silent empty
  * settings. Use `loadSettingsOrNull` only where first-run really must be distinguished. */
 export function loadSettings(orchDir: string): OrchSettings {
   const settings = loadSettingsOrNull(orchDir);
   if (settings === null) {
-    throw new Error(`${settingsPath(orchDir)} does not exist - orch has no built-in settings and does nothing by default.\nRun: orch setup`);
+    throw new Error(absentSettingsMessage(settingsPath(orchDir)));
   }
   return settings;
 }
@@ -318,14 +333,19 @@ export function allowedModelPatterns(orchDir: string, harness: AdapterId): strin
  * and then ignored. An unrecognised env value is not a level, so it does not get
  * to outrank the file the user actually wrote.
  */
-export function settingsLogLevel(directory: string): LogLevel {
+/** ORCH_LOG_LEVEL outranks the file; an unrecognised env value does not. */
+export function logLevelFor(settings: OrchSettings | null): LogLevel {
   const env = process.env.ORCH_LOG_LEVEL;
   if (env !== undefined && isLogLevel(env)) return env;
+  return settings?.logging?.level ?? SETTINGS_DEFAULTS.logging.level;
+}
+
+export function settingsLogLevel(directory: string): LogLevel {
   let settings: OrchSettings | null;
   try {
     settings = loadSettingsOrNull(directory);
   } catch {
     settings = null;
   }
-  return settings?.logging?.level ?? SETTINGS_DEFAULTS.logging.level;
+  return logLevelFor(settings);
 }

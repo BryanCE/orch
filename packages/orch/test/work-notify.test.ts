@@ -74,7 +74,7 @@ describe("orch presence notifications", () => {
         // startPresenceWatch seeds the initial idle state during its first scan.
         seedStatus(orchDir, key, { state: "working", label: "Test agent" });
         const payload: Record<string, unknown> = await waitForFile(output);
-        expect(payload).toMatchObject({ type: "transition", space: "space", newState: "working" });
+        expect(payload).toMatchObject({ space: "space", newState: "working" });
         expect(payload.title).toEqual(expect.stringContaining("WORKING [space] Test agent"));
       } finally {
         watch.stop();

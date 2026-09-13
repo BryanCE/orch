@@ -549,6 +549,8 @@ function logFatalAndExit(state: DaemonState, kind: string, error: unknown): void
 export interface LiveAgentForRepin {
   readonly id: string;
   readonly harnessId: string;
+  /** The tuning the agent holds. A pinned agent keeps it across a settings change. */
+  readonly tuning: AgentTuning;
 }
 
 export interface RepinAdapterCapabilities {
@@ -579,6 +581,9 @@ export function tuningSettingsChanged(previous: OrchSettings, settings: OrchSett
     || settingMapsDiffer(previous.defaults.models, settings.defaults.models);
 }
 
+/** A settings change tunes the agents nobody has tuned. An agent holding a pin
+ *  chose its model (or its orchestrator did) and keeps it; the default is for
+ *  the rest. Same precedence as dispatch, reset and restart: `resolveTuning`. */
 export async function repinLiveFleet(options: RepinLiveFleetOptions): Promise<void> {
   if (!tuningSettingsChanged(options.previousSettings, options.settings)) return;
   for (const agent of options.listLiveAgents()) {
@@ -586,7 +591,11 @@ export async function repinLiveFleet(options: RepinLiveFleetOptions): Promise<vo
       const adapter = options.resolveAdapter(agent);
       if (adapter === undefined) continue;
       if (adapter.modelControl === null && !adapter.bridge?.takes.includes("model")) continue;
-      const tuning = resolveTuning({ harness: adapter.id, settings: options.settings });
+      if (agent.tuning.model !== null) {
+        options.logger.info("settings.repin.kept", { agentId: agent.id, model: modelSpec(agent.tuning.model, agent.tuning.thinking) });
+        continue;
+      }
+      const tuning = resolveTuning({ pinned: agent.tuning, harness: adapter.id, settings: options.settings });
       if (tuning === null) continue;
       const spec = modelSpec(tuning.model, tuning.thinking);
       const outcome = await options.deliver(agent.id, { kind: "model", model: spec, id: randomUUID() });

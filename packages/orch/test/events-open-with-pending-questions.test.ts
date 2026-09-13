@@ -45,7 +45,7 @@ describe("events pending-question snapshot", () => {
       expect(received).toHaveLength(1);
       const first = received[0];
       expect(first?.event.type).toBe("asking");
-      if (first === undefined || first.event.type !== "asking") throw new Error("expected asking event");
+      if (first?.event.type !== "asking") throw new Error("expected asking event");
       expect(first.event.key).toBe("agent1");
       expect(first.event.oldState).toBe("asking");
       expect(first.event.newState).toBe("asking");

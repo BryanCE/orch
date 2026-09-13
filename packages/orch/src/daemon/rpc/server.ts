@@ -44,7 +44,7 @@ function attachRequest(
   const key = request.params.key;
   detachConnectionBridge(orchDir, state);
   const link: BridgeLink = {
-    push: (delivery: BridgeDelivery) => lineResponse(socket, { kind: "event", event: { kind: "delivery", ...delivery } }),
+    push: (delivery: BridgeDelivery) => lineResponse(socket, { kind: "delivery", delivery }),
   };
   // A bridge for an agent this store does not know is refused on its own socket; it never ends the daemon.
   try {

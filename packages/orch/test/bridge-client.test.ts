@@ -96,10 +96,10 @@ describe("bridge daemon client", () => {
     expect(connections[0]!.lines[0]).toMatchObject({ method: "attach", params: { key: "agent-key" } });
 
     const first = connections[0]!;
-    const deliveryLine = `${JSON.stringify({ event: { kind: "delivery", id: "m1", message: { action: "steer", text: "hello" } } })}\n`;
+    const deliveryLine = `${JSON.stringify({ delivery: { id: "m1", message: { action: "steer", text: "hello" } } })}\n`;
     first.socket.write(deliveryLine.slice(0, 12));
     first.socket.write(deliveryLine.slice(12));
-    first.socket.write(`${JSON.stringify({ event: { kind: "delivery", id: "m2", message: { action: "nope" } } })}\n`);
+    first.socket.write(`${JSON.stringify({ delivery: { id: "m2", message: { action: "nope" } } })}\n`);
     await waitFor(() => deliveries.length === 1);
     expect(deliveries[0]).toEqual({ id: "m1", message: { action: "steer", text: "hello" } });
 

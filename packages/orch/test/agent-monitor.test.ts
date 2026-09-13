@@ -4,6 +4,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createFleetMonitor, registerFleetMonitor } from "../src/agent/monitor.ts";
 import type { FleetMonitorOptions, HarnessApi, HarnessContext } from "../src/types/agent.ts";
 import type { CallerKind } from "../src/types/policy.ts";
+import type { NotifyEvent } from "../src/types/notify.ts";
 
 // Stated through the monitor's options, not mocked into the policy module: a
 // bun module mock outlives the file that installs it and would answer for every
@@ -11,7 +12,7 @@ import type { CallerKind } from "../src/types/policy.ts";
 let caller: CallerKind = "operator";
 
 interface Subscription {
-  callback: (event: unknown, seq: number) => void;
+  callback: (event: NotifyEvent, seq: number) => void;
   closed: boolean;
 }
 const subscriptions: Subscription[] = [];
@@ -59,7 +60,7 @@ function event(key: string, spawnedBy: string, name: string) {
   return { type: "transition", key, spawnedBy, name, agent: name, model: null, oldState: "idle", newState: "working", tab: null, ts: new Date().toISOString() };
 }
 
-function push(value: unknown): void {
+function push(value: NotifyEvent): void {
   for (const subscription of subscriptions) if (!subscription.closed) subscription.callback(value, 1);
 }
 

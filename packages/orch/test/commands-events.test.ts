@@ -115,7 +115,7 @@ describe("commands/events", () => {
   });
 
   test("rejects malformed event and labels sinks", () => {
-    expect(isNotifyEvent({ type: "transition", key: "k", oldState: "idle", newState: "done", ts: "now" })).toBe(true);
+    expect(isNotifyEvent({ type: "transition", key: "k", agent: null, tab: null, model: null, oldState: "idle", newState: "done", ts: "now" })).toBe(true);
     expect(isNotifyEvent({ key: "k" })).toBe(false);
     expect(sinkLabel({ id: "command", command: ["echo", "ok"] })).toBe("command echo ok");
   });

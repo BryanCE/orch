@@ -6,6 +6,7 @@ import { daemonRuntimeFiles } from "../runtime-files.ts";
 import type { EndpointPaths } from "../../types/daemon.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import { notifyEventSchema } from "../../notify/event.ts";
+import { isBridgeDelivery, type BridgeDelivery } from "../../control/bridge-message.ts";
 import {
   RPC_PARAMS,
   type ParamsOf,
@@ -51,6 +52,7 @@ export type RpcLine =
   | { kind: "reply"; id: number | null; result: unknown }
   | { kind: "error"; id: number | null; error: { code: RpcErrorCode; message: string; data?: unknown } }
   | { kind: "event"; seq?: number; event: NotifyEvent }
+  | { kind: "delivery"; delivery: BridgeDelivery }
   | { kind: "gap"; oldestSeq: number };
 
 const replySchema = z.object({ id: z.number().nullable(), result: z.unknown() }).strict();
@@ -75,6 +77,7 @@ export function parseRpcLine(value: unknown): RpcLine | null {
     if (event.data.seq === undefined) return { kind: "event", event: event.data.event };
     return { kind: "event", seq: event.data.seq, event: event.data.event };
   }
+  if (isRecord(value) && isBridgeDelivery(value.delivery)) return { kind: "delivery", delivery: value.delivery };
   const gap = gapSchema.safeParse(value);
   if (gap.success) return { kind: "gap", oldestSeq: gap.data.oldestSeq };
   return null;
@@ -88,6 +91,8 @@ export function encodeLine(line: RpcLine): string {
       return `${JSON.stringify({ id: line.id, error: line.error })}\n`;
     case "event":
       return `${JSON.stringify(line.seq === undefined ? { event: line.event } : { event: line.event, seq: line.seq })}\n`;
+    case "delivery":
+      return `${JSON.stringify({ delivery: line.delivery })}\n`;
     case "gap":
       return `${JSON.stringify({ gap: true, oldestSeq: line.oldestSeq })}\n`;
     default: {

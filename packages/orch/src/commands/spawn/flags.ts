@@ -155,7 +155,7 @@ function resolveSpawnBackend(flags: AgentFlags, settings: OrchSettings): Backend
 
 export function resolveSpawnAgentSettings(flags: AgentFlags, settings: OrchSettings): AgentSettings {
   const adapter = pickAdapter(flags, settings);
-  const tuning = resolveTuningOrDie(flags, settings, adapter);
+  const tuning = resolveTuningOrDie(flags, settings, adapter, null);
   const backend = resolveSpawnBackend(flags, settings);
   return {
     adapter,
@@ -183,7 +183,7 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
   const references = flags.withPaths.map(contextReference);
   const prompts = resolveSpawnPrompts(flags, n).map((prompt) => prompt === null ? null : taskWithReferences(prompt, references));
   const models = perAgent("--model", flags.modelFlags, n);
-  const tunings = models.map((model) => resolveTuningOrDie({ ...flags, modelFlag: model }, settings, adapter));
+  const tunings = models.map((model) => resolveTuningOrDie({ ...flags, modelFlag: model }, settings, adapter, null));
   const agents = names.map((name, index) => {
     const tuning = tunings[index];
     const prompt = prompts[index];

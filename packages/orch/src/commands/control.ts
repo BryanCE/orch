@@ -4,6 +4,7 @@ import { STATUS_FILE } from "../presence/schema.ts";
 import { spawnedRecords } from "../presence/store.ts";
 import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
+import { tuningOf } from "../store/agent-view.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
@@ -196,7 +197,7 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
   const harness = ent.agent ?? ent.presence?.status?.agent;
   if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its model mechanism.`);
   const adapter = resolveAdapterOrDie(harness);
-  const tuning = resolveTuningOrDie({ modelFlag: modelArg }, services.settings.current(), adapter.id);
+  const tuning = resolveTuningOrDie({ modelFlag: modelArg }, services.settings.current(), adapter.id, null);
   const spec = modelSpec(tuning.model, tuning.thinking);
   const result = await setAgentModel(services, ent.key, spec, gov);
   const recipient = recipientFor(services.orchDir, ent.key);
@@ -296,9 +297,11 @@ export async function cmdDispatch(services: Services, args: string[]) {
   // target ambiguous (dispatch/steer/reset all fail post-first-run).
   const key = dispatchSettings.ent.key;
   // New work lands on a clean session unless the caller asked to keep the old one.
-  // The model is pinned AFTER the clear, because a clear drops it.
+  // The model is pinned AFTER the clear, because a clear drops it. The pin is the
+  // one the agent already holds unless this dispatch names another: a clear
+  // resets the session, never the tuning the orchestrator chose.
   const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
-  const tuning = resolveTuningOrDie(flags, settings, adapter.id);
+  const tuning = resolveTuningOrDie(flags, settings, adapter.id, tuningOf(services.orchDir, key));
   const { model, thinking } = tuning;
   assertLaunchModelAllowed(settings, adapter.id, services.models, model);
   if (!dispatchSettings.keepContext) await clearSession(services, key, gov.steal === true);

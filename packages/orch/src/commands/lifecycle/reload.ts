@@ -4,6 +4,7 @@ import { refreshStaleShims } from "../../doctor/runner.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { reclaimAgent } from "../../store/agent-rows.ts";
+import { tuningOf } from "../../store/agent-view.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
 import { agentProcessLive } from "../../store/interval-rows.ts";
@@ -215,12 +216,13 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
   reportReloads(results, json);
 }
 
-/** The command a restart relaunches the harness on. Restart is a FRESH launch,
- *  so the model is resolved exactly like spawn and reset rather than letting the
- *  harness fall back to its own default. */
-function restartLaunchCommand(orchDir: OrchDir, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings, catalogue: Services["models"]): string {
+/** The command a restart relaunches the harness on. Restart is a FRESH launch of
+ *  an EXISTING agent, so it relaunches on the tuning the agent holds, resolved
+ *  exactly like dispatch and reset rather than letting the harness fall back to
+ *  its own default. */
+function restartLaunchCommand(orchDir: OrchDir, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings, catalogue: Services["models"], agentKey: string): string {
   if (cmd !== null) return cmd;
-  const tuning = resolveTuningOrDie({}, settings, adapter.id);
+  const tuning = resolveTuningOrDie({}, settings, adapter.id, tuningOf(orchDir, agentKey));
   assertLaunchModelAllowed(settings, adapter.id, catalogue, tuning.model);
   return adapterCommand(harnessId, settings, { model: tuning.model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] });
 }
@@ -249,7 +251,7 @@ async function restartOneTarget(services: LifecycleServices, target: string, cmd
     process.stdout.write(`${restarted.handle}: ${reason}\n`);
     return false;
   }
-  const launch = restartLaunchCommand(services.orchDir, cmd, harness, adapter, settings, services.models);
+  const launch = restartLaunchCommand(services.orchDir, cmd, harness, adapter, settings, services.models, ent.key);
   if (!flags.json) process.stdout.write(`Restarting ${describeHandle(handle)} (${launch})...\n`);
   if (!restartAgentAndAwaitBridge(orchDir, logger, backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
   if (!flags.json) process.stdout.write(`${describeHandle(handle)}: bridge live.\n`);

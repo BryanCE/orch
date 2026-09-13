@@ -2,7 +2,9 @@ import * as path from "node:path";
 import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { reclaimAgent } from "../../store/agent-rows.ts";
+import { tuningOf } from "../../store/agent-view.ts";
 import { modelSpec } from "../../policy/thinking.ts";
+import type { Tuning } from "../../policy/tuning.ts";
 import { assertLaunchModelAllowed, pinModels } from "../spawn/models.ts";
 import { pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { writeRpc } from "../daemon.ts";
@@ -57,24 +59,29 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   const settings = services.settings.current();
   // Check ownership before resolving model configuration: a driving verb must
   // name a live foreign holder even when this caller has no model selected.
-  for (const target of targets) {
+  const owned = targets.map((target) => {
     const { entity: ent } = resolveLifecycleTarget(services.orchDir, settings, target);
     assertAgentOwned(services.orchDir, target, ent, force);
-  }
+    return { target, key: ent.key };
+  });
   const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
-  const tuning = resolveTuningOrDie(flags, settings, adapter.id);
-  const { model, thinking } = tuning;
-  assertLaunchModelAllowed(settings, adapter.id, services.models, model);
-  const cleared: ClearedAgent[] = [];
-  for (const target of targets) {
-    const agent = await clearSession(services, target, force);
-    cleared.push(agent);
+  // Each agent keeps the tuning it holds unless this reset names another: a
+  // reset clears the session, never the model the orchestrator chose.
+  const plans = owned.map(({ target, key }) => {
+    const tuning = resolveTuningOrDie(flags, settings, adapter.id, tuningOf(services.orchDir, key));
+    assertLaunchModelAllowed(settings, adapter.id, services.models, tuning.model);
+    return { target, tuning };
+  });
+  const cleared: (ClearedAgent & Tuning)[] = [];
+  for (const plan of plans) {
+    const agent = await clearSession(services, plan.target, force);
+    cleared.push({ ...agent, ...plan.tuning });
     if (!json) process.stdout.write(`Cleared session on ${agent.handle}; ready.\n`);
   }
   // A reset that could not re-pin its model left the agent on the wrong one, and
   // re-running reset is idempotent — unlike a spawn, nothing duplicates on retry.
-  if ((await pinModels(services, services.logger, cleared.map((agent) => ({ ...agent, model, thinking })))).length) process.exitCode = 1;
+  if ((await pinModels(services, services.logger, cleared)).length) process.exitCode = 1;
   const results = cleared.map((agent) => ({ target: agent.handle, cleared: true, ready: true }));
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
-  else process.stdout.write(`Pinned ${cleared.length} reset agent(s) to ${modelSpec(model, thinking)}.\n`);
+  else for (const agent of cleared) process.stdout.write(`Pinned ${agent.handle} to ${modelSpec(agent.model, agent.thinking)}.\n`);
 }

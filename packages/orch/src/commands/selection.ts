@@ -18,6 +18,7 @@ import { die } from "./target.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
 import type { AgentFlags } from "../types/command.ts";
 import type { OrchSettings } from "../types/settings.ts";
+import type { AgentTuning } from "../types/store.ts";
 
 export function resolveAdapterOrDie(id: string): AgentAdapter {
   try {
@@ -41,9 +42,11 @@ export function requestedModel(flags: AgentFlags): string | null {
   return resolveSetting({ flag: flags.modelFlag, env: "ORCH_MODEL", fallback: "" }) || null;
 }
 
-/** Resolve the one model/effort pair every tuning-aware command applies. */
-export function resolveTuningOrDie(flags: AgentFlags, settings: OrchSettings, harness: AdapterId): Tuning {
-  const tuning = resolveTuning({ model: requestedModel(flags), thinking: flags.thinkingFlag, harness, settings });
+/** Resolve the one model/effort pair every tuning-aware command applies: the
+ *  flags on this command, else the tuning the agent already holds (`pinned`),
+ *  else the configured default. A launch passes `null`: it has no agent yet. */
+export function resolveTuningOrDie(flags: AgentFlags, settings: OrchSettings, harness: AdapterId, pinned: AgentTuning | null): Tuning {
+  const tuning = resolveTuning({ model: requestedModel(flags), thinking: flags.thinkingFlag, pinned, harness, settings });
   if (tuning === null) die(`no model selected for ${harness} - pass --model <model[:thinking]>, or record one with: ${repickCommand(harness)}`);
   return tuning;
 }

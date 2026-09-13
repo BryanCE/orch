@@ -70,10 +70,10 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
         },
         onEvent: (event) => published.push(event),
       });
-      expect(published.map((event) => event.newState)).toEqual(["claimed", "done"]);
+      expect(published.map((event) => event.type === "task" ? event.newState : undefined)).toEqual(["claimed", "done"]);
       // The runner ran it; the enqueuer is who hears about it.
       expect(published.map((event) => event.key)).toEqual(["enq", "enq"]);
-      expect(published.map((event) => event.task)).toEqual([task.text, task.text]);
+      expect(published.map((event) => event.type === "task" ? event.task : undefined)).toEqual([task.text, task.text]);
     } finally {
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;

@@ -6,7 +6,7 @@ import type { OrchDir } from "../types/core.ts";
 // The in-memory dedupe set applies each message id once.
 import * as fs from "node:fs";
 import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
-import { isBridgeDelivery, type AgentNotice, type BridgeDelivery } from "../control/bridge-message.ts";
+import { type AgentNotice, type BridgeDelivery } from "../control/bridge-message.ts";
 import {
   openJsonLineLink,
   readPortFile,
@@ -91,10 +91,10 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
       case "error":
         resolvePending(parsed.id, undefined);
         return;
-      case "event":
-        if (!isBridgeDelivery(parsed.event)) return;
-        onDelivery({ id: parsed.event.id, message: parsed.event.message });
+      case "delivery":
+        onDelivery(parsed.delivery);
         return;
+      case "event":
       case "gap":
         return;
     }

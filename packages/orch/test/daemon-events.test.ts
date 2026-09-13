@@ -5,7 +5,6 @@ import { selectRuns } from "../src/store/run-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { insertAgent, renameAgent, ensureHarness } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
-import { isRecord } from "../src/util.ts";
 import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
 import { derivePresenceTransition, emitAndNotify, isRepeatTransition, startPresenceWatch } from "../src/daemon/events.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
@@ -48,32 +47,33 @@ function seedAgent(orchDir: OrchDir, agentId: string, options: { harnessId?: str
   }
 }
 
-function notifyEvent(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
-  const base = {
-    host: undefined,
-    key: "",
-    space: undefined,
-    agent: null,
-    name: undefined,
-    dispatchId: undefined,
-    spawnedBy: undefined,
-    spawnedByLabel: undefined,
-    tab: null,
-    model: null,
-    seq: undefined,
-    ts: "",
-    lastError: undefined,
-    lastText: undefined,
-    result: undefined,
-    reason: undefined,
-    ctxPercent: undefined,
-    tokens: undefined,
-    filesTouched: undefined,
-  };
-  if (overrides.type === "asking") {
-    return { ...base, type: "asking", oldState: "working", newState: "asking", askCount: 1, gaveUp: false, ...overrides };
-  }
-  return { ...base, type: "transition", oldState: "idle", newState: "working", ...overrides };
+const eventBase = {
+  key: "",
+  space: undefined,
+  agent: null,
+  name: undefined,
+  dispatchId: undefined,
+  spawnedBy: undefined,
+  spawnedByLabel: undefined,
+  tab: null,
+  model: null,
+  ts: "",
+  lastError: undefined,
+  lastText: undefined,
+  ctxPercent: undefined,
+  tokens: undefined,
+  filesTouched: undefined,
+};
+
+type TransitionEvent = Extract<NotifyEvent, { type: "transition" }>;
+type AskingEvent = Extract<NotifyEvent, { type: "asking" }>;
+
+function transitionEvent(overrides: Partial<TransitionEvent> = {}): NotifyEvent {
+  return { ...eventBase, type: "transition", oldState: "idle", newState: "working", ...overrides };
+}
+
+function askingEvent(overrides: Partial<AskingEvent> = {}): NotifyEvent {
+  return { ...eventBase, type: "asking", oldState: "working", newState: "asking", askCount: 1, gaveUp: false, ...overrides };
 }
 
 function writeStatus(orchDir: OrchDir, key: string, state: string, extra: object = {}): void {
@@ -189,7 +189,6 @@ describe("daemon presence events", () => {
     expect(run?.space).toBeUndefined();
     const done = events.find((event) => eventState(event) === "done");
     expect(done).toBeDefined();
-    expect(isRecord(done) && typeof done.result === "string" ? done.result : "").toHaveLength(2_000);
   });
 
   test("repeated transitions upsert one run and only terminal states set finishedAt", async () => {
@@ -261,7 +260,7 @@ describe("daemon presence events", () => {
     writeStatus(orchDir, child, "working");
     const emitted: NotifyEvent[] = [];
     const settings = testServices({ orchDir, settings: { fleet: { max_agents_per_pack: 2 } } }).settings;
-    emitAndNotify((event) => emitted.push(event), [], notifyEvent({ key: root, oldState: "working", newState: "closed" }), orchDir, settings);
+    emitAndNotify((event) => emitted.push(event), [], transitionEvent({ key: root, oldState: "working", newState: "closed" }), orchDir, settings);
     expect(emitted[0]?.type).toBe("transition");
     expect(emitted[0]?.newState).toBe("closed");
   });
@@ -358,7 +357,7 @@ describe("daemon presence events", () => {
       tokens: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
       filesTouched: ["a.ts", "b.ts"],
     }, { name: "fallback", tab: "fallback-tab" }, states, now);
-    expect(event).toEqual(notifyEvent({
+    expect(event).toMatchObject(askingEvent({
       key,
       agent: "Ada",
       name: "Ada's worker",
@@ -369,7 +368,6 @@ describe("daemon presence events", () => {
       newState: "asking",
       askCount: 1,
       gaveUp: false,
-      cost: 1.5,
       ts: now.toISOString(),
       lastError: "ignored for asking",
       lastText: "latest answer",
@@ -378,6 +376,8 @@ describe("daemon presence events", () => {
       filesTouched: ["a.ts", "b.ts"],
     }));
     expect(event?.type).toBe("asking");
+    expect(event).not.toHaveProperty("task");
+    expect(event).not.toHaveProperty("cost");
   });
 
   test("an asking transition drives command sink delivery", async () => {

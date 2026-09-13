@@ -1,3 +1,5 @@
+import type { OrchSettings } from "./settings.ts";
+
 export interface NotifyEvent {
   host?: string;
   /** Live usage and configured cap for the event agent's pack at publish time. */
@@ -71,7 +73,7 @@ export interface Notifier {
   remediation?: string;
   metadata: NotifierMetadata;
   /** A rejected availability probe is treated as unavailable by the registry. */
-  available(config?: Record<string, unknown>): boolean | Promise<boolean>;
+  available(settings: OrchSettings | null): boolean | Promise<boolean>;
   deliver(event: NotifyEvent, config: Record<string, unknown>): Promise<boolean>;
 };
 

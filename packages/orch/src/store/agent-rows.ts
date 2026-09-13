@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, isNotNull, isNull, type SQL } from "drizzle-orm";
 import { mintAgentId } from "../backends/identity.ts";
 import { isRecord, osSide } from "../util.ts";
@@ -31,14 +32,14 @@ function mapAgent({ agent, ending }: JoinedAgent): AgentRow {
   };
 }
 
-function selectAgents(orchDir: string) {
+function selectAgents(orchDir: OrchDir) {
   return orm(orchDir)
     .select({ agent: agents, ending: agentEndings })
     .from(agents)
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id));
 }
 
-export function insertAgent(orchDir: string, input: AgentInput): AgentRow {
+export function insertAgent(orchDir: OrchDir, input: AgentInput): AgentRow {
   const db = orm(orchDir);
   const spawnedBy = input.spawnedBy ?? null;
   let root = input.id;
@@ -56,7 +57,7 @@ export function insertAgent(orchDir: string, input: AgentInput): AgentRow {
   return { ...row, ending: null };
 }
 
-export function claimAgent(orchDir: string, id: string, sessionToken: string, now: number): ClaimResult {
+export function claimAgent(orchDir: OrchDir, id: string, sessionToken: string, now: number): ClaimResult {
   return withTransaction(orchDir, () => {
     const db = orm(orchDir);
     const row = db.select({ claimedAt: agents.claimedAt, sessionToken: agents.sessionToken })
@@ -73,7 +74,7 @@ export function claimAgent(orchDir: string, id: string, sessionToken: string, no
   });
 }
 
-export function reclaimAgent(orchDir: string, id: string): void {
+export function reclaimAgent(orchDir: OrchDir, id: string): void {
   withTransaction(orchDir, () => {
     const db = orm(orchDir);
     const result = db.update(agents).set({ claimedAt: null, sessionToken: null })
@@ -85,19 +86,19 @@ export function reclaimAgent(orchDir: string, id: string): void {
 /** Record an agent's ending and close the writes still queued for it. An ended
  *  agent reads nothing, so a write left open only costs every other agent a turn
  *  in the retry loop. */
-export function endAgent(orchDir: string, agentId: string, endedAt: number, closedBy: string | null): void {
+export function endAgent(orchDir: OrchDir, agentId: string, endedAt: number, closedBy: string | null): void {
   orm(orchDir).insert(agentEndings).values({ agentId, endedAt, closedBy }).run();
   closeOutboxForTarget(orchDir, agentId);
 }
 
 /** Record that an agent runs from a git worktree. No row means the repo itself. */
-export function setWorktree(orchDir: string, agentId: string, path: string, branch: string): void {
+export function setWorktree(orchDir: OrchDir, agentId: string, path: string, branch: string): void {
   orm(orchDir).insert(agentWorktrees).values({ agentId, path, branch })
     .onConflictDoUpdate({ target: agentWorktrees.agentId, set: { path, branch } })
     .run();
 }
 
-export function worktreeOf(orchDir: string, agentId: string): AgentWorktree | null {
+export function worktreeOf(orchDir: OrchDir, agentId: string): AgentWorktree | null {
   const row = orm(orchDir)
     .select({ path: agentWorktrees.path, branch: agentWorktrees.branch })
     .from(agentWorktrees)
@@ -107,30 +108,30 @@ export function worktreeOf(orchDir: string, agentId: string): AgentWorktree | nu
 }
 
 /** Relabel an agent by its immutable id; names are intentionally non-unique. */
-export function renameAgent(orchDir: string, agentId: string, name: string): boolean {
+export function renameAgent(orchDir: OrchDir, agentId: string, name: string): boolean {
   return orm(orchDir).update(agents).set({ name }).where(eq(agents.id, agentId)).run().changes === 1;
 }
 
-export function agentById(orchDir: string, id: string): AgentRow | null {
+export function agentById(orchDir: OrchDir, id: string): AgentRow | null {
   const row = selectAgents(orchDir).where(eq(agents.id, id)).get();
   return row ? mapAgent(row) : null;
 }
 
-export function liveAgents(orchDir: string): AgentRow[] {
+export function liveAgents(orchDir: OrchDir): AgentRow[] {
   return selectAgents(orchDir).where(isNull(agentEndings.agentId)).orderBy(agents.id).all().map(mapAgent);
 }
 
-export function packMembers(orchDir: string, rootAgentId: string): AgentRow[] {
+export function packMembers(orchDir: OrchDir, rootAgentId: string): AgentRow[] {
   return selectAgents(orchDir).where(eq(agents.rootAgentId, rootAgentId)).orderBy(agents.id).all().map(mapAgent);
 }
 
-export function childrenOf(orchDir: string, spawnedBy: string): AgentRow[] {
+export function childrenOf(orchDir: OrchDir, spawnedBy: string): AgentRow[] {
   return selectAgents(orchDir).where(eq(agents.spawnedBy, spawnedBy)).orderBy(agents.id).all().map(mapAgent);
 }
 
 /** A session registration response is backed by the one agent entity.
  * An ending makes the named agent non-live. */
-export function isLiveAgentIdentity(orchDir: string, value: unknown): value is SessionAgentIdentity {
+export function isLiveAgentIdentity(orchDir: OrchDir, value: unknown): value is SessionAgentIdentity {
   if (!isRecord(value)
     || typeof value.id !== "string" || value.id.length === 0
     || typeof value.label !== "string" || value.kind !== "session") return false;
@@ -141,7 +142,7 @@ export function isLiveAgentIdentity(orchDir: string, value: unknown): value is S
  *  pair is not an identity — it is how a harness exporting no session token is
  *  recognised across one process's life. */
 /** The live agent registered as this process instance, or null. */
-export function agentIdByProcess(orchDir: string, pid: number, startToken: string): string | null {
+export function agentIdByProcess(orchDir: OrchDir, pid: number, startToken: string): string | null {
   const row = orm(orchDir).select({ id: agents.id }).from(agents)
     .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
@@ -153,7 +154,7 @@ export function agentIdByProcess(orchDir: string, pid: number, startToken: strin
 /** The live session agent for one process instance and harness. A worker can
  * share a process-shaped record, so the session token and harness facts are
  * both part of this continuity lookup. */
-function sessionAgentIdByProcess(orchDir: string, pid: number, startToken: string, harnessId: string): string | null {
+function sessionAgentIdByProcess(orchDir: OrchDir, pid: number, startToken: string, harnessId: string): string | null {
   const row = orm(orchDir).select({ id: agents.id }).from(agents)
     .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
@@ -177,7 +178,7 @@ function sessionAgentIdByProcess(orchDir: string, pid: number, startToken: strin
 /** The agent orch registered for one harness session, by that harness's own
  *  stable session token. This is the id a driving session ACTS as: its lease is
  *  held by it, so anything else can never match and orch refuses its own fleet. */
-export function agentIdBySessionToken(orchDir: string, sessionToken: string): string | null {
+export function agentIdBySessionToken(orchDir: OrchDir, sessionToken: string): string | null {
   // B6: this is a LOOKUP, and it runs on `orch status --offline`. Opening the
   // store creates it and applies every migration, so asking "who am I" on a
   // machine that has never run orch would leave a store behind. No store means
@@ -189,7 +190,7 @@ export function agentIdBySessionToken(orchDir: string, sessionToken: string): st
 /** The id of the one agent matching `where` that has NOT ended, or null.
  *  An ending is what makes an agent non-live, so every "who is this" lookup
  *  joins it — and there is one spelling of that join. */
-function liveAgentId(orchDir: string, where: SQL): string | null {
+function liveAgentId(orchDir: OrchDir, where: SQL): string | null {
   const row = orm(orchDir).select({ id: agents.id }).from(agents)
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
     .where(and(where, isNull(agentEndings.agentId))).limit(1).get();
@@ -210,7 +211,7 @@ function liveAgentId(orchDir: string, where: SQL): string | null {
  * already open is left alone rather than reopened, so a second registration from the
  * same session opens no second interval.
  */
-function placeSession(orchDir: string, agentId: string, input: SessionAgentInput): void {
+function placeSession(orchDir: OrchDir, agentId: string, input: SessionAgentInput): void {
   const environment = environmentOf(orchDir, agentId);
   if (input.plexerId != null && environment.plexer === null) {
     setAgentPlexer(orchDir, agentId, input.plexerId);
@@ -224,13 +225,13 @@ function placeSession(orchDir: string, agentId: string, input: SessionAgentInput
 }
 
 /** The environment exists as soon as it is named; only the host record needs its version. */
-function recordPlexer(orchDir: string, input: SessionAgentInput): void {
+function recordPlexer(orchDir: OrchDir, input: SessionAgentInput): void {
   if (!input.plexerId) return;
   ensurePlexer(orchDir, input.plexerId, input.plexerId);
   if (input.plexerVersion) ensureHostPlexer(orchDir, input.hostId, input.plexerId, input.plexerVersion, input.now);
 }
 
-export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInput): SessionAgentIdentity {
+export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInput): SessionAgentIdentity {
   ensureHarness(orchDir, input.harnessId, input.harnessId, input.now);
   ensureHost(orchDir, input.hostId, input.hostName, input.hostOs, input.now);
   recordPlexer(orchDir, input);
@@ -289,25 +290,25 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
   // own, and sqlite has no nested one. It is idempotent, so a crash in between
   // is repaired by the session's next registration rather than leaving a second row.
   if (repointedAgentId !== null) {
-    decisionLogger(orchDir).info("session.repointed", { agentId: repointedAgentId, harnessId: input.harnessId });
+    decisionLogger(orchDir, null).info("session.repointed", { agentId: repointedAgentId, harnessId: input.harnessId });
   }
   placeSession(orchDir, identity.id, input);
   return identity;
 }
 
-export function ensureHarness(orchDir: string, id: string, name: string, enabledAt: number | null = null): void {
+export function ensureHarness(orchDir: OrchDir, id: string, name: string, enabledAt: number | null = null): void {
   orm(orchDir).insert(harnesses).values({ id, name, enabledAt }).onConflictDoNothing().run();
 }
-export function ensurePlexer(orchDir: string, id: string, name: string, enabledAt: number | null = null): void {
+export function ensurePlexer(orchDir: OrchDir, id: string, name: string, enabledAt: number | null = null): void {
   orm(orchDir).insert(plexers).values({ id, name, enabledAt }).onConflictDoNothing().run();
 }
-export function ensureHost(orchDir: string, id: string, name: string, os: HostOs, createdAt: number): void {
+export function ensureHost(orchDir: OrchDir, id: string, name: string, os: HostOs, createdAt: number): void {
   orm(orchDir).insert(hosts).values({ id, name, os, createdAt }).onConflictDoNothing().run();
 }
 
 /** Record the currently installed version for one host/plexer pair. Upgrading
  * closes the old interval before opening exactly one new row. */
-export function ensureHostPlexer(orchDir: string, hostId: string, plexerId: string, version: string, since: number): void {
+export function ensureHostPlexer(orchDir: OrchDir, hostId: string, plexerId: string, version: string, since: number): void {
   const normalized = version.trim();
   if (!normalized) throw new Error("host plexer version must not be empty");
   withTransaction(orchDir, () => {
@@ -322,7 +323,7 @@ export function ensureHostPlexer(orchDir: string, hostId: string, plexerId: stri
 }
 
 /** Read host plexer history, or only the current open row when requested. */
-export function hostPlexers(orchDir: string, hostId?: string, plexerId?: string): HostPlexerRow[] {
+export function hostPlexers(orchDir: OrchDir, hostId?: string, plexerId?: string): HostPlexerRow[] {
   const query = orm(orchDir).select().from(hostPlexerTable);
   const rows = hostId === undefined
     ? (plexerId === undefined ? query : query.where(eq(hostPlexerTable.plexerId, plexerId)))

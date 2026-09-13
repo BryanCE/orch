@@ -1,7 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
 import { addTask, listTasks } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
@@ -9,11 +6,12 @@ import { attemptsOf } from "../src/store/task-rows.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import { sql } from "drizzle-orm";
-
-const directories: string[] = [];
+import { testServices } from "./helpers/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(directories.pop()!); });
 
 /** A1: the runner's presence key IS its minted id. The plexer and the space it
@@ -21,8 +19,8 @@ afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(dir
  *  there is no longer anywhere in a key to weld them. */
 const RUNNER_KEY = "runner0000";
 
-function fleet(): { dir: string; runnerKey: string } {
-  const dir = mkdtempSync(join(tmpdir(), "orch-work-loop-identity-"));
+function fleet(): { dir: OrchDir; runnerKey: string } {
+  const dir = tempOrchDir("orch-work-loop-identity-");
   directories.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
@@ -34,7 +32,7 @@ function fleet(): { dir: string; runnerKey: string } {
   return { dir, runnerKey: RUNNER_KEY };
 }
 
-async function withOrchDir<T>(dir: string, body: () => Promise<T>): Promise<T> {
+async function withOrchDir<T>(dir: OrchDir, body: () => Promise<T>): Promise<T> {
   const previous = process.env.ORCH_DIR;
   process.env.ORCH_DIR = dir;
   try { return await body(); } finally {
@@ -53,6 +51,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
         pollIntervalMs: 10,
         once: true,
         json: true,
+        settings: testServices({ orchDir: dir, settings: {} }).settings,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();
@@ -74,6 +73,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       const events: NotifyEvent[] = [];
       await runWorkLoop({
         orchDir: dir, pollIntervalMs: 10, once: true, json: true,
+        settings: testServices({ orchDir: dir, settings: {} }).settings,
         dispatch: () => Promise.resolve(),
         onEvent: (event) => events.push(event),
       });
@@ -90,6 +90,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       expect(orm(dir).all(sql`SELECT agent_id FROM agent_leases WHERE until IS NULL`)).toEqual([]);
       await runWorkLoop({
         orchDir: dir, pollIntervalMs: 10, once: true, json: true,
+        settings: testServices({ orchDir: dir, settings: {} }).settings,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();

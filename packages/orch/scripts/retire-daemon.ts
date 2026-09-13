@@ -5,7 +5,7 @@ import {
   terminateDaemon,
   unprovenLockRefusal,
 } from "../src/daemon/lifecycle.ts";
-import { orchDir } from "../src/presence/writer.ts";
+import { createServices } from "../src/services.ts";
 import { pidAlive } from "../src/util.ts";
 
 // Every build replaces dist/, so an orchd that survives it runs code that no
@@ -15,7 +15,7 @@ import { pidAlive } from "../src/util.ts";
 // for real, `--dry-run` only previews.
 const isDryRun = process.argv.includes("--dry-run");
 const prefix = isDryRun ? "[dry-run] would " : "";
-const directory = orchDir();
+const directory = createServices().orchDir;
 
 /** A live pid orch cannot tie to its own daemon is a stranger: clearing its lock
  *  would hand a second daemon the same orch dir. Warn, never fail the build. */

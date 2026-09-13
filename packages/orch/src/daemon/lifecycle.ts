@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -9,11 +10,11 @@ import {
   unlinkSync,
 } from "node:fs";
 import * as path from "node:path";
-import { orchDir as resolveOrchDir } from "../presence/writer.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
 import { retryingAsync, retryingSync } from "../retry.ts";
 import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot } from "../util.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
+import { orchDirAt } from "../services.ts";
 import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, LockRecord, OsExecutor, OsSideExecution, SocketProbe } from "../types/daemon.ts";
 import type { OsSide } from "../types/core.ts";
 
@@ -25,14 +26,14 @@ export function daemonEntrypoint(): string {
   return process.env.ORCHD_ENTRYPOINT ?? path.join(packageRoot(), "dist", "daemon", "orchd.js");
 }
 
-export function readDaemonCodeSkew(orchDir: string, entrypoint: string): DaemonCodeSkew | null {
+export function readDaemonCodeSkew(orchDir: OrchDir, entrypoint: string): DaemonCodeSkew | null {
   const lock = readDaemonLock(orchDir);
   if (!lock || !processIsAlive(lock.pid)) return null;
   const diskHash = computeCodeHash(entrypoint);
   return lock.codeHash === diskHash ? null : { daemonHash: lock.codeHash, diskHash };
 }
 
-function lockPath(orchDir: string): string {
+function lockPath(orchDir: OrchDir): string {
   return daemonRuntimeFiles(orchDir).lock;
 }
 
@@ -58,7 +59,8 @@ function positiveInteger(value: unknown): number | undefined {
 
 function parseRegistration(value: unknown): DaemonRegistration | undefined {
   if (!isRecord(value)) return undefined;
-  const orchDir = nonEmptyString(value.orchDir);
+  const rawOrchDir = nonEmptyString(value.orchDir);
+  const orchDir = rawOrchDir === undefined ? undefined : orchDirAt(rawOrchDir);
   const pid = positiveInteger(value.pid);
   const startToken = nonEmptyString(value.startToken);
   const side = parsedOsSide(value.osSide);
@@ -80,7 +82,7 @@ export function readDaemonRegistration(): DaemonRegistration | null {
   }
 }
 
-export function liveDaemonRegistration(orchDir?: string): DaemonRegistration | null {
+export function liveDaemonRegistration(orchDir?: OrchDir): DaemonRegistration | null {
   const registration = readDaemonRegistration();
   if (!registration || !processInstanceMatches(registration.pid, registration.startToken)) return null;
   if (orchDir !== undefined && path.resolve(orchDir) !== path.resolve(registration.orchDir)) return null;
@@ -89,12 +91,12 @@ export function liveDaemonRegistration(orchDir?: string): DaemonRegistration | n
 
 /** Atomically claim the machine rendezvous. A recycled or dead (pid,startToken)
  *  is evicted; a live owner always refuses and exposes its socket/token paths. */
-export function acquireDaemonRegistration(orchDir: string): DaemonRegistrationResult {
+export function acquireDaemonRegistration(orchDir: OrchDir): DaemonRegistrationResult {
   const runtime = daemonRuntimeFiles(orchDir);
   const startToken = processStartToken(process.pid);
   if (!startToken) throw new Error("cannot register orchd without a process start token");
   const registration: DaemonRegistration = {
-    orchDir: path.resolve(orchDir),
+    orchDir: orchDirAt(path.resolve(orchDir)),
     pid: process.pid,
     startToken,
     osSide: osSide(),
@@ -151,11 +153,11 @@ export function releaseDaemonRegistration(): void {
   }
 }
 
-function socketPath(orchDir: string): string {
+function socketPath(orchDir: OrchDir): string {
   return daemonRuntimeFiles(orchDir).socket;
 }
 
-function logPath(orchDir: string): string {
+function logPath(orchDir: OrchDir): string {
   return daemonRuntimeFiles(orchDir).log;
 }
 
@@ -178,7 +180,7 @@ function processIdentityMatches(record: LockRecord): boolean {
  * crashed daemon names a number the OS is free to hand to anything, and killing
  * it kills a stranger.
  */
-export function provenDaemonPid(orchDir: string): number | undefined {
+export function provenDaemonPid(orchDir: OrchDir): number | undefined {
   const record = readLock(lockPath(orchDir));
   if (record) return record.startToken && processInstanceMatches(record.pid, record.startToken) ? record.pid : undefined;
   const registration = liveDaemonRegistration(orchDir);
@@ -205,7 +207,7 @@ function readLock(file: string): LockRecord | undefined {
 }
 
 /** Read the daemon lock identity, returning null when it is absent or recycled. */
-export function readDaemonLock(orchDir: string): DaemonLock | null {
+export function readDaemonLock(orchDir: OrchDir): DaemonLock | null {
   const record = readLock(lockPath(orchDir));
   if (!record || processIsAlive(record.pid) && !processIdentityMatches(record)) return null;
   const lock: DaemonLock = { pid: record.pid, codeHash: record.codeHash };
@@ -215,7 +217,7 @@ export function readDaemonLock(orchDir: string): DaemonLock | null {
 
 /** An unreadable lock names no owner to protect — a crash truncated it — so only
  *  a live socket can still veto the reclaim. */
-function canReclaim(record: LockRecord | undefined, probe: SocketProbe, orchDir: string): boolean {
+function canReclaim(record: LockRecord | undefined, probe: SocketProbe, orchDir: OrchDir): boolean {
   if (record && processIdentityMatches(record)) return false;
   try {
     return !probe(socketPath(orchDir));
@@ -226,7 +228,7 @@ function canReclaim(record: LockRecord | undefined, probe: SocketProbe, orchDir:
 }
 
 /** Acquire the one-per-host daemon lock. Returns false when another instance owns it. */
-export function acquireDaemonLock(orchDir: string, socketProbe: SocketProbe = () => false): boolean {
+export function acquireDaemonLock(orchDir: OrchDir, socketProbe: SocketProbe = () => false): boolean {
   ensurePrivateDir(orchDir);
   const file = lockPath(orchDir);
   const record: LockRecord = {
@@ -258,7 +260,7 @@ export function acquireDaemonLock(orchDir: string, socketProbe: SocketProbe = ()
 }
 
 /** Release the daemon lock. Missing locks are already released. */
-export function releaseDaemonLock(orchDir: string): void {
+export function releaseDaemonLock(orchDir: OrchDir): void {
   try {
     unlinkSync(lockPath(orchDir));
   } catch (error: unknown) {
@@ -268,7 +270,7 @@ export function releaseDaemonLock(orchDir: string): void {
 
 /** Erase every trace of a departed daemon, returning what was removed. Call only
  *  once no daemon is proven live: a survivor would lose its own socket. */
-export function clearDaemonRuntime(orchDir: string): string[] {
+export function clearDaemonRuntime(orchDir: OrchDir): string[] {
   const removed: string[] = [];
   for (const file of daemonOwnershipFiles(orchDir)) {
     try {
@@ -299,7 +301,10 @@ export async function terminateDaemon(pid: number, graceMs: number): Promise<voi
  *  can already answer directly: spawn, signal 0, and SIGTERM. */
 const localExecutor: OsExecutor = {
   osSide: osSide(),
-  start: (entrypoint, args = [], orchDir = resolveOrchDir()) => daemonize(entrypoint, args, orchDir),
+  start: (entrypoint, args = [], orchDir) => {
+    if (orchDir === undefined) throw new Error("daemon start requires orchDir");
+    return daemonize(orchDirAt(orchDir), entrypoint, args);
+  },
   isAlive: (pid, startToken) => startToken === undefined ? processIsAlive(pid) : processInstanceMatches(pid, startToken),
   kill: (pid, graceMs) => terminateDaemon(pid, graceMs),
 };
@@ -331,7 +336,7 @@ export function onOsSide<T>(side: OsSide, body: (executor: OsExecutor) => T): Os
 }
 
 /** Why orch will not signal a live lock pid it cannot tie to its own daemon. */
-export function unprovenLockRefusal(orchDir: string, pid: number): string {
+export function unprovenLockRefusal(orchDir: OrchDir, pid: number): string {
   return `orchd.lock names live pid ${pid}, which orch cannot verify is its daemon - refusing to signal it. `
     + `Stop that process yourself, or delete ${lockPath(orchDir)} if it is stale.`;
 }
@@ -345,9 +350,9 @@ function commandFor(entrypoint: string, args: string[]): [string, string[]] {
 
 /** Spawn orchd detached; diagnostics are written by the structured logger, never raw stdio. */
 export function daemonize(
+  orchDir: OrchDir,
   entrypoint: string,
   args: string[] = [],
-  orchDir = resolveOrchDir(),
 ): number {
   ensurePrivateDir(orchDir);
   const log = openSync(logPath(orchDir), "a");
@@ -387,7 +392,7 @@ export function runForeground(entrypoint: string, args: string[] = []): Promise<
 
 /** Re-run this entrypoint with unchanged argv, handing the lock to the replacement. */
 export function reexecSelf(
-  orchDir = resolveOrchDir(),
+  orchDir: OrchDir,
 ): never {
   releaseDaemonLock(orchDir);
   releaseDaemonRegistration();

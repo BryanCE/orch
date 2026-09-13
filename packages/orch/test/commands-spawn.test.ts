@@ -1,7 +1,8 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { cmdSpawn } from "../src/commands/spawn/index.ts";
 import { parseSpawnFlags } from "../src/commands/spawn/flags.ts";
@@ -13,8 +14,8 @@ import { agentViews } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
-const tempDirs: string[] = [];
-const previousOrchDir = process.env.ORCH_DIR;
+const tempDirs: OrchDir[] = [];
+const previousOrchDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 
 afterEach(() => {
   while (tempDirs.length) removeTempDir(tempDirs.pop()!);
@@ -26,9 +27,10 @@ import { ompAdapter } from "../src/adapters/omp.ts";
 import { sql } from "drizzle-orm";
 
 import { numberField, row } from "./helpers/rows.ts";
+import { testServices } from "./helpers/services.ts";
 describe("commands/spawn", () => {
   test("refuses an invalid name before resolving or creating a workspace", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-spawn-invalid-name-"));
+    const dir = tempOrchDir("orch-spawn-invalid-name-");
     tempDirs.push(dir);
     process.env.ORCH_DIR = dir;
     writeSettingsFixture(dir, {
@@ -42,7 +44,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["Bad_Name", "ok-name", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
+      await cmdSpawn(testServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }), ["Bad_Name", "ok-name", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -56,7 +58,7 @@ describe("commands/spawn", () => {
   });
 
   test("refuses spawn without a name before any spawn mutations", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-spawn-required-name-"));
+    const dir = tempOrchDir("orch-spawn-required-name-");
     tempDirs.push(dir);
     process.env.ORCH_DIR = dir;
     writeSettingsFixture(dir, {
@@ -79,7 +81,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree"]);
+      await cmdSpawn(testServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }), ["--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -102,7 +104,7 @@ describe("commands/spawn", () => {
   });
 
   test("rejects --detached as an unknown spawn flag", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-spawn-unknown-flag-"));
+    const dir = tempOrchDir("orch-spawn-unknown-flag-");
     tempDirs.push(dir);
     process.env.ORCH_DIR = dir;
     writeSettingsFixture(dir, {
@@ -116,7 +118,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["worker", "--detached", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
+      await cmdSpawn(testServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }), ["worker", "--detached", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {

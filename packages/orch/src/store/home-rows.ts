@@ -1,3 +1,5 @@
+import type { OrchDir } from "../types/core.ts";
+import { orchDirAt } from "../services.ts";
 import { and, eq, isNull } from "drizzle-orm";
 import { orm } from "./connection.ts";
 import { packPlexers, spacePlexers } from "../db/schema.ts";
@@ -45,7 +47,7 @@ export function homeLabel(name: string): string {
 
 /** This plexer's live home coordinate for a subject, or null when it has none
  *  HERE — a home recorded in another plexer is not this one's to drive. */
-export function homeHandle(directory: string, subject: HomeSubject, plexerId: string): string | null {
+export function homeHandle(directory: OrchDir, subject: HomeSubject, plexerId: string): string | null {
   const { table, key } = tableFor(subject);
   const row = orm(directory).select({ handle: table.handle }).from(table)
     .where(and(eq(key, subject.id), eq(table.plexerId, plexerId), isNull(table.until))).get();
@@ -54,7 +56,7 @@ export function homeHandle(directory: string, subject: HomeSubject, plexerId: st
 
 /** Record a coordinate a plexer just handed back. */
 export function recordHome(
-  directory: string,
+  directory: OrchDir,
   subject: HomeSubject,
   plexerId: string,
   handle: string,
@@ -69,7 +71,7 @@ export function recordHome(
 /** Drop every home row for a subject. The partial unique index (`one_pack_home`
  *  / `one_space_home`) admits exactly one open interval, so a subject whose home
  *  is gone must leave no open row behind or the next open is refused. */
-export function clearHome(directory: string, subject: HomeSubject): void {
+export function clearHome(directory: OrchDir, subject: HomeSubject): void {
   const { table, key } = tableFor(subject);
   orm(directory).delete(table).where(eq(key, subject.id)).run();
 }
@@ -84,6 +86,6 @@ export function clearHome(directory: string, subject: HomeSubject): void {
 export function openHome(request: OpenHomeRequest): CreatedHome {
   const { directory, subject, plexerId, home, cwd, label, env } = request;
   const created = home.create(subject, { cwd, label: homeLabel(label), env });
-  recordHome(directory, subject, plexerId, created.coordinate);
+  recordHome(orchDirAt(directory), subject, plexerId, created.coordinate);
   return created;
 }

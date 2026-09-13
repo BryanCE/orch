@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { orm, ormForRead } from "./connection.ts";
 import { agents, packIntakes, taskAttempts, taskCancellations, taskStates, tasks } from "../db/schema.ts";
@@ -61,12 +62,12 @@ function attempt(row: StoredAttempt): AttemptRow {
 /** Ids of the tasks `task_states` reports in this state. Read as VALUES rather
  *  than left as a subquery: the state view is the one definition either way, and
  *  a list of ids is what every caller here actually gates on. */
-function idsInState(dir: string, state: TaskState): string[] {
+function idsInState(dir: OrchDir, state: TaskState): string[] {
   return orm(dir).select({ taskId: taskStates.taskId }).from(taskStates)
     .where(eq(taskStates.state, state)).all().map((row) => row.taskId);
 }
 
-export function enqueueTask(dir: string, input: NewTask): void {
+export function enqueueTask(dir: OrchDir, input: NewTask): void {
   orm(dir).insert(tasks).values({
     id: input.id,
     text: input.text,
@@ -79,7 +80,7 @@ export function enqueueTask(dir: string, input: NewTask): void {
   }).run();
 }
 
-export function updateTask(dir: string, taskId: string, byAgentId: string, changes: { text?: string; opts?: unknown }): void {
+export function updateTask(dir: OrchDir, taskId: string, byAgentId: string, changes: { text?: string; opts?: unknown }): void {
   const values: { text?: string; opts?: string } = {
     ...(changes.text === undefined ? {} : { text: changes.text }),
     ...(changes.opts === undefined ? {} : { opts: encodeJson(changes.opts) }),
@@ -92,7 +93,7 @@ export function updateTask(dir: string, taskId: string, byAgentId: string, chang
 }
 
 /** Re-scope an unrunnable task to a live taker's pack. */
-export function rescopeTask(dir: string, taskId: string, packId: string): void {
+export function rescopeTask(dir: OrchDir, taskId: string, packId: string): void {
   const changed = orm(dir).update(tasks)
     .set({ scopeAgentId: null, scopePackId: packId, scopeSpaceId: null })
     .where(and(eq(tasks.id, taskId), inArray(tasks.id, idsInState(dir, "unrunnable"))))
@@ -101,7 +102,7 @@ export function rescopeTask(dir: string, taskId: string, packId: string): void {
 }
 
 /** Explicitly remove an unrunnable task; queued/claimable work is never reapable. */
-export function deleteUnrunnableTask(dir: string, taskId: string): boolean {
+export function deleteUnrunnableTask(dir: OrchDir, taskId: string): boolean {
   const changed = orm(dir).delete(tasks)
     .where(and(eq(tasks.id, taskId), inArray(tasks.id, idsInState(dir, "unrunnable"))))
     .run().changes;
@@ -109,12 +110,12 @@ export function deleteUnrunnableTask(dir: string, taskId: string): boolean {
   return true;
 }
 
-export function insertAttempt(dir: string, taskId: string, agentId: string, dispatchId: string, since = Date.now()): void {
+export function insertAttempt(dir: OrchDir, taskId: string, agentId: string, dispatchId: string, since = Date.now()): void {
   orm(dir).insert(taskAttempts).values({ taskId, since, agentId, dispatchId }).run();
 }
 
 export function settleAttempt(
-  dir: string,
+  dir: OrchDir,
   taskId: string,
   since: number,
   until: number,
@@ -131,26 +132,26 @@ export function settleAttempt(
   if (changed !== 1) throw new Error("open task attempt not found");
 }
 
-export function insertCancellation(dir: string, taskId: string, cancelledBy: string, cancelledAt = Date.now()): void {
+export function insertCancellation(dir: OrchDir, taskId: string, cancelledBy: string, cancelledAt = Date.now()): void {
   orm(dir).insert(taskCancellations).values({ taskId, cancelledAt, cancelledBy }).run();
 }
 
 /** `task_states` is the ONE definition of a task's state (Cq15). Re-deriving any
  *  part of it here would be a second truth that drifts from the rows it reads. */
-export function taskState(dir: string, taskId: string): TaskState | undefined {
+export function taskState(dir: OrchDir, taskId: string): TaskState | undefined {
   const row = orm(dir).select({ state: taskStates.state }).from(taskStates).where(eq(taskStates.taskId, taskId)).get();
   if (!row) return undefined;
   if (row.state !== null && !isTaskState(row.state)) throw new Error("Malformed task state row");
   return row.state ?? undefined;
 }
 
-export function taskById(dir: string, taskId: string): TaskRow | undefined {
+export function taskById(dir: OrchDir, taskId: string): TaskRow | undefined {
   const row = orm(dir).select().from(tasks).where(eq(tasks.id, taskId)).get();
   return row === undefined ? undefined : task(row);
 }
 
 /** Agents currently targeted by a task's scope, used for lease-gated cancellation. */
-export function agentsInTaskScope(dir: string, taskId: string): string[] {
+export function agentsInTaskScope(dir: OrchDir, taskId: string): string[] {
   const row = taskById(dir, taskId);
   if (!row) return [];
   if (row.scopeAgentId !== null) return [row.scopeAgentId];
@@ -165,7 +166,7 @@ export function agentsInTaskScope(dir: string, taskId: string): string[] {
     .all().map((entry) => entry.id);
 }
 
-export function allTasks(dir: string): (TaskRow & { state: TaskState })[] {
+export function allTasks(dir: OrchDir): (TaskRow & { state: TaskState })[] {
   // B6: `orch doctor` runs this and must never write. A store that does not
   // exist holds no tasks — creating one to discover that is the write the row
   // forbids, and it turns "you have not set up orch" into "you have".
@@ -183,7 +184,7 @@ export function allTasks(dir: string): (TaskRow & { state: TaskState })[] {
 
 /** Retention is based on the last settlement clock. Queued and open attempts
  * are never age-reaped. Cancellation has its own settlement clock. */
-export function deleteSettledTasksBefore(dir: string, cutoff: number): number {
+export function deleteSettledTasksBefore(dir: OrchDir, cutoff: number): number {
   const db = orm(dir);
   const settledAt = sql<number>`COALESCE(${taskCancellations.cancelledAt}, (
     SELECT MAX(${taskAttempts.until}) FROM ${taskAttempts} WHERE ${taskAttempts.taskId} = ${tasks.id}
@@ -197,13 +198,13 @@ export function deleteSettledTasksBefore(dir: string, cutoff: number): number {
   return ids.length;
 }
 
-export function attemptsOf(dir: string, taskId: string): AttemptRow[] {
+export function attemptsOf(dir: OrchDir, taskId: string): AttemptRow[] {
   return orm(dir).select().from(taskAttempts)
     .where(eq(taskAttempts.taskId, taskId)).orderBy(asc(taskAttempts.since)).all().map(attempt);
 }
 
 /** Tasks a scope can still take: not cancelled, and queued or failed. */
-export function openTasksInScope(dir: string, query: ScopeQuery): TaskRow[] {
+export function openTasksInScope(dir: OrchDir, query: ScopeQuery): TaskRow[] {
   const db = orm(dir);
   const cancelled = db.select({ taskId: taskCancellations.taskId }).from(taskCancellations).all().map((row) => row.taskId);
   const uncancelled = cancelled.length === 0 ? undefined : notInArray(tasks.id, cancelled);
@@ -219,7 +220,7 @@ export function openTasksInScope(dir: string, query: ScopeQuery): TaskRow[] {
 
 /** The tasks one scope addresses, before the state filter. */
 function scopedTasks(
-  dir: string,
+  dir: OrchDir,
   db: ReturnType<typeof orm>,
   query: ScopeQuery,
   uncancelled: SQL | undefined,
@@ -249,21 +250,21 @@ function scopedTasks(
 }
 
 /** Spaces whose intake into `packId` is still open. */
-function intakenSpacesOf(dir: string, packId: string): string[] {
+function intakenSpacesOf(dir: OrchDir, packId: string): string[] {
   return orm(dir).select({ spaceId: packIntakes.spaceId }).from(packIntakes)
     .where(and(eq(packIntakes.packId, packId), isNull(packIntakes.until))).all().map((row) => row.spaceId);
 }
 
-export function openIntake(dir: string, packId: string, spaceId: string, since = Date.now()): void {
+export function openIntake(dir: OrchDir, packId: string, spaceId: string, since = Date.now()): void {
   orm(dir).insert(packIntakes).values({ packId, spaceId, since }).run();
 }
 
-export function closeIntake(dir: string, packId: string, spaceId: string, until = Date.now()): void {
+export function closeIntake(dir: OrchDir, packId: string, spaceId: string, until = Date.now()): void {
   orm(dir).update(packIntakes).set({ until })
     .where(and(eq(packIntakes.packId, packId), eq(packIntakes.spaceId, spaceId), isNull(packIntakes.until))).run();
 }
 
-export function intakesOf(dir: string, packId: string): { packId: string; spaceId: string; since: number; until: number | null }[] {
+export function intakesOf(dir: OrchDir, packId: string): { packId: string; spaceId: string; since: number; until: number | null }[] {
   return orm(dir).select().from(packIntakes)
     .where(eq(packIntakes.packId, packId)).orderBy(asc(packIntakes.since)).all()
     .map((row) => ({ packId: row.packId, spaceId: row.spaceId, since: row.since, until: row.until }));

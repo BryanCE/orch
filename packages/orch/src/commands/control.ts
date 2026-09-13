@@ -2,15 +2,14 @@ import * as path from "node:path";
 import { collapse, recipientFor, recipientLabel, resolveTarget } from "../entities.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
 import { spawnedRecords } from "../presence/store.ts";
-import { orchDir, presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
+import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { errorMessage, isRecord, truncate } from "../util.ts";
-import { loadSettings } from "../settings/read.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
-import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
+import { agentViewIndex, assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, ownerTokenOrDie, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
@@ -19,14 +18,14 @@ import { assertLaunchModelAllowed, pinModels } from "./spawn/models.ts";
 import { contextReference, readPromptFile } from "./prompt-file.ts";
 import { workerHeaderContext } from "../policy/spawner.ts";
 import { getBackend } from "../backends/registry.ts";
-import { commandLogger } from "./logging.ts";
+import type { Services } from "../types/services.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { RecordedProcess } from "../types/backend.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
-import type { Entity } from "../types/core.ts";
+import type { Entity, OrchDir } from "../types/core.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;
@@ -59,27 +58,27 @@ interface DispatchSettings {
   destination: Entity | null;
 }
 
-export async function cmdSteer(args: string[]): Promise<void> {
+export async function cmdSteer(services: Services, args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const { gov, rest: cleanArgs } = parseGovernance(args.filter((arg) => arg !== "--json"));
+  const { gov, rest: cleanArgs } = parseGovernance(services, args.filter((arg) => arg !== "--json"));
   const target = cleanArgs[0];
   const text = cleanArgs.slice(1).join(" ");
   if (!target || !text) die('usage: orch steer <target> <text...> [--steal] [--cross-space] [--json]');
-  const remote = targetHost(target);
+  const remote = targetHost(services.settings.current().hosts, target);
   if (remote) {
-    remoteWrite(remote.host, "steer", [remote.target, text, ...(json ? ["--json"] : [])]);
+    remoteWrite(services.settings.current().hosts, remote.host, "steer", [remote.target, text, ...(json ? ["--json"] : [])]);
     return;
   }
-  const entity = resolveTarget(target, { crossSpace: gov.crossSpace });
-  assertAgentOwned(target, entity, gov.steal);
-  const result = await writeRpc("steer", { target: entity.key, text }, gov);
-  reportControlDelivery("steered", entity.key, result, json, ` -> ${truncate(collapse(text), 60)}`);
+  const entity = resolveTarget(services.orchDir, services.settings.current(), target, { crossSpace: gov.crossSpace });
+  assertAgentOwned(services.orchDir, target, entity, gov.steal);
+  const result = await writeRpc(services, "steer", { target: entity.key, text }, gov);
+  reportControlDelivery(services.orchDir, "steered", entity.key, result, json, ` -> ${truncate(collapse(text), 60)}`);
 }
 
-function reportControlDelivery(action: "steered" | "answered" | "dispatched", key: string, result: unknown, json: boolean, suffix: string, dispatchAckMs?: number): void {
+function reportControlDelivery(orchDir: OrchDir, action: "steered" | "answered" | "dispatched", key: string, result: unknown, json: boolean, suffix: string, dispatchAckMs?: number): void {
   if (!isRecord(result) || (result.ack !== "acknowledged" && result.ack !== "unavailable")) die("Daemon response missing delivery acknowledgement.");
   const confirmed = result.ack === "acknowledged";
-  const recipient = recipientFor(key);
+  const recipient = recipientFor(orchDir, key);
   if (json) {
     process.stdout.write(JSON.stringify({ target: key, recipient, [action]: confirmed, ...result }) + "\n");
     return;
@@ -96,7 +95,7 @@ function reportControlDelivery(action: "steered" | "answered" | "dispatched", ke
   process.stdout.write(`${verb} ${recipientLabel(recipient)} (${ack})${suffix}\n`);
 }
 
-export async function cmdBroadcast(args: string[]) {
+export async function cmdBroadcast(services: Services, args: string[]) {
   let all = false;
   const json = args.includes("--json");
   const force = args.includes("--force");
@@ -109,18 +108,19 @@ export async function cmdBroadcast(args: string[]) {
   const text = positional[0];
   const targets = positional.slice(1);
   if (!text) die('usage: orch broadcast "<text>" [target ...|--all]');
+  const explicitAll = all;
   if (!targets.length) all = true;
   const destinations = new Map<string, PresenceEntry>();
   if (all) {
-    requireCallerOwnerToken();
-    for (const pres of livePanePresenceEntries()) {
-      const record = spawnedRecords().get(pres.key);
-      if (record && ownsAgent(record)) destinations.set(pres.key, pres);
+    if (explicitAll) requireCallerOwnerToken(services.orchDir); else ownerTokenOrDie(services.orchDir);
+    for (const pres of livePanePresenceEntries(services.orchDir)) {
+      const record = spawnedRecords(services.orchDir).get(pres.key);
+      if (record && ownsAgent(services.orchDir, record)) destinations.set(pres.key, pres);
     }
   }
   for (const target of targets) {
-    const ent = requirePresenceTarget(target);
-    assertAgentOwned(target, ent, force);
+    const ent = requirePresenceTarget(services.orchDir, services.settings.current(), target);
+    assertAgentOwned(services.orchDir, target, ent, force);
     destinations.set(ent.presence!.key, ent.presence!);
   }
   if (!destinations.size) die("No live agent dirs to broadcast to.");
@@ -129,7 +129,7 @@ export async function cmdBroadcast(args: string[]) {
   const refusals: { key: string; reason: string }[] = [];
   await Promise.all([...destinations.values()].map(async (pres) => {
     try {
-      await callDaemon("steer", { target: pres.key, text });
+      await callDaemon(services, "steer", { target: pres.key, text });
     } catch (error: unknown) {
       refusals.push({ key: pres.key, reason: errorMessage(error) });
     }
@@ -139,67 +139,67 @@ export async function cmdBroadcast(args: string[]) {
   else {
     process.stdout.write(`Broadcast to ${delivered} of ${destinations.size} agent(s).\n`);
     for (const refusal of refusals) {
-      const log = isAgentId(refusal.key) ? commandLogger().forAgent(refusal.key) : commandLogger();
+      const log = isAgentId(refusal.key) ? services.logger.forAgent(refusal.key) : services.logger;
       log.warn("broadcast.refused", { reason: refusal.reason, target: refusal.key });
-      process.stdout.write(`  refused ${recipientLabel(recipientFor(refusal.key))}: ${refusal.reason}\n`);
+      process.stdout.write(`  refused ${recipientLabel(recipientFor(services.orchDir, refusal.key))}: ${refusal.reason}\n`);
     }
   }
   if (delivered === 0) process.exitCode = 1;
 }
 
-export async function cmdPipe(args: string[]) {
+export async function cmdPipe(services: Services, args: string[]) {
   const json = args.includes("--json");
   const cleanArgs = args.filter((arg) => arg !== "--json");
   const src = cleanArgs[0];
   const dst = cleanArgs[1];
   const instruction = cleanArgs.slice(2).join(" ");
   if (!src || !dst) die('usage: orch pipe <src> <dst> ["instruction"] [--json]');
-  const source = requirePresenceTarget(src);
+  const source = requirePresenceTarget(services.orchDir, services.settings.current(), src);
   const extractInput = { key: source.presence!.key, sessionPath: source.sessionPath ?? undefined };
-  const resultTextValue = entityAdapter(source)?.extractResult(extractInput) ?? resultText(source.presence!.result);
+  const resultTextValue = entityAdapter(source, agentViewIndex(services.orchDir))?.extractResult(extractInput, services.orchDir) ?? resultText(source.presence!.result);
   if (!resultTextValue) die(`No result text available for "${src}".`);
-  const destination = requirePresenceTarget(dst);
+  const destination = requirePresenceTarget(services.orchDir, services.settings.current(), dst);
   const text = `[piped from ${source.presence!.key}] ${instruction ? instruction + "\n" : ""}${resultTextValue}`;
-  await writeRpc("steer", { target: destination.presence!.key, text });
+  await writeRpc(services, "steer", { target: destination.presence!.key, text });
   if (json) process.stdout.write(JSON.stringify({ source: source.presence!.key, destination: destination.presence!.key, piped: true }) + "\n");
   else process.stdout.write(`Piped ${source.presence!.key} -> ${destination.presence!.key}.\n`);
 }
 
-export async function cmdAnswer(args: string[]): Promise<void> {
+export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
+  const { gov, rest } = parseGovernance(services, args.filter((arg) => arg !== "--json"));
   const target = rest[0];
   const text = rest.slice(1).join(" ");
   if (!target || !text) die('usage: orch answer <target> "<text>" [--steal] [--cross-space] [--json]');
-  const remote = targetHost(target);
+  const remote = targetHost(services.settings.current().hosts, target);
   if (remote) {
-    remoteWrite(remote.host, "answer", [remote.target, text, ...(gov.steal ? ["--steal"] : []), ...(gov.crossSpace ? ["--cross-space"] : []), ...(json ? ["--json"] : [])]);
+    remoteWrite(services.settings.current().hosts, remote.host, "answer", [remote.target, text, ...(gov.steal ? ["--steal"] : []), ...(gov.crossSpace ? ["--cross-space"] : []), ...(json ? ["--json"] : [])]);
     return;
   }
-  const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
+  const ent = resolveTarget(services.orchDir, services.settings.current(), target, { crossSpace: gov.crossSpace });
   if (!ent.presence) die(`Target "${target}" has no agent dir.`);
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
   // the CLI never invokes the adapter's answer strategy directly.
-  const result = await writeRpc("answer", { target: ent.presence.key, text }, gov);
-  reportControlDelivery("answered", ent.presence.key, result, json, ".");
+  const result = await writeRpc(services, "answer", { target: ent.presence.key, text }, gov);
+  reportControlDelivery(services.orchDir, "answered", ent.presence.key, result, json, ".");
 }
 
-export async function cmdModel(args: string[]): Promise<void> {
+export async function cmdModel(services: Services, args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--no-wait" && arg !== "--json"));
+  const { gov, rest } = parseGovernance(services, args.filter((arg) => arg !== "--no-wait" && arg !== "--json"));
   const target = rest[0];
   const modelArg = rest[1];
   if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-space] [--no-wait]");
-  const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
-  assertAgentOwned(target, ent, gov.steal);
+  const ent = resolveTarget(services.orchDir, services.settings.current(), target, { crossSpace: gov.crossSpace });
+  assertAgentOwned(services.orchDir, target, ent, gov.steal);
   const handle = ent.paneId ?? ent.key;
   const harness = ent.agent ?? ent.presence?.status?.agent;
   if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its model mechanism.`);
   const adapter = resolveAdapterOrDie(harness);
-  const tuning = resolveTuningOrDie({ modelFlag: modelArg }, loadSettings(orchDir()), adapter.id);
+  const tuning = resolveTuningOrDie({ modelFlag: modelArg }, services.settings.current(), adapter.id);
   const spec = modelSpec(tuning.model, tuning.thinking);
-  const result = await setAgentModel(ent.key, spec, gov);
-  const recipient = recipientFor(ent.key);
+  const result = await setAgentModel(services, ent.key, spec, gov);
+  const recipient = recipientFor(services.orchDir, ent.key);
   const label = recipientLabel(recipient);
   if (json) process.stdout.write(JSON.stringify({ target: handle, recipient, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`${label}: already ${modelArg} (no-op)\n`);
@@ -208,39 +208,39 @@ export async function cmdModel(args: string[]): Promise<void> {
 
 /** Retarget an agent's model. Throws with the agent's own reason when it refuses —
  *  the daemon does not return until the agent has confirmed the change. */
-async function setAgentModel(agentKey: string, modelArg: string, gov: WriteGovernance = {}): Promise<{ old: string | null; now: string; unchanged: boolean }> {
-  const old = readPresenceStatus(path.join(presenceAgentDir(agentKey), STATUS_FILE));
+async function setAgentModel(services: Pick<Services, "orchDir" | "settings" | "logger">, agentKey: string, modelArg: string, gov: WriteGovernance = {}): Promise<{ old: string | null; now: string; unchanged: boolean }> {
+  const old = readPresenceStatus(path.join(presenceAgentDir(agentKey, services.orchDir), STATUS_FILE));
   // A presence record stores the model structurally; render it in the same provider/id:thinking
   // form the caller passes, so the reported previous value and the no-op comparison both work.
   const previous = old?.model?.id ? modelSpec(`${old.model.provider ?? ""}/${old.model.id}`, old.thinking) : null;
-  await writeRpc("set-model", { target: agentKey, model: modelArg }, gov);
+  await writeRpc(services, "set-model", { target: agentKey, model: modelArg }, gov);
   return { old: previous, now: modelArg, unchanged: previous === modelArg };
 }
 
 /** Deliver a prompt through orchd's canonical dispatch path. */
-export async function dispatchToAgent(key: string, text: string, options: DispatchToAgentOptions = {}): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
+export async function dispatchToAgent(services: Pick<Services, "orchDir" | "settings" | "logger">, logger: Services["logger"], key: string, text: string, options: DispatchToAgentOptions = {}): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
   const delivered = await writeRpc(
+    services,
     "dispatch",
     { target: key, text: workerPrompt(text, options.raw ?? false, options.adapter, options.context ?? {}) },
     options.gov,
   );
-  if (!isRecord(delivered) || delivered.accepted !== true || typeof delivered.id !== "string" || (delivered.ack !== "acknowledged" && delivered.ack !== "unavailable")) throw new Error("dispatch response missing acceptance details");
   // The CLI end of the correlation chain. The id is minted by
   // the daemon, so this is the first moment the CLI can name the dispatch it just
   // made — without this record half the system writes nothing anywhere, ever.
-  const log = commandLogger().forCorrelation(delivered.id);
+  const log = logger.forCorrelation(delivered.id);
   (isAgentId(key) ? log.forAgent(key) : log).info("dispatch.cli-accepted", { target: key });
   return { accepted: true, id: delivered.id, ack: delivered.ack };
 }
 
 /** Forward the whole command to the host that owns the target, and say whether it went. */
-function forwardedToTargetHost(args: string[], target: string | undefined): boolean {
-  const remote = target ? targetHost(target) : null;
+function forwardedToTargetHost(hosts: OrchSettings["hosts"], args: string[], target: string | undefined): boolean {
+  const remote = target ? targetHost(hosts, target) : null;
   if (!remote || !target) return false;
   const remoteArgs = [...args];
   const index = remoteArgs.indexOf(target);
   if (index >= 0) remoteArgs[index] = remote.target;
-  remoteWrite(remote.host, "dispatch", remoteArgs);
+  remoteWrite(hosts, remote.host, "dispatch", remoteArgs);
   return true;
 }
 
@@ -249,8 +249,8 @@ function forwardedToTargetHost(args: string[], target: string | undefined): bool
  * has one; an adopted agent needs it under the SAME key we dispatched to, carrying
  * the dispatcher's owner token or it stays open to every other orchestrator.
  */
-function recordAdoptedAgent(key: string, dispatchSettings: DispatchSettings, tuning: { model: string; thinking: ThinkingLevel }): void {
-  registerSpawnedAgent(orchDir(), {
+function recordAdoptedAgent(orchDir: OrchDir, key: string, dispatchSettings: DispatchSettings, tuning: { model: string; thinking: ThinkingLevel }): void {
+  registerSpawnedAgent(orchDir, {
     key,
     harnessId: dispatchSettings.adapter,
     // An entity that names no plexer is in no plexer, and that is the answer —
@@ -269,8 +269,8 @@ function recordAdoptedAgent(key: string, dispatchSettings: DispatchSettings, tun
     // may still carry its `:effort` suffix.
     model: tuning.model,
     thinking: tuning.thinking,
-    spawner: spawnerIdentity().key,
-    owner: callerOwnerToken(),
+    spawner: spawnerIdentity(orchDir).key,
+    owner: callerOwnerToken(orchDir),
     process: adoptedProcess(dispatchSettings.ent),
   });
 }
@@ -284,13 +284,13 @@ function adoptedProcess(ent: Entity): RecordedProcess {
   return backend.process.running(ent.paneId);
 }
 
-export async function cmdDispatch(args: string[]) {
-  const { gov, rest } = parseGovernance(args);
+export async function cmdDispatch(services: Services, args: string[]) {
+  const { gov, rest } = parseGovernance(services, args);
   const flags = parseDispatchFlags(rest);
   if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--thinking <level>] [--agent adapter] [--steal] [--cross-space]');
-  if (forwardedToTargetHost(args, flags.positional[0])) return;
-  const settings = loadSettings(orchDir());
-  const dispatchSettings = resolveDispatchSettings(flags, settings, gov);
+  const settings = services.settings.current();
+  if (forwardedToTargetHost(settings.hosts, args, flags.positional[0])) return;
+  const dispatchSettings = resolveDispatchSettings(services.orchDir, flags, settings, gov);
   // Address the daemon by the one canonical identity, never the handle: a second
   // registry row keyed by handle forks the agent and makes every later control
   // target ambiguous (dispatch/steer/reset all fail post-first-run).
@@ -300,16 +300,16 @@ export async function cmdDispatch(args: string[]) {
   const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
   const tuning = resolveTuningOrDie(flags, settings, adapter.id);
   const { model, thinking } = tuning;
-  assertLaunchModelAllowed(adapter.id, model);
-  if (!dispatchSettings.keepContext) await clearSession(key, gov.steal === true);
-  const pinWarnings = await pinModels([{ key, handle: dispatchSettings.handle, name: dispatchSettings.ent.name ?? dispatchSettings.handle }], model, thinking);
+  assertLaunchModelAllowed(settings, adapter.id, model);
+  if (!dispatchSettings.keepContext) await clearSession(services, key, gov.steal === true);
+  const pinWarnings = await pinModels(services, services.logger, [{ key, handle: dispatchSettings.handle, name: dispatchSettings.ent.name ?? dispatchSettings.handle }], model, thinking);
   if (pinWarnings.length > 0) process.exitCode = 1;
-  const headerContext = workerHeaderContext(settings);
-  const result = await dispatchToAgent(key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent), context: headerContext, gov });
-  if (!spawnedRecords().has(key)) recordAdoptedAgent(key, dispatchSettings, { model, thinking });
+  const headerContext = workerHeaderContext(services.orchDir, settings);
+  const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent, agentViewIndex(services.orchDir)), context: headerContext, gov });
+  if (!spawnedRecords(services.orchDir).has(key)) recordAdoptedAgent(services.orchDir, key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the agent runs the prompt this command sent, not some other delivery.
-  reportControlDelivery("dispatched", key, result, dispatchSettings.json, "", settings.timeouts.dispatch_ack_ms);
+  reportControlDelivery(services.orchDir, "dispatched", key, result, dispatchSettings.json, "", settings.timeouts.dispatch_ack_ms);
 }
 
 export function parseDispatchFlags(args: string[]): DispatchFlags {
@@ -340,14 +340,14 @@ export function promptBody(flags: Pick<DispatchFlags, "promptFile" | "positional
   return readPromptFile(flags.promptFile);
 }
 
-function resolveDispatchSettings(flags: DispatchFlags, settings: OrchSettings, gov: WriteGovernance = {}): DispatchSettings {
+function resolveDispatchSettings(orchDir: OrchDir, flags: DispatchFlags, settings: OrchSettings, gov: WriteGovernance = {}): DispatchSettings {
   const target = flags.positional[0];
   const prompt = promptBody(flags);
   if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--thinking <level>] [--agent adapter]');
-  const ent = resolveTarget(target, { crossSpace: gov.crossSpace });
-  assertAgentOwned(target, ent, gov.steal);
+  const ent = resolveTarget(orchDir, settings, target, { crossSpace: gov.crossSpace });
+  assertAgentOwned(orchDir, target, ent, gov.steal);
   const handle = ent.paneId ?? ent.key;
-  const destination = flags.thenTarget ? requirePresenceTarget(flags.thenTarget) : null;
+  const destination = flags.thenTarget ? requirePresenceTarget(orchDir, settings, flags.thenTarget) : null;
   if (flags.thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);
   return { adapter: pickAdapter(flags, settings), model: requestedModel(flags), raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, handle, prompt: taskWithReferences(prompt, flags.withPaths.map(contextReference)), keepContext: flags.keepContext, destination };
 }

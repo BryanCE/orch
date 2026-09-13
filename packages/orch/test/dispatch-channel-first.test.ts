@@ -1,7 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
@@ -9,30 +6,32 @@ import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { testServices } from "./helpers/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
 const previousDir = process.env.ORCH_DIR;
 
-function tempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-channel-first-"));
+function tempDir(): OrchDir {
+  const dir = tempOrchDir("orch-channel-first-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   writeSettingsFixture(dir, { defaults: { adapter: "pi", backend: "headless" } });
   return dir;
 }
 
-function fakeLink(key: string): BridgeDelivery[] {
+function fakeLink(directory: OrchDir, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
   const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
-  attachBridge(key, link);
+  attachBridge(directory, key, link);
   links.push({ key, link });
   return deliveries;
 }
 
 afterEach(() => {
-  for (const { key, link } of links.splice(0)) detachBridge(key, link);
+  for (const { key, link } of links.splice(0)) detachBridge(dirs[0]!, key, link);
   while (dirs.length) removeTempDir(dirs.pop()!);
   if (previousDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = previousDir;
@@ -47,9 +46,9 @@ describe("work reaches an agent through its link", () => {
     seedAgent(target, { adapter: "pi" }, directory);
     seedLiveProcess(directory, target);
     seedStatus(directory, target, { agent: "pi", state: "idle" });
-    const deliveries = fakeLink(target);
+    const deliveries = fakeLink(directory, target);
 
-    const outcome = await deliverControl(target, { kind: "run", text: "do the work", id: "dispatch-1" });
+    const outcome = await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), target, { kind: "run", text: "do the work", id: "dispatch-1" });
 
     expect(outcome).toEqual({ outcome: "invoke", ack: "expected" });
     expect(deliveries).toEqual([{ id: "dispatch-1", message: { action: "dispatch", text: "do the work" } }]);
@@ -62,7 +61,7 @@ describe("work reaches an agent through its link", () => {
     seedLiveProcess(directory, target);
     seedStatus(directory, target, { agent: "claude", state: "idle" });
 
-    const outcome = await deliverControl(target, { kind: "run", text: "do the work", id: "dispatch-2" });
+    const outcome = await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), target, { kind: "run", text: "do the work", id: "dispatch-2" });
 
     expect(outcome).toEqual({
       outcome: "answer",

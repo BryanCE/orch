@@ -2,7 +2,6 @@ import { LAUNCH_ENV } from "../identity/launch.ts";
 import { ENVIRONMENT_ENV } from "../agent/environment.ts";
 import { selfId, selfIdentity } from "../identity/self.ts";
 import { callerSession } from "../adapters/session-env.ts";
-import { orchDir } from "../presence/writer.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { agentView } from "../store/agent-view.ts";
 import { depthOf } from "./provenance.ts";
@@ -10,7 +9,7 @@ import { projectRoot } from "../util.ts";
 import type { BackendSpawnOpts } from "../types/backend.ts";
 import type { SpawnerIdentity } from "../types/policy.ts";
 import { workerRules } from "../worker-prompt.ts";
-import type { WorkerHeaderContext } from "../types/core.ts";
+import type { OrchDir, WorkerHeaderContext } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 /** Every ORCH_* variable carried through a spawn; tests import this vocabulary
@@ -29,10 +28,10 @@ export const ORCH_ENV_VARS = [
  * harness env vars, then fell back to the literal id `"operator"` — four answers
  * that could not agree, so a spawner's address never matched its own lease.
  */
-export function spawnerIdentity(): SpawnerIdentity {
-  const id = selfIdentity()?.id ?? null;
+export function spawnerIdentity(orchDir: OrchDir): SpawnerIdentity {
+  const id = selfIdentity(orchDir)?.id ?? null;
   const session = callerSession();
-  const name = id === null ? null : agentById(orchDir(), id)?.name ?? null;
+  const name = id === null ? null : agentById(orchDir, id)?.name ?? null;
   const label = name
     ?? (session ? `${session.harnessId} session` : "operator");
   return { key: id, label };
@@ -99,7 +98,7 @@ export function agentLaunchEnv(
 }
 
 /** Whether a child launched by this spawner may itself spawn under the depth limit. */
-export function maySpawnFrom(orchDir: string, spawnerId: string | undefined, maxDepth: number): boolean {
+export function maySpawnFrom(orchDir: OrchDir, spawnerId: string | undefined, maxDepth: number): boolean {
   const depth = spawnerId === undefined ? 0 : depthOf((id) => agentView(orchDir, id), spawnerId);
   return depth + 1 < maxDepth;
 }
@@ -107,15 +106,15 @@ export function maySpawnFrom(orchDir: string, spawnerId: string | undefined, max
 /** This session's own reply address, live only when it writes presence of its own.
  *  A worker is told to `orch_send target "spawner"` on the strength of this and
  *  nothing else — never on its own harness's steer capability. */
-export function spawnerIsRepliable(): boolean {
-  return spawnerIdentity().key !== null;
+export function spawnerIsRepliable(orchDir: OrchDir): boolean {
+  return spawnerIdentity(orchDir).key !== null;
 }
 
 /** The header context for a worker THIS session dispatches to. */
-export function workerHeaderContext(settings: OrchSettings): WorkerHeaderContext {
+export function workerHeaderContext(orchDir: OrchDir, settings: OrchSettings): WorkerHeaderContext {
   return {
-    maySpawn: maySpawnFrom(orchDir(), selfId(), settings.fleet.max_depth),
-    spawnerRepliable: spawnerIsRepliable(),
+    maySpawn: maySpawnFrom(orchDir, selfId(orchDir), settings.fleet.max_depth),
+    spawnerRepliable: spawnerIsRepliable(orchDir),
     ...workerRules(settings),
   };
 }

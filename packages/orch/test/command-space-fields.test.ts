@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { orchDirAt } from "../src/services.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { buildEntities, entitySpace } from "../src/entities.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
@@ -11,8 +11,9 @@ import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-row
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import type { Entity } from "../src/types/core.ts";
+import type { Entity, OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
+import { testServices } from "./helpers/services.ts";
 
 /**
  * Commands read the space from the environment satellite
@@ -20,8 +21,8 @@ import { sql } from "drizzle-orm";
  * minted id, so there is no key text left to slice.
  */
 
-const directories: string[] = [];
-const originalOrchDir = process.env.ORCH_DIR;
+const directories: OrchDir[] = [];
+const originalOrchDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 
 afterEach(() => {
   closeAllStores();
@@ -31,7 +32,7 @@ afterEach(() => {
 });
 
 /** Seed one placed agent: minted identity, plus one row per environment axis. */
-function writeAgent(orchDir: string, agent: string, space: string, handle: string): string {
+function writeAgent(orchDir: OrchDir, agent: string, space: string, handle: string): string {
   const id = mintAgentId();
   ensureHarness(orchDir, "pi", "pi", 1);
   ensurePlexer(orchDir, "headless", "headless", 1);
@@ -48,8 +49,8 @@ function writeAgent(orchDir: string, agent: string, space: string, handle: strin
   return id;
 }
 
-function presenceFixture(): { orchDir: string; key: string } {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-command-space-"));
+function presenceFixture(): { orchDir: OrchDir; key: string } {
+  const orchDir = tempOrchDir("orch-command-space-");
   directories.push(orchDir);
   return { orchDir, key: writeAgent(orchDir, "pi", "reported-space", "999999") };
 }
@@ -59,9 +60,9 @@ describe("command space fields", () => {
     const { orchDir, key } = presenceFixture();
     process.env.ORCH_DIR = orchDir;
 
-    const current = buildEntities().find((candidate) => candidate.key === key)!;
+    const current = buildEntities(orchDir, testServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current()).find((candidate) => candidate.key === key)!;
     expect(current).toMatchObject({ key, paneId: "999999", agent: "pi", space: "reported-space" });
-    expect(entitySpace(current)).toBe("reported-space");
+    expect(entitySpace(orchDir, current)).toBe("reported-space");
     expect(key).not.toContain("reported-space");
     expect(agentView(orchDir, key)?.environment.space).toBe("reported-space");
   }, 30_000);
@@ -70,7 +71,7 @@ describe("command space fields", () => {
     const { orchDir, key } = presenceFixture();
     process.env.ORCH_DIR = orchDir;
 
-    const entities = buildEntities({ skipBackends: true });
+    const entities = buildEntities(orchDir, testServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), { skipBackends: true });
     expect(entities).toHaveLength(1);
     const entity = entities[0];
     expect(entity?.key).toBe(key);
@@ -85,7 +86,7 @@ describe("command space fields", () => {
     const claudeKey = writeAgent(orchDir, "claude", "reported-claude", "1000000");
     process.env.ORCH_DIR = orchDir;
 
-    const entities: Entity[] = buildEntities();
+    const entities: Entity[] = buildEntities(orchDir, testServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current());
     const piEntity = entities.find((entity) => entity.key === key);
     const claudeEntity = entities.find((entity) => entity.key === claudeKey);
     expect(piEntity?.key).toBe(key);

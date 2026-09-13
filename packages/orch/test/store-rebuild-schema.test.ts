@@ -1,17 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 import { numberField, row, stringField } from "./helpers/rows.ts";
+import type { OrchDir } from "../src/types/core.ts";
 type Db = ReturnType<typeof orm>;
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
-function db() { const d = mkdtempSync(join(tmpdir(), "orch-schema-")); dirs.push(d); return orm(d); }
+function db() { const d = tempOrchDir("orch-schema-"); dirs.push(d); return orm(d); }
 function base(d: ReturnType<typeof orm>) {
   d.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   d.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES (${"h"},${"Host"},${"linux"},${1})`);

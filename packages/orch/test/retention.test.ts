@@ -1,10 +1,11 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync, utimesSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
+
 import { join } from "node:path";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
-import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from "../src/settings/schema.ts";
-import { loadSettingsOrNull } from "../src/settings/read.ts";
+import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA, settingsPath } from "../src/settings/schema.ts";
+import { fileSettingsManager, inMemorySettingsManager } from "../src/settings/manager.ts";
 import { appendEvent } from "../src/store/event-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered } from "../src/store/outbox-rows.ts";
 import { addTask, claimTask, recordTaskDone } from "../src/queue.ts";
@@ -12,7 +13,7 @@ import { closeAllStores, orm } from "../src/store/connection.ts";
 import { selectRuns, upsertRun } from "../src/store/run-rows.ts";
 import { ORCH_LOG_MAX_BYTES, sweepExpiredRows } from "../src/daemon/retention.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeResult } from "../src/presence/writer.ts";
@@ -25,10 +26,10 @@ import type { BridgeMessage } from "../src/control/bridge-message.ts";
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
 import { row } from "./helpers/rows.ts";
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
-function fixture(): string {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-retention-"));
+function fixture(): OrchDir {
+  const orchDir = tempOrchDir("orch-retention-");
   directories.push(orchDir);
   orm(orchDir);
   return orchDir;
@@ -56,7 +57,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
   };
 }
 
-function seedQueueTask(dir: string, text: string, state: "queued" | "claimed" | "done", ts: string): void {
+function seedQueueTask(dir: OrchDir, text: string, state: "queued" | "claimed" | "done", ts: string): void {
   const db = orm(dir);
   db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
   db.run(sql`INSERT OR IGNORE INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('queue-agent','queue-agent','pi','/tmp','queue-agent',1)`);
@@ -86,10 +87,10 @@ afterEach(() => {
 describe("retention sweep", () => {
   test("retention windows are independently configurable", () => {
     const orchDir = fixture();
-    writeFileSync(join(orchDir, "settings.json"), JSON.stringify({
+    writeFileSync(settingsPath(orchDir), JSON.stringify({
       schemaVersion: SETTINGS_SCHEMA, runtime: "node", retention: { runs_days: 3 },
     }));
-    const retention = loadSettingsOrNull(orchDir)!.retention;
+    const retention = fileSettingsManager(orchDir).currentOrNull()!.retention;
     expect(retention.runs_days).toBe(3);
     expect(retention.ended_agents_days).toBe(90);
     expect(retention.queue_days).toBe(14);
@@ -251,17 +252,24 @@ describe("retention sweep", () => {
     try {
       Date.now = () => (ticks < 2 ? firstTick : firstTick + 60_000);
       const settings = settingsFixture({ runs_days: 1 });
-      const loop = runWorkLoop({
-        orchDir,
-        pollIntervalMs: 1,
-        continuous: true,
-        signal: controller.signal,
-        getSettings: () => {
+      const baseSettings = inMemorySettingsManager(JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, ...settings }), settingsPath(orchDir));
+      const settingsManager = {
+        file: baseSettings.file,
+        current: () => {
           ticks += 1;
           if (ticks === 2) upsertRun(orchDir, run("inserted-after-sweep", "2020-01-01T00:00:00.000Z"));
           if (ticks === 3) controller.abort();
           return settings;
         },
+        currentOrNull: () => settings,
+        reload: () => settings,
+      };
+      const loop = runWorkLoop({
+        orchDir,
+        pollIntervalMs: 1,
+        continuous: true,
+        signal: controller.signal,
+        settings: settingsManager,
       });
       await loop;
     } finally {

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // pi's binding to orch's live presence record and daemon link for THIS agent.
 // Orchd pushes dispatch, steer, model, and answer deliveries down that link;
 // this module applies them, acknowledges applied work, and writes status.
@@ -73,8 +74,8 @@ function sessionKey(): string {
 
 // Orch-spawned agents use the launch credential; an interactive session mints its
 // own; a session with no UI has nobody to address and skips presence.
-function computeKey(hasUI: boolean): string | undefined {
-  const credential = launchCredential();
+function computeKey(hasUI: boolean, orchDir: OrchDir): string | undefined {
+  const credential = launchCredential(orchDir);
   if (credential !== null) return credential;
   return hasUI ? sessionKey() : undefined;
 }
@@ -132,7 +133,7 @@ interface AgentPresenceState {
   asking: { question: string; id: string; ts: string } | undefined;
 }
 
-export function createAgentPresence(options: AgentPresenceOptions) {
+export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOptions) {
   const { harness, daemon, extensionHash } = options;
 
   let dir: string | undefined;
@@ -404,9 +405,9 @@ export function createAgentPresence(options: AgentPresenceOptions) {
 
   function initPresence(hasUI: boolean) {
     if (dir) return;
-    const key = computeKey(hasUI);
+    const key = computeKey(hasUI, orchDir);
     if (!key) return;
-    const candidate = ensurePresenceAgentDir(key);
+    const candidate = ensurePresenceAgentDir(key, orchDir);
     if (!candidate) return;
     dir = candidate;
     Object.assign(state, launchStamp(state, options.identity.agentId, key));
@@ -422,7 +423,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
   }
 
   function keyOrCompute(hasUI: boolean): string {
-    return state.key !== undefined && state.key !== "" ? state.key : computeKey(hasUI) ?? "";
+    return state.key !== undefined && state.key !== "" ? state.key : computeKey(hasUI, orchDir) ?? "";
   }
 
   function ownPresenceKey(ctx: HarnessContext): string {

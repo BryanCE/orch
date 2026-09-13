@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { DaemonAbsentError, DaemonUnreachableError, RpcError } from "../src/daemon/rpc/wire.ts";
+import { DaemonAbsentError, DaemonUnreachableError } from "../src/daemon/rpc/wire.ts";
 import { ReplayBuffer } from "../src/daemon/rpc/replay.ts";
 import { isRegisterSessionResponse } from "../src/daemon/rpc/registration.ts";
 import { rpcCall, subscribeEvents } from "../src/daemon/rpc/client.ts";
@@ -19,21 +18,24 @@ import { outboxMessageState, selectOutboxMessage, selectPendingOutbox } from "..
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { testServices } from "./helpers/services.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { isRecord } from "../src/util.ts";
 import { currentHostOs } from "../src/store/agent-rows.ts";
 
 import { row } from "./helpers/rows.ts";
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
-function tempOrchDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-rpc-"));
+function tempOrchDir(): OrchDir {
+  const dir = makeTempOrchDir("orch-rpc-");
   dirs.push(dir);
   return dir;
 }
@@ -81,15 +83,14 @@ async function tcpHello(server: RpcServer, params?: unknown): Promise<Record<str
   });
 }
 
-async function start(dir: string): Promise<RpcServer> {
-  const server = await startRpcServer(dir, {
-    echo: (params) => params,
-    hang: neverAnswers,
+async function start(dir: OrchDir): Promise<RpcServer> {
+  const server = await startRpcServer(dir, stubRpcHandlers({
+    ack: (_params) => ({ ok: true }),
     "subscribe-events": (_params, emit) => {
       setTimeout(() => emit({ kind: "pushed", value: 1 }), 5);
       return { subscribed: true };
     },
-  });
+  }));
   servers.push(server);
   return server;
 }
@@ -100,7 +101,7 @@ interface FakeBridge {
   delivery: Promise<{ id: string; message: Record<string, unknown> }>;
 }
 
-async function fakeBridge(dir: string, key: string): Promise<FakeBridge> {
+async function fakeBridge(dir: OrchDir, key: string): Promise<FakeBridge> {
   const endpoint = existsSync(daemonRuntimeFiles(dir).socket) ? daemonRuntimeFiles(dir).socket : readPortFile(dir);
   if (endpoint === undefined) throw new Error("daemon endpoint is unavailable");
   let resolveDelivery: ((delivery: { id: string; message: Record<string, unknown> }) => void) | undefined;
@@ -124,7 +125,7 @@ async function fakeBridge(dir: string, key: string): Promise<FakeBridge> {
   return { link, attached, delivery };
 }
 
-async function startRealDaemon(dir: string, settings: Record<string, unknown>): Promise<() => Promise<void>> {
+async function startRealDaemon(dir: OrchDir, settings: Record<string, unknown>): Promise<() => Promise<void>> {
   const discovery = tempOrchDir();
   const previousDir = process.env.ORCH_DIR;
   const previousDiscovery = process.env.ORCH_DAEMON_DISCOVERY_DIR;
@@ -133,7 +134,7 @@ async function startRealDaemon(dir: string, settings: Record<string, unknown>): 
   process.env.ORCH_DAEMON_DISCOVERY_DIR = discovery;
   process.env.ORCHD_ENTRYPOINT = join(import.meta.dir, "../src/daemon/orchd.ts");
   writeSettingsFixture(dir, settings);
-  await rpcRegisterSession(dir);
+  await rpcRegisterSession(dir, testServices({ orchDir: dir, settings }).logger);
   return async () => {
     const pid = provenDaemonPid(dir);
     if (pid !== undefined && pid !== process.pid) await terminateDaemon(pid, 5_000);
@@ -170,7 +171,7 @@ describe("daemon RPC", () => {
     process.env.ORCHD_ENTRYPOINT = failingEntrypoint;
     expect(existsSync(daemonRuntimeFiles(dir).token)).toBe(false);
     try {
-      const failure = await rejectionOf(rpcRegisterSession(dir));
+      const failure = await rejectionOf(rpcRegisterSession(dir, testServices({ orchDir: dir }).logger));
       if (!(failure instanceof Error)) throw new Error("hello did not reject with an Error");
       expect(failure.message).toContain("orch daemon unavailable");
       expect(failure.message).not.toContain("ENOENT");
@@ -201,7 +202,7 @@ describe("daemon RPC", () => {
     seedLiveProcess(dir, target);
     seedStatus(dir, target, { agent: "claude", state: "working" });
     try {
-      await rpcRegisterSession(dir);
+      await rpcRegisterSession(dir, testServices({ orchDir: dir }).logger);
       // An environment that offers no way to reach this agent is an ABSENCE, and
       // an absence is an answer to a human, never a failure path.
       // Claude composes no inbox steering and headless has no pane, so the dispatch
@@ -224,14 +225,14 @@ describe("daemon RPC", () => {
   test("round-trips a call over the real unix socket", async () => {
     const dir = tempOrchDir();
     await start(dir);
-    expect(await rpcCall(dir, "echo", { ok: true })).toEqual({ ok: true });
+    expect(await rpcCall(dir, "ack", { id: "round-trip" })).toEqual({ ok: true });
   });
 
   test("issues one session identity to sequential invocations from one session", async () => {
     const dir = tempOrchDir();
     await start(dir);
-    const first = await rpcRegisterSession(dir);
-    const second = await rpcRegisterSession(dir);
+    const first = await rpcRegisterSession(dir, testServices({ orchDir: dir }).logger);
+    const second = await rpcRegisterSession(dir, testServices({ orchDir: dir }).logger);
     expect(second).toEqual(first);
     // An issued id is opaque; a plexer coordinate would carry `~` separators.
     expect(first.id).not.toContain("~");
@@ -249,10 +250,10 @@ describe("daemon RPC", () => {
     releaseLease(dir, "closed", "holder", 3);
     acquireLease(dir, "leased", "holder", 2);
     endAgent(dir, "ended", 4, null);
-    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() });
     expect(reply.result).toMatchObject({
       unleased: [
         { id: "closed", name: "closed-worker" },
@@ -260,25 +261,25 @@ describe("daemon RPC", () => {
         { id: "holder", name: "holder" },
       ],
     });
-    const repeat = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() });
+    const repeat = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() });
     expect(repeat.result).toMatchObject({ unleased: [] });
   });
 
   test("hello returns an empty unleased list when none exist", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() });
     expect(reply.result).toMatchObject({ unleased: [] });
   });
 
   test("a TCP hello with the daemon token gets an identity", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs(), label: "web client" });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs(), label: "web client" });
     expect(reply.id).toBe(1);
     if (!isLiveAgentIdentity(dir, reply.result)) throw new Error(`TCP hello returned a non-identity: ${JSON.stringify(reply)}`);
     expect(reply.result.label).toBe("web client");
@@ -289,26 +290,26 @@ describe("daemon RPC", () => {
 
   test("refuses a hello that reports no session pid", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    expect(await tcpHello(server, { token })).toMatchObject({ id: 1, error: { code: "IDENTITY_UNAVAILABLE" } });
+    expect(await tcpHello(server, { token })).toMatchObject({ id: 1, error: { code: "INVALID_PARAMS" } });
   });
 
   test("refuses a hello without its environment", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    expect(await tcpHello(server, { token, pid: process.pid })).toMatchObject({ id: 1, error: { code: "IDENTITY_UNAVAILABLE" } });
+    expect(await tcpHello(server, { token, pid: process.pid })).toMatchObject({ id: 1, error: { code: "INVALID_PARAMS" } });
   });
 
   test("same session pid keeps its id and a different session pid gets another", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const claim = (pid: number, label: string) => ({ token, pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs(), label });
+    const claim = (pid: number, label: string) => ({ token, pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs(), label });
     const first = await tcpHello(server, claim(process.pid, "first"));
     const same = await tcpHello(server, claim(process.pid, "renamed"));
     const other = await tcpHello(server, claim(process.ppid, "other"));
@@ -319,21 +320,22 @@ describe("daemon RPC", () => {
 
   test("refuses a TCP hello without a token", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
     servers.push(server);
-    expect(await tcpHello(server)).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
+    expect(await tcpHello(server, { token: "", pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
   });
 
   test("refuses a TCP hello with a wrong token", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
     servers.push(server);
-    expect(await tcpHello(server, { token: "wrong-token" })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
+    // A complete claim, so the wire accepts the shape and the handler is what refuses it.
+    expect(await tcpHello(server, { token: "wrong-token", pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
   });
 
   test("writes the daemon token with owner-only permissions", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, {}, { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
     servers.push(server);
     const tokenFile = daemonRuntimeFiles(dir).token;
     expect(readFileSync(tokenFile, "utf8").trim()).toMatch(/^[0-9a-f]{64}$/);
@@ -344,11 +346,19 @@ describe("daemon RPC", () => {
 
   test("returns an error for an unknown method", async () => {
     const dir = tempOrchDir();
-    await start(dir);
-    const failure = await rejectionOf(rpcCall(dir, "missing"));
-    expect(failure).toBeInstanceOf(RpcError);
-    if (!(failure instanceof Error)) throw new Error("unknown method did not reject with Error");
-    expect(failure.message).toContain("Unknown method");
+    const server = await start(dir);
+    const socket = await new Promise<import("node:net").Socket>((resolve, reject) => {
+      const connection = createConnection(server.socketPath);
+      connection.once("connect", () => resolve(connection));
+      connection.once("error", reject);
+    });
+    socket.setEncoding("utf8");
+    const line = await new Promise<string>((resolve) => {
+      socket.once("data", (chunk: string) => resolve(chunk.trim()));
+      socket.write('{"id":1,"method":"missing","params":{}}\n');
+    });
+    socket.destroy();
+    expect(JSON.parse(line)).toMatchObject({ id: 1, error: { code: "METHOD_NOT_FOUND" } });
   });
 
   test("reports malformed lines and keeps the connection alive", async () => {
@@ -366,9 +376,9 @@ describe("daemon RPC", () => {
     await waitForLine(lines, 0);
     const malformed: unknown = JSON.parse(lines[0]!);
     expect(malformed).toMatchObject({ error: { code: "INVALID_REQUEST" } });
-    socket.write('{"id":7,"method":"echo","params":"still alive"}\n');
+    socket.write('{"id":7,"method":"ack","params":{"id":"still-alive"}}\n');
     await waitForLine(lines, 1);
-    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 7, result: "still alive" });
+    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 7, result: { ok: true } });
     socket.destroy();
   });
 
@@ -426,20 +436,21 @@ describe("daemon RPC", () => {
     expect(acquireDaemonLock(dir)).toBe(true);
     const server = await start(dir);
     expect(server.transport).toBe("unix");
-    expect(await rpcCall(dir, "echo", "after-reclaim")).toBe("after-reclaim");
+    expect(await rpcCall(dir, "ack", { id: "after-reclaim" })).toEqual({ ok: true });
   });
 
   test("has a catchable absent-daemon error", async () => {
     const dir = tempOrchDir();
-    expect(await rejectionOf(rpcCall(dir, "echo"))).toBeInstanceOf(DaemonAbsentError);
+    expect(await rejectionOf(rpcCall(dir, "ack", { id: "absent" }))).toBeInstanceOf(DaemonAbsentError);
   });
 
   // A live daemon too slow to answer must never look absent: callers SIGTERM on
   // absent, and a loaded machine would make them kill the daemon they came to use.
   test("calls a slow daemon unreachable, not absent", async () => {
     const dir = tempOrchDir();
-    await start(dir);
-    const failure = await rejectionOf(rpcCall(dir, "hang", undefined, 100));
+    const server = await startRpcServer(dir, stubRpcHandlers({ "daemon-status": neverAnswers }));
+    servers.push(server);
+    const failure = await rejectionOf(rpcCall(dir, "daemon-status", undefined, 100));
     expect(failure).toBeInstanceOf(DaemonUnreachableError);
     expect(failure).not.toBeInstanceOf(DaemonAbsentError);
   });
@@ -447,7 +458,7 @@ describe("daemon RPC", () => {
   test("calls a refused endpoint absent so a wedged daemon is still reclaimable", async () => {
     const dir = tempOrchDir();
     writeFileSync(join(dir, "orchd.sock"), "");
-    expect(await rejectionOf(rpcCall(dir, "echo"))).toBeInstanceOf(DaemonAbsentError);
+    expect(await rejectionOf(rpcCall(dir, "ack", { id: "refused" }))).toBeInstanceOf(DaemonAbsentError);
   });
 
   test("dispatch waits for and reports a bridge acknowledgement", async () => {

@@ -1,15 +1,12 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { entitySpace, scopeEntitiesToSpace, spaceOf } from "../src/entities.ts";
 import { checkWall } from "../src/policy/space.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import type { Entity } from "../src/types/core.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { Entity, OrchDir } from "../src/types/core.ts";
 import { placeAgent, seedAgent } from "./helpers/agent.ts";
 
-const orchDir = mkdtempSync(join(tmpdir(), "orch-space-walls-"));
+const orchDir: OrchDir = tempOrchDir("orch-space-walls-");
 process.env.ORCH_DIR = orchDir;
 
 // Identity is a minted id and NOTHING else, so a key carries no space: the wall
@@ -33,7 +30,7 @@ const AGENTS = {
 for (const id of ["w1", "w2", "w6", "w7", "w12"]) seedSpace(orchDir, id);
 
 for (const agent of Object.values(AGENTS)) {
-  seedAgent(agent.id, { adapter: "pi", backend: agent.plexer, space: agent.space });
+  seedAgent(agent.id, { adapter: "pi", backend: agent.plexer, space: agent.space }, orchDir);
 }
 
 afterAll(() => removeTempDir(orchDir));
@@ -52,20 +49,20 @@ describe("space helpers", () => {
   });
 
   test("an agent that moves space keeps its identity and reports the new space", () => {
-    placeAgent(AGENTS.w6first.id, { space: "w7" });
+    placeAgent(AGENTS.w6first.id, { space: "w7" }, orchDir);
     expect(spaceOf(orchDir, AGENTS.w6first.id)).toBe("w7");
-    placeAgent(AGENTS.w6first.id, { space: "w6" });
+    placeAgent(AGENTS.w6first.id, { space: "w6" }, orchDir);
     expect(spaceOf(orchDir, AGENTS.w6first.id)).toBe("w6");
   });
 
   test("derives an entity space from the store", () => {
-    expect(entitySpace(fakeEntity(AGENTS.w6first.id, null))).toBe("w6");
-    expect(entitySpace(fakeEntity(AGENTS.w12first.id, null))).toBe("w12");
+    expect(entitySpace(orchDir, fakeEntity(AGENTS.w6first.id, null))).toBe("w6");
+    expect(entitySpace(orchDir, fakeEntity(AGENTS.w12first.id, null))).toBe("w12");
   });
 
   test("returns the same entities when all spaces are requested", () => {
     const entities = [fakeEntity(AGENTS.w6first.id, "pane-1")];
-    expect(scopeEntitiesToSpace(entities, { all: true })).toBe(entities);
+    expect(scopeEntitiesToSpace(orchDir, entities, { all: true })).toBe(entities);
   });
 });
 

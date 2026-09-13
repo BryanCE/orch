@@ -1,16 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { checkSettingsFile } from "../src/doctor/settings-file.ts";
-import { runDoctor } from "../src/doctor/runner.ts";
+import { runTestDoctor } from "../test/helpers/doctor.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 
-const directories: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
 
-function tempDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-doctor-settings-defects-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-doctor-settings-defects-");
   directories.push(directory);
   return directory;
 }
@@ -98,7 +98,7 @@ describe("doctor settings defects", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { spawn_cap: 8 } });
 
-    const results = await runDoctor(directory, () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
+    const results = await runTestDoctor(directory, () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
     const result = results.find((entry) => entry.id === "spawn-limits");
     if (result === undefined) throw new Error("missing spawn-limits result");
 

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { BridgeDetachedError } from "../src/control/bridge-links.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
@@ -8,19 +7,19 @@ import { drainOutbox, deliverOutboxMessage, redeliverOpenRows } from "../src/dae
 import { outbox } from "../src/db/schema.ts";
 import { insertOutboxMessage, markOutboxDelivered, markOutboxUndeliverable, bumpOutboxAttempt, outboxMessageState, selectOpenOutboxForTarget, selectOutboxMessage } from "../src/store/outbox-rows.ts";
 import { orm } from "../src/store/connection.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { BridgeMessage } from "../src/control/bridge-message.ts";
 import { isLogRecord } from "../src/log.ts";
 import type { OutboxDelivery, OutboxDeps } from "../src/types/daemon.ts";
-import type { LogRecord } from "../src/types/core.ts";
+import type { LogRecord, OrchDir } from "../src/types/core.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const previousLogLevel = process.env.ORCH_LOG_LEVEL;
 
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-outbox-ack-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-outbox-ack-");
   dirs.push(dir);
   process.env.ORCH_LOG_LEVEL = "debug";
   return dir;
@@ -151,7 +150,7 @@ describe("socket outbox acknowledgements", () => {
   });
 });
 
-function selectLog(dir: string, event: string): LogRecord | undefined {
+function selectLog(dir: OrchDir, event: string): LogRecord | undefined {
   const contents = readFileSync(join(dir, "orchd.log"), "utf8").trim();
   if (contents.length === 0) return undefined;
   return contents.split("\n")

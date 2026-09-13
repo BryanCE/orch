@@ -6,7 +6,7 @@ import { STATUS_FILE } from "./schema.ts";
 // store is how a writer and a reader end up disagreeing about where a record
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
-import { isPresenceStatus, orchDir, presenceAgentDir, presenceRoot, readLatestResult, readPresenceStatus } from "./writer.ts";
+import { isPresenceStatus, presenceAgentDir, presenceRoot, readLatestResult, readPresenceStatus } from "./writer.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { eq } from "drizzle-orm";
@@ -16,16 +16,17 @@ import { agentProcessLive } from "../store/interval-rows.ts";
 import { agents } from "../db/schema.ts";
 import { isRecord, readJsonFile } from "../util.ts";
 import type { AgentView } from "../types/store.ts";
+import type { OrchDir } from "../types/core.ts";
 import type { DeadPresenceReapResult, PresenceDescription, PresenceEntry, PresenceStatus } from "../types/presence.ts";
 
-export function presenceDir(root = orchDir()): string {
+export function presenceDir(root: OrchDir): string {
   return presenceRoot(root);
 }
 
 /** What is wrong with the presence root, or null when it is usable. A file
  *  where the agents directory belongs holds no presence and can never receive
  *  any, which reads as an empty fleet unless a check names it. */
-export function presenceRootFault(root = orchDir()): string | null {
+export function presenceRootFault(root: OrchDir): string | null {
   const dir = presenceDir(root);
   try {
     return statSync(dir).isDirectory() ? null : `${dir} is a file where the agents directory belongs`;
@@ -78,7 +79,7 @@ function isErrorCode(error: unknown, code: string): boolean {
  * in the fleet" has to be the ending, not the presence of a row. Reading
  * history is `agentViews`/`agentView`, which still see everything.
  */
-export function spawnedRecords(root = orchDir()): Map<string, AgentView> {
+export function spawnedRecords(root: OrchDir): Map<string, AgentView> {
   const index = new Map<string, AgentView>();
   // A store that does not exist yet is an empty fleet, not a crash: `orch
   // status` runs before anything has ever been spawned.
@@ -92,7 +93,7 @@ export function spawnedRecords(root = orchDir()): Map<string, AgentView> {
  *  ending), its open writes, and its presence directory. There is no second id
  *  space to clean. A reaped agent reads nothing, so a write left open would
  *  retry on every drain tick forever. */
-export function reapSpawnedRecord(key: string, root = orchDir(), options: { agentId?: string } = {}): void {
+export function reapSpawnedRecord(key: string, root: OrchDir, options: { agentId?: string } = {}): void {
   const agentId = options.agentId ?? key;
   if (agentId !== undefined) {
     try { orm(root).delete(agents).where(eq(agents.id, agentId)).run(); } catch {}
@@ -104,7 +105,7 @@ export function reapSpawnedRecord(key: string, root = orchDir(), options: { agen
 /** Close every open write whose target has no live presence, answering with how
  *  many rows closed. The daemon retries an open write on every drain tick; a
  *  target that is dead, or whose directory is already gone, never acks one. */
-export function closeOutboxForDeadTargets(root = orchDir()): number {
+export function closeOutboxForDeadTargets(root: OrchDir): number {
   const presence = loadPresence(root);
   let closed = 0;
   for (const target of selectOpenOutboxTargets(root)) {
@@ -126,7 +127,7 @@ function newestRecordedInstant(entry: PresenceEntry): number | null {
   return instants.length > 0 ? Math.max(...instants) : null;
 }
 
-function presenceDirectoryNames(root: string): string[] {
+function presenceDirectoryNames(root: OrchDir): string[] {
   try {
     return readdirSync(presenceDir(root));
   } catch (error: unknown) {
@@ -142,7 +143,7 @@ function presenceDirectoryNames(root: string): string[] {
  * to REPORT them, has to see them some other way. This is that way: the raw
  * directory names, read once, with no pretence that any of them names an agent.
  */
-export function malformedPresenceDirs(root = orchDir()): { name: string; dir: string }[] {
+export function malformedPresenceDirs(root: OrchDir): { name: string; dir: string }[] {
   const found: { name: string; dir: string }[] = [];
   for (const name of presenceDirectoryNames(root)) {
     if (isAgentId(name)) continue;
@@ -161,7 +162,7 @@ export function malformedPresenceDirs(root = orchDir()): { name: string; dir: st
  * own presence under the id orch minted for it, or it has none and orch cannot
  * address it either way.
  */
-export function reapMalformedPresenceDirs(root = orchDir()): string[] {
+export function reapMalformedPresenceDirs(root: OrchDir): string[] {
   const removed: string[] = [];
   for (const entry of malformedPresenceDirs(root)) {
     removePresenceAgentDir(entry.dir);
@@ -173,7 +174,7 @@ export function reapMalformedPresenceDirs(root = orchDir()): string[] {
 /** Reap dead presence directories old enough for retention. This is the shared
  * path for daemon retention and `orch clean --force`; it also removes the agent
  * rows and closes their open writes. */
-export function reapDeadPresenceDirs(root = orchDir(), olderThan?: Date): DeadPresenceReapResult {
+export function reapDeadPresenceDirs(root: OrchDir, olderThan?: Date): DeadPresenceReapResult {
   const removed: PresenceEntry[] = [];
   const failed: { entry: PresenceEntry; error: unknown }[] = [];
   const cutoffMs = olderThan?.getTime();
@@ -196,7 +197,7 @@ export function reapDeadPresenceDirs(root = orchDir(), olderThan?: Date): DeadPr
   return { removed, failed };
 }
 
-export function loadPresence(root = orchDir()): Map<string, PresenceEntry> {
+export function loadPresence(root: OrchDir): Map<string, PresenceEntry> {
   const presence = new Map<string, PresenceEntry>();
   let keys: string[];
   try {

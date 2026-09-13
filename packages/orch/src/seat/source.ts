@@ -47,7 +47,7 @@ function makePackSource(config: PackSourceConfig): PackSourceShape {
     transitions,
     ownKey: config.ownKey,
     enrich(key: string): PackEnrichment {
-      const dir = presenceAgentDir(key);
+      const dir = presenceAgentDir(key, config.orchDir);
       const status = readPresenceStatus(path.join(dir, STATUS_FILE));
       if (!status) return {};
       return {
@@ -67,7 +67,7 @@ function makePackSource(config: PackSourceConfig): PackSourceShape {
         try: async () => {
           const own = config.ownKey();
           if (!own) throw new Error("this session has no orch identity yet");
-          const outcome = await sendPeerMessage(config.daemon, key, text, own);
+          const outcome = await sendPeerMessage(config.orchDir, config.daemon, key, text, own);
           if (!outcome.startsWith("sent")) throw new Error(outcome);
           return outcome;
         },

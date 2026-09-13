@@ -1,29 +1,27 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { currentLease } from "../src/store/lease-rows.ts";
 import { currentHandle, currentTuning } from "../src/store/interval-rows.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 import { runnerProcess } from "./helpers/agent.ts";
 
 import { row } from "./helpers/rows.ts";
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-spawn-registry-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-spawn-registry-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
   insertAgent(dir, { id: "orch-agent", harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
   return dir;
 }
 
-function register(dir: string, overrides: Partial<Parameters<typeof registerSpawnedAgent>[1]> = {}): string {
+function register(dir: OrchDir, overrides: Partial<Parameters<typeof registerSpawnedAgent>[1]> = {}): string {
   // A1: the key IS the minted id. The plexer and the space are environment,
   // written to their own satellites below — never welded into the identity.
   const key = "worker0001";

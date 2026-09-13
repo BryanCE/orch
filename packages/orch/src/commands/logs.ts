@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { orchDir } from "../presence/writer.ts";
 import { isLogLevel, isLogRecord } from "../log.ts";
 import { die } from "./target.ts";
 import type { LogOptions } from "../types/command.ts";
-import type { LogRecord } from "../types/core.ts";
+import type { LogRecord, OrchDir } from "../types/core.ts";
+import type { Services } from "../types/services.ts";
 
 /** Exported so the filter contract is testable without a process exit: every
  *  invalid flag ends in `die`, and `die` cannot be observed from in-process. */
@@ -37,7 +37,7 @@ export function parseLogOptions(args: string[]): LogOptions {
   return out;
 }
 
-function records(directory: string): LogRecord[] {
+function records(directory: OrchDir): LogRecord[] {
   const result: LogRecord[] = [];
   for (const name of ["orch.log", "orchd.log"]) {
     const file = join(directory, name);
@@ -65,9 +65,9 @@ function render(record: LogRecord): string {
   return `${new Date(record.at).toISOString()} ${record.level} ${record.event}${correlation}${agent}${fields}`;
 }
 
-export function cmdLogs(args: string[]): void {
+export function cmdLogs(services: Services, args: string[]): void {
   const options = parseLogOptions(args);
-  const selected = records(orchDir()).filter((record) => matches(record, options));
+  const selected = records(services.orchDir).filter((record) => matches(record, options));
   if (options.json) for (const record of selected) process.stdout.write(`${JSON.stringify(record)}\n`);
   else for (const record of selected) process.stdout.write(`${render(record)}\n`);
 }

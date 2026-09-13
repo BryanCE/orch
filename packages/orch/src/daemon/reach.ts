@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 /**
  * Reaching orchd: probing it, starting one when nothing holds its lock, and
  * saying in a human sentence why it stayed silent.
@@ -21,19 +22,18 @@ import {
   unprovenLockRefusal,
 } from "./lifecycle.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
-import { isRegisterSessionResponse, sessionClaim } from "./rpc/registration.ts";
+import { sessionClaim } from "./rpc/registration.ts";
 import { announceUnleasedAgents } from "./rpc/session-registry.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./rpc/wire.ts";
 import { rpcCall } from "./rpc/client.ts";
 import { isLiveAgentIdentity } from "../store/agent-rows.ts";
-import { orchDir } from "../presence/writer.ts";
-import { commandLogger } from "../commands/logging.ts";
-import { errorMessage, isRecord, pidAlive, sleep } from "../util.ts";
+import type { Logger } from "../types/core.ts";
+import { errorMessage, pidAlive, sleep } from "../util.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse } from "../types/daemon.ts";
 
 /** The pid in the daemon lock, once the lifecycle layer has vetted the record.
  *  A pid alone is never authority to signal — see {@link provenDaemonPid}. */
-export function daemonLockPid(directory = orchDir()): number | undefined {
+export function daemonLockPid(directory: OrchDir): number | undefined {
   return readDaemonLock(directory)?.pid ?? liveDaemonRegistration(directory)?.pid;
 }
 
@@ -49,7 +49,7 @@ const PROBE_BUDGET_MS = 2_000;
 export const BIND_GRACE_MS = 1_000;
 const START_GRACE_MS = 5_000;
 
-export async function probeDaemon(directory: string, timeoutMs = PROBE_BUDGET_MS): Promise<DaemonProbe> {
+export async function probeDaemon(directory: OrchDir, timeoutMs = PROBE_BUDGET_MS): Promise<DaemonProbe> {
   try {
     await rpcCall(directory, "daemon-status", undefined, timeoutMs);
     return "answered";
@@ -66,7 +66,7 @@ function probeBudget(deadline: number): number {
 
 /** Poll until orchd answers or the deadline passes, reporting the last verdict —
  *  covers the window where it holds the lock but has not finished binding its socket. */
-export async function awaitDaemonProbe(directory: string, deadline: number): Promise<DaemonProbe> {
+export async function awaitDaemonProbe(directory: OrchDir, deadline: number): Promise<DaemonProbe> {
   let verdict = await probeDaemon(directory, probeBudget(deadline));
   while (verdict !== "answered" && Date.now() < deadline) {
     await sleep(50);
@@ -76,7 +76,7 @@ export async function awaitDaemonProbe(directory: string, deadline: number): Pro
 }
 
 /** What orch says instead of killing a daemon it merely could not reach in time. */
-export function starvedDaemonRefusal(directory: string, lockPid: number | undefined): string {
+export function starvedDaemonRefusal(directory: OrchDir, lockPid: number | undefined): string {
   const owner = lockPid === undefined ? "orchd" : `orchd pid ${lockPid}`;
   return `${owner} did not answer within ${PROBE_BUDGET_MS}ms; it was NOT stopped — a timeout is no proof it died. `
     + `The machine is likely loaded: retry, or read ${daemonRuntimeFiles(directory).log}`;
@@ -86,7 +86,7 @@ export function starvedDaemonRefusal(directory: string, lockPid: number | undefi
 const LOG_TAIL_BYTES = 4_096;
 
 /** The last line orchd logged, read from the tail so a long log stays cheap. */
-function lastDaemonLogLine(directory: string): string | null {
+function lastDaemonLogLine(directory: OrchDir): string | null {
   const file = daemonRuntimeFiles(directory).log;
   try {
     const size = statSync(file).size;
@@ -108,7 +108,7 @@ function lastDaemonLogLine(directory: string): string | null {
 /** What orch says when nothing answered and no process was alive to answer. The pid
  *  is knowable without waiting, so a departed daemon must never be reported as a
  *  timeout: that wording sends the operator to the log to learn what orch already knew. */
-function departedDaemonRefusal(directory: string, lockPid: number | undefined): string {
+function departedDaemonRefusal(directory: OrchDir, lockPid: number | undefined): string {
   const owner = lockPid === undefined ? "orchd holds no lock and nothing answered" : `orchd pid ${lockPid} is not running`;
   const lastLine = lastDaemonLogLine(directory);
   return `${owner}; its endpoint is stale, not busy. ${lastLine ? `Last log line: ${lastLine}. ` : ""}`
@@ -117,13 +117,13 @@ function departedDaemonRefusal(directory: string, lockPid: number | undefined): 
 
 /** The lock's pid, but only while that process is running. A dial that times out
  *  with none leaves nothing that could have been starved: orchd is gone. */
-export function liveDaemonPid(directory: string): number | undefined {
+export function liveDaemonPid(directory: OrchDir): number | undefined {
   const lockPid = daemonLockPid(directory);
   return lockPid !== undefined && pidAlive(lockPid) ? lockPid : undefined;
 }
 
 /** Why orchd stayed silent past its budget — a live daemon starved, or a departed one. */
-export function unreachableRefusal(directory: string): string {
+export function unreachableRefusal(directory: OrchDir): string {
   const lockPid = daemonLockPid(directory);
   return lockPid !== undefined && pidAlive(lockPid)
     ? starvedDaemonRefusal(directory, lockPid)
@@ -131,7 +131,7 @@ export function unreachableRefusal(directory: string): string {
 }
 
 /** orchd's silence as text a human should read, or null when it answers. */
-export async function daemonOutage(directory = orchDir()): Promise<string | null> {
+export async function daemonOutage(directory: OrchDir): Promise<string | null> {
   const probe = await probeDaemon(directory);
   if (probe === "answered") return null;
   if (probe === "unreachable") return unreachableRefusal(directory);
@@ -141,10 +141,10 @@ export async function daemonOutage(directory = orchDir()): Promise<string | null
 /** Stop a daemon that holds the lock while nothing listens on its endpoints, so a fresh
  *  one can take it. Callers owe a `not-listening` verdict first — never a timeout.
  *  Announced: a daemon killed in silence is indistinguishable from one that crashed. */
-export async function terminateWedgedDaemon(directory: string, lockPid: number, graceMs: number): Promise<void> {
+export async function terminateWedgedDaemon(directory: OrchDir, logger: Logger, lockPid: number, graceMs: number): Promise<void> {
   const wedged = provenDaemonPid(directory);
   if (wedged === undefined) throw new Error(unprovenLockRefusal(directory, lockPid));
-  commandLogger().warn("daemon.wedged-stopping", { pid: wedged });
+  logger.warn("daemon.wedged-stopping", { pid: wedged });
   process.stdout.write(`orchd pid ${wedged} holds the lock but did not answer; stopping it\n`);
   await terminateDaemon(wedged, graceMs);
 }
@@ -152,7 +152,7 @@ export async function terminateWedgedDaemon(directory: string, lockPid: number, 
 /** Reach orchd, starting one when nothing holds its lock. THROWS when it cannot be
  *  reached: whether an unreachable daemon ends the command is the caller's ruling, and
  *  exiting from in here is what killed a spawn that had already placed its panes. */
-export async function ensureDaemon(directory: string): Promise<void> {
+export async function ensureDaemon(directory: OrchDir, logger: Logger): Promise<void> {
   const probe = await probeDaemon(directory);
   if (probe === "answered") return;
   const livePid = liveDaemonPid(directory);
@@ -166,47 +166,47 @@ export async function ensureDaemon(directory: string): Promise<void> {
     const graced = await awaitDaemonProbe(directory, Date.now() + BIND_GRACE_MS);
     if (graced === "answered") return;
     if (graced === "unreachable") throw new Error(starvedDaemonRefusal(directory, livePid));
-    await terminateWedgedDaemon(directory, livePid, 3000);
+    await terminateWedgedDaemon(directory, logger, livePid, 3000);
   } else if (probe === "unreachable") {
     clearDaemonRuntime(directory);
   }
-  daemonize(daemonEntrypoint(), [], directory);
+  daemonize(directory, daemonEntrypoint(), []);
   const started = await awaitDaemonProbe(directory, Date.now() + START_GRACE_MS);
   if (started === "answered") return;
   if (started === "unreachable") throw new Error(unreachableRefusal(directory));
-  throw new DaemonAbsentError(directory);
+  throw new DaemonAbsentError(directory, lastDaemonLogLine(directory));
 }
 
 /** Reach orchd, or warn and carry on. For the commands specified to work with the
  *  daemon absent, where its silence costs its rows and never the whole command. */
-export async function ensureDaemonOrWarn(directory: string): Promise<void> {
+export async function ensureDaemonOrWarn(directory: OrchDir, logger: Logger): Promise<void> {
   try {
-    await ensureDaemon(directory);
+    await ensureDaemon(directory, logger);
   } catch (error: unknown) {
     const message = errorMessage(error);
-    commandLogger().warn("daemon.unavailable", { error: message });
+    logger.warn("daemon.unavailable", { error: message });
     process.stdout.write(`warning: ${message}\n`);
   }
 }
 
 /** Translate daemon liveness failures once at the command boundary. */
-export function translateDaemonError(directory: string, error: unknown): unknown {
+export function translateDaemonError(directory: OrchDir, error: unknown): unknown {
   if (error instanceof DaemonAbsentError) return new Error(`orch daemon unavailable; run 'orch daemon start': ${errorMessage(error)}`);
   if (error instanceof DaemonUnreachableError) return new Error(unreachableRefusal(directory));
   return error;
 }
 
 /** Register a driving session and return the identity issued by the daemon. */
-export async function rpcRegisterSession(orchDir: string, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<RegisterSessionResponse> {
+export async function rpcRegisterSession(orchDir: OrchDir, logger: Logger, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<RegisterSessionResponse> {
   try {
-    await ensureDaemon(orchDir);
+    await ensureDaemon(orchDir, logger);
     const identity = await rpcCall(orchDir, "register-session", sessionClaim(orchDir, label), timeoutMs);
-    if (!isLiveAgentIdentity(orchDir, identity) || !isRegisterSessionResponse(identity)) {
+    if (!isLiveAgentIdentity(orchDir, identity)) {
       throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed session registration");
     }
     announceUnleasedAgents(orchDir, identity);
     if (identity.registrationWarning) {
-      commandLogger().warn("daemon.registration-warning", { warning: identity.registrationWarning });
+      logger.warn("daemon.registration-warning", { warning: identity.registrationWarning });
       process.stdout.write(`warning: ${identity.registrationWarning}\n`);
     }
     return identity;
@@ -216,11 +216,11 @@ export async function rpcRegisterSession(orchDir: string, label?: string, timeou
 }
 
 /** Claim the minted identity carried by a spawned agent. */
-export async function rpcClaimIdentity(orchDir: string, id: string, token: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<ClaimIdentityResponse> {
+export async function rpcClaimIdentity(orchDir: OrchDir, logger: Logger, id: string, token: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<ClaimIdentityResponse> {
   try {
-    await ensureDaemon(orchDir);
+    await ensureDaemon(orchDir, logger);
     const identity = await rpcCall(orchDir, "claim-identity", { ...sessionClaim(orchDir), id, sessionToken: token }, timeoutMs);
-    if (!isRecord(identity) || typeof identity.id !== "string" || identity.id !== id) {
+    if (identity.id !== id) {
       throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity claim");
     }
     return { id: identity.id };

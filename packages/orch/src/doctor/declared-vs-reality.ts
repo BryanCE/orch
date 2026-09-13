@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getBackend } from "../backends/registry.ts";
@@ -20,7 +21,7 @@ const DEFAULT_DEPENDENCIES: DeclaredVsRealityDependencies = {
 
 /** The doctor asks through injected `processAlive` so a check can be run against
  *  a stated reality, which is the whole point of comparing declared to real. */
-function recordedProcessAlive(orchDir: string, agentId: string, dependencies: DeclaredVsRealityDependencies): boolean {
+function recordedProcessAlive(orchDir: OrchDir, agentId: string, dependencies: DeclaredVsRealityDependencies): boolean {
   const row = currentProcess(orchDir, agentId);
   return row !== undefined && dependencies.processAlive(row.pid, row.startToken);
 }
@@ -35,7 +36,7 @@ function defaultInventory(plexerId: string): readonly PlexerInventoryEntry[] {
   }
 }
 
-function leaseFindings(orchDir: string, dependencies: DeclaredVsRealityDependencies): string[] {
+function leaseFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies): string[] {
   const rows = orm(orchDir).select({ agentId: agentLeases.agentId, holderId: agentLeases.orchId })
     .from(agentLeases).where(isNull(agentLeases.until)).orderBy(asc(agentLeases.id)).all();
   return rows.flatMap(({ agentId, holderId }) => recordedProcessAlive(orchDir, holderId, dependencies) ? [] : [
@@ -43,7 +44,7 @@ function leaseFindings(orchDir: string, dependencies: DeclaredVsRealityDependenc
   ]);
 }
 
-function environmentFindings(orchDir: string, dependencies: DeclaredVsRealityDependencies): string[] {
+function environmentFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies): string[] {
   const rows = orm(orchDir).select({ agentId: agentPlexers.agentId, plexerId: agentPlexers.plexerId, handle: agentHandles.handle })
     .from(agentPlexers)
     .innerJoin(agentHandles, and(eq(agentHandles.agentId, agentPlexers.agentId), isNull(agentHandles.until)))
@@ -58,7 +59,7 @@ function environmentFindings(orchDir: string, dependencies: DeclaredVsRealityDep
   });
 }
 
-function orphanFindings(orchDir: string, dependencies: DeclaredVsRealityDependencies): string[] {
+function orphanFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies): string[] {
   const rows = orm(orchDir).select({ agentId: agents.id, spawnerId: agents.spawnedBy })
     .from(agents)
     .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
@@ -74,7 +75,7 @@ function orphanFindings(orchDir: string, dependencies: DeclaredVsRealityDependen
   });
 }
 
-function tuningFindings(orchDir: string, dependencies: DeclaredVsRealityDependencies): string[] {
+function tuningFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies): string[] {
   return liveAgentViews(orchDir).flatMap((agent) => {
     const tuning = currentTuning(orchDir, agent.id);
     const status = dependencies.readPresenceStatus(join(presenceAgentDir(agent.id, orchDir), STATUS_FILE));
@@ -87,7 +88,7 @@ function tuningFindings(orchDir: string, dependencies: DeclaredVsRealityDependen
   });
 }
 
-export function checkDeclaredVsReality(orchDir: string, dependencies: DeclaredVsRealityDependencies = DEFAULT_DEPENDENCIES): CheckResult {
+export function checkDeclaredVsReality(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies = DEFAULT_DEPENDENCIES): CheckResult {
   if (!existsSync(join(orchDir, "orch.db"))) {
     return { id: "declared-vs-reality", label: "Declared vs reality", status: "ok", detail: "no store to compare" };
   }

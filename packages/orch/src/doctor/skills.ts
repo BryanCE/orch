@@ -1,8 +1,8 @@
 import * as files from "node:fs";
 import * as path from "node:path";
-import { loadSettingsOrNull } from "../settings/read.ts";
 import { packagedSkillNames, resolveSkillRoot, skillLinkTarget } from "../setup/skills.ts";
 import type { CheckResult } from "../types/doctor.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 const INSTALL_HINT = "fix: orch settings skills --install";
 
@@ -20,11 +20,11 @@ function linkDefect(entry: string, stored: string): string | null {
  * `.agents/skills` is the cross-harness standard, so a second real copy under a harness's
  * own directory is a defect: the two drift apart and each harness reads a different skill.
  */
-export function checkSkillLinks(orchDir: string, pkgRoot?: string): CheckResult {
+export function checkSkillLinks(settings: OrchSettings | null, pkgRoot?: string): CheckResult {
   const id = "skill-links";
   const label = "Skill links";
   // An install that was never set up has never written a skill, so there is no link to verify.
-  const skills = loadSettingsOrNull(orchDir)?.skills;
+  const skills = settings?.skills;
   if (skills === undefined) return { id, label, status: "skip", detail: "no settings.json; orch has installed no skills" };
   const { install, store, link } = skills;
   if (!install) return { id, label, status: "skip", detail: "orch does not install skills; skills.install is off" };

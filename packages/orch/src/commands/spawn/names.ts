@@ -1,6 +1,7 @@
 import { assertNameFree, assertValidAgentName } from "../../policy/name.ts";
 import { SpawnRefusalError } from "../../refusal.ts";
 import { errorMessage } from "../../util.ts";
+import type { OrchDir } from "../../types/core.ts";
 
 
 /**
@@ -39,10 +40,10 @@ export function resolveSpawnNames(positional: readonly string[]): string[] {
 
 /** Assert every already-resolved name is free in this space, before anything
  *  is created. Separate from resolution because freeness reads live state. */
-export function claimSpawnNames(requested: readonly string[], space: string | null): string[] {
+export function claimSpawnNames(orchDir: OrchDir, requested: readonly string[], space: string | null): string[] {
   const names = resolveSpawnNames(requested);
   try {
-    for (const name of names) assertNameFree(name, space);
+    for (const name of names) assertNameFree(orchDir, name, space);
   } catch (error: unknown) {
     throw new SpawnRefusalError(errorMessage(error));
   }

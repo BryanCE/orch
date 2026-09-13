@@ -1,10 +1,11 @@
 import type { SessionAgentIdentity } from "./store.ts";
 import type { StatusRow } from "./command.ts";
 import type { NotifyEvent } from "./notify.ts";
-import type { OsSide } from "./core.ts";
-import type { OrchSettings } from "./settings.ts";
+import type { OrchDir, OsSide } from "./core.ts";
+import type { SettingsManager } from "./services.ts";
 import type { PresenceEntry } from "./presence.ts";
 import type { TaskRec } from "./queue.ts";
+import type { IdentityMethod, ParamsOf, ResultOf, RpcMethod } from "../daemon/rpc/protocol.ts";
 
 export interface LockRecord {
   pid: number;
@@ -12,8 +13,6 @@ export interface LockRecord {
   startedAt: string;
   startToken?: string;
 }
-
-export type RpcParams = unknown;
 
 export type RpcEventEmitter = (event: unknown) => void;
 
@@ -34,9 +33,9 @@ export interface ClaimIdentityResponse {
   readonly id: string;
 }
 
-export type RpcHandler = (params: RpcParams, emit: RpcEventEmitter, context: RpcRequestContext) => unknown;
-
-export type RpcHandlers = Record<string, RpcHandler>;
+export type RpcHandler<M extends RpcMethod> = (params: ParamsOf<M>, emit: RpcEventEmitter, context: RpcRequestContext) => ResultOf<M> | Promise<ResultOf<M>>;
+/** Complete: one handler per method, the identity handshake excluded (the server answers those itself). */
+export type RpcHandlers = { readonly [M in Exclude<RpcMethod, IdentityMethod>]: RpcHandler<M> };
 
 /** Where one daemon instance is reachable and how a caller proves itself: the
  *  unix socket path, the loopback port file beside it, and the token file. */
@@ -95,7 +94,7 @@ export type DaemonLock = Pick<LockRecord, "pid" | "codeHash" | "startToken">;
  *  osSide records which side of an OS boundary the daemon is hosted on — the one
  *  fact a client on the other side cannot work out from the paths alone. */
 export interface DaemonRegistration {
-  readonly orchDir: string;
+  readonly orchDir: OrchDir;
   readonly pid: number;
   readonly startToken: string;
   readonly osSide: OsSide;
@@ -128,7 +127,7 @@ export type SocketProbe = (socketPath: string) => boolean;
 export interface OsExecutor {
   readonly osSide: OsSide;
   /** Start a detached process from `entrypoint`, answering with its pid. */
-  start(entrypoint: string, args?: string[], orchDir?: string): number;
+  start(entrypoint: string, args?: string[], orchDir?: OrchDir): number;
   /** Whether that process is still the instance it claims to be. */
   isAlive(pid: number, startToken?: string): boolean;
   /** Stop it and wait for the OS to reap it, up to `graceMs`. */
@@ -150,7 +149,7 @@ export interface PresenceMetadata {
 };
 
 export interface PresenceWatchOptions {
-  orchDir: string;
+  orchDir: OrchDir;
   onEvent: (event: NotifyEvent) => void;
   initialStates?: Map<string, string>;
   keys?: Map<string, PresenceMetadata>;
@@ -246,7 +245,7 @@ export interface SweepCounts {
 }
 
 export interface WorkOptions {
-  orchDir: string;
+  orchDir: OrchDir;
   pollIntervalMs: number;
   signal?: AbortSignal;
   once?: boolean;
@@ -254,8 +253,8 @@ export interface WorkOptions {
   /** Suppress human progress output for machine-readable callers. */
   json?: boolean;
   maxRetries?: number;
-  /** Return the latest settings for each loop iteration. */
-  getSettings?: () => OrchSettings;
+  /** Settings for each loop iteration. The daemon passes its manager so reloads are seen. */
+  settings: SettingsManager;
   dispatch?: (entry: PresenceEntry, task: TaskRec) => Promise<void>;
   /** Emit canonical work lifecycle events through the daemon fan-out. */
   onEvent?: (event: NotifyEvent) => void;

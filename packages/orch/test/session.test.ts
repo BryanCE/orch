@@ -1,7 +1,8 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+
 import { join } from "node:path";
 import { parseSession } from "../src/session.ts";
 
@@ -18,7 +19,7 @@ describe("parseSession", () => {
   });
 
   test("handles model, thinking, user, assistant, tool, and unknown entries", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-session-"));
+    const root: OrchDir = tempOrchDir("orch-session-");
     const file = join(root, "session.jsonl");
     const lines = [
       { type: "model_change", modelId: "gpt-5", provider: "openai" },
@@ -50,7 +51,7 @@ describe("parseSession", () => {
   });
 
   test("joins text blocks and ignores non-text blocks", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-session-blocks-"));
+    const root: OrchDir = tempOrchDir("orch-session-blocks-");
     const file = join(root, "session.jsonl");
     writeFileSync(file, JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "one" }, { type: "toolCall", name: "ls" }, { type: "text", text: "two" }] } }) + "\n");
     try {

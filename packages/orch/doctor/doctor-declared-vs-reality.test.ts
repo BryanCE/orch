@@ -1,31 +1,30 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { applyFixes, runDoctor } from "../src/doctor/runner.ts";
+import { applyFixes } from "../src/doctor/runner.ts";
 import { describeBackendEnvironments } from "../src/doctor/backends.ts";
 import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { readPresenceStatus } from "../src/presence/writer.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { runTestDoctor } from "../test/helpers/doctor.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "../test/helpers/rows.ts";
 import { FakePanedBackend, withRegisteredBackend } from "../test/helpers/backend.ts";
-const directories: string[] = [];
-function fixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-reality-"));
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-doctor-reality-");
   directories.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','Host','linux',1)`);
   return dir;
 }
-function agent(dir: string, id: string, spawnedBy: string | null = null): void {
+function agent(dir: OrchDir, id: string, spawnedBy: string | null = null): void {
   orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,spawned_by,created_at) VALUES (${id},${spawnedBy ?? id},${"pi"},${dir},${id},${spawnedBy},${1})`);
 }
-function recordProcess(dir: string, id: string, pid: number, token: string | null): void {
+function recordProcess(dir: OrchDir, id: string, pid: number, token: string | null): void {
   orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${pid},${token})`);
 }
 
@@ -108,7 +107,7 @@ describe("doctor declared-vs-reality", () => {
     orm(dir).run(sql`DELETE FROM agents WHERE id='target'`);
     orm(dir).run(sql.raw("PRAGMA foreign_keys = ON"));
 
-    const results = await runDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
+    const results = await runTestDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
     const result = results.find((entry) => entry.id === "unrunnable-tasks");
     expect(result?.status).toBe("warn");
     expect(result?.detail).toContain("missing-scope");
@@ -121,7 +120,7 @@ describe("doctor declared-vs-reality", () => {
     orm(dir).run(sql.raw("PRAGMA foreign_keys = OFF"));
     orm(dir).run(sql`INSERT INTO tasks(id,text,opts,enqueued_by,scope_agent_id,created_at) VALUES ('missing-scope','do it','{}','enqueuer','gone',1)`);
     orm(dir).run(sql.raw("PRAGMA foreign_keys = ON"));
-    const results = await runDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
+    const results = await runTestDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
     applyFixes(results);
     expect(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks WHERE id='missing-scope'`)).toEqual({ count: 1 });
   }, 30_000);

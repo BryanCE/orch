@@ -1,17 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
 import { emitAndNotify } from "../src/daemon/events.ts";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
+import { testServices } from "./helpers/services.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-event-identity-"));
+function tempOrchDir(): OrchDir {
+  const directory = makeTempOrchDir("orch-event-identity-");
   directories.push(directory);
   return directory;
 }
@@ -28,9 +29,10 @@ describe("published event identity", () => {
   test("stamps a per-agent ordinal so a redelivery is recognizable", () => {
     const published: unknown[] = [];
     const emit = (value: unknown): void => { published.push(value); };
-    emitAndNotify(emit, [], transition("seqaagent1", "idle", "working"));
-    emitAndNotify(emit, [], transition("seqaagent1", "working", "done"));
-    emitAndNotify(emit, [], transition("seqbagent1", "idle", "working"));
+    const settings = testServices({ orchDir: tempOrchDir(), settings: null }).settings;
+    emitAndNotify(emit, [], transition("seqaagent1", "idle", "working"), undefined, settings);
+    emitAndNotify(emit, [], transition("seqaagent1", "working", "done"), undefined, settings);
+    emitAndNotify(emit, [], transition("seqbagent1", "idle", "working"), undefined, settings);
 
     expect(published.map((event) => {
       if (typeof event !== "object" || event === null || Array.isArray(event)) return undefined;
@@ -46,6 +48,7 @@ describe("the work loop is not a second presence-transition source", () => {
     const key = "loopagent1";
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = orchDir;
+    writeSettingsFixture(orchDir, { defaults: { adapter: "pi", backend: "headless" } });
     seedStatus(orchDir, key, { state: "idle", label: "Loop agent" });
     const published: NotifyEvent[] = [];
     const controller = new AbortController();
@@ -54,6 +57,7 @@ describe("the work loop is not a second presence-transition source", () => {
         orchDir,
         pollIntervalMs: 10,
         continuous: true,
+        settings: testServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings,
         signal: controller.signal,
         onEvent: (event) => published.push(event),
       });

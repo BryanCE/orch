@@ -8,13 +8,14 @@ import { checkDaemonPresence, checkDaemonRegistration } from "../src/doctor/daem
 import { endpointPaths } from "../src/daemon/rpc/wire.ts";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
 import { osSide } from "../src/util.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 
+import type { OrchDir } from "../src/types/core.ts";
 const oldDiscovery = process.env.ORCH_DAEMON_DISCOVERY_DIR;
 const roots: string[] = [];
 
-function setup(): { orchDir: string; discovery: string } {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-registration-store-"));
+function setup(): { orchDir: OrchDir; discovery: string } {
+  const orchDir = tempOrchDir("orch-registration-store-");
   const discovery = mkdtempSync(join(tmpdir(), "orch-registration-discovery-"));
   roots.push(orchDir, discovery);
   process.env.ORCH_DAEMON_DISCOVERY_DIR = discovery;
@@ -31,7 +32,7 @@ afterEach(() => {
 describe("machine daemon registration", () => {
   test("refuses a second start and names the live socket", () => {
     const first = setup();
-    const second = mkdtempSync(join(tmpdir(), "orch-registration-store-"));
+    const second = tempOrchDir("orch-registration-store-");
     roots.push(second);
     expect(acquireDaemonRegistration(first.orchDir).acquired).toBe(true);
     const refused = acquireDaemonRegistration(second);
@@ -42,7 +43,7 @@ describe("machine daemon registration", () => {
 
   test("the refusal a second start prints names the live daemon's pid", () => {
     const first = setup();
-    const second = mkdtempSync(join(tmpdir(), "orch-registration-store-"));
+    const second = tempOrchDir("orch-registration-store-");
     roots.push(second);
     expect(acquireDaemonRegistration(first.orchDir).acquired).toBe(true);
 
@@ -61,7 +62,7 @@ describe("machine daemon registration", () => {
 
   test("doctor names both when a second daemon is live beside the registered one", async () => {
     const { orchDir } = setup();
-    const registered = mkdtempSync(join(tmpdir(), "orch-registration-store-"));
+    const registered = tempOrchDir("orch-registration-store-");
     roots.push(registered);
     expect(acquireDaemonRegistration(registered).acquired).toBe(true);
 
@@ -105,7 +106,7 @@ describe("machine daemon registration", () => {
 
   test("routes a different orch dir to its own runtime files", () => {
     const { orchDir } = setup();
-    const otherDir = mkdtempSync(join(tmpdir(), "orch-registration-store-"));
+    const otherDir = tempOrchDir("orch-registration-store-");
     roots.push(otherDir);
     expect(acquireDaemonRegistration(orchDir).acquired).toBe(true);
     expect(endpointPaths(otherDir)).toEqual({

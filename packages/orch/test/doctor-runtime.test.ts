@@ -1,16 +1,17 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { checkRuntime, runningRuntime, shebangRuntime } from "../src/doctor/runtime.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { RuntimeObservations } from "../src/types/doctor.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
-function tempDir(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-runtime-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-doctor-runtime-");
   directories.push(directory);
   return directory;
 }
@@ -75,7 +76,7 @@ describe("doctor runtime verdict table", () => {
     const orchDir = tempDir();
     writeSettingsFixture(orchDir, { runtime });
 
-    const result = checkRuntime(orchDir, observed({
+    const result = checkRuntime(fileSettingsManager(orchDir).current(), observed({
       running: runtime,
       entrypoint: () => ({ path: "/usr/bin/orch", runtime }),
     }));
@@ -92,7 +93,7 @@ describe("doctor runtime verdict table", () => {
     const orchDir = tempDir();
     writeSettingsFixture(orchDir, { runtime: declared });
 
-    const result = checkRuntime(orchDir, observed({
+    const result = checkRuntime(fileSettingsManager(orchDir).current(), observed({
       running,
       entrypoint: () => ({ path: "/usr/bin/orch", runtime: declared }),
     }));
@@ -106,7 +107,7 @@ describe("doctor runtime verdict table", () => {
     const orchDir = tempDir();
     writeSettingsFixture(orchDir, { runtime: "node" });
 
-    const result = checkRuntime(orchDir, observed({
+    const result = checkRuntime(fileSettingsManager(orchDir).current(), observed({
       running: "node",
       entrypoint: () => ({ path: "/usr/local/bin/orch", runtime: "bun" }),
     }));
@@ -120,7 +121,7 @@ describe("doctor runtime verdict table", () => {
     const orchDir = tempDir();
     writeSettingsFixture(orchDir, { runtime: "deno" });
 
-    const result = checkRuntime(orchDir, observed({
+    const result = checkRuntime(fileSettingsManager(orchDir).current(), observed({
       running: "deno",
       resolve: (bin) => (bin === "deno" ? null : `/usr/bin/${bin}`),
       entrypoint: () => ({ path: "/usr/bin/orch", runtime: "deno" }),
@@ -134,7 +135,7 @@ describe("doctor runtime verdict table", () => {
     const orchDir = tempDir();
     writeSettingsFixture(orchDir, { runtime: "node" });
 
-    const result = checkRuntime(orchDir, observed({ entrypoint: () => null }));
+    const result = checkRuntime(fileSettingsManager(orchDir).current(), observed({ entrypoint: () => null }));
 
     expect(result).toMatchObject({ id: "runtime", status: "ok" });
   });
@@ -143,7 +144,7 @@ describe("doctor runtime verdict table", () => {
     const orchDir = tempDir();
     writeSettingsFixture(orchDir, { runtime: "node" });
 
-    const result = checkRuntime(orchDir, observed({
+    const result = checkRuntime(fileSettingsManager(orchDir).current(), observed({
       running: "bun",
       entrypoint: () => ({ path: "/usr/local/bin/orch", runtime: "bun" }),
     }));
@@ -153,7 +154,8 @@ describe("doctor runtime verdict table", () => {
   });
 
   test("skips rather than throwing when settings cannot be read", () => {
-    const result = checkRuntime(path.join(tempDir(), "absent"), observed());
+    const settings = fileSettingsManager(tempOrchDir("orch-doctor-runtime-absent-")).currentOrNull();
+    const result = settings === null ? { id: "runtime", status: "skip" } : checkRuntime(settings, observed());
 
     expect(result).toMatchObject({ id: "runtime", status: "skip" });
   });

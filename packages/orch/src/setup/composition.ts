@@ -1,6 +1,6 @@
+import type { OrchDir } from "../types/core.ts";
 import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends } from "../backends/registry.ts";
-import { loadSettingsOrNull } from "../settings/read.ts";
 import { settingsPath } from "../settings/schema.ts";
 import { writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsRuntime } from "../settings/write.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
@@ -8,7 +8,6 @@ import { signedOutFix } from "../adapters/prerequisites.ts";
 import { assertModelListed } from "../policy/model.ts";
 import { logStep, logWarning } from "./io.ts";
 import { selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectRuntime } from "./wizard.ts";
-import { orchDir } from "../presence/writer.ts";
 import { errorMessage } from "../util.ts";
 import { die } from "../commands/target.ts";
 import { SetupFlagError, validateSetupFlag } from "./flags.ts";
@@ -16,6 +15,7 @@ import type { SetupOptions } from "./flags.ts";
 import type { AdapterId, AgentAdapter, HarnessModel } from "../types/adapter.ts";
 import type { BackendId } from "../types/backend.ts";
 import type { HarnessModelChoices } from "../types/command.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 /** Resolve the setup harness set from a comma-separated flag, the multi-select wizard, or exit. Null on cancel. */
 export async function resolveProviderSet<Id extends string>(
@@ -82,11 +82,11 @@ export function resolveModelAssignments(flags: readonly string[], harnesses: rea
  *  Explicit `harness=model` entries target only that harness; a bare model is used only
  *  when exactly one harness is selected. Null when the user cancels. */
 export async function resolveHarnessModels(
+  settings: OrchSettings | null,
   flags: readonly string[] | string | undefined,
   harnesses: readonly AdapterId[],
   interactive: boolean,
 ): Promise<HarnessModelChoices | null> {
-  const settings = loadSettingsOrNull(orchDir());
   const choices: HarnessModelChoices = { defaults: {}, preferred: {}, allowed: {} };
   const modelFlags = typeof flags === "string" ? [flags] : flags ?? [];
   const assignments = resolveModelAssignments(modelFlags, harnesses);
@@ -185,6 +185,7 @@ export function modelListsNote(preferred: readonly string[] | undefined, allowed
 
 /** Persist the composition selections (runtime, installed sets, active defaults) to settings.json. */
 export function recordComposition(
+  orchDir: OrchDir,
   runtime: OrchRuntime,
   adapters: AdapterId[],
   defaultAdapter: AdapterId,
@@ -194,22 +195,22 @@ export function recordComposition(
 ): void {
   // Record the runtime FIRST: it is a required key with no default, so no other write can
   // produce a valid file until it is present. Re-recording the same value is a no-op change.
-  writeSettingsRuntime(orchDir(), runtime);
+  writeSettingsRuntime(orchDir, runtime);
   // Then the installed sets — writeSettingsDefault validates the default against them.
-  writeSettingsEnabled(orchDir(), { adapters, backends });
-  writeSettingsDefault(orchDir(), "adapter", defaultAdapter);
-  writeSettingsDefault(orchDir(), "backend", defaultBackend);
+  writeSettingsEnabled(orchDir, { adapters, backends });
+  writeSettingsDefault(orchDir, "adapter", defaultAdapter);
+  writeSettingsDefault(orchDir, "backend", defaultBackend);
   // Every launch path resolves its harness's model from here. Recording them is not
   // optional: an install without one fails at the first spawn, including setup's own smoke.
-  writeSettingsModels(orchDir(), models.defaults);
+  writeSettingsModels(orchDir, models.defaults);
   // Two independent lists, two writers: the quicklist a harness shows in its own picker,
   // and the gate its spawns are held to. Neither may stand in for the other.
-  writeSettingsPreferredModels(orchDir(), models.preferred);
-  writeSettingsAllowedModels(orchDir(), models.allowed);
+  writeSettingsPreferredModels(orchDir, models.preferred);
+  writeSettingsAllowedModels(orchDir, models.allowed);
   // Seed the complete live settings tree only after composition writes have landed.
-  writeSettingsFullTree(orchDir());
+  writeSettingsFullTree(orchDir);
   process.stdout.write(
-    `Selection recorded in ${settingsPath(orchDir())}:\n` +
+    `Selection recorded in ${settingsPath(orchDir)}:\n` +
     `  runtime           = ${runtime}${runtime === "deno" ? "  (sandboxed shims)" : ""}\n` +
     `  adapters          = ${adapters.join(", ")}\n` +
     `  default adapter   = ${defaultAdapter}\n` +
@@ -228,7 +229,7 @@ export interface SetupComposition {
   models: HarnessModelChoices;
 }
 
-export async function resolveSetupComposition(options: SetupOptions): Promise<SetupComposition | null> {
+export async function resolveSetupComposition(settings: OrchSettings | null, options: SetupOptions): Promise<SetupComposition | null> {
   const adapterIds = allAdapters().map((adapter) => adapter.id);
   const backendIds = allBackends().map((entry) => entry.id);
   const runtime = await resolveRuntime(options.runtimeFlag, options.interactive);
@@ -241,15 +242,12 @@ export async function resolveSetupComposition(options: SetupOptions): Promise<Se
   if (backends === null) return null;
   const defaultBackend = await resolveActiveDefault(backends, options.backendFlag !== undefined, options.interactive, selectDefaultBackend);
   if (defaultBackend === null) return null;
-  const models = await resolveHarnessModels(options.modelFlags, adapters, options.interactive);
+  const models = await resolveHarnessModels(settings, options.modelFlags, adapters, options.interactive);
   return models === null ? null : { runtime, adapters, defaultAdapter, backends, defaultBackend, models };
 }
 
-/** True while setup has never recorded a harness selection — including the first run, where
- * settings.json does not exist yet. "No settings.json" is the signal to run the wizard, not an
- * error, so this gate goes through the non-throwing `loadSettingsOrNull` probe rather than
- * `loadSettings` (which treats an absent file as the hard error it is for every other command).
- * A present-but-malformed file still throws here, exactly as before. */
-export function compositionUnrecorded(): boolean {
-  return !loadSettingsOrNull(orchDir())?.defaults.adapter;
+/** True while setup has never recorded a harness selection. The caller passes
+ * `services.settings.currentOrNull()` because an absent file means "run the wizard", not an error. */
+export function compositionUnrecorded(settings: OrchSettings | null): boolean {
+  return !settings?.defaults.adapter;
 }

@@ -4,6 +4,7 @@ import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
 import type { HomeSubject, RecordedProcess, SpaceHomeRole } from "./backend.ts";
 import type { BridgeMessage } from "../control/bridge-message.ts";
 import type { ThinkingLevel } from "./policy.ts";
+import type { OrchDir } from "./core.ts";
 
 export type HostOs = "linux" | "windows" | "darwin";
 
@@ -273,7 +274,7 @@ export interface Lease {
 }
 
 export interface OpenHomeRequest {
-  readonly directory: string;
+  readonly directory: OrchDir;
   readonly subject: HomeSubject;
   readonly plexerId: string;
   /** The caller gates on the environment holding a home at all (E13); an

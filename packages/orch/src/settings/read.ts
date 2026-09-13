@@ -1,5 +1,4 @@
 import * as filesystem from "node:fs";
-import * as path from "node:path";
 import { z } from "zod";
 // settings.ts is a leaf module imported during almost every module graph's init
 // (notify.ts → settings.ts among others). It must never import the provider
@@ -13,7 +12,7 @@ import { isLogLevel } from "../log.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import { SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA, type SettingsFile, settingsPath } from "./schema.ts";
 import type { OrchSettings, SettingSource } from "../types/settings.ts";
-import type { LogLevel } from "../types/core.ts";
+import type { LogLevel, OrchDir } from "../types/core.ts";
 
 /** Describe a rejected provider id so the operator sees the value and the closed set,
  *  never a raw enum dump. `enabled.adapters[0]` and `defaults.adapter` both name one adapter. */
@@ -36,15 +35,8 @@ function unknownProviderId(root: unknown, path: readonly PropertyKey[]):
   };
 }
 
-/** Parse and schema-validate `settings.json`, or null when the file is absent. Throws loudly on any defect. */
-export function readSettingsFile(file: string): SettingsFile | null {
-  let text: string;
-  try {
-    text = filesystem.readFileSync(file, "utf8");
-  } catch (error: unknown) {
-    if (errnoCode(error) === "ENOENT") return null;
-    throw error;
-  }
+/** Parse and schema-validate settings text. `file` is only used in messages. Throws loudly on any defect. */
+export function parseSettingsText(text: string, file: string): SettingsFile {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -77,11 +69,23 @@ export function readSettingsFile(file: string): SettingsFile | null {
   return result.data;
 }
 
+/** Parse and schema-validate `settings.json`, or null when the file is absent. Throws loudly on any defect. */
+export function readSettingsFile(file: string): SettingsFile | null {
+  let text: string;
+  try {
+    text = filesystem.readFileSync(file, "utf8");
+  } catch (error: unknown) {
+    if (errnoCode(error) === "ENOENT") return null;
+    throw error;
+  }
+  return parseSettingsText(text, file);
+}
+
 /** Move an unreadable `settings.json` aside so `orch setup` can re-record from scratch, and
  * return the backup path; null when the file is absent or already readable. Pre-publish, a file
  * from an older schema is malformed data rather than something to migrate (Rule 8) — setup reaps
  * it. This is the ONE place that does so, and it is never reached by an ordinary command. */
-export function reapUnreadableSettings(orchDir: string, suffix = "invalid"): string | null {
+export function reapUnreadableSettings(orchDir: OrchDir, suffix = "invalid"): string | null {
   const file = settingsPath(orchDir);
   if (!filesystem.existsSync(file)) return null;
   try {
@@ -207,22 +211,8 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
   };
 }
 
-/** Load and validate `$orchDir/settings.json`, or null when the file does not exist yet.
- *
- * ONLY for the callers that must genuinely distinguish a first run from a settings-recorded
- * install — setup's own gate. Every other caller uses `loadSettings`, which treats an
- * absent file as the loud error it is. A malformed file still throws here. */
-export function loadSettingsOrNull(orchDir: string): OrchSettings | null {
-  const file = settingsPath(orchDir);
-  const root = readSettingsFile(file);
-  if (root === null) {
-    // Rule 8: a legacy config.toml is never read or migrated — its presence is an error.
-    const legacy = path.join(orchDir, "config.toml");
-    if (filesystem.existsSync(legacy)) {
-      throw new Error(`${legacy}: legacy config.toml detected - settings now live in ${file}; re-run orch setup (the old values are not read)`);
-    }
-    return null;
-  }
+/** A validated file root to the fully-populated settings every reader uses. */
+export function settingsFromFile(file: string, root: SettingsFile): OrchSettings {
   requireEnabledComposition(file, root);
   return {
     runtime: root.runtime,
@@ -231,15 +221,9 @@ export function loadSettingsOrNull(orchDir: string): OrchSettings | null {
   };
 }
 
-/** Load and validate `$orchDir/settings.json`. orch has NO built-in defaults: an absent
- * settings.json is a loud error naming the file and `orch setup`, never a silent empty
- * settings. Use `loadSettingsOrNull` only where first-run really must be distinguished. */
-export function loadSettings(orchDir: string): OrchSettings {
-  const settings = loadSettingsOrNull(orchDir);
-  if (settings === null) {
-    throw new Error(`${settingsPath(orchDir)} does not exist - orch has no built-in settings and does nothing by default.\nRun: orch setup`);
-  }
-  return settings;
+/** Message shown when settings.json is absent. */
+export function absentSettingsMessage(file: string): string {
+  return `${file} does not exist - orch has no built-in settings and does nothing by default.\nRun: orch setup`;
 }
 
 /** The declared JS runtime for this install. The ONE read of the runtime key — nothing
@@ -248,8 +232,8 @@ export function loadSettings(orchDir: string): OrchSettings {
  * not the same thing: it establishes reality in order to compare it against this
  * declaration. Detecting-to-verify is the point of the key; detecting-to-default would
  * defeat it, because a value inferred from reality can never disagree with reality. */
-export function declaredRuntime(orchDir: string): OrchRuntime {
-  return loadSettings(orchDir).runtime;
+export function declaredRuntime(settings: OrchSettings): OrchRuntime {
+  return settings.runtime;
 }
 function hasFallbackShape<T>(value: unknown, fallback: T): value is T {
   if (typeof fallback === "number") return typeof value === "number";
@@ -303,13 +287,8 @@ export function resolveSetting<T>(opts: { flag?: T; env?: string; settings?: T; 
  * happened to be listed, and an orchestrator could not tell a rejected model from an
  * applied one. Restricting models is an explicit `models.allowed` opt-in, per harness.
  */
-export function allowedModelPatterns(orchDir: string, harness: AdapterId): string[] {
-  try {
-    return loadSettings(orchDir).models.allowed[harness] ?? [];
-  } catch {
-    // Malformed settings restrict nothing; the write path still reports failures.
-    return [];
-  }
+export function allowedModelPatterns(settings: OrchSettings, harness: AdapterId): string[] {
+  return settings.models.allowed[harness] ?? [];
 }
 /**
  * The log level every logger must use: ORCH_LOG_LEVEL, else `logging.level` from
@@ -318,14 +297,10 @@ export function allowedModelPatterns(orchDir: string, harness: AdapterId): strin
  * and then ignored. An unrecognised env value is not a level, so it does not get
  * to outrank the file the user actually wrote.
  */
-export function settingsLogLevel(directory: string): LogLevel {
+/** ORCH_LOG_LEVEL outranks the file; an unrecognised env value does not. */
+export function logLevelFor(settings: OrchSettings | null): LogLevel {
   const env = process.env.ORCH_LOG_LEVEL;
   if (env !== undefined && isLogLevel(env)) return env;
-  let settings: OrchSettings | null;
-  try {
-    settings = loadSettingsOrNull(directory);
-  } catch {
-    settings = null;
-  }
   return settings?.logging?.level ?? SETTINGS_DEFAULTS.logging.level;
 }
+

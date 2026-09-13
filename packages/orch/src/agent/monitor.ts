@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // The in-session view of a fleet, for a harness session that is ORCHESTRATING one.
 //
 // An orchestrator otherwise learns nothing until it polls: a worker can sit
@@ -68,7 +69,7 @@ function agentLabel(event: NotifyEvent): string {
  * while the session is still starting; the UI binds when a context arrives.
  * Every event is kept, but only the session's OWN fleet is ever surfaced.
  */
-export function createFleetMonitor(orchDir: string, options: FleetMonitorOptions): FleetMonitor {
+export function createFleetMonitor(orchDir: OrchDir, options: FleetMonitorOptions): FleetMonitor {
   const seen = new Map<string, { row: FleetAgentRow; spawnedBy: string | undefined }>();
   const listeners = new Set<() => void>();
   let context: HarnessContext | undefined;
@@ -164,10 +165,10 @@ export function createFleetMonitor(orchDir: string, options: FleetMonitorOptions
 /** Wire the fleet monitor into an orchestrating session; a spawned worker gets nothing. */
 export function registerFleetMonitor(
   harness: HarnessApi,
-  orchDir: string,
+  orchDir: OrchDir,
   options: FleetMonitorOptions,
 ): FleetReadModel | undefined {
-  const ownCallerKind = options.callerKind ?? callerKind;
+  const ownCallerKind = options.callerKind ?? (() => callerKind(orchDir));
   if (ownCallerKind() === "agent") return undefined;
   const monitor = createFleetMonitor(orchDir, options);
   harness.on("session_start", (_event, context) => {

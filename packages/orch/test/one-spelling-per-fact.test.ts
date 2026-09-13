@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { isRpcResponse } from "../src/daemon/rpc/wire.ts";
+import { parseRpcLine } from "../src/daemon/rpc/wire.ts";
 import { ensureHost, currentHostOs } from "../src/store/agent-rows.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { hosts } from "../src/db/schema.ts";
 import { isRecord, osSide } from "../src/util.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const packageRoot = join(import.meta.dir, "..");
 const walk = (directory: string): string[] => readdirSync(directory).flatMap((entry) => {
   const file = `${directory}/${entry}`;
@@ -23,7 +23,7 @@ afterEach(() => {
 
 describe("one spelling per shared fact", () => {
   test("osSide and the store agree for an injected Windows platform", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-one-spelling-"));
+    const directory = tempOrchDir("orch-one-spelling-");
     dirs.push(directory);
 
     expect(osSide("win32")).toBe("windows");
@@ -39,8 +39,8 @@ describe("one spelling per shared fact", () => {
     expect(isRecord([])).toBe(false);
     expect(isRecord(null)).toBe(false);
     expect(isRecord({ answer: 42 })).toBe(true);
-    expect(isRpcResponse([])).toBe(false);
-    expect(isRpcResponse(null)).toBe(false);
+    expect(parseRpcLine([])).toBeNull();
+    expect(parseRpcLine(null)).toBeNull();
   });
 
   test("removed identity method has no source spelling", () => {

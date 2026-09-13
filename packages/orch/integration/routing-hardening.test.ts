@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { join } from "node:path";
 import { addTask, claimTask, listTasks, nextQueuedTask } from "../src/queue.ts";
 import { orm } from "../src/store/connection.ts";
@@ -11,10 +9,11 @@ import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "../test/helpers/rows.ts";
-const tempDirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const tempDirs: OrchDir[] = [];
 
-function tempDir(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+function tempDir(prefix: string): OrchDir {
+  const dir = tempOrchDir(prefix);
   tempDirs.push(dir);
   return dir;
 }
@@ -23,7 +22,7 @@ afterEach(() => {
   while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
-function seedPack(dir: string): void {
+function seedPack(dir: OrchDir): void {
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch','orch','pi','/tmp','orch',1)`);

@@ -1,19 +1,20 @@
+import type { OrchDir } from "../types/core.ts";
 import { resolveBackend } from "../backends/registry.ts";
-import { loadSettings } from "../settings/read.ts";
 import {loadPresence} from "../presence/store.ts";
-import { orchDir } from "../presence/writer.ts";
 import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
 import { cmdSpawn } from "../commands/spawn/index.ts";
 import { resultText } from "../commands/target.ts";
-import { commandLogger } from "../commands/logging.ts";
+
 import type { SmokeSteps } from "../types/command.ts";
+import type { Services } from "../types/services.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 /** Spawn one headless agent through the real `orch spawn` path and return the newly-recorded key. */
-export async function spawnHeadlessSmokeAgent(cwd: string, prompt: string): Promise<string> {
-  const before = new Set(agentViews(orchDir()).map((view) => view.id));
-  await cmdSpawn(["orch-smoke", "--backend", "headless", "--dir", cwd, "--prompt", prompt]);
-  const after = agentViews(orchDir());
+export async function spawnHeadlessSmokeAgent(services: Services, cwd: string, prompt: string): Promise<string> {
+  const before = new Set(agentViews(services.orchDir).map((view) => view.id));
+  await cmdSpawn(services, ["orch-smoke", "--backend", "headless", "--dir", cwd, "--prompt", prompt]);
+  const after = agentViews(services.orchDir);
   // The row that was not there before the single-agent spawn IS the smoke agent. Nothing here
   // re-checks the plexer: `--backend headless` above already decided it, and re-asserting it as a
   // string comparison would be the environment-id branch Rule 11 bans.
@@ -28,38 +29,40 @@ export function buildSmokePrompt(): string {
 }
 
 /** Best-effort close of the headless smoke agent by its key. */
-export function closeSmokeAgent(key: string): void {
+export function closeSmokeAgent(orchDir: OrchDir, key: string): void {
   try {
     const backend = resolveBackend({ configured: "headless" });
-    const handle = backend.handleLookup?.handleFor(key);
+    const handle = backend.handleLookup?.handleFor(key, orchDir);
     if (handle !== undefined) backend.placement?.close(handle);
   } catch {
     // A leaked headless process is reaped by `orch clean`; never let teardown mask the verdict.
   }
 }
 
-export const defaultSmokeSteps: SmokeSteps = {
-  spawnHeadless: spawnHeadlessSmokeAgent,
+export function defaultSmokeSteps(services: Services): SmokeSteps {
+  return {
+  spawnHeadless: (cwd, prompt) => spawnHeadlessSmokeAgent(services, cwd, prompt),
   buildPrompt: buildSmokePrompt,
-  readResultText: (key) => resultText(loadPresence().get(key)?.result),
-  cleanup: closeSmokeAgent,
+  readResultText: (key) => resultText(loadPresence(services.orchDir).get(key)?.result),
+  cleanup: (key) => closeSmokeAgent(services.orchDir, key),
   now: () => Date.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   timeoutMs: 60_000,
-};
+  };
+}
 
 /** The closing smoke round-trip (12.5): spawn a headless agent ON a trivial prompt through orchd
  * and read its result back — so "setup completed" means orch can actually deliver work. The work
  * goes in at spawn because a detached agent has no TTY to idle on: it runs its prompt and exits.
  * Reports the verdict and returns it; setup's exit code is never touched. Every step is injectable
  * so the failure paths are testable without a live agent. */
-export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}): Promise<boolean> {
-  const step = { ...defaultSmokeSteps, ...steps };
+export async function runSetupSmoke(services: Services, cwd: string, steps: Partial<SmokeSteps> = {}): Promise<boolean> {
+  const step = { ...defaultSmokeSteps(services), ...steps };
   let key: string;
   try {
     key = await step.spawnHeadless(cwd, step.buildPrompt());
   } catch (error: unknown) {
-    commandLogger().error("setup.smoke-spawn-failed", { error: errorMessage(error) });
+    services.logger.error("setup.smoke-spawn-failed", { error: errorMessage(error) });
     process.stdout.write(
       `Smoke failed: orch could not deliver work - the headless spawn was rejected (${errorMessage(error)}).\n` +
       `  "setup completed" does not yet mean orch can deliver work; check 'orch daemon status'.\n`,
@@ -75,7 +78,7 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
   }
   step.cleanup(key);
   if (!result) {
-    commandLogger().error("setup.smoke-timeout", { key, timeoutMs: step.timeoutMs });
+    services.logger.error("setup.smoke-timeout", { key, timeoutMs: step.timeoutMs });
     process.stdout.write(
       `Smoke failed: the agent launched but no result came back within ${Math.round(step.timeoutMs / 1000)}s - orch did not complete a work round-trip.\n` +
       `  Check the harness auth and 'orch tail ${key}'.\n`,
@@ -94,13 +97,13 @@ export async function runSetupSmoke(cwd: string, steps: Partial<SmokeSteps> = {}
  * then try to spawn pi anyway, turning a known-absent prerequisite into a
  * spawn failure that read like a broken install.
  */
-export function smokeBlocker(): string | null {
+export function smokeBlocker(settings: OrchSettings): string | null {
   try {
     if (!resolveBackend({ configured: "headless" }).isAvailable()) return "headless backend is unavailable here";
   } catch {
     return "headless backend is unavailable here";
   }
-  const adapter = loadSettings(orchDir()).defaults.adapter;
+  const adapter = settings.defaults.adapter;
   if (!adapter) return "no default harness is recorded";
   if (!binaryOnPath(adapter)) return `${adapter} is not on PATH`;
   return null;

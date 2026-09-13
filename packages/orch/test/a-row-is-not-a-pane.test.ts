@@ -1,6 +1,7 @@
+import { orchDirAt } from "../src/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildEntities } from "../src/entities.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -9,7 +10,8 @@ import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-row
 import { setHandle } from "../src/store/interval-rows.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { testServices } from "./helpers/services.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
@@ -31,7 +33,7 @@ import { sql } from "drizzle-orm";
  * link, and answered with an absence by anything that needs a screen (E14).
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const oldDir = process.env.ORCH_DIR;
 
 afterEach(() => {
@@ -40,8 +42,8 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-row-not-pane-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-row-not-pane-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   // Only an enabled plexer is asked for its inventory; the fake registers as headless.
@@ -54,7 +56,7 @@ function fixture(): string {
 }
 
 /** An agent orch spawned into a plexer pane, recorded exactly as spawn records it. */
-function seedAgentInPane(dir: string, id: string, handle: string): void {
+function seedAgentInPane(dir: OrchDir, id: string, handle: string): void {
   ensureHarness(dir, "pi", "pi", 1);
   ensurePlexer(dir, "headless", "headless");
   insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
@@ -63,7 +65,7 @@ function seedAgentInPane(dir: string, id: string, handle: string): void {
 }
 
 /** A live agent: its recorded process is this runner, so the failure cannot be blamed on a dead process. */
-function seedLivePresence(dir: string, id: string): void {
+function seedLivePresence(dir: OrchDir, id: string): void {
   seedLiveProcess(dir, id);
   const directory = join(dir, "agents", id);
   mkdirSync(directory, { recursive: true });
@@ -74,7 +76,7 @@ function seedLivePresence(dir: string, id: string): void {
 
 function entityFor(id: string, panes: readonly ReturnType<typeof fakePane>[]) {
   const backend = new FakePanedBackend({ id: "headless", panes });
-  return withRegisteredBackend(backend, () => buildEntities().find((entity) => entity.key === id));
+  return withRegisteredBackend(backend, () => buildEntities(orchDirAt(process.env.ORCH_DIR!), testServices({ orchDir: orchDirAt(process.env.ORCH_DIR!), settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } }).settings.current()).find((entity) => entity.key === id));
 }
 
 describe("a row is not evidence that a pane exists (U1, U4)", () => {

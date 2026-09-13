@@ -2,10 +2,11 @@ import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentEnvironment, AgentView } from "./store.ts";
-import type { Entity, LogLevel, WorkerHeaderContext } from "./core.ts";
+import type { Entity, LogLevel, OrchDir, WorkerHeaderContext } from "./core.ts";
+import type { ResultOf } from "../daemon/rpc/protocol.ts";
 export interface DeadAgentSweepOptions {
   /** Root to inspect; omitted for the operator's configured ORCH_DIR. */
-  root?: string;
+  root?: OrchDir;
   /** Only reap directories whose mtime is before this cutoff. */
   olderThan?: Date;
 }
@@ -17,14 +18,7 @@ export interface DispatchToAgentOptions {
   gov?: WriteGovernance;
 }
 
-export interface DaemonStatus {
-  pid: number;
-  startedAt: string;
-  uptimeSec: number;
-  codeHash: string;
-  socket: string;
-  tcpEndpoint?: string;
-}
+export type DaemonStatus = ResultOf<"daemon-status">;
 
 export interface WriteGovernance {
   steal?: boolean;
@@ -112,7 +106,7 @@ export interface SmokeSteps {
 /** Where this command runs: orch's store, the plexer it is in, and that plexer's
  *  space-home role when it composes one. */
 export interface SpaceEnvironment {
-  readonly directory: string;
+  readonly directory: OrchDir;
   readonly plexerId: string;
   readonly spaceHome: SpaceHomeRole | null;
   /** The agent asking, recorded as `spaces.created_by`. It grants nothing. */
@@ -303,7 +297,7 @@ export interface Spawner {
 
 /** What deciding a {@link SpawnPlacement} needs. */
 export interface SpawnPlacementRequest {
-  readonly directory: string;
+  readonly directory: OrchDir;
   readonly backend: Backend;
   /** The space the caller named, or null. Never invented here. */
   readonly space: string | null;
@@ -325,7 +319,7 @@ export interface SpawnPlacementRequest {
 
 /** What opening the home a {@link SpawnPlacement} owes needs. */
 export interface OpenFleetHomeRequest {
-  readonly directory: string;
+  readonly directory: OrchDir;
   readonly backend: Backend;
   readonly subject: HomeSubject;
   /** Where the fleet works, and the name its home is opened under: a workspace

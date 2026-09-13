@@ -1,10 +1,11 @@
 import { hostname } from "node:os";
 import { confirm, isCancel } from "@clack/prompts";
-import { orchDir } from "../presence/writer.ts";
+import type { Services } from "../types/services.ts";
 import { currentHostOs, ensureHost } from "../store/agent-rows.ts";
 import { approveGrantRequest, denyGrantRequest, pendingGrantRequest, pendingGrantRequests, renderGrantRequest } from "../store/grant-rows.ts";
 import { die } from "./target.ts";
 import type { GrantRequest } from "../types/store.ts";
+import type { OrchDir } from "../types/core.ts";
 
 /**
  * Approve actions an agent asked for and was refused.
@@ -27,13 +28,13 @@ function listRequests(requests: readonly GrantRequest[]): void {
 }
 
 /** The host row the approval points at: the machine that had the terminal. */
-function approvingHost(directory: string): string {
+function approvingHost(directory: OrchDir): string {
   const host = hostname();
   ensureHost(directory, host, host, currentHostOs(), Date.now());
   return host;
 }
 
-async function reviewRequest(directory: string, request: GrantRequest): Promise<void> {
+async function reviewRequest(directory: OrchDir, request: GrantRequest): Promise<void> {
   writeLine(`\n${renderGrantRequest(request)}\n`);
   const answer = await confirm({ message: "Approve this exact action?", initialValue: false });
   if (isCancel(answer) || answer !== true) {
@@ -46,8 +47,8 @@ async function reviewRequest(directory: string, request: GrantRequest): Promise<
   writeLine(`granted ${request.id} - one use, expires in ${minutes}m. The agent may now retry that exact command.`);
 }
 
-export async function cmdGrant(args: string[]): Promise<void> {
-  const directory = orchDir();
+export async function cmdGrant(services: Services, args: string[]): Promise<void> {
+  const directory = services.orchDir;
   const requested = args.find((argument) => !argument.startsWith("--"));
   const requests = pendingGrantRequests(directory);
   if (requests.length === 0) {

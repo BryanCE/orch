@@ -1,17 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { runWorkLoop, statusSpeaksForTask } from "../src/daemon/work-loop.ts";
 import { addTask, type TaskRec } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import { sql } from "drizzle-orm";
-
+import { testServices } from "./helpers/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
 function claimedTask(): TaskRec {
   return {
     id: "t1", text: "x", opts: {}, enqueuedBy: "orch", scopeAgentId: null,
@@ -30,7 +28,7 @@ describe("work loop attempt binding", () => {
   });
 });
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(directories.pop()!); });
 
 /** A1: the presence key IS the minted id the runner's attempts and events carry
@@ -38,8 +36,8 @@ afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(dir
 const RUNNER_KEY = "runner0000";
 
 /** An enqueuer and one runner in its pack, with the runner idle on disk. */
-function fleet(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-work-loop-enqueuer-"));
+function fleet(): OrchDir {
+  const dir = tempOrchDir("orch-work-loop-enqueuer-");
   directories.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
@@ -64,6 +62,7 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
         pollIntervalMs: 10,
         once: true,
         json: true,
+        settings: testServices({ orchDir: dir, settings: {} }).settings,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();

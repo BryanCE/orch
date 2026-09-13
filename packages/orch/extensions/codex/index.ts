@@ -15,8 +15,8 @@
  */
 import { detectCodexState, extractCodexResult } from "../../src/adapters/codex-events.ts";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
-import { launchCredential } from "../../src/identity/launch.ts";
-import { ensurePresenceAgentDir, launchStamp, parseJsonArgument, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
+import { launchStamp, parseJsonArgument, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
+import { baseStatus, presenceSession } from "../../src/presence/session.ts";
 import { projectRoot } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 import type { JsonRecord } from "../../src/types/core.ts";
@@ -24,18 +24,13 @@ import type { JsonRecord } from "../../src/types/core.ts";
 const AGENT_ID = "codex";
 const MAX_TEXT = 400;
 
-// No launch credential means a regular (non-orch) codex session — nothing to
-// record, exit silently. Only a present-but-malformed credential is a wiring error.
-const key = launchCredential();
-if (key === null) process.exit(0);
+const session = presenceSession();
+if (session.kind === "not-orch") process.exit(0);
 
 const raw = process.argv[2];
 const payload = parseJsonArgument(raw);
 
-const directory = ensurePresenceAgentDir(key);
-if (!directory) process.exit(0);
-
-const previous = readStatus(directory);
+const previous = readStatus(session.directory);
 const now = new Date().toISOString();
 // Every codex notify event today is `agent-turn-complete`, fired only after a
 // settled successful turn (design D1) — synthesizing exitCode: 0 here (never
@@ -51,22 +46,24 @@ const sessionPath = textValue(process.env.ORCH_AGENT_LOG) ?? textValue(previous.
 // No pid: a notify program only ever sees the shell that ran it. Liveness is
 // the process orch recorded at spawn (Rule 11), never a guess written here.
 const status: JsonRecord = {
-  ...launchStamp(previous, AGENT_ID, key),
-  cwd: textValue(payload.cwd) ?? previous.cwd ?? process.cwd(),
-  project: projectRoot(),
+  ...launchStamp(previous, AGENT_ID, session.key),
+  ...baseStatus({
+    cwd: textValue(payload.cwd) ?? textValue(previous.cwd) ?? process.cwd(),
+    project: projectRoot(),
+    lastText: truncateOptional(resultText, MAX_TEXT) ?? textValue(previous.lastText) ?? null,
+    updatedAt: now,
+  }),
   state,
   sessionPath,
-  lastText: truncateOptional(resultText, MAX_TEXT) ?? textValue(previous.lastText),
-  updatedAt: now,
   finishedAt: now,
 };
-writeStatus(directory, status);
+writeStatus(session.directory, status);
 
 if (resultText !== undefined) {
-  writeResult(directory, {
+  writeResult(session.directory, {
     schema: PRESENCE_SCHEMA,
     agent: AGENT_ID,
-    key,
+    key: session.key,
     text: resultText,
     sessionPath,
     finishedAt: now,

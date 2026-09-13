@@ -1,8 +1,6 @@
-import { loadSettings } from "../settings/read.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { collapse, resolveTarget, spaceOf } from "../entities.ts";
 import { loadPresence } from "../presence/store.ts";
-import { orchDir } from "../presence/writer.ts";
 import { selfId } from "../identity/self.ts";
 import { callerKind } from "../policy/caller.ts";
 import { holdsLease } from "../store/lease-rows.ts";
@@ -10,24 +8,26 @@ import { isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
-import { assertAgentOwned, die, forbidNonOperatorOverride, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
+import { agentViewIndex, assertAgentOwned, die, forbidNonOperatorOverride, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
 import { entityAdapter } from "./status.ts";
 import { latestRunForKey } from "./runs.ts";
 import { selectRun } from "../store/run-rows.ts";
-import { commandLogger } from "./logging.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
-import type { Entity } from "../types/core.ts";
+import type { AgentView } from "../types/store.ts";
+import type { Entity, Logger, OrchDir } from "../types/core.ts";
+import type { Services } from "../types/services.ts";
+import type { OrchSettings } from "../types/settings.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
 
-function resultLogger(key?: string) {
-  return key !== undefined && isAgentId(key) ? commandLogger().forAgent(key) : commandLogger();
+function resultLogger(logger: Logger, key?: string) {
+  return key !== undefined && isAgentId(key) ? logger.forAgent(key) : logger;
 }
 
 interface QuestionRow { key: string; name: string | null; age: string; question: string; id?: string; ts?: string; space?: string; host?: string; warning?: string }
 
-function writeHistoricalResult(run: { result?: unknown }, json: boolean, key?: string): boolean {
+function writeHistoricalResult(logger: Logger, run: { result?: unknown }, json: boolean, key?: string): boolean {
   if (run.result === undefined) return false;
-  resultLogger(key).info("result.history-fallback");
+  resultLogger(logger, key).info("result.history-fallback");
   // Stdout carries what the human asked for — here, the result
   // text itself. A provenance notice on stdout corrupts `orch result … | …`.
   process.stdout.write("(result from run history)\n");
@@ -47,11 +47,11 @@ function parseResultArgs(args: string[]): ResultOptions {
   return { json: enabled.has("--json"), force: enabled.has("--force"), target: positional[0] };
 }
 
-function writeRemoteResult(target: string, options: ResultOptions): boolean {
-  const remote = targetHost(target);
+function writeRemoteResult(orchDir: OrchDir, settings: OrchSettings, target: string, options: ResultOptions): boolean {
+  const remote = targetHost(settings.hosts, target);
   if (!remote) return false;
-  forbidNonOperatorOverride("remote targets");
-  const host = loadSettings(orchDir()).hosts[remote.host];
+  forbidNonOperatorOverride(orchDir, "remote targets");
+  const host = settings.hosts[remote.host];
   const destination = host?.dest;
   if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
   const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(options.force ? ["--force"] : []), ...(options.json ? ["--json"] : [])]), { timeoutMs: host.timeout_ms });
@@ -67,8 +67,8 @@ function writePresenceResult(result: unknown, json: boolean): boolean {
   return true;
 }
 
-function adapterResultText(ent: Entity, adapter: AgentAdapter): string | undefined {
-  return adapter.extractResult({ sessionPath: ent.sessionPath ?? undefined });
+function adapterResultText(orchDir: OrchDir, ent: Entity, adapter: AgentAdapter): string | undefined {
+  return adapter.extractResult({ sessionPath: ent.sessionPath ?? undefined }, orchDir);
 }
 
 function adapterSessionView(ent: Entity, adapter: AgentAdapter): SessionView | undefined {
@@ -90,12 +90,12 @@ function writeAdapterJson(ent: Entity, adapter: AgentAdapter, text: string): voi
   }, null, 2) + "\n");
 }
 
-function writeAdapterResult(ent: Entity, json: boolean): boolean {
-  const adapter = entityAdapter(ent);
+function writeAdapterResult(orchDir: OrchDir, logger: Logger, ent: Entity, views: ReadonlyMap<string, AgentView>, json: boolean): boolean {
+  const adapter = entityAdapter(ent, views);
   if (!adapter) return false;
-  const text = adapterResultText(ent, adapter);
+  const text = adapterResultText(orchDir, ent, adapter);
   if (!text) return false;
-  resultLogger(ent.key).info("result.adapter-fallback");
+  resultLogger(logger, ent.key).info("result.adapter-fallback");
   // Same rule: where the text came from is diagnosis, not the result.
   process.stdout.write("(no results.jsonl - falling back to adapter-extracted session text)\n");
   if (json) writeAdapterJson(ent, adapter, text);
@@ -107,60 +107,60 @@ function writeAdapterResult(ent: Entity, json: boolean): boolean {
  *  `results.jsonl` is append-only and survives a reset, so its newest line is the
  *  previous task's answer until the current one settles. The run row is bound to
  *  the dispatch id, so it can never hand back the wrong task. */
-function writeCurrentDispatchResult(dispatchId: string, key: string, json: boolean): void {
-  const run = selectRun(orchDir(), dispatchId);
+function writeCurrentDispatchResult(services: Pick<Services, "orchDir" | "logger">, dispatchId: string, key: string, json: boolean): void {
+  const run = selectRun(services.orchDir, dispatchId);
   if (run?.result === undefined) {
     die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${key}\`.`);
   }
-  resultLogger(key).info("result.current-dispatch", { dispatchId });
+  resultLogger(services.logger, key).info("result.current-dispatch", { dispatchId });
   if (json) process.stdout.write(JSON.stringify(run.result, null, 2) + "\n");
   else process.stdout.write((typeof run.result === "string" ? run.result : resultText(run.result) ?? JSON.stringify(run.result)) + "\n");
 }
 
-function tryHistoricalTarget(target: string, json: boolean): boolean {
-  if (loadPresence().has(target)) return false;
-  const historical = latestRunForKey(target);
-  return historical ? writeHistoricalResult(historical, json, target) : false;
+function tryHistoricalTarget(orchDir: OrchDir, logger: Logger, target: string, json: boolean): boolean {
+  if (loadPresence(orchDir).has(target)) return false;
+  const historical = latestRunForKey(orchDir, target);
+  return historical ? writeHistoricalResult(logger, historical, json, target) : false;
 }
 
-export function cmdResult(args: string[]) {
+export function cmdResult(services: Services, args: string[]) {
   const options = parseResultArgs(args);
+  const settings = services.settings.current();
   const target = options.target;
   if (!target) die("usage: orch result <target> [--force] [--json]");
-  if (writeRemoteResult(target, options)) return;
+  if (writeRemoteResult(services.orchDir, settings, target, options)) return;
   let ent: Entity;
   try {
-    ent = resolveTarget(target);
+    ent = resolveTarget(services.orchDir, settings, target);
   } catch (error: unknown) {
     // A reaped presence directory leaves no entity for resolveTarget. Only the
     // operator may use its exact canonical key to address durable run history;
     // a session must not learn whether a foreign key ever existed.
-    if (callerKind() === "operator" && tryHistoricalTarget(target, options.json)) return;
+    if (callerKind(services.orchDir) === "operator" && tryHistoricalTarget(services.orchDir, services.logger, target, options.json)) return;
     throw error;
   }
   // Names are a flat namespace across every orchestrator, so an unscoped read
   // hands one session's work product to another as if it were its own.
-  assertAgentOwned(target, ent, options.force);
+  assertAgentOwned(services.orchDir, target, ent, options.force);
   const dispatchId = ent.presence?.status?.dispatchId;
-  if (dispatchId) return writeCurrentDispatchResult(dispatchId, ent.key, options.json);
+  if (dispatchId) return writeCurrentDispatchResult(services, dispatchId, ent.key, options.json);
   if (writePresenceResult(ent.presence?.result, options.json)) return;
-  const historical = latestRunForKey(ent.key);
-  if (historical && writeHistoricalResult(historical, options.json, ent.key)) return;
-  if (writeAdapterResult(ent, options.json)) return;
-  die(`No result available for "${target}" (no results.jsonl and no adapter-extractable session text).`);
+  const historical = latestRunForKey(services.orchDir, ent.key);
+  if (historical && writeHistoricalResult(services.logger, historical, options.json, ent.key)) return;
+  if (writeAdapterResult(services.orchDir, services.logger, ent, agentViewIndex(services.orchDir), options.json)) return;  die(`No result available for "${target}" (no results.jsonl and no adapter-extractable session text).`);
 }
 
-export async function cmdQuestions(args: string[]): Promise<void> {
+export async function cmdQuestions(services: Services, args: string[]): Promise<void> {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
-  if (enabled.has("--all")) forbidNonOperatorOverride("--all");
+  if (enabled.has("--all")) forbidNonOperatorOverride(services.orchDir, "--all");
   const json = enabled.has("--json");
   const localOnly = enabled.has("--local");
-  const hosts = loadSettings(orchDir()).hosts;
-  if (localOnly || callerKind() !== "operator" || Object.keys(hosts).length === 0) {
-    await cmdQuestionsLocal(args);
+  const hosts = services.settings.current().hosts;
+  if (localOnly || callerKind(services.orchDir) !== "operator" || Object.keys(hosts).length === 0) {
+    await cmdQuestionsLocal(services.orchDir, args);
     return;
   }
-  const rows: QuestionRow[] = [...await localQuestionRows(args)];
+  const rows: QuestionRow[] = [...await localQuestionRows(services.orchDir, args)];
   const remoteResults = await Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
     name,
     result: await runRemoteAsync(name, host, ["questions"], { timeoutMs: host.timeout_ms }),
@@ -190,45 +190,32 @@ export async function cmdQuestions(args: string[]): Promise<void> {
 
 interface PendingQuestion { view: PendingQuestionView }
 
-function callerMaySeeQuestion(agentId: string): boolean {
-  if (callerKind() === "operator") return true;
-  const caller = selfId();
+function callerMaySeeQuestion(orchDir: OrchDir, agentId: string): boolean {
+  if (callerKind(orchDir) === "operator") return true;
+  const caller = selfId(orchDir);
   if (caller === undefined) return false;
   try {
-    return holdsLease(orchDir(), agentId, caller);
+    return holdsLease(orchDir, agentId, caller);
   } catch {
     return false;
   }
 }
 
-function isPendingQuestionView(value: unknown): value is PendingQuestionView {
-  if (!isRecord(value)) return false;
-  return typeof value.questionId === "string"
-    && typeof value.agentId === "string"
-    && typeof value.key === "string"
-    && (typeof value.name === "string" || value.name === null)
-    && typeof value.question === "string"
-    && typeof value.askedAt === "number";
-}
-
 /** Read pending questions from orchd; the daemon owns their answerable state. */
-async function collectPendingQuestions(args: string[]): Promise<{ pending: PendingQuestion[] }> {
+async function collectPendingQuestions(orchDir: OrchDir, args: string[]): Promise<{ pending: PendingQuestion[] }> {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
-  const answer = await rpcCall(orchDir(), "questions", { all: enabled.has("--all") });
-  if (!isRecord(answer) || !Array.isArray(answer.questions)) {
-    throw new Error("Daemon returned an invalid questions payload.");
-  }
+  const answer = await rpcCall(orchDir, "questions", { all: enabled.has("--all") });
   return {
-    pending: answer.questions.filter(isPendingQuestionView)
-      .filter((view) => callerMaySeeQuestion(view.agentId))
+    pending: answer.questions
+      .filter((view) => callerMaySeeQuestion(orchDir, view.agentId))
       .map((view) => ({ view })),
   };
 }
 
-async function cmdQuestionsLocal(args: string[]): Promise<void> {
+async function cmdQuestionsLocal(orchDir: OrchDir, args: string[]): Promise<void> {
   const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
   const all = enabled.has("--all");
-  const { pending } = await collectPendingQuestions(args);
+  const { pending } = await collectPendingQuestions(orchDir, args);
   if (!pending.length) {
     if (enabled.has("--json")) process.stdout.write("[]\n");
     else process.stdout.write("No pending questions.\n");
@@ -242,17 +229,17 @@ async function cmdQuestionsLocal(args: string[]): Promise<void> {
       id: view.questionId,
       question: view.question,
       ts: new Date(view.askedAt).toISOString(),
-      space: spaceOf(orchDir(), view.key) ?? "-",
+      space: spaceOf(orchDir, view.key) ?? "-",
     })), null, 2) + "\n");
     return;
   }
-  const spaces = pending.map(({ view }) => spaceOf(orchDir(), view.key) ?? "-");
+  const spaces = pending.map(({ view }) => spaceOf(orchDir, view.key) ?? "-");
   const showSpace = all && new Set(spaces).size > 1;
   process.stdout.write(
     pending
       .map(({ view }) => {
         const label = view.name ?? "-";
-        const spaceLabel = spaceOf(orchDir(), view.key) ?? "-";
+        const spaceLabel = spaceOf(orchDir, view.key) ?? "-";
         const name = showSpace ? `${spaceLabel} / ${label}` : label;
         return `${view.key}  ${name}  ${formatAge(view.askedAt)}\n${view.question}`;
       })
@@ -272,12 +259,12 @@ export function formatAge(ts: unknown): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-async function localQuestionRows(args: string[]): Promise<QuestionRow[]> {
-  const { pending } = await collectPendingQuestions(args);
+async function localQuestionRows(orchDir: OrchDir, args: string[]): Promise<QuestionRow[]> {
+  const { pending } = await collectPendingQuestions(orchDir, args);
   return pending.map(({ view }) => ({
     key: view.key, name: view.name, age: formatAge(view.askedAt),
     question: view.question, id: view.questionId, ts: new Date(view.askedAt).toISOString(),
-    space: spaceOf(orchDir(), view.key) ?? "-",
+    space: spaceOf(orchDir, view.key) ?? "-",
   }));
 }
 
@@ -294,8 +281,8 @@ function isQuestionRow(value: unknown): value is QuestionRow {
 }
 
 /** Resolve the target's adapter and require a declared session-tail capability, or die. */
-function resolveSessionTailAdapter(target: string, ent: Entity): AgentAdapter {
-  const adapter = entityAdapter(ent);
+function resolveSessionTailAdapter(views: ReadonlyMap<string, AgentView>, target: string, ent: Entity): AgentAdapter {
+  const adapter = entityAdapter(ent, views);
   if (!adapter?.sessionView) {
     die(`Target "${target}" (${adapter?.id ?? "unknown adapter"}) exposes no session tail; a session is read only through an adapter that declares one.`);
   }
@@ -392,12 +379,12 @@ function writeTailText(ent: Entity, view: SessionView, lines: number): void {
   process.stdout.write((view.entries ? tailEntries(view.entries, lines) : tailLastText(view, lines)) + "\n");
 }
 
-export function cmdTail(args: string[]) {
+export function cmdTail(services: Services, args: string[]) {
   const options = parseTailArgs(args);
   const target = options.target;
   if (!target) die("usage: orch tail <target> [-n N] [--json]");
-  const ent = resolveTarget(target);
-  const adapter = resolveSessionTailAdapter(target, ent);
+  const ent = resolveTarget(services.orchDir, services.settings.current(), target);
+  const adapter = resolveSessionTailAdapter(agentViewIndex(services.orchDir), target, ent);
   const view = adapter.sessionView?.readSessionView({ sessionPath: ent.sessionPath ?? undefined });
   if (!view) die(`No session data for "${target}" (${ent.sessionPath ?? "unknown path"}).`);
   if (options.json) writeTailJson(target, ent, view, options.lines);
@@ -432,13 +419,13 @@ function writeSessionText(ent: Entity, view: SessionView | undefined): void {
   process.stdout.write(lines.join("\n") + "\n");
 }
 
-export function cmdSession(args: string[]) {
+export function cmdSession(services: Services, args: string[]) {
   const options = parseSessionArgs(args);
   const target = options.target;
   if (!target) die("usage: orch session <target> [--json]");
-  const ent = resolveTarget(target);
+  const ent = resolveTarget(services.orchDir, services.settings.current(), target);
   if (!ent.sessionPath) die(`No session path known for "${target}".`);
-  const adapter = resolveSessionTailAdapter(target, ent);
+  const adapter = resolveSessionTailAdapter(agentViewIndex(services.orchDir), target, ent);
   const view = adapter.sessionView?.readSessionView({ sessionPath: ent.sessionPath });
   if (options.json) writeSessionJson(ent, view);
   else writeSessionText(ent, view);

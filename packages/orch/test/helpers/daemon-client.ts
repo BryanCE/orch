@@ -1,29 +1,39 @@
+import type { OrchDir } from "../../src/types/core.ts";
 import { peerView } from "../../src/daemon/peer-view.ts";
-import { isRecord } from "../../src/json.ts";
-import { orchDir } from "../../src/presence/writer.ts";
 import type { PeerView } from "../../src/daemon/peer-view.ts";
 import type { DaemonClient } from "../../src/types/agent.ts";
+import type { ParamsOf, ResultOf, RpcMethod } from "../../src/daemon/rpc/protocol.ts";
+
+type AskHandlers = Partial<{ [M in RpcMethod]: (params: ParamsOf<M>) => ResultOf<M> }>;
+
+export function askFrom(table: AskHandlers): DaemonClient["ask"] {
+  return (method, params) => {
+    const handler = table[method];
+    return Promise.resolve(handler === undefined ? undefined : handler(params));
+  };
+}
 
 /** A DaemonClient that accepts everything, forwards nothing, and answers nothing —
  *  the shape a bridge sees when orchd is absent. */
-export function daemonClientForPeers(keys: string[]): DaemonClient {
+export function daemonClientForPeers(directory: OrchDir, keys: string[]): DaemonClient {
   return {
     ...stubDaemonClient(),
-    ask: (method, params) => {
-      if (method !== "peer-view" || !isRecord(params)) return Promise.resolve(undefined);
-      const ownKey = typeof params.ownKey === "string" ? params.ownKey : "";
-      const requested = Array.isArray(params.keys) && params.keys.every((key) => typeof key === "string") ? params.keys : [];
-      const allSpaces = params.allSpaces === true;
-      const projectRoot = typeof params.projectRoot === "string" ? params.projectRoot : undefined;
-      return Promise.resolve(peerView(orchDir(), ownKey, requested.length ? requested : keys, allSpaces, projectRoot));
-    },
+    ask: askFrom({
+      "peer-view": (params) => peerView(
+        directory,
+        params.ownKey,
+        (params.keys ?? []).length ? params.keys ?? [] : keys,
+        params.allSpaces === true,
+        params.projectRoot,
+      ),
+    }),
   };
 }
 
 export function daemonClientForPeerView(view: PeerView): DaemonClient {
   return {
     ...stubDaemonClient(),
-    ask: (method) => method === "peer-view" ? Promise.resolve(view) : Promise.resolve(undefined),
+    ask: askFrom({ "peer-view": () => view }),
   };
 }
 

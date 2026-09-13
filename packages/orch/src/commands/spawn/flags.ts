@@ -1,5 +1,4 @@
-import { orchDir } from "../../presence/writer.ts";
-import { loadSettings, resolveSetting } from "../../settings/read.ts";
+import { resolveSetting } from "../../settings/read.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { resolveBackend } from "../../backends/registry.ts";
 import { pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
@@ -138,10 +137,9 @@ export function resolveSpawnAgentSettings(flags: AgentFlags, settings: OrchSetti
   };
 }
 
-export function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
-  const settingsFile = loadSettings(orchDir());
-  const settings = resolveSpawnAgentSettings(flags, settingsFile);
-  const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", settings: settingsFile.defaults.worktree, fallback: settingsFile.defaults.worktree });
+export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings): SpawnSettings {
+  const agentSettings = resolveSpawnAgentSettings(flags, settings);
+  const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", settings: settings.defaults.worktree, fallback: settings.defaults.worktree });
   if (flags.unknownFlags.length > 0) die(`Unknown flag ${flags.unknownFlags.join(", ")}.`);
   // The names ARE the positional arguments, and how many you give is how many
   // agents you get. Resolving here means a nameless or malformed spawn is refused
@@ -154,18 +152,18 @@ export function resolveSpawnSettings(flags: SpawnFlags): SpawnSettings {
   const n = names.length;
   const references = flags.withPaths.map(contextReference);
   const prompts = resolveSpawnPrompts(flags, n).map((prompt) => taskWithReferences(prompt, references));
-  resolveAdapterOrDie(settings.adapter);
-  const tools = workerTools(settingsFile);
-  const workers = workerPolicyFrom(settingsFile);
+  resolveAdapterOrDie(agentSettings.adapter);
+  const tools = workerTools(settings);
+  const workers = workerPolicyFrom(settings);
   const cmd = flags.commandFlag
     ? flags.cmd
-    : adapterCommand(settings.adapter, settingsFile, { model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels });
+    : adapterCommand(agentSettings.adapter, settings, { model: agentSettings.model, thinking: agentSettings.thinking, preferredModels: agentSettings.preferredModels });
   // --tab names the TAB; the positionals name the AGENTS. A tab left unnamed
   // borrows the first agent's name, but the two are never conflated.
   const tabLabel = flags.tabLabel ?? names[0] ?? flags.label;
   const prefix = names[0] ?? flags.label;
-  const backendChosen = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? settingsFile.defaults.backend ?? null) !== null;
-  return { ...settings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendChosen, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, space: flags.space, prefix, n, worktree, prompts, names, unknownFlags: flags.unknownFlags, fleet: settingsFile.fleet, tiling: settingsFile.tiling };
+  const backendChosen = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? settings.defaults.backend ?? null) !== null;
+  return { ...agentSettings, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendChosen, cwd: flags.cwd, cmd, commandFlag: flags.commandFlag, space: flags.space, prefix, n, worktree, prompts, names, unknownFlags: flags.unknownFlags, fleet: settings.fleet, tiling: settings.tiling };
 }
 
 /** Live agents per space. Both maps are keyed by the minted id: a space is an

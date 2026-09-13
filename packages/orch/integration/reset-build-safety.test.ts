@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const dirs: OrchDir[] = [];
 
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop() ?? "");
@@ -13,7 +13,7 @@ afterEach(() => {
 
 describe("build reset safety", () => {
   test("--build dry-run never names a path inside ORCH_DIR", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-reset-"));
+    const root = tempOrchDir("orch-reset-");
     dirs.push(root);
     writeFileSync(join(root, "settings.json"), "custom");
     const result = spawnSync("bun", ["scripts/reset.ts", "--build", "--dry-run"], {

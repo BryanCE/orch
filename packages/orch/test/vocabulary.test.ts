@@ -1,25 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync, mkdtempSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { isHandWrittenTypeScript, sourceFiles } from "./helpers/sources.ts";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { VOCABULARY, roleOf, term } from "../src/policy/vocabulary.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent, renameAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 import { stringField } from "./helpers/rows.ts";
 
+import type { OrchDir } from "../src/types/core.ts";
 /**
  * Vocabulary (orch / slave / pack / space) is a display map, never stored — roles
  * are derived from the tree. User-configurable terms are later polish, but the
  * ONE-MAP constraint holds from day one.
  */
 
-function withStore(body: (directory: string) => void): void {
-  const directory = mkdtempSync(join(tmpdir(), "orch-vocabulary-"));
+function withStore(body: (directory: OrchDir) => void): void {
+  const directory = tempOrchDir("orch-vocabulary-");
   const db = orm(directory);
   db.run(sql`INSERT INTO harnesses (id, name) VALUES ('pi', 'pi') ON CONFLICT DO NOTHING`);
   try {

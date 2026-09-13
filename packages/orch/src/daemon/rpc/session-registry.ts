@@ -1,20 +1,21 @@
+import type { OrchDir } from "../../types/core.ts";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { isRecord } from "../../util.ts";
 import { claimAgent, getOrCreateSessionAgent } from "../../store/agent-rows.ts";
 import { processStartToken } from "../../process-identity.ts";
 import { versionInRange } from "../../backends/versions.ts";
 import { getBackend } from "../../backends/registry.ts";
 import type { HostOs } from "../../types/store.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse, UnleasedAgent } from "../../types/daemon.ts";
+import type { ParamsOf, SessionClaim } from "./protocol.ts";
 import { and, asc, eq, isNull, ne, notInArray } from "drizzle-orm";
 import { orm } from "../../store/connection.ts";
 import { agentEndings, agentLeases, agentProcesses, agents } from "../../db/schema.ts";
 import { RpcError } from "./wire.ts";
 
 export function announceUnleasedAgents(
-  orchDir: string,
+  orchDir: OrchDir,
   identity: RegisterSessionResponse,
   write: (text: string) => void = (text) => { process.stdout.write(text); },
 ): void {
@@ -23,11 +24,11 @@ export function announceUnleasedAgents(
   write(`${identity.unleased.length} unleased agent(s) exist - orch adopt ${identity.unleased[0]!.name} to take one, orch status to see them.\n`);
 }
 
-function announcementMarker(orchDir: string, sessionId: string): string {
+function announcementMarker(orchDir: OrchDir, sessionId: string): string {
   return join(orchDir, "announced", `${sessionId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
 }
 
-function claimUnleasedAnnouncement(orchDir: string, sessionId: string): boolean {
+function claimUnleasedAnnouncement(orchDir: OrchDir, sessionId: string): boolean {
   const marker = announcementMarker(orchDir, sessionId);
   try {
     if (existsSync(marker)) return false;
@@ -43,12 +44,12 @@ function isHostOs(value: unknown): value is HostOs {
   return value === "linux" || value === "windows" || value === "darwin";
 }
 
-function claimedHostOs(claim: Readonly<Record<string, unknown>>): HostOs {
+function claimedHostOs(claim: SessionClaim): HostOs {
   if (!isHostOs(claim.hostOs)) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration requires the caller's host OS");
   return claim.hostOs;
 }
 
-export function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgent[] {
+export function unleasedAgents(orchDir: OrchDir, excludeId: string): UnleasedAgent[] {
   const held = orm(orchDir).select({ agentId: agentLeases.agentId }).from(agentLeases)
     .where(isNull(agentLeases.until)).all().map((row) => row.agentId);
   return orm(orchDir).select({ id: agents.id, name: agents.name }).from(agents)
@@ -58,26 +59,26 @@ export function unleasedAgents(orchDir: string, excludeId: string): UnleasedAgen
     .orderBy(asc(agents.id)).all();
 }
 
-function verifiedSessionProcess(claim: Record<string, unknown>): { pid: number; startToken: string; harness: string; cwd: string } {
-  const pid = typeof claim.pid === "number" ? claim.pid : Number.NaN;
+function verifiedSessionProcess(claim: SessionClaim): { pid: number; startToken: string; harness: string; cwd: string } {
+  const pid = claim.pid;
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration requires the caller's session pid");
-  const harness = typeof claim.harness === "string" ? claim.harness.trim() : "";
-  const cwd = typeof claim.cwd === "string" ? claim.cwd.trim() : "";
+  const harness = claim.harness.trim();
+  const cwd = claim.cwd.trim();
   if (!harness || !cwd) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration requires the caller's harness and cwd");
   const startToken = processStartToken(pid);
   if (!startToken) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration could not verify the caller's session process");
   return { pid, startToken, harness, cwd };
 }
 
-function claimedEnvironment(claim: Record<string, unknown>): { sessionToken: string | null; label: string; host: string; plexerId: string | null; plexerVersion: string | null; handle: string | null; space: string | null } {
+function claimedEnvironment(claim: SessionClaim): { sessionToken: string | null; label: string; host: string; plexerId: string | null; plexerVersion: string | null; handle: string | null; space: string | null } {
   return {
-    sessionToken: typeof claim.sessionToken === "string" && claim.sessionToken.length > 0 ? claim.sessionToken : null,
-    label: typeof claim.label === "string" ? claim.label.trim() : "",
-    host: typeof claim.hostName === "string" && claim.hostName.trim().length > 0 ? claim.hostName.trim() : hostname(),
-    plexerId: typeof claim.plexer === "string" ? claim.plexer.trim() : null,
-    plexerVersion: typeof claim.plexerVersion === "string" ? claim.plexerVersion.trim() : null,
-    handle: typeof claim.handle === "string" && claim.handle.trim().length > 0 ? claim.handle.trim() : null,
-    space: typeof claim.space === "string" && claim.space.trim().length > 0 ? claim.space.trim() : null,
+    sessionToken: claim.sessionToken && claim.sessionToken.length > 0 ? claim.sessionToken : null,
+    label: claim.label?.trim() ?? "",
+    host: claim.hostName.trim().length > 0 ? claim.hostName.trim() : hostname(),
+    plexerId: claim.plexer?.trim() ?? null,
+    plexerVersion: claim.plexerVersion?.trim() ?? null,
+    handle: claim.handle && claim.handle.trim().length > 0 ? claim.handle.trim() : null,
+    space: claim.space && claim.space.trim().length > 0 ? claim.space.trim() : null,
   };
 }
 
@@ -88,7 +89,7 @@ function plexerRegistrationWarning(plexerId: string | null, plexerVersion: strin
   return `plexer ${plexerId} ${plexerVersion} is older than orch's supported ${range}; update ${plexerId}`;
 }
 
-function sessionAlreadyRegistered(orchDir: string, pid: number, startToken: string): boolean {
+function sessionAlreadyRegistered(orchDir: OrchDir, pid: number, startToken: string): boolean {
   return orm(orchDir).select({ id: agents.id }).from(agents)
     .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
@@ -96,15 +97,14 @@ function sessionAlreadyRegistered(orchDir: string, pid: number, startToken: stri
     .limit(1).get() !== undefined;
 }
 
-interface CallerFacts { readonly claim: Record<string, unknown>; readonly pid: number; readonly startToken: string; readonly harness: string; readonly cwd: string; readonly environment: ReturnType<typeof claimedEnvironment>; readonly hostOs: HostOs; }
-function callerFacts(params: unknown, daemonToken: string): CallerFacts {
-  const claim = isRecord(params) ? params : {};
+interface CallerFacts<C extends SessionClaim> { readonly claim: C; readonly pid: number; readonly startToken: string; readonly harness: string; readonly cwd: string; readonly environment: ReturnType<typeof claimedEnvironment>; readonly hostOs: HostOs; }
+function callerFacts<C extends SessionClaim>(claim: C, daemonToken: string): CallerFacts<C> {
   if (claim.token !== daemonToken) throw new RpcError("IDENTITY_REQUIRED", "identity RPC requires the daemon token");
   const { pid, startToken, harness, cwd } = verifiedSessionProcess(claim);
   return { claim, pid, startToken, harness, cwd, environment: claimedEnvironment(claim), hostOs: claimedHostOs(claim) };
 }
 
-export function registerSession(orchDir: string, params: unknown, daemonToken: string): RegisterSessionResponse {
+export function registerSession(orchDir: OrchDir, params: ParamsOf<"register-session">, daemonToken: string): RegisterSessionResponse {
   const facts = callerFacts(params, daemonToken);
   const alreadyRegistered = sessionAlreadyRegistered(orchDir, facts.pid, facts.startToken);
   const identity = getOrCreateSessionAgent(orchDir, {
@@ -118,9 +118,9 @@ export function registerSession(orchDir: string, params: unknown, daemonToken: s
   return { ...identity, ...(registrationWarning ? { registrationWarning } : {}), unleased: alreadyRegistered ? [] : unleasedAgents(orchDir, identity.id) };
 }
 
-export function claimIdentity(orchDir: string, params: unknown, daemonToken: string): ClaimIdentityResponse {
+export function claimIdentity(orchDir: OrchDir, params: ParamsOf<"claim-identity">, daemonToken: string): ClaimIdentityResponse {
   const facts = callerFacts(params, daemonToken);
-  const id = typeof facts.claim.id === "string" ? facts.claim.id : "";
+  const id = facts.claim.id;
   if (!id) throw new RpcError("IDENTITY_REQUIRED", "claim-identity requires an agent id");
   const token = facts.environment.sessionToken;
   if (!token) throw new RpcError("IDENTITY_REQUIRED", "claim-identity requires a session token");

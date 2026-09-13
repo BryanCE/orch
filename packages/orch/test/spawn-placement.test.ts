@@ -1,6 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openFleetHome, resolveSpawnPlacement, spawnBackend } from "../src/commands/spawn/placement.ts";
 import { homeHandle, openHome } from "../src/store/home-rows.ts";
@@ -8,10 +6,12 @@ import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, HomeSubject, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { createLogger } from "../src/log.ts";
 
+import type { OrchDir } from "../src/types/core.ts";
 /**
  * The spawn half.
  *
@@ -27,7 +27,7 @@ import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
  * marked as orch's (E8).
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
 beforeEach(() => {
   isolateOrchEnv();
@@ -40,14 +40,18 @@ afterEach(() => {
   restoreOrchEnv();
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-placement-"));
+function logger(directory: OrchDir) {
+  return createLogger({ file: join(directory, "test.log"), level: "error" });
+}
+
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-placement-");
   dirs.push(dir);
   orm(dir);
   return dir;
 }
 
-function seedOrch(dir: string, id: string): string {
+function seedOrch(dir: OrchDir, id: string): string {
   ensureHarness(dir, "pi", "pi", 1);
   insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
   return id;
@@ -120,41 +124,41 @@ function gate(): { asked: number; grantNewHome: () => void } {
 
 describe("outside every plexer, spawn is headless unless the human chose one", () => {
   test("a plexer orch only probed, from a plain terminal, spawns headless", () => {
-    fixture();
+    const dir = fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: false }, null).id).toBe("headless");
+      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: false }, null).id).toBe("headless");
     });
   });
 
   // `--backend`, `ORCH_BACKEND` and `defaults.backend` are all the human's
   // choice: a plexer set up in settings.json is one orch may open a home in.
   test("a chosen plexer stays selected and its home is what the human grants", () => {
-    fixture();
+    const dir = fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: true }, null).id).toBe("herdr");
+      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: true }, null).id).toBe("herdr");
     });
   });
 
   test("a chosen plexer that cannot open a home still falls back to headless", () => {
-    fixture();
+    const dir = fixture();
     withRegisteredBackend(homedBackend(null, false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: true }, null).id).toBe("headless");
+      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: true }, null).id).toBe("headless");
     });
   });
 
   // The caller's plexer is read off its RECORD, so a plain terminal inside
   // herdr — no harness marker, no launch key — is inside all the same.
   test("a caller recorded inside the plexer stays in it, chosen or not", () => {
-    fixture();
+    const dir = fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), true), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: false }, "herdr").id).toBe("herdr");
+      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: false }, "herdr").id).toBe("herdr");
     });
   });
 
   test("a named space is placement enough: no chosen backend needed", () => {
-    fixture();
+    const dir = fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: "team", backendChosen: false }, null).id).toBe("herdr");
+      expect(spawnBackend(logger(dir), { backend: "herdr", space: "team", backendChosen: false }, null).id).toBe("herdr");
     });
   });
 });

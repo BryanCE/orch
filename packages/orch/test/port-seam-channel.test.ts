@@ -1,8 +1,9 @@
+import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverWrite } from "../src/daemon/orchd.ts";
+import { orchDirAt } from "../src/services.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -15,20 +16,30 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { testServices } from "./helpers/services.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
 const saved = process.env.ORCH_DIR;
 
-function tempOrchDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-port-seam-"));
+function outboxDeps(orchDir: OrchDir): OutboxDeps {
+  const services = testServices({ orchDir, settings: {} });
+  return {
+    deliver: (target, payload, id) => deliverWrite({ services, directory: orchDir, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, presenceWatch: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false }, target, payload, id),
+    maxAttempts: 3,
+    now: () => 0,
+  };
+}
+
+function tempOrchDir(): OrchDir {
+  const dir = makeTempOrchDir("orch-port-seam-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   return dir;
 }
 
 afterEach(() => {
-  for (const { key, link } of links.splice(0)) detachBridge(key, link);
+  for (const { key, link } of links.splice(0)) detachBridge(orchDirAt(process.env.ORCH_DIR ?? "."), key, link);
   for (const dir of dirs.splice(0)) removeTempDir(dir);
   if (saved === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = saved;
@@ -43,13 +54,12 @@ describe("orch bridge links and capture roles", () => {
     seedStatus(orchDir, key, { key, agent: "pi", state: "working" });
     const deliveries: BridgeDelivery[] = [];
     const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
-    attachBridge(key, link);
+    attachBridge(orchDir, key, link);
     links.push({ key, link });
     const id = "dispatch-1";
     insertOutboxMessage(orchDir, { id, target: key, payload: { action: "dispatch", text: "hello" } });
 
-    const deps: OutboxDeps = { deliver: deliverWrite, maxAttempts: 3, now: () => 0 };
-    await deliverOutboxMessage(orchDir, id, deps);
+    await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir));
 
     expect(deliveries).toEqual([{ id, message: { action: "dispatch", text: "hello" } }]);
     expect(outboxMessageState(orchDir, id)).toBe("awaiting");
@@ -66,7 +76,7 @@ describe("orch bridge links and capture roles", () => {
     const id = "steer-session-1";
     insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w (wkey)] hi" } });
 
-    await deliverOutboxMessage(orchDir, id, { deliver: deliverWrite, maxAttempts: 3, now: () => 0 });
+    await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir));
 
     expect(outboxMessageState(orchDir, id)).toBe("delivered");
   });
@@ -81,7 +91,7 @@ describe("orch bridge links and capture roles", () => {
     const id = "steer-spawned-1";
     insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w (wkey)] hi" } });
 
-    await deliverOutboxMessage(orchDir, id, { deliver: deliverWrite, maxAttempts: 3, now: () => 0 });
+    await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir));
 
     expect(outboxMessageState(orchDir, id)).toBe("pending");
   });
@@ -94,7 +104,7 @@ describe("orch bridge links and capture roles", () => {
     const id = "steer-session-2";
     insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w (wkey)] hi" } });
 
-    await deliverOutboxMessage(orchDir, id, { deliver: deliverWrite, maxAttempts: 3, now: () => 0 });
+    await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir));
 
     expect(outboxMessageState(orchDir, id)).toBe("undeliverable");
   });

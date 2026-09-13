@@ -5,7 +5,8 @@ import { errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
 import { agentAddress, agentViewIndex, die, presenceById } from "./target.ts";
 import { resultText } from "./target.ts";
-
+import type { Services } from "../types/services.ts";
+import type { OrchDir } from "../types/core.ts";
 import { repositoryBranch, repositoryCommonRoot, worktreeReviewSummary, mergeReviewBranch, removeMergedWorktree } from "../worktree.ts";
 
 interface ReviewItem {
@@ -25,7 +26,7 @@ interface ReviewItem {
 }
 
 
-export async function cmdReview(args: string[]): Promise<void> {
+export async function cmdReview(services: Services, args: string[]): Promise<void> {
   const subcommand = args[0];
   if (!subcommand || !["list", "approve", "reject"].includes(subcommand)) {
     die('usage: orch review list [--json] | approve <target> | reject <target> -m "feedback"');
@@ -33,7 +34,7 @@ export async function cmdReview(args: string[]): Promise<void> {
   if (subcommand === "list") {
     const json = args.slice(1).includes("--json");
     if (args.slice(1).some((arg) => arg !== "--json")) die("usage: orch review list [--json]");
-    const items = reviewItems();
+    const items = reviewItems(services.orchDir);
     if (json) {
       process.stdout.write(JSON.stringify(items.map(({ repoRoot: _repoRoot, ...item }) => item), null, 2) + "\n");
       return;
@@ -49,7 +50,7 @@ export async function cmdReview(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const target = args.find((arg, index) => index > 0 && arg !== "--json");
   if (!target) die(`usage: orch review ${subcommand === "approve" ? "approve <target> [--json]" : 'reject <target> -m "feedback" [--json]'}`);
-  const item = findReviewItem(target);
+  const item = findReviewItem(services.orchDir, target);
   if (subcommand === "approve") {
     if (args.some((arg) => arg !== "approve" && arg !== target && arg !== "--json")) die("usage: orch review approve <target> [--json]");
     try {
@@ -67,8 +68,8 @@ export async function cmdReview(args: string[]): Promise<void> {
     const feedback = messageIndex >= 0 ? args[messageIndex + 1] : undefined;
     const allowedReject = new Set(["reject", target, "-m", feedback, "--json"]);
     if (messageIndex < 0 || !feedback || args.some((arg) => !allowedReject.has(arg))) die('usage: orch review reject <target> -m "feedback" [--json]');
-    if (!loadPresence().get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
-    await writeRpc("steer", { target: item.key, text: feedback });
+    if (!loadPresence(services.orchDir).get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
+    await writeRpc(services, "steer", { target: item.key, text: feedback });
     if (json) process.stdout.write(JSON.stringify({ target: item.target, rejected: true }) + "\n");
     else process.stdout.write(`Rejected ${item.target}; feedback re-dispatched in the same worktree.\n`);
     return;
@@ -76,8 +77,8 @@ export async function cmdReview(args: string[]): Promise<void> {
   die('usage: orch review list [--json] | approve <target> | reject <target> -m "feedback"');
 }
 
-export async function cmdReviewInteractive(): Promise<void> {
-  const items = reviewItems();
+export async function cmdReviewInteractive(services: Services): Promise<void> {
+  const items = reviewItems(services.orchDir);
   if (!items.length) {
     process.stdout.write("No worktree reviews pending.\n");
     return;
@@ -98,25 +99,25 @@ export async function cmdReviewInteractive(): Promise<void> {
       }
       if (action === "s") continue;
       if (action === "a") {
-        await cmdReview(["approve", item.target]);
+        await cmdReview(services, ["approve", item.target]);
         continue;
       }
 
       let feedback = "";
       while (!feedback.trim()) feedback = await rl.question("Feedback: ");
-      await cmdReview(["reject", item.target, "-m", feedback]);
+      await cmdReview(services, ["reject", item.target, "-m", feedback]);
     }
   } finally {
     rl.close();
   }
 }
 
-function reviewItems(): ReviewItem[] {
+function reviewItems(orchDir: OrchDir): ReviewItem[] {
   // A1: worktree and branch are ENVIRONMENT axes composed onto an agent, and
   // presence joins to that agent by its minted id — not by a pane key.
-  const presence = presenceById();
+  const presence = presenceById(loadPresence(orchDir));
   const items: ReviewItem[] = [];
-  for (const view of agentViewIndex().values()) {
+  for (const view of agentViewIndex(orchDir).values()) {
     const { worktree, branch } = view.environment;
     if (worktree === null || branch === null) continue;
     const entry = presence.get(view.id);
@@ -152,8 +153,8 @@ function reviewItems(): ReviewItem[] {
   return items;
 }
 
-function findReviewItem(target: string): ReviewItem {
-  const item = reviewItems().find((candidate) => [candidate.target, candidate.key, candidate.branch, candidate.worktree].includes(target));
+function findReviewItem(orchDir: OrchDir, target: string): ReviewItem {
+  const item = reviewItems(orchDir).find((candidate) => [candidate.target, candidate.key, candidate.branch, candidate.worktree].includes(target));
   if (!item) die(`No reviewable worktree matches "${target}". Run 'orch review list'.`);
   return item;
 }

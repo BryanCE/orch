@@ -1,4 +1,4 @@
-import { accessSync, chmodSync, constants, existsSync, linkSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, existsSync, linkSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { delimiter, dirname, join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,8 +11,11 @@ export function osSide(platform: NodeJS.Platform = process.platform): OsSide {
   throw new Error(`unsupported host OS ${platform}`);
 }
 
+/** The installed package directory. Resolved through the real path first: the
+ *  harness extension bundles are symlinked into `~/.pi/agent/extensions` and the
+ *  like, and `import.meta.url` names the link, not the file it points at. */
 export function packageRoot(): string {
-  let dir = dirname(fileURLToPath(import.meta.url));
+  let dir = dirname(realpathSync(fileURLToPath(import.meta.url)));
   for (let i = 0; i < 16; i++) {
     if (existsSync(join(dir, "package.json"))) return dir;
     const parent = dirname(dir);

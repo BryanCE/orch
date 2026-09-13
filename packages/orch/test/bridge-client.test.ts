@@ -1,14 +1,15 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDaemonClient } from "../src/agent/daemon-client.ts";
 import { openJsonLineLink } from "../src/presence/socket-client.ts";
 import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { isRecord } from "../src/util.ts";
+import { testServices } from "./helpers/services.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 
 interface Connection {
@@ -16,13 +17,13 @@ interface Connection {
   readonly lines: Record<string, unknown>[];
 }
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const servers: Server[] = [];
 const sockets: Socket[] = [];
 const connections: Connection[] = [];
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-bridge-client-"));
+function tempOrchDir(): OrchDir {
+  const directory = mintTempOrchDir("orch-bridge-client-");
   directories.push(directory);
   return directory;
 }
@@ -56,7 +57,7 @@ function parseConnections(server: Server): void {
         if (isRecord(parsed)) {
           connection.lines.push(parsed);
           if (typeof parsed.id === "number") {
-            socket.write(`${JSON.stringify({ id: parsed.id, result: { attached: true, ok: true } })}\n`);
+            socket.write(`${JSON.stringify({ id: parsed.id, result: { attached: true, open: 0, ok: true } })}\n`);
           }
         }
         buffer = buffer.slice(newline + 1);
@@ -88,7 +89,7 @@ describe("bridge daemon client", () => {
     await listen(server, socketPath);
 
     const deliveries: BridgeDelivery[] = [];
-    const client = createDaemonClient(directory);
+    const client = createDaemonClient(directory, testServices({ orchDir: directory, settings: null }).settings);
     client.attach("agent-key", (delivery) => deliveries.push(delivery));
     await waitFor(() => connections.length === 1 && connections[0]!.lines.length === 1);
     await waitFor(() => client.attached());

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -56,7 +57,7 @@ function tableName(row: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-export function checkStore(orchDir: string): CheckResult {
+export function checkStore(orchDir: OrchDir): CheckResult {
   const id = "store";
   const label = "Store";
   const file = path.join(orchDir, "orch.db");

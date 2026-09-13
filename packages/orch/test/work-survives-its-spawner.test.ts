@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
 import { getTableColumns, is, sql } from "drizzle-orm";
 import { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { closeAllStores, orm, ormForRead } from "../src/store/connection.ts";
@@ -10,8 +8,9 @@ import { agentEndings } from "../src/db/schema.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { agentView, agentViews, liveAgentViews } from "../src/store/agent-view.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
+import type { OrchDir } from "../src/types/core.ts";
 /**
  * Work survives its spawner, always. No lifetime, no flag, no decision at spawn.
  *
@@ -21,11 +20,11 @@ import { removeTempDir } from "./helpers/tempdir.ts";
  * agent already has it. A flag would imply the other answer exists.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const d = mkdtempSync(join(tmpdir(), "orch-survives-spawner-"));
+function fixture(): OrchDir {
+  const d = tempOrchDir("orch-survives-spawner-");
   dirs.push(d);
   orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   return d;

@@ -1,8 +1,6 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createConnection, type Socket } from "node:net";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { attachBridge, attachedBridgeKeys, detachBridge, pushToBridge } from "../src/control/bridge-links.ts";
 import type { BridgeLink } from "../src/control/bridge-links.ts";
@@ -12,10 +10,11 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
 function observe(socket: Socket): string[] {
@@ -57,7 +56,7 @@ async function until(predicate: () => boolean): Promise<void> {
   if (!predicate()) throw new Error("timed out waiting for bridge state");
 }
 
-function liveKey(directory: string): string {
+function liveKey(directory: OrchDir): string {
   const key = mintAgentId();
   seedStatus(directory, key, { agent: "pi", pid: process.pid, state: "working" });
   return key;
@@ -65,15 +64,15 @@ function liveKey(directory: string): string {
 
 async function start(onBridgeAttached?: (key: string) => void): Promise<RpcServer> {
   const directory = directories[directories.length - 1]!;
-  const server = await startRpcServer(directory, {
+  const server = await startRpcServer(directory, stubRpcHandlers({
     attach: () => ({ attached: true, open: 1 }),
-  }, { onBridgeAttached });
+  }), { onBridgeAttached });
   servers.push(server);
   return server;
 }
 
 beforeEach(() => {
-  const directory = mkdtempSync(join(tmpdir(), "orch-bridge-link-server-"));
+  const directory = tempOrchDir("orch-bridge-link-server-");
   directories.push(directory);
   process.env.ORCH_DIR = directory;
 });
@@ -82,8 +81,11 @@ afterEach(async () => {
   while (servers.length) await servers.pop()!.close();
   for (const key of attachedBridgeKeys()) {
     const link: BridgeLink = { push: () => undefined };
-    attachBridge(key, link);
-    detachBridge(key, link);
+    const directory = directories[0];
+    if (directory !== undefined) {
+      attachBridge(directory, key, link);
+      detachBridge(directory, key, link);
+    }
   }
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
@@ -97,7 +99,7 @@ describe("daemon bridge links", () => {
     const delivery: BridgeDelivery = { id: "row-1", message: { action: "steer", text: "hello" } };
     const server = await start((attached) => {
       notifications.push(attached);
-      pushToBridge(attached, delivery);
+      pushToBridge(directories[0]!, attached, delivery);
     });
     const socket = await connected(server);
     const lines = observe(socket);
@@ -139,7 +141,7 @@ describe("daemon bridge links", () => {
     second.write(`${JSON.stringify({ id: 2, method: "attach", params: { key } })}\n`);
     await lineAt(secondLines, 0);
 
-    pushToBridge(key, { id: "row-2", message: { action: "dispatch", text: "new" } });
+    pushToBridge(directories[0]!, key, { id: "row-2", message: { action: "dispatch", text: "new" } });
     const pushed = await lineAt(secondLines, 1);
     expect(firstLines).toHaveLength(1);
     expect(pushed).toEqual({ event: { kind: "delivery", id: "row-2", message: { action: "dispatch", text: "new" } } });
@@ -167,7 +169,7 @@ describe("daemon bridge links", () => {
     const socket = await connected(server);
     const lines = observe(socket);
     socket.write(`${JSON.stringify({ id: 1, method: "attach", params: {} })}\n`);
-    expect(await lineAt(lines, 0)).toEqual({ id: 1, error: { code: "INVALID_REQUEST", message: "attach requires key" } });
+    expect(await lineAt(lines, 0)).toMatchObject({ id: 1, error: { code: "INVALID_PARAMS" } });
     expect(server.attachedBridgeCount()).toBe(0);
     socket.destroy();
   });

@@ -1,7 +1,7 @@
 import { deriveDriveState, DEAD_HOLDER_DRIVER } from "../agent/drive-state.ts";
 import { formatTimestamp } from "../format.ts";
 import { removePresenceAgentDir } from "../presence/store.ts";
-import { orchDir, presenceAgentDir } from "../presence/writer.ts";
+import { presenceAgentDir } from "../presence/writer.ts";
 import { rpcRegisterSession } from "../daemon/reach.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { asc, eq } from "drizzle-orm";
@@ -14,11 +14,13 @@ import { promptMultiselect } from "../setup/io.ts";
 import { assertValidAgentName } from "../policy/name.ts";
 import type { AgentRow } from "../types/store.ts";
 import type { LeaseCommandResult, LeaseOptions } from "../types/command.ts";
+import type { Services } from "../types/services.ts";
+import type { OrchDir } from "../types/core.ts";
 export type { LeaseCommandResult, LeaseOptions };
 
 /** Resolve the caller's orch identity in one seam for every lease command. */
-async function resolveSelfOrchId(): Promise<string> {
-  return launchCredential() ?? (await rpcRegisterSession(orchDir())).id;
+async function resolveSelfOrchId(directory: OrchDir, logger: Services["logger"]): Promise<string> {
+  return launchCredential(directory) ?? (await rpcRegisterSession(directory, logger)).id;
 }
 
 
@@ -27,7 +29,7 @@ async function resolveSelfOrchId(): Promise<string> {
  *  lookup re-spelled per command. C4c - names carry no uniqueness: an id always
  *  wins, a unique name resolves, and several matches is a lookup that found more
  *  than one agent and asks which id was meant. */
-export function resolveTarget(directory: string, target: string): AgentRow {
+export function resolveTarget(directory: OrchDir, target: string): AgentRow {
   const exact = agentById(directory, target);
   if (exact) return exact;
   const rows = orm(directory).select({ id: agents.id }).from(agents)
@@ -48,7 +50,7 @@ function displayName(agent: AgentRow): string {
   return agent.name || agent.id;
 }
 
-function liveDescendants(directory: string, parentId: string, result: AgentRow[] = []): AgentRow[] {
+function liveDescendants(directory: OrchDir, parentId: string, result: AgentRow[] = []): AgentRow[] {
   for (const child of childrenOf(directory, parentId)) {
     if (!child.ending) result.push(child);
     liveDescendants(directory, child.id, result);
@@ -56,7 +58,7 @@ function liveDescendants(directory: string, parentId: string, result: AgentRow[]
   return result;
 }
 
-function allDescendants(directory: string, parentId: string, result: AgentRow[] = []): AgentRow[] {
+function allDescendants(directory: OrchDir, parentId: string, result: AgentRow[] = []): AgentRow[] {
   for (const child of childrenOf(directory, parentId)) {
     result.push(child);
     allDescendants(directory, child.id, result);
@@ -72,7 +74,7 @@ function allDescendants(directory: string, parentId: string, result: AgentRow[] 
  *  agent permanently - every driving verb is gated on that same lease, so detach
  *  is the only way out and must never be blocked by the thing it exists to clear.
  *  C4: taking it from a LIVE orch is deliberate, and that is what --steal is. */
-export function detachAgent(directory: string, target: string, orchId: string, opts: LeaseOptions = {}): LeaseCommandResult {
+export function detachAgent(directory: OrchDir, target: string, orchId: string, opts: LeaseOptions = {}): LeaseCommandResult {
   const now = opts.now ?? Date.now();
   const agent = resolveTarget(directory, target);
   const lease = currentLease(directory, agent.id);
@@ -87,7 +89,7 @@ export function detachAgent(directory: string, target: string, orchId: string, o
   return { id: agent.id, name: displayName(agent), released: true };
 }
 
-function holderStillAlive(directory: string, orchId: string): boolean {
+function holderStillAlive(directory: OrchDir, orchId: string): boolean {
   return recordedProcessIsLive(directory, orchId);
 }
 
@@ -95,7 +97,7 @@ function holderStillAlive(directory: string, orchId: string): boolean {
  *  exclusion, never authorization: only a LIVE foreign holder excludes, and only
  *  a deliberate --steal takes an agent from one. */
 export function assertNotHeldByLiveForeignOrch(
-  directory: string,
+  directory: OrchDir,
   agent: AgentRow,
   holderId: string,
   orchId: string,
@@ -110,7 +112,7 @@ export function assertNotHeldByLiveForeignOrch(
 /** Adopt an unleased agent, one whose holder is no longer alive, or - with
  *  --steal - one a live orch still holds. C5: this writes lease rows and nothing
  *  else, so the agent is not reset, not re-attached, and loses no context. */
-export function adoptAgent(directory: string, target: string, orchId: string, opts: LeaseOptions = {}): LeaseCommandResult {
+export function adoptAgent(directory: OrchDir, target: string, orchId: string, opts: LeaseOptions = {}): LeaseCommandResult {
   const now = opts.now ?? Date.now();
   const agent = resolveTarget(directory, target);
   if (agent.ending) throw new Error(`${displayName(agent)} has ended and cannot be adopted.`);
@@ -125,7 +127,7 @@ export function adoptAgent(directory: string, target: string, orchId: string, op
 /** C4f - an agent may rename ITSELF with no lease in force, because acting on
  *  itself is not driving. Renaming ANOTHER agent is driving, so it meets the
  *  same live-foreign-holder gate as dispatch/steer/model/reset. */
-export function renameTarget(directory: string, target: string, callerId: string, name: string): LeaseCommandResult {
+export function renameTarget(directory: OrchDir, target: string, callerId: string, name: string): LeaseCommandResult {
   assertValidAgentName(name);
   const agent = resolveTarget(directory, target);
   if (agent.id !== callerId) {
@@ -138,7 +140,7 @@ export function renameTarget(directory: string, target: string, callerId: string
 
 /** C7 - the LIVE view groups by lease. History groups by provenance, which is
  *  `packMembers`/`childrenOf` and never this. */
-export function leasedAgents(directory: string, orchId: string): AgentRow[] {
+export function leasedAgents(directory: OrchDir, orchId: string): AgentRow[] {
   const rows: AgentRow[] = [];
   for (const lease of leasesByOrch(directory, orchId)) {
     const agent = agentById(directory, lease.agentId);
@@ -148,7 +150,7 @@ export function leasedAgents(directory: string, orchId: string): AgentRow[] {
 }
 
 /** Delete an agent subtree after proving no live descendant or process remains. */
-export function reapAgent(directory: string, target: string, now = Date.now()): LeaseCommandResult {
+export function reapAgent(directory: OrchDir, target: string, now = Date.now()): LeaseCommandResult {
   void now;
   const agent = resolveTarget(directory, target);
   const descendants = allDescendants(directory, agent.id);
@@ -178,14 +180,14 @@ function parseTarget(args: string[], usage: string): { target: string; json: boo
   return { target: positional[0]!, json, steal };
 }
 
-export async function cmdDetach(args: string[]): Promise<void> {
+export async function cmdDetach(services: Services, args: string[]): Promise<void> {
   const { target, json, steal } = parseTarget(args, "usage: orch detach <target> [--steal] [--json]");
-  const result = detachAgent(orchDir(), target, await resolveSelfOrchId(), { steal });
+  const result = detachAgent(services.orchDir, target, await resolveSelfOrchId(services.orchDir, services.logger), { steal });
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, released: result.released }) + "\n");
   else process.stdout.write(result.released ? `Detached ${result.name}.\n` : `${result.name}: no lease (already detached).\n`);
 }
 
-export async function cmdAdopt(args: string[]): Promise<void> {
+export async function cmdAdopt(services: Services, args: string[]): Promise<void> {
   const json = args.includes("--json");
   const all = args.includes("--all");
   const steal = args.includes("--steal");
@@ -194,18 +196,18 @@ export async function cmdAdopt(args: string[]): Promise<void> {
   // C4: --steal takes ONE agent from ONE live orch, deliberately. A sweep that
   // silently took every live orch's fleet would be the opposite of deliberate.
   if (all && steal) throw new Error("orch adopt --all never steals; name the agent to take it from a live orch.");
-  const orchId = await resolveSelfOrchId();
+  const orchId = await resolveSelfOrchId(services.orchDir, services.logger);
   const results: LeaseCommandResult[] = [];
   if (all) {
-    for (const agent of liveAgents(orchDir())) {
+    for (const agent of liveAgents(services.orchDir)) {
       if (agent.id === orchId) continue;
-      try { results.push(adoptAgent(orchDir(), agent.id, orchId)); } catch (error: unknown) {
+      try { results.push(adoptAgent(services.orchDir, agent.id, orchId)); } catch (error: unknown) {
         if (error instanceof Error && error.message.toLowerCase().includes("leased by live orch")) continue;
         throw error;
       }
     }
   } else {
-    results.push(adoptAgent(orchDir(), positional[0]!, orchId, { steal }));
+    results.push(adoptAgent(services.orchDir, positional[0]!, orchId, { steal }));
   }
   const adopted = results.filter((result) => result.adopted);
   if (json) process.stdout.write(JSON.stringify({ adopted: adopted.map((result) => ({ target: result.id, name: result.name })) }) + "\n");
@@ -252,7 +254,7 @@ export function reapCandidates(rows: readonly ReapCandidateInput[]): ReapCandida
   });
 }
 
-function reapOwnership(directory: string, agentId: string, callerId: string): ReapOwnership {
+function reapOwnership(directory: OrchDir, agentId: string, callerId: string): ReapOwnership {
   const drive = deriveDriveState(agentId, { directory, currentOrchId: callerId });
   switch (drive.kind) {
     case "leased":
@@ -266,7 +268,7 @@ function reapOwnership(directory: string, agentId: string, callerId: string): Re
   }
 }
 
-function classifiedReapCandidates(directory: string, callerId: string): ReapCandidate[] {
+function classifiedReapCandidates(directory: OrchDir, callerId: string): ReapCandidate[] {
   const inputs = liveAgents(directory)
     .filter((agent) => agent.id !== callerId && agent.sessionToken === null)
     .map((agent): ReapCandidateInput => ({
@@ -289,7 +291,7 @@ function reapHint(candidate: ReapCandidate): string {
   return `${ownership} - ${process} - ${created}`;
 }
 
-function reapResults(directory: string, candidates: readonly ReapCandidate[]): LeaseCommandResult[] {
+function reapResults(directory: OrchDir, candidates: readonly ReapCandidate[]): LeaseCommandResult[] {
   return candidates.map((candidate) => reapAgent(directory, candidate.id));
 }
 
@@ -298,7 +300,7 @@ function printReaped(results: readonly LeaseCommandResult[]): void {
   else for (const result of results) process.stdout.write(`Reaped ${result.name}.\n`);
 }
 
-async function reapInteractive(directory: string, callerId: string): Promise<void> {
+async function reapInteractive(directory: OrchDir, callerId: string): Promise<void> {
   const candidates = classifiedReapCandidates(directory, callerId);
   const selected = await promptMultiselect("Select agents to reap", candidates.map((candidate) => ({
     value: candidate.id,
@@ -312,7 +314,7 @@ async function reapInteractive(directory: string, callerId: string): Promise<voi
   printReaped(reapResults(directory, chosen));
 }
 
-function reapDead(directory: string, callerId: string, json: boolean): void {
+function reapDead(directory: OrchDir, callerId: string, json: boolean): void {
   const candidates = classifiedReapCandidates(directory, callerId);
   const dead = candidates.filter((candidate) => candidate.classification === "dead");
   const results = reapResults(directory, dead);
@@ -320,25 +322,25 @@ function reapDead(directory: string, callerId: string, json: boolean): void {
   else printReaped(results);
 }
 
-export async function cmdReap(args: string[]): Promise<void> {
+export async function cmdReap(services: Services, args: string[]): Promise<void> {
   const json = args.includes("--json");
   if (args.includes("--dead")) {
     const positional = args.filter((arg) => arg !== "--dead" && arg !== "--json");
     if (positional.length) throw new Error("usage: orch reap <target> | --dead [--json]");
-    const directory = orchDir();
-    reapDead(directory, await resolveSelfOrchId(), json);
+    const directory = services.orchDir;
+    reapDead(directory, await resolveSelfOrchId(directory, services.logger), json);
     return;
   }
 
   const positional = args.filter((arg) => arg !== "--json");
   if (positional.length === 0) {
     if (process.stdin.isTTY !== true) throw new Error("usage: orch reap <target> | --dead [--json]");
-    await reapInteractive(orchDir(), await resolveSelfOrchId());
+    await reapInteractive(services.orchDir, await resolveSelfOrchId(services.orchDir, services.logger));
     return;
   }
 
   const { target } = parseTarget(args, "usage: orch reap <target> [--json]");
-  const result = reapAgent(orchDir(), target);
+  const result = reapAgent(services.orchDir, target);
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, reaped: true }) + "\n");
   else process.stdout.write(`Reaped ${result.name}.\n`);
   await Promise.resolve();

@@ -1,6 +1,5 @@
 import * as path from "node:path";
-import { closeOutboxForDeadTargets, reapDeadPresenceDirs, reapMalformedPresenceDirs } from "../presence/store.ts";
-import { orchDir } from "../presence/writer.ts";
+import { closeOutboxForDeadTargets, loadPresence, reapDeadPresenceDirs, reapMalformedPresenceDirs } from "../presence/store.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { livePresenceHolders } from "../store/connection.ts";
 import { errorMessage } from "../util.ts";
@@ -15,8 +14,9 @@ import {
   worktreeHasCommitsAheadOf,
 } from "../worktree.ts";
 import { agentViewIndex, callerIsSpawnedAgent, die, presenceById } from "./target.ts";
-import { commandLogger } from "./logging.ts";
 import type { AgentView } from "../types/store.ts";
+import type { Logger, OrchDir } from "../types/core.ts";
+import type { Services } from "../types/services.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { DeadAgentSweepOptions } from "../types/command.ts";
 
@@ -37,7 +37,7 @@ export function liveWorktreeOwner(
   return Boolean(owner && presence.get(owner.id)?.alive);
 }
 
-function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: string, force: boolean, json = false): boolean {
+function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: string, force: boolean, logger: Logger, json = false): boolean {
   try {
     const branch = worktreeBranch(worktreePath);
     const hasCommitsAhead = worktreeHasCommitsAheadOf(repoRoot, worktreePath, baseBranch);
@@ -55,13 +55,13 @@ function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: st
     }
   } catch (error: unknown) {
     const message = errorMessage(error);
-    commandLogger().error("clean.worktree-failed", { path: worktreePath, error: message });
+    logger.error("clean.worktree-failed", { path: worktreePath, error: message });
     process.stdout.write(`failed to clean worktree ${worktreePath}: ${message}\n`);
   }
   return true;
 }
 
-function cleanWorktrees(force: boolean, json = false): number {
+function cleanWorktrees(root: OrchDir, logger: Logger, force: boolean, json = false): number {
   let repoRoot: string;
   try {
     repoRoot = repositoryCommonRoot(process.cwd());
@@ -69,13 +69,13 @@ function cleanWorktrees(force: boolean, json = false): number {
     die(errorMessage(error));
   }
   const baseBranch = repositoryBranch(repoRoot);
-  const views = [...agentViewIndex().values()];
-  const presence = presenceById();
+  const views = [...agentViewIndex(root).values()];
+  const presence = presenceById(loadPresence(root));
   const worktrees = listAgentWorktrees(repoRoot);
   let reported = false;
   for (const worktreePath of worktrees) {
     if (liveWorktreeOwner(worktreePath, views, presence)) continue;
-    reported = cleanOneWorktree(repoRoot, baseBranch, worktreePath, force, json) || reported;
+    reported = cleanOneWorktree(repoRoot, baseBranch, worktreePath, force, logger, json) || reported;
   }
   if (!reported && !json) process.stdout.write("No orphan worktrees to clean.\n");
   return worktrees.length;
@@ -91,7 +91,7 @@ function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean
 
 /** Remove the presence directories that name no agent; the store owns the removal,
  *  this command adds output. */
-function removeMalformedAgentDirs(json = false, root = orchDir()): string[] {
+function removeMalformedAgentDirs(json = false, root: OrchDir): string[] {
   const removed = reapMalformedPresenceDirs(root);
   if (!json) {
     if (removed.length) process.stdout.write("Removed malformed agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
@@ -102,7 +102,7 @@ function removeMalformedAgentDirs(json = false, root = orchDir()): string[] {
 
 /** Close the queued writes no live agent will ever read; the store owns the rows,
  *  this command adds output. */
-function closeDeadAgentWrites(json = false, root = orchDir()): number {
+function closeDeadAgentWrites(json = false, root: OrchDir): number {
   const closed = closeOutboxForDeadTargets(root);
   if (!json) process.stdout.write(closed ? `Closed ${closed} queued write(s) to dead agents.\n` : "No queued writes to dead agents.\n");
   return closed;
@@ -119,42 +119,42 @@ function closeDeadAgentWrites(json = false, root = orchDir()): number {
  * `livePresenceHolders` list, so this says it the same way rather than inventing a
  * second wording for one situation.
  */
-function nothingToReapMessage(root: string): string {
+function nothingToReapMessage(root: OrchDir): string {
   const holders = livePresenceHolders(root);
   if (holders.length === 0) return "Nothing to clean - no agent dirs exist.\n";
   return `Nothing to clean - ${holders.length} agent${holders.length === 1 ? " is" : "s are"} live: ${holders.join(", ")}. `
     + `--force reaps DEAD agents only; close them first ('orch close --all'), then retry.\n`;
 }
 
-export function removeDeadAgentDirs(json = false, options: DeadAgentSweepOptions = {}): string[] {
-  const result = reapDeadPresenceDirs(options.root ?? orchDir(), options.olderThan);
+export function removeDeadAgentDirs(services: Services, json: boolean, options: DeadAgentSweepOptions & { root: OrchDir }): string[] {
+  const result = reapDeadPresenceDirs(options.root, options.olderThan);
   for (const failure of result.failed) {
     const message = errorMessage(failure.error);
-    const log = isAgentId(failure.entry.key) ? commandLogger().forAgent(failure.entry.key) : commandLogger();
+    const log = isAgentId(failure.entry.key) ? services.logger.forAgent(failure.entry.key) : services.logger;
     log.error("clean.presence-remove-failed", { path: failure.entry.dir, error: message });
     process.stdout.write(`failed to remove ${failure.entry.dir}: ${message}\n`);
   }
   const removed = result.removed.map((entry) => entry.key);
   if (!json) {
     if (removed.length) process.stdout.write("Removed dead agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
-    else process.stdout.write(nothingToReapMessage(options.root ?? orchDir()));
+    else process.stdout.write(nothingToReapMessage(options.root));
   }
   return removed;
 }
 
 /** Bare `orch clean` removes only what names no agent and closes writes nobody
  *  will read. Ended agents are history; `--force` is the one way to reap them. */
-export function cmdClean(args: string[]) {
+export function cmdClean(services: Services, args: string[]) {
   // A sweep reaps records and worktrees the caller does not own, which is
   // destructive maintenance: the user's or the pack orch's call, never a
   // slave's. It refuses before reading anything, so nothing is mutated.
-  if (callerIsSpawnedAgent()) die("orch clean is operator-only: a spawned agent never reaps records it does not own. Ask the user or your orch to run it.");
+  if (callerIsSpawnedAgent(services.orchDir)) die("orch clean is operator-only: a spawned agent never reaps records it does not own. Ask the user or your orch to run it.");
   const json = args.includes("--json");
   const options = validateCleanArgs(args.filter((arg) => arg !== "--json"));
-  const malformed = removeMalformedAgentDirs(json);
-  const closed = closeDeadAgentWrites(json);
-  const removed = options.force ? removeDeadAgentDirs(json) : [];
-  const worktrees = options.worktrees ? cleanWorktrees(options.force, json) : 0;
+  const malformed = removeMalformedAgentDirs(json, services.orchDir);
+  const closed = closeDeadAgentWrites(json, services.orchDir);
+  const removed = options.force ? removeDeadAgentDirs(services, json, { root: services.orchDir }) : [];
+  const worktrees = options.worktrees ? cleanWorktrees(services.orchDir, services.logger, options.force, json) : 0;
   if (json) process.stdout.write(JSON.stringify({ malformed, closed, removed, worktrees }) + "\n");
 }
 

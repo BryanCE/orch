@@ -1,6 +1,7 @@
 import type { Effect, Stream } from "effect";
 import type { PackAbortError, PackSendError } from "../seat/domain.ts";
 import type { DaemonClient } from "./agent.ts";
+import type { OrchDir } from "./core.ts";
 
 /** One transition as orch's daemon publishes it; the pack's only event source. */
 export interface PackTransition {
@@ -49,7 +50,7 @@ export interface PackSnapshot {
 }
 
 export interface OrchSeatOptions {
-  readonly orchDir: string;
+  readonly orchDir: OrchDir;
   /** This session's orch identity, once presence has minted it. */
   readonly ownKey: () => string | undefined;
 }
@@ -96,7 +97,7 @@ export interface PackSourceShape {
 }
 
 export interface PackSourceConfig {
-  readonly orchDir: string;
+  readonly orchDir: OrchDir;
   readonly ownKey: () => string | undefined;
   readonly daemon: DaemonClient;
 }

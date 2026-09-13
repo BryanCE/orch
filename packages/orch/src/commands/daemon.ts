@@ -1,5 +1,4 @@
 import * as path from "node:path";
-import { loadSettings } from "../settings/read.ts";
 import {
   clearDaemonRuntime,
   daemonEntrypoint,
@@ -14,6 +13,7 @@ import {
 import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { DaemonAbsentError, DaemonUnreachableError } from "../daemon/rpc/wire.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
+import type { GovernedMethod, ParamsOf, ResultOf, Governance } from "../daemon/rpc/protocol.ts";
 import {
   awaitDaemonProbe,
   BIND_GRACE_MS,
@@ -26,36 +26,25 @@ import {
   translateDaemonError,
   unreachableRefusal,
 } from "../daemon/reach.ts";
-import { orchDir } from "../presence/writer.ts";
-import { errorMessage, isRecord, pidAlive } from "../util.ts";
+import { errorMessage, pidAlive } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
 import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidNonOperatorOverride } from "./target.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
+import type { OrchDir } from "../types/core.ts";
+import type { OrchDirService, Services } from "../types/services.ts";
 
-export function validDaemonStatus(value: unknown): value is DaemonStatus {
-  return isRecord(value)
-    && typeof value.pid === "number"
-    && typeof value.startedAt === "string"
-    && typeof value.uptimeSec === "number"
-    && typeof value.codeHash === "string"
-    && typeof value.socket === "string"
-    && (value.tcpEndpoint === undefined || typeof value.tcpEndpoint === "string");
+async function fetchDaemonStatus(orchDir: OrchDir, timeoutMs = 5000): Promise<DaemonStatus> {
+  return rpcCall(orchDir, "daemon-status", undefined, timeoutMs);
 }
 
-async function fetchDaemonStatus(timeoutMs = 5000): Promise<DaemonStatus> {
-  const result = await rpcCall(orchDir(), "daemon-status", undefined, timeoutMs);
-  if (!validDaemonStatus(result)) throw new Error("orchd returned an invalid status");
-  return result;
-}
-
-async function waitForDaemon(previousStartedAt?: string): Promise<DaemonStatus> {
+async function waitForDaemon(orchDir: OrchDir, previousStartedAt?: string): Promise<DaemonStatus> {
   const deadline = Date.now() + 5000;
   return retryingAsync(
     "wait for orchd",
     async () => {
       const remaining = deadline - Date.now();
       if (remaining <= 0) throw new Error("wait deadline reached");
-      const status = await fetchDaemonStatus(Math.min(300, remaining));
+      const status = await fetchDaemonStatus(orchDir, Math.min(300, remaining));
       if (previousStartedAt && status.startedAt === previousStartedAt) throw new Error("orchd is still restarting");
       return status;
     },
@@ -69,7 +58,7 @@ async function waitForDaemon(previousStartedAt?: string): Promise<DaemonStatus> 
 }
 
 /** Extract governance flags and strip them from the positional args. */
-export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: string[] } {
+export function parseGovernance(services: OrchDirService, args: string[]): { gov: WriteGovernance; rest: string[] } {
   const gov: WriteGovernance = {};
   const rest: string[] = [];
   for (const arg of args) {
@@ -79,35 +68,38 @@ export function parseGovernance(args: string[]): { gov: WriteGovernance; rest: s
   }
   // Refused at parse time so the message names the flag, before any wall or
   // resolution failure can obscure it. callDaemon re-checks for programmatic gov.
-  if (gov.steal) forbidNonOperatorOverride("--steal");
-  if (gov.crossSpace) forbidNonOperatorOverride("--cross-space");
+  if (gov.steal) forbidNonOperatorOverride(services.orchDir, "--steal");
+  if (gov.crossSpace) forbidNonOperatorOverride(services.orchDir, "--cross-space");
   return { gov, rest };
 }
 
 /** One write to orchd, stamped with the caller's actor and governance. Throws the
  *  refusal text a human should read; the caller owns what an unreachable daemon costs.
  *  Use {@link writeRpc} when that cost is the whole command. */
-export async function callDaemon(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
-  const directory = orchDir();
+export async function callDaemon<M extends GovernedMethod>(services: Pick<Services, "orchDir" | "settings" | "logger">, method: M, params: ParamsOf<M>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<ResultOf<M>> {
+  const directory = services.orchDir;
   if (timeoutMs === undefined && (method === "steer" || method === "answer")) {
-    const { timeouts } = loadSettings(directory);
+    const { timeouts } = services.settings.current();
     timeoutMs = timeouts.adapter_command_ms + timeouts.dispatch_ack_ms;
   }
-  if (gov.steal) forbidNonOperatorOverride("--steal");
-  if (gov.crossSpace) forbidNonOperatorOverride("--cross-space");
+  if (gov.steal) forbidNonOperatorOverride(directory, "--steal");
+  if (gov.crossSpace) forbidNonOperatorOverride(directory, "--cross-space");
   // The write actor is the same token spawn stamps as owner (ORCH_OWNER, else
   // the id orch issued); anything else and an orchestrator cannot steer its own fleet.
-  const actor = callerOwnerToken() ?? null;
-  const enriched: Record<string, unknown> = { ...params };
-  if (actor !== null) {
-    enriched.actor = actor;
-    enriched.actorSpace = actorSpace(actor);
-    enriched.actorIsOperator = !callerIsSpawnedAgent();
-  }
-  if (gov.steal) enriched.steal = true;
-  if (gov.crossSpace) enriched.crossSpace = true;
+  const actor = callerOwnerToken(directory) ?? null;
+  const actorLocation = actor === null ? null : actorSpace(directory, actor);
+  const governance: Governance = {
+    ...(actor === null ? {} : {
+      actor,
+      ...(actorLocation === null ? {} : { actorSpace: actorLocation }),
+      actorIsOperator: !callerIsSpawnedAgent(directory),
+    }),
+    ...(gov.steal ? { steal: true } : {}),
+    ...(gov.crossSpace ? { crossSpace: true } : {}),
+  };
+  const enriched: ParamsOf<M> = { ...params, ...governance };
   try {
-    await ensureDaemon(directory);
+    await ensureDaemon(directory, services.logger);
     return await rpcCall(directory, method, enriched, timeoutMs);
   } catch (error: unknown) {
     throw translateDaemonError(directory, error);
@@ -115,16 +107,16 @@ export async function callDaemon(method: string, params: Record<string, unknown>
 }
 
 /** The daemon write whose failure ends the command. */
-export async function writeRpc(method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
+export async function writeRpc<M extends GovernedMethod>(services: Pick<Services, "orchDir" | "settings" | "logger">, method: M, params: ParamsOf<M>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<ResultOf<M>> {
   try {
-    return await callDaemon(method, params, gov, timeoutMs);
+    return await callDaemon(services, method, params, gov, timeoutMs);
   } catch (error: unknown) {
     die(errorMessage(error));
   }
 }
 
-async function startDaemon(foreground: boolean, json = false): Promise<void> {
-  const directory = orchDir();
+async function startDaemon(orchDir: OrchDir, logger: Services["logger"], foreground: boolean, json = false): Promise<void> {
+  const directory = orchDir;
   const global = liveDaemonRegistration();
   if (global && path.resolve(global.orchDir) !== path.resolve(directory)) {
     die(daemonStartRefusal(global));
@@ -134,7 +126,7 @@ async function startDaemon(foreground: boolean, json = false): Promise<void> {
   // before judging. No live lock = nothing to wait on.
   const probe = livePid !== undefined ? await awaitDaemonProbe(directory, Date.now() + BIND_GRACE_MS) : await probeDaemon(directory);
   if (probe === "answered") {
-    const status = await fetchDaemonStatus();
+    const status = await fetchDaemonStatus(directory);
     if (json) process.stdout.write(JSON.stringify({ running: true, pid: status.pid, started: false }) + "\n");
     else process.stdout.write(`already running (pid ${status.pid})\n`);
     return;
@@ -143,24 +135,24 @@ async function startDaemon(foreground: boolean, json = false): Promise<void> {
   // Nothing is listening: a still-alive lock pid is wedged — terminate it so a fresh
   // instance can take the lock instead of being refused it forever. With no live pid,
   // a dial that timed out hit a departed daemon's endpoint files; reap them.
-  if (livePid !== undefined) await terminateWedgedDaemon(directory, livePid, 3000);
+  if (livePid !== undefined) await terminateWedgedDaemon(directory, logger, livePid, 3000);
   else if (probe === "unreachable") clearDaemonRuntime(directory);
   const entrypoint = daemonEntrypoint();
   if (foreground) {
     process.exitCode = await runForeground(entrypoint);
     return;
   }
-  daemonize(entrypoint, [], directory);
+  daemonize(directory, entrypoint, []);
   // Never announce a start the daemon did not make: it exits silently when it
   // cannot take the lock, and its reason is in the log.
-  const status = await waitForDaemon().catch((): never =>
+  const status = await waitForDaemon(directory).catch((): never =>
     die(`orchd did not answer after start; see ${daemonRuntimeFiles(directory).log}`));
   if (json) process.stdout.write(JSON.stringify({ running: true, pid: status.pid, started: true }) + "\n");
   else process.stdout.write(`started (pid ${status.pid})\n`);
 }
 
-async function stopDaemon(json = false): Promise<void> {
-  const directory = orchDir();
+async function stopDaemon(orchDir: OrchDir, json = false): Promise<void> {
+  const directory = orchDir;
   const lockPid = daemonLockPid(directory);
   if (!lockPid || !pidAlive(lockPid)) {
     if (json) process.stdout.write(JSON.stringify({ running: false, stopped: false }) + "\n");
@@ -182,23 +174,23 @@ function reportDaemonDown(json: boolean, reason: string): void {
   process.exitCode = 1;
 }
 
-async function statusDaemon(json: boolean): Promise<void> {
+async function statusDaemon(orchDir: OrchDir, json: boolean): Promise<void> {
   try {
-    const status = await fetchDaemonStatus();
+    const status = await fetchDaemonStatus(orchDir);
     if (json) process.stdout.write(`${JSON.stringify(status)}\n`);
     else process.stdout.write(`running (pid ${status.pid}, uptime ${status.uptimeSec}s, hash ${status.codeHash}, ${status.socket}${status.tcpEndpoint ? `, ${status.tcpEndpoint}` : ""})\n`);
   } catch (error) {
     // A starved daemon and a departed one both go silent; only its pid tells them apart.
-    if (error instanceof DaemonUnreachableError) return reportDaemonDown(json, unreachableRefusal(orchDir()));
+    if (error instanceof DaemonUnreachableError) return reportDaemonDown(json, unreachableRefusal(orchDir));
     if (!(error instanceof DaemonAbsentError)) throw error;
     reportDaemonDown(json, "not running");
   }
 }
 
-async function reloadDaemon(json = false): Promise<void> {
-  const before = await fetchDaemonStatus();
-  await rpcCall(orchDir(), "reload");
-  const after = await waitForDaemon(before.startedAt);
+async function reloadDaemon(orchDir: OrchDir, json = false): Promise<void> {
+  const before = await fetchDaemonStatus(orchDir);
+  await rpcCall(orchDir, "reload", undefined);
+  const after = await waitForDaemon(orchDir, before.startedAt);
   if (json) process.stdout.write(JSON.stringify({ reloaded: true, pid: after.pid, codeHash: after.codeHash }) + "\n");
   else process.stdout.write(`reloaded (pid ${after.pid}, hash ${after.codeHash})\n`);
 }
@@ -212,33 +204,33 @@ function rejectUnknownFlags(action: string, args: string[], allowed: readonly st
   if (unknown.length > 0) die(`orch daemon ${action}: unknown ${unknown.length === 1 ? "flag" : "flags"} ${unknown.join(" ")}`);
 }
 
-export async function cmdDaemon(args: string[]): Promise<void> {
+export async function cmdDaemon(services: Services, args: string[]): Promise<void> {
   const [action, ...flags] = args;
   const json = flags.includes("--json");
   if (action === "start") {
     rejectUnknownFlags(action, flags, [...FOREGROUND_FLAGS, "--json"]);
-    return startDaemon(flags.some((flag) => FOREGROUND_FLAGS.includes(flag)), json);
+    return startDaemon(services.orchDir, services.logger, flags.some((flag) => FOREGROUND_FLAGS.includes(flag)), json);
   }
   if (action === "stop") {
     rejectUnknownFlags(action, flags, ["--json"]);
-    return stopDaemon(json);
+    return stopDaemon(services.orchDir, json);
   }
   if (action === "status") {
     rejectUnknownFlags(action, flags, ["--json"]);
-    return statusDaemon(json);
+    return statusDaemon(services.orchDir, json);
   }
   if (action === "reload") {
     rejectUnknownFlags(action, flags, ["--json"]);
-    return reloadDaemon(json);
+    return reloadDaemon(services.orchDir, json);
   }
   die("usage: orch daemon start [--fg|--foreground] | stop | status [--json] | reload [--json]");
 }
 
-export async function cmdWork(args: string[]) {
+export async function cmdWork(services: Services, args: string[]) {
   const json = args.includes("--json");
   const once = args.includes("--once");
   if (args.some((arg) => arg !== "--once" && arg !== "--json")) die("usage: orch work [--once] [--json]");
-  await ensureDaemon(orchDir());
+  await ensureDaemon(services.orchDir, services.logger);
   if (json) process.stdout.write(JSON.stringify({ once, accepted: true, daemon: "orchd" }) + "\n");
   else process.stdout.write("orchd is processing the queue.\n");
 }

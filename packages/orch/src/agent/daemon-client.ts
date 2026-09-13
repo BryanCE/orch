@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // The running agent's orchd socket client: the only channel by which a bundled
 // harness asks orchd anything or reports anything. It knows no plexer and no store.
 //
@@ -12,13 +13,15 @@ import {
   requestJsonLine,
   type JsonLineLink,
 } from "../presence/socket-client.ts";
-import { loadSettingsOrNull } from "../settings/read.ts";
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
-import { isRecord } from "../util.ts";
 import type { ControlOutcomeReport, DaemonClient } from "../types/agent.ts";
+import { parseRpcResult, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/rpc/protocol.ts";
+import { parseRpcLine } from "../daemon/rpc/wire.ts";
+import type { SettingsManager } from "../types/services.ts";
 
-export function createDaemonClient(orchDir: string): DaemonClient {
+export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager): DaemonClient {
   const ackedMessageIds = new Set<string>();
+
   const pending = new Map<number, (result: unknown) => void>();
   let nextRequestId = 1;
   let link: JsonLineLink | undefined;
@@ -36,20 +39,23 @@ export function createDaemonClient(orchDir: string): DaemonClient {
     return endpoints;
   }
 
-  async function answerFrom(endpoint: string | number, method: string, params: Record<string, unknown>): Promise<unknown> {
+  async function answerFrom<M extends RpcMethod>(endpoint: string | number, method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined> {
     const requestId = nextRequestId++;
     const line = await requestJsonLine(endpoint, { id: requestId, method, params }, 500);
     if (line === undefined) return undefined;
+    let value: unknown;
     try {
-      const response: unknown = JSON.parse(line);
-      if (!isRecord(response) || response.id !== requestId || "error" in response) return undefined;
-      return response.result;
+      value = JSON.parse(line);
     } catch {
       return undefined;
     }
+    const response = parseRpcLine(value);
+    if (response?.kind !== "reply" || response.id !== requestId) return undefined;
+    const parsed = parseRpcResult(method, response.result);
+    return parsed.ok ? parsed.value : undefined;
   }
 
-  async function ask(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  async function ask<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined> {
     try {
       for (const endpoint of daemonEndpoints()) {
         const result = await answerFrom(endpoint, method, params);
@@ -70,22 +76,31 @@ export function createDaemonClient(orchDir: string): DaemonClient {
   }
 
   function handleLine(line: string, onDelivery: (delivery: BridgeDelivery) => void): void {
-    let parsed: unknown;
+    let value: unknown;
     try {
-      parsed = JSON.parse(line);
+      value = JSON.parse(line);
     } catch {
       return;
     }
-    if (!isRecord(parsed)) return;
-    if ("id" in parsed) {
-      resolvePending(parsed.id, "error" in parsed ? undefined : parsed.result);
-      return;
+    const parsed = parseRpcLine(value);
+    if (parsed === null) return;
+    switch (parsed.kind) {
+      case "reply":
+        resolvePending(parsed.id, parsed.result);
+        return;
+      case "error":
+        resolvePending(parsed.id, undefined);
+        return;
+      case "event":
+        if (!isBridgeDelivery(parsed.event)) return;
+        onDelivery({ id: parsed.event.id, message: parsed.event.message });
+        return;
+      case "gap":
+        return;
     }
-    if (!isRecord(parsed.event) || parsed.event.kind !== "delivery" || !isBridgeDelivery(parsed.event)) return;
-    onDelivery({ id: parsed.event.id, message: parsed.event.message });
   }
 
-  function sendLinkRequest(method: string, params: Record<string, unknown>): Promise<unknown> | undefined {
+  function sendLinkRequest<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined> | undefined {
     if (link === undefined) return undefined;
     const requestId = nextRequestId++;
     return new Promise((resolve) => {
@@ -94,6 +109,9 @@ export function createDaemonClient(orchDir: string): DaemonClient {
         pending.delete(requestId);
         resolve(undefined);
       }
+    }).then((result) => {
+      const parsed = parseRpcResult(method, result);
+      return parsed.ok ? parsed.value : undefined;
     });
   }
 
@@ -105,6 +123,11 @@ export function createDaemonClient(orchDir: string): DaemonClient {
 
   function scheduleReconnect(onDelivery: (delivery: BridgeDelivery) => void): void {
     if (!attachWanted || reconnectTimer !== undefined) return;
+    try {
+      reconnectMs = settings.currentOrNull()?.daemon.bridge_reconnect_ms ?? SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
+    } catch {
+      reconnectMs = SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
+    }
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined;
       void dial(onDelivery);
@@ -138,18 +161,13 @@ export function createDaemonClient(orchDir: string): DaemonClient {
     linkAttached = false;
     const attachReply = sendLinkRequest("attach", { key: attachedKey });
     void attachReply?.then((result) => {
-      if (link !== connected || !isRecord(result) || result.attached !== true) return;
+      if (link !== connected || result === undefined) return;
       linkAttached = true;
     });
   }
 
   function attach(key: string, onDelivery: (delivery: BridgeDelivery) => void): void {
     detach();
-    try {
-      reconnectMs = loadSettingsOrNull(orchDir)?.daemon.bridge_reconnect_ms ?? SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
-    } catch {
-      reconnectMs = SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
-    }
     attachWanted = true;
     attachedKey = key;
     void dial(onDelivery);
@@ -167,7 +185,7 @@ export function createDaemonClient(orchDir: string): DaemonClient {
     activeLink?.close();
   }
 
-  const post = async (method: string, params: Record<string, unknown>): Promise<boolean> =>
+  const post = async <M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<boolean> =>
     await ask(method, params) !== undefined;
 
   return {
@@ -184,9 +202,9 @@ export function createDaemonClient(orchDir: string): DaemonClient {
       return post("ack", { id });
     },
     postQuestion: async (notice: AgentNotice): Promise<void> => {
-      if (link?.send({ id: nextRequestId++, method: "question", params: { ...notice } }) === true) return;
-      await post("question", { ...notice });
+      if (link?.send({ id: nextRequestId++, method: "question", params: notice }) === true) return;
+      await post("question", notice);
     },
-    postControlOutcome: (report: ControlOutcomeReport): Promise<boolean> => post("control-outcome", { ...report }),
+    postControlOutcome: (report: ControlOutcomeReport): Promise<boolean> => post("control-outcome", report),
   };
 }

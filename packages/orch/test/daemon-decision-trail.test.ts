@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
@@ -10,11 +9,12 @@ import { governWrite, deliverWrite } from "../src/daemon/orchd.ts";
 import { isLogRecord } from "../src/log.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import type { LogRecord } from "../src/types/core.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { LogRecord, OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
+import { testServices } from "./helpers/services.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const previousLogLevel = process.env.ORCH_LOG_LEVEL;
 const previousOrchDir = process.env.ORCH_DIR;
 
@@ -26,8 +26,8 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-decision-trail-"));
+function fixture(): OrchDir {
+  const directory = tempOrchDir("orch-decision-trail-");
   dirs.push(directory);
   process.env.ORCH_LOG_LEVEL = "debug";
   process.env.ORCH_DIR = directory;
@@ -36,11 +36,16 @@ function fixture(): string {
   return directory;
 }
 
-function agent(directory: string, id: string): void {
+function agent(directory: OrchDir, id: string): void {
   insertAgent(directory, { id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 1 });
 }
 
-function records(directory: string): LogRecord[] {
+function daemonState(directory: OrchDir) {
+  const services = testServices({ orchDir: directory, settings: {} });
+  return { services, directory, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, presenceWatch: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false };
+}
+
+function records(directory: OrchDir): LogRecord[] {
   const lines = readFileSync(join(directory, "orchd.log"), "utf8").trim().split("\n");
   return lines.map((line) => {
     const parsed: unknown = JSON.parse(line);
@@ -59,7 +64,7 @@ describe("daemon decision trail", () => {
     const token = processStartToken(process.pid);
     orm(directory).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"live-holder"},${2},${"host"},${process.pid},${token})`);
 
-    expect(() => governWrite(directory, "target", { actor: "caller", target: "target", text: "hello" })).toThrow(/leased by/);
+    expect(() => governWrite(daemonState(directory), "target", { actor: "caller" })).toThrow(/leased by/);
 
     const [record] = records(directory);
     if (record === undefined) throw new Error("missing lease refusal record");
@@ -82,7 +87,7 @@ describe("daemon decision trail", () => {
     agent(directory, "dead-holder");
     acquireLease(directory, "target", "dead-holder", 2);
 
-    expect(() => governWrite(directory, "target", { actor: "caller", target: "target", text: "hello" })).not.toThrow();
+    expect(() => governWrite(daemonState(directory), "target", { actor: "caller" })).not.toThrow();
 
     const [record] = records(directory);
     if (record === undefined) throw new Error("missing lease grant record");
@@ -107,7 +112,7 @@ describe("daemon decision trail", () => {
     // matcher chains as Thenable, and awaiting the call is the same assertion.
     // A boundary answer is terminal: it is a reply to a human, and no bridge
     // will ever append a marker for it, so it settles on the write (L7).
-    expect(await deliverWrite(target, { action: "steer", text: "hello" }, "dispatch-1")).toBe("acked");
+    expect(await deliverWrite(daemonState(directory), target, { action: "steer", text: "hello" }, "dispatch-1")).toBe("acked");
 
     const trail = records(directory);
     const record = trail.find((candidate) => candidate.event === "boundary.answer");

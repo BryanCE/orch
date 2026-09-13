@@ -17,8 +17,8 @@
  */
 import { readFileSync } from "node:fs";
 import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
-import { launchCredential } from "../../src/identity/launch.ts";
-import { ensurePresenceAgentDir, launchStamp, readJsonStdin, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
+import { launchStamp, readJsonStdin, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
+import { baseStatus, presenceSession } from "../../src/presence/session.ts";
 import { isRecord, projectRoot } from "../../src/util.ts";
 import { textValue, truncateOptional } from "../../src/util.ts";
 import { lastAssistantFromJsonl } from "../../src/adapters/transcript.ts";
@@ -54,20 +54,15 @@ function modelValue(input: JsonRecord): { provider?: string; id?: string } | und
   return undefined;
 }
 
-// No launch credential means a regular (non-orch) Claude session — nothing to
-// record, exit silently. Only a present-but-malformed credential is a wiring error.
-const key = launchCredential();
-if (key === null) process.exit(0);
+const session = presenceSession();
+if (session.kind === "not-orch") process.exit(0);
 
 const input = readJsonStdin();
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
-const directory = ensurePresenceAgentDir(key);
-if (!directory) process.exit(0);
-
 const transcriptPath = textValue(input.transcript_path ?? input.transcriptPath);
 const now = new Date().toISOString();
-const previous = readStatus(directory);
+const previous = readStatus(session.directory);
 const model = modelValue(input) ?? previous.model;
 const rawTask = input.task ?? input.prompt ?? input.initial_prompt;
 const preparedTask = typeof rawTask === "string" ? prepareWorkerTask(rawTask, MAX_TASK) : undefined;
@@ -80,15 +75,17 @@ const lastText = truncateOptional(transcriptText ?? existingText, MAX_TEXT);
 // No pid: a hook only ever sees the shell that ran it. Liveness is the process
 // orch recorded at spawn (Rule 11), never a guess written here.
 const status: JsonRecord = {
-  ...launchStamp(previous, AGENT_ID, key),
-  cwd: textValue(input.cwd) ?? previous.cwd ?? process.cwd(),
-  project: projectRoot(),
+  ...launchStamp(previous, AGENT_ID, session.key),
+  ...baseStatus({
+    cwd: textValue(input.cwd) ?? textValue(previous.cwd) ?? process.cwd(),
+    project: projectRoot(),
+    lastText: lastText ?? null,
+    updatedAt: now,
+  }),
   model,
   task,
   sessionPath: transcriptPath ?? previous.sessionPath,
   sessionId,
-  lastText,
-  updatedAt: now,
 };
 
 if (event === "sessionstart" || event === "sessionstarted") {
@@ -109,10 +106,10 @@ if (event === "sessionstart" || event === "sessionstarted") {
   delete status.asking;
   delete status.blockedMessage;
   if (transcriptText) {
-    writeResult(directory, {
+    writeResult(session.directory, {
       schema: PRESENCE_SCHEMA,
       agent: AGENT_ID,
-      key,
+      key: session.key,
       text: transcriptText,
       sessionPath: status.sessionPath,
       model: status.model,
@@ -125,4 +122,4 @@ if (event === "sessionstart" || event === "sessionstarted") {
   process.exit(0);
 }
 
-writeStatus(directory, status);
+writeStatus(session.directory, status);

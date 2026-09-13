@@ -1,17 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { claimSpawnNames, resolveSpawnNames } from "../src/commands/spawn/names.ts";
 import { parseSpawnFlags } from "../src/commands/spawn/flags.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const dirs: OrchDir[] = [];
 const oldDir = process.env.ORCH_DIR;
 
-function makeDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-namelist-"));
+function makeDir(): OrchDir {
+  const dir = tempOrchDir("orch-namelist-");
   dirs.push(dir);
   writeSettingsFixture(dir, {});
   process.env.ORCH_DIR = dir;
@@ -61,6 +59,6 @@ describe("spawn names every agent positionally, at creation", () => {
 
   test("claimSpawnNames takes the resolved names and asserts each is free", () => {
     makeDir();
-    expect(claimSpawnNames(["api", "worker"], "")).toEqual(["api", "worker"]);
+    expect(claimSpawnNames(makeDir(), ["api", "worker"], "")).toEqual(["api", "worker"]);
   });
 });

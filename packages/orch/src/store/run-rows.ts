@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { desc, eq, lt } from "drizzle-orm";
 import { orm } from "./connection.ts";
 import { runs } from "../db/schema.ts";
@@ -52,7 +53,7 @@ function mutableColumns(run: RunRecord) {
 
 /** Record one observation of a dispatch. `startedAt` is written once, on the
  *  first observation, so a later update cannot move the run's start. */
-export function upsertRun(directory: string, run: RunRecord): void {
+export function upsertRun(directory: OrchDir, run: RunRecord): void {
   orm(directory).insert(runs)
     .values({ dispatchId: run.dispatchId, startedAt: run.startedAt, ...mutableColumns(run) })
     .onConflictDoUpdate({ target: runs.dispatchId, set: mutableColumns(run) })
@@ -60,7 +61,7 @@ export function upsertRun(directory: string, run: RunRecord): void {
 }
 
 /** Runs newest first, for one agent or for every agent. */
-export function selectRuns(directory: string, filter: { agentKey?: string; limit?: number } = {}): RunRecord[] {
+export function selectRuns(directory: OrchDir, filter: { agentKey?: string; limit?: number } = {}): RunRecord[] {
   const query = orm(directory).select().from(runs)
     .where(filter.agentKey === undefined ? undefined : eq(runs.agentKey, filter.agentKey))
     .orderBy(desc(runs.startedAt));
@@ -69,11 +70,11 @@ export function selectRuns(directory: string, filter: { agentKey?: string; limit
 }
 
 /** The one run a dispatch id names. */
-export function selectRun(directory: string, dispatchId: string): RunRecord | undefined {
+export function selectRun(directory: OrchDir, dispatchId: string): RunRecord | undefined {
   const row = orm(directory).select().from(runs).where(eq(runs.dispatchId, dispatchId)).limit(1).all()[0];
   return row === undefined ? undefined : rowToRun(row);
 }
 
-export function deleteRunsBefore(directory: string, cutoff: number): number {
+export function deleteRunsBefore(directory: OrchDir, cutoff: number): number {
   return Number(orm(directory).delete(runs).where(lt(runs.startedAt, cutoff)).run().changes);
 }

@@ -1,15 +1,13 @@
 import * as path from "node:path";
-import { loadSettingsOrNull } from "../settings/read.ts";
-import { runSSH } from "../remote.ts";
 import { readJson } from "./shared.ts";
 import { isRecord, packageRoot, shellQuote } from "../util.ts";
 import type { CheckResult, SshRunner } from "../types/doctor.ts";
-import type { HostSettings } from "../types/settings.ts";
+import type { HostSettings, OrchSettings } from "../types/settings.ts";
 
 /** The configured remote hosts. An install with no settings.json has none — the subject of these
  * checks is the host list, so its absence is an honest empty answer, not a defect. */
-function configuredHosts(orchDir: string): [string, HostSettings][] {
-  return Object.entries(loadSettingsOrNull(orchDir)?.hosts ?? {});
+function configuredHosts(settings: OrchSettings | null): [string, HostSettings][] {
+  return Object.entries(settings?.hosts ?? {});
 }
 
 function hostDestination(name: string, host: HostSettings): string {
@@ -23,9 +21,9 @@ function hostResult(id: string, label: string, failures: string[], total: number
   return { id, label, status: failureStatus, detail: failures.join("; ") };
 }
 
-export async function checkRemoteReachability(orchDir: string, runner: SshRunner = runSSH): Promise<CheckResult> {
+export async function checkRemoteReachability(settings: OrchSettings | null, runner: SshRunner): Promise<CheckResult> {
   await Promise.resolve();
-  const hosts = configuredHosts(orchDir);
+  const hosts = configuredHosts(settings);
   const failures: string[] = [];
   for (const [name, host] of hosts) {
     try {
@@ -37,9 +35,9 @@ export async function checkRemoteReachability(orchDir: string, runner: SshRunner
   return hostResult("remote-ssh", "Remote SSH reachability", failures, hosts.length, "fail");
 }
 
-export async function checkRemoteVersion(orchDir: string, runner: SshRunner = runSSH): Promise<CheckResult> {
+export async function checkRemoteVersion(settings: OrchSettings | null, runner: SshRunner): Promise<CheckResult> {
   await Promise.resolve();
-  const hosts = configuredHosts(orchDir);
+  const hosts = configuredHosts(settings);
   const failures: string[] = [];
   const packageJson = readJson(path.join(packageRoot(), "package.json"));
   const local = isRecord(packageJson) && typeof packageJson.version === "string" ? packageJson.version : "unknown";
@@ -52,9 +50,9 @@ export async function checkRemoteVersion(orchDir: string, runner: SshRunner = ru
   return hostResult("remote-orch-version", "Remote orch version/schema", failures, hosts.length, "fail");
 }
 
-export async function checkRemoteOrchDir(orchDir: string, runner: SshRunner = runSSH): Promise<CheckResult> {
+export async function checkRemoteOrchDir(settings: OrchSettings | null, runner: SshRunner): Promise<CheckResult> {
   await Promise.resolve();
-  const hosts = configuredHosts(orchDir);
+  const hosts = configuredHosts(settings);
   const failures: string[] = [];
   for (const [name, host] of hosts) {
     const destination = hostDestination(name, host);

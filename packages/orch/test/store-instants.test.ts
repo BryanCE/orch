@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { agentViews } from "../src/store/agent-view.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const dirs: OrchDir[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 
 afterEach(() => {
@@ -19,8 +19,8 @@ afterEach(() => {
   else process.env.ORCH_DIR = oldOrchDir;
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-store-instants-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-store-instants-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   return dir;
@@ -29,7 +29,7 @@ function fixture(): string {
 describe("epoch-millisecond store instants", () => {
   test("a lease records its holding as an integer instant", () => {
     const dir = fixture();
-    seedAgent("aaaaaaaaa1", { adapter: "pi", backend: "headless", owner: "bbbbbbbbb1" });
+    seedAgent("aaaaaaaaa1", { adapter: "pi", backend: "headless", owner: "bbbbbbbbb1" }, dir);
 
     expect(row(orm(dir), sql`SELECT typeof(since) AS kind FROM agent_leases WHERE agent_id = 'aaaaaaaaa1'`))
       .toEqual({ kind: "integer" });

@@ -1,6 +1,5 @@
 import { buildEntities, entitySpace, scopeEntitiesToSpace, sortEntities, resolveTarget } from "../entities.ts";
-import { loadSettings } from "../settings/read.ts";
-import { orchDir } from "../presence/writer.ts";
+import type { Services, SettingsService } from "../types/services.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
@@ -10,8 +9,8 @@ import { openingPlacement, planTilePlacement, readGroupLayout } from "../backend
 import { displaySpace } from "./status.ts";
 import { spaceName } from "../policy/space.ts";
 import { setHandle } from "../store/interval-rows.ts";
-import { commandLogger } from "./logging.ts";
 import { ambiguousTargetRefusal } from "../refusal.ts";
+import { loadPresence } from "../presence/store.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSplit, TilePlacement } from "../types/backend.ts";
 
 type BoundaryPlan<T> =
@@ -30,24 +29,25 @@ function renderBoundaryAnswer<T>(plan: BoundaryPlan<T>, json: boolean): boolean 
   else process.stdout.write(plan.text + "\n");
   return false;
 }
-export function cmdPanes(args: string[]) {
+export function cmdPanes(services: Services, args: string[]) {
   const { enabled } = splitOptionFlags(args, ["--all", "--json"]);
   const all = enabled.has("--all");
   const json = enabled.has("--json");
-  const entities = scopeEntitiesToSpace(sortEntities(buildEntities()), { all });
-  const spaces = loadSettings(orchDir()).spaces;
+  const settings = services.settings.current();
+  const entities = scopeEntitiesToSpace(services.orchDir, sortEntities(buildEntities(services.orchDir, settings)), { all });
+  const spaces = settings.spaces;
   if (json) {
     process.stdout.write(JSON.stringify(entities.map((e) => ({ key: e.key, paneId: e.paneId, name: e.name,
       tab: e.tabLabel, agent: e.agent, focused: e.focused, state: e.backendStatus ?? e.presence?.status?.state ?? null,
       backendStatus: e.backendStatus, sessionPath: e.sessionPath, presenceOnly: e.presenceOnly,
-      space: entitySpace(e), spaceName: spaceName(entitySpace(e), spaces) })), null, 2) + "\n");
+      space: entitySpace(services.orchDir, e), spaceName: spaceName(entitySpace(services.orchDir, e), spaces) })), null, 2) + "\n");
     return;
   }
-  const showSpace = all && new Set(entities.map((e) => entitySpace(e) ?? "-")).size > 1;
+  const showSpace = all && new Set(entities.map((e) => entitySpace(services.orchDir, e) ?? "-")).size > 1;
   for (const e of entities) {
     const parts = [
       e.paneId ?? e.key,
-      showSpace ? `${displaySpace(entitySpace(e), spaces)} / ${e.name ?? "-"}` : (e.name ?? "-"),
+      showSpace ? `${displaySpace(entitySpace(services.orchDir, e), spaces)} / ${e.name ?? "-"}` : (e.name ?? "-"),
       e.tabLabel ?? "-",
       e.agent ?? "-",
       e.backendStatus ?? (e.presence?.status?.state ?? "-"),
@@ -57,26 +57,26 @@ export function cmdPanes(args: string[]) {
   }
 }
 
-function requirePaneTarget(target: string, command: string): { backend: Backend; handle: string; key: string } {
-  return backendTarget(target, command);
+function requirePaneTarget(services: Pick<Services, "orchDir" | "settings">, target: string, command: string): { backend: Backend; handle: string; key: string } {
+  return backendTarget(services.orchDir, services.settings.current(), target, command);
 }
 
 /** Resolve a pane a command is about to mutate: a foreign-owned agent refuses without --force. */
-function requireOwnedPaneTarget(target: string, command: string, force: boolean): { backend: Backend; handle: string; key: string } {
-  const resolved = backendTarget(target, command);
-  assertAgentOwned(target, { key: resolved.key }, force);
+function requireOwnedPaneTarget(services: Pick<Services, "orchDir" | "settings">, target: string, command: string, force: boolean): { backend: Backend; handle: string; key: string } {
+  const resolved = backendTarget(services.orchDir, services.settings.current(), target, command);
+  assertAgentOwned(services.orchDir, target, { key: resolved.key }, force);
   return resolved;
 }
 
-export function cmdKeys(args: string[]) {
+export function cmdKeys(services: Services, args: string[]) {
   const json = args.includes("--json");
   const force = args.includes("--force");
   const cleanArgs = args.filter((arg) => arg !== "--json" && arg !== "--force");
   const target = cleanArgs[0];
   const keys = cleanArgs.slice(1);
   if (!target || !keys.length) die("usage: orch keys <target> <key> [key...] [--force]");
-  const { backend, handle } = requireOwnedPaneTarget(target, "keys", force);
-  const entity = resolveTarget(target);
+  const { backend, handle } = requireOwnedPaneTarget(services, target, "keys", force);
+  const entity = resolveTarget(services.orchDir, services.settings.current(), target);
   const plan = paneBoundary(target, "keys", backend.agentInput, !!entity.paneId);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.sendKeys(handle, keys);
@@ -84,7 +84,7 @@ export function cmdKeys(args: string[]) {
   else process.stdout.write(`Sent keys to ${handle}: ${keys.join(" ")}\n`);
 }
 
-export function cmdPeek(args: string[]) {
+export function cmdPeek(services: Services, args: string[]) {
   let n = 25;
   let json = false;
   const positional: string[] = [];
@@ -95,8 +95,8 @@ export function cmdPeek(args: string[]) {
   }
   const target = positional[0];
   if (!target) die("usage: orch peek <target> [-n N] [--json]");
-  const { backend, handle } = requirePaneTarget(target, "peek");
-  const entity = resolveTarget(target);
+  const { backend, handle } = requirePaneTarget(services, target, "peek");
+  const entity = resolveTarget(services.orchDir, services.settings.current(), target);
   const plan = paneBoundary(target, "peek", backend.screen, !!entity.paneId);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   const screen = plan.role.read(handle, n);
@@ -108,29 +108,29 @@ export function cmdPeek(args: string[]) {
   process.stdout.write(screen.endsWith("\n") ? screen : screen + "\n");
 }
 
-function selectedGroups(): { backend: Backend; groups: BackendGroup[] } {
-  const backend = resolveBackend({ configured: loadSettings(orchDir()).defaults.backend ?? null });
+function selectedGroups(services: SettingsService): { backend: Backend; groups: BackendGroup[] } {
+  const backend = resolveBackend({ configured: services.settings.current().defaults.backend ?? null });
   return { backend, groups: [...(backend.groupHome?.list() ?? [])] };
 }
 
-export function resolveTab(target: string): BackendGroup {
-  const { backend, groups } = selectedGroups();
+export function resolveTab(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string): BackendGroup {
+  const { backend, groups } = selectedGroups(services);
   if (!groups.length) die("No groups available.");
   const exact = groups.filter((group) => group.id === target || group.label === target);
   const insensitive = groups.filter((group) => (group.label ?? "").toLowerCase() === target.toLowerCase());
   const candidates = exact.length ? exact : insensitive;
   if (candidates.length === 1) return candidates[0]!;
   if (candidates.length > 1) {
-    commandLogger().error("tabs.ambiguous", { target, candidates: candidates.map((group) => group.id).join(",") });
+    services.logger.error("tabs.ambiguous", { target, candidates: candidates.map((group) => group.id).join(",") });
     // ONE wording for "that matched more than one thing" (U3), and a refusal is
     // thrown, never exited: `process.exit` from the middle of a resolver leaves
     // the caller nothing to recover from and truncates what it already wrote.
     throw ambiguousTargetRefusal(target, candidates.map((group) => ({ key: group.id, detail: group.label ?? null })));
   }
-  const ent = resolveTarget(target);
+  const ent = resolveTarget(services.orchDir, services.settings.current(), target);
   // Which plexer an agent is in is an ENVIRONMENT axis composed onto it, not a
   // segment of its identity: an agent that moves keeps the id it was minted with.
-  const plexer = viewForKey(agentViewIndex(), ent.key)?.environment.plexer ?? ent.backend;
+  const plexer = viewForKey(agentViewIndex(services.orchDir), ent.key)?.environment.plexer ?? ent.backend;
   if (plexer !== null && plexer !== backend.id) die(`Target "${target}" belongs to backend ${plexer}.`);
   // The identity id names the agent and carries no pane; the resolved entity's
   // paneId is the only backend handle for it.
@@ -140,13 +140,13 @@ export function resolveTab(target: string): BackendGroup {
   return found;
 }
 
-export function cmdTabs(args: string[]) {
+export function cmdTabs(services: Services, args: string[]) {
   const unknown = args.filter((arg) => !arg.startsWith("--"));
   if (unknown.length) die(`orch tabs lists tabs and has no "${unknown[0]}" subcommand. Create tabs through the backend (e.g. herdr tab create) or orch spawn/tile.`);
   const { enabled } = splitOptionFlags(args, ["--all", "--json"]);
   const all = enabled.has("--all");
   const json = enabled.has("--json");
-  const { backend, groups } = selectedGroups();
+  const { backend, groups } = selectedGroups(services);
   // A tab is the PLEXER's grouping, so the grouping to filter by is the plexer's
   // own answer for the calling pane — never read off an identity, which carries
   // no environment (A1). Outside a pane there is no grouping, and `null` is that
@@ -177,17 +177,17 @@ export function cmdTabs(args: string[]) {
 }
 
 /** Refuse a group-wide mutation while any pane in the group belongs to another orchestrator. */
-function assertGroupAgentsOwned(backend: Backend, group: string, force: boolean): void {
+function assertGroupAgentsOwned(services: Pick<Services, "orchDir">, backend: Backend, group: string, force: boolean): void {
   if (force) return;
   const handles = new Set((backend.placementInventory?.list() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
-  const presence = presenceById();
-  for (const view of agentViewIndex().values()) {
+  const presence = presenceById(loadPresence(services.orchDir));
+  for (const view of agentViewIndex(services.orchDir).values()) {
     // Ownership is the open lease; the pane handle is environment. A group is a
     // set of PLACES, so it is matched on the handle and refused on the lease.
     const holder = view.heldBy?.orchId;
     const handle = view.environment.handle;
     if (holder === undefined || handle === null || !handles.has(handle)) continue;
-    if (!ownsAgent(view)) {
+    if (!ownsAgent(services.orchDir, view)) {
       die(`Group ${group} holds agent ${agentAddress(view, presence)} owned by ${holder}. Use --force to override.`);
     }
   }
@@ -216,54 +216,54 @@ function cmdTabNew(rest: string[], json: boolean, backend: Backend): void {
   if (backend.placement) backend.placement.close(created.rootHandle);
 }
 
-function cmdTabRename(target: string | undefined, label: string | undefined, json: boolean, backend: Backend): void {
+function cmdTabRename(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string | undefined, label: string | undefined, json: boolean, backend: Backend): void {
   if (!target || !label) die("usage: orch tab rename <tab_id|label> <new-label>");
-  const tab = resolveTab(target);
+  const tab = resolveTab(services, target);
   backend.groupHome!.rename(tab.id, label);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, label, renamed: true }) + "\n");
   else process.stdout.write(`${tab.id}: "${tab.label}" -> "${label}"\n`);
 }
 
-function cmdTabClose(target: string | undefined, force: boolean, json: boolean, backend: Backend): void {
+function cmdTabClose(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string | undefined, force: boolean, json: boolean, backend: Backend): void {
   if (!target) die("usage: orch tab close <tab_id|label> [--force]");
-  const tab = resolveTab(target);
-  assertGroupAgentsOwned(backend, tab.id, force);
+  const tab = resolveTab(services, target);
+  assertGroupAgentsOwned(services, backend, tab.id, force);
   backend.groupHome!.close(tab.id);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, closed: true }) + "\n");
   else process.stdout.write(`Closed group ${tab.id} "${tab.label}".\n`);
 }
 
-function cmdTabFocus(target: string | undefined, json: boolean, backend: Backend): void {
+function cmdTabFocus(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string | undefined, json: boolean, backend: Backend): void {
   if (!target) die("usage: orch tab focus <tab_id|label>");
-  const tab = resolveTab(target);
+  const tab = resolveTab(services, target);
   backend.groupHome!.focus(tab.id);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, focused: true }) + "\n");
   else process.stdout.write(`Focused group ${tab.id} "${tab.label}".\n`);
 }
 
-export function cmdTab(args: string[]) {
+export function cmdTab(services: Services, args: string[]) {
   const json = args.includes("--json");
   const force = args.includes("--force");
   const cleanArgs = args.filter((arg) => arg !== "--json" && arg !== "--force");
   const sub = cleanArgs[0];
   const rest = cleanArgs.slice(1);
-  const { backend } = selectedGroups();
+  const { backend } = selectedGroups(services);
   const role = backend.groupHome;
   if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide groups" }, json); return; }
   if (sub === "new") cmdTabNew(rest, json, backend);
-  else if (sub === "rename") cmdTabRename(rest[0], rest[1], json, backend);
-  else if (sub === "close") cmdTabClose(rest[0], force, json, backend);
-  else if (sub === "focus") cmdTabFocus(rest[0], json, backend);
+  else if (sub === "rename") cmdTabRename(services, rest[0], rest[1], json, backend);
+  else if (sub === "close") cmdTabClose(services, rest[0], force, json, backend);
+  else if (sub === "focus") cmdTabFocus(services, rest[0], json, backend);
   else die("usage: orch tab new|rename|close|focus ...  (orch tabs to list)");
 }
 
-export function cmdFocus(args: string[]) {
+export function cmdFocus(services: Services, args: string[]) {
   const json = args.includes("--json");
   const force = args.includes("--force");
   const target = args.find((arg) => arg !== "--json" && arg !== "--force");
   if (!target) die("usage: orch focus <target> [--force] [--json]");
-  const { backend, handle } = requireOwnedPaneTarget(target, "focus", force);
-  const entity = resolveTarget(target);
+  const { backend, handle } = requireOwnedPaneTarget(services, target, "focus", force);
+  const entity = resolveTarget(services.orchDir, services.settings.current(), target);
   const plan = paneBoundary(target, "focus", backend.agentInput, !!entity.paneId);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.focus(handle);
@@ -271,7 +271,7 @@ export function cmdFocus(args: string[]) {
   else process.stdout.write(`Focused ${handle}.\n`);
 }
 
-export function cmdZoom(args: string[]) {
+export function cmdZoom(services: Services, args: string[]) {
   let mode = "--toggle";
   const json = args.includes("--json");
   const force = args.includes("--force");
@@ -284,8 +284,8 @@ export function cmdZoom(args: string[]) {
   }
   const target = positional[0];
   if (!target) die("usage: orch zoom <target> [--on|--off] [--force]  (default: toggle)");
-  const { backend, handle } = requireOwnedPaneTarget(target, "zoom", force);
-  const entity = resolveTarget(target);
+  const { backend, handle } = requireOwnedPaneTarget(services, target, "zoom", force);
+  const entity = resolveTarget(services.orchDir, services.settings.current(), target);
   const plan = paneBoundary(target, "zoom", backend.zooming, !!entity.paneId);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   const zoomMode = mode === "--on" ? "on" : mode === "--off" ? "off" : "toggle";
@@ -296,8 +296,8 @@ export function cmdZoom(args: string[]) {
 
 /** Where a pane should land in a group, ignoring the pane itself — a pane
  *  already in that group must never be planned as its own split target. */
-function tilePlacementBesides(backend: Backend, group: string, mover: string): TilePlacement {
-  const firstSplit = loadSettings(orchDir()).tiling.first_split;
+function tilePlacementBesides(services: Pick<Services, "settings">, backend: Backend, group: string, mover: string): TilePlacement {
+  const firstSplit = services.settings.current().tiling.first_split;
   const role = backend.groupLayout;
   if (!role) return openingPlacement(firstSplit);
   const layout = readGroupLayout(role, group);
@@ -308,7 +308,7 @@ function isBackendSplit(value: string): value is BackendSplit {
   return value === "down" || value === "right";
 }
 
-export function cmdMove(args: string[]) {
+export function cmdMove(services: Services, args: string[]) {
   let tab: string | null = null;
   let split = "right";
   let splitExplicit = false;
@@ -328,16 +328,16 @@ export function cmdMove(args: string[]) {
   const target = positional[0];
   if (!target || (!tab && !newTab))
     die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X] [--force]");
-  const { backend, handle, key } = requireOwnedPaneTarget(target, "move", force);
+  const { backend, handle, key } = requireOwnedPaneTarget(services, target, "move", force);
   const role = backend.groupHome;
   if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide group move" }, json); return; }
   try {
     // Default: land on the destination tab's biggest pane so it stays balanced
     // instead of stacking off one edge. An explicit --split still wins.
-    const groupId = newTab ? null : resolveTab(tab!).id;
+    const groupId = newTab ? null : resolveTab(services, tab!).id;
     let against: BackendHandle | undefined;
     if (!newTab && !splitExplicit && groupId !== null) {
-      const placement = tilePlacementBesides(backend, groupId, handle);
+      const placement = tilePlacementBesides(services, backend, groupId, handle);
       split = placement.split;
       against = placement.targetHandle;
     }
@@ -346,7 +346,7 @@ export function cmdMove(args: string[]) {
     // The pane moved; the agent did not become a different agent. A14: the
     // handle is an interval on its own axis, so the old one closes and a new
     // one opens — identity is untouched.
-    if (isAgentId(key)) setHandle(orchDir(), key, Date.now(), String(handle));
+    if (isAgentId(key)) setHandle(services.orchDir, key, Date.now(), String(handle));
     if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: groupId }) + "\n");
     else process.stdout.write(`Moved ${String(handle)} ${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
   } catch (e: unknown) {

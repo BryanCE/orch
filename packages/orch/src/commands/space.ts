@@ -1,8 +1,6 @@
 import { mintAgentId } from "../backends/identity.ts";
 import { resolveBackend } from "../backends/registry.ts";
-import { loadSettings } from "../settings/read.ts";
 import { selfId } from "../identity/self.ts";
-import { orchDir } from "../presence/writer.ts";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { agentSpaces, agents, spaces } from "../db/schema.ts";
@@ -10,6 +8,8 @@ import { clearHome, homeHandle, homeLabel, openHome } from "../store/home-rows.t
 import { die, splitOptionFlags } from "./target.ts";
 import { errorMessage } from "../util.ts";
 import type { SpaceEnvironment } from "../types/command.ts";
+import type { Services } from "../types/services.ts";
+import type { OrchDir } from "../types/core.ts";
 
 /**
  * `orch space` — orch's OWN grouping of work.
@@ -39,7 +39,7 @@ interface BoundaryAnswer {
   readonly reason: "no-pane" | "no-environment-role";
 }
 
-function readSpaceRows(directory: string): SpaceRecord[] {
+function readSpaceRows(directory: OrchDir): SpaceRecord[] {
   return orm(directory).select({ id: spaces.id, name: spaces.name }).from(spaces)
     .orderBy(asc(spaces.name), asc(spaces.id)).all().flatMap((value): SpaceRecord[] => {
     return [{ id: value.id, name: value.name }];
@@ -54,7 +54,7 @@ function readHome(env: SpaceEnvironment, spaceId: string): string | null {
   return homeHandle(env.directory, { kind: "space", id: spaceId }, env.plexerId);
 }
 
-function findSpace(directory: string, target: string): SpaceRecord {
+function findSpace(directory: OrchDir, target: string): SpaceRecord {
   const matches = readSpaceRows(directory).filter((space) => space.id === target || space.name === target);
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) throw new Error(`Ambiguous space "${target}": ${matches.map((space) => space.id).join(", ")}.`);
@@ -184,15 +184,15 @@ export function runSpace(env: SpaceEnvironment, args: string[]): void {
   else throw new Error(USAGE);
 }
 
-export function cmdSpace(args: string[]): void {
-  const directory = orchDir();
-  const settings = loadSettings(directory);
+export function cmdSpace(services: Services, args: string[]): void {
+  const directory = services.orchDir;
+  const settings = services.settings.current();
   const backend = resolveBackend({ configured: settings.defaults.backend ?? null });
   const env: SpaceEnvironment = {
     directory,
     plexerId: backend.id,
     spaceHome: backend.spaceHome,
-    actorId: selfId() ?? null,
+    actorId: selfId(directory) ?? null,
   };
   try {
     runSpace(env, args);

@@ -1,15 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease, leaseHistory, leasesByOrch } from "../src/store/lease-rows.ts";
 import { agentView, liveAgentViews } from "../src/store/agent-view.ts";
 import { detachAgent } from "../src/commands/lease.ts";
 import { insertAttempt, enqueueTask, settleAttempt, taskState } from "../src/store/task-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
+import type { OrchDir } from "../src/types/core.ts";
 
 /**
  * Holder death costs a **driver**, not a life: finish the task, receive no new
@@ -22,11 +20,11 @@ import { sql } from "drizzle-orm";
  * work already in flight.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const d = mkdtempSync(join(tmpdir(), "orch-holder-death-"));
+function fixture(): OrchDir {
+  const d = tempOrchDir("orch-holder-death-");
   dirs.push(d);
   const db = orm(d);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
@@ -37,7 +35,7 @@ function fixture(): string {
 }
 
 /** A holder with no live process behind it — the death this row is about. */
-function killHolder(dir: string): void {
+function killHolder(dir: OrchDir): void {
   orm(dir).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${"orch"},${20},${null})`);
 }
 

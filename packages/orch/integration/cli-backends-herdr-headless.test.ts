@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
@@ -13,13 +12,14 @@ import { resolveAdapter } from "../src/adapters/registry.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { fakeAdapter as makeFakeAdapter } from "../test/helpers/adapter.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 
+import type { OrchDir } from "../src/types/core.ts";
 const originalOrchDir = process.env.ORCH_DIR;
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
-function tempDir(prefix: string): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+function tempDir(prefix: string): OrchDir {
+  const directory = tempOrchDir(prefix);
   dirs.push(directory);
   return directory;
 }

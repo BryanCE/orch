@@ -11,6 +11,7 @@ import {
   checkIdentityConstructionLine,
   checkCoreScopeLine,
   checkDispatcherCallLine,
+  checkCompositionRootLine,
   checkPackageImportLine,
   checkSpawnerReplyFallbackLine,
   checkLeaseProvenanceLine,
@@ -75,6 +76,41 @@ describe("10.1 packages must not import concrete backends/adapters (checkPackage
     for (const line of readWebRepoLines("packages/web/src/server/orch.ts")) {
       expect(checkPackageImportLine(line)).toBeUndefined();
     }
+  });
+});
+
+describe("composition happens only at roots (checkCompositionRootLine)", () => {
+  test("flags ORCH_DIR reads outside src/services.ts", () => {
+    expect(checkCompositionRootLine("const dir = process.env.ORCH_DIR;", "src/commands/control.ts")).toContain("src/services.ts");
+  });
+
+  test("flags createServices calls outside the five roots", () => {
+    expect(checkCompositionRootLine("const services = createServices();", "src/commands/control.ts")).toContain("composition root");
+  });
+
+  test("flags imports of removed global composition exports", () => {
+    for (const name of ["loadSettings", "loadSettingsOrNull", "settingsLogLevel", "commandLogger", "orchDir"]) {
+      expect(checkCompositionRootLine(`import { ${name} } from "../legacy.ts";`, "src/commands/control.ts")).toContain("legacy");
+    }
+  });
+
+  test("allows createServices calls in each composition root", () => {
+    for (const relPath of [
+      "src/commands/index.ts",
+      "src/commands/setup.ts",
+      "src/daemon/orchd.ts",
+      "extensions/pi/index.ts",
+      "extensions/omp/index.ts",
+      "scripts/retire-daemon.ts",
+      "scripts/db/migrate.ts",
+    ]) {
+      expect(checkCompositionRootLine("const services = createServices();", relPath)).toBeUndefined();
+    }
+  });
+
+  test("allows the ORCH_DIR read and declaration in src/services.ts", () => {
+    expect(checkCompositionRootLine("const dir = process.env.ORCH_DIR;", "src/services.ts")).toBeUndefined();
+    expect(checkCompositionRootLine("export function createServices(options: ServicesOptions = {}) {", "src/services.ts")).toBeUndefined();
   });
 });
 

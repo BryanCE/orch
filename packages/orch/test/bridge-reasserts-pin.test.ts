@@ -1,8 +1,6 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerAgentTools } from "../src/agent/tools.ts";
@@ -15,7 +13,8 @@ import type {
   HarnessEventHandler,
 } from "../src/types/agent.ts";
 import type { ThinkingLevel } from "../src/types/policy.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { testServices } from "./helpers/services.ts";
 
 interface FakeHarness extends HarnessApi {
   fire(name: string, event?: unknown, context?: HarnessContext): void;
@@ -109,7 +108,7 @@ function fakeDaemon(): {
   };
 }
 
-const roots: string[] = [];
+const roots: OrchDir[] = [];
 const originalOrchDir = process.env.ORCH_DIR;
 const originalLaunch = process.env[LAUNCH_ENV];
 
@@ -130,13 +129,13 @@ function setup(): {
   daemon: ReturnType<typeof fakeDaemon>;
   presence: ReturnType<typeof createAgentPresence>;
 } {
-  const root = mkdtempSync(join(tmpdir(), `orch-reassert-${randomUUID()}-`));
+  const root = tempOrchDir(`orch-reassert-${randomUUID()}-`);
   roots.push(root);
   process.env.ORCH_DIR = root;
   process.env[LAUNCH_ENV] = "worker0001";
   const harness = fakeHarness();
   const daemon = fakeDaemon();
-  const presence = createAgentPresence({
+  const presence = createAgentPresence(root, {
     harness,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",
@@ -145,13 +144,14 @@ function setup(): {
   const ctx = context();
   presence.setLastCtx(ctx);
   presence.initPresence(true);
+  const settings = testServices({ orchDir: root, settings: null }).settings;
   registerAgentTools(harness, {
     presence,
     daemon: daemon.daemon,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     notify: () => undefined,
     refreshLabels: () => Promise.resolve(),
-  });
+  }, root, settings);
   return { harness, daemon, presence };
 }
 

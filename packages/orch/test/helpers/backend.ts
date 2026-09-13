@@ -1,5 +1,6 @@
 import { LocalProcessRole } from "../../src/backends/process.ts";
-import { capture } from "../../src/presence/roles.ts";
+import { envOrchDir } from "../../src/services.ts";
+import { createCaptureRole } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
 import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, Placement, PlacementRequest, EnvironmentIdentityRole, ForegroundRole, GroupHomeRole, PlacementRole, PlacementInventoryRole, LabelRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
 import type { AgentAdapter } from "../../src/types/adapter.ts";
@@ -61,7 +62,7 @@ export class FakePanedBackend implements Backend {
     isAlive: () => !this.killed,
     signal: (pid, signal) => { this.signalled.push({ pid, signal }); this.killed = true; },
   });
-  readonly capture = capture;
+  readonly capture = createCaptureRole(envOrchDir());
   readonly placement: PlacementRole;
   readonly placementInventory: PlacementInventoryRole;
   readonly agentInput = null;

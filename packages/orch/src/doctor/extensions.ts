@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
 import { EXTENSION_NAMES, extensionBundlePath } from "../bridge-bundles/metadata.ts";
 import { loadPresence, presenceRootFault } from "../presence/store.ts";
@@ -26,7 +27,7 @@ export function isBridgeExtensionStale(extensionHash: string | undefined, bundle
 }
 
 /** Verify Claude's orch hooks are installed and target this checkout's shim. */
-export async function checkExtensionStaleness(orchDir: string, bundlePath?: string): Promise<CheckResult> {
+export async function checkExtensionStaleness(orchDir: OrchDir, bundlePath?: string): Promise<CheckResult> {
   await Promise.resolve();
   const id = "extension-staleness";
   const label = "Extension staleness";

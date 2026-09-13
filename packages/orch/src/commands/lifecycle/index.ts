@@ -1,39 +1,39 @@
 import { buildEntities, recipientFor, recipientLabel, resolvePane, resolveTarget } from "../../entities.ts";
 import { isAgentId } from "../../backends/identity.ts";
-import { orchDir, readPresenceStatus } from "../../presence/writer.ts";
+import { readPresenceStatus } from "../../presence/writer.ts";
 import { retryingSync } from "../../retry.ts";
 import { isRecord } from "../../util.ts";
-import { loadSettings } from "../../settings/read.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { workerPrompt } from "../../worker-prompt.ts";
 import { workerHeaderContext } from "../../policy/spawner.ts";
 import { entityAdapter } from "../status.ts";
 import { parseGovernance, writeRpc } from "../daemon.ts";
 import { agentViewIndex, backendTarget, die, ownsAgent, parseTargetPrompt, requireCallerOwnerToken, viewForKey } from "../target.ts";
-import { commandLogger } from "../logging.ts";
+import type { Services } from "../../types/services.ts";
+import type { Logger } from "../../types/core.ts";
 
-export function lifecycleLogger(key: string) {
-  return isAgentId(key) ? commandLogger().forAgent(key) : commandLogger();
+export function lifecycleLogger(logger: Logger, key: string) {
+  return isAgentId(key) ? logger.forAgent(key) : logger;
 }
 
 /** Dispatch a prompt and retry once when the pane never enters working state. */
-export async function cmdRun(args: string[]): Promise<void> {
+export async function cmdRun(services: Services, args: string[]): Promise<void> {
   const raw = args.includes("--raw");
   const json = args.includes("--json");
-  const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
+  const { gov, rest } = parseGovernance(services, args.filter((arg) => arg !== "--json"));
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
-  const { ent, pane } = resolvePane(target, { crossSpace: gov.crossSpace });
-  const settings = loadSettings(orchDir());
-  const headerContext = workerHeaderContext(settings);
-  const result = await writeRpc("dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent), headerContext) }, gov);
-  const recipient = recipientFor(ent.key);
+  const settings = services.settings.current();
+  const { ent, pane } = resolvePane(services.orchDir, settings, target, { crossSpace: gov.crossSpace });
+  const headerContext = workerHeaderContext(services.orchDir, settings);
+  const result = await writeRpc(services, "dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent, agentViewIndex(services.orchDir)), headerContext) }, gov);
+  const recipient = recipientFor(services.orchDir, ent.key);
   if (json) process.stdout.write(JSON.stringify({ target: pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}.\n`);
 }
 
-export function cmdWait(args: string[]) {
+export function cmdWait(services: Services, args: string[]) {
   let status = "done";
-  const defaultTimeout = loadSettings(orchDir()).timeouts.wait_ms;
+  const defaultTimeout = services.settings.current().timeouts.wait_ms;
   let timeout = defaultTimeout;
   const json = args.includes("--json");
   const positional: string[] = [];
@@ -45,8 +45,9 @@ export function cmdWait(args: string[]) {
   }
   const target = positional[0];
   if (!target) die("usage: orch wait <target> [--status done|idle|working|blocked] [--timeout ms]");
-  const { backend, handle } = backendTarget(target, "wait");
-  const entity = resolveTarget(target);
+  const settings = services.settings.current();
+  const { backend, handle } = backendTarget(services.orchDir, settings, target, "wait");
+  const entity = resolveTarget(services.orchDir, settings, target);
   if (!entity.paneId) {
     if (json) process.stdout.write(JSON.stringify({ outcome: "answer", reason: "no-pane", text: `${target} has no pane; wait does not apply.` }) + "\n");
     else process.stdout.write(`${target} has no pane; wait does not apply.\n`);
@@ -83,14 +84,14 @@ export function awaitIdleAfter(statusPath: string, beforeUpdated: number, sentAt
 
 /** Every orch-owned live agent, addressed by identity key. Keying on paneId instead
  *  silently skipped the entire detached fleet — a headless agent never has a pane. */
-export function ownedAgentKeys(): string[] {
+export function ownedAgentKeys(services: Pick<Services, "orchDir" | "settings">): string[] {
   // Ownership is the OPEN lease (Rule 11). A released one is history and must
   // stop answering here, or `--all` keeps steering agents this orch let go.
-  const views = agentViewIndex();
-  return buildEntities()
+  const views = agentViewIndex(services.orchDir);
+  return buildEntities(services.orchDir, services.settings.current())
     .filter((ent) => {
       if (!ent.presence) return false;
-      return ownsAgent(viewForKey(views, ent.key) ?? { id: ent.key, heldBy: null });
+      return ownsAgent(services.orchDir, viewForKey(views, ent.key) ?? { id: ent.key, heldBy: null });
     })
     .map((ent) => ent.key);
 }
@@ -101,6 +102,7 @@ export function ownedAgentKeys(): string[] {
  *  differed only in whether a flag took a value, so `--all` meant "every agent
  *  this caller owns" in two places. One place now. */
 export function lifecycleTargets(
+  services: Pick<Services, "orchDir" | "settings">,
   args: readonly string[],
   booleans: readonly string[],
   valueFlags: readonly string[] = [],
@@ -120,8 +122,8 @@ export function lifecycleTargets(
   // `--all` is every agent this caller OWNS, which is a right the caller has to
   // hold before the list is even built.
   if (all) {
-    requireCallerOwnerToken();
-    targets.push(...ownedAgentKeys());
+    requireCallerOwnerToken(services.orchDir);
+    targets.push(...ownedAgentKeys(services));
   }
   return { targets, values, all };
 }

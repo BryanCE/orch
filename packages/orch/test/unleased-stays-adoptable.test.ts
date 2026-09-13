@@ -1,17 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { adoptLease, currentLease } from "../src/store/lease-rows.ts";
 import { agentView, liveAgentViews } from "../src/store/agent-view.ts";
 import { sweepExpiredRows } from "../src/daemon/retention.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
 
+import type { OrchDir } from "../src/types/core.ts";
 /**
  * Unleased + idle stays alive and adoptable, indefinitely. Nothing ages it out.
  *
@@ -22,11 +20,11 @@ import { sql } from "drizzle-orm";
  * age is not a fact about whether work is wanted.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const d = mkdtempSync(join(tmpdir(), "orch-unleased-adoptable-"));
+function fixture(): OrchDir {
+  const d = tempOrchDir("orch-unleased-adoptable-");
   dirs.push(d);
   const db = orm(d);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);

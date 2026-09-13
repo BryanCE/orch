@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { OrchDir } from "../src/types/core.ts";
 import type { EditorSetting, OrchSettings, SettingKind, SettingSpec } from "../src/types/settings.ts";
 import { createEditorState, editorReducer } from "../src/settings/editor.ts";
 
@@ -9,7 +10,7 @@ function setting(
   key: string,
   type: SettingKind,
   value: unknown,
-  write: SettingSpec["write"] = (_orchDir: string, _value: unknown) => undefined,
+  write: SettingSpec["write"] = (_orchDir: OrchDir, _value: unknown) => undefined,
 ): EditorSetting {
   const spec: SettingSpec = {
     key,

@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { join } from "node:path";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { subscribeEvents } from "../src/daemon/rpc/client.ts";
 import type { EventSubscription, RpcServer } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 function waitFor<T>(read: () => T[], length: number): Promise<T[]> {
   return new Promise((resolve, reject) => {
@@ -26,12 +25,12 @@ function waitFor<T>(read: () => T[], length: number): Promise<T[]> {
 
 describe("orchd event subscription", () => {
   test("replays only events missed between subscriptions", async () => {
-    const orchDir = mkdtempSync(join(tmpdir(), "orchd-rpc-subscribe-"));
+    const orchDir: OrchDir = tempOrchDir("orchd-rpc-subscribe-");
     let server: RpcServer | undefined;
     let first: EventSubscription | undefined;
     let second: EventSubscription | undefined;
     try {
-      server = await startRpcServer(orchDir, {});
+      server = await startRpcServer(orchDir, stubRpcHandlers());
       server.emit({ name: "one" });
       server.emit({ name: "two" });
       server.emit({ name: "three" });

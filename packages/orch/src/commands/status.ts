@@ -1,4 +1,3 @@
-import { loadSettingsOrNull } from "../settings/read.ts";
 import { isBridgeExtensionStale, shippedBundleHashes } from "../doctor/extensions.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { modelSpec } from "../policy/thinking.ts";
@@ -9,15 +8,15 @@ import { getAdapter } from "../adapters/registry.ts";
 import { collapse, buildEntities, sortEntities } from "../entities.ts";
 import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
-import { orchDir } from "../presence/writer.ts";
 import { renderTable } from "../table.ts";
 import { spaceName as resolveSpaceName, withinSpaceCeiling } from "../policy/space.ts";
 import { ensureCallerRegistered, selfId, spaceOfAgent } from "../identity/self.ts";
 import { callerKind } from "../policy/caller.ts";
-import { ensureDaemonOrWarn } from "../daemon/reach.ts";
+import { ensureDaemonOrWarn, rpcRegisterSession } from "../daemon/reach.ts";
 import { dim } from "../tui/screen.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
 import { currentLease } from "../store/lease-rows.ts";
+import { loadPresence } from "../presence/store.ts";
 import {
   agentViewIndex,
   die,
@@ -28,14 +27,16 @@ import {
   splitOptionFlags,
   viewForKey,
 } from "./target.ts";
-import { isRecord, truncate } from "../util.ts";
+import { truncate } from "../util.ts";
+import { isDaemonStatusRow } from "../daemon/rpc/protocol.ts";
 import type { AgentAdapter, SessionView } from "../types/adapter.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { EnvironmentCapabilityView, StatusRow } from "../types/command.ts";
-import type { Entity } from "../types/core.ts";
+import type { Entity, OrchDir } from "../types/core.ts";
 import type { CallerKind } from "../types/policy.ts";
+import type { OrchDirService, Services, SettingsService } from "../types/services.ts";
 
 const isTTY = process.stdout.isTTY;
 const DETACHED_ENVIRONMENT = "headless";
@@ -58,15 +59,15 @@ interface Provenance {
 }
 
 /** Resolve the adapter recorded for one entity (spawn registry, then presence, then backend report). */
-export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView> = agentViewIndex()): AgentAdapter | undefined {
+export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView>): AgentAdapter | undefined {
   return getAdapter(viewForKey(views, ent.key)?.harnessId ?? ent.presence?.status?.agent ?? ent.agent ?? "");
 }
 
-function currentOrchId(): string | null {
-  return spawnerIdentity().key;
+function currentOrchId(orchDir: OrchDir): string | null {
+  return spawnerIdentity(orchDir).key;
 }
 
-function currentLeaseOwner(directory: string, agentId: string): string | null {
+function currentLeaseOwner(directory: OrchDir, agentId: string): string | null {
   try {
     return currentLease(directory, agentId)?.orchId ?? null;
   } catch {
@@ -210,49 +211,21 @@ function snapshot(rows: StatusRow[], backendAnswered: boolean): FleetSnapshot {
  * missing `state` or carries a number where a string belongs then reaches every
  * renderer, and the crash lands far from the boundary that let it in.
  */
-function isStatusRow(value: unknown): value is StatusRow {
-  if (!isRecord(value)) return false;
-  const strings = ["key", "model", "modelShort", "state"] as const;
-  const nullableStrings = [
-    "paneId", "name", "tab", "agent", "owner", "spawnedBy", "spawnedByLabel", "worktree",
-    "branch", "cwd", "task", "dispatchId", "lastText", "backendStatus", "backend",
-    "sessionPath", "presenceDir",
-  ] as const;
-  const booleans = ["managed", "focused", "stateFallback", "exited", "alive", "presenceOnly"] as const;
-  for (const field of strings) if (typeof value[field] !== "string") return false;
-  for (const field of nullableStrings) if (value[field] !== null && typeof value[field] !== "string") return false;
-  for (const field of booleans) if (typeof value[field] !== "boolean") return false;
-  if (value.ownerId !== undefined && value.ownerId !== null && typeof value.ownerId !== "string") return false;
-  if (value.bridgeAttached !== null && typeof value.bridgeAttached !== "boolean") return false;
-  if (typeof value.cost !== "number") return false;
-  if (value.ctxPercent !== null && typeof value.ctxPercent !== "number") return false;
-  // `capabilities` is a nullable composed view, not a flag bag: null means no
-  // backend owns the row, which is an answer renderers already read (E13/E14).
-  return value.capabilities === null || isRecord(value.capabilities);
-}
-
-/** Keep only the rows that really are rows. A malformed one is dropped at the
- *  boundary rather than carried inward as a lie about its shape. */
-function statusRowsFrom(values: readonly unknown[]): StatusRow[] {
-  return values.filter(isStatusRow);
-}
-
-async function readFleetRows(spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
+async function readFleetRows(settings: OrchSettings | null, orchDir: OrchDir, spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
+  if (settings === null) return snapshot([], false);
   if (offline) {
-    const rows = fleetStatusRows(spaces, { offline: true });
+    const rows = fleetStatusRows(settings, spaces, { offline: true, directory: orchDir });
     return snapshot(rows, rows.some((row) => row.backend != null));
   }
   try {
-    const answer = await rpcCall(orchDir(), "status");
-    if (isRecord(answer) && Array.isArray(answer.rows)) {
-      const rows = statusRowsFrom(answer.rows);
-      // RPC availability is not backend availability; only inventory-bearing rows count.
-      return snapshot(rows, rows.some((row) => row.backend != null));
-    }
+    const answer = await rpcCall(orchDir, "status", undefined);
+    const rows = answer.rows;
+    // RPC availability is not backend availability; only inventory-bearing rows count.
+    return snapshot(rows, rows.some((row) => row.backend != null));
   } catch {
     // Daemon absent or refusing: fall through to the file protocol.
   }
-  const rows = fleetStatusRows(spaces);
+  const rows = fleetStatusRows(settings, spaces, { directory: orchDir });
   return snapshot(rows, rows.some((row) => row.backend != null));
 }
 
@@ -269,10 +242,10 @@ export interface CallerScope {
   kind: CallerKind;
 }
 
-export function callerScope(): CallerScope {
-  const kind = callerKind();
-  const id = selfId() ?? null;
-  return { id, ceiling: kind === "operator" || id === null ? null : spaceOfAgent(id), kind };
+export function callerScope(orchDir: OrchDir): CallerScope {
+  const kind = callerKind(orchDir);
+  const id = selfId(orchDir) ?? null;
+  return { id, ceiling: kind === "operator" || id === null ? null : spaceOfAgent(orchDir, id), kind };
 }
 
 /**
@@ -632,8 +605,8 @@ export function statusRowFromEntity(
   views: ReadonlyMap<string, AgentView>,
   staleHashes: ReadonlySet<string> | undefined = new Set(shippedBundleHashes()),
   spaces: OrchSettings["spaces"] = {},
-  orchId: string | null = null,
-  directory?: string,
+  orchId: string | null,
+  directory: OrchDir,
 ): StatusRow {
   const pres = entity.presence;
   const adapter = entityAdapter(entity, views);
@@ -645,9 +618,10 @@ export function statusRowFromEntity(
   const alive = pres?.alive ?? false;
   const spaceNames = orchNames(entity.key, views);
   const spaceId = spaceNames.spaceId ?? entity.space;
-  const ownership = directory === undefined
-    ? { owner: NO_ORCH_DRIVER, ownerId: null }
-    : { owner: deriveDriveState(entity.key, { currentOrchId: orchId, directory }).owner, ownerId: currentLeaseOwner(directory, entity.key) };
+  const ownership = {
+    owner: deriveDriveState(entity.key, { currentOrchId: orchId, directory }).owner,
+    ownerId: currentLeaseOwner(directory, entity.key),
+  };
   return {
     key: entity.key,
     agentId: spaceNames.agentId,
@@ -699,23 +673,23 @@ interface FleetStatusOptions {
   bundleHashes?: () => ReadonlySet<string>;
   orchId?: () => string | null;
   /** Resolve the store root once per fleet build (injectable for cost tests). */
-  directory?: () => string;
+  directory: OrchDir;
 }
 
-export function fleetStatusRows(spaces: OrchSettings["spaces"], options: FleetStatusOptions = {}): StatusRow[] {
-  const directory = options.directory?.() ?? orchDir();
-  const views = agentViewIndex();
+export function fleetStatusRows(settings: OrchSettings, spaces: OrchSettings["spaces"], options: FleetStatusOptions): StatusRow[] {
+  const directory = options.directory;
+  const views = agentViewIndex(directory);
   const staleHashes = options.bundleHashes?.() ?? new Set(shippedBundleHashes());
   // Resolve these process-wide inputs once so a fleet never performs a caller
   // lookup for every individual row.
-  const orchId = options.orchId?.() ?? currentOrchId();
-  return sortEntities(buildEntities({ skipBackends: options.offline === true }))
+  const orchId = options.orchId?.() ?? currentOrchId(directory);
+  return sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }))
     .map((entity) => statusRowFromEntity(entity, views, staleHashes, spaces, orchId, directory));
 }
 
 /** The local half of a merged remote listing: the same scoped rows, stamped `local`. */
-async function localStatusRows(options: StatusOptions, spaces: OrchSettings["spaces"], caller?: CallerScope): Promise<FleetSnapshot> {
-  const snapshot = await readFleetRows(spaces, options.offline);
+async function localStatusRows(settings: OrchSettings | null, orchDir: OrchDir, options: StatusOptions, spaces: OrchSettings["spaces"], caller?: CallerScope): Promise<FleetSnapshot> {
+  const snapshot = await readFleetRows(settings, orchDir, spaces, options.offline);
   const scoped = scopeFleetRows(snapshot.rows, { ...options, states: options.filter.states, caller });  return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
 
@@ -741,7 +715,7 @@ async function remoteStatusResults(hosts: OrchSettings["hosts"], offline: boolea
 
 function validRemoteValues(result: RemoteStatusResult): StatusRow[] {
   if (!result.ok || !Array.isArray(result.value)) return [];
-  return statusRowsFrom(result.value);
+  return result.value.filter(isDaemonStatusRow);
 }
 
 /** The narrowing a remote host's rows still owe after they arrive: one space, one agent. */
@@ -769,15 +743,19 @@ function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[])
 }
 
 /** Fetch and scope the same rows used by both the one-shot and live status views. */
-export async function readStatusResult(options: StatusOptions, caller: CallerScope = callerScope()): Promise<StatusResult> {
-  const settings = loadSettingsOrNull(orchDir());
-  const hosts = settings?.hosts ?? {};
-  const spaces = settings?.spaces ?? {};
+export async function readStatusResult(
+  services: OrchDirService & SettingsService,
+  options: StatusOptions,
+  caller: CallerScope = callerScope(services.orchDir),
+): Promise<StatusResult> {
+  const settings = services.settings.currentOrNull();
+  const hosts = settings === null ? {} : settings.hosts;
+  const spaces = settings === null ? {} : settings.spaces;
   if (options.local || caller.kind !== "operator" || Object.keys(hosts).length === 0) {
-    const local = await localStatusRows(options, spaces, caller);
+    const local = await localStatusRows(settings, services.orchDir, options, spaces, caller);
     return { ...local, host: false };
   }
-  const localSnapshot = await localStatusRows(options, spaces, caller);
+  const localSnapshot = await localStatusRows(settings, services.orchDir, options, spaces, caller);
   const remoteResults = await remoteStatusResults(hosts, options.offline);
   const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, { space: options.space, agent: options.agent });
   const remote = remoteSummary(remoteResults);
@@ -790,24 +768,24 @@ export async function readStatusResult(options: StatusOptions, caller: CallerSco
   };
 }
 
-function capacityOutput(settings: OrchSettings): { capacity: ReturnType<typeof computeFleetCapacity>; line: string } {
-  const capacity = computeFleetCapacity(agentViewIndex(), presenceById(), settings);
-  return { capacity, line: formatCapacityLine(capacity, currentOrchId() ?? undefined) };
+function capacityOutput(orchDir: OrchDir, settings: OrchSettings): { capacity: ReturnType<typeof computeFleetCapacity>; line: string } {
+  const capacity = computeFleetCapacity(agentViewIndex(orchDir), presenceById(loadPresence(orchDir)), settings);
+  return { capacity, line: formatCapacityLine(capacity, currentOrchId(orchDir) ?? undefined) };
 }
 
 /** The one-shot status table. `--live` is routed away before this runs (`status-verb.ts`). */
-export async function cmdStatus(options: StatusOptions): Promise<void> {
+export async function cmdStatus(services: Services, options: StatusOptions): Promise<void> {
   if (!options.offline) {
-    await ensureDaemonOrWarn(orchDir());
-    await ensureCallerRegistered();
+    await ensureDaemonOrWarn(services.orchDir, services.logger);
+    await ensureCallerRegistered(services.orchDir, (directory) => rpcRegisterSession(directory, services.logger));
   }
-  const caller = callerScope();
-  if (options.spaceWide) forbidNonOperatorOverride("--space-wide");
-  if (options.allPanes) forbidNonOperatorOverride("--all-panes");
+  const caller = callerScope(services.orchDir);
+  if (options.spaceWide) forbidNonOperatorOverride(services.orchDir, "--space-wide");
+  if (options.allPanes) forbidNonOperatorOverride(services.orchDir, "--all-panes");
   if (options.capacity) {
-    const settings = loadSettingsOrNull(orchDir());
+    const settings = services.settings.currentOrNull();
     if (settings === null) throw new Error("capacity unavailable: settings.json does not exist");
-    const output = capacityOutput(settings);
+    const output = capacityOutput(services.orchDir, settings);
     if (options.json) {
       process.stdout.write(JSON.stringify({ capacity: output.capacity }, null, 2) + "\n");
     } else {
@@ -815,13 +793,13 @@ export async function cmdStatus(options: StatusOptions): Promise<void> {
     }
     return;
   }
-  const result = await readStatusResult(options, caller);
-  const settings = options.json ? null : loadSettingsOrNull(orchDir());
+  const result = await readStatusResult(services, options, caller);
+  const settings = options.json ? null : services.settings.currentOrNull();
   if (options.json) {
     process.stdout.write(JSON.stringify(result.rows.map((row) => filterRowKeys(row, options.filter.columns)), null, 2) + "\n");
     return;
   }
-  const capacityLine = settings === null ? null : capacityOutput(settings).line;
+  const capacityLine = settings === null ? null : capacityOutput(services.orchDir, settings).line;
   if (!result.rows.length) {
     process.stdout.write(formatNoRowsMessage(result));
     if (capacityLine !== null) process.stdout.write(capacityLine + "\n");

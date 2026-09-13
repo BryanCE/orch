@@ -1,21 +1,21 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { closeAllStores } from "../src/store/connection.ts";
 import { deleteRunsBefore, selectRuns, upsertRun } from "../src/store/run-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { RunRecord } from "../src/types/store.ts";
 
-const tempDirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const tempDirs: OrchDir[] = [];
 
 afterEach(() => {
   closeAllStores();
   while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
-function fixture(): string {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-runs-"));
+function fixture(): OrchDir {
+  const orchDir = tempOrchDir("orch-runs-");
   tempDirs.push(orchDir);
   return orchDir;
 }

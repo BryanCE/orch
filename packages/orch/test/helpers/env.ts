@@ -1,18 +1,21 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { ORCH_ENV_VARS } from "../../src/policy/spawner.ts";
 import { HARNESS_SESSION_ENV } from "../../src/adapters/session-env.ts";
-import { removeTempDir } from "./tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./tempdir.ts";
+import type { OrchDir } from "../../src/types/core.ts";
 
 let saved: Record<string, string | undefined> = {};
-let isolatedDir: string | undefined;
+let isolatedDir: OrchDir | undefined;
 
-/** Isolate tests from any orch identity inherited by the test runner. */
+const HARNESS_SESSION_VARS: readonly string[] = Object.values(HARNESS_SESSION_ENV).flatMap((vars) => Object.values(vars));
+/** Every variable that makes the test runner look like an agent or a driving session. */
+const ISOLATED_VARS: readonly string[] = [...ORCH_ENV_VARS, ...HARNESS_SESSION_VARS];
+
+/** Isolate tests from any orch identity or harness session inherited by the test runner,
+ *  so the runner counts as the operator until a test sets a session up itself. */
 export function isolateOrchEnv(): void {
-  saved = Object.fromEntries(ORCH_ENV_VARS.map((name) => [name, process.env[name]]));
-  for (const name of ORCH_ENV_VARS) delete process.env[name];
-  isolatedDir = mkdtempSync(join(tmpdir(), "orch-isolated-env-"));
+  saved = Object.fromEntries(ISOLATED_VARS.map((name) => [name, process.env[name]]));
+  for (const name of ISOLATED_VARS) delete process.env[name];
+  isolatedDir = tempOrchDir("orch-isolated-env-");
   process.env.ORCH_DIR = isolatedDir;
 }
 
@@ -42,7 +45,7 @@ export function isolateHarnessSession(harnessId: keyof typeof HARNESS_SESSION_EN
 
 /** Restore exactly the orch environment that was present before isolation. */
 export function restoreOrchEnv(): void {
-  for (const name of ORCH_ENV_VARS) {
+  for (const name of ISOLATED_VARS) {
     const value = saved[name];
     if (value === undefined) delete process.env[name];
     else process.env[name] = value;

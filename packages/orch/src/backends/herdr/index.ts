@@ -15,10 +15,11 @@ import { GONE_HANDLE_CODES, HERDR_INPUT_RETRY, HerdrCommandError, herdrAck, herd
 import { AgentGoneError } from "../../control/agent-gone.ts";
 import { homeLabel } from "../backend.ts";
 import { isAgentId } from "../identity.ts";
-import { capture } from "../../presence/roles.ts";
+import { createCaptureRole } from "../../presence/roles.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
+import type { OrchDir } from "../../types/core.ts";
 import type { HerdrHandle, HerdrPane, HerdrTab, HerdrWorkspace } from "../../types/plexer.ts";
 
 const HERDR_BACKEND: BackendId = "herdr";
@@ -137,6 +138,7 @@ const ZOOM_FLAGS: Record<BackendZoomMode, string> = { on: "--on", off: "--off", 
 /** Herdr pane backend: adapts the herdr CLI to the plexer Backend port. */
 export class HerdrBackend implements Backend<HerdrHandle> {
   readonly id = HERDR_BACKEND;
+  private orchDir: OrchDir | undefined;
   readonly process = new LocalProcessRole<HerdrHandle>(placedShellPid(() => this.foreground));
   // Composes identity (it knows which space this process sits in) and nothing for
   // log pruning: herdr keeps no logs orch owns. Absence IS the answer (E13).
@@ -152,7 +154,12 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     supported: (): string => SUPPORTED_HERDR,
   };
   readonly serverInfo: ServerInfoRole = { running: (): ServerReport | null => this.serverReport() };
-  readonly capture = capture;
+  readonly capture: CaptureRole = {
+    read: (agentId, request) => {
+      if (this.orchDir === undefined) throw new Error("herdr capture requires an orch directory");
+      return createCaptureRole(this.orchDir).read(agentId, request);
+    },
+  };
   readonly agentInput = {
     submit: (handle: HerdrHandle, text: string): void => { reportGoneHandle(handle, () => herdrAck(["pane", "run", handle, text], undefined, HERDR_INPUT_RETRY)); },
     sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { reportGoneHandle(handle, () => herdrAck(["pane", "send-keys", handle, ...keys], undefined, HERDR_INPUT_RETRY)); },
@@ -313,6 +320,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
 
   /** Create a pane first, then start herdr's canonical harness in that pane. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HerdrHandle {
+    this.orchDir = opts.orchDir;
     // Validate before adopting or opening a pane: an adopted pane is not ours
     // to clean up if herdr cannot honor the request.
     this.launchArgs(adapter, opts);
@@ -385,8 +393,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     return args;
   }
 
-  private paneEnvFlags(opts: BackendSpawnOpts): string[] {
-    return Object.entries(agentLaunchEnv(opts)).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+  private paneEnvFlags(opts: Pick<BackendSpawnOpts, "env">): string[] {
+    return Object.entries(opts.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
   }
 
   /**
@@ -394,7 +402,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
    * existing pane and picks its own executable, so orch makes the pane and runs
    * its own adapter command line in it.
    */
-  private openPane(workspace: string, opts: BackendSpawnOpts, splitFrom: HerdrHandle | null): HerdrHandle {
+  private openPane(workspace: string, opts: Pick<BackendSpawnOpts, "cwd" | "env" | "split">, splitFrom: HerdrHandle | null): HerdrHandle {
     const flags = ["--cwd", opts.cwd ?? process.cwd(), ...this.paneEnvFlags(opts), "--no-focus"];
     // No pane to split from — a shell outside herdr — so the agent gets a tab.
     const opened: { command: string; args: string[] } = splitFrom

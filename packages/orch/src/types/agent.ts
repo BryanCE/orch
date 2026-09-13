@@ -4,7 +4,8 @@ import type { createAgentPresence } from "../agent/presence.ts";
 import type { AgentNotice, BridgeDelivery } from "../control/bridge-message.ts";
 import type { subscribeEvents } from "../daemon/rpc/client.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
-import type { JsonRecord } from "./core.ts";
+import type { JsonRecord, OrchDir } from "./core.ts";
+import type { ParamsOf, ResultOf, RpcMethod } from "../daemon/rpc/protocol.ts";
 
 /**
  * The harness surface orch's in-agent control plane runs against.
@@ -280,7 +281,7 @@ export interface DriveState {
 }
 
 export interface DriveStateOptions {
-  directory?: string;
+  directory?: OrchDir;
   /** Raw agents.id for the caller, supplied by the current session identity. */
   currentOrchId?: string | null;
 }
@@ -316,8 +317,8 @@ export interface DaemonClient {
   isAcked(id: string): boolean;
   markAcked(id: string): void;
   /** Asks orchd a question; `undefined` when the daemon is absent, unreachable,
-   *  or refused the call. Callers guard the answer's shape — never cast it. */
-  ask(method: string, params?: Record<string, unknown>): Promise<unknown>;
+   *  or refused the call. */
+  ask<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined>;
   /** Open the persistent link and announce this agent. Deliveries arrive on onDelivery
    *  until detach(). Reconnects on its own; never throws. */
   attach(key: string, onDelivery: (delivery: BridgeDelivery) => void): void;

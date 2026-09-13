@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/backends/identity.ts";
@@ -7,7 +6,8 @@ import { checkWall, spaceOf } from "../src/policy/space.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { placeAgent, seedAgent } from "./helpers/agent.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 /**
  * Delete … `agent/registry.ts`.
@@ -22,10 +22,10 @@ import { removeTempDir } from "./helpers/tempdir.ts";
  * never a hand-copied projection of it that has to grow a field to keep up.
  */
 const oldOrchDir = process.env.ORCH_DIR;
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
-function tempOrchDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-no-placement-"));
+function tempOrchDir(): OrchDir {
+  const dir = freshOrchDir("orch-no-placement-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   orm(dir);

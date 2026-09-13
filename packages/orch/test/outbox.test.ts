@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import {
   insertOutboxMessage,
   markOutboxDelivered,
@@ -12,17 +9,18 @@ import {
 import { drainOutbox } from "../src/daemon/outbox.ts";
 import type { BridgeMessage } from "../src/control/bridge-message.ts";
 import type { OutboxDelivery } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
-const tempDirs: string[] = [];
+const tempDirs: OrchDir[] = [];
 
 afterEach(() => {
   while (tempDirs.length > 0) removeTempDir(tempDirs.pop()!);
 });
 
-function fixture(): string {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-outbox-"));
+function fixture(): OrchDir {
+  const orchDir = tempOrchDir("orch-outbox-");
   tempDirs.push(orchDir);
   return orchDir;
 }

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // The pi-facing surface of the bridge for this agent's own run: `orch_ask`, the
 // command-lock interception, every pi lifecycle event handler that keeps
 // presence in sync, and the pi-event payload guards those handlers consume. The
@@ -10,8 +11,7 @@ import { Type } from "typebox";
 import { isThinkingLevel } from "../policy/thinking.ts";
 import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
-import { loadSettingsOrNull } from "../settings/read.ts";
-import { orchDir } from "../presence/writer.ts";
+import type { SettingsManager } from "../types/services.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock } from "../control/cmd-lock.ts";
 import { registerPeerTools, toolResult } from "./peers.ts";
 import { extractText, isAssistantMessageLike, HEARTBEAT_MS, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
@@ -95,7 +95,12 @@ function noOrchestratorAnswer(): BridgeToolResult {
  * out-of-band blocked events into — the event channel itself is backend
  * vocabulary and never named here.
  */
-export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptions): {
+export function registerAgentTools(
+  harness: HarnessApi,
+  options: AgentToolsOptions,
+  orchDir: OrchDir,
+  settings: SettingsManager,
+): {
   onBlockedChange: (active: boolean, label: string | undefined) => void;
 } {
   const { presence, daemon, notify, refreshLabels } = options;
@@ -105,7 +110,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
   let blockedNotified = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
 
-  registerPeerTools(harness, presence, daemon);
+  registerPeerTools(orchDir, harness, presence, daemon);
 
   harness.registerTool({
     name: "orch_ask",
@@ -314,7 +319,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
   }>();
 
   function lockedCommandPatterns(): string[] {
-    return loadSettingsOrNull(orchDir())?.locked_commands ?? [];
+    return settings.currentOrNull()?.locked_commands ?? [];
   }
 
   function bashCommand(args: unknown): string | undefined {
@@ -335,7 +340,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     presence.writeStatus();
     try {
       const holder = presence.ownPresenceKey(ctx) || `session-${process.pid}`;
-      const lock = await acquireCommandLock(orchDir(), {
+      const lock = await acquireCommandLock(orchDir, {
         holder,
         note: command,
         timeoutMs: 15 * 60 * 1000,
@@ -365,7 +370,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     if (!held) return;
     commandLocks.delete(toolCallId);
     try {
-      releaseCommandLock(orchDir(), held.lock.pid, held.lock.start_token);
+      releaseCommandLock(orchDir, held.lock.pid, held.lock.start_token);
     } catch {
       // best-effort; the lock implementation also reaps dead holders
     }
@@ -378,7 +383,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
     for (const [toolCallId, held] of commandLocks) {
       commandLocks.delete(toolCallId);
       try {
-        releaseCommandLock(orchDir(), held.lock.pid, held.lock.start_token);
+        releaseCommandLock(orchDir, held.lock.pid, held.lock.start_token);
       } catch {
         // best-effort; dead-holder eviction is the backstop
       }
@@ -507,7 +512,7 @@ export function registerAgentTools(harness: HarnessApi, options: AgentToolsOptio
   harness.on("session_shutdown", () => {
     for (const held of commandLocks.values()) {
       try {
-        releaseCommandLock(orchDir(), held.lock.pid, held.lock.start_token);
+        releaseCommandLock(orchDir, held.lock.pid, held.lock.start_token);
       } catch {
         // best-effort
       }

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -5,6 +6,7 @@ import { daemonEntrypoint, liveDaemonRegistration, onOsSide, provenDaemonPid, re
 import { daemonDiscoveryFiles, daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
 import { errorMessage, osSide, pidAlive } from "../util.ts";
+import { orchDirAt } from "../services.ts";
 import type { CheckResult } from "../types/doctor.ts";
 
 /** Verify the machine declaration independently from any project's ORCH_DIR. */
@@ -72,7 +74,7 @@ export function checkOsExecutors(): CheckResult {
   };
 }
 
-export async function checkDaemonPresence(orchDir: string): Promise<CheckResult> {
+export async function checkDaemonPresence(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
   const lockFile = daemonRuntimeFiles(orchDir).lock;
   if (!filesystem.existsSync(lockFile)) {
@@ -101,7 +103,7 @@ export async function checkDaemonPresence(orchDir: string): Promise<CheckResult>
   return { id: "orchd", label: "orchd presence", status: "ok", detail: `orchd is running (pid ${lock.pid})` };
 }
 
-export async function checkDaemonStaleness(orchDir: string): Promise<CheckResult> {
+export async function checkDaemonStaleness(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
   const lock = readDaemonLock(orchDir);
   if (!lock || !pidAlive(lock.pid)) {
@@ -120,7 +122,7 @@ export async function checkDaemonStaleness(orchDir: string): Promise<CheckResult
 }
 
 interface OrphanDaemon {
-  dir: string;
+  dir: OrchDir;
   pid: number;
   provable: boolean;
 }
@@ -129,14 +131,14 @@ interface OrphanDaemon {
  *  daemon nothing will ever dial again — a test run or crash left it behind — and
  *  it pins its dir and a process slot until something notices it. No orch command
  *  scopes to those dirs, so doctor is the only place this state is visible. */
-export function checkOrphanDaemons(orchDir: string): CheckResult {
+export function checkOrphanDaemons(orchDir: OrchDir): CheckResult {
   const own = resolve(orchDir);
   const orphans: OrphanDaemon[] = [];
   let names: string[] = [];
   try { names = filesystem.readdirSync(tmpdir()); } catch {}
   for (const name of names) {
     if (!name.startsWith("orch-")) continue;
-    const dir = join(tmpdir(), name);
+    const dir = orchDirAt(join(tmpdir(), name));
     if (resolve(dir) === own) continue;
     const lock = readDaemonLock(dir);
     if (!lock || !pidAlive(lock.pid)) continue;
@@ -181,7 +183,7 @@ function staleLockResult(lockFile: string, why: string): CheckResult {
   };
 }
 
-export async function checkDaemonLock(orchDir: string): Promise<CheckResult> {
+export async function checkDaemonLock(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
   const lockFile = daemonRuntimeFiles(orchDir).lock;
   if (!filesystem.existsSync(lockFile)) {
@@ -195,7 +197,7 @@ export async function checkDaemonLock(orchDir: string): Promise<CheckResult> {
   return staleLockResult(lockFile, `dead pid ${lock.pid}`);
 }
 
-export async function checkDaemonSocket(orchDir: string): Promise<CheckResult> {
+export async function checkDaemonSocket(orchDir: OrchDir): Promise<CheckResult> {
   const lock = readDaemonLock(orchDir);
   if (!lock || !pidAlive(lock.pid)) {
     return { id: "orchd-socket", label: "orchd socket", status: "skip", detail: "no running orchd to probe" };

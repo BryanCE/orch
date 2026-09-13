@@ -1,6 +1,3 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
@@ -10,7 +7,8 @@ import { closeAllStores } from "../src/store/connection.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 /**
  * `registerSpawnedAgent` is the only write.
@@ -24,10 +22,10 @@ import { removeTempDir } from "./helpers/tempdir.ts";
  */
 const oldOrchDir = process.env.ORCH_DIR;
 const oldOwner = process.env.ORCH_OWNER;
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
-function tempOrchDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-one-writer-"));
+function tempOrchDir(): OrchDir {
+  const dir = freshOrchDir("orch-one-writer-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   return dir;
@@ -68,7 +66,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     const owner = mintAgentId();
     process.env.ORCH_OWNER = owner;
 
-    const agent = spawnOneIntoTab({
+    const agent = spawnOneIntoTab(dir, {
       backend: new FakePanedBackend({ id: "herdr" }),
       adapter: piAdapter,
       adapterId: "pi",
@@ -96,7 +94,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     process.env.ORCH_OWNER = mintAgentId();
     const backend = new FakePanedBackend({ id: "herdr" });
 
-    const agent = spawnOneIntoTab({
+    const agent = spawnOneIntoTab(dir, {
       backend,
       adapter: piAdapter,
       adapterId: "pi",

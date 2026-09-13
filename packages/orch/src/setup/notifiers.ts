@@ -6,7 +6,7 @@ import { NOTIFY_STATES } from "../types/settings.ts";
 import { HERDR_SINK_ID } from "../backends/backend.ts";
 import { notifierRemediation } from "../notify/remediation.ts";
 import type { Notifier, NotifierChoice } from "../types/notify.ts";
-import type { NotifyEntry, NotifyState } from "../types/settings.ts";
+import type { NotifyEntry, NotifyState, OrchSettings } from "../types/settings.ts";
 
 const notifiers = createBuiltinNotifiers();
 
@@ -15,11 +15,11 @@ function findNotifier(id: string): Notifier | undefined {
 }
 
 /** Probe each built-in integration; rejected probes are reported as unavailable. */
-export async function probeNotifiers(): Promise<NotifierChoice[]> {
+export async function probeNotifiers(settings: OrchSettings | null): Promise<NotifierChoice[]> {
   return Promise.all(notifiers.map(async (notifier) => {
     let available = false;
     try {
-      available = await notifier.available();
+      available = await notifier.available(settings);
     } catch {
       available = false;
     }

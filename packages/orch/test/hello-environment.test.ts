@@ -1,19 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { endpointPaths } from "../src/daemon/rpc/wire.ts";
 import { sessionClaim } from "../src/daemon/rpc/registration.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import type { OrchDir } from "../src/types/core.ts";
 /**
  * `hello` is also where the ENVIRONMENT is recorded in full — harness, plexer,
  * directory, space, OS side. It is NOT filled in later or inferred at use,
@@ -23,7 +22,7 @@ import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
  * is about WHEN they are written: registration, once, from what the caller states.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
 beforeEach(() => {
   isolateOrchEnv();
@@ -35,8 +34,8 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function storeDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-hello-env-"));
+function storeDir(): OrchDir {
+  const directory = tempOrchDir("orch-hello-env-");
   dirs.push(directory);
   const db = orm(directory);
   db.run(sql`INSERT INTO harnesses (id, name) VALUES ('claude', 'claude') ON CONFLICT DO NOTHING`);
@@ -44,7 +43,7 @@ function storeDir(): string {
   return directory;
 }
 
-function register(directory: string, extra: { space?: string | null; plexerId?: string | null; handle?: string | null; now?: number } = {}) {
+function register(directory: OrchDir, extra: { space?: string | null; plexerId?: string | null; handle?: string | null; now?: number } = {}) {
   return getOrCreateSessionAgent(directory, {
     pid: 4242, startToken: "tok", sessionToken: "sess-1", harnessId: "claude",
     cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux",

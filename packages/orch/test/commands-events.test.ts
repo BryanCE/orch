@@ -1,13 +1,14 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { eventWithinSpaceWall, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
 import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir.ts";
 import { helpTopic } from "../src/commands/help.ts";
 import { subscribeEvents } from "../src/daemon/rpc/client.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
@@ -72,7 +73,7 @@ describe("commands/events", () => {
     // socket, and the stream has to come back on its own. Dialing an orch dir with
     // no daemon is the same path a restart takes — it must resolve, not throw.
     const delivered: unknown[] = [];
-    const subscription = subscribeEvents("/nonexistent-orch-dir", { since: 0 }, (event) => delivered.push(event));
+    const subscription = subscribeEvents(orchDirAt("/nonexistent-orch-dir"), { since: 0 }, (event) => delivered.push(event));
     expect(subscription.lastSeq()).toBe(0);
     expect(delivered).toEqual([]);
     subscription.close();
@@ -124,18 +125,18 @@ describe("commands/events", () => {
 // `agent_spaces`, never a segment read out of the identity key, which pinned the
 // stream to the space the agent was born in.
 describe("commands/events space wall", () => {
-  const directories: string[] = [];
-  let previousOrchDir: string | undefined;
+  const directories: OrchDir[] = [];
+  let previousOrchDir: OrchDir | undefined;
 
-  function tempOrchDir(): string {
-    previousOrchDir ??= process.env.ORCH_DIR;
-    const directory = mkdtempSync(join(tmpdir(), "orch-events-space-"));
+  function tempOrchDir(): OrchDir {
+    previousOrchDir ??= process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
+    const directory = mintTempOrchDir("orch-events-space-");
     directories.push(directory);
     process.env.ORCH_DIR = directory;
     return directory;
   }
 
-  function seedAgent(root: string, space: string): string {
+  function seedAgent(root: OrchDir, space: string): string {
     const key = mintAgentId();
     seedSpace(root, space);
     registerSpawnedAgent(root, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: root, name: "recon", model: "test", space, spawner: null, process: { pid: process.pid, startToken: "commands-events-space-wall-fixture" } });

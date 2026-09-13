@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { selectRuns } from "../src/store/run-rows.ts";
 import { orm } from "../src/store/connection.ts";
@@ -13,20 +12,24 @@ import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { subscribeEvents } from "../src/daemon/rpc/client.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { PresenceWatch, RpcServer } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { NotifyEntry } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
+import { testServices } from "./helpers/services.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const servers: RpcServer[] = [];
 const presenceWatches: PresenceWatch[] = [];
+const noDirSettings = testServices({ orchDir: tempOrchDir(), settings: {} }).settings;
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-events-"));
+function tempOrchDir(): OrchDir {
+  const directory = makeTempOrchDir("orch-events-");
   directories.push(directory);
   return directory;
 }
@@ -34,7 +37,7 @@ function tempOrchDir(): string {
 /** Seed one agent through the normalized tables the composer reads.
  *  A1: identity is the minted id, and environment is a satellite of it - never a
  *  column on a wide row keyed by the pane. */
-function seedAgent(orchDir: string, agentId: string, options: { harnessId?: string; space?: string } = {}): void {
+function seedAgent(orchDir: OrchDir, agentId: string, options: { harnessId?: string; space?: string } = {}): void {
   const harnessId = options.harnessId ?? "pi";
   ensureHarness(orchDir, harnessId, harnessId);
   insertAgent(orchDir, { id: agentId, spawnedBy: null, harnessId, cwd: orchDir, name: agentId, createdAt: 1 });
@@ -74,7 +77,7 @@ function notifyEvent(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   };
 }
 
-function writeStatus(orchDir: string, key: string, state: string, extra: object = {}): void {
+function writeStatus(orchDir: OrchDir, key: string, state: string, extra: object = {}): void {
   seedStatus(orchDir, key, { state, ...extra });
 }
 
@@ -118,9 +121,9 @@ describe("daemon presence events", () => {
     const key = mintAgentId();
     seedAgent(orchDir, key);
     writeStatus(orchDir, key, "working");
-    const server = await startRpcServer(orchDir, {
+    const server = await startRpcServer(orchDir, stubRpcHandlers({
       "subscribe-events": () => ({ subscribed: true }),
-    });
+    }));
     servers.push(server);
     const watcher = startPresenceWatch({ orchDir, onEvent: (event) => server.emit(event) });
     presenceWatches.push(watcher);
@@ -258,7 +261,8 @@ describe("daemon presence events", () => {
     writeStatus(orchDir, root, "working");
     writeStatus(orchDir, child, "working");
     const emitted: NotifyEvent[] = [];
-    emitAndNotify((event) => emitted.push(event), [], notifyEvent({ key: root, oldState: "working", newState: "closed" }), orchDir);
+    const settings = testServices({ orchDir, settings: { fleet: { max_agents_per_pack: 2 } } }).settings;
+    emitAndNotify((event) => emitted.push(event), [], notifyEvent({ key: root, oldState: "working", newState: "closed" }), orchDir, settings);
     expect(emitted[0]?.newState).toBe("closed");
     expect(emitted[0]?.capacity).toEqual({ packUsed: 2, packCap: 2 });
   });
@@ -266,18 +270,18 @@ describe("daemon presence events", () => {
   test("a flapping status file cannot storm the stream with repeat transitions", () => {
     const flap = { key: "w9:flap", agent: "pi", tab: null, model: null, oldState: "aborted", newState: "done", task: "same task", ts: "t" };
     const emitted: unknown[] = [];
-    emitAndNotify((event) => emitted.push(event), [], { ...flap });
-    emitAndNotify((event) => emitted.push(event), [], { ...flap });
-    emitAndNotify((event) => emitted.push(event), [], { ...flap, oldState: "done", newState: "aborted" });
-    emitAndNotify((event) => emitted.push(event), [], { ...flap, oldState: "done", newState: "aborted" });
+    emitAndNotify((event) => emitted.push(event), [], { ...flap }, undefined, noDirSettings);
+    emitAndNotify((event) => emitted.push(event), [], { ...flap }, undefined, noDirSettings);
+    emitAndNotify((event) => emitted.push(event), [], { ...flap, oldState: "done", newState: "aborted" }, undefined, noDirSettings);
+    emitAndNotify((event) => emitted.push(event), [], { ...flap, oldState: "done", newState: "aborted" }, undefined, noDirSettings);
     expect(emitted.length).toBe(2);
   });
 
   test("a genuine repeat of the same transition for new work still publishes", () => {
     const done = { key: "w9:redo", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "t" };
     const emitted: unknown[] = [];
-    emitAndNotify((event) => emitted.push(event), [], { ...done, task: "first dispatch", dispatchId: "d1" });
-    emitAndNotify((event) => emitted.push(event), [], { ...done, task: "second dispatch", dispatchId: "d2" });
+    emitAndNotify((event) => emitted.push(event), [], { ...done, task: "first dispatch", dispatchId: "d1" }, undefined, noDirSettings);
+    emitAndNotify((event) => emitted.push(event), [], { ...done, task: "second dispatch", dispatchId: "d2" }, undefined, noDirSettings);
     expect(emitted.length).toBe(2);
   });
 
@@ -298,8 +302,8 @@ describe("daemon presence events", () => {
   test("a working-to-done repeat after the dedupe window is emitted", () => {
     const event = { key: "w9:window-flip", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "t" };
     const emitted: unknown[] = [];
-    emitAndNotify((value) => emitted.push(value), [], event, undefined, 1_000);
-    emitAndNotify((value) => emitted.push(value), [], event, undefined, 1_000 + 120_001);
+    emitAndNotify((value) => emitted.push(value), [], event, undefined, noDirSettings, 1_000);
+    emitAndNotify((value) => emitted.push(value), [], event, undefined, noDirSettings, 1_000 + 120_001);
     expect(emitted).toHaveLength(2);
   });
 
@@ -387,9 +391,10 @@ describe("daemon presence events", () => {
       on: ["asking"],
       command: [process.execPath, "-e", `const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`],
     };
+    const settings = testServices({ orchDir, settings: {} }).settings;
     const watcher = startPresenceWatch({
       orchDir,
-      onEvent: (event) => emitAndNotify(() => { /* noop */ }, [sink], event),
+      onEvent: (event) => emitAndNotify(() => { /* noop */ }, [sink], event, orchDir, settings),
     });
     presenceWatches.push(watcher);
 

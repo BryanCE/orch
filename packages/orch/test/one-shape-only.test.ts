@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
 import { describeBackendEnvironments } from "../src/doctor/backends.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { closeAllStores } from "../src/store/connection.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
 afterEach(() => {
   closeAllStores();
@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe("one current shape only", () => {
   test("a live presence record with a malformed identity is a doctor failure", () => {
-    const directory = mkdtempSync(join(tmpdir(), "orch-shape-only-presence-"));
+    const directory = tempOrchDir("orch-shape-only-presence-");
     dirs.push(directory);
     const key = `not-an-agent-${mintAgentId()}`;
     const agentDirectory = join(directory, "agents", key);

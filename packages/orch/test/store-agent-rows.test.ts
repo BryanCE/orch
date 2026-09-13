@@ -1,18 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent, endAgent, agentById, liveAgents, packMembers, childrenOf, ensureHarness, ensurePlexer, ensureHost, setWorktree, worktreeOf, renameAgent } from "../src/store/agent-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 import { numberField, row, stringField } from "./helpers/rows.ts";
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
-function fixture() { const d = mkdtempSync(join(tmpdir(), "orch-agent-rows-")); dirs.push(d); return d; }
-function seed(d: string) { ensureHarness(d, "pi", "Pi"); ensurePlexer(d, "headless", "Headless"); ensureHost(d, "host", "Test Host", "linux", 1_000); }
-function agent(d: string, id: string, spawnedBy: string | null = null) { return insertAgent(d, { id, spawnedBy, harnessId: "pi", cwd: "/repo", name: id, createdAt: 2_000 }); }
+function fixture() { const d = tempOrchDir("orch-agent-rows-"); dirs.push(d); return d; }
+function seed(d: OrchDir) { ensureHarness(d, "pi", "Pi"); ensurePlexer(d, "headless", "Headless"); ensureHost(d, "host", "Test Host", "linux", 1_000); }
+function agent(d: OrchDir, id: string, spawnedBy: string | null = null) { return insertAgent(d, { id, spawnedBy, harnessId: "pi", cwd: "/repo", name: id, createdAt: 2_000 }); }
 
 describe("agent store rows", () => {
   test("insertAgent writes both NULL; agentById reads both back", () => {

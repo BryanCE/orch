@@ -1,10 +1,12 @@
+import type { OrchDir } from "../../types/core.ts";
 import { createConnection, type Socket } from "node:net";
 import { existsSync } from "node:fs";
 import { readPortPath } from "../../presence/socket-client.ts";
 import { launchCredential } from "../../identity/launch.ts";
 import { decisionLogger } from "../decision-log.ts";
 import type { EventSubscription } from "../../types/daemon.ts";
-import { DaemonAbsentError, DaemonUnreachableError, type RpcResponse, DEFAULT_TIMEOUT_MS, endpointPaths, readJsonMessages, responseError } from "./wire.ts";
+import { parseRpcResult, type ParamsOf, type ResultOf, type RpcMethod } from "./protocol.ts";
+import { DaemonAbsentError, DaemonUnreachableError, RpcError, type RpcLine, DEFAULT_TIMEOUT_MS, encodeRequest, endpointPaths, readJsonMessages, responseError } from "./wire.ts";
 import { sessionClaim } from "./registration.ts";
 import { isRecord } from "../../util.ts";
 
@@ -14,6 +16,7 @@ import { isRecord } from "../../util.ts";
 const RECONNECT_BASE_MS = 250;
 const RECONNECT_CAP_MS = 5_000;
 let nextRequestId = 1;
+
 /**
  * Issue the caller's identity. One mechanism serves both transports: the token file
  * is `0600` in a directory only this uid can read, so presenting it proves the caller
@@ -100,7 +103,7 @@ function stayedSilent(outcome: Socket | DialSilence): outcome is DialSilence {
  *  into a multi-second stall. A slow orchd is handled by giving the CALL a budget that
  *  matches its work. Absent only when BOTH endpoints proved nothing is listening —
  *  otherwise the daemon is merely unreachable and may be perfectly healthy. */
-async function connectDaemon(orchDir: string, timeoutMs: number): Promise<Socket> {
+async function connectDaemon(orchDir: OrchDir, timeoutMs: number): Promise<Socket> {
   const paths = endpointPaths(orchDir);
   const unix = await dialEndpoint(paths.socket, timeoutMs);
   if (!stayedSilent(unix)) return unix;
@@ -112,16 +115,16 @@ async function connectDaemon(orchDir: string, timeoutMs: number): Promise<Socket
 
 
 
-function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise<RpcResponse> {
+function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise<Extract<RpcLine, { kind: "reply" | "error" }>> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.destroy();
       reject(new DaemonUnreachableError("response"));
     }, timeoutMs);
-    readJsonMessages(socket, (parsed) => {
-      if (parsed.id === id) {
+    readJsonMessages(socket, (line) => {
+      if ((line.kind === "reply" || line.kind === "error") && line.id === id) {
         clearTimeout(timer);
-        resolve(parsed);
+        resolve(line);
       }
     });
     socket.once("error", (error) => {
@@ -135,19 +138,23 @@ function receiveResponse(socket: Socket, id: number, timeoutMs: number): Promise
   });
 }
 /** Make one request, probing the unix socket before the loopback-TCP port file. */
-export async function rpcCall(
-  orchDir: string,
-  method: string,
-  params?: unknown,
+export async function rpcCall<M extends RpcMethod>(
+  orchDir: OrchDir,
+  method: M,
+  params: ParamsOf<M>,
   timeoutMs = DEFAULT_TIMEOUT_MS,
-): Promise<unknown> {
+): Promise<ResultOf<M>> {
   const socket = await connectDaemon(orchDir, timeoutMs);
   const id = nextRequestId++;
   try {
-    socket.write(`${JSON.stringify({ id, method, params })}\n`);
+    socket.write(encodeRequest(id, method, params));
     const response = await receiveResponse(socket, id, timeoutMs);
-    if (response.error !== undefined) throw responseError(response);
-    return response.result;
+    if (response.kind === "error") throw responseError(response);
+    const parsed = parseRpcResult(method, response.result);
+    if (!parsed.ok) {
+      throw new RpcError("RPC_ERROR", `orchd returned a malformed ${method} result`, parsed.issues);
+    }
+    return parsed.value;
   } finally {
     socket.destroy();
   }
@@ -163,7 +170,7 @@ export async function rpcCall(
  * alive.
  */
 export function subscribeEvents(
-  orchDir: string,
+  orchDir: OrchDir,
   opts: { since?: number },
   onEvent: (event: unknown, seq: number) => void,
   onGap?: (oldestSeq: number) => void,
@@ -181,7 +188,7 @@ export function subscribeEvents(
     if (closed || retryTimer) return;
     const delay = backoffMs;
     retryAttempt += 1;
-    decisionLogger(orchDir).debug("retry.attempt", { attempt: retryAttempt, delay });
+    decisionLogger(orchDir, null).debug("retry.attempt", { attempt: retryAttempt, delay });
     backoffMs = Math.min(backoffMs * 2, RECONNECT_CAP_MS);
     retryTimer = setTimeout(() => {
       retryTimer = undefined;
@@ -208,12 +215,20 @@ export function subscribeEvents(
         socket = connected;
         backoffMs = RECONNECT_BASE_MS; // a healthy dial resets the climb
         retryAttempt = 0;
-        readJsonMessages(connected, (parsed) => {
-          if (parsed.gap === true && typeof parsed.oldestSeq === "number") {
-            onGap?.(parsed.oldestSeq);
-          } else if (parsed.seq !== undefined && "event" in parsed) {
-            last = Math.max(last, parsed.seq);
-            onEvent(parsed.event, parsed.seq);
+        readJsonMessages(connected, (line) => {
+          switch (line.kind) {
+            case "gap":
+              onGap?.(line.oldestSeq);
+              break;
+            case "event":
+              if (line.seq !== undefined) {
+                last = Math.max(last, line.seq);
+                onEvent(line.event, line.seq);
+              }
+              break;
+            case "reply":
+            case "error":
+              break;
           }
         });
         connected.once("error", onDisconnect);
@@ -223,24 +238,20 @@ export function subscribeEvents(
         // shares the same socket as the event subscription.
         if (identify) {
           // The token is read fresh because a restart mints a new credential.
-          const credential = launchCredential();
+          const credential = launchCredential(orchDir);
           const claim = sessionClaim(orchDir);
-          connected.write(`${JSON.stringify({
-            id: nextRequestId++,
-            method: credential === null ? "register-session" : "claim-identity",
-            params: credential === null ? claim : { ...claim, id: credential },
-          })}\n`);
+          if (credential !== null && typeof claim.sessionToken === "string") {
+            connected.write(encodeRequest(nextRequestId++, "claim-identity", { ...claim, id: credential, sessionToken: claim.sessionToken }));
+          } else {
+            connected.write(encodeRequest(nextRequestId++, "register-session", claim));
+          }
         }
         // The first dial honours the caller's `since` (undefined = live only).
         // Durable sequence numbers survive daemon restarts, so reconnects resume
         // from the last sequence delivered instead of replaying an unrelated window.
         const since = connectedBefore ? last : opts.since;
         connectedBefore = true;
-        connected.write(`${JSON.stringify({
-          id: nextRequestId++,
-          method: "subscribe-events",
-          params: { since },
-        })}\n`);
+        connected.write(encodeRequest(nextRequestId++, "subscribe-events", { since }));
       })
       .catch(() => {
         // Daemon absent or the dial failed; keep retrying — it may return.

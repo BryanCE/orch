@@ -13,34 +13,28 @@
  * core: `src/util.ts` is node built-ins only and bundles cleanly, so the shared
  * JSON guards come from there rather than being re-declared per shim.
  */
-import { homedir } from "node:os";
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OUTCOMES_FILE, PRESENCE_SCHEMA, RESULTS_FILE, STATUS_FILE } from "./schema.ts";
 import { isRecord, readJsonFile } from "../util.ts";
 import type { LaunchEnvFacts, LaunchStampable, PresenceRecord, PresenceStatus } from "../types/presence.ts";
-import type { JsonRecord } from "../types/core.ts";
-
-/** $ORCH_DIR, defaulting to ~/.orch. Read per call so tests can repoint the env. */
-export function orchDir(): string {
-  return process.env.ORCH_DIR ?? join(homedir(), ".orch");
-}
+import type { OrchDir, JsonRecord } from "../types/core.ts";
 
 /** The root holding every agent's presence directory. */
-export function presenceRoot(root = orchDir()): string {
+export function presenceRoot(root: OrchDir): string {
   return join(root, "agents");
 }
 
 /** The presence directory for one agent. The presence key IS the directory name
  * — keys are already filesystem-safe (percent-escaped), so there is no remapping. */
-export function presenceAgentDir(key: string, root = orchDir()): string {
+export function presenceAgentDir(key: string, root: OrchDir): string {
   return join(presenceRoot(root), key);
 }
 
 /** Create (recursively) and return the agent's presence directory, or undefined
  * when it cannot be created. Callers exit silently on undefined: an unwritable
  * presence dir means there is no orch to report to, which is not an error. */
-export function ensurePresenceAgentDir(key: string, root = orchDir()): string | undefined {
+export function ensurePresenceAgentDir(key: string, root: OrchDir): string | undefined {
   const directory = presenceAgentDir(key, root);
   try {
     mkdirSync(directory, { recursive: true });

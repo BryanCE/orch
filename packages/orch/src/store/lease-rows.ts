@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
 import { agentLeases } from "../db/schema.ts";
@@ -15,12 +16,12 @@ function toLease(row: LeaseRow): Lease {
   return { id: row.id, agentId: row.agentId, orchId: row.orchId, since: row.since, until: row.until, releaseReason: row.releaseReason };
 }
 
-function openLease(orchDir: string, agentId: string): LeaseRow | undefined {
+function openLease(orchDir: OrchDir, agentId: string): LeaseRow | undefined {
   return orm(orchDir).select().from(agentLeases)
     .where(and(eq(agentLeases.agentId, agentId), isNull(agentLeases.until))).get();
 }
 
-function insertLease(orchDir: string, agentId: string, orchId: string, since: number): number {
+function insertLease(orchDir: OrchDir, agentId: string, orchId: string, since: number): number {
   const row = orm(orchDir).insert(agentLeases).values({ agentId, orchId, since }).returning({ id: agentLeases.id }).get();
   if (!row) throw new Error("lease insert did not produce a row");
   return row.id;
@@ -33,11 +34,11 @@ function insertLease(orchDir: string, agentId: string, orchId: string, since: nu
  *  A holder that carries it can prove it is still the current holder; a woken
  *  zombie orch carrying a superseded one cannot clobber the adopter, even when
  *  the zombie's own id happens to be the current holder's again. */
-export function openLeaseId(orchDir: string, agentId: string): number | null {
+export function openLeaseId(orchDir: OrchDir, agentId: string): number | null {
   return openLease(orchDir, agentId)?.id ?? null;
 }
 
-export function acquireLease(orchDir: string, agentId: string, orchId: string, since = Date.now()): number {
+export function acquireLease(orchDir: OrchDir, agentId: string, orchId: string, since = Date.now()): number {
   return withTransaction(orchDir, () => {
     if (openLease(orchDir, agentId)) throw new Error("one_lease");
     return insertLease(orchDir, agentId, orchId, since);
@@ -47,7 +48,7 @@ export function acquireLease(orchDir: string, agentId: string, orchId: string, s
 /** Close the open holding. `orchId === null` closes whoever holds it (expiry,
  *  which nobody asserts). `fence`, when given, must be the open lease's id. */
 function closeLease(
-  orchDir: string,
+  orchDir: OrchDir,
   agentId: string,
   orchId: string | null,
   until: number,
@@ -62,46 +63,46 @@ function closeLease(
   if (changes !== 1) throw new Error(orchId === null ? "no_lease" : "lease_holder");
 }
 
-export function releaseLease(orchDir: string, agentId: string, orchId: string, until = Date.now(), fence?: number): void {
+export function releaseLease(orchDir: OrchDir, agentId: string, orchId: string, until = Date.now(), fence?: number): void {
   withTransaction(orchDir, () => closeLease(orchDir, agentId, orchId, until, "released", fence));
 }
 
-export function expireLease(orchDir: string, agentId: string, until = Date.now()): void {
+export function expireLease(orchDir: OrchDir, agentId: string, until = Date.now()): void {
   withTransaction(orchDir, () => closeLease(orchDir, agentId, null, until, "expired"));
 }
 
-export function handoffLease(orchDir: string, agentId: string, from: string, to: string, since = Date.now(), fence?: number): number {
+export function handoffLease(orchDir: OrchDir, agentId: string, from: string, to: string, since = Date.now(), fence?: number): number {
   return withTransaction(orchDir, () => {
     closeLease(orchDir, agentId, from, since, "handoff", fence);
     return insertLease(orchDir, agentId, to, since);
   });
 }
 
-export function adoptLease(orchDir: string, agentId: string, orchId: string, since = Date.now()): number {
+export function adoptLease(orchDir: OrchDir, agentId: string, orchId: string, since = Date.now()): number {
   return withTransaction(orchDir, () => {
     if (openLease(orchDir, agentId)) closeLease(orchDir, agentId, null, since, "adopted");
     return insertLease(orchDir, agentId, orchId, since);
   });
 }
 
-export function currentLease(orchDir: string, agentId: string): Lease | null {
+export function currentLease(orchDir: OrchDir, agentId: string): Lease | null {
   const row = openLease(orchDir, agentId);
   return row ? toLease(row) : null;
 }
 
 /** Whether `holder` holds the open lease on `agentId`. */
-export function holdsLease(orchDir: string, agentId: string, holder: string): boolean {
+export function holdsLease(orchDir: OrchDir, agentId: string, holder: string): boolean {
   return currentLease(orchDir, agentId)?.orchId === holder;
 }
 
 /** Every holding this agent has ever had, oldest first. C7: history is read from
  *  the lease trail, never inferred from whoever happens to hold it now. */
-export function leaseHistory(orchDir: string, agentId: string): Lease[] {
+export function leaseHistory(orchDir: OrchDir, agentId: string): Lease[] {
   return orm(orchDir).select().from(agentLeases)
     .where(eq(agentLeases.agentId, agentId)).orderBy(asc(agentLeases.id)).all().map(toLease);
 }
 
-export function leasesByOrch(orchDir: string, orchId: string): Lease[] {
+export function leasesByOrch(orchDir: OrchDir, orchId: string): Lease[] {
   return orm(orchDir).select().from(agentLeases)
     .where(and(eq(agentLeases.orchId, orchId), isNull(agentLeases.until)))
     .orderBy(asc(agentLeases.id)).all().map(toLease);

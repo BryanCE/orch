@@ -1,13 +1,12 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent, renameAgent, setWorktree } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { ENVIRONMENT_AXES, agentView, agentViews, environmentOf, liveAgentViews } from "../src/store/agent-view.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 /**
@@ -15,8 +14,8 @@ import { sql } from "drizzle-orm";
  * change is one table plus one line in the composer, zero consumer changes.
  */
 
-function store(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-agent-view-"));
+function store(): OrchDir {
+  const directory = tempOrchDir("orch-agent-view-");
   const db = orm(directory);
   db.run(sql`INSERT INTO harnesses (id, name) VALUES ('pi', 'pi') ON CONFLICT DO NOTHING`);
   db.run(sql`INSERT INTO plexers (id, name) VALUES ('herdr', 'herdr') ON CONFLICT DO NOTHING`);
@@ -24,7 +23,7 @@ function store(): string {
   return directory;
 }
 
-function withStore(body: (directory: string) => void): void {
+function withStore(body: (directory: OrchDir) => void): void {
   const directory = store();
   try {
     body(directory);

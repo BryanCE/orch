@@ -1,5 +1,4 @@
 import { basename } from "node:path";
-import { orchDir } from "../../presence/writer.ts";
 import { assertNameFree } from "../../policy/name.ts";
 import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
@@ -11,8 +10,8 @@ import { errorMessage } from "../../util.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { callerOwnerToken, die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
-import { commandLogger } from "../logging.ts";
 import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import { homeHandle, openHome } from "../../store/home-rows.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../types/command.ts";
 import type { HomeSubject } from "../../types/backend.ts";
@@ -99,11 +98,11 @@ export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
 // launch credential — the name and the backend handle are recorded
 // beside it as plain fields, never folded into it. The caller owns error policy
 // (warn-and-continue vs die); this throws on backend failure.
-export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
-  assertNameFree(spec.name, spec.space);
+export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAgent {
+  assertNameFree(orchDir, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
-  const spawner = spawnerIdentity();
-  const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), [LAUNCH_ENV]: key, ORCH_DIR: orchDir() };
+  const spawner = spawnerIdentity(orchDir);
+  const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
   let place: BackendHandle | undefined;
   if (spec.placement) {
     if (!spec.backend.placement) throw new Error("environment cannot place an agent");
@@ -117,7 +116,7 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   try {
     handle = spec.backend.spawn(spec.adapter, {
       key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
-      intoHandle: place, orchDir: orchDir(), model: spec.model, thinking, preferredModels: spec.preferredModels,
+      intoHandle: place, orchDir, model: spec.model, thinking, preferredModels: spec.preferredModels,
       tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
     });
   } catch (error: unknown) {
@@ -132,11 +131,11 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
   // harness, plexer, handle, space, model, worktree, holder, process — because a
   // second writer filling in the rest is how the two came to disagree about
   // which record was authoritative.
-  registerSpawnedAgent(orchDir(), {
+  registerSpawnedAgent(orchDir, {
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
     spawner: spec.spawnerAgentId ?? null,
-    owner: callerOwnerToken(),
+    owner: callerOwnerToken(orchDir),
     worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
     process: spec.backend.process.running(handle),
   });
@@ -147,14 +146,14 @@ export function spawnOneIntoTab(spec: TabSpawnSpec): CreatedAgent {
  *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
  *  is tiling one agent at a time — the balance only holds while every agent is
  *  placed by the same planner reading the same layout. */
-export function tileAgentIntoGroup(spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): CreatedAgent {
-  return spawnOneIntoTab({ ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
+export function tileAgentIntoGroup(orchDir: OrchDir, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): CreatedAgent {
+  return spawnOneIntoTab(orchDir, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(settings: SpawnSettings, name: string, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
+function placeAgent(orchDir: OrchDir, settings: SpawnSettings, name: string, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-  return tileAgentIntoGroup({
+  return tileAgentIntoGroup(orchDir, {
     backend,
     adapter: resolveAdapterOrDie(settings.adapter),
     adapterId: settings.adapter,
@@ -177,14 +176,14 @@ function placeAgent(settings: SpawnSettings, name: string, space: string | null,
 
 /** Fill a group with named agents. An agent that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-export function growFleetIntoGroup(settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent[] {
+export function growFleetIntoGroup(orchDir: OrchDir, logger: Logger, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent[] {
   const created: CreatedAgent[] = [];
   for (const name of names) {
     try {
-      created.push(placeAgent(settings, name, space, workspace, group, backend, spawnerAgentId, role));
+      created.push(placeAgent(orchDir, settings, name, space, workspace, group, backend, spawnerAgentId, role));
     } catch (error: unknown) {
       const message = errorMessage(error);
-      commandLogger().warn("spawn.place-failed", { backend: backend.id, name, error: message });
+      logger.warn("spawn.place-failed", { backend: backend.id, name, error: message });
       process.stdout.write(`warning: could not place agent ${name}: ${message}\n`);
     }
   }
@@ -207,7 +206,7 @@ export function findGroupInSpace(backend: Backend, workspace: string | undefined
  * what the human grants. Outside every plexer, with none chosen, the default is
  * headless: a plexer orch only probed is a window nobody asked for.
  */
-export function spawnBackend(settings: Pick<SpawnSettings, "backend" | "space" | "backendChosen">, callerPlexer: string | null): Backend {
+export function spawnBackend(logger: Logger, settings: Pick<SpawnSettings, "backend" | "space" | "backendChosen">, callerPlexer: string | null): Backend {
   const backend = resolveBackend({ configured: settings.backend });
   if (!backend.groupHome || settings.space !== null) return backend;
   if (callerPlexer === backend.id) return backend;
@@ -215,7 +214,7 @@ export function spawnBackend(settings: Pick<SpawnSettings, "backend" | "space" |
   const reason = settings.backendChosen
     ? `${backend.id} cannot open a space of its own`
     : `no backend was chosen`;
-  commandLogger().warn("spawn.headless-fallback", { backend: backend.id, chosen: settings.backendChosen });
+  logger.warn("spawn.headless-fallback", { backend: backend.id, chosen: settings.backendChosen });
   process.stdout.write(
     `orch is not running inside ${backend.id} and ${reason} - spawning headless. `
     + `Pass --backend ${backend.id} or set defaults.backend to open a ${backend.id} home for these agents (the user grants it),`

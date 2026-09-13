@@ -1,18 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { asc, eq, sql } from "drizzle-orm";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { agentHandles, agentProcesses, agentSpaces, agentTunings, agents, harnesses, hosts, plexers, spaces } from "../src/db/schema.ts";
 import { clearSpace, currentHandle, currentProcess, currentSpace, currentTuning, endProcess, recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-interval-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-interval-");
   dirs.push(dir);
   const db = orm(dir);
   db.insert(harnesses).values({ id: "pi", name: "pi", enabledAt: null }).run();
@@ -24,7 +22,7 @@ function fixture(): string {
 }
 
 /** `typeof(column)` per row, in `since` order — the storage class, not the JS type. */
-function instantTypes(dir: string, table: string): unknown[] {
+function instantTypes(dir: OrchDir, table: string): unknown[] {
   return orm(dir).all(sql.raw(`SELECT typeof(since) AS since_type, typeof(until) AS until_type FROM ${table} ORDER BY since`));
 }
 

@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
 import * as os from "node:os";
@@ -10,9 +11,10 @@ import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { withSpinner } from "./io.ts";
 import { chooseInstalls } from "./wizard.ts";
 import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
-import { commandLogger } from "../commands/logging.ts";
+import type { Logger } from "../types/core.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
+import type { OrchSettings } from "../types/settings.ts";
 import type { BackendId } from "../types/backend.ts";
 import type { ShimBoundaryPlan } from "../types/command.ts";
 
@@ -51,7 +53,7 @@ export async function resolveInstallTargets(
 }
 
 /** Install one prerequisite: silent under a spinner when interactive, streamed otherwise. */
-export function runInstall(bin: string, cmd: string, interactive: boolean): void {
+export function runInstall(logger: Logger, bin: string, cmd: string, interactive: boolean): void {
   try {
     if (interactive) {
       withSpinner(`Installing ${bin}...`, `${bin} installed`, () => execFileSync("bash", ["-c", cmd], { stdio: "ignore" }));
@@ -60,7 +62,7 @@ export function runInstall(bin: string, cmd: string, interactive: boolean): void
       execFileSync("bash", ["-c", cmd], { stdio: "inherit" });
     }
   } catch {
-    commandLogger().warn("setup.install-failed", { bin, command: cmd });
+    logger.warn("setup.install-failed", { bin, command: cmd });
     process.stdout.write(`  ${bin} install failed - run manually: ${cmd}\n`);
   }
 }
@@ -118,6 +120,7 @@ export function reportBackendPrerequisites(
 }
 
 export async function installSelectedPrerequisites(
+  logger: Logger,
   missing: readonly MissingPrerequisite[],
   interactive: boolean,
   yes: boolean,
@@ -127,7 +130,7 @@ export async function installSelectedPrerequisites(
   if (toInstall === null) return false;
   // Install in the queued order so a provider's `needs` (e.g. bun before pi) land first.
   for (const { bin, cmd } of missing.filter((candidate) => toInstall.includes(candidate.bin))) {
-    runInstall(bin, cmd, interactive);
+    runInstall(logger, bin, cmd, interactive);
     // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
     process.env.PATH = `${path.join(home(), ".bun", "bin")}:${path.join(home(), ".local", "bin")}:${process.env.PATH}`;
     const now = binaryPath(bin);
@@ -139,6 +142,7 @@ export async function installSelectedPrerequisites(
 /** Probe each selected provider's prerequisite binaries, then install the chosen missing ones.
  * Returns false only when an interactive install multiselect is cancelled, so the caller can abort. */
 export async function installPrerequisites(
+  logger: Logger,
   adapters: readonly AdapterId[],
   backends: readonly BackendId[],
   interactive: boolean,
@@ -170,7 +174,7 @@ export async function installPrerequisites(
   reportAdapterPrerequisites(adapters, bins, queueInstall);
   reportBackendPrerequisites(backends, bins, queueInstall);
   for (const { id, url } of manual) process.stdout.write(`  install ${id} manually: ${url}\n`);
-  return installSelectedPrerequisites(missing, interactive, yes, noInstall);
+  return installSelectedPrerequisites(logger, missing, interactive, yes, noInstall);
 }
 
 export function planShimInstall(adapter: AgentAdapter): ShimBoundaryPlan {
@@ -185,7 +189,7 @@ export function planShimInstall(adapter: AgentAdapter): ShimBoundaryPlan {
 
 /** Install every selected adapter's integration through its own provider port (L4 Builder —
  * no identity branch). Returns the gaps: an adapter expected to install a shim but unable to. */
-export async function installAdapterShims(adapters: readonly AdapterId[], copy: boolean): Promise<string[]> {
+export async function installAdapterShims(orchDir: OrchDir, settings: OrchSettings, logger: Logger, adapters: readonly AdapterId[], copy: boolean): Promise<string[]> {
   // Every selected adapter, every run — installShim is idempotent and additive, and
   // an adapter skipped for being already-selected keeps whatever stale artifact the
   // last build left. An adapter with no installShim is a loud, recorded gap (D10):
@@ -196,15 +200,15 @@ export async function installAdapterShims(adapters: readonly AdapterId[], copy: 
     const plan = planShimInstall(adapter);
     if (plan.outcome === "invoke") {
       try {
-        await plan.role.installShim({ copy });
+        await plan.role.installShim(orchDir, settings, logger, { copy });
       } catch (error: unknown) {
         const gap = `${id}: integration install failed - ${errorMessage(error)}`;
-        commandLogger().warn("setup.shim-install-failed", { adapter: id, error: errorMessage(error) });
+        logger.warn("setup.shim-install-failed", { adapter: id, error: errorMessage(error) });
         process.stdout.write(`  WARNING ${gap}\n`);
         gaps.push(gap);
       }
     } else {
-      commandLogger().warn("setup.shim-unavailable", { adapter: id, reason: plan.reason });
+      logger.warn("setup.shim-unavailable", { adapter: id, reason: plan.reason });
       process.stdout.write(`  ANSWER ${plan.text}\n`);
       gaps.push(plan.text);
     }

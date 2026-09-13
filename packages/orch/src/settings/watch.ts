@@ -1,8 +1,9 @@
 import * as filesystem from "node:fs";
+import { dirname } from "node:path";
 import { ensurePrivateDir, errorMessage } from "../util.ts";
-import { namesSettingsFile, settingsPath } from "./schema.ts";
-import { loadSettings } from "./read.ts";
+import { namesSettingsFile } from "./schema.ts";
 import type { SettingsWatch, SettingsWatchOptions } from "../types/settings.ts";
+import type { SettingsManager } from "../types/services.ts";
 
 /** Manual reload trigger: touching this file reloads settings without editing it. */
 export const RELOAD_SIGNAL_FILE = "reload.signal";
@@ -24,9 +25,12 @@ export function triggersReload(filename: string | Buffer | null | undefined): bo
  * An invalid edit keeps the last-good settings and warns once per distinct failure
  * — a settings file saved broken mid-edit must not spam the log on every keystroke.
  */
-export function watchSettings(orchDir: string, opts: SettingsWatchOptions): SettingsWatch {
+/** Watches the file the manager reads. Taking the manager, not a path, is what keeps an
+ *  orch dir from being handed in as the file: the watch then guards the dir's parent. */
+export function watchSettings(settings: Pick<SettingsManager, "file">, opts: SettingsWatchOptions): SettingsWatch {
   const { onChange, onWarn } = opts;
-  const file = settingsPath(orchDir);
+  const file = settings.file;
+  const directory = dirname(file);
   const debounceMs = opts.debounceMs ?? 250;
   const pollMs = opts.pollMs ?? 5_000;
   let stopped = false;
@@ -43,7 +47,7 @@ export function watchSettings(orchDir: string, opts: SettingsWatchOptions): Sett
     debounceTimer = undefined;
     if (stopped) return;
     try {
-      const settings = loadSettings(orchDir);
+      const settings = opts.load();
       badState = undefined;
       onChange(settings);
     } catch (error: unknown) {
@@ -79,11 +83,11 @@ export function watchSettings(orchDir: string, opts: SettingsWatchOptions): Sett
   };
 
   try {
-    ensurePrivateDir(orchDir);
+    ensurePrivateDir(directory);
     // The first load is deliberately unguarded: settings that cannot be read at
     // startup is fatal to the caller, not something to warn about and continue on.
-    const initial = loadSettings(orchDir);
-    watcher = filesystem.watch(orchDir, { persistent: false }, (_event, filename) => {
+    const initial = opts.load();
+    watcher = filesystem.watch(directory, { persistent: false }, (_event, filename) => {
       if (triggersReload(filename)) scheduleReload();
     });
     watcher.on("error", (error: Error) => {

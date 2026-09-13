@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { rpcCall } from "../src/daemon/rpc/client.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import type { OrchDir } from "../src/types/core.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 /**
  * One `bindUnix(server, paths)`.
@@ -31,8 +32,8 @@ function occurrences(needle: string): number {
   return CLAIM_REGION.split(needle).length - 1;
 }
 
-function tempOrchDir(): string {
-  return mkdtempSync(join(tmpdir(), "orch-one-bind-"));
+function tempOrchDir(): OrchDir {
+  return freshOrchDir("orch-one-bind-");
 }
 
 describe("one bind for the unix endpoint (2.4)", () => {
@@ -55,16 +56,16 @@ describe("one bind for the unix endpoint (2.4)", () => {
     let first: RpcServer | undefined;
     let reclaimed: RpcServer | undefined;
     try {
-      first = await startRpcServer(fresh, { echo: (params: unknown) => params });
+      first = await startRpcServer(fresh, stubRpcHandlers({ ack: () => ({ ok: true }) }));
 
       // A socket path left by a dead instance, and this process holds the lock.
       writeFileSync(join(stale, "orchd.sock"), "");
       writeFileSync(join(stale, "orchd.port"), "65000\n");
-      reclaimed = await startRpcServer(stale, { echo: (params: unknown) => params }, { holdsDaemonLock: true });
+      reclaimed = await startRpcServer(stale, stubRpcHandlers({ ack: () => ({ ok: true }) }), { holdsDaemonLock: true });
 
       expect(reclaimed.transport).toBe(first.transport);
       expect(existsSync(join(stale, "orchd.port"))).toBe(existsSync(join(fresh, "orchd.port")));
-      expect(await rpcCall(stale, "echo", { via: "reclaimed" })).toEqual({ via: "reclaimed" });
+      expect(await rpcCall(stale, "ack", { id: "reclaimed" })).toEqual({ ok: true });
     } finally {
       if (first) await first.close();
       if (reclaimed) await reclaimed.close();

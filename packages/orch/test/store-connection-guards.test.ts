@@ -2,15 +2,15 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { claimAgent, ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { assertStoreRecreatable, closeAllStores, orm } from "../src/store/connection.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const dirs: OrchDir[] = [];
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
 const originalHarnessMarker = process.env[HARNESS_SESSION_ENV.pi.marker];
@@ -33,8 +33,8 @@ afterEach(() => {
   while (dirs.length > 0) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-store-guard-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-store-guard-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   return dir;
@@ -42,7 +42,7 @@ function fixture(): string {
 
 /** A store carrying orch's tables with no record of the migrations that create
  *  them — what every file written before orch adopted drizzle looks like. */
-function unmigrated(dir: string): string {
+function unmigrated(dir: OrchDir): string {
   orm(dir);
   closeAllStores();
   const path = join(dir, "orch.db");
@@ -96,7 +96,7 @@ function refusalMessage(body: () => unknown): string {
   throw new Error("expected a refusal, got none");
 }
 
-function claimSpawnedAgent(dir: string): void {
+function claimSpawnedAgent(dir: OrchDir): void {
   seedAgent(SPAWNED_AGENT_KEY, { adapter: "pi" }, dir);
   const result = claimAgent(dir, SPAWNED_AGENT_KEY, SPAWNED_SESSION_TOKEN, 1);
   if (result.kind !== "stamped") throw new Error(`failed to claim fixture agent: ${result.kind}`);

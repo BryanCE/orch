@@ -19,14 +19,20 @@ When a change needs one of these, stop, hand Bryan the command, and wait until h
 # RULE 0. THE GATE IS `bun check`. ORCHS RUN IT ON THEIR FILES. THE DELEGATOR RUNS THE ONE THAT COUNTS.
 Every orch runs `bun check` on what it touched and pastes it clean in its result. The delegator runs `bun check` once over the whole tree before every commit; that run is the gate. `bun test` scoped to touched files, always. Nothing commits on a dirty gate or a red test.
 
-# RULE 0.1. TESTS: ONLY THE FILES YOU TOUCHED, THROUGH `powershell.exe`, ONCE. SOME ARE BRYAN-ONLY.
+# RULE 0.1. TESTS: ONLY THE FILES YOU TOUCHED, ON THE SIDE THAT OWNS THE DISK, ONCE. SOME ARE BRYAN-ONLY.
 Bryan-only, never run by the delegator or an orch, no exceptions: `test/daemon-rpc.test.ts`, everything under `integration/` and `doctor/`, `test/smoke.sh`, and any test that starts orchd, opens a pane, a window, or a terminal, or drives a real plexer. They open terminals on Bryan's screen while he works. Running one without his say-so is a firing offence. Bryan runs them and pastes the output; you fix what is in it.
 Everything else: run the test files your change touched, once, after the edits are complete. Not before, not again, not five times in a row.
-WSL reads this repo through `/mnt/c`, which is slow enough to time out tests that pass in one second on Windows. Every `bun test` goes through the Windows side:
-```
-WINROOT=$(wslpath -w "$(git rev-parse --show-toplevel)"); powershell.exe -NoProfile -Command "cd '$WINROOT\packages\orch'; bun test <the files you touched>"
-```
-Only the test files the change touched. The full suite is Bryan's, run by Bryan, pasted to you. A timeout from a WSL run is not a finding; do not report it, do not bump a timeout, do not profile it.
+Bryan works from two places: WSL only at home, Windows plus WSL at the office. The checkout can live on either filesystem, and crossing the boundary in either direction is slow enough to time out tests that pass in a second on the side that owns the disk. Look at `git rev-parse --show-toplevel` once and pick the side that owns it:
+- Checkout under `/mnt/<drive>/…` (Windows disk): run through the Windows side.
+  ```
+  WINROOT=$(wslpath -w "$(git rev-parse --show-toplevel)"); powershell.exe -NoProfile -Command "cd '$WINROOT\packages\orch'; bun test <the files you touched>"
+  ```
+- Checkout anywhere else (`/home/…`, WSL disk): run WSL's bun directly, from the root, with root-relative paths. Not `bun --filter … test` and not `bun --cwd … test`: both hit the package's `test` script and run the whole suite.
+  ```
+  bun test packages/orch/test/<the files you touched>
+  ```
+Never run tests across the boundary. A `\\wsl$` read from powershell is as slow as a `/mnt/c` read from WSL.
+Only the test files the change touched. Pick them by what imports the changed module directly, not by a grep over the test tree; a broad grep pulls in Bryan-only files. The full suite is Bryan's, run by Bryan, pasted to you. A timeout from a cross-boundary run is not a finding; do not report it, do not bump a timeout, do not profile it.
 Orchs: no `git diff`, no `git status`, no `git log`, no fallow, no re-reading a file you already changed. Edit, run your touched test files plus lint and tc once, paste, report done.
 
 # RULE 1. BRYAN'S FILE IS GROUND TRUTH. NEVER ARGUE WITH IT.

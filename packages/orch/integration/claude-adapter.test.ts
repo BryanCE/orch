@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { existsSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/backends/identity.ts";
+import type { OrchDir } from "../src/types/core.ts";
 // Imported FIRST on purpose, and for its evaluation order alone: reaching
 // adapters/claude.ts as the ENTRY point makes it the head of the pre-existing
 // config.ts -> runtime.ts -> adapters/registry.ts -> claude.ts import cycle, and
@@ -13,10 +13,10 @@ import { mintAgentId } from "../src/backends/identity.ts";
 // registry evaluates claude.ts as one of its dependencies instead.
 import "../src/adapters/registry.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { readJsonRecord } from "../test/helpers/json.ts";
 
-const orchDir = mkdtempSync(join(tmpdir(), "orch-claude-adapter-"));
+const orchDir: OrchDir = tempOrchDir("orch-claude-adapter-");
 const previousOrchDir = process.env.ORCH_DIR;
 const previousAgentKey = process.env[LAUNCH_ENV];
 const hookScript = join(import.meta.dir, "../extensions/claude/index.ts");
@@ -32,7 +32,7 @@ function agentDir(key: string): string {
 
 /** The hook always runs under `fakeKey`; a test's own key only names its transcript file. */
 function runHook(event: string, input: Record<string, unknown> = {}): Record<string, unknown> {
-  const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
+  const hookOrchDir = tempOrchDir("orch-claude-hook-");
   try {
     execFileSync(process.execPath, [hookScript, event], {
       env: { ...process.env, ORCH_DIR: hookOrchDir, [LAUNCH_ENV]: fakeKey },
@@ -93,7 +93,7 @@ describe("Claude adapter", () => {
   test("detects state from a live presence status", () => {
     const key = "claudestt1";
     writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "claude", state: "working" }));
-    expect(claudeAdapter.detectState({ key })).toBe("working");
+    expect(claudeAdapter.detectState({ key }, orchDir)).toBe("working");
   });
 
   test("extracts results.jsonl before transcript and native output", () => {
@@ -103,9 +103,9 @@ describe("Claude adapter", () => {
     writeFileSync(join(directory, "results.jsonl"), `${JSON.stringify({ text: "result text" })}\n`);
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: [{ type: "text", text: "transcript text" }] })}\n`);
 
-    expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" })).toBe("result text");
+    expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" }, orchDir)).toBe("result text");
     rmSync(join(directory, "results.jsonl"));
-    expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" })).toBe("transcript text");
+    expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" }, orchDir)).toBe("transcript text");
   });
 
   test("reads the final assistant text from a Stop-hook transcript", () => {
@@ -117,7 +117,7 @@ describe("Claude adapter", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Final answer" }] } }),
     ].join("\n") + "\n");
 
-    expect(claudeAdapter.extractResult({ key, sessionPath: transcript })).toBe("Final answer");
+    expect(claudeAdapter.extractResult({ key, sessionPath: transcript }, orchDir)).toBe("Final answer");
     expect(claudeAdapter.readSessionView?.({ sessionPath: transcript })).toEqual({ lastText: "Final answer" });
   });
 
@@ -150,7 +150,7 @@ describe("Claude adapter", () => {
   }, 20_000);
 
   test("exits silently and writes no presence without launch env (a non-orch session)", () => {
-    const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
+    const hookOrchDir = tempOrchDir("orch-claude-hook-");
     try {
       const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: hookOrchDir };
       delete env[LAUNCH_ENV];
@@ -167,7 +167,7 @@ describe("Claude adapter", () => {
   });
 
   test("fails hard and writes no presence on a malformed launch env", () => {
-    const hookOrchDir = mkdtempSync(join(tmpdir(), "orch-claude-hook-"));
+    const hookOrchDir = tempOrchDir("orch-claude-hook-");
     try {
       const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: hookOrchDir, [LAUNCH_ENV]: "garbage" };
       expect(() => execFileSync(process.execPath, [hookScript, "SessionStart"], {

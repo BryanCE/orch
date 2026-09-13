@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import type { OrchDir } from "../src/types/core.ts";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { orm } from "../src/store/connection.ts";
@@ -14,32 +14,56 @@ import { headlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { placeAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
 import { withExitCode } from "./helpers/exit-code.ts";
-const dirs: string[] = [];
-const oldOrchDir = process.env.ORCH_DIR;
+import { testServices } from "./helpers/services.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+const dirs: OrchDir[] = [];
+beforeEach(() => isolateOrchEnv());
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
-  if (oldOrchDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldOrchDir;
+  restoreOrchEnv();
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-lease-command-"));
+function services(dir: OrchDir) {
+  return testServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } });
+}
+
+function daemonState(dir: OrchDir) {
+  const serviceSet = services(dir);
+  return {
+    services: serviceSet,
+    directory: dir,
+    workController: new AbortController(),
+    server: undefined,
+    workLoop: undefined,
+    workLoopRunning: false,
+    outboxDrain: undefined,
+    presenceWatch: undefined,
+    settingsWatch: undefined,
+    lastActivityAt: 0,
+    logger: undefined,
+    fatalLogged: false,
+  };
+}
+
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-lease-command-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
   ensureHost(dir, "host", "host", "linux", 1);
   return dir;
 }
-function agent(dir: string, id: string, name = id, spawnedBy: string | null = null): void {
+function agent(dir: OrchDir, id: string, name = id, spawnedBy: string | null = null): void {
   insertAgent(dir, { id, name, spawnedBy, harnessId: "pi", cwd: dir, createdAt: 1 });
 }
 
-function liveHolder(dir: string, id = "foreign-orch"): void {
+function liveHolder(dir: OrchDir, id = "foreign-orch"): void {
   agent(dir, id);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
@@ -124,7 +148,7 @@ describe("lease commands", () => {
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
     seedSpace(dir, "space");
-    placeAgent(key, { backend: "headless", space: "space", handle: "abort-handle" });
+    placeAgent(key, { backend: "headless", space: "space", handle: "abort-handle" }, dir);
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));
@@ -136,7 +160,7 @@ describe("lease commands", () => {
     // and no pane roles, so this asserts the refusal is absent,
     // not that any keystroke was sent.
     expect(headlessBackend.agentInput).toBeNull();
-    expect(() => { cmdAbort([key, "--json"]); }).not.toThrow();
+    expect(() => { cmdAbort(services(dir), [key, "--json"]); }).not.toThrow();
     expect(currentLease(dir, key)?.orchId).toBe("foreign-orch");
   });
 
@@ -148,14 +172,14 @@ describe("lease commands", () => {
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
     seedSpace(dir, "space");
-    placeAgent(key, { backend: "headless", space: "space", handle: "close-handle" });
+    placeAgent(key, { backend: "headless", space: "space", handle: "close-handle" }, dir);
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));
 
-    withExitCode(() => { cmdClose([key, "--json"]); });
+    withExitCode(() => { cmdClose(services(dir), [key, "--json"]); });
 
-    expect(spawnedRecords().has(key)).toBe(false);
+    expect(spawnedRecords(dir).has(key)).toBe(false);
     expect(row(orm(dir), sql`SELECT id FROM agents WHERE id = ${key}`)).toBeDefined();
     expect(currentLease(dir, key)?.orchId).toBe("foreign-orch");
   });
@@ -168,7 +192,7 @@ describe("lease commands", () => {
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
 
-    void cmdReap([key, "--json"]);
+    void cmdReap(services(dir), [key, "--json"]);
 
     expect(row(orm(dir), sql`SELECT id FROM agents WHERE id = ${key}`)).toBeUndefined();
   });
@@ -181,6 +205,6 @@ describe("lease commands", () => {
     acquireLease(dir, key, "foreign-orch", 2);
 
     // governWrite is the daemon gate used by reset (and dispatch/steer/model).
-    expect(() => governWrite(dir, key, { target: key, actor: "caller-orch", text: "reset" })).toThrow(/foreign-orch/);
+    expect(() => governWrite(daemonState(dir), key, { actor: "caller-orch" })).toThrow(/foreign-orch/);
   });
 });

@@ -1,18 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { getAdapter } from "../src/adapters/registry.ts";
 import { stripWorkerHeader, workerPrompt } from "../src/worker-prompt.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const orchDirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const orchDirs: OrchDir[] = [];
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-worker-prompt-"));
+function makeTempOrchDir(): OrchDir {
+  const directory = tempOrchDir("orch-worker-prompt-");
   orchDirs.push(directory);
   return directory;
 }
@@ -115,7 +113,7 @@ describe("worker prompt capability composition", () => {
   });
 
   test("events strip both worker header variants", () => {
-    const orchDir = tempOrchDir();
+    const orchDir = makeTempOrchDir();
     for (const adapter of ["codex", "pi"] as const) {
       const key = `${adapter}-events`;
       const states = new Map([[key, "working"]]);

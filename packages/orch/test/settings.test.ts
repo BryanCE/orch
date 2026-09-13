@@ -1,25 +1,26 @@
+import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
-import { allowedModelPatterns, declaredRuntime, loadSettings, loadSettingsOrNull, reapUnreadableSettings, resolveSetting, resolveWithSource } from "../src/settings/read.ts";
+import { allowedModelPatterns, declaredRuntime, reapUnreadableSettings, resolveSetting, resolveWithSource } from "../src/settings/read.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsAllowedModels, writeSettingsDefault, writeSettingsFullTree, writeSettingsEnabled, writeSettingsPreferredModels, writeSettingsRuntime } from "../src/settings/write.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 const originalConfigTest = process.env.ORCH_CONFIG_TEST;
 const originalConfigPrecedence = process.env.ORCH_CONFIG_PRECEDENCE;
 
-function tempDir(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-settings-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-settings-");
   directories.push(directory);
   return directory;
 }
 
-function readSettingsRecord(directory: string): Record<string, unknown> {
+function readSettingsRecord(directory: OrchDir): Record<string, unknown> {
   const value: unknown = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8"));
   if (!isRecord(value)) throw new Error("settings.json is not an object");
   return value;
@@ -37,42 +38,43 @@ describe("loadSettings", () => {
   test("refuses to invent settings when settings.json is missing", () => {
     const directory = tempDir();
 
-    expect(() => loadSettings(directory)).toThrow(/does not exist/);
-    expect(() => loadSettings(directory)).toThrow(/orch setup/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/does not exist/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/orch setup/);
     // The non-throwing probe is how the first-run gate tells "not set up yet" from "broken".
-    expect(loadSettingsOrNull(directory)).toBeNull();
+    expect(fileSettingsManager(directory).currentOrNull()).toBeNull();
   });
 
   test("requires a top-level runtime and never defaults it", () => {
     const directory = tempDir();
     fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: SETTINGS_SCHEMA }));
 
-    expect(() => loadSettings(directory)).toThrow(/no top-level "runtime" key/);
-    expect(() => loadSettings(directory)).toThrow(/node, deno, bun/);
-    expect(() => loadSettings(directory)).toThrow(/orch setup/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/no top-level "runtime" key/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/node, deno, bun/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/orch setup/);
   });
 
   test("rejects an unrecognized runtime naming the accepted values", () => {
     const directory = tempDir();
     fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "quickjs" }));
 
-    expect(() => loadSettings(directory)).toThrow(/"quickjs"/);
-    expect(() => loadSettings(directory)).toThrow(/node, deno, bun/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/"quickjs"/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/node, deno, bun/);
   });
 
   test("rejects a runtime misplaced under defaults", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { defaults: { runtime: "node" } });
 
-    expect(() => loadSettings(directory)).toThrow(/Unrecognized key.*runtime/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/Unrecognized key.*runtime/);
   });
 
   test("reads the declared runtime", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { runtime: "deno" });
 
-    expect(loadSettings(directory).runtime).toBe("deno");
-    expect(declaredRuntime(directory)).toBe("deno");
+    const settings = fileSettingsManager(directory).current();
+    expect(settings.runtime).toBe("deno");
+    expect(declaredRuntime(settings)).toBe("deno");
   });
 
   test("parses every supported settings section", () => {
@@ -95,7 +97,7 @@ describe("loadSettings", () => {
       logging: { level: "debug" },
     });
 
-    expect(loadSettings(directory)).toEqual({
+    expect(fileSettingsManager(directory).current()).toEqual({
       runtime: "node",
       enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
       defaults: {
@@ -129,7 +131,7 @@ describe("loadSettings", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { questions: { renag_ms: 42, renag_limit: 3 }, retention: { sweep_interval_ms: 77 } });
 
-    expect(loadSettings(directory)).toMatchObject({
+    expect(fileSettingsManager(directory).current()).toMatchObject({
       questions: { renag_ms: 42, renag_limit: 3 },
       retention: { sweep_interval_ms: 77 },
     });
@@ -139,43 +141,43 @@ describe("loadSettings", () => {
     const directory = tempDir();
     fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: 999 }));
 
-    expect(() => loadSettings(directory)).toThrow("schemaVersion");
-    expect(() => loadSettings(directory)).toThrow(/orch setup/);
+    expect(() => fileSettingsManager(directory).current()).toThrow("schemaVersion");
+    expect(() => fileSettingsManager(directory).current()).toThrow(/orch setup/);
   });
 
   test("rejects invalid JSON loudly", () => {
     const directory = tempDir();
     fs.writeFileSync(path.join(directory, "settings.json"), "{ not json");
 
-    expect(() => loadSettings(directory)).toThrow("expected valid JSON");
+    expect(() => fileSettingsManager(directory).current()).toThrow("expected valid JSON");
   });
 
   test("names the key path for invalid fields", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { queue: { max_retries: "once" } });
 
-    expect(() => loadSettings(directory)).toThrow(/queue\.max_retries/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/queue\.max_retries/);
   });
 
   test("rejects unknown settings keys", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { junk: true });
 
-    expect(() => loadSettings(directory)).toThrow(/Unrecognized key.*junk/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/Unrecognized key.*junk/);
   });
 
   test("rejects removed spawn cap setting by name", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { ["spawn_" + "cap"]: 4 } });
 
-    expect(() => loadSettings(directory)).toThrow(new RegExp("Unrecognized key.*spawn_" + "cap"));
+    expect(() => fileSettingsManager(directory).current()).toThrow(new RegExp("Unrecognized key.*spawn_" + "cap"));
   });
 
   test("parses models.allowed as a per-harness pattern map", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { models: { allowed: { pi: ["openrouter/a", "openrouter/b"] } } });
 
-    expect(loadSettings(directory).models.allowed.pi).toEqual(["openrouter/a", "openrouter/b"]);
+    expect(fileSettingsManager(directory).current().models.allowed.pi).toEqual(["openrouter/a", "openrouter/b"]);
   });
 
   test("rejects renamed fleet keys and loads their replacements", () => {
@@ -183,12 +185,12 @@ describe("loadSettings", () => {
     for (const key of oldKeys) {
       const directory = tempDir();
       writeSettingsFixture(directory, { fleet: { [key]: key === oldKeys[2] ? { main: 2 } : 2 } });
-      expect(() => loadSettings(directory)).toThrow(/Unrecognized key/);
-      expect(() => loadSettings(directory)).toThrow(new RegExp(key));
+      expect(() => fileSettingsManager(directory).current()).toThrow(/Unrecognized key/);
+      expect(() => fileSettingsManager(directory).current()).toThrow(new RegExp(key));
     }
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { max_agents_per_pack: 2, max_agents_total: 4, max_agents_per_space: { main: 2 } } });
-    expect(loadSettings(directory).fleet).toMatchObject({ max_agents_per_pack: 2, max_agents_total: 4, max_agents_per_space: { main: 2 } });
+    expect(fileSettingsManager(directory).current().fleet).toMatchObject({ max_agents_per_pack: 2, max_agents_total: 4, max_agents_per_space: { main: 2 } });
   });
 
   test("rejects old settings keys", () => {
@@ -200,7 +202,7 @@ describe("loadSettings", () => {
     ]) {
       const directory = tempDir();
       writeSettingsFixture(directory, settings);
-      expect(() => loadSettings(directory)).toThrow(/Unrecognized key/);
+      expect(() => fileSettingsManager(directory).current()).toThrow(/Unrecognized key/);
     }
   });
 
@@ -208,7 +210,7 @@ describe("loadSettings", () => {
     for (const entry of [{ type: "webhook", url: "https://example.test" }, { id: "email" }]) {
       const directory = tempDir();
       writeSettingsFixture(directory, { notify: [entry] });
-      expect(() => loadSettings(directory)).toThrow(/notify/);
+      expect(() => fileSettingsManager(directory).current()).toThrow(/notify/);
     }
   });
 
@@ -216,7 +218,7 @@ describe("loadSettings", () => {
     const directory = tempDir();
     fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node" }));
 
-    expect(loadSettings(directory)).toEqual({
+    expect(fileSettingsManager(directory).current()).toEqual({
       runtime: "node",
       enabled: { adapters: [], backends: [] },
       defaults: { models: {}, thinking: "medium", thinking_by_harness: {}, worktree: false },
@@ -253,7 +255,7 @@ describe("loadSettings", () => {
       skills: { install: false },
     });
 
-    expect(loadSettings(directory)).toMatchObject({
+    expect(fileSettingsManager(directory).current()).toMatchObject({
       defaults: { models: {}, worktree: true },
       fleet: { max_depth: 3, max_agents_per_pack: 10, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: ["read"], verify_commands: [] },
@@ -270,7 +272,7 @@ describe("loadSettings", () => {
     for (const [key, value] of [["queue_days", 0], ["events_days", 1.5]] as const) {
       const directory = tempDir();
       writeSettingsFixture(directory, { retention: { [key]: value } });
-      expect(() => loadSettings(directory)).toThrow(new RegExp(`retention\\.${key}`));
+      expect(() => fileSettingsManager(directory).current()).toThrow(new RegExp(`retention\\.${key}`));
     }
   });
 
@@ -278,29 +280,29 @@ describe("loadSettings", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { hosts: { gpu1: { timeout_ms: 5000 } } });
 
-    expect(() => loadSettings(directory)).toThrow(/dest/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/dest/);
   });
 
   test("rejects an unknown id in enabled.adapters", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["nonexistent"], backends: [] } });
 
-    expect(() => loadSettings(directory)).toThrow(/unknown adapter "nonexistent".*supported adapters:/i);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/unknown adapter "nonexistent".*supported adapters:/i);
   });
 
   test("rejects defaults.adapter not present in enabled.adapters", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "claude" } });
 
-    expect(() => loadSettings(directory)).toThrow(/defaults\.adapter.*"claude".*enabled: pi/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/defaults\.adapter.*"claude".*enabled: pi/);
   });
 
   test("rejects when settings.json is absent but a legacy config.toml exists", () => {
     const directory = tempDir();
     fs.writeFileSync(path.join(directory, "config.toml"), "[defaults]\nadapter = \"pi\"\n");
 
-    expect(() => loadSettings(directory)).toThrow(/settings\.json/);
-    expect(() => loadSettings(directory)).toThrow(/orch setup/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/settings\.json/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/orch setup/);
   });
 });
 
@@ -308,15 +310,18 @@ describe("allowedModelPatterns", () => {
   test("restricts nothing when settings contain no patterns", () => {
     // Orch ships no built-in allowlist: a hardcoded default silently pinned every
     // spawn to the one family it happened to list.
-    expect(allowedModelPatterns(tempDir(), "pi")).toEqual([]);
+    const directory = tempDir();
+    writeSettingsFixture(directory);
+    expect(allowedModelPatterns(fileSettingsManager(directory).current(), "pi")).toEqual([]);
   });
 
   test("returns the configured patterns when set", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { models: { allowed: { pi: ["openrouter/x"] } } });
 
-    expect(allowedModelPatterns(directory, "pi")).toEqual(["openrouter/x"]);
-    expect(allowedModelPatterns(directory, "claude")).toEqual([]);
+    const settings = fileSettingsManager(directory).current();
+    expect(allowedModelPatterns(settings, "pi")).toEqual(["openrouter/x"]);
+    expect(allowedModelPatterns(settings, "claude")).toEqual([]);
   });
 });
 
@@ -329,7 +334,7 @@ describe("writeSettingsRuntime", () => {
     expect(raw.runtime).toBe("node");
     expect(isRecord(raw.defaults) ? raw.defaults.runtime : undefined).toBeUndefined();
     expect(isRecord(raw.enabled) ? raw.enabled.runtimes : undefined).toBeUndefined();
-    expect(loadSettings(directory).runtime).toBe("node");
+    expect(fileSettingsManager(directory).current().runtime).toBe("node");
   });
 
   test("re-recording the same runtime leaves the file unchanged", () => {
@@ -363,7 +368,7 @@ describe("reapUnreadableSettings", () => {
     expect(backup).toBe(`${file}.invalid`);
     expect(fs.existsSync(file)).toBe(false);
     writeSettingsRuntime(directory, "node");
-    expect(loadSettings(directory).runtime).toBe("node");
+    expect(fileSettingsManager(directory).current().runtime).toBe("node");
   });
 
   test("leaves a readable file alone", () => {
@@ -380,7 +385,7 @@ describe("writeSettingsEnabled", () => {
     writeSettingsRuntime(directory, "node");
     writeSettingsEnabled(directory, { adapters: ["pi", "claude"], backends: ["herdr", "headless"] });
 
-    expect(loadSettings(directory).enabled).toEqual({ adapters: ["pi", "claude"], backends: ["herdr", "headless"] });
+    expect(fileSettingsManager(directory).current().enabled).toEqual({ adapters: ["pi", "claude"], backends: ["herdr", "headless"] });
   });
 });
 
@@ -394,7 +399,7 @@ describe("writeSettingsDefault", () => {
 
     const raw = readSettingsRecord(directory);
     expect(raw.schemaVersion).toBe(SETTINGS_SCHEMA);
-    const settings = loadSettings(directory);
+    const settings = fileSettingsManager(directory).current();
     expect(settings.defaults.adapter).toBe("pi");
     expect(settings.defaults.backend).toBe("herdr");
   });
@@ -404,7 +409,7 @@ describe("writeSettingsDefault", () => {
     writeSettingsFixture(directory, { enabled: { adapters: ["claude", "pi"], backends: [] }, defaults: { adapter: "claude", models: { claude: "sonnet" } }, queue: { max_retries: 3 } });
     writeSettingsDefault(directory, "adapter", "pi");
 
-    const settings = loadSettings(directory);
+    const settings = fileSettingsManager(directory).current();
     expect(settings.defaults.adapter).toBe("pi");
     expect(settings.defaults.models.claude).toBe("sonnet");
     expect(settings.queue.max_retries).toBe(3);
@@ -434,7 +439,7 @@ describe("writeSettingsDefault", () => {
     writeSettingsFixture(directory, { enabled: { adapters: ["claude", "pi"], backends: [] }, defaults: { adapter: "claude" } });
     writeSettingsDefault(directory, "adapter", "pi");
 
-    expect(loadSettings(directory).defaults.adapter).toBe("pi");
+    expect(fileSettingsManager(directory).current().defaults.adapter).toBe("pi");
   });
 });
 
@@ -447,7 +452,7 @@ describe("writeSettingsFullTree", () => {
     const raw = readSettingsRecord(directory);
     expect(raw.fleet).toEqual({ max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false });
     expect(Object.hasOwn(isRecord(raw.fleet) ? raw.fleet : {}, "max_agents_total")).toBe(false);
-    expect(loadSettings(directory).fleet.max_agents_total).toBeUndefined();
+    expect(fileSettingsManager(directory).current().fleet.max_agents_total).toBeUndefined();
   });
 });
 
@@ -456,7 +461,7 @@ describe("settings precedence", () => {
     delete process.env.ORCH_CONFIG_PRECEDENCE;
     const directory = tempDir();
     writeSettingsFixture(directory);
-    const settings = loadSettings(directory);
+    const settings = fileSettingsManager(directory).current();
 
     expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", settings: settings.fleet.max_agents_total, fallback: 2 })).toBe(2);
   });
@@ -465,7 +470,7 @@ describe("settings precedence", () => {
     delete process.env.ORCH_CONFIG_PRECEDENCE;
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { max_depth: 4 } });
-    const settings = loadSettings(directory);
+    const settings = fileSettingsManager(directory).current();
 
     expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", settings: settings.fleet.max_depth, fallback: 2 })).toBe(4);
   });
@@ -474,7 +479,7 @@ describe("settings precedence", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { max_depth: 4 } });
     process.env.ORCH_CONFIG_PRECEDENCE = "7";
-    const settings = loadSettings(directory);
+    const settings = fileSettingsManager(directory).current();
 
     expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", settings: settings.fleet.max_depth, fallback: 2 })).toBe(7);
   });
@@ -526,14 +531,14 @@ describe("models.preferred and models.allowed are independent", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { models: { preferred: { pi: ["openrouter/a", "openrouter/b"] } } });
 
-    expect(loadSettings(directory).models.preferred.pi).toEqual(["openrouter/a", "openrouter/b"]);
+    expect(fileSettingsManager(directory).current().models.preferred.pi).toEqual(["openrouter/a", "openrouter/b"]);
   });
 
   test("an absent preferred map normalizes to an empty map, not to allowed", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { models: { allowed: { pi: ["openrouter/a"] } } });
 
-    const settings = loadSettings(directory);
+    const settings = fileSettingsManager(directory).current();
     expect(settings.models.preferred).toEqual({});
     expect(settings.models.allowed.pi).toEqual(["openrouter/a"]);
   });
@@ -544,14 +549,15 @@ describe("models.preferred and models.allowed are independent", () => {
 
     writeSettingsAllowedModels(directory, { pi: ["openrouter/a"] });
     writeSettingsPreferredModels(directory, { pi: ["openrouter/b", "openrouter/c"] });
-    expect(loadSettings(directory).models.allowed.pi).toEqual(["openrouter/a"]);
-    expect(loadSettings(directory).models.preferred.pi).toEqual(["openrouter/b", "openrouter/c"]);
+    const settings = fileSettingsManager(directory).current();
+    expect(settings.models.allowed.pi).toEqual(["openrouter/a"]);
+    expect(settings.models.preferred.pi).toEqual(["openrouter/b", "openrouter/c"]);
 
     writeSettingsAllowedModels(directory, { pi: ["openrouter/a", "openrouter/z"] });
-    expect(loadSettings(directory).models.preferred.pi).toEqual(["openrouter/b", "openrouter/c"]);
+    expect(fileSettingsManager(directory).current().models.preferred.pi).toEqual(["openrouter/b", "openrouter/c"]);
 
     writeSettingsPreferredModels(directory, { claude: ["sonnet"] });
-    expect(loadSettings(directory).models.allowed.pi).toEqual(["openrouter/a", "openrouter/z"]);
+    expect(fileSettingsManager(directory).current().models.allowed.pi).toEqual(["openrouter/a", "openrouter/z"]);
   });
 
   test("an empty list is recorded as no list at all, so a cleared picker really clears", () => {
@@ -560,14 +566,14 @@ describe("models.preferred and models.allowed are independent", () => {
 
     writeSettingsPreferredModels(directory, { pi: ["openrouter/a"] });
     writeSettingsPreferredModels(directory, { pi: [] });
-    expect(loadSettings(directory).models.preferred).toEqual({});
+    expect(fileSettingsManager(directory).current().models.preferred).toEqual({});
   });
 
   test("the full tree seeds both maps when absent and preserves both when present", () => {
     const seeded = tempDir();
     writeSettingsFixture(seeded, { enabled: { adapters: ["pi"], backends: [] } });
     writeSettingsFullTree(seeded);
-    expect(loadSettings(seeded).models).toEqual({ allowed: {}, preferred: {} });
+    expect(fileSettingsManager(seeded).current().models).toEqual({ allowed: {}, preferred: {} });
 
     const filled = tempDir();
     writeSettingsFixture(filled, {
@@ -575,7 +581,7 @@ describe("models.preferred and models.allowed are independent", () => {
       models: { allowed: { pi: ["openrouter/a"] }, preferred: { pi: ["openrouter/b"] } },
     });
     writeSettingsFullTree(filled);
-    expect(loadSettings(filled).models).toEqual({ allowed: { pi: ["openrouter/a"] }, preferred: { pi: ["openrouter/b"] } });
+    expect(fileSettingsManager(filled).current().models).toEqual({ allowed: { pi: ["openrouter/a"] }, preferred: { pi: ["openrouter/b"] } });
   });
 
   test("the allowlist gate reads models.allowed only", () => {
@@ -583,6 +589,6 @@ describe("models.preferred and models.allowed are independent", () => {
     writeSettingsFixture(directory, { models: { preferred: { pi: ["openrouter/b"] } } });
 
     // A preferred quicklist restricts nothing: with no allowed patterns every offered model passes.
-    expect(allowedModelPatterns(directory, "pi")).toEqual([]);
+    expect(allowedModelPatterns(fileSettingsManager(directory).current(), "pi")).toEqual([]);
   });
 });

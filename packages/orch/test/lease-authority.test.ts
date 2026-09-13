@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { ensureHarness, ensureHost, getOrCreateSessionAgent, insertAgent, packMembers } from "../src/store/agent-rows.ts";
 import { acquireLease, adoptLease, currentLease, leaseHistory, openLeaseId, releaseLease } from "../src/store/lease-rows.ts";
 import { holderOf } from "../src/store/agent-view.ts";
@@ -11,31 +10,33 @@ import { presenceAgentDir } from "../src/presence/writer.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { adoptAgent, detachAgent, leasedAgents, renameTarget, resolveTarget } from "../src/commands/lease.ts";
 import { resolveSpawnNames } from "../src/commands/spawn/names.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
+import { testServices } from "./helpers/services.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 import { row } from "./helpers/rows.ts";
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
   if (oldOrchDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldOrchDir;
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-lease-authority-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-lease-authority-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
   ensureHost(dir, "host", "host", "linux", 1);
   return dir;
 }
 
-function agent(dir: string, id: string, name = id, spawnedBy: string | null = null): void {
+function agent(dir: OrchDir, id: string, name = id, spawnedBy: string | null = null): void {
   insertAgent(dir, { id, name, spawnedBy, harnessId: "pi", cwd: dir, createdAt: 1 });
 }
 
 /** An agent whose recorded process instance is this test process: provably alive. */
-function live(dir: string, id: string, name = id): void {
+function live(dir: OrchDir, id: string, name = id): void {
   agent(dir, id, name);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
@@ -43,7 +44,12 @@ function live(dir: string, id: string, name = id): void {
 }
 
 /** An agent with a recorded process that is provably NOT this process instance. */
-function dead(dir: string, id: string, name = id): void {
+function daemonState(directory: OrchDir) {
+  const services = testServices({ orchDir: directory, settings: null });
+  return { services, directory, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, presenceWatch: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false };
+}
+
+function dead(dir: OrchDir, id: string, name = id): void {
   agent(dir, id, name);
   orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${"not-this-process-instance"})`);
 }
@@ -58,7 +64,7 @@ describe("C3 foreign agents are untouchable", () => {
     agent(dir, "worker", "worker");
     acquireLease(dir, "worker", "orch-a", 2);
     // dispatch / steer / model / reset all reach the same daemon gate.
-    expect(() => governWrite(dir, "worker", { target: "worker", actor: "caller-orch", text: "x" }))
+    expect(() => governWrite(daemonState(dir), "worker", { actor: "caller-orch" }))
       .toThrow(/orch-a/);
     // The lease commands answer with the same rule, without a daemon.
     expect(() => detachAgent(dir, "worker", "caller-orch")).toThrow(/leased by live orch orch-a/);
@@ -73,7 +79,7 @@ describe("C3 foreign agents are untouchable", () => {
     agent(dir, "caller-orch");
     agent(dir, "worker", "worker");
     acquireLease(dir, "worker", "zombie-orch", 2);
-    expect(() => governWrite(dir, "worker", { target: "worker", actor: "caller-orch", text: "x" })).not.toThrow();
+    expect(() => governWrite(daemonState(dir), "worker", { actor: "caller-orch" })).not.toThrow();
     expect(adoptAgent(dir, "worker", "caller-orch")).toMatchObject({ adopted: true });
   });
 

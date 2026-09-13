@@ -1,15 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
 import { REPLAY_WINDOW, ReplayBuffer } from "../src/daemon/rpc/replay.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-replay-"));
+const dirs: OrchDir[] = [];
+
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-replay-");
   dirs.push(dir);
   return dir;
 }

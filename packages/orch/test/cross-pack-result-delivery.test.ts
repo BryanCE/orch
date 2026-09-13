@@ -1,7 +1,6 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { acceptMail } from "../src/daemon/mail.ts";
 import { deliverTaskResult } from "../src/daemon/result-delivery.ts";
 import { isBridgeMessage } from "../src/control/bridge-message.ts";
@@ -9,18 +8,19 @@ import { setSpace } from "../src/store/interval-rows.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { enqueueTask, insertAttempt, settleAttempt, taskState } from "../src/store/task-rows.ts";
 import { selectPendingOutbox, selectOutboxMessage } from "../src/store/outbox-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { sql } from "drizzle-orm";
 import { closeAllStores, orm } from "../src/store/connection.ts";
+import { testServices } from "./helpers/services.ts";
 
 /**
  * Results and peer messages are mail: an outbox row pushed down the recipient's
  * bridge link. A wall refusal is best-effort for settled task results.
  */
 
-const dirs: string[] = [];
-const savedOrchDir = process.env.ORCH_DIR;
+const dirs: OrchDir[] = [];
+const savedOrchDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 afterEach(() => {
   closeAllStores();
   while (dirs.length) removeTempDir(dirs.pop()!);
@@ -28,8 +28,12 @@ afterEach(() => {
   else process.env.ORCH_DIR = savedOrchDir;
 });
 
-function fixture(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-cross-pack-result-"));
+function settingsFor(directory: OrchDir) {
+  return testServices({ orchDir: directory, settings: { fleet: { cross_space: false } } }).settings.current();
+}
+
+function fixture(): OrchDir {
+  const directory = tempOrchDir("orch-cross-pack-result-");
   dirs.push(directory);
   process.env.ORCH_DIR = directory;
   writeSettingsFixture(directory, { fleet: { cross_space: false } });
@@ -41,11 +45,11 @@ function fixture(): string {
   return directory;
 }
 
-function mailRow(directory: string, target: string) {
+function mailRow(directory: OrchDir, target: string) {
   return selectPendingOutbox(directory, Number.MAX_SAFE_INTEGER).find((row) => row.target === target);
 }
 
-function settledTask(directory: string, outcome: "done" | "failed" = "done"): void {
+function settledTask(directory: OrchDir, outcome: "done" | "failed" = "done"): void {
   enqueueTask(directory, { id: "t1", text: "survey the repo", opts: {}, enqueuedBy: "asker", scopeAgentId: "runner", createdAt: 5 });
   insertAttempt(directory, "t1", "runner", "d1", 6);
   if (outcome === "done") settleAttempt(directory, "t1", 6, 7, "done", { result: { findings: 3 } });
@@ -57,7 +61,7 @@ describe("results go to the enqueuer as mail", () => {
     const directory = fixture();
     settledTask(directory);
 
-    deliverTaskResult(directory, "t1");
+    deliverTaskResult(directory, settingsFor(directory), "t1");
 
     const row = mailRow(directory, "asker");
     expect(row).toBeDefined();
@@ -75,7 +79,7 @@ describe("results go to the enqueuer as mail", () => {
     const directory = fixture();
     settledTask(directory, "failed");
 
-    deliverTaskResult(directory, "t1");
+    deliverTaskResult(directory, settingsFor(directory), "t1");
 
     const row = mailRow(directory, "asker");
     expect(row).toBeDefined();
@@ -92,7 +96,7 @@ describe("results go to the enqueuer as mail", () => {
     setSpace(directory, "runner", 10, "run-space");
     settledTask(directory);
 
-    deliverTaskResult(directory, "t1");
+    deliverTaskResult(directory, settingsFor(directory), "t1");
 
     expect(mailRow(directory, "asker")).toBeUndefined();
     expect(mailRow(directory, "runner")).toBeUndefined();
@@ -106,21 +110,21 @@ describe("acceptMail", () => {
     setSpace(directory, "asker", 10, "ask-space");
     setSpace(directory, "runner", 10, "run-space");
 
-    expect(() => acceptMail(directory, "asker", "runner", "hello"))
+    expect(() => acceptMail(directory, settingsFor(directory), "asker", "runner", "hello"))
       .toThrow("space wall: actor space ask-space cannot write to target space run-space (runner)");
   });
 
   test("requires non-empty from, target, and text", () => {
     const directory = fixture();
 
-    expect(() => acceptMail(directory, "", "runner", "hello")).toThrow("from is required");
-    expect(() => acceptMail(directory, "asker", "  ", "hello")).toThrow("target is required");
-    expect(() => acceptMail(directory, "asker", "runner", "\t")).toThrow("text is required");
+    expect(() => acceptMail(directory, settingsFor(directory), "", "runner", "hello")).toThrow("from is required");
+    expect(() => acceptMail(directory, settingsFor(directory), "asker", "  ", "hello")).toThrow("target is required");
+    expect(() => acceptMail(directory, settingsFor(directory), "asker", "runner", "\t")).toThrow("text is required");
   });
 
   test("queues a BridgeMessage steer payload", () => {
     const directory = fixture();
-    const accepted = acceptMail(directory, "asker", "runner", "hello");
+    const accepted = acceptMail(directory, settingsFor(directory), "asker", "runner", "hello");
     const row = selectOutboxMessage(directory, accepted.id);
 
     expect(row).toBeDefined();

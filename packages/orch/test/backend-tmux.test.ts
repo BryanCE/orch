@@ -1,11 +1,10 @@
-import * as fs from "node:fs";
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { projectRoot } from "../src/util.ts";
 import { ENVIRONMENT_ENV } from "../src/agent/environment.ts";
 
@@ -145,7 +144,7 @@ const { foregroundOf } = await import("../src/commands/lifecycle/reload.ts");
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
 const originalTmuxEnv = process.env.TMUX;
-const testOrchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-backend-tmux-"));
+const testOrchDir: OrchDir = tempOrchDir("orch-backend-tmux-");
 
 const fakeAdapter = makeFakeAdapter();
 
@@ -293,7 +292,7 @@ describe("TmuxBackend", () => {
     panes = [orchPane({ paneId: "%1", agentKey: "tmuxpane01" })];
     writeStatus("tmuxpane01", { state: "working" });
 
-    const backend = new TmuxBackend();
+    const backend = new TmuxBackend({ orchDir: testOrchDir });
     expect(backend.placementInventory.list()[0]?.status).toBe("working");
   });
 
@@ -306,7 +305,7 @@ describe("TmuxBackend", () => {
   test("waitAgentStatus polls presence status.json until it matches or times out", () => {
     panes = [orchPane({ paneId: "%1", agentKey: "tmuxpane01" })];
     writeStatus("tmuxpane01", { state: "working" });
-    const backend = new TmuxBackend();
+    const backend = new TmuxBackend({ orchDir: testOrchDir });
 
     expect(() => backend.agentStatus.wait("%1", "done", 50)).toThrow(/timed out/);
 
@@ -354,7 +353,7 @@ describe("TmuxBackend", () => {
   test("spawn places the agent into an existing group via split-window when opts.group is set", () => {
     const backend = new TmuxBackend();
     const key = mintAgentId();
-    const handle = backend.spawn(fakeAdapter, { key, cwd: "/work", group: "@1", split: "right" });
+    const handle = backend.spawn(fakeAdapter, { key, cwd: "/work", group: "@1", split: "right", orchDir: testOrchDir });
 
     expect(handle).toBe("%1");
     const split = callArgs("tmux", "split-window");
@@ -368,7 +367,7 @@ describe("TmuxBackend", () => {
   test("spawn splits the planned target pane, not whatever pane the window has active", () => {
     const backend = new TmuxBackend();
     const key = mintAgentId();
-    backend.spawn(fakeAdapter, { key, cwd: "/work", group: "@1", split: "down", targetHandle: "%7" });
+    backend.spawn(fakeAdapter, { key, cwd: "/work", group: "@1", split: "down", targetHandle: "%7", orchDir: testOrchDir });
 
     expect(callArgs("tmux", "split-window")?.slice(0, 4)).toEqual(["split-window", "-t", "%7", "-v"]);
   });
@@ -393,7 +392,7 @@ describe("TmuxBackend", () => {
 
   test("spawn opens a new window via new-window when no group is given", () => {
     const backend = new TmuxBackend();
-    const handle = backend.spawn(fakeAdapter, { key: mintAgentId(), cwd: "/work" });
+    const handle = backend.spawn(fakeAdapter, { key: mintAgentId(), cwd: "/work", orchDir: testOrchDir });
 
     expect(handle).toBe("%1");
     expect(callArgs("tmux", "new-window")?.[0]).toBe("new-window");
@@ -462,20 +461,20 @@ describe("an agent is launched with its fleet's project scope (1.13)", () => {
   // Without ORCH_PROJECT the worker resolves projectRoot() to its own cwd, and in a
   // worktree that is not the fleet's project - peers.ts then walls it out of its own fleet.
   test("a tmux agent in a worktree carries the FLEET's project, not its own cwd", () => {
-    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent1", cwd: WORKTREE, group: "@1", split: "right", orchDir: "/orch" });
+    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent1", cwd: WORKTREE, group: "@1", split: "right", orchDir: orchDirAt("/orch") });
 
     expect(launchEnv("split-window")).toContain(`ORCH_PROJECT=${FLEET_PROJECT}`);
     expect(launchEnv("split-window")).not.toContain(`ORCH_PROJECT=${WORKTREE}`);
   });
 
   test("a tmux agent opened in a fresh window carries it too", () => {
-    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent2", cwd: WORKTREE, orchDir: "/orch" });
+    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent2", cwd: WORKTREE, orchDir: orchDirAt("/orch") });
 
     expect(launchEnv("new-window")).toContain(`ORCH_PROJECT=${FLEET_PROJECT}`);
   });
 
   test("an empty value is dropped rather than exported as a configured blank", () => {
-    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent3", cwd: WORKTREE, group: "@1", orchDir: "" });
+    new TmuxBackend().spawn(fakeAdapter, { key: "tmuxagent3", cwd: WORKTREE, group: "@1", orchDir: orchDirAt("") });
 
     expect(launchEnv("split-window").some((entry) => entry.startsWith("ORCH_DIR="))).toBe(false);
   });

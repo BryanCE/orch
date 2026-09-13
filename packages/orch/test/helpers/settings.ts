@@ -1,6 +1,6 @@
+import type { OrchDir } from "../../src/types/core.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { SETTINGS_SCHEMA } from "../../src/settings/schema.ts";
+import { SETTINGS_SCHEMA, settingsPath } from "../../src/settings/schema.ts";
 import { isRecord } from "../../src/util.ts";
 
 /** Derive an `enabled` composition from `defaults.adapter`/`defaults.backend` so fixtures that only set
@@ -17,18 +17,23 @@ function deriveEnabled(settings: Record<string, unknown>): { adapters: string[];
   };
 }
 
-/** Write a schemaVersion-stamped settings.json fixture into an orch dir. Returns the file path.
- * `runtime` is a required top-level key with no default-on-read, so fixtures get `node` unless
- * they declare their own — a fixture testing the absent/invalid runtime passes it explicitly. */
-export function writeSettingsFixture(orchDir: string, settings: Record<string, unknown> = {}): string {
-  mkdirSync(orchDir, { recursive: true });
-  const file = join(orchDir, "settings.json");
+/** The settings.json text a fixture would write. Same shape rules as `writeSettingsFixture`. */
+export function settingsFixtureText(settings: Record<string, unknown> = {}): string {
   const enabled = deriveEnabled(settings);
   // Any daemon a test auto-starts must reap itself fast: one idle minute, not
   // the production default — a leaked test daemon pins its temp dir and lives
   // past the whole run.
   const daemon = "daemon" in settings ? {} : { daemon: { idle_shutdown_minutes: 1 } };
   const body = enabled ? { enabled, ...daemon, ...settings } : { ...daemon, ...settings };
-  writeFileSync(file, JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", ...body }, null, 2) + "\n");
+  return JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", ...body }, null, 2) + "\n";
+}
+
+/** Write a schemaVersion-stamped settings.json fixture into an orch dir. Returns the file path.
+ * `runtime` is a required top-level key with no default-on-read, so fixtures get `node` unless
+ * they declare their own — a fixture testing the absent/invalid runtime passes it explicitly. */
+export function writeSettingsFixture(orchDir: OrchDir, settings: Record<string, unknown> = {}): string {
+  mkdirSync(orchDir, { recursive: true });
+  const file = settingsPath(orchDir);
+  writeFileSync(file, settingsFixtureText(settings));
   return file;
 }

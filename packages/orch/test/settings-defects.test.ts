@@ -1,15 +1,16 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import type { OrchDir } from "../src/types/core.ts";
+import { writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { settingsDefects } from "../src/settings/defects.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
-function tempDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-settings-defects-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-settings-defects-");
   directories.push(directory);
   return directory;
 }

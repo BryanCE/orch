@@ -1,30 +1,28 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
+import { RPC_PARAMS } from "../src/daemon/rpc/protocol.ts";
 import { adapterCommand } from "../src/commands/spawn/models.ts";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
-import { optionalModelSpecs } from "../src/daemon/orchd.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { PiAdapter, piAdapter } from "../src/adapters/pi.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import type { Backend, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../src/types/adapter.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 
+import type { OrchDir } from "../src/types/core.ts";
 // Every launch route must hand the SAME per-harness quicklist to the adapter that builds the
 // command. A route that drops it launches an agent whose model picker is empty while every
 // other route's is full — the kind of difference nobody notices until they cycle models.
 
 const oldOrchDir = process.env.ORCH_DIR;
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
-function tempOrchDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-preferred-models-"));
+function makeTempOrchDir(): OrchDir {
+  const dir = tempOrchDir("orch-preferred-models-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   return dir;
@@ -37,6 +35,7 @@ afterEach(() => {
 });
 
 const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"];
+const HEADLESS_BASE = { key: "agent-a", adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go" };
 
 const settings = (preferred: string[]): OrchSettings => ({
   ...SETTINGS_DEFAULTS,
@@ -83,10 +82,11 @@ function capturingPaneBackend(): { backend: Backend; seen: () => BackendSpawnOpt
 describe("the preferred quicklist reaches every launch route", () => {
   test("a pane spawn hands the exact array to the backend", () => {
     // A space is user-created and never minted by a spawn (TASKS A7).
-    seedSpace(tempOrchDir(), "wsA");
+    const directory = makeTempOrchDir();
+    seedSpace(directory, "wsA");
     const { backend, seen } = capturingPaneBackend();
 
-    spawnOneIntoTab({
+    spawnOneIntoTab(directory, {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -103,10 +103,11 @@ describe("the preferred quicklist reaches every launch route", () => {
   });
 
   test("an unconfigured quicklist stays empty rather than becoming a default one", () => {
-    seedSpace(tempOrchDir(), "wsA");
+    const directory = makeTempOrchDir();
+    seedSpace(directory, "wsA");
     const { backend, seen } = capturingPaneBackend();
 
-    spawnOneIntoTab({
+    spawnOneIntoTab(directory, {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -131,7 +132,7 @@ describe("the preferred quicklist reaches every launch route", () => {
   });
 
   test("a headless launch forwards the quicklist into the adapter's own options", () => {
-    const directory = tempOrchDir();
+    const directory = makeTempOrchDir();
     let captured: SpawnOpts | undefined;
     class CapturingPiAdapter extends PiAdapter {
       override readonly workerLaunch = {
@@ -162,14 +163,15 @@ describe("the preferred quicklist reaches every launch route", () => {
 
 describe("orchd rules on the quicklist it is sent", () => {
   test("accepts an absent value and an array of specs", () => {
-    expect(optionalModelSpecs(undefined, "preferredModels")).toBeUndefined();
-    expect(optionalModelSpecs(QUICKLIST, "preferredModels")).toEqual(QUICKLIST);
+    expect(RPC_PARAMS["spawn-headless"].safeParse(HEADLESS_BASE).success).toBe(true);
+    const parsed = RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: QUICKLIST });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.preferredModels).toEqual(QUICKLIST);
   });
 
   test("refuses a joined string or a blank entry instead of coercing it", () => {
-    // A joined string would reach the harness as one model id no registry lists.
-    expect(() => optionalModelSpecs(QUICKLIST.join(","), "preferredModels")).toThrow(/array of non-empty model specs/);
-    expect(() => optionalModelSpecs([""], "preferredModels")).toThrow(/array of non-empty model specs/);
-    expect(() => optionalModelSpecs([1], "preferredModels")).toThrow(/array of non-empty model specs/);
+    expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: QUICKLIST.join(",") }).success).toBe(false);
+    expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: [""] }).success).toBe(false);
+    expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: [1] }).success).toBe(false);
   });
 });

@@ -1,12 +1,12 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { backendCapabilitiesVerdict, describeBackendEnvironments } from "../src/doctor/backends.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { DoctorBackendReport } from "../src/types/doctor.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 /** One backend's probe result. Injected so the verdict is provable without the
  *  suite happening to run inside a herdr or tmux session. */
@@ -14,10 +14,10 @@ function report(id: string, detected: boolean, insideSession: boolean): DoctorBa
   return { id, detected, insideSession, space: null, roles: ["placementInventory"] };
 }
 
-const directories: string[] = [];
+const directories: OrchDir[] = [];
 
-function tempDir(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-backends-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-doctor-backends-");
   directories.push(directory);
   return directory;
 }
@@ -109,7 +109,7 @@ describe("doctor backend and presence checks", () => {
       fs.mkdirSync(path.join(agents, "wD-p1"), { recursive: true });
       fs.writeFileSync(path.join(agents, "wD-p1", "status.json"), JSON.stringify({}));
 
-      const result = checkMalformedPresenceRecords();
+      const result = checkMalformedPresenceRecords(directory);
       expect(result.status).toBe("fail");
       const ignored = result.ignoredRecords ?? [];
       expect(ignored).toHaveLength(1);

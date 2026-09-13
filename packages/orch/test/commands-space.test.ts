@@ -1,21 +1,21 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { cmdSpace, runSpace } from "../src/commands/space.ts";
 import { helpTopic } from "../src/commands/help.ts";
 import { orm } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
 import type { CreateHomeRequest, CreatedHome, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 import type { SpaceEnvironment } from "../src/types/command.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
-const originalDir = process.env.ORCH_DIR;
+import { testServices } from "./helpers/services.ts";
+const originalDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 const originalWrite = process.stdout.write.bind(process.stdout);
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
 afterEach(() => {
   process.stdout.write = originalWrite;
@@ -24,8 +24,8 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-function tempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-space-command-"));
+function tempDir(): OrchDir {
+  const dir = tempOrchDir("orch-space-command-");
   dirs.push(dir);
   return dir;
 }
@@ -63,21 +63,21 @@ function json(output: string): Record<string, unknown> {
   return parsed;
 }
 
-function homeless(directory: string): SpaceEnvironment {
+function homeless(directory: OrchDir): SpaceEnvironment {
   return { directory, plexerId: "headless", spaceHome: null, actorId: null };
 }
 
-function homed(directory: string, calls: HomeCall[]): SpaceEnvironment {
+function homed(directory: OrchDir, calls: HomeCall[]): SpaceEnvironment {
   return { directory, plexerId: "herdr", spaceHome: fakeSpaceHome(calls), actorId: null };
 }
 
-function liveHome(directory: string, spaceId: string): { plexer_id: string; handle: string } | null {
+function liveHome(directory: OrchDir, spaceId: string): { plexer_id: string; handle: string } | null {
   const found = row(orm(directory), sql`SELECT plexer_id, handle FROM space_plexers WHERE space_id = ${spaceId} AND until IS NULL`);
   if (!isRecord(found) || typeof found.plexer_id !== "string" || typeof found.handle !== "string") return null;
   return { plexer_id: found.plexer_id, handle: found.handle };
 }
 
-function spaceIdOf(directory: string, name: string): string {
+function spaceIdOf(directory: OrchDir, name: string): string {
   const found = row(orm(directory), sql`SELECT id FROM spaces WHERE name = ${name}`);
   if (!isRecord(found) || typeof found.id !== "string") throw new Error(`no space named ${name}`);
   return found.id;
@@ -200,7 +200,7 @@ describe("orch space — vocabulary and wiring", () => {
     const dir = tempDir();
     process.env.ORCH_DIR = dir;
     writeSettingsFixture(dir, { defaults: { adapter: "pi", backend: "headless" } });
-    expect(json(capture(() => cmdSpace(["list", "--json"])))).toMatchObject({ spaces: [] });
+    expect(json(capture(() => cmdSpace(testServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } }), ["list", "--json"])))).toMatchObject({ spaces: [] });
   });
 
   test("orch ws is gone", () => {

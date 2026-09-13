@@ -10,7 +10,6 @@
 import { execFile } from "node:child_process";
 import { isAgentId } from "../identity.ts";
 import { requestJsonLine } from "../../presence/socket-client.ts";
-import { orchDir } from "../../presence/writer.ts";
 import { environmentOf } from "../../store/agent-view.ts";
 import { herdrServerStatus } from "./cli.ts";
 import { herdrEnvironmentPresent } from "./index.ts";
@@ -18,6 +17,7 @@ import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import { isUnknownArray, optionalString, truncate } from "../../util.ts";
 import type { BridgeNotifyEvent, PaneLabels, PaneStatusSnapshot } from "../../types/plexer.ts";
+import type { OrchDir } from "../../types/core.ts";
 
 const HERDR_METADATA_SOURCE = "orch:bridge";
 const CUSTOM_STATUS_MAX = 32;
@@ -57,12 +57,12 @@ function herdrSocketPath(): string | undefined {
  * an agent that moved kept writing into a pane it had left. Environment is
  * mutable, so it is asked for on every call and never frozen at import.
  */
-export function herdrPaneHandle(id: string | null): string | null {
+export function herdrPaneHandle(id: string | null, orchDir: OrchDir): string | null {
   // An id that is not minted names no agent orch registered, so there is no
   // environment to compose — never a pane handle to fall back on.
   if (!isAgentId(id)) return null;
   try {
-    const environment = environmentOf(orchDir(), id);
+    const environment = environmentOf(orchDir, id);
     return environment.plexer === HERDR_PLEXER ? environment.handle : null;
   } catch {
     // No store to read yet is "no pane", not a crash: this runs inside the agent.
@@ -79,8 +79,8 @@ export function herdrPaneHandle(id: string | null): string | null {
  * internally, so selecting this provider never grants more than each function
  * already allowed itself.
  */
-export function herdrHudActive(id: string | null): boolean {
-  return herdrPaneHandle(id) !== null;
+export function herdrHudActive(id: string | null, orchDir: OrchDir): boolean {
+  return herdrPaneHandle(id, orchDir) !== null;
 }
 
 // ---- pane custom-status metadata ----
@@ -113,14 +113,14 @@ function sendHerdrMetadata(paneId: string, customStatus: string): void {
  * emits when this process owns the herdr pane it would report against and the
  * derived status line actually changed.
  */
-export function createPaneStatusReporter(id: string | null, paneId: string | null): (snapshot: PaneStatusSnapshot) => void {
+export function createPaneStatusReporter(id: string | null, paneId: string | null, orchDir: OrchDir): (snapshot: PaneStatusSnapshot) => void {
   let lastCustomStatus: string | undefined;
 
   // Report only against the pane this process actually occupies right now: a
   // stale handle would paint someone else's pane with this agent's status.
   function reportablePane(): string | null {
     if (!herdrSocketPath() || paneId === null) return null;
-    return paneId === herdrPaneHandle(id) ? paneId : null;
+    return paneId === herdrPaneHandle(id, orchDir) ? paneId : null;
   }
 
   function currentCustomStatus(snapshot: PaneStatusSnapshot): string | undefined {
@@ -198,8 +198,8 @@ function findPaneTab(tabs: unknown, pane: HerdrEntityLike | undefined): HerdrEnt
  * status write entirely; a lookup that fails leaves the previous labels in
  * place but still reports true.
  */
-export async function readPaneLabels(id: string | null, apply: (labels: PaneLabels) => void): Promise<boolean> {
-  const handle = herdrPaneHandle(id);
+export async function readPaneLabels(id: string | null, apply: (labels: PaneLabels) => void, orchDir: OrchDir): Promise<boolean> {
+  const handle = herdrPaneHandle(id, orchDir);
   if (handle === null) return false;
   try {
     const [paneOutput, tabOutput] = await Promise.all([

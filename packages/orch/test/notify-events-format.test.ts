@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { derivePresenceTransition } from "../src/daemon/events.ts";
+import { orchDirAt } from "../src/services.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
@@ -10,14 +8,16 @@ import { deliver } from "../src/notify/router.ts";
 import { notificationText, spaceColor } from "../src/notify/format.ts";
 import { TASK_MAX } from "../src/agent/presence.ts";
 import { prepareWorkerTask, workerHeaderFor } from "../src/worker-prompt.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 
-const orchDirs: string[] = [];
+const orchDirs: OrchDir[] = [];
+const rootOrchDir = orchDirAt(".");
 
-function tempOrchDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "orch-notify-events-"));
+function tempOrchDir(): OrchDir {
+  const directory = freshOrchDir("orch-notify-events-");
   orchDirs.push(directory);
   return directory;
 }
@@ -69,7 +69,7 @@ function event(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
   };
 }
 
-function transition(orchDir: string, key: string, status: object, previous = "working") {
+function transition(orchDir: OrchDir, key: string, status: object, previous = "working") {
   const states = new Map([[key, previous]]);
   return derivePresenceTransition(orchDir, key, { pid: process.pid, ...status }, { name: "worker", tab: null }, states);
 }
@@ -120,7 +120,7 @@ describe("notification and presence event formatting", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = fakeFetch((value) => { body = value; });
     try {
-      const delivered = await deliver({ id: "webhook", on: ["done"], url: "https://example.test/hook" }, event());
+      const delivered = await deliver(rootOrchDir, null, { id: "webhook", on: ["done"], url: "https://example.test/hook" }, event());
       expect(delivered).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;

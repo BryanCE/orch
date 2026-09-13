@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
-import { loadSettings } from "../src/settings/read.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { cmdSpawn } from "../src/commands/spawn/index.ts";
 import { assertTabCapacity, spawnPolicyError } from "../src/commands/spawn/admission.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
@@ -23,9 +22,11 @@ import type { OrchSettings } from "../src/types/settings.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import { sql } from "drizzle-orm";
+import { createServices } from "../src/services.ts";
 
 import { numberField, row } from "./helpers/rows.ts";
-const tempDirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const tempDirs: OrchDir[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 const oldAgentKey = process.env[LAUNCH_ENV];
 afterEach(() => {
@@ -60,7 +61,7 @@ function policy(max_agents_per_pack: number, agents: AgentView[], spawnerId = "r
 
 describe("spawn policy caps", () => {
   test("spawn, dispatch, reset, and model share one resolved tuning", () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-tuning-resolution-"));
+    const dir = tempOrchDir("orch-tuning-resolution-");
     tempDirs.push(dir);
     writeSettingsFixture(dir, {
       enabled: { adapters: ["pi"], backends: ["headless"] },
@@ -72,7 +73,7 @@ describe("spawn policy caps", () => {
         thinking_by_harness: { pi: "medium" },
       },
     });
-    const settings = loadSettings(dir);
+    const settings = fileSettingsManager(dir).current();
     const bareFlags = {};
     const resolved = ["spawn", "dispatch", "reset", "model"].map(() => resolveTuningOrDie(bareFlags, settings, "pi"));
     expect(resolved.map((tuning) => modelSpec(tuning.model, tuning.thinking))).toEqual([
@@ -95,7 +96,7 @@ describe("spawn policy caps", () => {
   });
   describe("worker prompt depth", () => {
     test("root worker maySpawn follows max_depth", () => {
-      const dir = mkdtempSync(join(tmpdir(), "orch-worker-depth-"));
+      const dir = tempOrchDir("orch-worker-depth-");
       tempDirs.push(dir);
       expect(maySpawnFrom(dir, "root", 1)).toBe(false);
       expect(maySpawnFrom(dir, "root", 2)).toBe(true);
@@ -152,10 +153,10 @@ describe("spawn policy caps", () => {
   });
 
   test("reads a pack cap override from settings", () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-spawn-policy-"));
+    const dir = tempOrchDir("orch-spawn-policy-");
     tempDirs.push(dir);
     writeSettingsFixture(dir, { fleet: { max_agents_per_pack: 2 } });
-    const settings = loadSettings(dir);
+    const settings = fileSettingsManager(dir).current();
     expect(settings.fleet.max_agents_per_pack).toBe(2);
     const { views, presence } = fixtureMaps([agentViewFixture("slave", {
       spawnedBy: "root", spawnedByName: "root", rootAgentId: "root", environment: { space: "space" },
@@ -164,10 +165,10 @@ describe("spawn policy caps", () => {
   });
 
   test("a tab holds at most fleet.max_agents_per_tab agents, counting what it already holds", () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-spawn-policy-"));
+    const dir = tempOrchDir("orch-spawn-policy-");
     tempDirs.push(dir);
     writeSettingsFixture(dir, { fleet: { max_agents_per_tab: 3 } });
-    const settings = loadSettings(dir);
+    const settings = fileSettingsManager(dir).current();
     expect(() => assertTabCapacity(settings, "api", 0, 3)).not.toThrow();
     expect(() => assertTabCapacity(settings, "api", 2, 1)).not.toThrow();
     expect(() => assertTabCapacity(settings, "api", 0, 4)).toThrow(/tab api at 4\/3 agents.*fleet\.max_agents_per_tab/);
@@ -176,7 +177,7 @@ describe("spawn policy caps", () => {
   });
 
   test("a refused cmdSpawn makes no name, worktree, registry, or queue mutation", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "orch-spawn-policy-refused-"));
+    const dir = tempOrchDir("orch-spawn-policy-refused-");
     tempDirs.push(dir);
     process.env.ORCH_DIR = dir;
     writeSettingsFixture(dir, {
@@ -188,7 +189,7 @@ describe("spawn policy caps", () => {
     // A space is USER-created and never minted (A7), so the fixture creates the
     // one the claimant sits in before placing an agent in it.
     orm(dir).run(sql`INSERT INTO spaces (id, name, created_by, created_at) VALUES (${"space"}, ${"space"}, NULL, ${1})`);
-    seedAgent(key, { adapter: "pi", backend: "headless", space: "space", handle: key });
+    seedAgent(key, { adapter: "pi", backend: "headless", space: "space", handle: key }, dir);
     const statusDir = presenceAgentDir(key, dir);
     mkdirSync(statusDir, { recursive: true });
     writeFileSync(join(statusDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "idle" }));
@@ -215,7 +216,7 @@ describe("spawn policy caps", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["capped", "--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree", "--json"]);
+      await cmdSpawn(createServices({ orchDir: dir }), ["capped", "--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree", "--json"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {

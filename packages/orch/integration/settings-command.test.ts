@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
@@ -7,12 +6,14 @@ import * as registry from "../src/settings/registry.ts";
 import { SETTINGS_REGISTRY } from "../src/settings/registry.ts";
 import { cmdSettings } from "../src/commands/settings.ts";
 import { isRecord } from "../src/util.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
+import { testServices } from "../test/helpers/services.ts";
 
-const directories: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const directories: OrchDir[] = [];
 
-function tempDir(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-settings-cmd-"));
+function tempDir(): OrchDir {
+  const directory = tempOrchDir("orch-settings-cmd-");
   directories.push(directory);
   return directory;
 }
@@ -21,7 +22,7 @@ afterEach(() => {
   while (directories.length) removeTempDir(directories.pop()!);
 });
 
-function runSettings(orchDir: string, extraEnv: Record<string, string>, ...args: string[]): string {
+function runSettings(orchDir: OrchDir, extraEnv: Record<string, string>, ...args: string[]): string {
   const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: orchDir, ...extraEnv };
   // An empty ORCH_* var still counts as env-provided; only deletion restores lower precedence.
   for (const name of ["ORCH_ADAPTER", "ORCH_BACKEND", "ORCH_MODEL", "ORCH_WORKTREE"]) {
@@ -40,7 +41,7 @@ function runSettingsCli(env: Record<string, string | undefined>, args: readonly 
   });
 }
 
-function runSettingsExpectingFailure(orchDir: string, ...args: string[]): { status: number; stdout: string } {
+function runSettingsExpectingFailure(orchDir: OrchDir, ...args: string[]): { status: number; stdout: string } {
   const ran = runSettingsCli({ ...process.env, ORCH_DIR: orchDir }, args);
   if (ran.success) throw new Error("orch settings exited 0, expected a failure");
   return { status: ran.exitCode, stdout: ran.stdout.toString() };
@@ -176,12 +177,13 @@ describe("orch settings", () => {
 
   test("single-setting set delegates to the registry writer", async () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    const settings = { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } };
+    writeSettingsFixture(directory, settings);
     const previousOrchDir = process.env.ORCH_DIR;
     process.env.ORCH_DIR = directory;
     const writer = spyOn(registry, "writeRegisteredSetting");
     try {
-      await cmdSettings(["fleet.max_depth", "6"]);
+      await cmdSettings(testServices({ orchDir: directory, settings }), ["fleet.max_depth", "6"]);
       expect(writer).toHaveBeenCalledTimes(1);
       expect(writer).toHaveBeenCalledWith(directory, "fleet.max_depth", 6);
     } finally {

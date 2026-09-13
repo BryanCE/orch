@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // Painting an agent's pane is the DAEMON's job.
 //
 // It used to be the agent's: every harness bundle carried a plexer HUD so it
@@ -21,7 +22,7 @@ type PaneSink = (snapshot: PaneStatusSnapshot) => void;
  * a sink rebuilt per event would forget what it last painted and report every
  * time. They are keyed by pane as well as by agent: an agent that MOVED needs a
  * sink aimed at the pane it is in now, not the one it was born in. */
-export function createPanePainter(orchDir: string): (agentId: string, snapshot: PaneStatusSnapshot) => void {
+export function createPanePainter(orchDir: OrchDir): (agentId: string, snapshot: PaneStatusSnapshot) => void {
   const sinks = new Map<string, PaneSink>();
 
   function paneOf(agentId: string): string | null {
@@ -38,7 +39,7 @@ export function createPanePainter(orchDir: string): (agentId: string, snapshot: 
     const sinkKey = `${agentId} ${pane}`;
     let sink = sinks.get(sinkKey);
     if (!sink) {
-      sink = activePaneHud(agentId).statusReporter(pane);
+      sink = activePaneHud(agentId, orchDir).statusReporter(pane);
       sinks.set(sinkKey, sink);
     }
     sink(snapshot);

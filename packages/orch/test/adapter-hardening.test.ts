@@ -1,41 +1,44 @@
+import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, test } from "bun:test";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { CodexAdapter } from "../src/adapters/codex.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
-import { loadSettings } from "../src/settings/read.ts";
 import { checkNotifiers } from "../src/doctor/notify.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
+import { parseSettingsText } from "../src/settings/read.ts";
+import { testServices } from "./helpers/services.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 
-const temp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "orch-hardening-"));
+const temp = (): OrchDir => tempOrchDir("orch-hardening-");
 
 describe("adapter and runtime hardening", () => {
   test("malformed or empty adapter output never throws and yields no result", () => {
     const codex = new CodexAdapter();
-    expect(() => piAdapter.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" })).not.toThrow();
-    expect(piAdapter.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" })).toBeUndefined();
+    const directory = temp();
+    expect(() => piAdapter.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" }, directory)).not.toThrow();
+    expect(piAdapter.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" }, directory)).toBeUndefined();
     expect(codex.extractResult({ output: "{broken\n" })).toBeUndefined();
-    expect(claudeAdapter.extractResult({ key: "missing", output: "   " })).toBeUndefined();
+    expect(claudeAdapter.extractResult({ key: "missing", output: "   " }, directory)).toBeUndefined();
+    removeTempDir(directory);
   });
 
   test("rejects unknown settings keys with a useful path", () => {
     const directory = temp();
     writeSettingsFixture(directory, { defaults: { modle: "typo" } });
-    expect(() => loadSettings(directory)).toThrow(/modle/);
+    expect(() => parseSettingsText(fs.readFileSync(path.join(directory, "settings.json"), "utf8"), path.join(directory, "settings.json"))).toThrow(/modle/);
     removeTempDir(directory);
   });
 
   test("doctor returns failures for malformed notifier config and broken agent directories", async () => {
     const directory = temp();
-    writeSettingsFixture(directory, { queue: { max_retries: "never" } });
-    expect(await checkNotifiers(directory)).toMatchObject({ status: "fail", id: "notifiers" });
+    writeSettingsFixture(directory, { notify: [{ id: "command", command: ["definitely-missing-notifier"] }] });
+    expect(await checkNotifiers(directory, testServices({ orchDir: directory, settings: { notify: [{ id: "command", command: ["definitely-missing-notifier"] }] } }).settings.current())).toMatchObject({ status: "fail", id: "notifiers" });
     const agents = path.join(directory, "agents");
     fs.writeFileSync(agents, "not a directory");
     expect(await checkExtensionStaleness(directory, path.join(directory, "missing.js"))).toMatchObject({ status: "fail", id: "extension-staleness" });
@@ -54,8 +57,8 @@ describe("adapter and runtime hardening", () => {
     try {
       // The caller mints the identity BEFORE launch (one key per agent); the
       // backend never generates a fallback key of its own.
-      expect(() => backend.spawn(adapter, {})).toThrow(/caller-minted presence key/);
-      expect(backend.handleLookup.handleFor("any-key")).toBeUndefined();
+      expect(() => backend.spawn(adapter, { orchDir: directory })).toThrow(/caller-minted presence key/);
+      expect(backend.handleLookup.handleFor("any-key", directory)).toBeUndefined();
     } finally {
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;

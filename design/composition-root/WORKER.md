@@ -8,14 +8,19 @@ Repo: `/home/bryan/orch`. All paths in the task are relative to `packages/orch/`
 
 1. Read only the files the task names. Edit with the Edit tool. Never edit from a shell.
 2. Make the change the task describes. Where the task gives a signature, use it exactly.
-3. Run, once, from `/home/bryan/orch`:
+3. Check YOUR FILES ONLY. Run, once, from `/home/bryan/orch/packages/orch`:
    ```
-   bun --filter @bryance/orch lint
-   bun --filter @bryance/orch tc
+   bunx oxlint <every file you own>
+   bunx tsc --noEmit 2>&1 | grep -E "<file you own>|<file you own>"
    ```
-   Then run only the test files the task names, once, through Windows:
+   Lint takes only your files. tc runs over the package but you read only the lines for your files; an error in a file you do not own is never a failure and never "pre-existing", it is a `CALLERS:` line (path:line, symbol, what it now requires) or nothing. Your check is clean when your own files report zero lines.
+   Then run only the test files the task names, once, on the side that owns the disk (repo `CLAUDE.md` Rule 0.1). Checkout under `/mnt/<drive>/…`:
    ```
    WINROOT=$(wslpath -w "$(git rev-parse --show-toplevel)"); powershell.exe -NoProfile -Command "cd '$WINROOT\packages\orch'; bun test <files>"
+   ```
+   Checkout under `/home/…`, from the repo root:
+   ```
+   bun test packages/orch/test/<files>
    ```
    If the task names no test files, run none.
 4. Report in the format below. Stop.

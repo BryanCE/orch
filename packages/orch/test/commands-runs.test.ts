@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { cmdRuns, renderRuns } from "../src/commands/runs.ts";
 import { cmdResult } from "../src/commands/results.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
@@ -11,9 +12,33 @@ import { orm } from "../src/store/connection.ts";
 import { setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { presenceAgentDir } from "../src/presence/writer.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { sql } from "drizzle-orm";
+import { testServices } from "./helpers/services.ts";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { isolateHarnessSession } from "./helpers/env.ts";
+
+let restoreHarnessSession: (() => void) | undefined;
+let savedPiMarker: string | undefined;
+let savedPiSessionId: string | undefined;
+
+beforeEach(() => {
+  restoreHarnessSession = isolateHarnessSession("pi");
+  savedPiMarker = process.env[HARNESS_SESSION_ENV.pi.marker];
+  savedPiSessionId = process.env[HARNESS_SESSION_ENV.pi.sessionId];
+  delete process.env[HARNESS_SESSION_ENV.pi.marker];
+  delete process.env[HARNESS_SESSION_ENV.pi.sessionId];
+});
+
+afterEach(() => {
+  restoreHarnessSession?.();
+  if (savedPiMarker === undefined) delete process.env[HARNESS_SESSION_ENV.pi.marker];
+  else process.env[HARNESS_SESSION_ENV.pi.marker] = savedPiMarker;
+  if (savedPiSessionId === undefined) delete process.env[HARNESS_SESSION_ENV.pi.sessionId];
+  else process.env[HARNESS_SESSION_ENV.pi.sessionId] = savedPiSessionId;
+  restoreHarnessSession = undefined;
+});
 
 function capture(run: () => void): { stdout: string; stderr: string } {
   const out: string[] = [];
@@ -29,7 +54,7 @@ function capture(run: () => void): { stdout: string; stderr: string } {
 /** Seed one agent the way A1 stores it: a minted id in `agents`, with its space
  *  and pane handle as environment satellites of that id - never a wide row keyed
  *  by the pane. */
-function seedPresence(root: string, key: string): void {
+function seedPresence(root: OrchDir, key: string): void {
   const dir = presenceAgentDir(key, root);
   mkdirSync(dir, { recursive: true });
   ensureHarness(root, "pi", "pi", 1);
@@ -44,23 +69,23 @@ function seedPresence(root: string, key: string): void {
 
 describe("commands/runs", () => {
   test("lists newest first and honors -n", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-runs-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-runs-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = root;
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
       seedPresence(root, "runsoneaaa");
       upsertRun(root, { dispatchId: "old", agentKey: "runsoneaaa", state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z"), task: "old task" });
       upsertRun(root, { dispatchId: "new", agentKey: "runsoneaaa", state: "done", startedAt: Date.parse("2026-01-02T00:00:00Z"), task: "new task" });
-      const output = capture(() => cmdRuns(["-n", "1"])).stdout;
+      const output = capture(() => cmdRuns(testServices({ orchDir: root, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } }), ["-n", "1"])).stdout;
       expect(output).toContain("new task");
       expect(output).not.toContain("old task");
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 
   test("target filter and json preserve RunRecord rows", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-runs-target-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-runs-target-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = root;
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
@@ -68,7 +93,7 @@ describe("commands/runs", () => {
       seedPresence(root, "runstwoaaa");
       upsertRun(root, { dispatchId: "one", agentKey: "runsoneaaa", state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z") });
       upsertRun(root, { dispatchId: "two", agentKey: "runstwoaaa", state: "done", startedAt: Date.parse("2026-01-02T00:00:00Z") });
-      const output = capture(() => cmdRuns(["runsoneaaa", "--json"])).stdout;
+      const output = capture(() => cmdRuns(testServices({ orchDir: root, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } }), ["runsoneaaa", "--json"])).stdout;
       expect(JSON.parse(output)).toEqual([expect.objectContaining({ dispatchId: "one", agentKey: "runsoneaaa" })]);
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
@@ -78,14 +103,14 @@ describe("commands/runs", () => {
   });
 
   test("result falls back to durable run history after presence reap", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-result-history-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-result-history-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = root;
     try {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
       const key = "runsgoneaa";
       upsertRun(root, { dispatchId: "history", agentKey: key, state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z"), result: { text: "from history" } });
-      const output = capture(() => cmdResult([key]));
+      const output = capture(() => cmdResult(testServices({ orchDir: root, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } }), [key]));
       expect(output.stdout).toContain("(result from run history)\n");
       expect(output.stdout).toContain("from history\n");
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }

@@ -1,17 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { orm } from "../src/store/connection.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { ensureHarness, ensureHost, ensureHostPlexer, ensurePlexer, hostPlexers, insertAgent } from "../src/store/agent-rows.ts";
 import { setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
+import type { OrchDir } from "../src/types/core.ts";
 /**
  * What is possible changes when WHAT IS THERE changes: a move (a new environment
  * record) or an upgrade (a new `host_plexers` row).
@@ -24,23 +22,23 @@ import { row } from "./helpers/rows.ts";
  * truth lives, and the one that goes stale.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 afterEach(() => { while (dirs.length) removeTempDir(dirs.pop()!); });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-possible-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-possible-");
   dirs.push(dir);
   orm(dir);
   return dir;
 }
 
-function seedAgent(dir: string, id: string): string {
+function seedAgent(dir: OrchDir, id: string): string {
   ensureHarness(dir, "pi", "pi", 1);
   insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
   return id;
 }
 
-function openIntervals(dir: string, table: string, agentId: string): number {
+function openIntervals(dir: OrchDir, table: string, agentId: string): number {
   const found = row(orm(dir), sql`SELECT COUNT(*) AS n FROM ${sql.raw(table)} WHERE agent_id = ${agentId} AND until IS NULL`);
   return isRecord(found) && typeof found.n === "number" ? found.n : -1;
 }

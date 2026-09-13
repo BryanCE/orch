@@ -1,8 +1,9 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { loadSettings } from "../src/settings/read.ts";
+
+
+
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import {
   buildSelectedNotifyEntries,
   collectRequiredConfig,
@@ -11,11 +12,11 @@ import {
 } from "../src/setup/notifiers.ts";
 import { notifierPromptOptions } from "../src/setup/wizard.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 describe("notifier setup logic", () => {
   test("probes the built-in adapters", async () => {
-    const choices = await probeNotifiers();
+    const choices = await probeNotifiers(null);
     expect(choices.map((choice) => choice.id)).toEqual(["herdr", "desktop", "webhook", "sound", "command"]);
     expect(choices.every((choice) => typeof choice.available === "boolean")).toBe(true);
     expect(choices.find((choice) => choice.id === "webhook")?.requiredFields.map((field) => field.name)).toEqual(["url"]);
@@ -63,10 +64,10 @@ describe("notifier setup logic", () => {
   test("renders a command entry that loadSettings can parse", () => {
     const entry = renderNotifyEntry("command", { command: ["sh", "-c", "echo ok"], ignored: "not collected" });
     expect(entry).toEqual({ id: "command", command: ["sh", "-c", "echo ok"] });
-    const directory = mkdtempSync(join(tmpdir(), "orch-setup-notifiers-"));
+    const directory: OrchDir = tempOrchDir("orch-setup-notifiers-");
     try {
       writeSettingsFixture(directory, { notify: [entry] });
-      expect(loadSettings(directory).notify).toEqual([{
+      expect(fileSettingsManager(directory).current().notify).toEqual([{
         id: "command",
         command: ["sh", "-c", "echo ok"],
       }]);

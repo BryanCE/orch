@@ -1,3 +1,4 @@
+import type { OrchDir } from "../types/core.ts";
 // Ownership, and ownership only: who is driving one agent RIGHT NOW.
 //
 // Rule 11 keeps identity, provenance, ownership and environment apart, and makes
@@ -7,9 +8,10 @@
 // place — a second copy would be a second truth about who owns an agent.
 import { agentById } from "../store/agent-rows.ts";
 import { currentLease } from "../store/lease-rows.ts";
-import { orchDir } from "../presence/writer.ts";
 import { recordedProcessIsLive } from "../store/interval-rows.ts";
 import type { DriveState, DriveStateOptions } from "../types/agent.ts";
+
+type DriveStateInput = Omit<DriveStateOptions, "directory"> & { directory: OrchDir };
 
 
 export const NO_ORCH_DRIVER = "no orch driving it";
@@ -28,9 +30,9 @@ const HOLDER_GONE: DriveState = { kind: "unleased", owner: DEAD_HOLDER_DRIVER, m
  * Never throws: an unreadable store means orch cannot name a driver, and
  * "no orch driving it" is the honest answer — not a crash in a status listing.
  */
-export function deriveDriveState(agentId: string, options: DriveStateOptions = {}): DriveState {
+export function deriveDriveState(agentId: string, options: DriveStateInput): DriveState {
   try {
-    const directory = options.directory ?? orchDir();
+    const directory = options.directory;
     const agent = agentById(directory, agentId);
     if (!agent) return UNLEASED;
     const lease = currentLease(directory, agent.id);

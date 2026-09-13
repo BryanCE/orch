@@ -1,3 +1,4 @@
+import type { OrchDir } from "../../types/core.ts";
 import { appendEvent, oldestEventSeq, selectEventsSince } from "../../store/event-rows.ts";
 import type { BufferedEvent, ReplayResult } from "../../types/daemon.ts";
 
@@ -6,7 +7,7 @@ import type { BufferedEvent, ReplayResult } from "../../types/daemon.ts";
 export const REPLAY_WINDOW = 1_000;
 
 export class ReplayBuffer {
-  constructor(private readonly orchDir: string) {}
+  constructor(private readonly orchDir: OrchDir) {}
 
   push(event: unknown): BufferedEvent {
     const stored = appendEvent(this.orchDir, Date.now(), event);

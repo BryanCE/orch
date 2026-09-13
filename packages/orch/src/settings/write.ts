@@ -11,6 +11,7 @@ import {
 import { settingsValues, readSettingsFile, requireEnabledComposition } from "./read.ts";
 import type { NotifyEntry, SettingsRepair } from "../types/settings.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
+import type { OrchDir } from "../types/core.ts";
 
 /** Drop the harnesses whose list is empty: for both model maps an empty list means the same
  *  thing as no entry, and recording `[]` leaves settings.json claiming a selection nobody made. */
@@ -24,19 +25,19 @@ function withoutEmptyLists(lists: Partial<Record<AdapterId, string[]>>): Partial
 }
 
 /** Record which models each harness may launch, replacing any previous set. */
-export function writeSettingsAllowedModels(orchDir: string, allowed: Partial<Record<AdapterId, string[]>>): void {
+export function writeSettingsAllowedModels(orchDir: OrchDir, allowed: Partial<Record<AdapterId, string[]>>): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, allowed: withoutEmptyLists(allowed) } }));
 }
 
 /** Record the preferred quicklist each harness exposes to its native picker. */
-export function writeSettingsPreferredModels(orchDir: string, preferred: Partial<Record<AdapterId, string[]>>): void {
+export function writeSettingsPreferredModels(orchDir: OrchDir, preferred: Partial<Record<AdapterId, string[]>>): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, models: { ...root.models, preferred: withoutEmptyLists(preferred) } }));
 }
 
 /** Write a candidate settings root only after schema and composition validation. The write is
  * tmp+rename so a crash mid-write cannot truncate settings.json — the settings watcher only ever
  * reads a complete file. */
-export function writeSettingsRoot(orchDir: string, candidate: unknown): void {
+export function writeSettingsRoot(orchDir: OrchDir, candidate: unknown): void {
   const file = settingsPath(orchDir);
   const updated = SETTINGS_FILE_SCHEMA.parse(candidate);
   requireEnabledComposition(file, updated);
@@ -47,7 +48,7 @@ export function writeSettingsRoot(orchDir: string, candidate: unknown): void {
 }
 
 /** Apply one schema-validated mutation to `$orchDir/settings.json` via whole-file JSON round-trip. An invalid composition (defaults outside the enabled sets) never lands on disk — write `enabled` before `defaults`. */
-function updateSettingsFile(orchDir: string, mutate: (root: Partial<SettingsFile>) => Partial<SettingsFile>): void {
+function updateSettingsFile(orchDir: OrchDir, mutate: (root: Partial<SettingsFile>) => Partial<SettingsFile>): void {
   const file = settingsPath(orchDir);
   // The seed for a brand-new file is deliberately incomplete: `runtime` is required and has
   // no default, so setup must record it (writeSettingsRuntime) before any other write lands.
@@ -96,7 +97,7 @@ function setSettingsPath(root: Partial<SettingsFile>, segments: readonly string[
 }
 
 /** Write one schema setting through the same whole-file validator as every specialised writer. */
-export function writeSettingsValue(orchDir: string, key: string, value: unknown): void {
+export function writeSettingsValue(orchDir: OrchDir, key: string, value: unknown): void {
   const segments = key.split(".");
   updateSettingsFile(orchDir, (root) => setSettingsPath(root, segments, value));
 }
@@ -129,7 +130,7 @@ function settingsPathValue(root: unknown, segments: readonly string[]): Settings
 }
 
 /** Apply explicit repairs to a raw settings file, validating only after all repairs are made. */
-export function applySettingsRepairs(orchDir: string, repairs: readonly SettingsRepair[]): void {
+export function applySettingsRepairs(orchDir: OrchDir, repairs: readonly SettingsRepair[]): void {
   // Choosing nothing writes nothing. Falling through to the validator would reject the very
   // file the person just decided to leave as it is, and report that decision as an error.
   if (repairs.length === 0) return;
@@ -169,7 +170,7 @@ export function applySettingsRepairs(orchDir: string, repairs: readonly Settings
 
 /** Remove one setting from settings.json so its default wins again, through the same
  *  whole-file validator as every write. Removing an absent key is a no-op, not an error. */
-export function clearSettingsValue(orchDir: string, key: string): void {
+export function clearSettingsValue(orchDir: OrchDir, key: string): void {
   const segments = key.split(".");
   updateSettingsFile(orchDir, (root) => deleteSettingsPath(root, segments));
 }
@@ -177,19 +178,19 @@ export function clearSettingsValue(orchDir: string, key: string): void {
 /** Record the declared JS runtime as the top-level `runtime` key. Idempotent: re-recording the
  * same selection leaves the file byte-identical, and a different selection replaces the single
  * scalar in place — the shape has no room to accumulate a second runtime entry. */
-export function writeSettingsRuntime(orchDir: string, runtime: OrchRuntime): void {
+export function writeSettingsRuntime(orchDir: OrchDir, runtime: OrchRuntime): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, runtime }));
 }
 
 /** Upsert one string entry in the `defaults` section of settings.json. */
-export function writeSettingsDefault(orchDir: string, key: "adapter", value: AdapterId): void;
-export function writeSettingsDefault(orchDir: string, key: "backend", value: BackendId): void;
-export function writeSettingsDefault(orchDir: string, key: "adapter" | "backend", value: string): void {
+export function writeSettingsDefault(orchDir: OrchDir, key: "adapter", value: AdapterId): void;
+export function writeSettingsDefault(orchDir: OrchDir, key: "backend", value: BackendId): void;
+export function writeSettingsDefault(orchDir: OrchDir, key: "adapter" | "backend", value: string): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, defaults: { ...root.defaults, [key]: value } }));
 }
 
 /** Record the model each enabled harness launches on, replacing any previous set. */
-export function writeSettingsModels(orchDir: string, models: Partial<Record<AdapterId, string>>): void {
+export function writeSettingsModels(orchDir: OrchDir, models: Partial<Record<AdapterId, string>>): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, defaults: { ...root.defaults, models: { ...models } } }));
 }
 
@@ -202,7 +203,7 @@ export function writeSettingsModels(orchDir: string, models: Partial<Record<Adap
  * CLEARS that override and falls back to the global default.
  */
 export function writeSettingsThinking(
-  orchDir: string,
+  orchDir: OrchDir,
   update: { thinking?: ThinkingLevel; byHarness?: Partial<Record<AdapterId, ThinkingLevel | null>> },
 ): void {
   updateSettingsFile(orchDir, (root) => {
@@ -226,7 +227,7 @@ export function writeSettingsThinking(
 /** Record the user's answer to "may orch install its skills?" and, when they named them,
  *  which store holds the files and which harness directories link into it. */
 export function writeSettingsSkills(
-  orchDir: string,
+  orchDir: OrchDir,
   skills: { install: boolean; store?: string; link?: readonly string[] },
 ): void {
   updateSettingsFile(orchDir, (root) => ({
@@ -240,12 +241,12 @@ export function writeSettingsSkills(
 }
 
 /** Record the setup-enabled provider sets in settings.json. */
-export function writeSettingsEnabled(orchDir: string, enabled: { adapters: readonly AdapterId[]; backends: readonly BackendId[] }): void {
+export function writeSettingsEnabled(orchDir: OrchDir, enabled: { adapters: readonly AdapterId[]; backends: readonly BackendId[] }): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, enabled: { adapters: [...enabled.adapters], backends: [...enabled.backends] } }));
 }
 
 /** Seed the complete settings tree while preserving every value already present. */
-export function writeSettingsFullTree(orchDir: string): void {
+export function writeSettingsFullTree(orchDir: OrchDir): void {
   updateSettingsFile(orchDir, (root) => {
     const values = settingsValues(root);
     const { max_agents_total: maxAgents, ...fleet } = values.fleet;
@@ -260,7 +261,7 @@ export function writeSettingsFullTree(orchDir: string): void {
 
 /** Upsert notifier entries into the settings.json `notify` array, keyed by sink id: an id
  *  already configured is replaced where it sits, a new one is appended. One sink id, one entry. */
-export function writeSettingsNotify(orchDir: string, entries: readonly NotifyEntry[]): void {
+export function writeSettingsNotify(orchDir: OrchDir, entries: readonly NotifyEntry[]): void {
   updateSettingsFile(orchDir, (root) => {
     const written = new Map(entries.map((entry) => [entry.id, entry]));
     const upserted = (root.notify ?? []).map((entry) => written.get(entry.id) ?? entry);
@@ -270,6 +271,6 @@ export function writeSettingsNotify(orchDir: string, entries: readonly NotifyEnt
 }
 
 /** Drop the `notify` entry for one sink id. Callers gate on it being configured. */
-export function deleteSettingsNotify(orchDir: string, id: NotifyEntry["id"]): void {
+export function deleteSettingsNotify(orchDir: OrchDir, id: NotifyEntry["id"]): void {
   updateSettingsFile(orchDir, (root) => ({ ...root, notify: (root.notify ?? []).filter((entry) => entry.id !== id) }));
 }

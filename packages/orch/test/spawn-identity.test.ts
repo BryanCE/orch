@@ -1,6 +1,3 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
@@ -16,13 +13,14 @@ import { FakePanedBackend } from "./helpers/backend.ts";
 import { runnerProcess } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { BackendHandle, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 import { sql } from "drizzle-orm";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
-const dirs: string[] = [];
+import type { OrchDir } from "../src/types/core.ts";
+const dirs: OrchDir[] = [];
 
 beforeEach(() => {
   isolateOrchEnv();
@@ -30,8 +28,8 @@ beforeEach(() => {
   // Each child identity is minted and passed through the spawn spec itself.
 });
 
-function tempOrchDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-spawn-identity-"));
+function makeTempOrchDir(): OrchDir {
+  const dir = tempOrchDir("orch-spawn-identity-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
   return dir;
@@ -73,10 +71,11 @@ function fakePaneBackend(paneHandle: string): { backend: KeyRecordingBackend; en
 
 describe("one key per pane spawn (12.1)", () => {
   test("identity is an opaque minted id — never the name, never the pane handle", () => {
-    seedSpace(tempOrchDir(), "wsA");
+    const dir = makeTempOrchDir();
+    seedSpace(dir, "wsA");
     const { backend, envKey } = fakePaneBackend("%5");
 
-    const agent = spawnOneIntoTab({
+    const agent = spawnOneIntoTab(dir, {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -98,7 +97,7 @@ describe("one key per pane spawn (12.1)", () => {
     expect(agent.key).not.toBe("audit-1");
     expect(agent.key).not.toBe("%5");
 
-    const view = spawnedRecords().get(agent.key);
+    const view = spawnedRecords(dir).get(agent.key);
     expect(view).toBeDefined();
     // The agent is keyed on the minted id; the plexer, the space and the pane
     // handle are environment axes composed onto it, not parts of its key.
@@ -106,12 +105,13 @@ describe("one key per pane spawn (12.1)", () => {
     expect(view!.environment.space).toBe("wsA");
     expect(view!.environment.plexer).toBe("herdr");
     expect(view!.environment.handle).toBe("%5");
-    expect(agentById(process.env.ORCH_DIR!, agent.key)?.name).toBe("audit-1");
+    expect(agentById(dir, agent.key)?.name).toBe("audit-1");
   });
 
   test("a name freed by a dead agent is reusable, and the two agents differ in identity", () => {
-    seedSpace(tempOrchDir(), "wsC");
-    const spawnAudit = () => spawnOneIntoTab({
+    const dir = makeTempOrchDir();
+    seedSpace(dir, "wsC");
+    const spawnAudit = () => spawnOneIntoTab(dir, {
       backend: fakePaneBackend("%9").backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -130,15 +130,15 @@ describe("one key per pane spawn (12.1)", () => {
     const second = spawnAudit();
 
     expect(second.key).not.toBe(first.key);
-    expect(agentById(process.env.ORCH_DIR!, second.key)?.name).toBe("audit-1");
+    expect(agentById(dir, second.key)?.name).toBe("audit-1");
   });
 
   test("a spawned agent resolves to exactly one control-target candidate", () => {
-    const dir = tempOrchDir();
+    const dir = makeTempOrchDir();
     seedSpace(dir, "wsB");
     const { backend } = fakePaneBackend("%7");
 
-    const agent = spawnOneIntoTab({
+    const agent = spawnOneIntoTab(dir, {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -163,16 +163,16 @@ describe("one key per pane spawn (12.1)", () => {
 
     // Both spellings (the pane id and the key itself) resolve to the one key.
     // A second re-minted identity would make these ambiguous and throw.
-    expect(normalizeControlTarget("%7")).toBe(agent.key);
-    expect(normalizeControlTarget(agent.key)).toBe(agent.key);
+    expect(normalizeControlTarget(dir, "%7")).toBe(agent.key);
+    expect(normalizeControlTarget(dir, agent.key)).toBe(agent.key);
   });
 });
 
 /** A registry fixture: one harness, and the user-created space a spawn may be
  *  placed into. A7 — a space is user-created and optional, never minted from a
  *  path — so the row exists before any agent can be put in it. */
-function registryFixture(space?: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-spawn-space-"));
+function registryFixture(space?: string): OrchDir {
+  const dir = tempOrchDir("orch-spawn-space-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
   if (space !== undefined) {
@@ -181,7 +181,7 @@ function registryFixture(space?: string): string {
   return dir;
 }
 
-function spaceRows(dir: string, agentId: string): unknown[] {
+function spaceRows(dir: OrchDir, agentId: string): unknown[] {
   return orm(dir).all(sql`SELECT space_id, since, until FROM agent_spaces WHERE agent_id = ${agentId}`);
 }
 

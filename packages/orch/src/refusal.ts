@@ -21,6 +21,11 @@ export class CommandRefusal extends Error {
   }
 }
 
+/** Refuse the command with the reason a human needs. Thrown, never exited; the CLI boundary logs it and sets the exit code. */
+export function die(message: string): never {
+  throw new CommandRefusal(message);
+}
+
 /**
  * The ONE wording for "that target matched more than one agent".
  *

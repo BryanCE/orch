@@ -1,14 +1,15 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
+
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { getOrCreateSessionAgent, insertAgent, packMembers } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { agentView, agentViews } from "../src/store/agent-view.ts";
 import { roleOf } from "../src/policy/vocabulary.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { sql } from "drizzle-orm";
 
@@ -18,8 +19,8 @@ import { sql } from "drizzle-orm";
  * depth.
  */
 
-function withStore(body: (directory: string) => void): void {
-  const directory = mkdtempSync(join(tmpdir(), "orch-pack-"));
+function withStore(body: (directory: OrchDir) => void): void {
+  const directory = tempOrchDir("orch-pack-");
   const db = orm(directory);
   db.run(sql`INSERT INTO harnesses (id, name) VALUES ('pi', 'pi') ON CONFLICT DO NOTHING`);
   db.run(sql`INSERT INTO harnesses (id, name) VALUES ('claude', 'claude') ON CONFLICT DO NOTHING`);
@@ -32,7 +33,7 @@ function withStore(body: (directory: string) => void): void {
 }
 
 /** `id` spawned by `spawnedBy`; the root is never passed in, only derived. */
-function spawn(directory: string, id: string, spawnedBy: string | null, at: number): void {
+function spawn(directory: OrchDir, id: string, spawnedBy: string | null, at: number): void {
   insertAgent(directory, { id, spawnedBy, harnessId: "pi", cwd: "/repo", name: id, createdAt: at });
 }
 

@@ -1,28 +1,53 @@
-import { describe, expect, test } from "bun:test";
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { formatAge, cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
 import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { DaemonAbsentError } from "../src/daemon/rpc/wire.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 import type { PendingQuestionView } from "../src/types/daemon.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { testServices } from "./helpers/services.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { sql } from "drizzle-orm";
 
 /** Target resolution loads settings.json (host lookup) and die()s — killing the whole
  *  test process — when it is absent, so every command-invoking test seeds one. */
-function seedSettings(root: string): void {
-  writeSettingsFixture(root, {
-    enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
-    defaults: { adapter: "pi", backend: "headless" },
-  });
+const SETTINGS_FIXTURE = {
+  enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
+  defaults: { adapter: "pi", backend: "headless" },
+};
+
+const HARNESS_ENV_VARS = [...new Set(Object.values(HARNESS_SESSION_ENV).flatMap((vars) => Object.values(vars)))];
+let savedHarnessEnv: [string, string | undefined][] = [];
+
+beforeEach(() => {
+  isolateOrchEnv();
+  savedHarnessEnv = HARNESS_ENV_VARS.map((name): [string, string | undefined] => [name, process.env[name]]);
+  for (const name of HARNESS_ENV_VARS) delete process.env[name];
+});
+
+afterEach(() => {
+  for (const [name, value] of savedHarnessEnv) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  savedHarnessEnv = [];
+  restoreOrchEnv();
+});
+
+function seedSettings(root: OrchDir): void {
+  writeSettingsFixture(root, SETTINGS_FIXTURE);
 }
 
 /** A1: an agent key IS its minted id - no plexer, no space, no handle inside it.
@@ -32,13 +57,13 @@ function testTarget(id: string): { key: string; space: string } {
 }
 
 /** A registered agent in no space, alive through this runner's process. */
-function seedLiveAgent(root: string, key: string, harnessId = "pi"): void {
+function seedLiveAgent(root: OrchDir, key: string, harnessId = "pi"): void {
   ensureHarness(root, harnessId, harnessId, 1);
   insertAgent(root, { id: key, name: key, spawnedBy: null, harnessId, cwd: root, createdAt: 1 });
   seedLiveProcess(root, key);
 }
 
-function seedAgent(root: string, key: string, space: string, harnessId = "pi"): void {
+function seedAgent(root: OrchDir, key: string, space: string, harnessId = "pi"): void {
   seedLiveAgent(root, key, harnessId);
   orm(root).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, ${1})`);
   setSpace(root, key, 1, space);
@@ -62,15 +87,15 @@ async function captureStdoutAsync(run: () => Promise<void>): Promise<string> {
   return output.join("");
 }
 
-async function withQuestionsServer(root: string, questions: PendingQuestionView[], run: () => Promise<void>): Promise<void> {
-  const server = await startRpcServer(root, { questions: () => ({ questions }) });
+async function withQuestionsServer(root: OrchDir, questions: PendingQuestionView[], run: () => Promise<void>): Promise<void> {
+  const server = await startRpcServer(root, stubRpcHandlers({ questions: () => ({ questions }) }));
   try { await run(); } finally { await server.close(); }
 }
 
 describe("commands/results", () => {
   test.serial("renders daemon questions with the existing JSON shape", async () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-questions-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-questions-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const key = "questionag";
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -78,7 +103,7 @@ describe("commands/results", () => {
     const askedAt = Date.parse("2026-09-11T00:00:00.000Z");
     try {
       const output = await captureStdoutAsync(() => withQuestionsServer(root, [{ questionId: "q1", agentId: key, key, name: "question-agent", question: "need input", askedAt }], async () => {
-        await cmdQuestions(["--local", "--all", "--json"]);
+        await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--all", "--json"]);
       }));
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key, name: "question-agent", space: "-", id: "q1", question: "need input", ts: "2026-09-11T00:00:00.000Z" })]);
@@ -91,15 +116,15 @@ describe("commands/results", () => {
   });
 
   test.serial("renders exactly the pending questions returned by the daemon", async () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-questions-filter-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-questions-filter-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = root;
     seedSettings(root);
     try {
       const output = await captureStdoutAsync(async () => {
         await withQuestionsServer(root, [
           { questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
-        ], async () => { await cmdQuestions(["--local", "--all", "--json"]); });
+        ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--all", "--json"]); });
       });
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live" })]);
@@ -110,12 +135,12 @@ describe("commands/results", () => {
   });
 
   test.serial("surfaces a missing daemon instead of returning an empty list", async () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-questions-down-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-questions-down-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     process.env.ORCH_DIR = root;
     seedSettings(root);
     try {
-      const error = await cmdQuestions(["--local", "--json"]).then(() => undefined, (failure: unknown) => failure);
+      const error = await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--json"]).then(() => undefined, (failure: unknown) => failure);
       expect(error).toBeInstanceOf(DaemonAbsentError);
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
@@ -127,8 +152,8 @@ describe("commands/results", () => {
     expect(formatAge(new Date().toISOString())).toBe("0s");
   });
   test.serial("routes a seeded results.jsonl through the command module", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-result-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-result-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("resultaa42");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -141,12 +166,12 @@ describe("commands/results", () => {
     // eslint-disable-next-line typescript/unbound-method
     const originalWrite = process.stdout.write;
     process.stdout.write = ((chunk: string | Uint8Array) => { output.push(String(chunk)); return true; });
-    try { cmdResult([key]); } finally { process.stdout.write = originalWrite; if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
+    try { cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]); } finally { process.stdout.write = originalWrite; if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(output.join("")).toBe("finished\n");
   });
   test.serial("keeps every settled dispatch and reports the newest", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-result-history-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-result-history-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("resultaa45");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -158,15 +183,15 @@ describe("commands/results", () => {
     writeResult(dir, { text: "second dispatch" });
     try {
       expect(readFileSync(join(dir, "results.jsonl"), "utf8").trimEnd().split("\n")).toHaveLength(2);
-      expect(captureStdout(() => cmdResult([key]))).toBe("second dispatch\n");
+      expect(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]))).toBe("second dispatch\n");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);
     }
   });
   test.serial("falls back to adapter session text when results.jsonl is absent", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-result-fallback-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-result-fallback-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("resultaa43");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -177,15 +202,15 @@ describe("commands/results", () => {
     seedAgent(root, key, space, "pi");
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "done", sessionPath: session }));
     try {
-      expect(captureStdout(() => cmdResult([key]))).toContain("(no results.jsonl - falling back to adapter-extracted session text)\nsession final\n");
+      expect(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]))).toContain("(no results.jsonl - falling back to adapter-extracted session text)\nsession final\n");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);
     }
   });
   test.serial("uses results.jsonl even when the presence status has no agent", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-result-no-agent-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-result-no-agent-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("resultaa44");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -195,7 +220,7 @@ describe("commands/results", () => {
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "done" }));
     writeFileSync(join(dir, "results.jsonl"), `${JSON.stringify({ text: "finished without agent" })}\n`);
     try {
-      expect(captureStdout(() => cmdResult([key]))).toBe("finished without agent\n");
+      expect(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]))).toBe("finished without agent\n");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);
@@ -203,8 +228,8 @@ describe("commands/results", () => {
   });
 
   test.serial("orch tail resolves a non-pi target through that adapter's session view", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-tail-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-tail-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("tailaaa515");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -219,14 +244,14 @@ describe("commands/results", () => {
     seedAgent(root, key, space, "claude");
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
     let joined = "";
-    try { joined = captureStdout(() => cmdTail([key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
+    try { joined = captureStdout(() => cmdTail(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(joined).toContain("claude final");
     expect(joined).not.toContain("earlier turn");
   });
 
-  function seedPiSession(): { root: string; key: string; restore: () => void } {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-pitail-"));
-    const old = process.env.ORCH_DIR;
+  function seedPiSession(): { root: OrchDir; key: string; restore: () => void } {
+    const root = tempOrchDir("orch-command-pitail-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("pitailaa70");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -247,9 +272,9 @@ describe("commands/results", () => {
   }
 
   test.serial("orch tail renders pi's per-turn entries with role rows and a tool-call summary", () => {
-    const { key, restore } = seedPiSession();
+    const { root, key, restore } = seedPiSession();
     let joined = "";
-    try { joined = captureStdout(() => cmdTail([key])); } finally { restore(); }
+    try { joined = captureStdout(() => cmdTail(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key])); } finally { restore(); }
     expect(joined).toContain("user      | first task");
     expect(joined).toContain("assistant | working on it");
     expect(joined).toContain("assistant | [tools] bash(ls -la)");
@@ -258,24 +283,24 @@ describe("commands/results", () => {
   });
 
   test.serial("orch tail -n keeps last-N rendered entries for a pi session", () => {
-    const { key, restore } = seedPiSession();
+    const { root, key, restore } = seedPiSession();
     let joined = "";
-    try { joined = captureStdout(() => cmdTail([key, "-n", "1"])); } finally { restore(); }
+    try { joined = captureStdout(() => cmdTail(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key, "-n", "1"])); } finally { restore(); }
     expect(joined).toContain("final answer");
     expect(joined).not.toContain("first task");
     expect(joined).not.toContain("working on it");
   });
 
   test.serial("orch session reports the pi entry count", () => {
-    const { key, restore } = seedPiSession();
+    const { root, key, restore } = seedPiSession();
     let joined = "";
-    try { joined = captureStdout(() => cmdSession([key])); } finally { restore(); }
+    try { joined = captureStdout(() => cmdSession(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key])); } finally { restore(); }
     expect(joined).toContain("entries: 5");
   });
 
   test.serial("orch session shows zero entries for an adapter view without them", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-session-"));
-    const old = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-command-session-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const { key, space } = testTarget("sessionn80");
     process.env.ORCH_DIR = root;
     seedSettings(root);
@@ -286,7 +311,7 @@ describe("commands/results", () => {
     seedAgent(root, key, space, "claude");
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
     let joined = "";
-    try { joined = captureStdout(() => cmdSession([key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
+    try { joined = captureStdout(() => cmdSession(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(joined).toContain("entries: 0");
   });
 });

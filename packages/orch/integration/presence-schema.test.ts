@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
-import * as os from "node:os";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { buildEntities } from "../src/entities.ts";
@@ -8,9 +7,11 @@ import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { seedAgent } from "../test/helpers/agent.ts";
+import { testServices } from "../test/helpers/services.ts";
 import { isRecord } from "../src/util.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
-const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-presence-schema-"));
+const orchDir: OrchDir = tempOrchDir("orch-presence-schema-");
 const storePath = path.join(import.meta.dir, "../src/presence/store.ts");
 
 interface PresenceStatus {
@@ -48,14 +49,14 @@ function readStatuses(): Record<string, PresenceStatus> {
   const script = `
     const store = await import(${JSON.stringify(storePath)});
     const statuses = {};
-    for (const [key, entry] of store.loadPresence()) {
+    for (const [key, entry] of store.loadPresence(${JSON.stringify(orchDir)})) {
       const status = store.statusForPresence(entry);
       if (status) statuses[key] = status;
     }
     console.log(JSON.stringify(statuses));
   `;
   const ran = Bun.spawnSync([process.execPath, "-e", script], {
-    env: { ...process.env, ORCH_DIR: orchDir },
+    env: process.env,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -109,7 +110,7 @@ describe("presence status schema", () => {
     process.env.ORCH_DIR = orchDir;
 
     const status = readStatuses()[key]!;
-    const listed = buildEntities().find((entity) => entity.key === key)!;
+    const listed = buildEntities(orchDir, testServices({ orchDir }).settings.current()).find((entity) => entity.key === key)!;
     expect({ key: status.key, agent: status.agent }).toEqual({
       key: listed.key, agent: listed.agent ?? undefined,
     });
@@ -170,12 +171,12 @@ describe("presence status schema", () => {
       handle: "%5",
       adapter: "claude",
       cwd: "/work/project",
-    });
+    }, orchDir);
 
     // Identity is the id; the harness and cwd are hub columns; the plexer and
     // its pane handle are ENVIRONMENT, each on its own table and read back
     // through the composer. Nothing reassembles them into a flat row.
-    expect(spawnedRecords().get(key)).toMatchObject({
+    expect(spawnedRecords(orchDir).get(key)).toMatchObject({
       id: key,
       harnessId: "claude",
       cwd: "/work/project",

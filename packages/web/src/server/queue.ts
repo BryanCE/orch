@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { orchDir } from "@orch/presence/writer.ts";
+import { services } from "./services.ts";
 import { listTasks } from "@orch/queue.ts";
 import type { TaskRec, TaskState } from "@orch/types/queue.ts";
 
@@ -30,7 +30,7 @@ function groupTasks(tasks: TaskRec[]): QueueGroups {
 
 /** Read the durable queue directly from orch's store. Writes remain daemon-owned. */
 export const getQueue = createServerFn({ method: "GET", strict: { output: false } }).handler((): QueueGroups => {
-  return groupTasks(listTasks(orchDir()));
+  return groupTasks(listTasks(services.orchDir));
 });
 
 export type QueueLane = keyof QueueGroups;

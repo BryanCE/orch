@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
+import type { OrchDir } from "../src/types/core.ts";
 import {
   acquireDaemonLock,
   acquireDaemonRegistration,
@@ -40,10 +40,10 @@ function readLockData(path: string): LockData {
   };
 }
 
-const tempDirs: string[] = [];
+const tempDirs: OrchDir[] = [];
 
-function makeOrchDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-daemon-"));
+function makeOrchDir(): OrchDir {
+  const dir = tempOrchDir("orch-daemon-");
   tempDirs.push(dir);
   return dir;
 }
@@ -136,7 +136,7 @@ describe("daemon lifecycle", () => {
     const oldOrchDir = process.env.ORCH_DIR;
     delete process.env.ORCH_DIR;
     try {
-      const detachedPid = daemonize(process.execPath, ["-e", "process.stdout.write('daemon-test')"], orchDir);
+      const detachedPid = daemonize(orchDir, process.execPath, ["-e", "process.stdout.write('daemon-test')"]);
       expect(detachedPid).toBeGreaterThan(0);
       expect(readFileSync(join(orchDir, "orchd.log"), "utf8")).toBeDefined();
       // Foreground mode resolves only once the child is gone, and reports its code.

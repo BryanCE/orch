@@ -1,8 +1,9 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { orchDirAt } from "../src/services.ts";
 import { describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
-import { mkdtempSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { cmdClean, liveWorktreeOwner, removeDeadAgentDirs } from "../src/commands/clean.ts";
 import { claimAgent, ensureHarness, insertAgent, setWorktree } from "../src/store/agent-rows.ts";
@@ -11,30 +12,32 @@ import { agentViewIndex, presenceById } from "../src/commands/target.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { loadPresence } from "../src/presence/store.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { isolateHarnessSession } from "./helpers/env.ts";
+import { testServices } from "./helpers/services.ts";
 
 /** Capture what a refusal wrote, and put the real stream back afterwards. */
 
 describe("commands/clean", () => {
   test("the forced sweep reaps dead agent dirs but preserves live processes", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-clean-"));
-    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    const root: OrchDir = tempOrchDir("orch-command-clean-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});
       seedAgent("liveagent1", {}, root);
       seedLiveProcess(root, "liveagent1");
       seedStatus(root, "liveagent1", {});
-      expect(removeDeadAgentDirs(true)).toEqual(["deadagent1"]);
+      expect(removeDeadAgentDirs(testServices({ orchDir: root, settings: null }), true, { root })).toEqual(["deadagent1"]);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 
   test("bare clean keeps ended agents as history and closes their queued writes", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-clean-bare-"));
-    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    const root = tempOrchDir("orch-command-clean-bare-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});
       seedAgent("liveagent1", {}, root);
@@ -45,7 +48,7 @@ describe("commands/clean", () => {
       insertOutboxMessage(root, { id: "to-reaped", target: "reapedagent", payload: { action: "dispatch", text: "x" } });
       insertOutboxMessage(root, { id: "to-live", target: "liveagent1", payload: { action: "dispatch", text: "x" } });
 
-      cmdClean(["--json"]);
+      cmdClean(testServices({ orchDir: root, settings: null }), ["--json"]);
 
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(true);
       expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
@@ -57,13 +60,13 @@ describe("commands/clean", () => {
   });
 
   test("--force reaps the ended agent and closes its queued writes", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-command-clean-force-"));
-    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    const root = tempOrchDir("orch-command-clean-force-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});
       insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
 
-      cmdClean(["--force", "--json"]);
+      cmdClean(testServices({ orchDir: root, settings: null }), ["--force", "--json"]);
 
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(selectOutboxMessage(root, "to-dead")?.state).toBe("undeliverable");
@@ -76,8 +79,8 @@ describe("worktree ownership reads the composed environment", () => {
   // liveness is presence keyed by the agent's minted id — not a column on a wide
   // row keyed by a pane.
   test("a live agent's worktree is protected and a dead one's is not", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-clean-worktree-owner-"));
-    const old = process.env.ORCH_DIR; process.env.ORCH_DIR = root;
+    const root = tempOrchDir("orch-clean-worktree-owner-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       ensureHarness(root, "pi", "pi", 1);
       insertAgent(root, { id: "live000001", harnessId: "pi", cwd: "/repo", name: "keeper", createdAt: 1 });
@@ -89,7 +92,7 @@ describe("worktree ownership reads the composed environment", () => {
       seedStatus(root, "dead000001", { key: "dead000001" });
 
       const views = [...agentViewIndex(root).values()];
-      const presence = presenceById();
+      const presence = presenceById(loadPresence(root));
       expect(liveWorktreeOwner(join(root, "wt-live"), views, presence)).toBe(true);
       expect(liveWorktreeOwner(join(root, "wt-dead"), views, presence)).toBe(false);
       expect(liveWorktreeOwner(join(root, "wt-nobody"), views, presence)).toBe(false);
@@ -103,8 +106,8 @@ describe("worktree ownership reads the composed environment", () => {
 
 describe("orch clean is destructive maintenance", () => {
   test("a spawned agent is refused the sweep, and the dirs it does not own survive", () => {
-    const root = mkdtempSync(join(tmpdir(), "orch-clean-slave-"));
-    const oldDir = process.env.ORCH_DIR;
+    const root = tempOrchDir("orch-clean-slave-");
+    const oldDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
     const oldKey = process.env[LAUNCH_ENV];
     const oldExit = process.exit.bind(process);
     const oldMarker = process.env[HARNESS_SESSION_ENV.pi.marker];
@@ -124,8 +127,8 @@ describe("orch clean is destructive maintenance", () => {
       // A refusal is a thrown value carrying its reason, not a process exit and
       // not a stderr side effect (src/refusal.ts): the CLI boundary renders it.
       // Asserting the reason on the thrown value is stronger than either.
-      expect(() => cmdClean([])).toThrow(CommandRefusal);
-      expect(() => cmdClean([])).toThrow(/operator-only/i);
+      expect(() => cmdClean(testServices({ orchDir: root, settings: null }), [])).toThrow(CommandRefusal);
+      expect(() => cmdClean(testServices({ orchDir: root, settings: null }), [])).toThrow(/operator-only/i);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(true);
     } finally {
       restoreHarnessSession();

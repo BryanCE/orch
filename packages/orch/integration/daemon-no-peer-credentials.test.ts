@@ -1,17 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createConnection } from "node:net";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { sourceFiles } from "../test/helpers/sources.ts";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { endpointPaths } from "../src/daemon/rpc/wire.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
 import { currentHostOs } from "../src/store/agent-rows.ts";
 
+import type { OrchDir } from "../src/types/core.ts";
+import { stubRpcHandlers } from "../test/helpers/rpc-handlers.ts";
 /**
  * Peer credentials rejected — node exposes neither `SO_PEERCRED` nor process
  * ancestry portably.
@@ -23,7 +24,7 @@ import { currentHostOs } from "../src/store/agent-rows.ts";
  * not, on the platform nobody tested.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 const children: ChildProcess[] = [];
 
@@ -33,10 +34,10 @@ afterEach(async () => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-async function start(): Promise<{ orchDir: string; token: string }> {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-peercred-"));
+async function start(): Promise<{ orchDir: OrchDir; token: string }> {
+  const orchDir = tempOrchDir("orch-peercred-");
   dirs.push(orchDir);
-  servers.push(await startRpcServer(orchDir, {}));
+  servers.push(await startRpcServer(orchDir, stubRpcHandlers()));
   return { orchDir, token: readFileSync(endpointPaths(orchDir).token, "utf8").trim() };
 }
 
@@ -93,7 +94,7 @@ describe("the daemon asks for a token and nothing else", () => {
     // had crept in.
     const reply = await ask(endpointPaths(orchDir).socket, {
       id: 1, method: "register-session",
-      params: { token, pid: stranger, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() },
+      params: { token, pid: stranger, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() },
     });
     expect(reply.error).toBeUndefined();
     expect(reply.result).toBeDefined();
@@ -105,7 +106,7 @@ describe("the daemon asks for a token and nothing else", () => {
 
     const reply = await ask(endpointPaths(orchDir).socket, {
       id: 1, method: "register-session",
-      params: { pid: stranger, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() },
+      params: { token: "", pid: stranger, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() },
     });
     expect(reply).toMatchObject({ error: { code: "IDENTITY_REQUIRED" } });
   });

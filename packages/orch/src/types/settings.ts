@@ -5,6 +5,7 @@ import type { HostSchema, NotifyEntrySchema } from "../settings/schema.ts";
 import type { AdapterId } from "./adapter.ts";
 import { AGENT_STATES } from "../agent-state.ts";
 import type { BackendId } from "./backend.ts";
+import type { OrchDir } from "./core.ts";
 import type { OrchRuntime } from "../runtimes.ts";
 import type { ThinkingLevel } from "./policy.ts";
 import type { TileFirstSplit } from "./backend.ts";
@@ -47,6 +48,9 @@ export interface SettingsWatchOptions {
   onWarn?: (message: string) => void;
   debounceMs?: number;
   pollMs?: number;
+  /** Load the current settings. The daemon passes `() => services.settings.reload()` so the
+   *  watcher and the manager agree on one value. */
+  load: () => OrchSettings;
 };
 
 export interface SettingsWatch {
@@ -93,7 +97,7 @@ export interface SettingSpec {
   readonly type: SettingKind;
   readonly read: (config: OrchSettings) => unknown;
   /** Absent means read-only BY DECLARATION — never by omission. */
-  readonly write?: (orchDir: string, value: unknown) => void;
+  readonly write?: (orchDir: OrchDir, value: unknown) => void;
   /** The env var that overrides this setting, if any. */
   readonly env?: string;
 }

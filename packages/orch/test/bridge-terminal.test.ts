@@ -1,12 +1,11 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { readStatus } from "../src/presence/writer.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import type { HarnessApi, HarnessContext, HarnessEventHandler } from "../src/types/agent.ts";
+import { testServices } from "./helpers/services.ts";
 
 interface FakeHarness extends HarnessApi {
   fire(name: string, event?: unknown, context?: HarnessContext): void;
@@ -47,7 +46,7 @@ function harnessContext(): HarnessContext {
   };
 }
 
-const roots: string[] = [];
+const roots: OrchDir[] = [];
 // A launch hands over one minted id and nothing else: a key with a
 // plexer and a grouping in it is not an identity, and presence would skip it.
 const key = "worker0001";
@@ -62,12 +61,12 @@ afterEach(() => {
 
 describe("bridge terminal turn seam", () => {
   async function settle(event: unknown = {}, signal = "agent_settled", text?: string): Promise<string> {
-    const root = mkdtempSync(join(tmpdir(), "orch-bridge-terminal-"));
+    const root = tempOrchDir("orch-bridge-terminal-");
     roots.push(root);
     process.env.ORCH_DIR = root;
     process.env[LAUNCH_ENV] = key;
     const harness = fakeHarness();
-    const presence = createAgentPresence({
+    const presence = createAgentPresence(root, {
       harness,
       identity: { agentId: "pi", settleEvent: "agent_settled" },
       extensionHash: "test",
@@ -79,7 +78,7 @@ describe("bridge terminal turn seam", () => {
       identity: { agentId: "pi", settleEvent: "agent_settled" },
       notify: () => undefined,
       refreshLabels: () => Promise.resolve(),
-    });
+    }, root, testServices({ orchDir: root, settings: null }).settings);
     const ctx = harnessContext();
     harness.fire("session_start", {}, ctx);
     harness.fire("agent_start", {}, ctx);

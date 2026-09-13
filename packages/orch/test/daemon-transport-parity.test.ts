@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { endpointPaths } from "../src/daemon/rpc/wire.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
 import { currentHostOs } from "../src/store/agent-rows.ts";
+import type { OrchDir } from "../src/types/core.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 /**
  * ONE MECHANISM on both transports; TCP is a FALLBACK, never a client class.
@@ -19,7 +19,7 @@ import { currentHostOs } from "../src/store/agent-rows.ts";
  * class, the credential (B2) has a second, weaker sibling.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
 afterEach(async () => {
@@ -27,13 +27,13 @@ afterEach(async () => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
-async function start(): Promise<{ server: RpcServer; orchDir: string; token: string }> {
-  const orchDir = mkdtempSync(join(tmpdir(), "orch-transport-"));
+async function start(): Promise<{ server: RpcServer; orchDir: OrchDir; token: string }> {
+  const orchDir = tempOrchDir("orch-transport-");
   dirs.push(orchDir);
   // A companion loopback port, which orch binds on its own only where a client
   // cannot dial the unix socket (Windows). Requesting it here is what makes the
   // two transports comparable at all — it is not what makes TCP a client class.
-  const server = await startRpcServer(orchDir, {}, { tcpPort: 0 });
+  const server = await startRpcServer(orchDir, stubRpcHandlers(), { tcpPort: 0 });
   servers.push(server);
   return { server, orchDir, token: readFileSync(endpointPaths(orchDir).token, "utf8").trim() };
 }
@@ -70,7 +70,7 @@ function tcpPort(server: RpcServer): number {
 }
 
 function hello(token: unknown): unknown {
-  return { id: 1, method: "register-session", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostOs: currentHostOs() } };
+  return { id: 1, method: "register-session", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: currentHostOs() } };
 }
 
 describe("both transports carry one mechanism", () => {
@@ -100,9 +100,12 @@ describe("both transports carry one mechanism", () => {
     const { server, orchDir } = await start();
     const path = endpointPaths(orchDir).socket;
 
+    // An absent token is a malformed claim, refused at the wire before any
+    // credential is compared. The point is still the same: one refusal, one
+    // code, whichever transport carried it.
     const overUnix = await ask({ path }, hello(undefined));
     const overTcp = await ask({ port: tcpPort(server) }, hello(undefined));
-    expect(overUnix).toMatchObject({ error: { code: "IDENTITY_REQUIRED" } });
+    expect(overUnix).toMatchObject({ error: { code: "INVALID_PARAMS" } });
     expect(overTcp).toEqual(overUnix);
   });
 

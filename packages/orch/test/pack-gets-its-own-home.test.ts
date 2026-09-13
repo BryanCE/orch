@@ -1,11 +1,12 @@
+import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+
+
 import { clearHome, homeHandle, openHome, ORCH_HOME_LABEL } from "../src/store/home-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { insertAgent, ensureHarness } from "../src/store/agent-rows.ts";
-import { removeTempDir } from "./helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
 import type { CreateHomeRequest, CreatedHome, HomeSubject, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 
@@ -24,7 +25,7 @@ import type { CreateHomeRequest, CreatedHome, HomeSubject, PlexerHome, SpaceHome
  * one is exactly how `wF` came to be shown as a name a human chose.
  */
 
-const dirs: string[] = [];
+const dirs: OrchDir[] = [];
 
 afterEach(() => { while (dirs.length) removeTempDir(dirs.pop()!); });
 
@@ -48,8 +49,8 @@ class RecordingHomeRole implements SpaceHomeRole<string> {
   focus(coordinate: string): void { this.focused.push(coordinate); }
 }
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-pack-home-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-pack-home-");
   dirs.push(dir);
   orm(dir);
   return dir;
@@ -57,7 +58,7 @@ function fixture(): string {
 
 /** A pack is identified by the agent at its root (`pack_plexers.pack_id`
  *  references `agents.id`), so a pack fixture is that one agent row. */
-function seedOrch(dir: string, id: string): string {
+function seedOrch(dir: OrchDir, id: string): string {
   ensureHarness(dir, "pi", "pi", 1);
   insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
   return id;

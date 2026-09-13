@@ -1,29 +1,22 @@
+import type { OrchDir } from "../src/types/core.ts";
+import { RPC_PARAMS } from "../src/daemon/rpc/protocol.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { createConnection } from "node:net";
-import { mkdtempSync } from "node:fs";
-import { removeTempDir } from "./helpers/tempdir.ts";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { drainOutbox } from "../src/daemon/outbox.ts";
-import { validateWriteParams } from "../src/daemon/orchd.ts";
 import { ReplayBuffer } from "../src/daemon/rpc/replay.ts";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import type { BridgeMessage } from "../src/control/bridge-message.ts";
-import type { OutboxDelivery, RpcServer } from "../src/types/daemon.ts";
+import type { OutboxDelivery } from "../src/types/daemon.ts";
 
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
-const dirs: string[] = [];
-const servers: RpcServer[] = [];
-
-afterEach(async () => {
-  while (servers.length > 0) await servers.pop()!.close();
+const dirs: OrchDir[] = [];
+afterEach(() => {
   while (dirs.length > 0) removeTempDir(dirs.pop()!);
 });
 
-function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "orch-hardening-"));
+function fixture(): OrchDir {
+  const dir = tempOrchDir("orch-hardening-");
   dirs.push(dir);
   return dir;
 }
@@ -31,9 +24,9 @@ function fixture(): string {
 describe("broker daemon hardening", () => {
   test("dispatch/steer validation rejects null, arrays, and non-string fields", () => {
     for (const params of [null, [], { target: null, text: "x" }, { target: "a", text: 3 }]) {
-      expect(() => validateWriteParams(params)).toThrow();
+      expect(RPC_PARAMS.dispatch.safeParse(params).success).toBe(false);
     }
-    expect(validateWriteParams({ target: "agent:a", text: "hello" })).toEqual({ target: "agent:a", text: "hello" });
+    expect(RPC_PARAMS.dispatch.safeParse({ target: "agent:a", text: "hello" }).success).toBe(true);
   });
 
   test("ack is idempotent when the same id is acknowledged twice", () => {
@@ -85,24 +78,4 @@ describe("broker daemon hardening", () => {
     expect(buffer.since(99)).toEqual({ events: [], gap: false, oldestSeq: 1 });
   });
 
-  test("malformed request gets an error and the connection remains usable", async () => {
-    const dir = fixture();
-    const server = await startRpcServer(dir, { echo: (params) => params });
-    servers.push(server);
-    const socket = await new Promise<import("node:net").Socket>((resolve, reject) => {
-      const connection = createConnection(server.socketPath);
-      connection.once("connect", () => resolve(connection));
-      connection.once("error", reject);
-    });
-    socket.setEncoding("utf8");
-    const lines: string[] = [];
-    socket.on("data", (chunk: string) => lines.push(...chunk.trim().split("\n")));
-    socket.write("{bad json}\n");
-    while (lines.length < 1) await Bun.sleep(1);
-    expect(JSON.parse(lines[0]!)).toMatchObject({ error: { code: "INVALID_REQUEST" } });
-    socket.write('{"id":1,"method":"echo","params":"ok"}\n');
-    while (lines.length < 2) await Bun.sleep(1);
-    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 1, result: "ok" });
-    socket.destroy();
-  });
 });

@@ -19,9 +19,10 @@ import {
 } from "../src/adapters/codex-events.ts";
 import { CodexAdapter, codexAdapter } from "../src/adapters/codex.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
 import { readJsonRecord } from "../test/helpers/json.ts";
+import type { OrchDir } from "../src/types/core.ts";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-codex-"));
 beforeEach(() => {
@@ -119,7 +120,7 @@ describe("CodexAdapter", () => {
   });
 
   test("notify shim writes schema-current done presence and result atomically", () => {
-    const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-codex-notify-"));
+    const orchDir: OrchDir = tempOrchDir("orch-codex-notify-");
     try {
       // The shim parses launch env through the one identity boundary, so the fixture
       // must be what a real spawn mints: the id alone. A `<plexer>~<space>~<name>` key is

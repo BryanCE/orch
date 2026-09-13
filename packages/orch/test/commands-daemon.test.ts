@@ -5,12 +5,18 @@ import { join } from "node:path";
 import { parseGovernance, validDaemonStatus } from "../src/commands/daemon.ts";
 import { daemonLockPid } from "../src/daemon/reach.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { testServices } from "./helpers/services.ts";
 
 describe("commands/daemon", () => {
   test("parses governance and validates daemon status", () => {
-    expect(parseGovernance(["--steal", "x", "--cross-space"])).toEqual({ gov: { steal: true, crossSpace: true }, rest: ["x"] });
-    expect(validDaemonStatus({ pid: 1, startedAt: "now", uptimeSec: 1, codeHash: "h", socket: "s" })).toBe(true);
-    expect(validDaemonStatus({ pid: "1" })).toBe(false);
+    const directory = mkdtempSync(join(tmpdir(), "orch-command-daemon-"));
+    try {
+      expect(parseGovernance(testServices({ orchDir: directory }), ["--steal", "x", "--cross-space"])).toEqual({ gov: { steal: true, crossSpace: true }, rest: ["x"] });
+      expect(validDaemonStatus({ pid: 1, startedAt: "now", uptimeSec: 1, codeHash: "h", socket: "s" })).toBe(true);
+      expect(validDaemonStatus({ pid: "1" })).toBe(false);
+    } finally {
+      removeTempDir(directory);
+    }
   });
   test("reads a lock pid only from a complete lock record", () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-command-daemon-"));

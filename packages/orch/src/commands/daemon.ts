@@ -29,7 +29,7 @@ import { errorMessage, isRecord, pidAlive } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
 import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidNonOperatorOverride } from "./target.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
-import type { Services } from "../types/services.ts";
+import type { OrchDirService, Services } from "../types/services.ts";
 
 export function validDaemonStatus(value: unknown): value is DaemonStatus {
   return isRecord(value)
@@ -68,7 +68,7 @@ async function waitForDaemon(orchDir: string, previousStartedAt?: string): Promi
 }
 
 /** Extract governance flags and strip them from the positional args. */
-export function parseGovernance(orchDir: string, args: string[]): { gov: WriteGovernance; rest: string[] } {
+export function parseGovernance(services: OrchDirService, args: string[]): { gov: WriteGovernance; rest: string[] } {
   const gov: WriteGovernance = {};
   const rest: string[] = [];
   for (const arg of args) {
@@ -78,15 +78,15 @@ export function parseGovernance(orchDir: string, args: string[]): { gov: WriteGo
   }
   // Refused at parse time so the message names the flag, before any wall or
   // resolution failure can obscure it. callDaemon re-checks for programmatic gov.
-  if (gov.steal) forbidNonOperatorOverride(orchDir, "--steal");
-  if (gov.crossSpace) forbidNonOperatorOverride(orchDir, "--cross-space");
+  if (gov.steal) forbidNonOperatorOverride(services.orchDir, "--steal");
+  if (gov.crossSpace) forbidNonOperatorOverride(services.orchDir, "--cross-space");
   return { gov, rest };
 }
 
 /** One write to orchd, stamped with the caller's actor and governance. Throws the
  *  refusal text a human should read; the caller owns what an unreachable daemon costs.
  *  Use {@link writeRpc} when that cost is the whole command. */
-export async function callDaemon(services: Pick<Services, "orchDir" | "settings">, method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
+export async function callDaemon(services: Pick<Services, "orchDir" | "settings" | "logger">, method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
   const directory = services.orchDir;
   if (timeoutMs === undefined && (method === "steer" || method === "answer")) {
     const { timeouts } = services.settings.current();
@@ -106,7 +106,7 @@ export async function callDaemon(services: Pick<Services, "orchDir" | "settings"
   if (gov.steal) enriched.steal = true;
   if (gov.crossSpace) enriched.crossSpace = true;
   try {
-    await ensureDaemon(directory);
+    await ensureDaemon(directory, services.logger);
     return await rpcCall(directory, method, enriched, timeoutMs);
   } catch (error: unknown) {
     throw translateDaemonError(directory, error);
@@ -114,7 +114,7 @@ export async function callDaemon(services: Pick<Services, "orchDir" | "settings"
 }
 
 /** The daemon write whose failure ends the command. */
-export async function writeRpc(services: Pick<Services, "orchDir" | "settings">, method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
+export async function writeRpc(services: Pick<Services, "orchDir" | "settings" | "logger">, method: string, params: Record<string, unknown>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<unknown> {
   try {
     return await callDaemon(services, method, params, gov, timeoutMs);
   } catch (error: unknown) {
@@ -122,7 +122,7 @@ export async function writeRpc(services: Pick<Services, "orchDir" | "settings">,
   }
 }
 
-async function startDaemon(orchDir: string, foreground: boolean, json = false): Promise<void> {
+async function startDaemon(orchDir: string, logger: Services["logger"], foreground: boolean, json = false): Promise<void> {
   const directory = orchDir;
   const global = liveDaemonRegistration();
   if (global && path.resolve(global.orchDir) !== path.resolve(directory)) {
@@ -142,14 +142,14 @@ async function startDaemon(orchDir: string, foreground: boolean, json = false): 
   // Nothing is listening: a still-alive lock pid is wedged — terminate it so a fresh
   // instance can take the lock instead of being refused it forever. With no live pid,
   // a dial that timed out hit a departed daemon's endpoint files; reap them.
-  if (livePid !== undefined) await terminateWedgedDaemon(directory, livePid, 3000);
+  if (livePid !== undefined) await terminateWedgedDaemon(directory, logger, livePid, 3000);
   else if (probe === "unreachable") clearDaemonRuntime(directory);
   const entrypoint = daemonEntrypoint();
   if (foreground) {
     process.exitCode = await runForeground(entrypoint);
     return;
   }
-  daemonize(entrypoint, [], directory);
+  daemonize(directory, entrypoint, []);
   // Never announce a start the daemon did not make: it exits silently when it
   // cannot take the lock, and its reason is in the log.
   const status = await waitForDaemon(directory).catch((): never =>
@@ -216,7 +216,7 @@ export async function cmdDaemon(services: Services, args: string[]): Promise<voi
   const json = flags.includes("--json");
   if (action === "start") {
     rejectUnknownFlags(action, flags, [...FOREGROUND_FLAGS, "--json"]);
-    return startDaemon(services.orchDir, flags.some((flag) => FOREGROUND_FLAGS.includes(flag)), json);
+    return startDaemon(services.orchDir, services.logger, flags.some((flag) => FOREGROUND_FLAGS.includes(flag)), json);
   }
   if (action === "stop") {
     rejectUnknownFlags(action, flags, ["--json"]);
@@ -237,7 +237,7 @@ export async function cmdWork(services: Services, args: string[]) {
   const json = args.includes("--json");
   const once = args.includes("--once");
   if (args.some((arg) => arg !== "--once" && arg !== "--json")) die("usage: orch work [--once] [--json]");
-  await ensureDaemon(services.orchDir);
+  await ensureDaemon(services.orchDir, services.logger);
   if (json) process.stdout.write(JSON.stringify({ once, accepted: true, daemon: "orchd" }) + "\n");
   else process.stdout.write("orchd is processing the queue.\n");
 }

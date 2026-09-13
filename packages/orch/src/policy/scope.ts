@@ -9,6 +9,7 @@ import { launchCredential } from "../identity/launch.ts";
 import { selfId } from "../identity/self.ts";
 import { callerSession } from "../adapters/session-env.ts";
 import { rpcRegisterSession } from "../daemon/reach.ts";
+import type { Logger } from "../types/core.ts";
 import type { AgentScopeInput, CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 
 export function agentInMineScope(input: Omit<AgentScopeInput, "spaceWide">): boolean {
@@ -35,15 +36,15 @@ export function agentInScope(input: AgentScopeInput): boolean {
  * fleet question with an empty table. Null here is what makes the default
  * unscoped for a human and scoped for an orch, with no flag on either side.
  */
-export async function callerScopeAddress(directory: string, options: { register?: boolean } = {}): Promise<string | undefined> {
-  const launched = launchCredential();
+export async function callerScopeAddress(logger: Logger, directory: string, options: { register?: boolean } = {}): Promise<string | undefined> {
+  const launched = launchCredential(directory);
   if (launched !== null) return launched;
   if (callerSession() === null) return undefined;
   const known = selfId(directory);
   if (known !== undefined) return known;
   // Registration needs the daemon; an offline read takes the unregistered answer.
   if (options.register === false) return undefined;
-  return (await rpcRegisterSession(directory)).id;
+  return (await rpcRegisterSession(directory, logger)).id;
 }
 
 /**
@@ -53,12 +54,13 @@ export async function callerScopeAddress(directory: string, options: { register?
  * has an id for this process, never which plexer, cwd or terminal it sits in.
  */
 export async function resolveCallerScope(
+  logger: Logger,
   choice: CallerScopeChoice,
   directory: string,
   options: { register?: boolean } = {},
 ): Promise<ResolvedCallerScope> {
   if (choice === "any") return { mine: false, address: undefined };
-  const address = await callerScopeAddress(directory, options);
+  const address = await callerScopeAddress(logger, directory, options);
   if (choice === "mine") return { mine: true, address };
   return { mine: address !== undefined, address };
 }

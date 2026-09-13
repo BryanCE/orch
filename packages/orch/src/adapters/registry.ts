@@ -21,8 +21,8 @@ export function warmAdapterCatalogues(): void {
 
 /** Discard every stored catalogue and ask the harnesses again, resolving once they have all
  *  answered. The manual half of the refresh cycle, for a model installed minutes ago. */
-export async function refreshAdapterCatalogues(): Promise<void> {
-  forgetModelCatalogues();
+export async function refreshAdapterCatalogues(orchDir: string): Promise<void> {
+  forgetModelCatalogues(orchDir);
   await Promise.all(adapters.map((adapter) => adapter.modelWarm ? adapter.modelWarm.warmModels() : Promise.resolve()));
 }
 

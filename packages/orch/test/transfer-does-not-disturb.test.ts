@@ -26,7 +26,7 @@ const links: { readonly key: string; readonly link: BridgeLink }[] = [];
 const saved = process.env.ORCH_DIR;
 
 afterEach(() => {
-  for (const { key, link } of links.splice(0)) detachBridge(key, link);
+  for (const { key, link } of links.splice(0)) detachBridge(process.env.ORCH_DIR ?? ".", key, link);
   closeAllStores();
   if (saved === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = saved;
@@ -102,7 +102,7 @@ describe("a transfer touches the lease and nothing else", () => {
     const statusBefore = statusBytes(directory);
     const deliveries: BridgeDelivery[] = [];
     const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
-    attachBridge(worker, link);
+    attachBridge(directory, worker, link);
     links.push({ key: worker, link });
 
     handoffLease(directory, worker, "orch-a", "orch-b", 30);

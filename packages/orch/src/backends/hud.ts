@@ -30,22 +30,22 @@ const NO_HUD: PaneHud = {
 
 interface PaneHudProvider {
   /** True when this process is inside a live session of this provider's plexer. */
-  isActive: (id: string | null) => boolean;
-  hud: (id: string | null) => PaneHud;
+  isActive: (id: string | null, orchDir: string) => boolean;
+  hud: (id: string | null, orchDir: string) => PaneHud;
 }
 
 const PROVIDERS: readonly PaneHudProvider[] = [
   {
     isActive: herdrHudActive,
-    hud: (id) => ({
-      statusReporter: (paneId) => createPaneStatusReporter(id, paneId),
+    hud: (id, orchDir) => ({
+      statusReporter: (paneId) => createPaneStatusReporter(id, paneId, orchDir),
       notify: notifyHerdr,
-      readLabels: (apply) => readPaneLabels(id, apply),
+      readLabels: (apply) => readPaneLabels(id, apply, orchDir),
     }),
   },
 ];
 
 /** The HUD for the plexer this process is running under, or an inert one. */
-export function activePaneHud(id: string | null): PaneHud {
-  return PROVIDERS.find((provider) => provider.isActive(id))?.hud(id) ?? NO_HUD;
+export function activePaneHud(id: string | null, orchDir: string): PaneHud {
+  return PROVIDERS.find((provider) => provider.isActive(id, orchDir))?.hud(id, orchDir) ?? NO_HUD;
 }

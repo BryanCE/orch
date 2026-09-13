@@ -1,5 +1,6 @@
 import { launchCredential } from "../identity/launch.ts";
-import { ensurePresenceAgentDir, orchDir } from "./writer.ts";
+import { envOrchDir } from "../services.ts";
+import { ensurePresenceAgentDir } from "./writer.ts";
 import type { PresenceRecord } from "../types/presence.ts";
 
 export type PresenceSession =
@@ -9,10 +10,10 @@ export type PresenceSession =
 /** The hook shim's whole root: who am I, where is orch, where do I write. `not-orch`
  *  means a plain harness session with no orch launch credential: nothing to record. */
 export function presenceSession(): PresenceSession {
-  const key = launchCredential();
-  if (key === null) return { kind: "not-orch" };
   // Task 6-02 moves this env read into src/services.ts.
-  const root = orchDir();
+  const root = envOrchDir();
+  const key = launchCredential(root);
+  if (key === null) return { kind: "not-orch" };
   const directory = ensurePresenceAgentDir(key, root);
   if (directory === undefined) return { kind: "not-orch" };
   return { kind: "ok", key, orchDir: root, directory };

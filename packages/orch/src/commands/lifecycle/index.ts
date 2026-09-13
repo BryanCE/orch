@@ -20,7 +20,7 @@ export function lifecycleLogger(logger: Logger, key: string) {
 export async function cmdRun(services: Services, args: string[]): Promise<void> {
   const raw = args.includes("--raw");
   const json = args.includes("--json");
-  const { gov, rest } = parseGovernance(args.filter((arg) => arg !== "--json"));
+  const { gov, rest } = parseGovernance(services, args.filter((arg) => arg !== "--json"));
   const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
   const settings = services.settings.current();
   const { ent, pane } = resolvePane(services.orchDir, settings, target, { crossSpace: gov.crossSpace });

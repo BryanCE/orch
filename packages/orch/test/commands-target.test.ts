@@ -27,7 +27,7 @@ describe("commands/target", () => {
       seedLiveProcess(root, "live000001");
       seedAgent("dead000001", {}, root);
       for (const key of ["live000001", "not-an-identity", "dead000001"]) seedStatus(root, key, { key });
-      expect(livePanePresenceEntries().map((entry) => entry.key)).toEqual(["live000001"]);
+      expect(livePanePresenceEntries(root).map((entry) => entry.key)).toEqual(["live000001"]);
     } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 });

@@ -95,7 +95,7 @@ async function deliverPrompt(orchDir: string, target: string, adapter: AgentAdap
   const bridgeAction = action.kind === "run" ? "dispatch" : "steer";
   if (adapter.bridge?.takes.includes(bridgeAction)) {
     requireLiveAgent(orchDir, target, adapter, action.kind);
-    pushToBridge(target, { id: action.id, message: { action: bridgeAction, text: action.text } });
+    pushToBridge(orchDir, target, { id: action.id, message: { action: bridgeAction, text: action.text } });
     return { outcome: "invoke", ack: "expected" };
   }
   const command = adapter.steer({ key: target, text: action.text, id: action.id });
@@ -117,7 +117,7 @@ function deliverAnswer(orchDir: string, target: string, adapter: AgentAdapter, a
   requireLiveAgent(orchDir, target, adapter, "answer");
   const questionId = pendingQuestion(orchDir, target)?.id;
   if (questionId === undefined) return { outcome: "answer", reason: "not-asking", text: `${target} is not asking a question` };
-  pushToBridge(target, { id: action.id, message: { action: "answer", text: action.text, questionId } });
+  pushToBridge(orchDir, target, { id: action.id, message: { action: "answer", text: action.text, questionId } });
   return { outcome: "invoke", ack: "expected" };
 }
 
@@ -127,16 +127,16 @@ function deliverAnswer(orchDir: string, target: string, adapter: AgentAdapter, a
  * through the presence control outcome, so a model the harness could not resolve
  * surfaces as an error instead of a false "accepted".
  */
-async function deliverModel(orchDir: string, target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
+async function deliverModel(orchDir: string, settings: OrchSettings, target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
   if (adapter.modelControl === null && !adapter.bridge?.takes.includes("model")) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot set the model on ${target}: adapter ${adapter.id} has no running-session model control` };
   }
-  assertModelAllowed(orchDir, adapter, model);
+  assertModelAllowed(settings, adapter, model);
   requireLiveAgent(orchDir, target, adapter, "set model on");
   const command = adapter.modelControl?.setModel({ key: target, model, id });
   if (command) await runAdapterCommand(command, timeoutMs);
   if (adapter.bridge?.takes.includes("model")) {
-    pushToBridge(target, { id, message: { action: "model", model } });
+    pushToBridge(orchDir, target, { id, message: { action: "model", model } });
   }
   const outcome = await awaitControlOutcome(id, timeoutMs);
   const { bare, thinking } = splitThinkingSuffix(model);
@@ -159,7 +159,7 @@ function resolveBackendHandle(orchDir: string, target: string): { backend: Backe
   if (route) return route;
   const backendId = agentView(orchDir, target)?.environment.plexer;
   const backend = backendId ? getBackend(backendId) : undefined;
-  const handle = backend?.handleLookup?.handleFor(target);
+  const handle = backend?.handleLookup?.handleFor(target, orchDir);
   return backend && handle !== undefined ? { backend, handle } : undefined;
 }
 
@@ -198,5 +198,5 @@ export async function deliverControl(orchDir: string, settings: OrchSettings, ta
   // one thing E14 says an absence must never become.
   if (action.kind === "answer") return deliverAnswer(orchDir, canonicalTarget, adapter, action);
   if (action.kind === "lifecycle") return deliverLifecycle(orchDir, canonicalTarget, adapter, action.verb);
-  return deliverModel(orchDir, canonicalTarget, adapter, action.model, action.id, timeoutMs);
+  return deliverModel(orchDir, settings, canonicalTarget, adapter, action.model, action.id, timeoutMs);
 }

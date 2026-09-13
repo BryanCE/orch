@@ -109,7 +109,7 @@ describe("doctor backend and presence checks", () => {
       fs.mkdirSync(path.join(agents, "wD-p1"), { recursive: true });
       fs.writeFileSync(path.join(agents, "wD-p1", "status.json"), JSON.stringify({}));
 
-      const result = checkMalformedPresenceRecords();
+      const result = checkMalformedPresenceRecords(directory);
       expect(result.status).toBe("fail");
       const ignored = result.ignoredRecords ?? [];
       expect(ignored).toHaveLength(1);

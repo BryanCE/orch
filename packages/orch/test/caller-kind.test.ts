@@ -6,7 +6,7 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { claimAgent } from "../src/store/agent-rows.ts";
-import { callerKind } from "../src/policy/caller.ts";
+import { callerKind as daemonCallerKind } from "../src/policy/caller.ts";
 import { forbidNonOperatorOverride } from "../src/commands/target.ts";
 import { ensureCallerRegistered } from "../src/identity/self.ts";
 import { isolateHarnessSession, isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
@@ -14,6 +14,16 @@ import { seedAgent } from "./helpers/agent.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
 const directories: string[] = [];
+
+function currentOrchDir(): string {
+  const directory = process.env.ORCH_DIR;
+  if (!directory) throw new Error("ORCH_DIR is required");
+  return directory;
+}
+
+function callerKind(): ReturnType<typeof daemonCallerKind> {
+  return daemonCallerKind(currentOrchDir());
+}
 const sessionEnv = HARNESS_SESSION_ENV.pi;
 const savedSessionEnv = {
   marker: process.env[sessionEnv.marker],
@@ -80,7 +90,7 @@ describe("caller kind", () => {
     process.env[sessionEnv.marker] = "1";
     process.env[sessionEnv.sessionId] = "fresh-session";
     let registeredDirectory: string | undefined;
-    await ensureCallerRegistered((registered) => {
+    await ensureCallerRegistered(directory, (registered) => {
       registeredDirectory = registered;
       return Promise.resolve({ id: "registered-agent" });
     });
@@ -89,13 +99,13 @@ describe("caller kind", () => {
 
   test("override flags are allowed only for the operator", () => {
     isolateOrchEnv();
-    expect(() => forbidNonOperatorOverride("--force")).not.toThrow();
+    expect(() => forbidNonOperatorOverride(currentOrchDir(), "--force")).not.toThrow();
   });
 
   test("override flags refuse a driving session", () => {
     setupClaimedAgent("session-a");
     delete process.env[LAUNCH_ENV];
-    expect(() => forbidNonOperatorOverride("--force")).toThrow(
+    expect(() => forbidNonOperatorOverride(currentOrchDir(), "--force")).toThrow(
       "--force is operator-only: a driving session may only touch agents it holds.",
     );
   });
@@ -104,7 +114,7 @@ describe("caller kind", () => {
     const id = setupClaimedAgent("session-a");
     process.env[LAUNCH_ENV] = id;
     process.env[sessionEnv.sessionId] = "session-a";
-    expect(() => forbidNonOperatorOverride("--steal")).toThrow(
+    expect(() => forbidNonOperatorOverride(currentOrchDir(), "--steal")).toThrow(
       "--steal is operator-only: a driving session may only touch agents it holds.",
     );
   });

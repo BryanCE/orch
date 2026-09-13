@@ -3,6 +3,7 @@ import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { projectRoot } from "../src/util.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
+import { testServices } from "./helpers/services.ts";
 
 // Stubbing the cli module replaces it for every test file in the process, which
 // silently hands the next suite these fixtures instead of its own. The cli
@@ -84,7 +85,7 @@ afterAll(() => {
 describe("herdr and notification hardening", () => {
   test("uses a non-empty agent name and preserves shell command as one argv value", () => {
     const backend = new HerdrBackend();
-    const handle = backend.spawn(adapter, { cwd: "/tmp/work dir", workspace: "ws-test", key: "  " });
+    const handle = backend.spawn(adapter, { cwd: "/tmp/work dir", workspace: "ws-test", key: "  ", orchDir: "/tmp" });
 
     expect(handle).toBe("w6:p10");
     expect(lastCall("pane", "rename")).toEqual(["pane", "rename", "w6:p10", "pi-agent"]);
@@ -106,7 +107,7 @@ describe("herdr and notification hardening", () => {
     // What is asserted is the GRAMMAR, not a particular stripped value - the
     // namer no longer splits on "~" (A1: the key IS the minted id, so there is
     // no component to keep), it normalizes whatever it is handed.
-    new HerdrBackend().spawn(adapter, { workspace: "ws-test", key: "herdr~ws-test~ABC_123" });
+    new HerdrBackend().spawn(adapter, { workspace: "ws-test", key: "herdr~ws-test~ABC_123", orchDir: "/tmp" });
     const name = lastCall("pane", "rename")?.[3] ?? "";
     expect(name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
     expect(name).not.toContain("~");
@@ -119,7 +120,7 @@ describe("herdr and notification hardening", () => {
     expect(title).not.toContain("[space] p9:");
 
     let emitted: NotifyEvent | undefined;
-    emitAndNotify((value) => { emitted = value; }, [], event());
+    emitAndNotify((value) => { emitted = value; }, [], event(), undefined, testServices({ orchDir: "/tmp", settings: null }).settings);
     expect(emitted?.space).toBe("space");
     expect(emitted?.agent).toBe("space/agent-p9");
     expect(emitted?.agent).not.toContain("p9:");

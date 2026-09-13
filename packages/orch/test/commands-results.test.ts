@@ -14,15 +14,18 @@ import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { testServices } from "./helpers/services.ts";
 import { sql } from "drizzle-orm";
 
 /** Target resolution loads settings.json (host lookup) and die()s — killing the whole
  *  test process — when it is absent, so every command-invoking test seeds one. */
+const SETTINGS_FIXTURE = {
+  enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
+  defaults: { adapter: "pi", backend: "headless" },
+};
+
 function seedSettings(root: string): void {
-  writeSettingsFixture(root, {
-    enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
-    defaults: { adapter: "pi", backend: "headless" },
-  });
+  writeSettingsFixture(root, SETTINGS_FIXTURE);
 }
 
 /** A1: an agent key IS its minted id - no plexer, no space, no handle inside it.
@@ -78,7 +81,7 @@ describe("commands/results", () => {
     const askedAt = Date.parse("2026-09-11T00:00:00.000Z");
     try {
       const output = await captureStdoutAsync(() => withQuestionsServer(root, [{ questionId: "q1", agentId: key, key, name: "question-agent", question: "need input", askedAt }], async () => {
-        await cmdQuestions(["--local", "--all", "--json"]);
+        await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--all", "--json"]);
       }));
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key, name: "question-agent", space: "-", id: "q1", question: "need input", ts: "2026-09-11T00:00:00.000Z" })]);
@@ -99,7 +102,7 @@ describe("commands/results", () => {
       const output = await captureStdoutAsync(async () => {
         await withQuestionsServer(root, [
           { questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
-        ], async () => { await cmdQuestions(["--local", "--all", "--json"]); });
+        ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--all", "--json"]); });
       });
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live" })]);
@@ -115,7 +118,7 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     try {
-      const error = await cmdQuestions(["--local", "--json"]).then(() => undefined, (failure: unknown) => failure);
+      const error = await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--json"]).then(() => undefined, (failure: unknown) => failure);
       expect(error).toBeInstanceOf(DaemonAbsentError);
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
@@ -141,7 +144,7 @@ describe("commands/results", () => {
     // eslint-disable-next-line typescript/unbound-method
     const originalWrite = process.stdout.write;
     process.stdout.write = ((chunk: string | Uint8Array) => { output.push(String(chunk)); return true; });
-    try { cmdResult([key]); } finally { process.stdout.write = originalWrite; if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
+    try { cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]); } finally { process.stdout.write = originalWrite; if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(output.join("")).toBe("finished\n");
   });
   test.serial("keeps every settled dispatch and reports the newest", () => {
@@ -158,7 +161,7 @@ describe("commands/results", () => {
     writeResult(dir, { text: "second dispatch" });
     try {
       expect(readFileSync(join(dir, "results.jsonl"), "utf8").trimEnd().split("\n")).toHaveLength(2);
-      expect(captureStdout(() => cmdResult([key]))).toBe("second dispatch\n");
+      expect(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]))).toBe("second dispatch\n");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);
@@ -177,7 +180,7 @@ describe("commands/results", () => {
     seedAgent(root, key, space, "pi");
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "done", sessionPath: session }));
     try {
-      expect(captureStdout(() => cmdResult([key]))).toContain("(no results.jsonl - falling back to adapter-extracted session text)\nsession final\n");
+      expect(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]))).toContain("(no results.jsonl - falling back to adapter-extracted session text)\nsession final\n");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);
@@ -195,7 +198,7 @@ describe("commands/results", () => {
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "done" }));
     writeFileSync(join(dir, "results.jsonl"), `${JSON.stringify({ text: "finished without agent" })}\n`);
     try {
-      expect(captureStdout(() => cmdResult([key]))).toBe("finished without agent\n");
+      expect(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]))).toBe("finished without agent\n");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);
@@ -219,7 +222,7 @@ describe("commands/results", () => {
     seedAgent(root, key, space, "claude");
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
     let joined = "";
-    try { joined = captureStdout(() => cmdTail([key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
+    try { joined = captureStdout(() => cmdTail(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(joined).toContain("claude final");
     expect(joined).not.toContain("earlier turn");
   });
@@ -247,9 +250,9 @@ describe("commands/results", () => {
   }
 
   test.serial("orch tail renders pi's per-turn entries with role rows and a tool-call summary", () => {
-    const { key, restore } = seedPiSession();
+    const { root, key, restore } = seedPiSession();
     let joined = "";
-    try { joined = captureStdout(() => cmdTail([key])); } finally { restore(); }
+    try { joined = captureStdout(() => cmdTail(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key])); } finally { restore(); }
     expect(joined).toContain("user      | first task");
     expect(joined).toContain("assistant | working on it");
     expect(joined).toContain("assistant | [tools] bash(ls -la)");
@@ -258,18 +261,18 @@ describe("commands/results", () => {
   });
 
   test.serial("orch tail -n keeps last-N rendered entries for a pi session", () => {
-    const { key, restore } = seedPiSession();
+    const { root, key, restore } = seedPiSession();
     let joined = "";
-    try { joined = captureStdout(() => cmdTail([key, "-n", "1"])); } finally { restore(); }
+    try { joined = captureStdout(() => cmdTail(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key, "-n", "1"])); } finally { restore(); }
     expect(joined).toContain("final answer");
     expect(joined).not.toContain("first task");
     expect(joined).not.toContain("working on it");
   });
 
   test.serial("orch session reports the pi entry count", () => {
-    const { key, restore } = seedPiSession();
+    const { root, key, restore } = seedPiSession();
     let joined = "";
-    try { joined = captureStdout(() => cmdSession([key])); } finally { restore(); }
+    try { joined = captureStdout(() => cmdSession(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key])); } finally { restore(); }
     expect(joined).toContain("entries: 5");
   });
 
@@ -286,7 +289,7 @@ describe("commands/results", () => {
     seedAgent(root, key, space, "claude");
     writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
     let joined = "";
-    try { joined = captureStdout(() => cmdSession([key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
+    try { joined = captureStdout(() => cmdSession(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(joined).toContain("entries: 0");
   });
 });

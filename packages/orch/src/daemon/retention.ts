@@ -55,7 +55,7 @@ function removeExpiredAgentDirs(orchDir: string, cutoff: Date): number {
   const recordsRemoved = removeExpiredAgentRecords(orchDir, cutoff);
   const result = reapDeadPresenceDirs(orchDir, cutoff);
   for (const failure of result.failed) {
-    decisionLogger(orchDir).warn("retention.sweep-failed", { area: "ended_agents", dir: failure.entry.dir, error: errorMessage(failure.error) });
+    decisionLogger(orchDir, null).warn("retention.sweep-failed", { area: "ended_agents", dir: failure.entry.dir, error: errorMessage(failure.error) });
   }
   // The registry row and presence directory represent one logical agent. Count
   // their union so removing both does not inflate the retention metric.
@@ -90,7 +90,7 @@ function removeExpiredLogs(orchDir: string, cutoff: Date): number {
     try {
       backendRemoved += pruning.prune(cutoff, liveKeys, orchDir);
     } catch (error: unknown) {
-      decisionLogger(orchDir).warn("retention.sweep-failed", { area: "logs", backend: backend.id, error: errorMessage(error) });
+      decisionLogger(orchDir, null).warn("retention.sweep-failed", { area: "logs", backend: backend.id, error: errorMessage(error) });
     }
   }
   return removed + backendRemoved;
@@ -122,7 +122,7 @@ export function sweepExpiredRows(orchDir: string, settings: Pick<OrchSettings, "
     try {
       counts[entry.name] = entry.remove(cutoff(entry.days));
     } catch (error: unknown) {
-      decisionLogger(orchDir).warn("retention.sweep-failed", { area: entry.name, error: errorMessage(error) });
+      decisionLogger(orchDir, null).warn("retention.sweep-failed", { area: entry.name, error: errorMessage(error) });
     }
   }
   return counts;

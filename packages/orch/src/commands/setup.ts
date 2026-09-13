@@ -95,7 +95,7 @@ export async function offerReapMalformedRecords(
 async function initializeSetup(options: SetupOptions, services: OrchDirService): Promise<void> {
   // Before the first prompt, and for every harness rather than the ones about to be picked:
   // the registry queries then run under the whole wizard instead of stalling the model step.
-  if (options.refresh) await refreshAdapterCatalogues();
+  if (options.refresh) await refreshAdapterCatalogues(services.orchDir);
   else warmAdapterCatalogues();
   if (options.interactive) setupIntro();
 
@@ -112,11 +112,11 @@ async function installSetupComposition(
   args: string[],
 ): Promise<string[] | null> {
   recordComposition(services.orchDir, composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
-  if (!(await installPrerequisites(composition.adapters, composition.backends, options.interactive, options.yes, options.noInstall))) return null;
+  if (!(await installPrerequisites(services.logger, composition.adapters, composition.backends, options.interactive, options.yes, options.noInstall))) return null;
   process.stdout.write("Presence dir:\n");
   files.mkdirSync(presenceDir(services.orchDir), { recursive: true });
   process.stdout.write(`  ${presenceDir(services.orchDir)}\n`);
-  const gaps = await installAdapterShims(composition.adapters, options.copy);
+  const gaps = await installAdapterShims(services.orchDir, services.logger, composition.adapters, options.copy);
   await offerSkills(services, args, options.interactive);
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
   if (options.interactive) await configureNotifiers(services);
@@ -136,11 +136,11 @@ async function diagnoseAdapters(orchDir: string, adapters: readonly AdapterId[])
   }
 }
 
-async function runDoctorPass(services: OrchDirService, interactive: boolean): Promise<CheckResult[]> {
+async function runDoctorPass(services: Pick<Services, "orchDir" | "logger">, interactive: boolean): Promise<CheckResult[]> {
   process.stdout.write("Running doctor checks...\n");
-  let doctorResults = await runDoctor(services.orchDir, {});
+  let doctorResults = await runDoctor(services.orchDir, services.logger, {});
   // Re-run after a reap so the passed/total count reflects the reaped records, not the pre-reap state.
-  if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(services.orchDir, {});
+  if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(services.orchDir, services.logger, {});
   process.stdout.write(`Doctor: ${doctorResults.filter((result) => result.status === "ok" || result.status === "skip").length}/${doctorResults.length} checks passed\n`);
   return doctorResults;
 }
@@ -232,7 +232,7 @@ export async function runFirstTimeSetup(argv: string[], dispatch: (argv: string[
   // A cancelled wizard records nothing, so the original command must not run.
   // `process.exitCode`, never `process.exit()`: exiting truncates whatever the
   // wizard already wrote (src/commands/index.ts:272 states the same rule).
-  if (compositionUnrecorded(services.orchDir)) {
+  if (compositionUnrecorded(services.settings.currentOrNull())) {
     process.exitCode = 1;
     return;
   }

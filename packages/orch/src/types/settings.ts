@@ -49,7 +49,7 @@ export interface SettingsWatchOptions {
   pollMs?: number;
   /** Load the current settings. The daemon passes `() => services.settings.reload()` so the
    *  watcher and the manager agree on one value. */
-  load?: () => OrchSettings;
+  load: () => OrchSettings;
 };
 
 export interface SettingsWatch {

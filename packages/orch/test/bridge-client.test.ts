@@ -9,6 +9,7 @@ import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { isRecord } from "../src/util.ts";
+import { testServices } from "./helpers/services.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 
 interface Connection {
@@ -88,7 +89,7 @@ describe("bridge daemon client", () => {
     await listen(server, socketPath);
 
     const deliveries: BridgeDelivery[] = [];
-    const client = createDaemonClient(directory);
+    const client = createDaemonClient(directory, testServices({ orchDir: directory, settings: null }).settings);
     client.attach("agent-key", (delivery) => deliveries.push(delivery));
     await waitFor(() => connections.length === 1 && connections[0]!.lines.length === 1);
     await waitFor(() => client.attached());

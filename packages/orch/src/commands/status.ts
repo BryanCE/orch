@@ -804,8 +804,8 @@ function capacityOutput(orchDir: string, settings: OrchSettings): { capacity: Re
 /** The one-shot status table. `--live` is routed away before this runs (`status-verb.ts`). */
 export async function cmdStatus(services: Services, options: StatusOptions): Promise<void> {
   if (!options.offline) {
-    await ensureDaemonOrWarn(services.orchDir);
-    await ensureCallerRegistered(services.orchDir, rpcRegisterSession);
+    await ensureDaemonOrWarn(services.orchDir, services.logger);
+    await ensureCallerRegistered(services.orchDir, (directory) => rpcRegisterSession(directory, services.logger));
   }
   const caller = callerScope(services.orchDir);
   if (options.spaceWide) forbidNonOperatorOverride(services.orchDir, "--space-wide");

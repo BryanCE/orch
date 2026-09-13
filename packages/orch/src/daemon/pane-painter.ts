@@ -38,7 +38,7 @@ export function createPanePainter(orchDir: string): (agentId: string, snapshot: 
     const sinkKey = `${agentId} ${pane}`;
     let sink = sinks.get(sinkKey);
     if (!sink) {
-      sink = activePaneHud(agentId).statusReporter(pane);
+      sink = activePaneHud(agentId, orchDir).statusReporter(pane);
       sinks.set(sinkKey, sink);
     }
     sink(snapshot);

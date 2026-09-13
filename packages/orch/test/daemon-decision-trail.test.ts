@@ -13,6 +13,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { LogRecord } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
+import { testServices } from "./helpers/services.ts";
 
 const dirs: string[] = [];
 const previousLogLevel = process.env.ORCH_LOG_LEVEL;
@@ -40,6 +41,11 @@ function agent(directory: string, id: string): void {
   insertAgent(directory, { id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 1 });
 }
 
+function daemonState(directory: string) {
+  const services = testServices({ orchDir: directory, settings: null });
+  return { services, directory, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, presenceWatch: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false };
+}
+
 function records(directory: string): LogRecord[] {
   const lines = readFileSync(join(directory, "orchd.log"), "utf8").trim().split("\n");
   return lines.map((line) => {
@@ -59,7 +65,7 @@ describe("daemon decision trail", () => {
     const token = processStartToken(process.pid);
     orm(directory).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"live-holder"},${2},${"host"},${process.pid},${token})`);
 
-    expect(() => governWrite(directory, "target", { actor: "caller", target: "target", text: "hello" })).toThrow(/leased by/);
+    expect(() => governWrite(daemonState(directory), "target", { actor: "caller", target: "target", text: "hello" })).toThrow(/leased by/);
 
     const [record] = records(directory);
     if (record === undefined) throw new Error("missing lease refusal record");
@@ -82,7 +88,7 @@ describe("daemon decision trail", () => {
     agent(directory, "dead-holder");
     acquireLease(directory, "target", "dead-holder", 2);
 
-    expect(() => governWrite(directory, "target", { actor: "caller", target: "target", text: "hello" })).not.toThrow();
+    expect(() => governWrite(daemonState(directory), "target", { actor: "caller", target: "target", text: "hello" })).not.toThrow();
 
     const [record] = records(directory);
     if (record === undefined) throw new Error("missing lease grant record");
@@ -107,7 +113,7 @@ describe("daemon decision trail", () => {
     // matcher chains as Thenable, and awaiting the call is the same assertion.
     // A boundary answer is terminal: it is a reply to a human, and no bridge
     // will ever append a marker for it, so it settles on the write (L7).
-    expect(await deliverWrite(target, { action: "steer", text: "hello" }, "dispatch-1")).toBe("acked");
+    expect(await deliverWrite(daemonState(directory), target, { action: "steer", text: "hello" }, "dispatch-1")).toBe("acked");
 
     const trail = records(directory);
     const record = trail.find((candidate) => candidate.event === "boundary.answer");

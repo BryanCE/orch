@@ -11,6 +11,7 @@ import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, HomeSubject, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { createLogger } from "../src/log.ts";
 
 /**
  * The spawn half.
@@ -39,6 +40,10 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
   restoreOrchEnv();
 });
+
+function logger(directory: string) {
+  return createLogger({ file: join(directory, "test.log"), level: "error" });
+}
 
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-placement-"));
@@ -120,41 +125,41 @@ function gate(): { asked: number; grantNewHome: () => void } {
 
 describe("outside every plexer, spawn is headless unless the human chose one", () => {
   test("a plexer orch only probed, from a plain terminal, spawns headless", () => {
-    fixture();
+    const dir = fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: false }, null).id).toBe("headless");
+      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: false }, null).id).toBe("headless");
     });
   });
 
   // `--backend`, `ORCH_BACKEND` and `defaults.backend` are all the human's
   // choice: a plexer set up in settings.json is one orch may open a home in.
   test("a chosen plexer stays selected and its home is what the human grants", () => {
-    fixture();
+    const dir = fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: true }, null).id).toBe("herdr");
+      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: true }, null).id).toBe("herdr");
     });
   });
 
   test("a chosen plexer that cannot open a home still falls back to headless", () => {
-    fixture();
+    const dir = fixture();
     withRegisteredBackend(homedBackend(null, false), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: true }, null).id).toBe("headless");
+      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: true }, null).id).toBe("headless");
     });
   });
 
   // The caller's plexer is read off its RECORD, so a plain terminal inside
   // herdr — no harness marker, no launch key — is inside all the same.
   test("a caller recorded inside the plexer stays in it, chosen or not", () => {
-    fixture();
+    const dir = fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), true), () => {
-      expect(spawnBackend({ backend: "herdr", space: null, backendChosen: false }, "herdr").id).toBe("herdr");
+      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: false }, "herdr").id).toBe("herdr");
     });
   });
 
   test("a named space is placement enough: no chosen backend needed", () => {
-    fixture();
+    const dir = fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend({ backend: "herdr", space: "team", backendChosen: false }, null).id).toBe("herdr");
+      expect(spawnBackend(logger(dir), { backend: "herdr", space: "team", backendChosen: false }, null).id).toBe("herdr");
     });
   });
 });

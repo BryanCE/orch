@@ -13,6 +13,7 @@ import type { SpaceEnvironment } from "../src/types/command.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
+import { testServices } from "./helpers/services.ts";
 const originalDir = process.env.ORCH_DIR;
 const originalWrite = process.stdout.write.bind(process.stdout);
 const dirs: string[] = [];
@@ -200,7 +201,7 @@ describe("orch space — vocabulary and wiring", () => {
     const dir = tempDir();
     process.env.ORCH_DIR = dir;
     writeSettingsFixture(dir, { defaults: { adapter: "pi", backend: "headless" } });
-    expect(json(capture(() => cmdSpace(["list", "--json"])))).toMatchObject({ spaces: [] });
+    expect(json(capture(() => cmdSpace(testServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } }), ["list", "--json"])))).toMatchObject({ spaces: [] });
   });
 
   test("orch ws is gone", () => {

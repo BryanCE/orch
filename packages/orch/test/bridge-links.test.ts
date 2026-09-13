@@ -4,12 +4,12 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   BridgeDetachedError,
-  attachBridge,
+  attachBridge as daemonAttachBridge,
   attachedBridgeKeys,
-  bridgeAttached,
-  detachBridge,
+  bridgeAttached as daemonBridgeAttached,
+  detachBridge as daemonDetachBridge,
   isBridgeDetached,
-  pushToBridge,
+  pushToBridge as daemonPushToBridge,
 } from "../src/control/bridge-links.ts";
 import type { BridgeLink } from "../src/control/bridge-links.ts";
 import { isBridgeDelivery, isBridgeMessage } from "../src/control/bridge-message.ts";
@@ -39,11 +39,27 @@ function attach(key: string, link: BridgeLink): void {
 function liveAgent(name: string): string {
   const key = mintAgentId();
   seedStatus(directory, key, { agent: "pi", pid: process.pid });
-  seedAgent(key, { name });
+  seedAgent(key, { name }, directory);
   return key;
 }
 
 const delivery: BridgeDelivery = { id: "row-1", message: { action: "steer", text: "hello" } };
+
+function attachBridge(key: string, link: BridgeLink): void {
+  daemonAttachBridge(directory, key, link);
+}
+
+function detachBridge(key: string, link: BridgeLink): void {
+  daemonDetachBridge(directory, key, link);
+}
+
+function bridgeAttached(key: string): boolean {
+  return daemonBridgeAttached(directory, key);
+}
+
+function pushToBridge(key: string, value: BridgeDelivery): void {
+  daemonPushToBridge(directory, key, value);
+}
 
 beforeEach(() => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), "orch-bridge-links-"));

@@ -262,9 +262,9 @@ function seatFleet(orchDir: string, backend: Backend, groupHome: GroupHomeRole, 
 }
 
 async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "settings">, settingsFile: OrchSettings, settings: SpawnSettings): Promise<void> {
-  await admitSpawn(services.orchDir, settingsFile, settings);
+  await admitSpawn(services.orchDir, settingsFile, settings, services.logger);
   // A spawned agent already carries its id; only a driving session registers.
-  const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(services.orchDir)).id;
+  const spawnerAgentId = launchCredential(services.orchDir) ?? (await rpcRegisterSession(services.orchDir, services.logger)).id;
   const spawner: Spawner = { id: spawnerAgentId, environment: environmentOf(services.orchDir, spawnerAgentId) };
   const backend = spawnBackend(services.logger, settings, spawner.environment.plexer);
   // An environment that creates no group can place nothing: spawn headless.
@@ -316,7 +316,7 @@ export async function cmdTile(services: Services, args: string[]) {
     return;
   }
   const selectedAdapter = resolveAdapterOrDie(adapter);
-  assertLaunchModelAllowed(services.orchDir, adapter, model);
+  assertLaunchModelAllowed(settingsFile, adapter, model);
   const target = flags.positional[0];
   const requestedName = flags.positional[1];
   // Tile CREATES an agent, so it names one too. An agent
@@ -337,7 +337,7 @@ export async function cmdTile(services: Services, args: string[]) {
   assertSpawnCapacity(services.orchDir, settingsFile, space, 1);
   assertTabCapacity(settingsFile, tab.label ?? tab.id, layout.placements.length, 1);
   // A spawned agent already carries its id; only a driving session registers.
-  const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(services.orchDir)).id;
+  const spawnerAgentId = launchCredential(services.orchDir) ?? (await rpcRegisterSession(services.orchDir, services.logger)).id;
   let agent: CreatedAgent;
   try {
     agent = spawnOneIntoTab(services.orchDir, {

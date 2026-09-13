@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { assertModelAllowed, assertModelOffered } from "../src/policy/model.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -71,17 +72,17 @@ describe("the settings allowlist applies on top of harness membership", () => {
 
   test("an empty allowlist restricts nothing beyond the harness list", () => {
     const dir = makeDir();
-    expect(() => assertModelAllowed(dir, pi, "openrouter/upstage/solar-pro-3")).not.toThrow();
+    expect(() => assertModelAllowed(fileSettingsManager(dir).current(), pi, "openrouter/upstage/solar-pro-3")).not.toThrow();
   });
 
   test("a configured allowlist refuses a listed model outside its patterns", () => {
     const dir = makeDir({ models: { allowed: { pi: ["openrouter/openai/*"] } } });
-    expect(() => assertModelAllowed(dir, pi, "openrouter/openai/gpt-5.6-luna:high")).not.toThrow();
-    expect(() => assertModelAllowed(dir, pi, "openrouter/upstage/solar-pro-3")).toThrow(/models\.allowed/);
+    expect(() => assertModelAllowed(fileSettingsManager(dir).current(), pi, "openrouter/openai/gpt-5.6-luna:high")).not.toThrow();
+    expect(() => assertModelAllowed(fileSettingsManager(dir).current(), pi, "openrouter/upstage/solar-pro-3")).toThrow(/models\.allowed/);
   });
 
   test("harness membership is checked before the allowlist, so the message names the harness", () => {
     const dir = makeDir({ models: { allowed: { pi: ["openrouter/openai/*"] } } });
-    expect(() => assertModelAllowed(dir, pi, "luna:high")).toThrow(/pi does not list model/);
+    expect(() => assertModelAllowed(fileSettingsManager(dir).current(), pi, "luna:high")).toThrow(/pi does not list model/);
   });
 });

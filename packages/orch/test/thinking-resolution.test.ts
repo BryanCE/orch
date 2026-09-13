@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { loadSettings } from "../src/settings/read.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { resolveThinking } from "../src/policy/thinking.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
@@ -13,7 +13,7 @@ describe("thinking resolution", () => {
   test("resolves every rung in priority order", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-thinking-"));
     writeSettingsFixture(dir, { defaults: { thinking: "low", thinking_by_harness: { codex: "high" } } });
-    const settings = loadSettings(dir);
+    const settings = fileSettingsManager(dir).current();
     expect(resolveThinking({ flag: "max", modelSuffix: "minimal", harness: "codex", settings })).toBe("max");
     expect(resolveThinking({ modelSuffix: "minimal", harness: "codex", settings })).toBe("minimal");
     expect(resolveThinking({ harness: "codex", settings })).toBe("high");
@@ -24,7 +24,7 @@ describe("thinking resolution", () => {
   test("bare model with no setting yields harness default", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-thinking-"));
     writeSettingsFixture(dir, { defaults: { models: { pi: "openai/model" } } });
-    const settings = loadSettings(dir);
+    const settings = fileSettingsManager(dir).current();
     expect(resolveThinking({ harness: "pi", settings })).toBe("medium");
     removeTempDir(dir);
   });
@@ -40,7 +40,7 @@ describe("thinking resolution", () => {
   test("per-harness override beats global default", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-thinking-"));
     writeSettingsFixture(dir, { defaults: { thinking: "low", thinking_by_harness: { claude: "xhigh" } } });
-    const settings = loadSettings(dir);
+    const settings = fileSettingsManager(dir).current();
     expect(resolveThinking({ harness: "claude", settings })).toBe("xhigh");
     expect(resolveThinking({ harness: "codex", settings })).toBe("low");
     removeTempDir(dir);

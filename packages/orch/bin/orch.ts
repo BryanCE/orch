@@ -3,6 +3,7 @@
 
 import "../src/store/suppress-sqlite-warning.ts";
 import { reportCommandFailure, runCommand } from "../src/commands/index.ts";
+import { createServices } from "../src/services.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 
 // Release this process's cached SQLite (WAL) handles when it ends. A spawned
@@ -13,8 +14,9 @@ process.on("exit", closeAllStores);
 
 // The one place a refusal becomes an exit code. Commands throw; nothing below
 // this line calls process.exit for a failed command.
+const services = createServices();
 try {
   runCommand(process.argv.slice(2));
 } catch (error: unknown) {
-  reportCommandFailure(error);
+  reportCommandFailure(services.logger, error);
 }

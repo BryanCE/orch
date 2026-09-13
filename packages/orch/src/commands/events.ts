@@ -51,11 +51,11 @@ export function eventWithinSpaceWall(root: string, key: string, ceiling: string 
 
 export async function cmdEvents(services: Services, args: string[]) {
   const options = parseEventsOptions(args);
-  await ensureDaemon(services.orchDir);
-  await ensureCallerRegistered(services.orchDir, rpcRegisterSession);
+  await ensureDaemon(services.orchDir, services.logger);
+  await ensureCallerRegistered(services.orchDir, (directory) => rpcRegisterSession(directory, services.logger));
   if (options.scope === "any") forbidNonOperatorOverride(services.orchDir, "--space-wide");
   const items = eventsItems(options, services.orchDir, services.settings.current());
-  const scope = await resolveCallerScope(options.scope, services.orchDir);
+  const scope = await resolveCallerScope(services.logger, options.scope, services.orchDir);
   const accepts = (key: string): boolean => {
     // The key IS the minted id (A1), so there is one lookup and no second id space.
     const agentId = isAgentId(key) ? key : null;

@@ -9,7 +9,6 @@ import {
   unlinkSync,
 } from "node:fs";
 import * as path from "node:path";
-import { orchDir as resolveOrchDir } from "../presence/writer.ts";
 import { processInstanceMatches, processIsAlive, processStartToken } from "../process-identity.ts";
 import { retryingAsync, retryingSync } from "../retry.ts";
 import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, osSide, packageRoot } from "../util.ts";
@@ -299,7 +298,10 @@ export async function terminateDaemon(pid: number, graceMs: number): Promise<voi
  *  can already answer directly: spawn, signal 0, and SIGTERM. */
 const localExecutor: OsExecutor = {
   osSide: osSide(),
-  start: (entrypoint, args = [], orchDir = resolveOrchDir()) => daemonize(entrypoint, args, orchDir),
+  start: (entrypoint, args = [], orchDir) => {
+    if (orchDir === undefined) throw new Error("daemon start requires orchDir");
+    return daemonize(orchDir, entrypoint, args);
+  },
   isAlive: (pid, startToken) => startToken === undefined ? processIsAlive(pid) : processInstanceMatches(pid, startToken),
   kill: (pid, graceMs) => terminateDaemon(pid, graceMs),
 };
@@ -345,9 +347,9 @@ function commandFor(entrypoint: string, args: string[]): [string, string[]] {
 
 /** Spawn orchd detached; diagnostics are written by the structured logger, never raw stdio. */
 export function daemonize(
+  orchDir: string,
   entrypoint: string,
   args: string[] = [],
-  orchDir = resolveOrchDir(),
 ): number {
   ensurePrivateDir(orchDir);
   const log = openSync(logPath(orchDir), "a");
@@ -387,7 +389,7 @@ export function runForeground(entrypoint: string, args: string[] = []): Promise<
 
 /** Re-run this entrypoint with unchanged argv, handing the lock to the replacement. */
 export function reexecSelf(
-  orchDir = resolveOrchDir(),
+  orchDir: string,
 ): never {
   releaseDaemonLock(orchDir);
   releaseDaemonRegistration();

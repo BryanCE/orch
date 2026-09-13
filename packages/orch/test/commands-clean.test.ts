@@ -11,9 +11,11 @@ import { agentViewIndex, presenceById } from "../src/commands/target.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { seedStatus } from "./helpers/presence.ts";
+import { loadPresence } from "../src/presence/store.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { isolateHarnessSession } from "./helpers/env.ts";
+import { testServices } from "./helpers/services.ts";
 
 /** Capture what a refusal wrote, and put the real stream back afterwards. */
 
@@ -26,7 +28,7 @@ describe("commands/clean", () => {
       seedAgent("liveagent1", {}, root);
       seedLiveProcess(root, "liveagent1");
       seedStatus(root, "liveagent1", {});
-      expect(removeDeadAgentDirs(true)).toEqual(["deadagent1"]);
+      expect(removeDeadAgentDirs(testServices({ orchDir: root, settings: null }), true, { root })).toEqual(["deadagent1"]);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
@@ -45,7 +47,7 @@ describe("commands/clean", () => {
       insertOutboxMessage(root, { id: "to-reaped", target: "reapedagent", payload: { action: "dispatch", text: "x" } });
       insertOutboxMessage(root, { id: "to-live", target: "liveagent1", payload: { action: "dispatch", text: "x" } });
 
-      cmdClean(["--json"]);
+      cmdClean(testServices({ orchDir: root, settings: null }), ["--json"]);
 
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(true);
       expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
@@ -63,7 +65,7 @@ describe("commands/clean", () => {
       seedStatus(root, "deadagent1", {});
       insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
 
-      cmdClean(["--force", "--json"]);
+      cmdClean(testServices({ orchDir: root, settings: null }), ["--force", "--json"]);
 
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(selectOutboxMessage(root, "to-dead")?.state).toBe("undeliverable");
@@ -89,7 +91,7 @@ describe("worktree ownership reads the composed environment", () => {
       seedStatus(root, "dead000001", { key: "dead000001" });
 
       const views = [...agentViewIndex(root).values()];
-      const presence = presenceById();
+      const presence = presenceById(loadPresence(root));
       expect(liveWorktreeOwner(join(root, "wt-live"), views, presence)).toBe(true);
       expect(liveWorktreeOwner(join(root, "wt-dead"), views, presence)).toBe(false);
       expect(liveWorktreeOwner(join(root, "wt-nobody"), views, presence)).toBe(false);
@@ -124,8 +126,8 @@ describe("orch clean is destructive maintenance", () => {
       // A refusal is a thrown value carrying its reason, not a process exit and
       // not a stderr side effect (src/refusal.ts): the CLI boundary renders it.
       // Asserting the reason on the thrown value is stronger than either.
-      expect(() => cmdClean([])).toThrow(CommandRefusal);
-      expect(() => cmdClean([])).toThrow(/operator-only/i);
+      expect(() => cmdClean(testServices({ orchDir: root, settings: null }), [])).toThrow(CommandRefusal);
+      expect(() => cmdClean(testServices({ orchDir: root, settings: null }), [])).toThrow(/operator-only/i);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(true);
     } finally {
       restoreHarnessSession();

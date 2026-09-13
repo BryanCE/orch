@@ -7,7 +7,7 @@ import { fleetStatusRows, renderStatusTable, statusRowFromEntity } from "../src/
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { StatusRow } from "../src/types/command.ts";
 import type { Entity } from "../src/types/core.ts";
-
+import { testServices } from "./helpers/services.ts";
 function row(overrides: Partial<StatusRow> = {}): StatusRow {
   const base: StatusRow = {
     key: "agent00001", agentId: "agent00001", paneId: "pane-1", managed: true,
@@ -77,10 +77,12 @@ describe("status rendering has one row shape and one table renderer", () => {
     }
     let orchCalls = 0;
     let directoryCalls = 0;
-    const rows = fleetStatusRows({}, {
+    const settings = testServices({ orchDir: root, settings: {} }).settings.current();
+    directoryCalls += 1;
+    const rows = fleetStatusRows(settings, settings.spaces, {
       bundleHashes: () => new Set<string>(),
       orchId: () => { orchCalls += 1; return null; },
-      directory: () => { directoryCalls += 1; return root; },
+      directory: root,
     });
     expect(rows).toHaveLength(3);
     expect(orchCalls).toBe(1);

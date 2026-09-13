@@ -14,6 +14,7 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { sql } from "drizzle-orm";
+import { testServices } from "./helpers/services.ts";
 
 function capture(run: () => void): { stdout: string; stderr: string } {
   const out: string[] = [];
@@ -52,7 +53,7 @@ describe("commands/runs", () => {
       seedPresence(root, "runsoneaaa");
       upsertRun(root, { dispatchId: "old", agentKey: "runsoneaaa", state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z"), task: "old task" });
       upsertRun(root, { dispatchId: "new", agentKey: "runsoneaaa", state: "done", startedAt: Date.parse("2026-01-02T00:00:00Z"), task: "new task" });
-      const output = capture(() => cmdRuns(["-n", "1"])).stdout;
+      const output = capture(() => cmdRuns(testServices({ orchDir: root, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } }), ["-n", "1"])).stdout;
       expect(output).toContain("new task");
       expect(output).not.toContain("old task");
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
@@ -68,7 +69,7 @@ describe("commands/runs", () => {
       seedPresence(root, "runstwoaaa");
       upsertRun(root, { dispatchId: "one", agentKey: "runsoneaaa", state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z") });
       upsertRun(root, { dispatchId: "two", agentKey: "runstwoaaa", state: "done", startedAt: Date.parse("2026-01-02T00:00:00Z") });
-      const output = capture(() => cmdRuns(["runsoneaaa", "--json"])).stdout;
+      const output = capture(() => cmdRuns(testServices({ orchDir: root, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } }), ["runsoneaaa", "--json"])).stdout;
       expect(JSON.parse(output)).toEqual([expect.objectContaining({ dispatchId: "one", agentKey: "runsoneaaa" })]);
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
@@ -85,7 +86,7 @@ describe("commands/runs", () => {
       writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
       const key = "runsgoneaa";
       upsertRun(root, { dispatchId: "history", agentKey: key, state: "done", startedAt: Date.parse("2026-01-01T00:00:00Z"), result: { text: "from history" } });
-      const output = capture(() => cmdResult([key]));
+      const output = capture(() => cmdResult(testServices({ orchDir: root, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } }), [key]));
       expect(output.stdout).toContain("(result from run history)\n");
       expect(output.stdout).toContain("from history\n");
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }

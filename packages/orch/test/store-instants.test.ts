@@ -29,7 +29,7 @@ function fixture(): string {
 describe("epoch-millisecond store instants", () => {
   test("a lease records its holding as an integer instant", () => {
     const dir = fixture();
-    seedAgent("aaaaaaaaa1", { adapter: "pi", backend: "headless", owner: "bbbbbbbbb1" });
+    seedAgent("aaaaaaaaa1", { adapter: "pi", backend: "headless", owner: "bbbbbbbbb1" }, dir);
 
     expect(row(orm(dir), sql`SELECT typeof(since) AS kind FROM agent_leases WHERE agent_id = 'aaaaaaaaa1'`))
       .toEqual({ kind: "integer" });

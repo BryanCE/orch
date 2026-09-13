@@ -105,7 +105,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   // retry of the same id can never deliver the prompt twice, and the agent's
   // status/result echo the id the settle path verifies against.
   const dispatchId = currentAttempt(task)?.dispatchId ?? randomUUID();
-  const correlated = decisionLogger(options.orchDir).forCorrelation(dispatchId);
+  const correlated = decisionLogger(options.orchDir, options.settings.current()).forCorrelation(dispatchId);
   const log = runnerId === undefined ? correlated : correlated.forAgent(runnerId);
   const sendPrompt = async (): Promise<void> => {
     log.info("dispatch.delivering", { target: entry.key, handle: entry.key });
@@ -282,7 +282,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
         lastSweepAt = nowMs;
         const counts = sweepExpiredRows(options.orchDir, settings, new Date(nowMs));
         if (Object.values(counts).some((count) => count > 0)) {
-          decisionLogger(options.orchDir).info("retention.swept", { ...counts });
+          decisionLogger(options.orchDir, settings).info("retention.swept", { ...counts });
         }
       }
       const questionSettings = settings.questions;

@@ -5,7 +5,7 @@ import { clearCatalogues, readCatalogues, writeCatalogue } from "../store/catalo
 import { binaryOnPath, errorMessage } from "../util.ts";
 import type { StoredCatalogue } from "../types/store.ts";
 import type { RetryPolicy } from "../types/core.ts";
-import { commandLogger } from "../commands/logging.ts";
+import type { Logger } from "../types/core.ts";
 
 /** A cold registry on a slow machine takes far longer to print than a warm one, and giving up
  *  early strips every model out of setup rather than failing loudly. */
@@ -59,8 +59,8 @@ function record(command: string, stdout: string, orchDir: string): void {
 }
 
 /** An unanswerable harness lists nothing rather than failing the caller; the reason goes to stdout. */
-function recordFailure(command: string, bin: string, error: unknown, orchDir: string): void {
-  commandLogger().warn("models.catalogue-failed", { command, bin, error: errorMessage(error) });
+function recordFailure(orchDir: string, logger: Logger, command: string, bin: string, error: unknown): void {
+  logger.warn("models.catalogue-failed", { command, bin, error: errorMessage(error) });
   process.stdout.write(`  warning: ${command} failed; ${bin} lists no models (${errorMessage(error)})\n`);
   record(command, "", orchDir);
 }
@@ -87,7 +87,7 @@ function queryInBackground(command: string, bin: string, argv: readonly string[]
 /** Run a harness's model-listing command. A stored answer is served at once and re-queried in
  *  the background once stale, so only a harness never asked before makes the caller wait.
  *  Empty string when it cannot answer, reason on stdout. */
-export function readModelCatalogue(bin: string, argv: readonly string[], orchDir: string): string {
+export function readModelCatalogue(orchDir: string, logger: Logger, bin: string, argv: readonly string[]): string {
   const command = commandLine(bin, argv);
   const answer = catalogues(orchDir).get(command);
   if (answer) {
@@ -99,7 +99,7 @@ export function readModelCatalogue(bin: string, argv: readonly string[], orchDir
     record(command, stdout, orchDir);
     return stdout;
   } catch (error: unknown) {
-    recordFailure(command, bin, error, orchDir);
+    recordFailure(orchDir, logger, command, bin, error);
     return "";
   }
 }

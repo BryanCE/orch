@@ -12,9 +12,9 @@ import { sleepMs } from "../shell-ready.ts";
 import { STATUS_FILE } from "../../presence/schema.ts";
 import { presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects } from "./cli.ts";
-import { capture } from "../../presence/roles.ts";
+import { createCaptureRole } from "../../presence/roles.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit,  CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { TmuxBackendDeps, TmuxHandle, TmuxPane } from "../../types/plexer.ts";
 
@@ -25,9 +25,9 @@ function tmuxEnvArgs(env: Readonly<Record<string, string>>): string[] {
 }
 
 /** Agent status read from the presence protocol for one pane's stamped key. */
-function statusForAgentKey(key: string): string | null {
+function statusForAgentKey(key: string, orchDir: string): string | null {
   if (!key) return null;
-  const status = readPresenceStatus(join(presenceAgentDir(key), STATUS_FILE));
+  const status = readPresenceStatus(join(presenceAgentDir(key, orchDir), STATUS_FILE));
   return status?.state ?? null;
 }
 
@@ -64,9 +64,14 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly id = TMUX_BACKEND;
   readonly process = new LocalProcessRole<TmuxHandle>(placedShellPid(() => this.foreground));
   private readonly homeExec: (args: string[]) => string;
+  private readonly orchDir: string | undefined;
 
-  constructor(deps: TmuxBackendDeps = {}) {
+  constructor(deps: TmuxBackendDeps & { readonly orchDir?: string } = {}) {
     this.homeExec = deps.homeExec ?? ((args) => execTmux(args));
+    this.orchDir = deps.orchDir;
+    this.capture = this.orchDir === undefined
+      ? { read: () => { throw new Error("tmux capture requires an orch directory"); } }
+      : createCaptureRole(this.orchDir);
   }
   readonly identity: EnvironmentIdentityRole = {
     current: (id: string | null): string | null => this.ownIdentity(id),
@@ -79,7 +84,8 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly versionInfo: null = null;
   // tmux runs a server, but reports no client/server compatibility fact to read.
   readonly serverInfo: null = null;
-  readonly capture = capture;
+  readonly capture: CaptureRole;
+
   readonly agentInput = {
     submit: (handle: TmuxHandle, text: string): void => {
       if (bestEffortTmux(["send-keys", "-t", handle, "--", text]) === null
@@ -132,7 +138,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       name: pane.agentName || pane.paneTitle || null,
       agent: pane.agent || null,
       focused: pane.paneActive && pane.windowActive && pane.sessionAttached,
-      status: statusForAgentKey(pane.agentKey),
+      status: this.orchDir === undefined ? null : statusForAgentKey(pane.agentKey, this.orchDir),
       sessionPath: null,
     })),
     coordinateOf: (handle) => this.sessionOf(handle) || null,
@@ -316,7 +322,8 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   private awaitStatus(handle: TmuxHandle, status: string, timeoutMs: number): boolean {
     const key = this.agentKeyOf(handle);
     if (!key) return false;
-    const statusPath = join(presenceAgentDir(key), STATUS_FILE);
+    if (this.orchDir === undefined) return false;
+    const statusPath = join(presenceAgentDir(key, this.orchDir), STATUS_FILE);
     const deadline = Date.now() + timeoutMs;
     while (true) {
       if (readPresenceStatus(statusPath)?.state === status) return true;

@@ -4,7 +4,7 @@ import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
 import { cmdSpawn } from "../commands/spawn/index.ts";
 import { resultText } from "../commands/target.ts";
-import { commandLogger } from "../commands/logging.ts";
+
 import type { SmokeSteps } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -28,10 +28,10 @@ export function buildSmokePrompt(): string {
 }
 
 /** Best-effort close of the headless smoke agent by its key. */
-export function closeSmokeAgent(key: string): void {
+export function closeSmokeAgent(orchDir: string, key: string): void {
   try {
     const backend = resolveBackend({ configured: "headless" });
-    const handle = backend.handleLookup?.handleFor(key);
+    const handle = backend.handleLookup?.handleFor(key, orchDir);
     if (handle !== undefined) backend.placement?.close(handle);
   } catch {
     // A leaked headless process is reaped by `orch clean`; never let teardown mask the verdict.
@@ -43,7 +43,7 @@ export function defaultSmokeSteps(services: Services): SmokeSteps {
   spawnHeadless: (cwd, prompt) => spawnHeadlessSmokeAgent(services, cwd, prompt),
   buildPrompt: buildSmokePrompt,
   readResultText: (key) => resultText(loadPresence(services.orchDir).get(key)?.result),
-  cleanup: closeSmokeAgent,
+  cleanup: (key) => closeSmokeAgent(services.orchDir, key),
   now: () => Date.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   timeoutMs: 60_000,
@@ -61,7 +61,7 @@ export async function runSetupSmoke(services: Services, cwd: string, steps: Part
   try {
     key = await step.spawnHeadless(cwd, step.buildPrompt());
   } catch (error: unknown) {
-    commandLogger().error("setup.smoke-spawn-failed", { error: errorMessage(error) });
+    services.logger.error("setup.smoke-spawn-failed", { error: errorMessage(error) });
     process.stdout.write(
       `Smoke failed: orch could not deliver work - the headless spawn was rejected (${errorMessage(error)}).\n` +
       `  "setup completed" does not yet mean orch can deliver work; check 'orch daemon status'.\n`,
@@ -77,7 +77,7 @@ export async function runSetupSmoke(services: Services, cwd: string, steps: Part
   }
   step.cleanup(key);
   if (!result) {
-    commandLogger().error("setup.smoke-timeout", { key, timeoutMs: step.timeoutMs });
+    services.logger.error("setup.smoke-timeout", { key, timeoutMs: step.timeoutMs });
     process.stdout.write(
       `Smoke failed: the agent launched but no result came back within ${Math.round(step.timeoutMs / 1000)}s - orch did not complete a work round-trip.\n` +
       `  Check the harness auth and 'orch tail ${key}'.\n`,

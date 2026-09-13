@@ -2,7 +2,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
 import { isRecord } from "../util.ts";
-import { bridgeExtensionArgv, diagnoseExtensionLink, installExtensionLink, modelSelectionArgv, PI_LIFECYCLE_TEXT, piSessionView, presenceAgentState, presenceFor, resultFromPresenceOrSession, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
+import { adapterLogger, bridgeExtensionArgv, diagnoseExtensionLink, installExtensionLink, modelSelectionArgv, PI_LIFECYCLE_TEXT, piSessionView, presenceAgentState, presenceFor, resultFromPresenceOrSession, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
 import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest } from "../types/adapter.ts";
@@ -36,8 +36,8 @@ function modelRow(entry: unknown): HarnessModel[] {
  *  the only supported reader. */
 const OMP_MODELS_ARGV = ["models", "--json"] as const;
 
-function queryOmpModels(): readonly HarnessModel[] {
-  return parseOmpModelsOutput(readModelCatalogue("omp", OMP_MODELS_ARGV));
+function queryOmpModels(orchDir: string): readonly HarnessModel[] {
+  return parseOmpModelsOutput(readModelCatalogue(orchDir, adapterLogger(orchDir), "omp", OMP_MODELS_ARGV));
 }
 
 /** Map `omp models --json` onto orch's provider/id vocabulary; that shape lives only here. */
@@ -86,14 +86,14 @@ class OmpAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = {
-    installShim: (opts?: ShimInstallOpts): void => this.installShim(opts),
-    diagnoseShim: (): CheckResult => this.diagnoseShim(),
+    installShim: (orchDir: string, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
+    diagnoseShim: (orchDir: string): CheckResult => this.diagnoseShim(orchDir),
   };
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = { warmModels: (): Promise<void> => this.warmModels() };
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
-  readonly presenceRegistration = { isRegistered: (key: string): boolean => presenceFor(key) !== undefined };
+  readonly presenceRegistration = { isRegistered: (key: string, orchDir: string): boolean => presenceFor(key, orchDir) !== undefined };
 
   /** Start omp directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {
@@ -121,8 +121,8 @@ class OmpAdapter implements AgentAdapter {
   }
 
   /** Read omp's authoritative status.json through the shared presence helpers. */
-  detectState(input: PiStateDetectionInput): AgentState {
-    return presenceAgentState(input.key);
+  detectState(input: PiStateDetectionInput, orchDir: string): AgentState {
+    return presenceAgentState(input.key, orchDir);
   }
 
   /** The bridge takes steers; nothing to run. */
@@ -141,8 +141,8 @@ class OmpAdapter implements AgentAdapter {
   }
 
   /** Read results.jsonl first, then fall back to the last assistant session entry. */
-  extractResult(input: PiResultExtractionInput): string | undefined {
-    return resultFromPresenceOrSession(input);
+  extractResult(input: PiResultExtractionInput, orchDir: string): string | undefined {
+    return resultFromPresenceOrSession(input, orchDir);
   }
 
   /** Read omp's session tail and map it to the shared session-view shape. */
@@ -151,7 +151,7 @@ class OmpAdapter implements AgentAdapter {
   }
 
   /** Verify the extension link and bundle written by installShim. */
-  diagnoseShim(): CheckResult {
+  diagnoseShim(_orchDir: string): CheckResult {
     return diagnoseExtensionLink(this.id, OMP_EXTENSION_DIR, OMP_EXTENSION);
   }
 
@@ -161,17 +161,17 @@ class OmpAdapter implements AgentAdapter {
   }
 
   /** Report what omp says it can run, asked of omp itself. */
-  listModels(): readonly HarnessModel[] {
-    return queryOmpModels();
+  listModels(orchDir?: string): readonly HarnessModel[] {
+    return orchDir === undefined ? [] : queryOmpModels(orchDir);
   }
 
   /** omp's registry is a shell-out; start it early so setup's next prompt covers the wait. */
-  warmModels(): Promise<void> {
-    return warmModelCatalogue("omp", OMP_MODELS_ARGV);
+  warmModels(orchDir?: string): Promise<void> {
+    return orchDir === undefined ? Promise.resolve() : warmModelCatalogue("omp", OMP_MODELS_ARGV, orchDir);
   }
 
   /** Link the prebuilt omp-bridge bundle into omp's extension directory. */
-  installShim(opts?: ShimInstallOpts): void {
+  installShim(_orchDir: string, opts?: ShimInstallOpts): void {
     installExtensionLink(this.id, OMP_EXTENSION_DIR, OMP_EXTENSION, opts);
   }
 }

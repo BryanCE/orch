@@ -10,6 +10,7 @@ import { closeAllStores, orm } from "../src/store/connection.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { testServices } from "./helpers/services.ts";
 
 const dirs: string[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
@@ -30,13 +31,13 @@ function agent(directory: string, facts: Parameters<typeof seedAgent>[1] = {}): 
   seedStatus(directory, key, { key, agent: "pi", pid: process.pid, state: "idle" });
   const deliveries: BridgeDelivery[] = [];
   const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
-  attachBridge(key, link);
+  attachBridge(directory, key, link);
   links.push({ key, link });
   return { key, deliveries };
 }
 
 afterEach(() => {
-  for (const { key, link } of links.splice(0)) detachBridge(key, link);
+  for (const { key, link } of links.splice(0)) detachBridge(dirs[0]!, key, link);
   closeAllStores();
   if (saved === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = saved;
@@ -52,7 +53,7 @@ describe("every agent has an attached link", () => {
     const handleless = agent(directory);
 
     for (const target of [placed, headless, handleless]) {
-      await deliverControl(target.key, { kind: "run", text: "go", id: `dispatch-${target.key}` });
+      await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), target.key, { kind: "run", text: "go", id: `dispatch-${target.key}` });
       expect(target.deliveries).toEqual([{
         id: `dispatch-${target.key}`,
         message: { action: "dispatch", text: "go" },
@@ -64,7 +65,7 @@ describe("every agent has an attached link", () => {
     const directory = storeDir();
     const target = agent(directory);
 
-    expect((await deliverControl(target.key, { kind: "steer", text: "adjust", id: "steer-1" }))).toEqual({
+    expect((await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), target.key, { kind: "steer", text: "adjust", id: "steer-1" }))).toEqual({
       outcome: "invoke",
       ack: "expected",
     });

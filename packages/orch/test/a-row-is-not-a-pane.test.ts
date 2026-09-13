@@ -75,7 +75,7 @@ function seedLivePresence(dir: string, id: string): void {
 
 function entityFor(id: string, panes: readonly ReturnType<typeof fakePane>[]) {
   const backend = new FakePanedBackend({ id: "headless", panes });
-  return withRegisteredBackend(backend, () => buildEntities(testServices({ orchDir: process.env.ORCH_DIR!, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } })).find((entity) => entity.key === id));
+  return withRegisteredBackend(backend, () => buildEntities(process.env.ORCH_DIR!, testServices({ orchDir: process.env.ORCH_DIR!, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } }).settings.current()).find((entity) => entity.key === id));
 }
 
 describe("a row is not evidence that a pane exists (U1, U4)", () => {

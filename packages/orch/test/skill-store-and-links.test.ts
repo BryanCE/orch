@@ -6,7 +6,7 @@ import { checkSkillLinks } from "../src/doctor/skills.ts";
 import { installSkills } from "../src/setup/skills.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-
+import { fileSettingsManager } from "../src/settings/manager.ts";
 const temps: string[] = [];
 
 function tempDir(prefix: string): string {
@@ -67,7 +67,7 @@ describe("skill store and harness links", () => {
     installSkills({ store, link: [] }, pkgRoot);
     mkdirSync(join(harness, "orch"), { recursive: true });
 
-    const result = checkSkillLinks(orchDir, pkgRoot);
+    const result = checkSkillLinks(fileSettingsManager(orchDir).current(), pkgRoot);
 
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("is a real directory, not a link into the store");
@@ -82,13 +82,13 @@ describe("skill store and harness links", () => {
     writeSettingsFixture(orchDir, { skills: { install: true, store, link: [harness] } });
     installSkills({ store, link: [harness] }, pkgRoot);
 
-    expect(checkSkillLinks(orchDir, pkgRoot).status).toBe("ok");
+    expect(checkSkillLinks(fileSettingsManager(orchDir).current(), pkgRoot).status).toBe("ok");
   });
 
   test("doctor skips when the user turned the skill install off", () => {
     const orchDir = tempDir("orch-skill-dir-");
     writeSettingsFixture(orchDir, { skills: { install: false } });
 
-    expect(checkSkillLinks(orchDir).status).toBe("skip");
+    expect(checkSkillLinks(fileSettingsManager(orchDir).current()).status).toBe("skip");
   });
 });

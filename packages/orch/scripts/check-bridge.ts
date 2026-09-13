@@ -371,6 +371,36 @@ export function checkDispatcherCallLine(line: string, relPath: string): string |
   return undefined;
 }
 
+/** Rule: process composition happens at a root. Only src/services.ts reads ORCH_DIR, and
+ * only the roots call createServices(): the CLI (src/commands/index.ts, src/commands/setup.ts
+ * for the first-run wizard), the daemon (src/daemon/orchd.ts), the extensions
+ * (extensions/pi/index.ts, extensions/omp/index.ts). Everything else receives values. */
+const COMPOSITION_ROOTS = new Set([
+  "src/commands/index.ts",
+  "src/commands/setup.ts",
+  "src/daemon/orchd.ts",
+  "extensions/pi/index.ts",
+  "extensions/omp/index.ts",
+]);
+const COMPOSITION_IMPORT = /\bimport\b[^;\n]*\b(?:loadSettings|loadSettingsOrNull|settingsLogLevel|commandLogger|orchDir)\b/;
+
+export function checkCompositionRootLine(line: string, relPath: string): string | undefined {
+  const normalizedPath = relPath.replace(/\\/g, "/");
+  if (line.includes("process.env.ORCH_DIR") && normalizedPath !== "src/services.ts") {
+    return "process.env.ORCH_DIR may only be read in src/services.ts; pass orchDir from the composition root";
+  }
+  if (/\bcreateServices\s*\(/.test(line) && !COMPOSITION_ROOTS.has(normalizedPath)) {
+    // The function declaration is the composition seam itself, not a call site.
+    if (!(normalizedPath === "src/services.ts" && /\bfunction\s+createServices\s*\(/.test(line))) {
+      return "createServices() may only be called from a composition root";
+    }
+  }
+  if (COMPOSITION_IMPORT.test(line)) {
+    return "legacy global composition exports must not be imported; receive composed services instead";
+  }
+  return undefined;
+}
+
 /** A reply address is an issued spawner key, never the governance owner token. */
 const SPAWNER_REPLY_OWNER_FALLBACK = /\b(?:spawner(?:Identity\(\))?\s*\.\s*key|(?:spawner|reply)(?:Key|Address)?)\s*(?:\?\?|\|\|)\s*(?:callerOwnerToken\(\)|(?:process\.env\.)?ORCH_OWNER\b)/;
 
@@ -661,6 +691,8 @@ function runAllChecks(): void {
    * definition and fails this check.
    */
   const bridgeSourceFiles = scanSrcOutsideBackends((line, relPath) => {
+    const compositionRootViolation = checkCompositionRootLine(line, relPath);
+    if (compositionRootViolation) return compositionRootViolation;
     const launchEnvViolation = checkLaunchEnvLine(line, relPath);
     if (launchEnvViolation) return launchEnvViolation;
     const environmentCapabilityViolation = checkEnvironmentCapabilityLine(line, relPath);
@@ -684,6 +716,8 @@ function runAllChecks(): void {
   });
 
   const extensionFiles = scanDirectory("extensions", new Set(), (line, relPath) => {
+    const compositionRootViolation = checkCompositionRootLine(line, relPath);
+    if (compositionRootViolation) return compositionRootViolation;
     const launchEnvViolation = checkLaunchEnvLine(line, relPath);
     if (launchEnvViolation) return launchEnvViolation;
     // A harness extension is per-HARNESS code (Rule 10), never per-plexer, so
@@ -705,6 +739,8 @@ function runAllChecks(): void {
   }, true);
 
   const scriptFiles = scanDirectory("scripts", new Set(["check-bridge.ts"]), (line, relPath) => {
+    const compositionRootViolation = checkCompositionRootLine(line, relPath);
+    if (compositionRootViolation) return compositionRootViolation;
     const launchEnvViolation = checkLaunchEnvLine(line, relPath);
     if (launchEnvViolation) return launchEnvViolation;
     if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in scripts";
@@ -712,7 +748,7 @@ function runAllChecks(): void {
     if (/process\.env\.HERDR(?!_ENV\b|_SOCKET_PATH\b)/.test(line)) return "process.env.HERDR is forbidden in scripts";
     if (line.includes("process.env.TMUX")) return "process.env.TMUX is forbidden in scripts";
     return undefined;
-  });
+  }, true);
 
   const adapterFiles = scanDirectory("src/adapters", new Set(["adapter.ts"]), (line, relPath) => {
     const launchEnvViolation = checkLaunchEnvLine(line, relPath);
@@ -729,6 +765,8 @@ function runAllChecks(): void {
   });
 
   const backendFiles = scanDirectory("src/backends", new Set(), (line, relPath) => {
+    const compositionRootViolation = checkCompositionRootLine(line, relPath);
+    if (compositionRootViolation) return compositionRootViolation;
     const launchEnvViolation = checkLaunchEnvLine(line, relPath);
     if (launchEnvViolation) return launchEnvViolation;
     const environmentCapabilityViolation = checkEnvironmentCapabilityLine(line, relPath);

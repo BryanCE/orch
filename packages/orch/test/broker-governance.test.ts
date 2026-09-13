@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { governWrite } from "../src/daemon/orchd.ts";
+import { governWrite as daemonGovernWrite } from "../src/daemon/orchd.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { withTransaction, orm } from "../src/store/connection.ts";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
@@ -11,6 +11,7 @@ import { setSpace } from "../src/store/interval-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { sql } from "drizzle-orm";
+import { testServices } from "./helpers/services.ts";
 
 const dirs: string[] = [];
 function freshDir(): string {
@@ -19,6 +20,24 @@ function freshDir(): string {
   ensureHarness(dir, "pi", "pi", 1);
   ensureHost(dir, "host", "host", "linux", 1);
   return dir;
+}
+
+function governWrite(directory: string, target: string, params: unknown): void {
+  const services = testServices({ orchDir: directory, settings: null });
+  daemonGovernWrite({
+    services,
+    directory,
+    workController: new AbortController(),
+    server: undefined,
+    workLoop: undefined,
+    workLoopRunning: false,
+    outboxDrain: undefined,
+    presenceWatch: undefined,
+    settingsWatch: undefined,
+    lastActivityAt: 0,
+    logger: undefined,
+    fatalLogged: false,
+  }, target, params);
 }
 
 /** Identity and nothing else: a minted id, with no environment welded into it. */

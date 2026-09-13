@@ -3,6 +3,7 @@ import { declaredRuntime } from "../settings/read.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import { binaryPath, errorMessage } from "../util.ts";
 import type { CheckResult, RuntimeObservations } from "../types/doctor.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 const id = "runtime";
 const label = "Declared runtime";
@@ -62,10 +63,10 @@ function observedEntrypoint(resolve: (bin: string) => string | null): { path: st
   return { path: target, runtime: shebangRuntime(target) };
 }
 
-export function checkRuntime(orchDir: string, observations: RuntimeObservations = {}): CheckResult {
+export function checkRuntime(settings: OrchSettings, observations: RuntimeObservations = {}): CheckResult {
   let declared: OrchRuntime;
   try {
-    declared = declaredRuntime(orchDir);
+    declared = declaredRuntime(settings);
   } catch (error: unknown) {
     // checkSettingsFile owns malformed-settings reporting; stay silent rather than duplicate it.
     return { id, label, status: "skip", detail: errorMessage(error) };

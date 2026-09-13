@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fleetStatusRows } from "../src/commands/status.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { testServices } from "./helpers/services.ts";
+import type { OrchSettings } from "../src/types/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
@@ -51,7 +53,9 @@ function seedPresence(root: string, key: string, alive: boolean, state: string):
   writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, agent: "pi", state }));
 }
 
-const NO_SPACES: Parameters<typeof fleetStatusRows>[0] = {};
+function noSettings(root: string): OrchSettings {
+  return testServices({ orchDir: root, settings: {} }).settings.current();
+}
 
 describe("--offline is a narrower view of ONE source, not a second one (M8)", () => {
   test("offline and online read the same agents from the same presence files", () => {
@@ -59,8 +63,8 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     seedPresence(root, "liveagent1", true, "working");
     seedPresence(root, "deadagent1", false, "done");
 
-    const offline = fleetStatusRows(NO_SPACES, { offline: true, bundleHashes: () => new Set(), orchId: () => null });
-    const online = fleetStatusRows(NO_SPACES, { bundleHashes: () => new Set(), orchId: () => null });
+    const offline = fleetStatusRows(noSettings(root), noSettings(root).spaces, { offline: true, bundleHashes: () => new Set(), orchId: () => null, directory: root });
+    const online = fleetStatusRows(noSettings(root), noSettings(root).spaces, { bundleHashes: () => new Set(), orchId: () => null, directory: root });
 
     // Every agent orch itself recorded appears in BOTH: offline drops no agent
     // of orch's, it only stops asking a plexer about panes.
@@ -77,7 +81,7 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     const root = fixture();
     seedPresence(root, "liveagent1", true, "working");
 
-    const [row] = fleetStatusRows(NO_SPACES, { offline: true, bundleHashes: () => new Set(), orchId: () => null });
+    const [row] = fleetStatusRows(noSettings(root), noSettings(root).spaces, { offline: true, bundleHashes: () => new Set(), orchId: () => null, directory: root });
 
     // `state` is what the AGENT says about itself and is the only field that
     // answers "is the work finished". Offline reads that same field; it does not

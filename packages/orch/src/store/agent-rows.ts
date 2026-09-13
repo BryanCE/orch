@@ -289,7 +289,7 @@ export function getOrCreateSessionAgent(orchDir: string, input: SessionAgentInpu
   // own, and sqlite has no nested one. It is idempotent, so a crash in between
   // is repaired by the session's next registration rather than leaving a second row.
   if (repointedAgentId !== null) {
-    decisionLogger(orchDir).info("session.repointed", { agentId: repointedAgentId, harnessId: input.harnessId });
+    decisionLogger(orchDir, null).info("session.repointed", { agentId: repointedAgentId, harnessId: input.harnessId });
   }
   placeSession(orchDir, identity.id, input);
   return identity;

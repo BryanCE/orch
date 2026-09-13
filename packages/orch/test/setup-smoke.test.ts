@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { runSetupSmoke } from "../src/setup/smoke.ts";
 import type { SmokeSteps } from "../src/types/command.ts";
+import { testServices } from "./helpers/services.ts";
 
 /** Capture stdout so the smoke's verdict lines are assertable without a live daemon,
  *  model, or real spawn. */
@@ -50,7 +51,7 @@ function steps(overrides: Partial<SmokeSteps>): Partial<SmokeSteps> {
 
 describe("runSetupSmoke (12.5)", () => {
   test("a clean round-trip returns true and reports orch can deliver work", async () => {
-    const ok = await runSetupSmoke("/tmp/smoke", steps({}));
+    const ok = await runSetupSmoke(testServices({ orchDir: "/tmp/smoke", settings: null }), "/tmp/smoke", steps({}));
     expect(ok).toBe(true);
     expect(process.exitCode ?? 0).toBe(0);
     expect(stdout).toContain("Smoke ok");
@@ -60,7 +61,7 @@ describe("runSetupSmoke (12.5)", () => {
 
   test("the agent is launched on the prompt it built", async () => {
     let launchedOn = "";
-    await runSetupSmoke("/tmp/smoke", steps({
+    await runSetupSmoke(testServices({ orchDir: "/tmp/smoke", settings: null }), "/tmp/smoke", steps({
       buildPrompt: () => "Reply with the single word: ready",
       spawnHeadless: (_cwd, prompt) => { launchedOn = prompt; return Promise.resolve("smokeagen1"); },
     }));
@@ -71,7 +72,7 @@ describe("runSetupSmoke (12.5)", () => {
     let ticks = 0;
     let polls = 0;
     let cleaned = "";
-    const ok = await runSetupSmoke("/tmp/smoke", steps({
+    const ok = await runSetupSmoke(testServices({ orchDir: "/tmp/smoke", settings: null }), "/tmp/smoke", steps({
       readResultText: () => { polls++; return undefined; },
       // deadline read + one in-window poll, then now() jumps past the deadline so the loop exits fast.
       now: () => (ticks++ < 2 ? 0 : 10_000),
@@ -90,7 +91,7 @@ describe("runSetupSmoke (12.5)", () => {
 
   test("a rejected spawn fails loudly and never polls for a result", async () => {
     let polls = 0;
-    const ok = await runSetupSmoke("/tmp/smoke", steps({
+    const ok = await runSetupSmoke(testServices({ orchDir: "/tmp/smoke", settings: null }), "/tmp/smoke", steps({
       spawnHeadless: () => Promise.reject(new Error("headless spawn recorded no new agent")),
       readResultText: () => { polls++; return "ready"; },
     }));

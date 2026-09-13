@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { displayStatusState, formatNoRowsMessage, formatSpace, formatStatusTable, normalizeStatusRow, scopeFleetRows, statusRowFromEntity, warningStatusRow } from "../src/commands/status.ts";
+import { displayStatusState, formatNoRowsMessage, formatSpace, formatStatusTable, normalizeStatusRow, scopeFleetRows, statusRowFromEntity as composeStatusRow, warningStatusRow } from "../src/commands/status.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../src/policy/capacity.ts";
 import { orm } from "../src/store/connection.ts";
@@ -48,6 +48,10 @@ function statusRowFixture(overrides: Partial<StatusRow> = {}): StatusRow {
 }
 
 const seededEntity = entityFixture();
+
+function statusRowFromEntity(entity: Entity, views: Parameters<typeof composeStatusRow>[1]): ReturnType<typeof composeStatusRow> {
+  return composeStatusRow(entity, views, undefined, {}, null, "/tmp");
+}
 
 describe("commands/status", () => {
   test("zero-row message reports gathered counts and backend response", () => {

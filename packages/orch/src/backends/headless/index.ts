@@ -12,8 +12,8 @@ import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { LocalProcessRole, signalOtherProcess } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
-import { capture } from "../../presence/roles.ts";
-import type { Backend, BackendId, BackendSpawnOpts, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole } from "../../types/backend.ts";
+import { createCaptureRole } from "../../presence/roles.ts";
+import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
 
@@ -115,7 +115,12 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly logPruning: LogPruningRole = {
     prune: (cutoff: Date, liveKeys: readonly string[], orchDir: string): number => this.pruneLogFiles(cutoff, liveKeys, orchDir),
   };
-  readonly capture = capture;
+  readonly capture: CaptureRole = {
+    read: (agentId, request) => {
+      if (this.orchDir === undefined) throw new Error("headless capture requires an orch directory");
+      return createCaptureRole(this.orchDir).read(agentId, request);
+    },
+  };
   readonly placement = null;
   readonly placementInventory = null;
   readonly agentInput = null;
@@ -128,6 +133,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly groupHome = null;
   readonly groupLayout = null;
   readonly spaceHome = null;
+  private readonly orchDir: string | undefined;
   private readonly isPidAlive: (pid: number) => boolean;
   private readonly killer: (pid: number, signal: "SIGTERM") => void;
   readonly process: ProcessRole<HeadlessHandle>;
@@ -142,7 +148,8 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     return true;
   }
 
-  constructor(deps: HeadlessBackendDeps = {}) {
+  constructor(deps: HeadlessBackendDeps & { readonly orchDir?: string } = {}) {
+    this.orchDir = deps.orchDir;
     this.isPidAlive = deps.pidAlive ?? ((pid) => pidAlive(pid));
     this.killer = deps.killer ?? signalOtherProcess;
     this.process = new LocalProcessRole<HeadlessHandle>(headlessPid, {
@@ -269,7 +276,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
         rmSync(file, { force: true });
         removed++;
       } catch (error: unknown) {
-        decisionLogger(orchDirectory(orchDir)).warn("retention.sweep-failed", { area: "logs", file, error: errorMessage(error) });
+        decisionLogger(orchDirectory(orchDir), null).warn("retention.sweep-failed", { area: "logs", file, error: errorMessage(error) });
       }
     }
     return removed;

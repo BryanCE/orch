@@ -1,12 +1,11 @@
 import { peerView } from "../../src/daemon/peer-view.ts";
 import { isRecord } from "../../src/json.ts";
-import { orchDir } from "../../src/presence/writer.ts";
 import type { PeerView } from "../../src/daemon/peer-view.ts";
 import type { DaemonClient } from "../../src/types/agent.ts";
 
 /** A DaemonClient that accepts everything, forwards nothing, and answers nothing —
  *  the shape a bridge sees when orchd is absent. */
-export function daemonClientForPeers(keys: string[]): DaemonClient {
+export function daemonClientForPeers(directory: string, keys: string[]): DaemonClient {
   return {
     ...stubDaemonClient(),
     ask: (method, params) => {
@@ -15,7 +14,7 @@ export function daemonClientForPeers(keys: string[]): DaemonClient {
       const requested = Array.isArray(params.keys) && params.keys.every((key) => typeof key === "string") ? params.keys : [];
       const allSpaces = params.allSpaces === true;
       const projectRoot = typeof params.projectRoot === "string" ? params.projectRoot : undefined;
-      return Promise.resolve(peerView(orchDir(), ownKey, requested.length ? requested : keys, allSpaces, projectRoot));
+      return Promise.resolve(peerView(directory, ownKey, requested.length ? requested : keys, allSpaces, projectRoot));
     },
   };
 }

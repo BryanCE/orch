@@ -1,6 +1,5 @@
 import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends } from "../backends/registry.ts";
-import { loadSettingsOrNull } from "../settings/read.ts";
 import { settingsPath } from "../settings/schema.ts";
 import { writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsRuntime } from "../settings/write.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
@@ -246,11 +245,8 @@ export async function resolveSetupComposition(settings: OrchSettings | null, opt
   return models === null ? null : { runtime, adapters, defaultAdapter, backends, defaultBackend, models };
 }
 
-/** True while setup has never recorded a harness selection — including the first run, where
- * settings.json does not exist yet. "No settings.json" is the signal to run the wizard, not an
- * error, so this gate goes through the non-throwing `loadSettingsOrNull` probe rather than
- * `loadSettings` (which treats an absent file as the hard error it is for every other command).
- * A present-but-malformed file still throws here, exactly as before. */
-export function compositionUnrecorded(orchDir: string): boolean {
-  return !loadSettingsOrNull(orchDir)?.defaults.adapter;
+/** True while setup has never recorded a harness selection. The caller passes
+ * `services.settings.currentOrNull()` because an absent file means "run the wizard", not an error. */
+export function compositionUnrecorded(settings: OrchSettings | null): boolean {
+  return !settings?.defaults.adapter;
 }

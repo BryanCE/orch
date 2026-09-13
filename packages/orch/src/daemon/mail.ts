@@ -23,6 +23,6 @@ export function acceptMail(directory: string, settings: OrchSettings | null, fro
 
   const id = randomUUID();
   insertOutboxMessage(directory, { id, target: recipient, payload: { action: "steer", text: body } });
-  decisionLogger(directory).forCorrelation(id).info("mail.accepted", { from: sender, target: recipient });
+  decisionLogger(directory, settings).forCorrelation(id).info("mail.accepted", { from: sender, target: recipient });
   return { id };
 }

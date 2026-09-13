@@ -136,7 +136,7 @@ describe("daemon lifecycle", () => {
     const oldOrchDir = process.env.ORCH_DIR;
     delete process.env.ORCH_DIR;
     try {
-      const detachedPid = daemonize(process.execPath, ["-e", "process.stdout.write('daemon-test')"], orchDir);
+      const detachedPid = daemonize(orchDir, process.execPath, ["-e", "process.stdout.write('daemon-test')"]);
       expect(detachedPid).toBeGreaterThan(0);
       expect(readFileSync(join(orchDir, "orchd.log"), "utf8")).toBeDefined();
       // Foreground mode resolves only once the child is gone, and reports its code.

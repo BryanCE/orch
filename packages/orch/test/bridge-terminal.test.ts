@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { readStatus } from "../src/presence/writer.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import type { HarnessApi, HarnessContext, HarnessEventHandler } from "../src/types/agent.ts";
+import { testServices } from "./helpers/services.ts";
 
 interface FakeHarness extends HarnessApi {
   fire(name: string, event?: unknown, context?: HarnessContext): void;
@@ -67,7 +68,7 @@ describe("bridge terminal turn seam", () => {
     process.env.ORCH_DIR = root;
     process.env[LAUNCH_ENV] = key;
     const harness = fakeHarness();
-    const presence = createAgentPresence({
+    const presence = createAgentPresence(root, {
       harness,
       identity: { agentId: "pi", settleEvent: "agent_settled" },
       extensionHash: "test",
@@ -79,7 +80,7 @@ describe("bridge terminal turn seam", () => {
       identity: { agentId: "pi", settleEvent: "agent_settled" },
       notify: () => undefined,
       refreshLabels: () => Promise.resolve(),
-    });
+    }, root, testServices({ orchDir: root, settings: null }).settings);
     const ctx = harnessContext();
     harness.fire("session_start", {}, ctx);
     harness.fire("agent_start", {}, ctx);

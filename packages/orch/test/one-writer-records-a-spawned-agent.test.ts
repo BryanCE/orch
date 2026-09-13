@@ -68,7 +68,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     const owner = mintAgentId();
     process.env.ORCH_OWNER = owner;
 
-    const agent = spawnOneIntoTab({
+    const agent = spawnOneIntoTab(dir, {
       backend: new FakePanedBackend({ id: "herdr" }),
       adapter: piAdapter,
       adapterId: "pi",
@@ -96,7 +96,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     process.env.ORCH_OWNER = mintAgentId();
     const backend = new FakePanedBackend({ id: "herdr" });
 
-    const agent = spawnOneIntoTab({
+    const agent = spawnOneIntoTab(dir, {
       backend,
       adapter: piAdapter,
       adapterId: "pi",

@@ -7,6 +7,7 @@ import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import type { DaemonClient, HarnessApi, HarnessContext } from "../src/types/agent.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 
+
 const originalOrchDir = process.env.ORCH_DIR;
 const directories: string[] = [];
 
@@ -92,9 +93,10 @@ function fakeDaemon(): {
 }
 
 function presence(daemon: DaemonClient, harness: HarnessApi) {
-  process.env.ORCH_DIR = mkdtempSync(join(tmpdir(), "orch-bridge-apply-"));
-  directories.push(process.env.ORCH_DIR);
-  const value = createAgentPresence({
+  const orchDir = mkdtempSync(join(tmpdir(), "orch-bridge-apply-"));
+  process.env.ORCH_DIR = orchDir;
+  directories.push(orchDir);
+  const value = createAgentPresence(orchDir, {
     harness,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",

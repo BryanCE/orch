@@ -3,7 +3,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadSettings } from "../src/settings/read.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { shouldLaunchSettingsEditor } from "../src/commands/settings.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { createEditorState, editorReducer } from "../src/settings/editor.ts";
@@ -60,7 +60,7 @@ describe("settings shell decisions", () => {
     const directory = tempDir("orch-settings-shell-");
     writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
     writeRegisteredSetting(directory, "fleet.max_depth", 4);
-    expect(loadSettings(directory).fleet.max_depth).toBe(4);
+    expect(fileSettingsManager(directory).current().fleet.max_depth).toBe(4);
     const text = readFileSync(join(directory, "settings.json"), "utf8");
     expect(text).toContain('"max_depth": 4');
   });

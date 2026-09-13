@@ -7,6 +7,7 @@ import { CommandRefusal } from "../src/refusal.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { testServices } from "./helpers/services.ts";
 
 const dirs: string[] = [];
 const previous = process.env.ORCH_DIR;
@@ -37,11 +38,11 @@ function fixture(): string {
 describe("a command refusal is thrown, not exited", () => {
   test("an unresolvable target throws a CommandRefusal instead of killing the process", () => {
     fixture();
-    expect(() => cmdRuns(["absentag01", "--json"])).toThrow(CommandRefusal);
+    expect(() => cmdRuns(testServices({ orchDir: process.env.ORCH_DIR!, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } }), ["absentag01", "--json"])).toThrow(CommandRefusal);
   });
 
   test("the refusal carries the reason a human needs", () => {
     fixture();
-    expect(() => cmdRuns(["absentag01", "--json"])).toThrow(/No target matches/);
+    expect(() => cmdRuns(testServices({ orchDir: process.env.ORCH_DIR!, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } } }), ["absentag01", "--json"])).toThrow(/No target matches/);
   });
 });

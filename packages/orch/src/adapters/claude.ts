@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { declaredRuntime } from "../settings/read.ts";
+import { fileSettingsManager } from "../settings/manager.ts";
+import { decisionLogger } from "../daemon/decision-log.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import { loadPresence, statusForPresence } from "../presence/store.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot } from "../util.ts";
@@ -14,7 +16,7 @@ import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, HarnessModel, ResultExtractionInput, SessionView, SessionViewInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { CheckResult } from "../types/doctor.ts";
-import { commandLogger } from "../commands/logging.ts";
+import type { Logger } from "../types/core.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
 interface ClaudeStateDetectionInput extends StateDetectionInput {
@@ -77,7 +79,7 @@ function pruneStaleShimHooks(list: unknown[], command: string): { list: unknown[
 }
 
 /** Wire the presence hook shim into ~/.claude/settings.json without disturbing unrelated hooks. */
-function installClaudeHooks(pkgRoot: string, orchDir: string): void {
+function installClaudeHooks(orchDir: string, logger: Logger, pkgRoot: string): void {
   const claudeDir = path.join(HOME, ".claude");
   const claudeSettingsPath = path.join(claudeDir, "settings.json");
   let settings: Record<string, unknown>;
@@ -89,7 +91,7 @@ function installClaudeHooks(pkgRoot: string, orchDir: string): void {
       if (!isRecord(parsed)) throw new Error("settings root is not an object");
       settings = parsed;
     } catch (error: unknown) {
-      commandLogger().warn("claude.hooks-parse-failed", { path: claudeSettingsPath, error: errorMessage(error) });
+      logger.warn("claude.hooks-parse-failed", { path: claudeSettingsPath, error: errorMessage(error) });
       process.stdout.write(`  warning: could not parse ${claudeSettingsPath}; Claude hooks not changed (${errorMessage(error)})\n`);
       return;
     }
@@ -97,12 +99,12 @@ function installClaudeHooks(pkgRoot: string, orchDir: string): void {
   const shim = claudeHookShimPath(pkgRoot);
   // The shim is plain ESM JS; wire it to the runtime DECLARED in settings.json.
   // orch never probes PATH to pick one — the declaration is the only source.
-  const runtime = declaredRuntime(orchDir);
+  const runtime = declaredRuntime(fileSettingsManager(orchDir).current());
   const added: string[] = [];
   let prunedStale = false;
   const hooks = isRecord(settings.hooks) ? settings.hooks : (settings.hooks === undefined ? {} : null);
   if (!hooks) {
-    commandLogger().warn("claude.hooks-invalid", { path: claudeSettingsPath });
+    logger.warn("claude.hooks-invalid", { path: claudeSettingsPath });
     process.stdout.write(`  warning: ${claudeSettingsPath} has a non-object hooks value; Claude hooks not changed\n`);
     return;
   }
@@ -111,7 +113,7 @@ function installClaudeHooks(pkgRoot: string, orchDir: string): void {
     const command = claudeHookCommand(shim, event, runtime, orchDir);
     const entries = hooks[event];
     if (entries !== undefined && !Array.isArray(entries)) {
-      commandLogger().warn("claude.hook-event-invalid", { path: claudeSettingsPath, event });
+      logger.warn("claude.hook-event-invalid", { path: claudeSettingsPath, event });
       process.stdout.write(`  warning: ${claudeSettingsPath} has a non-array ${event} hook value; skipped\n`);
       continue;
     }
@@ -135,7 +137,7 @@ function installClaudeHooks(pkgRoot: string, orchDir: string): void {
   ].filter(Boolean).join("; ") || "already configured";
   process.stdout.write(`Claude Code hooks: ${summary}\n`);
   if (!fs.existsSync(shim)) {
-    commandLogger().warn("claude.shim-missing", { path: shim });
+    logger.warn("claude.shim-missing", { path: shim });
     process.stdout.write(`  warning: ${shim} is not built yet - run: bun run build\n`);
   }
 }
@@ -174,8 +176,8 @@ class ClaudeAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = {
-    installShim: (orchDir: string): void => this.installShim(orchDir),
-    diagnoseShim: (orchDir: string): CheckResult => this.diagnoseShim(orchDir),
+    installShim: (orchDir: string): void => this.installShim(orchDir, decisionLogger(orchDir, fileSettingsManager(orchDir).currentOrNull())),
+    diagnoseShim: (orchDir: string): CheckResult => this.diagnoseShim(orchDir, decisionLogger(orchDir, fileSettingsManager(orchDir).currentOrNull())),
   };
   readonly defaultModel = null;
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
@@ -266,12 +268,12 @@ class ClaudeAdapter implements AgentAdapter {
    *  definitions — every dispatch goes through orch itself. Skills are not installed
    *  here either: they are read by every harness, so setup writes them once into the
    *  configured roots rather than once per adapter. */
-  installShim(orchDir: string): void {
-    installClaudeHooks(packageRoot(), orchDir);
+  installShim(orchDir: string, logger: Logger): void {
+    installClaudeHooks(orchDir, logger, packageRoot());
   }
 
   /** Verify the same Claude hook entries written by installShim. */
-  diagnoseShim(orchDir: string): CheckResult {
+  diagnoseShim(orchDir: string, logger: Logger): CheckResult {
     const settingsPath = path.join(HOME, ".claude", "settings.json");
     const id = "claude-hooks";
     const label = "Claude hooks shim";
@@ -306,7 +308,7 @@ class ClaudeAdapter implements AgentAdapter {
     // which is the exact drift the runtime key exists to surface.
     let runtime: OrchRuntime;
     try {
-      runtime = declaredRuntime(orchDir);
+      runtime = declaredRuntime(fileSettingsManager(orchDir).current());
     } catch {
       // checkSettingsFile owns the malformed-settings detail; a broken settings file must not
       // crash an unrelated diagnostic.
@@ -320,7 +322,7 @@ class ClaudeAdapter implements AgentAdapter {
           label,
           status: "warn",
           detail: `missing or stale orch hook${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
-          fix: { description: `reinstall orch's Claude hooks (${missing.join(", ")})`, apply: () => { this.installShim(orchDir); } },
+          fix: { description: `reinstall orch's Claude hooks (${missing.join(", ")})`, apply: () => { this.installShim(orchDir, logger); } },
         }
       : { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` };
   }

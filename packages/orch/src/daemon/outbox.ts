@@ -41,7 +41,7 @@ async function attemptDelivery(orchDir: string, message: OutboxMessage, deps: Ou
   if (!outboxMessageOpen(orchDir, message.id)) return "skipped";
   inFlight.add(key);
   try {
-    const log = decisionLogger(orchDir).forCorrelation(message.id);
+    const log = decisionLogger(orchDir, null).forCorrelation(message.id);
     log.info("dispatch.delivering", { target: message.target, attempt: message.attempts });
     let outcome: OutboxDelivery;
     let retryReason: "bridge-detached" | "error" = "error";

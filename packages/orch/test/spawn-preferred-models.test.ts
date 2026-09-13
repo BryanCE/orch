@@ -83,10 +83,11 @@ function capturingPaneBackend(): { backend: Backend; seen: () => BackendSpawnOpt
 describe("the preferred quicklist reaches every launch route", () => {
   test("a pane spawn hands the exact array to the backend", () => {
     // A space is user-created and never minted by a spawn (TASKS A7).
-    seedSpace(tempOrchDir(), "wsA");
+    const directory = tempOrchDir();
+    seedSpace(directory, "wsA");
     const { backend, seen } = capturingPaneBackend();
 
-    spawnOneIntoTab({
+    spawnOneIntoTab(directory, {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -103,10 +104,11 @@ describe("the preferred quicklist reaches every launch route", () => {
   });
 
   test("an unconfigured quicklist stays empty rather than becoming a default one", () => {
-    seedSpace(tempOrchDir(), "wsA");
+    const directory = tempOrchDir();
+    seedSpace(directory, "wsA");
     const { backend, seen } = capturingPaneBackend();
 
-    spawnOneIntoTab({
+    spawnOneIntoTab(directory, {
       backend,
       adapter: piAdapter,
       adapterId: "pi",

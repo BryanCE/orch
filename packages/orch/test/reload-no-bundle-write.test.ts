@@ -3,6 +3,9 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Services } from "../src/types/services.ts";
+import { createServices } from "../src/services.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const bundleDir = mkdtempSync(join(tmpdir(), "orch-reload-bundles-"));
 afterAll(() => { removeTempDir(bundleDir); });
@@ -23,7 +26,7 @@ void mock.module("../src/bridge-bundles/build.ts", () => ({
   extensionBundlePath: (_root: string, name: string) => join(bundleDir, `${name}.js`),
 }));
 
-let cmdReload: (args: string[]) => Promise<void>;
+let cmdReload: (services: Services, args: string[]) => Promise<void>;
 beforeAll(async () => {
   ({ cmdReload } = await import("../src/commands/lifecycle/reload.ts"));
 });
@@ -54,8 +57,16 @@ describe("reload", () => {
     dirs.push(tempOrchDir);
     process.env.ORCH_DIR = tempOrchDir;
     process.env.ORCH_OWNER = "test-owner";
+    writeSettingsFixture(tempOrchDir, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
 
-    await cmdReload(["--all", "--json"]);
+    const piMarker = process.env.PI_CODING_AGENT;
+    delete process.env.PI_CODING_AGENT;
+    try {
+      await cmdReload(createServices({ orchDir: tempOrchDir }), ["--all", "--json"]);
+    } finally {
+      if (piMarker === undefined) delete process.env.PI_CODING_AGENT;
+      else process.env.PI_CODING_AGENT = piMarker;
+    }
 
     bundlePaths.forEach((file, index) => {
       expect(readFileSync(file)).toEqual(before[index]!.bytes);

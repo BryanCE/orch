@@ -181,7 +181,7 @@ export function subscribeEvents(
     if (closed || retryTimer) return;
     const delay = backoffMs;
     retryAttempt += 1;
-    decisionLogger(orchDir).debug("retry.attempt", { attempt: retryAttempt, delay });
+    decisionLogger(orchDir, null).debug("retry.attempt", { attempt: retryAttempt, delay });
     backoffMs = Math.min(backoffMs * 2, RECONNECT_CAP_MS);
     retryTimer = setTimeout(() => {
       retryTimer = undefined;
@@ -223,7 +223,7 @@ export function subscribeEvents(
         // shares the same socket as the event subscription.
         if (identify) {
           // The token is read fresh because a restart mints a new credential.
-          const credential = launchCredential();
+          const credential = launchCredential(orchDir);
           const claim = sessionClaim(orchDir);
           connected.write(`${JSON.stringify({
             id: nextRequestId++,

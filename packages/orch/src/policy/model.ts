@@ -2,6 +2,7 @@ import { allowedModelPatterns } from "../settings/read.ts";
 import { splitThinkingSuffix } from "./thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import type { AdapterId, AgentAdapter, HarnessModel } from "../types/adapter.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 /**
  * The allowlist gate, owned by orch and applied to every harness. A harness
@@ -16,8 +17,8 @@ function globToRegex(pattern: string): RegExp {
 }
 
 /** True when the bare model passes that harness's configured allowlist; no patterns means no restriction. */
-function isAllowedModel(orchDir: string, harness: AdapterId, bareModel: string): boolean {
-  const patterns = allowedModelPatterns(orchDir, harness);
+function isAllowedModel(settings: OrchSettings, harness: AdapterId, bareModel: string): boolean {
+  const patterns = allowedModelPatterns(settings, harness);
   if (patterns.length === 0) return true;
   return patterns.some((pattern) => globToRegex(pattern).test(bareModel));
 }
@@ -64,12 +65,12 @@ export function assertModelListed(harness: AdapterId, offered: readonly HarnessM
 }
 
 /** Reject a model the harness does not offer or the settings allowlist refuses. */
-export function assertModelAllowed(orchDir: string, adapter: AgentAdapter, model: string): void {
+export function assertModelAllowed(settings: OrchSettings, adapter: AgentAdapter, model: string): void {
   assertModelOffered(adapter, model);
   const { bare } = splitThinkingSuffix(model);
-  if (isAllowedModel(orchDir, adapter.id, bare)) return;
+  if (isAllowedModel(settings, adapter.id, bare)) return;
   const permitted = (adapter.models?.listModels() ?? [])
     .map((candidate) => candidate.spec)
-    .filter((spec) => isAllowedModel(orchDir, adapter.id, spec));
-  throw new Error(`model ${bare} is not in models.allowed.${adapter.id} (${allowedModelPatterns(orchDir, adapter.id).join(", ")}); ${correctedSpecHint(adapter.id, permitted)}`);
+    .filter((spec) => isAllowedModel(settings, adapter.id, spec));
+  throw new Error(`model ${bare} is not in models.allowed.${adapter.id} (${allowedModelPatterns(settings, adapter.id).join(", ")}); ${correctedSpecHint(adapter.id, permitted)}`);
 }

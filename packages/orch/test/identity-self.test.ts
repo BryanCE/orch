@@ -11,6 +11,6 @@ describe("selfIdentity", () => {
     const id = mintAgentId();
     process.env[LAUNCH_ENV] = id;
 
-    expect(selfIdentity()).toEqual({ id });
+    expect(selfIdentity(process.cwd())).toEqual({ id });
   });
 });

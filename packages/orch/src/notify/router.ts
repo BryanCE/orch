@@ -7,7 +7,7 @@ import type { NotifyEntry } from "../types/settings.ts";
 import { decisionLogger } from "../daemon/decision-log.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
-function warning(orchDir: string, message: string): void { decisionLogger(orchDir).warn("notify.failed", { message }); }
+function warning(orchDir: string, message: string): void { decisionLogger(orchDir, null).warn("notify.failed", { message }); }
 
 /** The sink ids are the discriminants settings.ts's `NotifyEntrySchema` already
  *  declares. Re-listing them here made a second copy that could drift, and put a
@@ -60,7 +60,7 @@ class NotifierRegistry {
     // Send throws real errors. A delivery failure reaches the caller unchanged;
     // it is never converted to `false`.
     if (entry.id === "command" && !commandAvailable(config)) return false;
-    if (!(await notifier.available(config))) return false;
+    if (!(await notifier.available(null))) return false;
     return await notifier.deliver(event, config);
   }
 
@@ -85,7 +85,7 @@ class NotifierRegistry {
     const config = configFor(entry);
     try {
       if (entry.id === "command" && !commandAvailable(config)) return { available: false, reason: "configured command is not on PATH" };
-      return await notifier.available(config) ? { available: true } : { available: false, reason: "host integration unavailable" };
+      return await notifier.available(null) ? { available: true } : { available: false, reason: "host integration unavailable" };
     } catch (error: unknown) { return { available: false, error: oneLine(error) }; }
   }
 

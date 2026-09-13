@@ -26,7 +26,7 @@ import { announceUnleasedAgents } from "./rpc/session-registry.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./rpc/wire.ts";
 import { rpcCall } from "./rpc/client.ts";
 import { isLiveAgentIdentity } from "../store/agent-rows.ts";
-import { commandLogger } from "../commands/logging.ts";
+import type { Logger } from "../types/core.ts";
 import { errorMessage, isRecord, pidAlive, sleep } from "../util.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse } from "../types/daemon.ts";
 
@@ -140,10 +140,10 @@ export async function daemonOutage(directory: string): Promise<string | null> {
 /** Stop a daemon that holds the lock while nothing listens on its endpoints, so a fresh
  *  one can take it. Callers owe a `not-listening` verdict first — never a timeout.
  *  Announced: a daemon killed in silence is indistinguishable from one that crashed. */
-export async function terminateWedgedDaemon(directory: string, lockPid: number, graceMs: number): Promise<void> {
+export async function terminateWedgedDaemon(directory: string, logger: Logger, lockPid: number, graceMs: number): Promise<void> {
   const wedged = provenDaemonPid(directory);
   if (wedged === undefined) throw new Error(unprovenLockRefusal(directory, lockPid));
-  commandLogger().warn("daemon.wedged-stopping", { pid: wedged });
+  logger.warn("daemon.wedged-stopping", { pid: wedged });
   process.stdout.write(`orchd pid ${wedged} holds the lock but did not answer; stopping it\n`);
   await terminateDaemon(wedged, graceMs);
 }
@@ -151,7 +151,7 @@ export async function terminateWedgedDaemon(directory: string, lockPid: number, 
 /** Reach orchd, starting one when nothing holds its lock. THROWS when it cannot be
  *  reached: whether an unreachable daemon ends the command is the caller's ruling, and
  *  exiting from in here is what killed a spawn that had already placed its panes. */
-export async function ensureDaemon(directory: string): Promise<void> {
+export async function ensureDaemon(directory: string, logger: Logger): Promise<void> {
   const probe = await probeDaemon(directory);
   if (probe === "answered") return;
   const livePid = liveDaemonPid(directory);
@@ -165,11 +165,11 @@ export async function ensureDaemon(directory: string): Promise<void> {
     const graced = await awaitDaemonProbe(directory, Date.now() + BIND_GRACE_MS);
     if (graced === "answered") return;
     if (graced === "unreachable") throw new Error(starvedDaemonRefusal(directory, livePid));
-    await terminateWedgedDaemon(directory, livePid, 3000);
+    await terminateWedgedDaemon(directory, logger, livePid, 3000);
   } else if (probe === "unreachable") {
     clearDaemonRuntime(directory);
   }
-  daemonize(daemonEntrypoint(), [], directory);
+  daemonize(directory, daemonEntrypoint(), []);
   const started = await awaitDaemonProbe(directory, Date.now() + START_GRACE_MS);
   if (started === "answered") return;
   if (started === "unreachable") throw new Error(unreachableRefusal(directory));
@@ -178,12 +178,12 @@ export async function ensureDaemon(directory: string): Promise<void> {
 
 /** Reach orchd, or warn and carry on. For the commands specified to work with the
  *  daemon absent, where its silence costs its rows and never the whole command. */
-export async function ensureDaemonOrWarn(directory: string): Promise<void> {
+export async function ensureDaemonOrWarn(directory: string, logger: Logger): Promise<void> {
   try {
-    await ensureDaemon(directory);
+    await ensureDaemon(directory, logger);
   } catch (error: unknown) {
     const message = errorMessage(error);
-    commandLogger().warn("daemon.unavailable", { error: message });
+    logger.warn("daemon.unavailable", { error: message });
     process.stdout.write(`warning: ${message}\n`);
   }
 }
@@ -196,16 +196,16 @@ export function translateDaemonError(directory: string, error: unknown): unknown
 }
 
 /** Register a driving session and return the identity issued by the daemon. */
-export async function rpcRegisterSession(orchDir: string, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<RegisterSessionResponse> {
+export async function rpcRegisterSession(orchDir: string, logger: Logger, label?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<RegisterSessionResponse> {
   try {
-    await ensureDaemon(orchDir);
+    await ensureDaemon(orchDir, logger);
     const identity = await rpcCall(orchDir, "register-session", sessionClaim(orchDir, label), timeoutMs);
     if (!isLiveAgentIdentity(orchDir, identity) || !isRegisterSessionResponse(identity)) {
       throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed session registration");
     }
     announceUnleasedAgents(orchDir, identity);
     if (identity.registrationWarning) {
-      commandLogger().warn("daemon.registration-warning", { warning: identity.registrationWarning });
+      logger.warn("daemon.registration-warning", { warning: identity.registrationWarning });
       process.stdout.write(`warning: ${identity.registrationWarning}\n`);
     }
     return identity;
@@ -215,9 +215,9 @@ export async function rpcRegisterSession(orchDir: string, label?: string, timeou
 }
 
 /** Claim the minted identity carried by a spawned agent. */
-export async function rpcClaimIdentity(orchDir: string, id: string, token: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<ClaimIdentityResponse> {
+export async function rpcClaimIdentity(orchDir: string, logger: Logger, id: string, token: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<ClaimIdentityResponse> {
   try {
-    await ensureDaemon(orchDir);
+    await ensureDaemon(orchDir, logger);
     const identity = await rpcCall(orchDir, "claim-identity", { ...sessionClaim(orchDir), id, sessionToken: token }, timeoutMs);
     if (!isRecord(identity) || typeof identity.id !== "string" || identity.id !== id) {
       throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed identity claim");

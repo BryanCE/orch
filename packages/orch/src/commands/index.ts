@@ -1,7 +1,6 @@
 import * as files from "node:fs";
 import * as path from "node:path";
 import { errorMessage, isRecord, packageRoot } from "../util.ts";
-import { orchDir } from "../presence/writer.ts";
 import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/lifecycle.ts";
 import { cmdStatusVerb } from "./status-verb.ts";
 import { cmdSpawn, cmdTile } from "./spawn/index.ts";
@@ -32,7 +31,9 @@ import { helpTopic } from "./help.ts";
 import { die } from "./target.ts";
 import { term } from "../policy/vocabulary.ts";
 import { createServices } from "../services.ts";
-import type { Logger, Services } from "../types/services.ts";
+import type { Services } from "../types/services.ts";
+import type { Logger } from "../types/core.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 function usage() {
   process.stdout.write(
@@ -250,7 +251,7 @@ const STALE_GUARD_COMMANDS = new Set([
 ]);
 
 /** Refuse writes sent to a live daemon from a stale installed CLI. */
-function preflightSkew(argv: string[]): string[] {
+function preflightSkew(directory: string, argv: string[]): string[] {
   const staleOk = argv.includes("--stale-ok");
   const sanitized = argv.filter((arg) => arg !== "--stale-ok");
   const cmd = sanitized[0];
@@ -258,7 +259,7 @@ function preflightSkew(argv: string[]): string[] {
     ? sanitized[1] === "add" || sanitized[1] === "cancel"
     : Boolean(cmd && STALE_GUARD_COMMANDS.has(cmd));
   if (!mutates || staleOk) return sanitized;
-  const skew = readDaemonCodeSkew(orchDir(), daemonEntrypoint());
+  const skew = readDaemonCodeSkew(directory, daemonEntrypoint());
   if (skew) {
     die(`Refusing orch ${cmd}: daemon hash=${skew.daemonHash} differs from installed hash=${skew.diskHash}; fix: orch daemon reload  # or: bun run build:orch:dev; override: --stale-ok`);
   }
@@ -273,10 +274,10 @@ function exemptFromSetupGate(cmd: string | undefined): boolean {
 }
 
 /** True on a clean slate: no selections recorded yet, a TTY to prompt on, and a command that needs them. */
-export function needsFirstRunSetup(orchDir: string, cmd: string | undefined): boolean {
+export function needsFirstRunSetup(settings: OrchSettings | null, cmd: string | undefined): boolean {
   if (exemptFromSetupGate(cmd)) return false;
   if (!process.stdin.isTTY) return false;
-  return compositionUnrecorded(orchDir);
+  return compositionUnrecorded(settings);
 }
 
 /** `orch <cmd> -h|--help` and `orch help <cmd>` both name one command's topic. */
@@ -377,22 +378,23 @@ const commandHandlers: Record<string, Handler> = {
 export function runCommand(argv: string[]): void {
   const cmd = argv[0];
   let rest = argv.slice(1);
-  const services = createServices();
   // Help must never require setup, a daemon, or a current install to read.
   const topic = requestedHelpTopic(cmd, rest);
   if (topic !== null) { process.stdout.write(topic); return; }
+  const services = createServices();
+  const directory = services.orchDir;
   // The setup gate never surfaces a raw config error. Either it routes into the wizard, or it
   // prints exactly what is missing and the command that fixes it. `die` exits, so the switch
   // below is only ever reached with a real recorded configuration.
   try {
-    if (needsFirstRunSetup(services.orchDir, cmd)) {
+    if (needsFirstRunSetup(services.settings.currentOrNull(), cmd)) {
       void runFirstTimeSetup(argv, runCommand).catch((error: unknown) => die(errorMessage(error)));
       return;
     }
     // Nothing recorded and no TTY to walk the wizard on: say exactly what to run, rather than
     // letting an unconfigured command surface a config error deeper in.
-    if (!exemptFromSetupGate(cmd) && compositionUnrecorded(services.orchDir)) die(setupRequiredMessage(services.orchDir));
-    const sanitized = preflightSkew(argv);
+    if (!exemptFromSetupGate(cmd) && compositionUnrecorded(services.settings.currentOrNull())) die(setupRequiredMessage(directory));
+    const sanitized = preflightSkew(directory, argv);
     rest = sanitized.slice(1);
   } catch (error: unknown) {
     // A present-but-invalid settings.json (stale schemaVersion, absent/unknown runtime): the
@@ -400,7 +402,7 @@ export function runCommand(argv: string[]): void {
     die(errorMessage(error));
   }
   if (cmd === undefined) {
-    dispatchAsync(cmdStatusVerb(services, argv));
+    dispatchAsync(services.logger, cmdStatusVerb(services, argv));
     return;
   }
   const handler = commandHandlers[cmd];
@@ -408,9 +410,9 @@ export function runCommand(argv: string[]): void {
     void handler(services, rest);
     return;
   }
-  if (cmd.startsWith("--")) dispatchAsync(cmdStatusVerb(services, argv));
+  if (cmd.startsWith("--")) dispatchAsync(services.logger, cmdStatusVerb(services, argv));
   else {
-    commandLogger().error("command.unknown", { command: cmd });
+    services.logger.error("command.unknown", { command: cmd });
     process.stdout.write(`Unknown command: ${cmd}\n\n`);
     usage();
     process.exitCode = 1;

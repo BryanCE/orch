@@ -23,7 +23,7 @@ import { checkRemoteOrchDir, checkRemoteReachability, checkRemoteVersion } from 
 import { checkRuntime } from "./runtime.ts";
 import { loadPresence } from "../presence/store.ts";
 import { agentView } from "../store/agent-view.ts";
-import { commandLogger } from "../commands/logging.ts";
+import type { Logger } from "../types/core.ts";
 
 export type { CheckResult } from "../types/doctor.ts";
 import type { AdapterId } from "../types/adapter.ts";
@@ -70,7 +70,7 @@ async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
   }));
 }
 
-export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner | DoctorOptions): Promise<CheckResult[]> {
+export async function runDoctor(orchDir: string, logger: Logger, sshRunnerOrOptions: SshRunner | DoctorOptions): Promise<CheckResult[]> {
   // `yes` is a command-level concern; accepting it here keeps programmatic doctor
   // runs explicit while preserving the runner's read-only diagnostic contract.
   const sshRunner = typeof sshRunnerOrOptions === "function"
@@ -123,7 +123,9 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     isolated("unrunnable-tasks", "Unrunnable queue tasks", () => checkUnrunnableTasks(orchDir)),
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
     isolated("settings", "Settings validity", () => checkSettingsFile(orchDir)),
-    isolated("runtime", "Declared runtime", () => checkRuntime(orchDir)),
+    isolated("runtime", "Declared runtime", () => settings
+      ? checkRuntime(settings)
+      : { id: "runtime", label: "Declared runtime", status: "skip", detail: "settings unavailable" }),
     settingsDependent(orchDir, settings, "skill-links", "Skill links", (current) => checkSkillLinks(current)),
     settingsDependent(orchDir, settings, "spawn-limits", "Spawn limits", (current) => checkSpawnLimits(current)),
     settingsDependent(orchDir, settings, "provenance-depth", "Provenance depth", (current) => checkProvenanceDepth(orchDir, current)),
@@ -162,7 +164,7 @@ export function applyFixes(results: CheckResult[]): { applied: string[] } {
  *  run it first — a freshly updated orch must never launch agents on the last
  *  version's bridge. `harnesses` is required and never widened to "every enabled
  *  adapter": reloading a pi agent has no business rewriting Claude's hooks. */
-export async function refreshStaleShims(orchDir: string, harnesses: readonly string[], settings: OrchSettings | null): Promise<string[]> {
+export async function refreshStaleShims(orchDir: string, logger: Logger, harnesses: readonly string[], settings: OrchSettings | null): Promise<string[]> {
   const refreshed: string[] = [];
   const enabled = settings?.enabled.adapters ?? [];
   for (const id of enabled.filter((adapter) => harnesses.includes(adapter))) {
@@ -178,7 +180,7 @@ export async function refreshStaleShims(orchDir: string, harnesses: readonly str
       refreshed.push(id);
     } catch (error: unknown) {
       // A broken shim diagnosis warns; it never blocks the command that asked.
-      commandLogger().warn("doctor.shim-refresh-failed", { adapter: id, error: errorMessage(error) });
+      logger.warn("doctor.shim-refresh-failed", { adapter: id, error: errorMessage(error) });
       process.stdout.write(`warning: ${id} integration refresh failed: ${errorMessage(error)}\n`);
     }
   }

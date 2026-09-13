@@ -70,8 +70,8 @@ describe("a live name is claimed and a dead one is released", () => {
     const orchDir = tempOrchDir();
     seedLiveAgent(orchDir, "recon", "w1");
 
-    expect(() => assertNameFree("recon", "w1")).toThrow(/already live/);
-    expect(() => assertNameFree("recon-two", "w1")).not.toThrow();
+    expect(() => assertNameFree(orchDir, "recon", "w1")).toThrow(/already live/);
+    expect(() => assertNameFree(orchDir, "recon-two", "w1")).not.toThrow();
   });
 
   test("a dead agent frees its name", () => {
@@ -80,14 +80,14 @@ describe("a live name is claimed and a dead one is released", () => {
     seedStatus(orchDir, key, { agent: "pi", state: "idle" });
     endProcess(orchDir, key, Date.now()); // the recorded process is gone
 
-    expect(() => assertNameFree("recon", "w1")).not.toThrow();
+    expect(() => assertNameFree(orchDir, "recon", "w1")).not.toThrow();
   });
 
   test("another space's agent never blocks a name here", () => {
     const orchDir = tempOrchDir();
     seedLiveAgent(orchDir, "recon", "w2");
 
-    expect(() => assertNameFree("recon", "w1")).not.toThrow();
+    expect(() => assertNameFree(orchDir, "recon", "w1")).not.toThrow();
   });
 });
 
@@ -100,22 +100,22 @@ describe("name scope follows the agent's current space, not its birthplace", () 
     const orchDir = tempOrchDir();
     const key = seedLiveAgent(orchDir, "recon", "w1");
 
-    expect(() => assertNameFree("recon", "w1")).toThrow(/already live/);
-    expect(() => assertNameFree("recon", "w2")).not.toThrow();
+    expect(() => assertNameFree(orchDir, "recon", "w1")).toThrow(/already live/);
+    expect(() => assertNameFree(orchDir, "recon", "w2")).not.toThrow();
 
     // The agent moves. Its identity is untouched — only the environment changed.
     seedSpace(orchDir, "w2");
     // A move is a new interval on the space axis, not a re-registration.
     setSpace(orchDir, key, Date.now(), "w2");
 
-    expect(() => assertNameFree("recon", "w1")).not.toThrow();
-    expect(() => assertNameFree("recon", "w2")).toThrow(/already live/);
+    expect(() => assertNameFree(orchDir, "recon", "w1")).not.toThrow();
+    expect(() => assertNameFree(orchDir, "recon", "w2")).toThrow(/already live/);
   });
 
   test("the collision names the agent by its minted id", () => {
     const orchDir = tempOrchDir();
     const key = seedLiveAgent(orchDir, "recon", "w1");
 
-    expect(() => assertNameFree("recon", "w1")).toThrow(new RegExp(`already live as ${key}`));
+    expect(() => assertNameFree(orchDir, "recon", "w1")).toThrow(new RegExp(`already live as ${key}`));
   });
 });

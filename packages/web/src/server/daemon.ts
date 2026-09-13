@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 // The daemon's endpoint names and $ORCH_DIR have exactly one definition site; the web
 // server reads them through the @orch/* seam rather than restating either one.
 import { daemonRuntimeFiles } from "@orch/daemon/runtime-files.ts";
-import { orchDir } from "@orch/presence/writer.ts";
+import { services } from "./services.ts";
 
 // NOTHING a browser chunk imports may reach this module: node:net cannot be bundled
 // for the client, and in dev there is no tree-shaking to save it. Client components
@@ -45,7 +45,7 @@ function daemonTarget(): { host: string; port: number } {
  *  other side of a VM boundary from orchd reads its own $ORCH_DIR here and sees why. */
 function attemptedEndpoints(): string {
   const tcp = daemonTarget();
-  return `${daemonRuntimeFiles(orchDir()).socket} or tcp://${tcp.host}:${tcp.port}`;
+  return `${daemonRuntimeFiles(services.orchDir).socket} or tcp://${tcp.host}:${tcp.port}`;
 }
 
 export function down(error: unknown): DaemonDown {
@@ -101,7 +101,7 @@ interface DaemonDial {
 /** Dial the local unix socket, else loopback TCP — the crossing a web server on
  *  Windows uses to reach an orchd running in WSL. */
 async function connectDaemon(timeoutMs = CONNECT_TIMEOUT_MS): Promise<DaemonDial> {
-  const unixSocket = daemonRuntimeFiles(orchDir()).socket;
+  const unixSocket = daemonRuntimeFiles(services.orchDir).socket;
   const tcp = daemonTarget();
   const overTcp = async (): Promise<DaemonDial> => ({
     socket: await connectEndpoint(tcp, timeoutMs),

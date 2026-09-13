@@ -26,6 +26,7 @@ import { ompAdapter } from "../src/adapters/omp.ts";
 import { sql } from "drizzle-orm";
 
 import { numberField, row } from "./helpers/rows.ts";
+import { testServices } from "./helpers/services.ts";
 describe("commands/spawn", () => {
   test("refuses an invalid name before resolving or creating a workspace", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orch-spawn-invalid-name-"));
@@ -42,7 +43,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["Bad_Name", "ok-name", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
+      await cmdSpawn(testServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }), ["Bad_Name", "ok-name", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -79,7 +80,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree"]);
+      await cmdSpawn(testServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }), ["--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -116,7 +117,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(["worker", "--detached", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
+      await cmdSpawn(testServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }), ["worker", "--detached", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {

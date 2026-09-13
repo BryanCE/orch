@@ -13,18 +13,12 @@
  * core: `src/util.ts` is node built-ins only and bundles cleanly, so the shared
  * JSON guards come from there rather than being re-declared per shim.
  */
-import { homedir } from "node:os";
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OUTCOMES_FILE, PRESENCE_SCHEMA, RESULTS_FILE, STATUS_FILE } from "./schema.ts";
 import { isRecord, readJsonFile } from "../util.ts";
 import type { LaunchEnvFacts, LaunchStampable, PresenceRecord, PresenceStatus } from "../types/presence.ts";
 import type { JsonRecord } from "../types/core.ts";
-
-/** $ORCH_DIR, defaulting to ~/.orch. Read per call so tests can repoint the env. */
-export function orchDir(): string {
-  return process.env.ORCH_DIR ?? join(homedir(), ".orch");
-}
 
 /** The root holding every agent's presence directory. */
 export function presenceRoot(root: string): string {

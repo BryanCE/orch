@@ -13,6 +13,7 @@ import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import type { Entity } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
+import { testServices } from "./helpers/services.ts";
 
 /**
  * Commands read the space from the environment satellite
@@ -59,9 +60,9 @@ describe("command space fields", () => {
     const { orchDir, key } = presenceFixture();
     process.env.ORCH_DIR = orchDir;
 
-    const current = buildEntities().find((candidate) => candidate.key === key)!;
+    const current = buildEntities(orchDir, testServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current()).find((candidate) => candidate.key === key)!;
     expect(current).toMatchObject({ key, paneId: "999999", agent: "pi", space: "reported-space" });
-    expect(entitySpace(current)).toBe("reported-space");
+    expect(entitySpace(orchDir, current)).toBe("reported-space");
     expect(key).not.toContain("reported-space");
     expect(agentView(orchDir, key)?.environment.space).toBe("reported-space");
   }, 30_000);
@@ -70,7 +71,7 @@ describe("command space fields", () => {
     const { orchDir, key } = presenceFixture();
     process.env.ORCH_DIR = orchDir;
 
-    const entities = buildEntities({ skipBackends: true });
+    const entities = buildEntities(orchDir, testServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), { skipBackends: true });
     expect(entities).toHaveLength(1);
     const entity = entities[0];
     expect(entity?.key).toBe(key);
@@ -85,7 +86,7 @@ describe("command space fields", () => {
     const claudeKey = writeAgent(orchDir, "claude", "reported-claude", "1000000");
     process.env.ORCH_DIR = orchDir;
 
-    const entities: Entity[] = buildEntities();
+    const entities: Entity[] = buildEntities(orchDir, testServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current());
     const piEntity = entities.find((entity) => entity.key === key);
     const claudeEntity = entities.find((entity) => entity.key === claudeKey);
     expect(piEntity?.key).toBe(key);

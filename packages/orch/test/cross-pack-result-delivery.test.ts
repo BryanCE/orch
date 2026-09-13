@@ -13,6 +13,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { sql } from "drizzle-orm";
 import { closeAllStores, orm } from "../src/store/connection.ts";
+import { testServices } from "./helpers/services.ts";
 
 /**
  * Results and peer messages are mail: an outbox row pushed down the recipient's
@@ -27,6 +28,10 @@ afterEach(() => {
   if (savedOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = savedOrchDir;
 });
+
+function settingsFor(directory: string) {
+  return testServices({ orchDir: directory, settings: { fleet: { cross_space: false } } }).settings.current();
+}
 
 function fixture(): string {
   const directory = mkdtempSync(join(tmpdir(), "orch-cross-pack-result-"));
@@ -57,7 +62,7 @@ describe("results go to the enqueuer as mail", () => {
     const directory = fixture();
     settledTask(directory);
 
-    deliverTaskResult(directory, "t1");
+    deliverTaskResult(directory, settingsFor(directory), "t1");
 
     const row = mailRow(directory, "asker");
     expect(row).toBeDefined();
@@ -75,7 +80,7 @@ describe("results go to the enqueuer as mail", () => {
     const directory = fixture();
     settledTask(directory, "failed");
 
-    deliverTaskResult(directory, "t1");
+    deliverTaskResult(directory, settingsFor(directory), "t1");
 
     const row = mailRow(directory, "asker");
     expect(row).toBeDefined();
@@ -92,7 +97,7 @@ describe("results go to the enqueuer as mail", () => {
     setSpace(directory, "runner", 10, "run-space");
     settledTask(directory);
 
-    deliverTaskResult(directory, "t1");
+    deliverTaskResult(directory, settingsFor(directory), "t1");
 
     expect(mailRow(directory, "asker")).toBeUndefined();
     expect(mailRow(directory, "runner")).toBeUndefined();
@@ -106,21 +111,21 @@ describe("acceptMail", () => {
     setSpace(directory, "asker", 10, "ask-space");
     setSpace(directory, "runner", 10, "run-space");
 
-    expect(() => acceptMail(directory, "asker", "runner", "hello"))
+    expect(() => acceptMail(directory, settingsFor(directory), "asker", "runner", "hello"))
       .toThrow("space wall: actor space ask-space cannot write to target space run-space (runner)");
   });
 
   test("requires non-empty from, target, and text", () => {
     const directory = fixture();
 
-    expect(() => acceptMail(directory, "", "runner", "hello")).toThrow("from is required");
-    expect(() => acceptMail(directory, "asker", "  ", "hello")).toThrow("target is required");
-    expect(() => acceptMail(directory, "asker", "runner", "\t")).toThrow("text is required");
+    expect(() => acceptMail(directory, settingsFor(directory), "", "runner", "hello")).toThrow("from is required");
+    expect(() => acceptMail(directory, settingsFor(directory), "asker", "  ", "hello")).toThrow("target is required");
+    expect(() => acceptMail(directory, settingsFor(directory), "asker", "runner", "\t")).toThrow("text is required");
   });
 
   test("queues a BridgeMessage steer payload", () => {
     const directory = fixture();
-    const accepted = acceptMail(directory, "asker", "runner", "hello");
+    const accepted = acceptMail(directory, settingsFor(directory), "asker", "runner", "hello");
     const row = selectOutboxMessage(directory, accepted.id);
 
     expect(row).toBeDefined();

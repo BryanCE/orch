@@ -15,6 +15,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { endProcess } from "../src/store/interval-rows.ts";
 import { withExitCode } from "./helpers/exit-code.ts";
+import { testServices } from "./helpers/services.ts";
 
 /**
  * `orch close --all`, run from a plain shell,
@@ -39,6 +40,10 @@ const dirs: string[] = [];
 const oldDir = process.env.ORCH_DIR;
 const oldKey = process.env[LAUNCH_ENV];
 const originalWrite = process.stdout.write.bind(process.stdout);
+const SETTINGS = {
+  enabled: { adapters: ["pi"], backends: ["headless"] },
+  defaults: { adapter: "pi", backend: "headless" },
+};
 
 afterEach(() => {
   process.stdout.write = originalWrite;
@@ -50,15 +55,16 @@ afterEach(() => {
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-close-by-id-"));
   dirs.push(dir);
-  writeSettingsFixture(dir, {
-    enabled: { adapters: ["pi"], backends: ["headless"] },
-    defaults: { adapter: "pi", backend: "headless" },
-  });
+  writeSettingsFixture(dir, SETTINGS);
   process.env.ORCH_DIR = dir;
   delete process.env[LAUNCH_ENV];
   orm(dir);
   seedSpace(dir, "space00001");
   return dir;
+}
+
+function services(dir: string) {
+  return testServices({ orchDir: dir, settings: SETTINGS });
 }
 
 /** Seed an agent whose process has already ended, so close has nothing to signal.
@@ -68,7 +74,7 @@ function seedLiveAgent(dir: string, key: string, handle?: string): void {
   seedAgent(key, {
     adapter: "pi", backend: "headless", space: "space00001",
     ...(handle === undefined ? {} : { handle }),
-  });
+  }, dir);
   endProcess(dir, key, Date.now());
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
@@ -106,7 +112,7 @@ describe("close is keyed by the agent id, never by a plexer coordinate (U10)", (
     seedLiveAgent(dir, "2d6biywurb");
     const backend = new OutsideSessionBackend({ id: "headless", panes: [] });
 
-    withRegisteredBackend(backend, () => capture(() => { cmdClose(["--all", "--json"]); }));
+    withRegisteredBackend(backend, () => capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
 
     // The reported failure in one assertion: orch asked `herdr pane close
     // 2d6biywurb`, an agent id in the place a pane handle goes.
@@ -120,11 +126,11 @@ describe("close is keyed by the agent id, never by a plexer coordinate (U10)", (
     const backend = new OutsideSessionBackend({ id: "headless", panes: [] });
 
     const { payload } = withRegisteredBackend(backend, () =>
-      capture(() => { cmdClose(["--all", "--json"]); }));
+      capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
 
     const results: unknown[] = Array.isArray(payload.results) ? payload.results : [];
     expect(results.map((row: unknown) => (isRecord(row) ? row.outcome : null))).toEqual(["done"]);
-    expect(spawnedRecords().has("7eh83quhwd")).toBe(false);
+    expect(spawnedRecords(dir).has("7eh83quhwd")).toBe(false);
   });
 
   test("what a human is told they closed is the agent, not the plexer's coordinate", () => {
@@ -132,7 +138,7 @@ describe("close is keyed by the agent id, never by a plexer coordinate (U10)", (
     seedLiveAgent(dir, "zcixvdjos8", "w7:p3C");
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p3C")] });
 
-    const { text } = withRegisteredBackend(backend, () => capture(() => { cmdClose(["--all"]); }));
+    const { text } = withRegisteredBackend(backend, () => capture(() => { cmdClose(services(dir), ["--all"]); }));
 
     // One listing must speak ONE vocabulary. `Closed w7:p3C.` names a herdr
     // coordinate a person never typed and cannot address anything else with.
@@ -146,7 +152,7 @@ describe("close is keyed by the agent id, never by a plexer coordinate (U10)", (
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p3D")] });
 
     const { payload } = withRegisteredBackend(backend, () =>
-      capture(() => { cmdClose(["--all", "--json"]); }));
+      capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
 
     expect(payload.closed).toEqual(["3ng6mmpi8e"]);
   });
@@ -156,7 +162,7 @@ describe("close is keyed by the agent id, never by a plexer coordinate (U10)", (
     seedLiveAgent(dir, "lwhmatovbh", "w7:p3E");
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p3E")] });
 
-    withRegisteredBackend(backend, () => capture(() => { cmdClose(["--all", "--json"]); }));
+    withRegisteredBackend(backend, () => capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
 
     // The handle is not banished — it is the argument to `placement.close` and
     // nothing else.

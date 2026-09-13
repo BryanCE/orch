@@ -16,6 +16,7 @@ import { agents } from "../src/db/schema.ts";
 import { eq } from "drizzle-orm";
 import type { StatusRow } from "../src/types/command.ts";
 import type { CallerScope } from "../src/commands/status.ts";
+import { testServices } from "./helpers/services.ts";
 
 function row(key: string, ownerId: string | null, spaceId = "space"): StatusRow {
   return {
@@ -30,6 +31,11 @@ function row(key: string, ownerId: string | null, spaceId = "space"): StatusRow 
 }
 
 const session: CallerScope = { id: "session-a", ceiling: "space", kind: "session" };
+const SETTINGS = { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } };
+
+function services(root: string) {
+  return testServices({ orchDir: root, settings: SETTINGS });
+}
 
 describe("session agent visibility", () => {
   test("shows only agents held by the current session, not its provenance children", () => {
@@ -60,7 +66,7 @@ describe("session agent visibility", () => {
     acquireLease(root, "foreignaaa", "holderaaa", 4);
     try {
       let failure: unknown;
-      try { await cmdNew(["foreign"]); } catch (error: unknown) { failure = error; }
+      try { await cmdNew(services(root), ["foreign"]); } catch (error: unknown) { failure = error; }
       expect(failure instanceof Error ? failure.message : String(failure)).toBe("No target matches \"foreign\". Run 'orch panes' to list.");
     } finally {
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
@@ -87,7 +93,7 @@ describe("session agent visibility", () => {
     acquireLease(root, "foreignaaa", "holderaaa", 4);
     upsertRun(root, { dispatchId: "foreign-run", agentKey: "foreignaaa", state: "done", startedAt: 5 });
     try {
-      expect(() => cmdRuns(["foreignaaa", "--json"])).toThrow("No target matches \"foreignaaa\". Run 'orch panes' to list.");
+      expect(() => cmdRuns(services(root), ["foreignaaa", "--json"])).toThrow("No target matches \"foreignaaa\". Run 'orch panes' to list.");
     } finally {
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
       if (oldMarker === undefined) delete process.env.PI_CODING_AGENT; else process.env.PI_CODING_AGENT = oldMarker;
@@ -97,6 +103,7 @@ describe("session agent visibility", () => {
   });
 
   test.serial("a session cannot widen status with --space-wide", async () => {
+    const root = mkdtempSync(join(tmpdir(), "orch-session-status-"));
     const oldMarker = process.env.PI_CODING_AGENT;
     const oldSession = process.env.PI_SESSION_ID;
     process.env.PI_CODING_AGENT = "1";
@@ -104,7 +111,7 @@ describe("session agent visibility", () => {
     try {
       let failure: unknown;
       try {
-        await cmdStatus(parseStatusOptions(["--offline", "--space-wide"]));
+        await cmdStatus(services(root), parseStatusOptions(["--offline", "--space-wide"]));
       } catch (error: unknown) {
         failure = error;
       }
@@ -114,6 +121,7 @@ describe("session agent visibility", () => {
     } finally {
       if (oldMarker === undefined) delete process.env.PI_CODING_AGENT; else process.env.PI_CODING_AGENT = oldMarker;
       if (oldSession === undefined) delete process.env.PI_SESSION_ID; else process.env.PI_SESSION_ID = oldSession;
+      removeTempDir(root);
     }
   });
 
@@ -135,8 +143,8 @@ describe("session agent visibility", () => {
     acquireLease(root, "heldagent1", "sesshold1a", 4);
     acquireLease(root, "foreigntag1", "otherhold1a", 5);
     try {
-      expect(resolveTarget("held-one").key).toBe("heldagent1");
-      expect(() => resolveTarget("foreign")).toThrow("No target matches \"foreign\". Run 'orch panes' to list.");
+      expect(resolveTarget(root, services(root).settings.current(), "held-one").key).toBe("heldagent1");
+      expect(() => resolveTarget(root, services(root).settings.current(), "foreign")).toThrow("No target matches \"foreign\". Run 'orch panes' to list.");
     } finally {
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
       if (oldMarker === undefined) delete process.env.PI_CODING_AGENT; else process.env.PI_CODING_AGENT = oldMarker;

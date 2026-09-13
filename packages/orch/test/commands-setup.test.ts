@@ -10,6 +10,7 @@ import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 import { isRecord } from "../src/util.ts";
+import { testServices } from "./helpers/services.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalHome = process.env.HOME;
@@ -88,7 +89,7 @@ describe("commands/setup", () => {
       shim: { value: replacements.shim, configurable: true, enumerable: true, writable: true },
     });
     try {
-      await cmdSetup(["--yes", "--no-install", "--no-skills", "--agent=pi", "--backend=headless", "--runtime=node"]);
+      await cmdSetup(testServices({ orchDir, settings: null }), ["--yes", "--no-install", "--no-skills", "--agent=pi", "--backend=headless", "--runtime=node"]);
     } finally {
       Object.defineProperties(adapter, {
         modelWarm: { value: original.modelWarm, configurable: true, enumerable: true, writable: true },

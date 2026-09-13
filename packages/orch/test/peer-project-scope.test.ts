@@ -47,7 +47,7 @@ describe("peer discovery walls on the project", () => {
     seedStatus(directory, "sibling001", { pid: process.pid, state: "working" });
     seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
 
-    const keys = (await peerSummaries(daemonClientForPeers(["sibling001", "foreigner1"]), ownKey)).map((peer) => peer.key);
+    const keys = (await peerSummaries(directory, daemonClientForPeers(directory, ["sibling001", "foreigner1"]), ownKey)).map((peer) => peer.key);
     expect(keys).toEqual(["sibling001"]);
   });
 
@@ -57,7 +57,7 @@ describe("peer discovery walls on the project", () => {
     seedLiveProcess(directory, "foreigner1");
     seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
 
-    const keys = (await peerSummaries(daemonClientForPeers(["foreigner1"]), ownKey, true)).map((peer) => peer.key);
+    const keys = (await peerSummaries(directory, daemonClientForPeers(directory, ["foreigner1"]), ownKey, true)).map((peer) => peer.key);
     expect(keys).toEqual(["foreigner1"]);
   });
 
@@ -67,9 +67,9 @@ describe("peer discovery walls on the project", () => {
     seedLiveProcess(directory, "foreigner1");
     seedStatus(directory, "foreigner1", { pid: process.pid, label: "foreigner", state: "working", project: "/some/other/project" });
 
-    const refused = await resolvePeer(daemonClientForPeers(["foreigner1"]), "foreigner", ownKey);
+    const refused = await resolvePeer(directory, daemonClientForPeers(directory, ["foreigner1"]), "foreigner", ownKey);
     expect("error" in refused).toBe(true);
-    const allowed = await resolvePeer(daemonClientForPeers(["foreigner1"]), "foreigner", ownKey, true);
+    const allowed = await resolvePeer(directory, daemonClientForPeers(directory, ["foreigner1"]), "foreigner", ownKey, true);
     expect("peer" in allowed).toBe(true);
   });
 
@@ -79,7 +79,7 @@ describe("peer discovery walls on the project", () => {
     seedLiveProcess(directory, "unstamped1");
     seedStatus(directory, "unstamped1", { pid: process.pid, state: "working", project: undefined });
 
-    expect(await peerSummaries(daemonClientForPeers(["unstamped1"]), ownKey)).toEqual([]);
+    expect(await peerSummaries(directory, daemonClientForPeers(directory, ["unstamped1"]), ownKey)).toEqual([]);
   });
 
   test("a spawned agent's all_workspaces flag is ignored", async () => {
@@ -94,6 +94,6 @@ describe("peer discovery walls on the project", () => {
     process.env[LAUNCH_ENV] = ownKey;
     const view = peerView(directory, ownKey, ["foreigner1"], true);
     expect(view.visible).toEqual([]);
-    expect("error" in await resolvePeer(daemonClientForPeerView(view), "foreigner", ownKey, true)).toBe(true);
+    expect("error" in await resolvePeer(directory, daemonClientForPeerView(view), "foreigner", ownKey, true)).toBe(true);
   });
 });

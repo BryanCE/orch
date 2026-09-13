@@ -2,7 +2,6 @@ import { ensureOrchAgent, registerSpawnedAgent } from "../../src/store/spawn-reg
 import { currentHostOs, ensureHost, ensurePlexer } from "../../src/store/agent-rows.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace } from "../../src/store/interval-rows.ts";
 import { adoptLease, currentLease } from "../../src/store/lease-rows.ts";
-import { orchDir } from "../../src/presence/writer.ts";
 import type { RecordedProcess } from "../../src/types/backend.ts";
 import type { AgentFacts } from "../../src/types/presence.ts";
 
@@ -15,7 +14,7 @@ export function runnerProcess(): RecordedProcess {
 export const DEAD_PID = 2147483646;
 
 /** Seed one agent through the same writer production uses. It has no live process; seedLiveProcess states one. */
-export function seedAgent(key: string, facts: AgentFacts = {}, directory = orchDir()): void {
+export function seedAgent(key: string, facts: AgentFacts = {}, directory: string): void {
   registerSpawnedAgent(directory, {
     key,
     harnessId: facts.adapter ?? "pi",
@@ -55,7 +54,7 @@ export function seedLiveProcess(directory: string, agentId: string, now = Date.n
  * re-registers. Conflating the two is what a second "record" writer did, and it
  * is what let a fixture assert a record shape no spawn ever produces (2.1).
  */
-export function placeAgent(key: string, facts: AgentFacts = {}, directory = orchDir()): void {
+export function placeAgent(key: string, facts: AgentFacts = {}, directory: string): void {
   const now = Date.now();
   if (facts.backend !== undefined) {
     ensurePlexer(directory, facts.backend, facts.backend, now);

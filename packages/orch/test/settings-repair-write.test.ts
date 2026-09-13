@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { loadSettings } from "../src/settings/read.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { applySettingsRepairs } from "../src/settings/write.ts";
 import { isRecord } from "../src/util.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -33,7 +33,7 @@ describe("applySettingsRepairs", () => {
 
     applySettingsRepairs(directory, [{ kind: "rename", from: "fleet.spawn_cap", to: "fleet.max_agents_per_pack" }]);
 
-    expect(loadSettings(directory).fleet.max_agents_per_pack).toBe(4);
+    expect(fileSettingsManager(directory).current().fleet.max_agents_per_pack).toBe(4);
     expect(readSettingsRecord(directory).fleet).toEqual({ max_agents_per_pack: 4 });
   });
 
@@ -53,7 +53,7 @@ describe("applySettingsRepairs", () => {
 
     applySettingsRepairs(directory, [{ kind: "set", path: "fleet.max_depth", value: 6 }]);
 
-    expect(loadSettings(directory).fleet.max_depth).toBe(6);
+    expect(fileSettingsManager(directory).current().fleet.max_depth).toBe(6);
   });
 
   test("drop deletes a value without pruning its parent", () => {
@@ -63,7 +63,7 @@ describe("applySettingsRepairs", () => {
     applySettingsRepairs(directory, [{ kind: "drop", path: "fleet.max_depth" }]);
 
     expect(readSettingsRecord(directory).fleet).toEqual({});
-    expect(loadSettings(directory).fleet.max_depth).toBe(1);
+    expect(fileSettingsManager(directory).current().fleet.max_depth).toBe(1);
   });
 
   test("applies several repairs in one call", () => {
@@ -76,7 +76,7 @@ describe("applySettingsRepairs", () => {
       { kind: "drop", path: "junk" },
     ]);
 
-    expect(loadSettings(directory).fleet).toMatchObject({ max_agents_per_pack: 4, max_depth: 3 });
+    expect(fileSettingsManager(directory).current().fleet).toMatchObject({ max_agents_per_pack: 4, max_depth: 3 });
     expect(readSettingsRecord(directory).junk).toBeUndefined();
   });
 
@@ -88,12 +88,12 @@ describe("applySettingsRepairs", () => {
       fleet: { spawn_cap: 4 },
     }));
 
-    expect(() => loadSettings(directory)).toThrow(/schemaVersion/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/schemaVersion/);
     applySettingsRepairs(directory, [
       { kind: "rename", from: "fleet.spawn_cap", to: "fleet.max_agents_per_pack" },
       { kind: "set", path: "schemaVersion", value: 1 },
     ]);
 
-    expect(loadSettings(directory).fleet.max_agents_per_pack).toBe(4);
+    expect(fileSettingsManager(directory).current().fleet.max_agents_per_pack).toBe(4);
   });
 });

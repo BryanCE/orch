@@ -11,7 +11,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import { sql } from "drizzle-orm";
-
+import { testServices } from "./helpers/services.ts";
 function claimedTask(): TaskRec {
   return {
     id: "t1", text: "x", opts: {}, enqueuedBy: "orch", scopeAgentId: null,
@@ -64,6 +64,7 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
         pollIntervalMs: 10,
         once: true,
         json: true,
+        settings: testServices({ orchDir: dir, settings: {} }).settings,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();

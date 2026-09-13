@@ -87,7 +87,7 @@ function fakeHarness(): HarnessApi {
 }
 
 function presenceFor() {
-  return createAgentPresence(tempOrchDir(), {
+  return createAgentPresence(process.env.ORCH_DIR!, {
     harness: fakeHarness(),
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",

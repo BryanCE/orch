@@ -61,6 +61,6 @@ describe("spawn names every agent positionally, at creation", () => {
 
   test("claimSpawnNames takes the resolved names and asserts each is free", () => {
     makeDir();
-    expect(claimSpawnNames(["api", "worker"], "")).toEqual(["api", "worker"]);
+    expect(claimSpawnNames(makeDir(), ["api", "worker"], "")).toEqual(["api", "worker"]);
   });
 });

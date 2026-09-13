@@ -11,7 +11,7 @@ export function selfIdentity(orchDir: string): SelfIdentity | null {
   // A spawned agent was handed its own id at launch; that IS orch's record of it.
   // The key is the whole id, so there is nothing to parse out of it — and a key
   // that is not a minted id names no agent orch ever registered.
-  const spawned = launchCredential();
+  const spawned = launchCredential(orchDir);
   if (spawned !== null) return { id: spawned };
   // A driving session: its harness's session token is the pointer to the row
   // `register-session` minted. The token is environment; the id it resolves to is identity.

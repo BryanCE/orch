@@ -88,8 +88,8 @@ export function renderLiveStatus(
 export async function cmdStatusLive(services: Services, options: StatusOptions): Promise<void> {
   if (options.json) die("--live renders a terminal table; drop --json");
   if (process.stdout.isTTY !== true || process.stdin.isTTY !== true) die("--live needs a terminal");
-  await ensureDaemon(services.orchDir);
-  await ensureCallerRegistered(services.orchDir, rpcRegisterSession);
+  await ensureDaemon(services.orchDir, services.logger);
+  await ensureCallerRegistered(services.orchDir, (directory) => rpcRegisterSession(directory, services.logger));
   if (options.spaceWide) forbidNonOperatorOverride(services.orchDir, "--space-wide");
   if (options.allPanes) forbidNonOperatorOverride(services.orchDir, "--all-panes");
 

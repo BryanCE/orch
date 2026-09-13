@@ -13,6 +13,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { AgentNamingRole, LabelRole } from "../src/types/backend.ts";
 import { seedAgent } from "./helpers/agent.ts";
+import { testServices } from "./helpers/services.ts";
 
 /**
  * `orch rename` set the NAME and left the pane
@@ -37,6 +38,10 @@ import { seedAgent } from "./helpers/agent.ts";
 const dirs: string[] = [];
 const oldDir = process.env.ORCH_DIR;
 const originalWrite = process.stdout.write.bind(process.stdout);
+const SETTINGS = {
+  enabled: { adapters: ["pi"], backends: ["headless"] },
+  defaults: { adapter: "pi", backend: "headless" },
+};
 
 afterEach(() => {
   process.stdout.write = originalWrite;
@@ -52,20 +57,21 @@ const KEY = "renameagt1";
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-rename-border-"));
   dirs.push(dir);
-  writeSettingsFixture(dir, {
-    enabled: { adapters: ["pi"], backends: ["headless"] },
-    defaults: { adapter: "pi", backend: "headless" },
-  });
+  writeSettingsFixture(dir, SETTINGS);
   process.env.ORCH_DIR = dir;
   orm(dir);
   seedSpace(dir, "space00001");
-  seedAgent(KEY, { adapter: "pi", backend: "headless", space: "space00001", handle: "w7:p2J", name: "wave2-1" });
+  seedAgent(KEY, { adapter: "pi", backend: "headless", space: "space00001", handle: "w7:p2J", name: "wave2-1" }, dir);
   const agentDir = join(dir, "agents", KEY);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({
     schema: PRESENCE_SCHEMA, key: KEY, pid: process.pid, agent: "pi", state: "idle",
   }));
   return dir;
+}
+
+function services(dir: string) {
+  return testServices({ orchDir: dir, settings: SETTINGS });
 }
 
 /** A plexer that records what it was asked to relabel, agent and pane apart. */
@@ -101,7 +107,7 @@ describe("orch rename syncs the pane border in one command (U5)", () => {
     const dir = fixture();
     const backend = new NamingBackend();
 
-    withRegisteredBackend(backend, () => { capture(() => { cmdRename([KEY, "thinking-axis", "--json"]); }); });
+    withRegisteredBackend(backend, () => { capture(() => { cmdRename(services(dir), [KEY, "thinking-axis", "--json"]); }); });
 
     expect(agentView(dir, KEY)?.name).toBe("thinking-axis");
     expect(backend.agentNames).toEqual(["thinking-axis"]);
@@ -110,11 +116,11 @@ describe("orch rename syncs the pane border in one command (U5)", () => {
   });
 
   test("the response states the two outcomes SEPARATELY", () => {
-    fixture();
+    const dir = fixture();
     const backend = new NamingBackend();
 
     const payload = withRegisteredBackend(backend, () =>
-      capture(() => { cmdRename([KEY, "thinking-axis", "--json"]); }));
+      capture(() => { cmdRename(services(dir), [KEY, "thinking-axis", "--json"]); }));
 
     // 07-port-seam: orch's own write and the plexer chrome are different
     // outcomes, and a caller must be able to tell which one happened.
@@ -126,7 +132,7 @@ describe("orch rename syncs the pane border in one command (U5)", () => {
     const backend = new NamingBackend(true);
 
     const payload = withRegisteredBackend(backend, () =>
-      capture(() => { cmdRename([KEY, "thinking-axis", "--json"]); }));
+      capture(() => { cmdRename(services(dir), [KEY, "thinking-axis", "--json"]); }));
 
     // orch's registry owns the name. The chrome is a separate action whose
     // failure is REPORTED and never rewrites whether the rename happened.
@@ -139,7 +145,7 @@ describe("orch rename syncs the pane border in one command (U5)", () => {
     const dir = fixture();
     const backend = new NamingBackend();
 
-    withRegisteredBackend(backend, () => { capture(() => { cmdRename([KEY, "just-the-border", "--pane", "--json"]); }); });
+    withRegisteredBackend(backend, () => { capture(() => { cmdRename(services(dir), [KEY, "just-the-border", "--pane", "--json"]); }); });
 
     expect(backend.paneNames).toEqual(["just-the-border"]);
     expect(agentView(dir, KEY)?.name).toBe("wave2-1");

@@ -8,7 +8,7 @@ export type { CallerKind };
 /** Classify the caller from its harness marker and, for workers, its claim. */
 export function callerKind(orchDir: string): CallerKind {
   const session = callerSession();
-  const id = launchCredential();
+  const id = launchCredential(orchDir);
   if (id !== null) {
     const row = agentById(orchDir, id);
     const sessionToken = session?.sessionId;

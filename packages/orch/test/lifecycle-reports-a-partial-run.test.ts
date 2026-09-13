@@ -8,6 +8,7 @@ import { isRecord } from "../src/util.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { testServices } from "./helpers/services.ts";
 
 /**
  * `orch reload`/`orch restart` end a partial run with `process.exitCode`, NEVER
@@ -37,13 +38,15 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
+const fixtureSettings = {
+  enabled: { adapters: ["pi"], backends: ["headless"] },
+  defaults: { adapter: "pi", backend: "headless" },
+};
+
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-partial-run-"));
   dirs.push(dir);
-  writeSettingsFixture(dir, {
-    enabled: { adapters: ["pi"], backends: ["headless"] },
-    defaults: { adapter: "pi", backend: "headless" },
-  });
+  writeSettingsFixture(dir, fixtureSettings);
   process.env.ORCH_DIR = dir;
   process.env.ORCH_OWNER = "orcha00001";
   seedSpace(dir, "space00001");
@@ -69,9 +72,9 @@ async function capture(action: () => Promise<void>): Promise<{ out: string; exit
 
 describe("a partial reload or restart is reported, not exited", () => {
   test("reload --json writes the whole payload and sets exitCode, never exits", async () => {
-    fixture();
+    const dir = fixture();
 
-    const { out, exitCode } = await capture(async () => { await cmdReload(["no-such-agent", "--json"]); });
+    const { out, exitCode } = await capture(async () => { await cmdReload(testServices({ orchDir: dir, settings: fixtureSettings }), ["no-such-agent", "--json"]); });
 
     // The payload is the point: a caller parsing it must be able to see WHICH
     // target failed and why. `process.exit` truncated it.
@@ -83,10 +86,10 @@ describe("a partial reload or restart is reported, not exited", () => {
   });
 
   test("restart --json writes the whole payload and sets exitCode, never exits", async () => {
-    fixture();
+    const dir = fixture();
 
     const { out, exitCode } = await capture(async () => {
-      try { await cmdRestart(["no-such-agent", "--json"]); } catch { /* the refusal is the caller's */ }
+      try { await cmdRestart(testServices({ orchDir: dir, settings: fixtureSettings }), ["no-such-agent", "--json"]); } catch { /* the refusal is the caller's */ }
     });
 
     // Reaching this assertion at all is half the test: an exit here would have

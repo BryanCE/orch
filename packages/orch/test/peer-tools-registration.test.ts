@@ -35,8 +35,8 @@ function fakeHarness(): { harness: HarnessApi; toolNames: string[] } {
   return { harness, toolNames };
 }
 
-function fakePresence(harness: HarnessApi) {
-  return createAgentPresence({
+function fakePresence(orchDir: string, harness: HarnessApi) {
+  return createAgentPresence(orchDir, {
     harness,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",
@@ -63,11 +63,11 @@ afterEach(() => {
 
 describe("peer tool registration", () => {
   test("does not register orch_send when no spawner address exists", () => {
-    tempOrchDir();
+    const directory = tempOrchDir();
     delete process.env.ORCH_SPAWNER;
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(harness, fakePresence(harness), stubDaemonClient());
+    registerPeerTools(directory, harness, fakePresence(directory, harness), stubDaemonClient());
 
     expect(toolNames).not.toContain("orch_send");
     expect(toolNames).toContain("orch_agents");
@@ -81,7 +81,7 @@ describe("peer tool registration", () => {
     seedStatus(directory, "dead-spawner", { pid: 2147483646 });
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(harness, fakePresence(harness), stubDaemonClient());
+    registerPeerTools(directory, harness, fakePresence(directory, harness), stubDaemonClient());
 
     expect(toolNames).not.toContain("orch_send");
   });
@@ -94,7 +94,7 @@ describe("peer tool registration", () => {
     seedStatus(directory, "live-spawner", { pid: process.pid });
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(harness, fakePresence(harness), stubDaemonClient());
+    registerPeerTools(directory, harness, fakePresence(directory, harness), stubDaemonClient());
 
     expect(toolNames).toContain("orch_send");
   });

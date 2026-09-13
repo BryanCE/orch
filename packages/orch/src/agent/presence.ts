@@ -73,8 +73,8 @@ function sessionKey(): string {
 
 // Orch-spawned agents use the launch credential; an interactive session mints its
 // own; a session with no UI has nobody to address and skips presence.
-function computeKey(hasUI: boolean): string | undefined {
-  const credential = launchCredential();
+function computeKey(hasUI: boolean, orchDir: string): string | undefined {
+  const credential = launchCredential(orchDir);
   if (credential !== null) return credential;
   return hasUI ? sessionKey() : undefined;
 }
@@ -404,7 +404,7 @@ export function createAgentPresence(orchDir: string, options: AgentPresenceOptio
 
   function initPresence(hasUI: boolean) {
     if (dir) return;
-    const key = computeKey(hasUI);
+    const key = computeKey(hasUI, orchDir);
     if (!key) return;
     const candidate = ensurePresenceAgentDir(key, orchDir);
     if (!candidate) return;
@@ -422,7 +422,7 @@ export function createAgentPresence(orchDir: string, options: AgentPresenceOptio
   }
 
   function keyOrCompute(hasUI: boolean): string {
-    return state.key !== undefined && state.key !== "" ? state.key : computeKey(hasUI) ?? "";
+    return state.key !== undefined && state.key !== "" ? state.key : computeKey(hasUI, orchDir) ?? "";
   }
 
   function ownPresenceKey(ctx: HarnessContext): string {

@@ -14,6 +14,7 @@ import { closeAllStores, orm } from "../src/store/connection.ts";
 import { checkWall, sameSpace, scopeToSpace, spaceName, spaceOf } from "../src/policy/space.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
+import { testServices } from "./helpers/services.ts";
 
 /**
  * The space an agent is in is ENVIRONMENT, composed onto its own timeline. It is
@@ -146,8 +147,8 @@ describe("a space is user-created, and absence falls back to the repo root", () 
     }));
     process.env.ORCH_DIR = orchDir;
 
-    const entity = buildEntities().find((candidate) => candidate.key === id)!;
-    expect(entitySpace(entity)).toBeNull();
+    const entity = buildEntities(orchDir, testServices({ orchDir, settings: {} }).settings.current()).find((candidate) => candidate.key === id)!;
+    expect(entitySpace(orchDir, entity)).toBeNull();
     expect(JSON.stringify(entity)).not.toContain("\"space\":\"wF");
   });
 
@@ -161,7 +162,7 @@ describe("a space is user-created, and absence falls back to the repo root", () 
     // conjuring it — otherwise every typo and every plexer id is a space
     // forever after. Refused BEFORE anything is written, so there is no
     // half-placed agent left behind.
-    expect(() => seedAgent(id, { adapter: "pi", backend: "headless", space: "not-a-real-space" }))
+    expect(() => seedAgent(id, { adapter: "pi", backend: "headless", space: "not-a-real-space" }, orchDir))
       .toThrow(/not-a-real-space/);
 
     expect(orm(orchDir).all(sql`SELECT id FROM spaces WHERE id = ${"not-a-real-space"}`)).toEqual([]);
@@ -251,19 +252,20 @@ describe("space policy", () => {
 
   test("2.7 status displays the composed space, not text sliced from a key", () => {
     const { actorKey } = identityFixture();
-    const entity = buildEntities().find((candidate) => candidate.key === actorKey)!;
+    const entity = buildEntities(process.env.ORCH_DIR!, testServices({ orchDir: process.env.ORCH_DIR!, settings: {} }).settings.current()).find((candidate) => candidate.key === actorKey)!;
 
-    expect(entitySpace(entity)).toBe("reported-space");
+    expect(entitySpace(process.env.ORCH_DIR!, entity)).toBe("reported-space");
     expect(actorKey).not.toContain("reported-space");
   });
 
   test("6.6 structured identity drives status and policy, not serialized key text", () => {
     const { actorKey, targetKey } = identityFixture();
-    const entities = buildEntities();
+    const root = process.env.ORCH_DIR!;
+    const entities = buildEntities(root, testServices({ orchDir: root, settings: {} }).settings.current());
     const actor = entities.find((entity) => entity.key === actorKey)!;
     const target = entities.find((entity) => entity.key === targetKey)!;
-    const actorSpace = entitySpace(actor);
-    const targetSpace = entitySpace(target);
+    const actorSpace = entitySpace(root, actor);
+    const targetSpace = entitySpace(root, target);
 
     expect(actorSpace).toBe("reported-space");
     expect(targetSpace).toBe("reported-space");

@@ -73,10 +73,11 @@ function fakePaneBackend(paneHandle: string): { backend: KeyRecordingBackend; en
 
 describe("one key per pane spawn (12.1)", () => {
   test("identity is an opaque minted id — never the name, never the pane handle", () => {
-    seedSpace(tempOrchDir(), "wsA");
+    const dir = tempOrchDir();
+    seedSpace(dir, "wsA");
     const { backend, envKey } = fakePaneBackend("%5");
 
-    const agent = spawnOneIntoTab({
+    const agent = spawnOneIntoTab(dir, {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -98,7 +99,7 @@ describe("one key per pane spawn (12.1)", () => {
     expect(agent.key).not.toBe("audit-1");
     expect(agent.key).not.toBe("%5");
 
-    const view = spawnedRecords().get(agent.key);
+    const view = spawnedRecords(dir).get(agent.key);
     expect(view).toBeDefined();
     // The agent is keyed on the minted id; the plexer, the space and the pane
     // handle are environment axes composed onto it, not parts of its key.
@@ -110,8 +111,9 @@ describe("one key per pane spawn (12.1)", () => {
   });
 
   test("a name freed by a dead agent is reusable, and the two agents differ in identity", () => {
-    seedSpace(tempOrchDir(), "wsC");
-    const spawnAudit = () => spawnOneIntoTab({
+    const dir = tempOrchDir();
+    seedSpace(dir, "wsC");
+    const spawnAudit = () => spawnOneIntoTab(dir, {
       backend: fakePaneBackend("%9").backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -138,7 +140,7 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsB");
     const { backend } = fakePaneBackend("%7");
 
-    const agent = spawnOneIntoTab({
+    const agent = spawnOneIntoTab(dir, {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -163,8 +165,8 @@ describe("one key per pane spawn (12.1)", () => {
 
     // Both spellings (the pane id and the key itself) resolve to the one key.
     // A second re-minted identity would make these ambiguous and throw.
-    expect(normalizeControlTarget("%7")).toBe(agent.key);
-    expect(normalizeControlTarget(agent.key)).toBe(agent.key);
+    expect(normalizeControlTarget(dir, "%7")).toBe(agent.key);
+    expect(normalizeControlTarget(dir, agent.key)).toBe(agent.key);
   });
 });
 

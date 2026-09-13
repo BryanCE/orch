@@ -33,8 +33,8 @@ function writeQueueTask(task: TaskRec, json: boolean, plainText: string): void {
   else process.stdout.write(plainText + "\n");
 }
 
-async function resolveSelfId(directory: string): Promise<string> {
-  return launchCredential() ?? (await rpcRegisterSession(directory)).id;
+async function resolveSelfId(directory: string, logger: Services["logger"]): Promise<string> {
+  return launchCredential(directory) ?? (await rpcRegisterSession(directory, logger)).id;
 }
 
 function takeValue(args: string[], flag: string): { value?: string; rest: string[] } {
@@ -117,15 +117,15 @@ function validateAdd(invocation: QueueInvocation): string {
   return text;
 }
 
-async function queueAdd(services: Pick<Services, "orchDir" | "settings">, invocation: QueueInvocation, args: string[]): Promise<void> {
+async function queueAdd(services: Pick<Services, "orchDir" | "settings" | "logger">, invocation: QueueInvocation, args: string[]): Promise<void> {
   const text = validateAdd(invocation);
   if (invocation.host) {
     remoteWrite(services.settings.current().hosts, invocation.host, "queue", ["add", ...args.slice(1).filter((part) => part !== "--host" && part !== invocation.host)]);
     return;
   }
   const directory = services.orchDir;
-  await ensureDaemon(directory);
-  const callerId = await resolveSelfId(directory);
+  await ensureDaemon(directory, services.logger);
+  const callerId = await resolveSelfId(directory, services.logger);
   let options = {};
   if (invocation.worktree) {
     const name = `queue-${randomUUID()}`;
@@ -150,16 +150,16 @@ function queueCollection(directory: string, invocation: QueueInvocation): void {
   else renderQueueTasks(tasks);
 }
 
-async function queueEdit(directory: string, invocation: QueueInvocation): Promise<void> {
+async function queueEdit(services: Pick<Services, "orchDir" | "logger">, invocation: QueueInvocation): Promise<void> {
   const id = invocation.positional[0];
   const text = invocation.positional.slice(1).join(" ");
   if (!id || !text || invocation.worktree || invocation.agent || invocation.pack || invocation.space) {
     die("usage: orch queue edit <id> <task text> [--json]");
   }
   try {
-    await ensureDaemon(directory);
-    const callerId = await resolveSelfId(directory);
-    const task = editTask(directory, id, callerId, { text });
+    await ensureDaemon(services.orchDir, services.logger);
+    const callerId = await resolveSelfId(services.orchDir, services.logger);
+    const task = editTask(services.orchDir, id, callerId, { text });
     if (task.error) die(task.error);
     writeQueueTask(task, invocation.json, `Edited ${task.id}`);
   } catch (error: unknown) {
@@ -167,31 +167,31 @@ async function queueEdit(directory: string, invocation: QueueInvocation): Promis
   }
 }
 
-async function queueTakeOn(directory: string, invocation: QueueInvocation): Promise<void> {
+async function queueTakeOn(services: Pick<Services, "orchDir" | "logger">, invocation: QueueInvocation): Promise<void> {
   const id = invocation.positional[0];
   if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.pack || invocation.space) {
     die("usage: orch queue take-on <id> [--agent <target>] [--json]");
   }
   try {
-    await ensureDaemon(directory);
-    const callerId = await resolveSelfId(directory);
-    const taker = invocation.agent ? resolveAgent(directory, invocation.agent) : callerId;
-    const task = takeOnTask(directory, id, taker);
+    await ensureDaemon(services.orchDir, services.logger);
+    const callerId = await resolveSelfId(services.orchDir, services.logger);
+    const taker = invocation.agent ? resolveAgent(services.orchDir, invocation.agent) : callerId;
+    const task = takeOnTask(services.orchDir, id, taker);
     writeQueueTask(task, invocation.json, `Took on ${task.id}`);
   } catch (error: unknown) {
     die(errorMessage(error));
   }
 }
 
-async function queueReap(directory: string, invocation: QueueInvocation): Promise<void> {
+async function queueReap(services: Pick<Services, "orchDir" | "logger">, invocation: QueueInvocation): Promise<void> {
   const id = invocation.positional[0];
   if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.agent || invocation.pack || invocation.space) {
     die("usage: orch queue reap <id> [--json]");
   }
   try {
-    await ensureDaemon(directory);
-    const callerId = await resolveSelfId(directory);
-    reapTask(directory, id, callerId);
+    await ensureDaemon(services.orchDir, services.logger);
+    const callerId = await resolveSelfId(services.orchDir, services.logger);
+    reapTask(services.orchDir, id, callerId);
     if (invocation.json) process.stdout.write(JSON.stringify({ id, state: "reaped" }) + "\n");
     else process.stdout.write(`Reaped ${id}\n`);
   } catch (error: unknown) {
@@ -210,20 +210,20 @@ function packOfCaller(directory: string, invocation: QueueInvocation, callerId: 
 
 /** `orch queue intake` — the consuming half of space scope (Cq3). Publishing a
  *  task into a space is an offer; this is the pack saying it will take them. */
-async function queueIntake(directory: string, invocation: QueueInvocation): Promise<void> {
+async function queueIntake(services: Pick<Services, "orchDir" | "logger">, invocation: QueueInvocation): Promise<void> {
   const space = invocation.positional[0];
   if (invocation.positional.length > 1 || invocation.worktree || invocation.pack || invocation.space || (!space && invocation.close)) {
     die("usage: orch queue intake [<space id>] [--close] [--agent <target>] [--json]");
   }
   try {
-    await ensureDaemon(directory);
-    const callerId = await resolveSelfId(directory);
-    const pack = packOfCaller(directory, invocation, callerId);
+    await ensureDaemon(services.orchDir, services.logger);
+    const callerId = await resolveSelfId(services.orchDir, services.logger);
+    const pack = packOfCaller(services.orchDir, invocation, callerId);
     const intakes = space === undefined
-      ? packIntakes(directory, pack)
+      ? packIntakes(services.orchDir, pack)
       : invocation.close
-        ? closePackIntake(directory, pack, space, callerId)
-        : openPackIntake(directory, pack, space, callerId);
+        ? closePackIntake(services.orchDir, pack, space, callerId)
+        : openPackIntake(services.orchDir, pack, space, callerId);
     if (invocation.json) process.stdout.write(JSON.stringify(intakes, null, 2) + "\n");
     else if (intakes.length === 0) process.stdout.write("No space intakes.\n");
     else for (const intake of intakes) process.stdout.write(`${intake.spaceId} ${intake.until === null ? "open" : "closed"}\n`);
@@ -232,15 +232,15 @@ async function queueIntake(directory: string, invocation: QueueInvocation): Prom
   }
 }
 
-async function queueCancel(directory: string, invocation: QueueInvocation): Promise<void> {
+async function queueCancel(services: Pick<Services, "orchDir" | "logger">, invocation: QueueInvocation): Promise<void> {
   const id = invocation.positional[0];
   if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.agent || invocation.pack || invocation.space) {
     die("usage: orch queue cancel <id> [--json]");
   }
   try {
-    await ensureDaemon(directory);
-    const callerId = await resolveSelfId(directory);
-    const task = cancelTask(directory, id, callerId, { human: true });
+    await ensureDaemon(services.orchDir, services.logger);
+    const callerId = await resolveSelfId(services.orchDir, services.logger);
+    const task = cancelTask(services.orchDir, id, callerId, { human: true });
     if (task.error) die(task.error);
     writeQueueTask(task, invocation.json, `Cancelled ${task.id}`);
   } catch (error: unknown) {
@@ -260,19 +260,19 @@ export async function cmdQueue(services: Services, args: string[]): Promise<void
       queueCollection(directory, invocation);
       return;
     case "cancel":
-      await queueCancel(directory, invocation);
+      await queueCancel(services, invocation);
       return;
     case "edit":
-      await queueEdit(directory, invocation);
+      await queueEdit(services, invocation);
       return;
     case "take-on":
-      await queueTakeOn(directory, invocation);
+      await queueTakeOn(services, invocation);
       return;
     case "reap":
-      await queueReap(directory, invocation);
+      await queueReap(services, invocation);
       return;
     case "intake":
-      await queueIntake(directory, invocation);
+      await queueIntake(services, invocation);
       return;
     default:
       die("usage: orch queue <add|list|history|cancel|edit|take-on|reap|intake> ...");

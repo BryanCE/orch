@@ -118,7 +118,7 @@ describe("tmux backend registry and capabilities", () => {
       TmuxBackend.prototype.isAvailable = () => true;
       delete process.env.TMUX;
       expect(resolveBackend({ explicit: "tmux", configured: null }).id).toBe("tmux");
-      expect(() => new TmuxBackend().spawn(fakeAdapter(), { key: "k", cwd: "/tmp" }))
+      expect(() => new TmuxBackend().spawn(fakeAdapter(), { key: "k", cwd: "/tmp", orchDir: process.cwd() }))
         .toThrow(/tmux spawn requires running inside a tmux session/);
     } finally {
       TmuxBackend.prototype.isAvailable = oldTmuxAvailable;
@@ -155,8 +155,8 @@ describe("tmux backend registry and capabilities", () => {
     seedSpace(orchDir, "side");
     const operator = "tmuxopera1";
     const foreign = "tmuxforei1";
-    seedAgent(operator, { adapter: "pi", backend: "tmux", space: "main" });
-    seedAgent(foreign, { adapter: "pi", backend: "tmux", space: "side" });
+    seedAgent(operator, { adapter: "pi", backend: "tmux", space: "main" }, orchDir);
+    seedAgent(foreign, { adapter: "pi", backend: "tmux", space: "side" }, orchDir);
     if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
     else process.env.ORCH_DIR = previousOrchDir;
     const decision = checkWall(orchDir, operator, foreign, { crossSpace: false });

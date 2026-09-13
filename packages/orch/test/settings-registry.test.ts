@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { SETTINGS_FILE_SCHEMA, settingsPath } from "../src/settings/schema.ts";
-import { loadSettings } from "../src/settings/read.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFullTree } from "../src/settings/write.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -118,7 +118,7 @@ describe("settings registry", () => {
   test("every registry read resolves against loaded settings", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, completeSettings());
-    const settings = loadSettings(directory);
+    const settings = fileSettingsManager(directory).current();
     for (const setting of SETTINGS_REGISTRY) {
       expect(setting.read(settings), setting.key).not.toBeUndefined();
     }
@@ -136,7 +136,7 @@ describe("settings registry", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, completeSettings());
     writeSettingsFullTree(directory);
-    expect(loadSettings(directory).fleet.max_depth).toBe(2);
+    expect(fileSettingsManager(directory).current().fleet.max_depth).toBe(2);
   });
 
   test("fleet.max_depth rejects zero through the registered writer", () => {

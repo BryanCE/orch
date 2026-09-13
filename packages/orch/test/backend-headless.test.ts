@@ -91,10 +91,10 @@ afterAll(() => {
 describe("HeadlessBackend", () => {
   test("refuses to spawn with no prompt — a headless agent runs its prompt and exits", () => {
     for (const prompt of [undefined, "", "   "]) {
-      expect(() => backend.spawn(fakeAdapter, { key: "fake-promptless", prompt }))
+      expect(() => backend.spawn(fakeAdapter, { key: "fake-promptless", prompt, orchDir: testOrchDir }))
         .toThrow(/no prompt/);
     }
-    expect(backend.handleLookup.handleFor("fake-promptless")).toBeUndefined();
+    expect(backend.handleLookup.handleFor("fake-promptless", testOrchDir)).toBeUndefined();
   });
 
   test("spawns a detached process and records its handle", async () => {
@@ -104,7 +104,7 @@ describe("HeadlessBackend", () => {
     expect(backend.logPruning).not.toBeNull();
     expect(backend.handleLookup).not.toBeNull();
     expect(backend.identity).toBeNull();
-    const handle = backend.spawn(fakeAdapter, { key, prompt: "sleep" });
+    const handle = backend.spawn(fakeAdapter, { key, prompt: "sleep", orchDir: testOrchDir });
     handles.push(handle);
 
     await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", key, "status.json")));
@@ -115,7 +115,7 @@ describe("HeadlessBackend", () => {
     expect(JSON.parse(view?.environment.handle ?? "null")).toEqual({ pid: handle.pid, key });
     expect(fs.existsSync(path.join(testOrchDir, "logs"))).toBe(true);
     expect(fs.existsSync(path.join(testOrchDir, "logs", `${key}.log`))).toBe(true);
-    expect(backend.handleLookup.handleFor(key)).toEqual({ pid: handle.pid, key, alive: true });
+    expect(backend.handleLookup.handleFor(key, testOrchDir)).toEqual({ pid: handle.pid, key, alive: true });
     expect((JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", key, "status.json"), "utf8")) as { key: string }).key).toBe(key);
   }, 30000);
 
@@ -133,7 +133,7 @@ describe("HeadlessBackend", () => {
         ].join(" ")];
       },
     });
-    const handle = backend.spawn(adapter, { key, prompt: "dispatch" });
+    const handle = backend.spawn(adapter, { key, prompt: "dispatch", orchDir: testOrchDir });
     handles.push(handle);
     const dir = path.join(testOrchDir, "agents", key);
     await waitFor(() => fs.existsSync(path.join(dir, "status.json")));
@@ -143,7 +143,7 @@ describe("HeadlessBackend", () => {
 
   test("records and mirrors the headless log for Codex session-tail parsing", async () => {
     const key = "hcodextal1";
-    const handle = backend.spawn(codexLogAdapter, { key, prompt: "tail" });
+    const handle = backend.spawn(codexLogAdapter, { key, prompt: "tail", orchDir: testOrchDir });
     handles.push(handle);
     const statusPath = path.join(testOrchDir, "agents", key, "status.json");
     await waitFor(() => fs.existsSync(statusPath));

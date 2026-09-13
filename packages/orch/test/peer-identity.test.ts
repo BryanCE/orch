@@ -22,12 +22,14 @@ const IDENTITY_ENV = [
 ];
 
 const directories: string[] = [];
-const noPeersDaemon = daemonClientForPeers([]);
+function noPeersDaemon(directory: string) {
+  return daemonClientForPeers(directory, []);
+}
 let savedEnv: Record<string, string | undefined> = {};
 
-function recordingDaemon(keys: string[], messageResponse: unknown) {
-  const daemon = daemonClientForPeers(keys);
-  const peerViewDaemon = daemonClientForPeers(keys);
+function recordingDaemon(directory: string, keys: string[], messageResponse: unknown) {
+  const daemon = daemonClientForPeers(directory, keys);
+  const peerViewDaemon = daemonClientForPeers(directory, keys);
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
   daemon.ask = (method, params) => {
     calls.push({ method, params });
@@ -54,7 +56,10 @@ afterEach(() => {
     if (savedEnv[name] === undefined) delete process.env[name];
     else process.env[name] = savedEnv[name];
   }
-  while (directories.length > 0) removeTempDir(directories.pop()!);
+  while (directories.length > 0) {
+    const directory = directories.pop();
+    if (directory) removeTempDir(directory);
+  }
 });
 
 describe("spawner identity", () => {
@@ -94,7 +99,7 @@ describe("spawner identity", () => {
     const orchDir = tempOrchDir();
     const key = "lead0000ab";
     seedSpace(orchDir, "wF");
-    seedAgent(key, { space: "wF", adapter: "pi" });
+    seedAgent(key, { space: "wF", adapter: "pi" }, orchDir);
     seedStatus(orchDir, key, { agent: "pi", label: "lead-1", pid: process.pid, state: "working" });
     process.env[LAUNCH_ENV] = key;
     // Identity is the minted id and nothing else: the launch key IS that id, so
@@ -144,8 +149,8 @@ describe("spawner identity", () => {
       space: "wF",
       owner: "operator01",
       spawnedBy: session.id,
-    });
-    const record = spawnedRecords().get(key);
+    }, orchDir);
+    const record = spawnedRecords(orchDir).get(key);
     expect(record?.spawnedBy).toBe(session.id);
     expect(record?.heldBy?.orchId).toBe("operator01");
   });
@@ -165,15 +170,15 @@ describe("the spawner address invariant", () => {
   }
 
   test("an UNREGISTERED session stamps no address, so no worker is handed an unreachable one", () => {
-    tempOrchDir();
+    const orchDir = tempOrchDir();
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION_ID = "c0f80035-1859-4757-8c32-15bcaa9c761a";
-    expect(stampedSpawnerAddress()).toBeUndefined();
+    expect(stampedSpawnerAddress(orchDir)).toBeUndefined();
   });
 
   test("a bare operator stamps no address", () => {
-    tempOrchDir();
-    expect(stampedSpawnerAddress()).toBeUndefined();
+    const orchDir = tempOrchDir();
+    expect(stampedSpawnerAddress(orchDir)).toBeUndefined();
   });
 
   test("an address that IS stamped resolves to a live status record", async () => {
@@ -189,12 +194,12 @@ describe("the spawner address invariant", () => {
     seedStatus(orchDir, registered.id, { agent: "pi", pid: process.pid, state: "idle" });
     seedLiveProcess(orchDir, registered.id);
 
-    const address = stampedSpawnerAddress();
+    const address = stampedSpawnerAddress(orchDir);
     expect(address).toBe(registered.id);
     process.env.ORCH_SPAWNER = address;
     process.env.ORCH_SPAWNER_LABEL = "claude session";
 
-    const resolved = await resolvePeer(noPeersDaemon, "spawner", "worker0006");
+    const resolved = await resolvePeer(orchDir, noPeersDaemon(orchDir), "spawner", "worker0006");
     expect("error" in resolved ? resolved.error : null).toBeNull();
   });
 });
@@ -208,7 +213,7 @@ describe("peer identity in messaging", () => {
     seedLiveProcess(directory, peerKey);
     seedStatus(directory, peerKey, { agent: "pi", pid: process.pid, state: "idle", label: "unplaced" });
 
-    const summary = (await peerSummaries(daemonClientForPeers([peerKey]), ownKey))[0];
+    const summary = (await peerSummaries(directory, daemonClientForPeers(directory, [peerKey]), ownKey))[0];
     expect(summary?.space).toBeNull();
     const output = JSON.stringify(summary);
     expect(output).not.toContain("local");
@@ -223,9 +228,9 @@ describe("peer identity in messaging", () => {
     seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
-    const { daemon, calls } = recordingDaemon([ownKey, peerKey], { accepted: true, id: "mail-1", ack: "acknowledged" });
+    const { daemon, calls } = recordingDaemon(orchDir, [ownKey, peerKey], { accepted: true, id: "mail-1", ack: "acknowledged" });
 
-    const result = await sendPeerMessage(daemon, "sweep-2", "found it", ownKey);
+    const result = await sendPeerMessage(orchDir, daemon, "sweep-2", "found it", ownKey);
     expect(result).toBe("sent to pi: sweep-2");
     expect(calls.find((call) => call.method === "message")?.params).toEqual({
       from: ownKey,
@@ -242,9 +247,9 @@ describe("peer identity in messaging", () => {
     seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
-    const { daemon } = recordingDaemon([ownKey, peerKey], { accepted: true, id: "mail-2", ack: "unavailable" });
+    const { daemon } = recordingDaemon(orchDir, [ownKey, peerKey], { accepted: true, id: "mail-2", ack: "unavailable" });
 
-    const result = await sendPeerMessage(daemon, "sweep-2", "found it", ownKey);
+    const result = await sendPeerMessage(orchDir, daemon, "sweep-2", "found it", ownKey);
     expect(result).toBe("sent to pi: sweep-2 (queued, not yet read)");
   });
 
@@ -256,9 +261,9 @@ describe("peer identity in messaging", () => {
     seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
-    const { daemon } = recordingDaemon([ownKey, peerKey], undefined);
+    const { daemon } = recordingDaemon(orchDir, [ownKey, peerKey], undefined);
 
-    const result = await sendPeerMessage(daemon, "sweep-2", "found it", ownKey);
+    const result = await sendPeerMessage(orchDir, daemon, "sweep-2", "found it", ownKey);
     expect(result).toBe("error: daemon unreachable; message not sent");
   });
 
@@ -270,7 +275,7 @@ describe("peer identity in messaging", () => {
     seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, peerKey, { agent: "pi", label: "recon-3", pid: process.pid, state: "idle" });
 
-    const resolved = await resolvePeer(daemonClientForPeers([peerKey]), "recon-3", ownKey);
+    const resolved = await resolvePeer(orchDir, daemonClientForPeers(orchDir, [peerKey]), "recon-3", ownKey);
     expect("peer" in resolved && resolved.peer.key).toBe(peerKey);
   });
 
@@ -283,21 +288,21 @@ describe("peer identity in messaging", () => {
     process.env.ORCH_SPAWNER = "session777";
     process.env.ORCH_SPAWNER_LABEL = "pi session";
 
-    const { daemon } = recordingDaemon(["session777"], { accepted: true, id: "mail-3", ack: "acknowledged" });
-    const sent = await sendPeerMessage(daemon, "spawner", "done with the sweep", ownKey);
+    const { daemon } = recordingDaemon(orchDir, ["session777"], { accepted: true, id: "mail-3", ack: "acknowledged" });
+    const sent = await sendPeerMessage(orchDir, daemon, "spawner", "done with the sweep", ownKey);
     expect(sent).toStartWith("sent to ");
 
-    const summaries = await peerSummaries(daemonClientForPeers(["session777"]), ownKey);
+    const summaries = await peerSummaries(orchDir, daemonClientForPeers(orchDir, ["session777"]), ownKey);
     expect(summaries.find((peer) => peer.key === "session777")?.isSpawner).toBe(true);
   });
 
   test("a spawner with no live status record is refused BY NAME, not with a bare key", async () => {
-    tempOrchDir();
+    const orchDir = tempOrchDir();
     process.env.ORCH_SPAWNER = "operator01";
     process.env.ORCH_SPAWNER_LABEL = "claude session";
-    seedAgent("operator01", { name: "claude session" });
+    seedAgent("operator01", { name: "claude session" }, orchDir);
 
-    const resolved = await resolvePeer(noPeersDaemon, "spawner", "worker0005");
+    const resolved = await resolvePeer(orchDir, noPeersDaemon(orchDir), "spawner", "worker0005");
     expect("error" in resolved && resolved.error).toContain("claude session");
   });
 });

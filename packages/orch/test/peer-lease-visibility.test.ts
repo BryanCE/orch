@@ -73,7 +73,7 @@ function fixture(): string {
 
 async function summaries(directory: string) {
   const view = peerView(directory, CALLER, [HELD, LOOSE, ORPHAN], false);
-  return peerSummaries(daemonClientForPeerView(view), CALLER);
+  return peerSummaries(directory, daemonClientForPeerView(view), CALLER);
 }
 
 // F6 + G9: the compact listing is what agents actually read. Without the lease

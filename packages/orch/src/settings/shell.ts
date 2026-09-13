@@ -1,6 +1,5 @@
 import { getColumns, getRows, isCancel, MultiSelectPrompt, Prompt, SelectPrompt, TextPrompt } from "@clack/core";
 import * as files from "node:fs";
-import { loadSettings } from "./read.ts";
 import { settingsPath } from "./schema.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { createEditorState, editorReducer } from "./editor.ts";
@@ -25,7 +24,7 @@ import { settingsDefects } from "./defects.ts";
 import { createRepairState, plannedRepairs, repairReducer } from "./repair.ts";
 import { applySettingsRepairs } from "./write.ts";
 import type { RepairScreen, SettingsScreen } from "./view.ts";
-import type { BrowsingState, EditingState, EditorSetting, EditorState, RepairChoice, RepairState, SettingKind, SettingSource, SettingSpec } from "../types/settings.ts";
+import type { BrowsingState, EditingState, EditorSetting, EditorState, OrchSettings, RepairChoice, RepairState, SettingKind, SettingSource, SettingSpec } from "../types/settings.ts";
 import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN } from "../tui/screen.ts";
 
 /**
@@ -58,8 +57,7 @@ function sourceFor(spec: SettingSpec, raw: Record<string, unknown>): { source: S
 }
 
 /** Rebuild every row from disk so value and provenance always show what settings.json holds. */
-function loadEntries(orchDir: string): EditorSetting[] {
-  const settings = loadSettings(orchDir);
+function loadEntries(orchDir: string, settings: OrchSettings): EditorSetting[] {
   let raw: Record<string, unknown> = {};
   try {
     const parsed: unknown = JSON.parse(files.readFileSync(settingsPath(orchDir), "utf8"));
@@ -132,14 +130,14 @@ function screenOf(session: Session, orchDir: string): SettingsScreen {
 }
 
 /** Rebuild rows from disk and restore focus to `focusKey`. */
-function reload(session: Session, orchDir: string, focusKey: string): void {
-  const state = createEditorState(loadEntries(orchDir));
+function reload(session: Session, orchDir: string, focusKey: string, settings: OrchSettings): void {
+  const state = createEditorState(loadEntries(orchDir, settings));
   const index = state.settings.findIndex((entry) => entry.spec.key === focusKey);
   session.state = index < 0 ? state : moveTo(state, index);
 }
 
 /** Clear the focused setting back to its default, or say why that is refused. */
-function resetFocused(session: Session, orchDir: string): void {
+function resetFocused(session: Session, orchDir: string, settings: OrchSettings): void {
   const entry = session.state.settings[session.state.focusedIndex];
   if (entry === undefined) return;
   const key = entry.spec.key;
@@ -153,7 +151,7 @@ function resetFocused(session: Session, orchDir: string): void {
   }
   try {
     clearRegisteredSetting(orchDir, key);
-    reload(session, orchDir, key);
+    reload(session, orchDir, key, settings);
     session.status = `${key} reset to default`;
   } catch (error: unknown) {
     session.status = errorMessage(error);
@@ -161,7 +159,7 @@ function resetFocused(session: Session, orchDir: string): void {
 }
 
 /** Commit an edited value through the reducer, persist it, and re-read the file. */
-function commitAndFlush(session: Session, orchDir: string, editing: EditingState, value: unknown): void {
+function commitAndFlush(session: Session, orchDir: string, settings: OrchSettings, editing: EditingState, value: unknown): void {
   const key = editing.focused.spec.key;
   const committed = editorReducer(editing, { type: "commit", value });
   if (committed.mode === "editing") {
@@ -175,13 +173,13 @@ function commitAndFlush(session: Session, orchDir: string, editing: EditingState
   } catch (error: unknown) {
     session.status = errorMessage(error);
   }
-  reload(session, orchDir, key);
+  reload(session, orchDir, key, settings);
 }
 
 type BrowseOutcome = "open" | "again" | "quit";
 
 /** One browsing prompt: navigate, filter, reset — until Enter opens or Escape/ctrl+c leaves. */
-async function browseOnce(session: Session, orchDir: string): Promise<BrowseOutcome> {
+async function browseOnce(session: Session, orchDir: string, settings: OrchSettings): Promise<BrowseOutcome> {
   process.stdout.write(CLEAR_SCREEN);
   const prompt = new Prompt<undefined>({
     render: () => settingsFrame(
@@ -218,7 +216,7 @@ async function browseOnce(session: Session, orchDir: string): Promise<BrowseOutc
       return;
     }
     if (info.ctrl === true && info.name === "d") {
-      resetFocused(session, orchDir);
+      resetFocused(session, orchDir, settings);
       return;
     }
     if (typeof char === "string" && char.length === 1 && char >= " " && info.ctrl !== true && info.meta !== true) {
@@ -239,7 +237,7 @@ async function browseOnce(session: Session, orchDir: string): Promise<BrowseOutc
   return "quit";
 }
 
-async function editChoice(session: Session, orchDir: string, editing: EditingState, choices: readonly string[]): Promise<void> {
+async function editChoice(session: Session, orchDir: string, settings: OrchSettings, editing: EditingState, choices: readonly string[]): Promise<void> {
   process.stdout.write(CLEAR_SCREEN);
   const prompt = new SelectPrompt<{ value: string }>({
     options: choices.map((value) => ({ value })),
@@ -259,7 +257,7 @@ async function editChoice(session: Session, orchDir: string, editing: EditingSta
     session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
     return;
   }
-  commitAndFlush(session, orchDir, editing, answer);
+  commitAndFlush(session, orchDir, settings, editing, answer);
 }
 
 /** Check any number of choices off a list. Null on cancel. */
@@ -292,7 +290,7 @@ async function askMulti(
   return answer.filter((value): value is string => typeof value === "string");
 }
 
-async function editMulti(session: Session, orchDir: string, editing: EditingState, choices: readonly string[]): Promise<void> {
+async function editMulti(session: Session, orchDir: string, settings: OrchSettings, editing: EditingState, choices: readonly string[]): Promise<void> {
   const current = Array.isArray(editing.draft)
     ? editing.draft.filter((value): value is string => typeof value === "string")
     : [];
@@ -301,7 +299,7 @@ async function editMulti(session: Session, orchDir: string, editing: EditingStat
     session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
     return;
   }
-  commitAndFlush(session, orchDir, editing, answer);
+  commitAndFlush(session, orchDir, settings, editing, answer);
 }
 
 /** What a text prompt was actually submitted with. @clack seeds `initialUserInput` into the
@@ -498,7 +496,7 @@ async function fillCheckedSinks(session: Session, orchDir: string, kind: SinksKi
 
 /** Check the sinks to deliver through, set what each one carries, and choose when each
  *  fires. `e` edits the focused sink's value, `w` its states; nothing is written until enter. */
-async function editSinks(session: Session, orchDir: string, editing: EditingState, kind: SinksKind): Promise<void> {
+async function editSinks(session: Session, orchDir: string, settings: OrchSettings, editing: EditingState, kind: SinksKind): Promise<void> {
   const pick = initialPick(kind, editing.draft);
   for (;;) {
     const outcome = await pickSinks(session, orchDir, kind, pick);
@@ -515,12 +513,12 @@ async function editSinks(session: Session, orchDir: string, editing: EditingStat
       continue;
     }
     if (!await fillCheckedSinks(session, orchDir, kind, pick)) continue;
-    commitAndFlush(session, orchDir, editing, pickedSinks(kind, pick));
+    commitAndFlush(session, orchDir, settings, editing, pickedSinks(kind, pick));
     return;
   }
 }
 
-async function editText(session: Session, orchDir: string, editing: EditingState): Promise<void> {
+async function editText(session: Session, orchDir: string, settings: OrchSettings, editing: EditingState): Promise<void> {
   process.stdout.write(CLEAR_SCREEN);
   const spec = editing.focused.spec;
   const prompt = new TextPrompt({
@@ -550,11 +548,11 @@ async function editText(session: Session, orchDir: string, editing: EditingState
     session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
     return;
   }
-  commitAndFlush(session, orchDir, editing, parsed.value);
+  commitAndFlush(session, orchDir, settings, editing, parsed.value);
 }
 
 /** Open the focused setting and run the edit interaction its declared kind calls for. */
-async function editFocused(session: Session, orchDir: string): Promise<void> {
+async function editFocused(session: Session, orchDir: string, settings: OrchSettings): Promise<void> {
   const opened = editorReducer(session.state, { type: "open" });
   if (opened.mode === "browsing") {
     session.status = opened.reason;
@@ -564,18 +562,18 @@ async function editFocused(session: Session, orchDir: string): Promise<void> {
   const kind = opened.focused.spec.type;
   switch (kind.kind) {
     case "boolean":
-      commitAndFlush(session, orchDir, opened, opened.focused.value !== true);
+      commitAndFlush(session, orchDir, settings, opened, opened.focused.value !== true);
       return;
     case "choice":
-      return editChoice(session, orchDir, opened, kind.choices);
+      return editChoice(session, orchDir, settings, opened, kind.choices);
     case "multi":
-      return editMulti(session, orchDir, opened, kind.choices);
+      return editMulti(session, orchDir, settings, opened, kind.choices);
     case "sinks":
-      return editSinks(session, orchDir, opened, kind);
+      return editSinks(session, orchDir, settings, opened, kind);
     case "integer":
     case "text":
     case "list":
-      return editText(session, orchDir, opened);
+      return editText(session, orchDir, settings, opened);
     default: {
       const exhaustive: never = kind;
       return exhaustive;
@@ -647,22 +645,22 @@ async function repairSettingsFile(orchDir: string): Promise<boolean> {
 }
 
 /** Run the interactive settings editor. It owns no settings logic: all edits go through the reducer. */
-export async function runSettingsEditor(orchDir: string): Promise<void> {
+export async function runSettingsEditor(orchDir: string, settings: OrchSettings): Promise<void> {
   process.stdout.write(ENTER_ALT_SCREEN);
   try {
     if (!await repairSettingsFile(orchDir)) return;
     const session: Session = {
-      state: createEditorState(loadEntries(orchDir)),
+      state: createEditorState(loadEntries(orchDir, settings)),
       filter: "",
       status: undefined,
       quit: false,
       escapeClearedFilter: false,
     };
     while (!session.quit) {
-      const outcome = await browseOnce(session, orchDir);
+      const outcome = await browseOnce(session, orchDir, settings);
       if (outcome === "quit") return;
       if (outcome === "again") continue;
-      await editFocused(session, orchDir);
+      await editFocused(session, orchDir, settings);
     }
   } finally {
     process.stdout.write(EXIT_ALT_SCREEN);

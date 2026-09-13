@@ -31,7 +31,7 @@ function parseResetArgs(services: Pick<Services, "orchDir" | "settings">, args: 
 }
 
 /** Clear one agent's session and wait for it to come back ready. */
-export async function clearSession(services: Pick<Services, "orchDir" | "settings">, target: string, force: boolean): Promise<ClearedAgent> {
+export async function clearSession(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string, force: boolean): Promise<ClearedAgent> {
   // Resolved through the lifecycle resolver, which answers for an agent placed
   // nowhere; the placement resolver rejects the whole headless fleet outright.
   const { entity: ent, handle } = resolveLifecycleTarget(services.orchDir, services.settings.current(), target);
@@ -64,7 +64,7 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
   const tuning = resolveTuningOrDie(flags, settings, adapter.id);
   const { model, thinking } = tuning;
-  assertLaunchModelAllowed(services.orchDir, adapter.id, model);
+  assertLaunchModelAllowed(settings, adapter.id, model);
   const cleared: ClearedAgent[] = [];
   for (const target of targets) {
     const agent = await clearSession(services, target, force);

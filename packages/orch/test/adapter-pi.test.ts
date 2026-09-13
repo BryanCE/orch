@@ -84,21 +84,21 @@ describe("PiAdapter", () => {
   test("reads state from the presence status through store helpers", () => {
     writeStatus("pistate001", "working");
 
-    expect(adapter.detectState({ key: "pistate001" })).toBe("working");
-    expect(adapter.detectState({ key: "missingag1" })).toBe("unknown");
+    expect(adapter.detectState({ key: "pistate001" }, orchDir)).toBe("working");
+    expect(adapter.detectState({ key: "missingag1" }, orchDir)).toBe("unknown");
   });
 
   test("reads results.jsonl and falls back to the last assistant session text", () => {
     writeStatus("piresult01", "done");
     fs.writeFileSync(presencePath("piresult01", "results.jsonl"), `${JSON.stringify({ text: "from result" })}\n`);
-    expect(adapter.extractResult({ key: "piresult01" })).toBe("from result");
+    expect(adapter.extractResult({ key: "piresult01" }, orchDir)).toBe("from result");
 
     const sessionPath = path.join(orchDir, "session.jsonl");
     fs.writeFileSync(sessionPath, JSON.stringify({
       type: "message",
       message: { role: "assistant", content: [{ type: "text", text: "from session" }] },
     }) + "\n");
-    expect(adapter.extractResult({ key: "missingag1", sessionPath })).toBe("from session");
+    expect(adapter.extractResult({ key: "missingag1", sessionPath }, orchDir)).toBe("from session");
   });
   test("parses pi's supported model table without importing harness internals", () => {
     const output = [

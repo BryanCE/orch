@@ -123,7 +123,7 @@ export async function reportControlPlaneOutage(orchDir: string, logger: Logger, 
   return outage;
 }
 
-export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings">, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
+export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
   const { orchDir } = services;
   const maySpawn = maySpawnFrom(orchDir, selfId(orchDir), settingsFile.fleet.max_depth);
   if (!settings.json) {

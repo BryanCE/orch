@@ -8,7 +8,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { PendingQuestionView } from "../src/types/daemon.ts";
 import type { EventsContext } from "../src/commands/events.ts";
-
+import { testServices } from "./helpers/services.ts";
 const roots: string[] = [];
 
 afterEach(() => {
@@ -39,7 +39,7 @@ describe("events pending-question snapshot", () => {
         return true;
       },
     };
-    const cleanup = startEventsTransport(context);
+    const cleanup = startEventsTransport(context, testServices({ orchDir: root, settings: null }));
     try {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(received).toHaveLength(1);

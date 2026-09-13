@@ -5,9 +5,10 @@ import { describe, expect, test } from "bun:test";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { CodexAdapter } from "../src/adapters/codex.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
-import { loadSettings } from "../src/settings/read.ts";
 import { checkNotifiers } from "../src/doctor/notify.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
+import { parseSettingsText } from "../src/settings/read.ts";
+import { testServices } from "./helpers/services.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -19,26 +20,28 @@ const temp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "orch-hardening
 describe("adapter and runtime hardening", () => {
   test("malformed or empty adapter output never throws and yields no result", () => {
     const codex = new CodexAdapter();
-    expect(() => piAdapter.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" })).not.toThrow();
-    expect(piAdapter.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" })).toBeUndefined();
+    const directory = temp();
+    expect(() => piAdapter.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" }, directory)).not.toThrow();
+    expect(piAdapter.extractResult({ key: "missing", sessionPath: "/missing/session.jsonl" }, directory)).toBeUndefined();
     expect(codex.extractResult({ output: "{broken\n" })).toBeUndefined();
-    expect(claudeAdapter.extractResult({ key: "missing", output: "   " })).toBeUndefined();
+    expect(claudeAdapter.extractResult({ key: "missing", output: "   " }, directory)).toBeUndefined();
+    removeTempDir(directory);
   });
 
   test("rejects unknown settings keys with a useful path", () => {
     const directory = temp();
     writeSettingsFixture(directory, { defaults: { modle: "typo" } });
-    expect(() => loadSettings(directory)).toThrow(/modle/);
+    expect(() => parseSettingsText(fs.readFileSync(path.join(directory, "settings.json"), "utf8"), path.join(directory, "settings.json"))).toThrow(/modle/);
     removeTempDir(directory);
   });
 
   test("doctor returns failures for malformed notifier config and broken agent directories", async () => {
     const directory = temp();
-    writeSettingsFixture(directory, { queue: { max_retries: "never" } });
-    expect(await checkNotifiers(loadSettings(directory), directory)).toMatchObject({ status: "fail", id: "notifiers" });
+    writeSettingsFixture(directory, { notify: [{ id: "command", command: "definitely-missing-notifier" }] });
+    expect(await checkNotifiers(directory, testServices({ orchDir: directory, settings: { notify: [{ id: "command", command: "definitely-missing-notifier" }] } }).settings.current())).toMatchObject({ status: "fail", id: "notifiers" });
     const agents = path.join(directory, "agents");
     fs.writeFileSync(agents, "not a directory");
-    expect(await checkExtensionStaleness(loadSettings(directory), path.join(directory, "missing.js"))).toMatchObject({ status: "fail", id: "extension-staleness" });
+    expect(await checkExtensionStaleness(directory, path.join(directory, "missing.js"))).toMatchObject({ status: "fail", id: "extension-staleness" });
     removeTempDir(directory);
   });
 
@@ -55,7 +58,7 @@ describe("adapter and runtime hardening", () => {
       // The caller mints the identity BEFORE launch (one key per agent); the
       // backend never generates a fallback key of its own.
       expect(() => backend.spawn(adapter, { orchDir: directory })).toThrow(/caller-minted presence key/);
-      expect(backend.handleLookup.handleFor("any-key")).toBeUndefined();
+      expect(backend.handleLookup.handleFor(directory, "any-key")).toBeUndefined();
     } finally {
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;

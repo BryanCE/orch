@@ -16,10 +16,11 @@ import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { recordQuestion } from "../src/store/question-rows.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { testServices } from "./helpers/services.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: string[] = [];
-const links: { readonly key: string; readonly link: BridgeLink }[] = [];
+const links: { readonly directory: string; readonly key: string; readonly link: BridgeLink }[] = [];
 const DEAD_PID = 0x7fffffff;
 
 async function rejection(call: Promise<unknown>): Promise<unknown> {
@@ -41,11 +42,11 @@ function target(): string {
   return mintAgentId();
 }
 
-function attach(key: string): BridgeDelivery[] {
+function attach(directory: string, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
   const link: BridgeLink = { push: (delivery): void => { deliveries.push(delivery); } };
-  attachBridge(key, link);
-  links.push({ key, link });
+  attachBridge(directory, key, link);
+  links.push({ directory, key, link });
   return deliveries;
 }
 
@@ -55,6 +56,10 @@ function attach(key: string): BridgeDelivery[] {
  * block is still written because presence keeps reporting the agent's STATE, but
  * it is no longer what an answer correlates against.
  */
+function settingsFor(directory: string) {
+  return testServices({ orchDir: directory, settings: {} }).settings.current();
+}
+
 function answerStatus(directory: string, key: string, asking?: { readonly id: string }): void {
   seedAgent(key, { adapter: "pi" }, directory);
   seedLiveProcess(directory, key);
@@ -68,7 +73,7 @@ function answerStatus(directory: string, key: string, asking?: { readonly id: st
 }
 
 afterEach(() => {
-  for (const { key, link } of links.splice(0)) detachBridge(key, link);
+  for (const { directory, key, link } of links.splice(0)) detachBridge(directory, key, link);
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
   for (const dir of tempDirs.splice(0)) removeTempDir(dir);
@@ -80,9 +85,9 @@ describe("answer over the bridge", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     answerStatus(directory, key, { id: "question-1" });
-    const deliveries = attach(key);
+    const deliveries = attach(directory, key);
 
-    expect(await deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" }))
+    expect(await deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-1" }))
       .toEqual({ outcome: "invoke", ack: "expected" });
     expect(deliveries).toEqual([{
       id: "answer-1",
@@ -95,9 +100,9 @@ describe("answer over the bridge", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     answerStatus(directory, key);
-    const deliveries = attach(key);
+    const deliveries = attach(directory, key);
 
-    expect(await deliverControl(key, { kind: "answer", text: "yes", id: "answer-2" }))
+    expect(await deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-2" }))
       .toEqual({ outcome: "answer", reason: "not-asking", text: `${key} is not asking a question` });
     expect(deliveries).toHaveLength(0);
   });
@@ -107,8 +112,9 @@ describe("answer over the bridge", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     answerStatus(directory, key, { id: "question-3" });
+    attach(directory, key);
 
-    expect(await rejection(deliverControl(key, { kind: "answer", text: "yes", id: "answer-3" })))
+    expect(await rejection(deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-3" })))
       .toBeInstanceOf(BridgeDetachedError);
   });
 
@@ -121,9 +127,9 @@ describe("answer over the bridge", () => {
       pid: DEAD_PID,
       asking: { id: "question-4", question: "question", ts: "now" },
     });
-    attach(key);
+    attach(directory, key);
 
-    expect(await rejection(deliverControl(key, { kind: "answer", text: "yes", id: "answer-4" })))
+    expect(await rejection(deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-4" })))
       .toBeInstanceOf(AgentGoneError);
   });
 
@@ -135,7 +141,7 @@ describe("answer over the bridge", () => {
     seedLiveProcess(directory, key);
     seedStatus(directory, key, { agent: "claude" });
 
-    expect(await deliverControl(key, { kind: "answer", text: "yes", id: "answer-5" })).toEqual({
+    expect(await deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-5" })).toEqual({
       outcome: "answer",
       reason: "no-environment-role",
       text: `cannot answer ${key}: adapter claude takes no answers`,

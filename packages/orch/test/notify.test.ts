@@ -10,7 +10,7 @@ describe("notification routing", () => {
     let delivered = false;
     const webhook = createBuiltinNotifiers().find((notifier) => notifier.id === "webhook");
     if (!webhook) throw new Error("webhook notifier missing");
-    const registry = createNotifierRegistry([{ ...webhook, available: () => true, deliver: () => { delivered = true; return Promise.resolve(true); } }]);
+    const registry = createNotifierRegistry(".", [{ ...webhook, available: () => true, deliver: () => { delivered = true; return Promise.resolve(true); } }]);
     expect(await registry.deliver({ id: "webhook", on: ["error"], url: "https://example.test" }, event)).toBe(true);
     expect(delivered).toBe(false);
   });

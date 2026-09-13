@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWorkLoop } from "../src/daemon/work-loop.ts";
 import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from "../src/settings/schema.ts";
-import { loadSettingsOrNull } from "../src/settings/read.ts";
+import { fileSettingsManager, inMemorySettingsManager } from "../src/settings/manager.ts";
 import { appendEvent } from "../src/store/event-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered } from "../src/store/outbox-rows.ts";
 import { addTask, claimTask, recordTaskDone } from "../src/queue.ts";
@@ -89,7 +89,7 @@ describe("retention sweep", () => {
     writeFileSync(join(orchDir, "settings.json"), JSON.stringify({
       schemaVersion: SETTINGS_SCHEMA, runtime: "node", retention: { runs_days: 3 },
     }));
-    const retention = loadSettingsOrNull(orchDir)!.retention;
+    const retention = fileSettingsManager(orchDir).currentOrNull()!.retention;
     expect(retention.runs_days).toBe(3);
     expect(retention.ended_agents_days).toBe(90);
     expect(retention.queue_days).toBe(14);
@@ -251,17 +251,24 @@ describe("retention sweep", () => {
     try {
       Date.now = () => (ticks < 2 ? firstTick : firstTick + 60_000);
       const settings = settingsFixture({ runs_days: 1 });
-      const loop = runWorkLoop({
-        orchDir,
-        pollIntervalMs: 1,
-        continuous: true,
-        signal: controller.signal,
-        getSettings: () => {
+      const baseSettings = inMemorySettingsManager(JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, ...settings }), join(orchDir, "settings.json"));
+      const settingsManager = {
+        file: baseSettings.file,
+        current: () => {
           ticks += 1;
           if (ticks === 2) upsertRun(orchDir, run("inserted-after-sweep", "2020-01-01T00:00:00.000Z"));
           if (ticks === 3) controller.abort();
           return settings;
         },
+        currentOrNull: () => settings,
+        reload: () => settings,
+      };
+      const loop = runWorkLoop({
+        orchDir,
+        pollIntervalMs: 1,
+        continuous: true,
+        signal: controller.signal,
+        settings: settingsManager,
       });
       await loop;
     } finally {

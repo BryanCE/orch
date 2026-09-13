@@ -2,9 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { settingsLogLevel } from "../src/settings/read.ts";
+import { logLevelFor } from "../src/settings/read.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { isLogRecord } from "../src/log.ts";
-import { commandLogger } from "../src/commands/logging.ts";
+import { testServices } from "./helpers/services.ts";
 import { decisionLogger } from "../src/daemon/decision-log.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -46,40 +47,40 @@ describe("the configured log level reaches every logger", () => {
   test("the env var wins over settings.json", () => {
     const dir = fixture({ logging: { level: "warn" } });
     process.env.ORCH_LOG_LEVEL = "debug";
-    expect(settingsLogLevel(dir)).toBe("debug");
+    expect(logLevelFor(fileSettingsManager(dir).current())).toBe("debug");
   });
 
   test("settings.json is used when the env var is unset", () => {
     const dir = fixture({ logging: { level: "error" } });
     delete process.env.ORCH_LOG_LEVEL;
-    expect(settingsLogLevel(dir)).toBe("error");
+    expect(logLevelFor(fileSettingsManager(dir).current())).toBe("error");
   });
 
   // A junk env value must not silently outrank the file the user actually wrote.
   test("an unrecognised env value falls back to the configured level", () => {
     const dir = fixture({ logging: { level: "error" } });
     process.env.ORCH_LOG_LEVEL = "loud";
-    expect(settingsLogLevel(dir)).toBe("error");
+    expect(logLevelFor(fileSettingsManager(dir).current())).toBe("error");
   });
 
   test("the CLI logger honours the configured level", () => {
     const dir = fixture({ logging: { level: "debug" } });
     delete process.env.ORCH_LOG_LEVEL;
-    commandLogger().debug("cli.debug.record", {});
+    testServices({ orchDir: dir, settings: { logging: { level: "debug" } } }).logger.debug("cli.debug.record", {});
     expect(events(join(dir, "orch.log"))).toContain("cli.debug.record");
   });
 
   test("the CLI logger drops records below the configured level", () => {
     const dir = fixture({ logging: { level: "error" } });
     delete process.env.ORCH_LOG_LEVEL;
-    commandLogger().info("cli.info.record", {});
+    testServices({ orchDir: dir, settings: { logging: { level: "error" } } }).logger.info("cli.info.record", {});
     expect(events(join(dir, "orch.log"))).not.toContain("cli.info.record");
   });
 
   test("the daemon logger resolves through the same helper", () => {
     const dir = fixture({ logging: { level: "debug" } });
     delete process.env.ORCH_LOG_LEVEL;
-    decisionLogger(dir).debug("daemon.debug.record", {});
+    decisionLogger(dir, fileSettingsManager(dir).current()).debug("daemon.debug.record", {});
     expect(events(join(dir, "orchd.log"))).toContain("daemon.debug.record");
   });
 });

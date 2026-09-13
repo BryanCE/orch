@@ -10,8 +10,8 @@ import type { RegisterSessionResponse } from "../src/types/daemon.ts";
 
 describe("commands/index", () => {
   test("does not gate help or noninteractive commands", () => {
-    expect(needsFirstRunSetup("help")).toBe(false);
-    expect(needsFirstRunSetup("status")).toBe(false);
+    expect(needsFirstRunSetup(null, "help")).toBe(false);
+    expect(needsFirstRunSetup(null, "status")).toBe(false);
   });
   test("reads a package version string", () => expect(readOrchVersion()).toMatch(/^\d+\.\d+\.\d+/));
   test("announces unleased agents once per session", () => {

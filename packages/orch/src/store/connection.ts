@@ -90,8 +90,8 @@ export function livePresenceHolders(orchDir: string): string[] {
  * credential is enough here — a spawned agent, claimed or not, never rebuilds
  * the store — and it is read through the one leaf that owns the env var.
  */
-function callerIsSpawnedAgent(): boolean {
-  return launchCredential() !== null;
+function callerIsSpawnedAgent(orchDir: string): boolean {
+  return launchCredential(orchDir) !== null;
 }
 
 /**
@@ -107,7 +107,7 @@ function callerIsSpawnedAgent(): boolean {
  */
 export function assertStoreRecreatable(orchDir: string): void {
   const file = databasePath(orchDir);
-  if (callerIsSpawnedAgent()) {
+  if (callerIsSpawnedAgent(orchDir)) {
     throw new Error(`orch: a spawned agent never rebuilds ${file}. Report the skew to the user or the pack's orch, who rebuilds it, and change nothing.`);
   }
   const holders = livePresenceHolders(orchDir);
@@ -146,7 +146,7 @@ function migrationFolderPredatesKit(reason: string): boolean {
  *  to report it, never how to rebuild: naming a rebuild at a process that must
  *  not run one is how the store got recreated under twelve live agents. */
 function openRemedy(orchDir: string, reason: string): string {
-  if (callerIsSpawnedAgent()) {
+  if (callerIsSpawnedAgent(orchDir)) {
     return "A spawned agent never rebuilds the store: report this skew to the user or the pack's orch, and change nothing.";
   }
   if (migrationFolderPredatesKit(reason)) {

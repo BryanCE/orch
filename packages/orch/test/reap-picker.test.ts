@@ -9,6 +9,7 @@ import { cmdReap, reapCandidates, type ReapCandidateInput } from "../src/command
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { errorMessage } from "../src/util.ts";
+import { testServices } from "./helpers/services.ts";
 
 const directories: string[] = [];
 const previousOrchDir = process.env.ORCH_DIR;
@@ -93,7 +94,7 @@ describe("cmdReap", () => {
     process.env.ORCH_DIR = directory;
     process.env[LAUNCH_ENV] = caller;
 
-    const output = await captureStdout(() => cmdReap(["--dead", "--json"]));
+    const output = await captureStdout(() => cmdReap(testServices({ orchDir: directory, settings: null }), ["--dead", "--json"]));
     const parsed: unknown = JSON.parse(output);
     expect(parsed).toEqual([{ target: dead, name: "dead" }]);
   });
@@ -104,7 +105,7 @@ describe("cmdReap", () => {
     const original = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true, writable: true });
     try {
-      const refusal = await cmdReap([]).then(() => null, (error: unknown) => errorMessage(error));
+      const refusal = await cmdReap(testServices({ orchDir: process.env.ORCH_DIR ?? ".", settings: null }), []).then(() => null, (error: unknown) => errorMessage(error));
       expect(refusal).toBe("usage: orch reap <target> | --dead [--json]");
     } finally {
       if (original) Object.defineProperty(process.stdin, "isTTY", original);

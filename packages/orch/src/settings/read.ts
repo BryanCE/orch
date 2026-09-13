@@ -13,7 +13,6 @@ import type { AdapterId } from "../types/adapter.ts";
 import { SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA, type SettingsFile, settingsPath } from "./schema.ts";
 import type { OrchSettings, SettingSource } from "../types/settings.ts";
 import type { LogLevel } from "../types/core.ts";
-import { fileSettingsManager } from "./manager.ts";
 
 /** Describe a rejected provider id so the operator sees the value and the closed set,
  *  never a raw enum dump. `enabled.adapters[0]` and `defaults.adapter` both name one adapter. */
@@ -212,15 +211,6 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
   };
 }
 
-/** Load and validate `$orchDir/settings.json`, or null when the file does not exist yet.
- *
- * ONLY for the callers that must genuinely distinguish a first run from a settings-recorded
- * install — setup's own gate. Every other caller uses `loadSettings`, which treats an
- * absent file as the loud error it is. A malformed file still throws here. */
-export function loadSettingsOrNull(orchDir: string): OrchSettings | null {
-  return fileSettingsManager(orchDir).currentOrNull();
-}
-
 /** A validated file root to the fully-populated settings every reader uses. */
 export function settingsFromFile(file: string, root: SettingsFile): OrchSettings {
   requireEnabledComposition(file, root);
@@ -236,21 +226,14 @@ export function absentSettingsMessage(file: string): string {
   return `${file} does not exist - orch has no built-in settings and does nothing by default.\nRun: orch setup`;
 }
 
-/** Load and validate `$orchDir/settings.json`. orch has NO built-in defaults: an absent
- * settings.json is a loud error naming the file and `orch setup`, never a silent empty
- * settings. Use `loadSettingsOrNull` only where first-run really must be distinguished. */
-export function loadSettings(orchDir: string): OrchSettings {
-  return fileSettingsManager(orchDir).current();
-}
-
 /** The declared JS runtime for this install. The ONE read of the runtime key — nothing
  * anywhere DERIVES this value from PATH, from `process.execPath`, or from an adapter's own
  * list. `src/doctor/runtime.ts` does detect the runtime actually executing orch, which is
  * not the same thing: it establishes reality in order to compare it against this
  * declaration. Detecting-to-verify is the point of the key; detecting-to-default would
  * defeat it, because a value inferred from reality can never disagree with reality. */
-export function declaredRuntime(orchDir: string): OrchRuntime {
-  return loadSettings(orchDir).runtime;
+export function declaredRuntime(settings: OrchSettings): OrchRuntime {
+  return settings.runtime;
 }
 function hasFallbackShape<T>(value: unknown, fallback: T): value is T {
   if (typeof fallback === "number") return typeof value === "number";
@@ -304,13 +287,8 @@ export function resolveSetting<T>(opts: { flag?: T; env?: string; settings?: T; 
  * happened to be listed, and an orchestrator could not tell a rejected model from an
  * applied one. Restricting models is an explicit `models.allowed` opt-in, per harness.
  */
-export function allowedModelPatterns(orchDir: string, harness: AdapterId): string[] {
-  try {
-    return loadSettings(orchDir).models.allowed[harness] ?? [];
-  } catch {
-    // Malformed settings restrict nothing; the write path still reports failures.
-    return [];
-  }
+export function allowedModelPatterns(settings: OrchSettings, harness: AdapterId): string[] {
+  return settings.models.allowed[harness] ?? [];
 }
 /**
  * The log level every logger must use: ORCH_LOG_LEVEL, else `logging.level` from
@@ -326,12 +304,3 @@ export function logLevelFor(settings: OrchSettings | null): LogLevel {
   return settings?.logging?.level ?? SETTINGS_DEFAULTS.logging.level;
 }
 
-export function settingsLogLevel(directory: string): LogLevel {
-  let settings: OrchSettings | null;
-  try {
-    settings = loadSettingsOrNull(directory);
-  } catch {
-    settings = null;
-  }
-  return logLevelFor(settings);
-}

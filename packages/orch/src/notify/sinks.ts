@@ -109,7 +109,7 @@ export function createBuiltinNotifiers(): Notifier[] {
       id: "webhook",
       label: "Webhook",
       metadata: { description: "HTTP POST notification", requiredConfig: [{ name: "url", label: "Webhook URL" }] },
-      available: (config) => typeof fetch === "function" && (config?.url === undefined || (typeof config?.url === "string" && config.url.length > 0)),
+      available: (_settings) => typeof fetch === "function",
       deliver: async (event, config) => {
         if (typeof config.url !== "string" || !config.url) return false;
         const controller = new AbortController();
@@ -138,7 +138,7 @@ export function createBuiltinNotifiers(): Notifier[] {
       id: "command",
       label: "Command",
       metadata: { description: "Run a command with canonical JSON on stdin", requiredConfig: [{ name: "command", label: "Command" }] },
-      available: (config) => config?.command === undefined ? commandOnPath(hostShell()[0]) : commandAvailable(config),
+      available: (_settings) => commandOnPath(hostShell()[0]),
       deliver: (event, config) => {
         const command = stringArray(config.command);
         return command?.length ? run(command, payload(event)) : Promise.resolve(false);

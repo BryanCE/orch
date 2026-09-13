@@ -205,7 +205,7 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
   // A reload exists to pick up new code, so stale deployments redeploy first —
   // but only for the harnesses being reloaded. `orch reload <pi agent>` has no
   // business rewriting another harness's integration.
-  if (planned.length) await refreshStaleShims(services.orchDir, [...new Set(planned.map((plan) => plan.harnessId))], services.settings.current());
+  if (planned.length) await refreshStaleShims(services.orchDir, services.logger, [...new Set(planned.map((plan) => plan.harnessId))], services.settings.current());
   await performReloads(services, planned, results);
   try {
     touchReloadSignal(services.orchDir);
@@ -221,7 +221,7 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
 function restartLaunchCommand(orchDir: string, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings): string {
   if (cmd !== null) return cmd;
   const tuning = resolveTuningOrDie({}, settings, adapter.id);
-  assertLaunchModelAllowed(orchDir, adapter.id, tuning.model);
+  assertLaunchModelAllowed(settings, adapter.id, tuning.model);
   return adapterCommand(harnessId, settings, { model: tuning.model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] });
 }
 

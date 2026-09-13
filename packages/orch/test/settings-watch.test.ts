@@ -3,6 +3,7 @@ import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { settingsPath } from "../src/settings/schema.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { watchSettings } from "../src/settings/watch.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -36,7 +37,8 @@ describe("watchSettings", () => {
     const orchDir = tempOrchDir();
     writeSettingsFixture(orchDir, { fleet: { max_depth: 2 } });
     const changes: OrchSettings[] = [];
-    const watch = watchSettings(orchDir, { debounceMs: 20, onChange: (settings) => changes.push(settings) });
+    const manager = fileSettingsManager(orchDir);
+    const watch = watchSettings(settingsPath(orchDir), { debounceMs: 20, load: () => { manager.reload(); return manager.current(); }, onChange: (settings) => changes.push(settings) });
     watches.push(watch);
 
     expect(changes).toHaveLength(1);
@@ -52,8 +54,10 @@ describe("watchSettings", () => {
     writeSettingsFixture(orchDir, { fleet: { max_depth: 2 } });
     const changes: OrchSettings[] = [];
     const warnings: string[] = [];
-    const watch = watchSettings(orchDir, {
+    const manager = fileSettingsManager(orchDir);
+    const watch = watchSettings(settingsPath(orchDir), {
       debounceMs: 20,
+      load: () => { manager.reload(); return manager.current(); },
       onChange: (settings) => changes.push(settings),
       onWarn: (message) => warnings.push(message),
     });
@@ -75,7 +79,8 @@ describe("watchSettings", () => {
     const orchDir = tempOrchDir();
     writeSettingsFixture(orchDir, { fleet: { max_depth: 2 } });
     let changes = 0;
-    const watch = watchSettings(orchDir, { debounceMs: 20, onChange: () => { changes++; } });
+    const manager = fileSettingsManager(orchDir);
+    const watch = watchSettings(settingsPath(orchDir), { debounceMs: 20, load: () => { manager.reload(); return manager.current(); }, onChange: () => { changes++; } });
     watches.push(watch);
     expect(changes).toBe(1);
 
@@ -89,7 +94,8 @@ describe("watchSettings", () => {
     const orchDir = tempOrchDir();
     writeSettingsFixture(orchDir, { fleet: { max_depth: 2 } });
     let changes = 0;
-    const watch = watchSettings(orchDir, { debounceMs: 20, onChange: () => { changes++; } });
+    const manager = fileSettingsManager(orchDir);
+    const watch = watchSettings(settingsPath(orchDir), { debounceMs: 20, load: () => { manager.reload(); return manager.current(); }, onChange: () => { changes++; } });
     expect(changes).toBe(1);
 
     watch.stop();

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadSettings } from "../src/settings/read.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { repinLiveFleet, type LiveAgentForRepin, type RepinAdapterCapabilities } from "../src/daemon/orchd.ts";
 import type { ControlAction, ControlBoundaryOutcome } from "../src/types/control.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -35,8 +35,8 @@ describe("daemon settings tuning re-pin", () => {
     directories.push(previousDirectory, settingsDirectoryNext);
     const calls: { target: string; action: Extract<ControlAction, { kind: "model" }> }[] = [];
     const options = {
-      previousSettings: loadSettings(previousDirectory),
-      settings: loadSettings(settingsDirectoryNext),
+      previousSettings: fileSettingsManager(previousDirectory).current(),
+      settings: fileSettingsManager(settingsDirectoryNext).current(),
       listLiveAgents: agents,
       resolveAdapter: (_agent: LiveAgentForRepin): RepinAdapterCapabilities => adapter(),
       deliver: (target: string, action: Extract<ControlAction, { kind: "model" }>): Promise<ControlBoundaryOutcome> => {
@@ -64,8 +64,8 @@ describe("daemon settings tuning re-pin", () => {
     let delivered = 0;
 
     await repinLiveFleet({
-      previousSettings: loadSettings(directory),
-      settings: loadSettings(directory),
+      previousSettings: fileSettingsManager(directory).current(),
+      settings: fileSettingsManager(directory).current(),
       listLiveAgents: agents,
       resolveAdapter: (_agent: LiveAgentForRepin): RepinAdapterCapabilities => adapter(),
       deliver: (): Promise<ControlBoundaryOutcome> => {
@@ -89,8 +89,8 @@ describe("daemon settings tuning re-pin", () => {
     const warnings: string[] = [];
 
     await repinLiveFleet({
-      previousSettings: loadSettings(previousDirectory),
-      settings: loadSettings(settingsDirectoryNext),
+      previousSettings: fileSettingsManager(previousDirectory).current(),
+      settings: fileSettingsManager(settingsDirectoryNext).current(),
       listLiveAgents: agents,
       resolveAdapter: (_agent: LiveAgentForRepin): RepinAdapterCapabilities => adapter(),
       deliver: (target: string): Promise<ControlBoundaryOutcome> => {

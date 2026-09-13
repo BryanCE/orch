@@ -12,7 +12,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import { sql } from "drizzle-orm";
-
+import { testServices } from "./helpers/services.ts";
 const directories: string[] = [];
 afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(directories.pop()!); });
 
@@ -53,6 +53,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
         pollIntervalMs: 10,
         once: true,
         json: true,
+        settings: testServices({ orchDir: dir, settings: {} }).settings,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();
@@ -74,6 +75,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       const events: NotifyEvent[] = [];
       await runWorkLoop({
         orchDir: dir, pollIntervalMs: 10, once: true, json: true,
+        settings: testServices({ orchDir: dir, settings: {} }).settings,
         dispatch: () => Promise.resolve(),
         onEvent: (event) => events.push(event),
       });
@@ -90,6 +92,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       expect(orm(dir).all(sql`SELECT agent_id FROM agent_leases WHERE until IS NULL`)).toEqual([]);
       await runWorkLoop({
         orchDir: dir, pollIntervalMs: 10, once: true, json: true,
+        settings: testServices({ orchDir: dir, settings: {} }).settings,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();

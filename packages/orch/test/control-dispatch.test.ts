@@ -2,12 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { deliverControl } from "../src/control/dispatch.ts";
+import { deliverControl as daemonDeliverControl } from "../src/control/dispatch.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import {
-  attachBridge,
+  attachBridge as daemonAttachBridge,
   BridgeDetachedError,
-  detachBridge,
+  detachBridge as daemonDetachBridge,
   type BridgeLink,
 } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
@@ -21,6 +21,7 @@ import { recordQuestion } from "../src/store/question-rows.ts";
 import type { AdapterId } from "../src/types/adapter.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { testServices } from "./helpers/services.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: string[] = [];
@@ -43,6 +44,26 @@ function tempDir(): string {
 
 function target(): string {
   return mintAgentId();
+}
+
+function requiredOrchDir(): string {
+  const orchDir = process.env.ORCH_DIR;
+  if (!orchDir) throw new Error("ORCH_DIR is required");
+  return orchDir;
+}
+
+function attachBridge(key: string, link: BridgeLink): void {
+  daemonAttachBridge(requiredOrchDir(), key, link);
+}
+
+function detachBridge(key: string, link: BridgeLink): void {
+  daemonDetachBridge(requiredOrchDir(), key, link);
+}
+
+function deliverControl(targetKey: string, action: Parameters<typeof daemonDeliverControl>[3]): ReturnType<typeof daemonDeliverControl> {
+  const orchDir = requiredOrchDir();
+  const settings = testServices({ orchDir, settings: null }).settings.current();
+  return daemonDeliverControl(orchDir, settings, targetKey, action);
 }
 
 /** A live agent: registered with this runner as its process, plus its status. */
@@ -192,7 +213,7 @@ describe("deliverControl bridge dispatch", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target();
-    seedAgent(key, { adapter: "claude", backend: "headless", handle: key });
+    seedAgent(key, { adapter: "claude", backend: "headless", handle: key }, directory);
     seedLiveProcess(directory, key);
     seedStatus(directory, key, { agent: "claude" });
     const submitted: { handle: unknown; text: string }[] = [];

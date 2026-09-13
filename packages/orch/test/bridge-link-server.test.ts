@@ -82,8 +82,11 @@ afterEach(async () => {
   while (servers.length) await servers.pop()!.close();
   for (const key of attachedBridgeKeys()) {
     const link: BridgeLink = { push: () => undefined };
-    attachBridge(key, link);
-    detachBridge(key, link);
+    const directory = directories[0];
+    if (directory !== undefined) {
+      attachBridge(directory, key, link);
+      detachBridge(directory, key, link);
+    }
   }
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
@@ -97,7 +100,7 @@ describe("daemon bridge links", () => {
     const delivery: BridgeDelivery = { id: "row-1", message: { action: "steer", text: "hello" } };
     const server = await start((attached) => {
       notifications.push(attached);
-      pushToBridge(attached, delivery);
+      pushToBridge(directories[0]!, attached, delivery);
     });
     const socket = await connected(server);
     const lines = observe(socket);
@@ -139,7 +142,7 @@ describe("daemon bridge links", () => {
     second.write(`${JSON.stringify({ id: 2, method: "attach", params: { key } })}\n`);
     await lineAt(secondLines, 0);
 
-    pushToBridge(key, { id: "row-2", message: { action: "dispatch", text: "new" } });
+    pushToBridge(directories[0]!, key, { id: "row-2", message: { action: "dispatch", text: "new" } });
     const pushed = await lineAt(secondLines, 1);
     expect(firstLines).toHaveLength(1);
     expect(pushed).toEqual({ event: { kind: "delivery", id: "row-2", message: { action: "dispatch", text: "new" } } });

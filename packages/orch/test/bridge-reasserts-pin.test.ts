@@ -16,6 +16,7 @@ import type {
 } from "../src/types/agent.ts";
 import type { ThinkingLevel } from "../src/types/policy.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
+import { testServices } from "./helpers/services.ts";
 
 interface FakeHarness extends HarnessApi {
   fire(name: string, event?: unknown, context?: HarnessContext): void;
@@ -136,7 +137,7 @@ function setup(): {
   process.env[LAUNCH_ENV] = "worker0001";
   const harness = fakeHarness();
   const daemon = fakeDaemon();
-  const presence = createAgentPresence({
+  const presence = createAgentPresence(root, {
     harness,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",
@@ -145,13 +146,14 @@ function setup(): {
   const ctx = context();
   presence.setLastCtx(ctx);
   presence.initPresence(true);
+  const settings = testServices({ orchDir: root, settings: null }).settings;
   registerAgentTools(harness, {
     presence,
     daemon: daemon.daemon,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     notify: () => undefined,
     refreshLabels: () => Promise.resolve(),
-  });
+  }, root, settings);
   return { harness, daemon, presence };
 }
 

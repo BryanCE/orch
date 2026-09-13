@@ -93,7 +93,7 @@ describe("Claude adapter", () => {
   test("detects state from a live presence status", () => {
     const key = "claudestt1";
     writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "claude", state: "working" }));
-    expect(claudeAdapter.detectState({ key })).toBe("working");
+    expect(claudeAdapter.detectState({ key }, orchDir)).toBe("working");
   });
 
   test("extracts results.jsonl before transcript and native output", () => {
@@ -103,9 +103,9 @@ describe("Claude adapter", () => {
     writeFileSync(join(directory, "results.jsonl"), `${JSON.stringify({ text: "result text" })}\n`);
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: [{ type: "text", text: "transcript text" }] })}\n`);
 
-    expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" })).toBe("result text");
+    expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" }, orchDir)).toBe("result text");
     rmSync(join(directory, "results.jsonl"));
-    expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" })).toBe("transcript text");
+    expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" }, orchDir)).toBe("transcript text");
   });
 
   test("reads the final assistant text from a Stop-hook transcript", () => {
@@ -117,7 +117,7 @@ describe("Claude adapter", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Final answer" }] } }),
     ].join("\n") + "\n");
 
-    expect(claudeAdapter.extractResult({ key, sessionPath: transcript })).toBe("Final answer");
+    expect(claudeAdapter.extractResult({ key, sessionPath: transcript }, orchDir)).toBe("Final answer");
     expect(claudeAdapter.readSessionView?.({ sessionPath: transcript })).toEqual({ lastText: "Final answer" });
   });
 

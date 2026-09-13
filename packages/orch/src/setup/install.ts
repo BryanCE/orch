@@ -13,6 +13,7 @@ import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts"
 import type { Logger } from "../types/core.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
+import type { OrchSettings } from "../types/settings.ts";
 import type { BackendId } from "../types/backend.ts";
 import type { ShimBoundaryPlan } from "../types/command.ts";
 
@@ -187,7 +188,7 @@ export function planShimInstall(adapter: AgentAdapter): ShimBoundaryPlan {
 
 /** Install every selected adapter's integration through its own provider port (L4 Builder —
  * no identity branch). Returns the gaps: an adapter expected to install a shim but unable to. */
-export async function installAdapterShims(orchDir: string, logger: Logger, adapters: readonly AdapterId[], copy: boolean): Promise<string[]> {
+export async function installAdapterShims(orchDir: string, settings: OrchSettings, logger: Logger, adapters: readonly AdapterId[], copy: boolean): Promise<string[]> {
   // Every selected adapter, every run — installShim is idempotent and additive, and
   // an adapter skipped for being already-selected keeps whatever stale artifact the
   // last build left. An adapter with no installShim is a loud, recorded gap (D10):
@@ -198,7 +199,7 @@ export async function installAdapterShims(orchDir: string, logger: Logger, adapt
     const plan = planShimInstall(adapter);
     if (plan.outcome === "invoke") {
       try {
-        await plan.role.installShim(orchDir, { copy });
+        await plan.role.installShim(orchDir, settings, logger, { copy });
       } catch (error: unknown) {
         const gap = `${id}: integration install failed - ${errorMessage(error)}`;
         logger.warn("setup.shim-install-failed", { adapter: id, error: errorMessage(error) });

@@ -47,7 +47,7 @@ async function settingsDependent(orchDir: string, settings: OrchSettings | null,
 }
 
 /** Validate every distinct live adapter/backend composition independently. */
-async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
+async function checkLiveFleetPairs(orchDir: string, settings: OrchSettings, logger: Logger): Promise<CheckResult[]> {
   const pairs = new Set<string>();
   for (const entry of loadPresence(orchDir).values()) {
     if (!entry.alive) continue;
@@ -62,7 +62,7 @@ async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
       const adapter = resolveAdapter(adapterId!);
       const backend = getBackend(backendId!);
       if (!backend) return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail", detail: `unknown backend ${JSON.stringify(backendId)}` };
-      const diagnosis = adapter.shim ? await adapter.shim.diagnoseShim(orchDir) : { id: `shim-${adapterId}`, label: `${adapterId} integration`, status: "skip" as const, detail: `${adapterId} declares no integration shim` };
+      const diagnosis = adapter.shim ? await adapter.shim.diagnoseShim(orchDir, settings, logger) : { id: `shim-${adapterId}`, label: `${adapterId} integration`, status: "skip" as const, detail: `${adapterId} declares no integration shim` };
       return { ...diagnosis, id, label: `${adapterId} + ${backendId} live pair`, detail: `${adapterId}/${backendId}: ${diagnosis.detail}` };
     } catch (error: unknown) {
       return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail" as const, detail: errorMessage(error) };
@@ -97,13 +97,15 @@ export async function runDoctor(orchDir: string, logger: Logger, sshRunnerOrOpti
       : { id: `bin-${id}`, label: `${id} binary`, status: "fail", detail: `${id} is not on PATH` }),
     isolated(`shim-${id}`, `${id} integration`, async () => {
       const adapter = resolveAdapter(id);
-      return adapter.shim ? await adapter.shim.diagnoseShim(orchDir) : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
+      return adapter.shim && settings
+        ? await adapter.shim.diagnoseShim(orchDir, settings, logger)
+        : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
     }),
     isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(settings, id)),
   ]).flat();
   let livePairs: CheckResult[];
   try {
-    livePairs = await checkLiveFleetPairs(orchDir);
+    livePairs = settings ? await checkLiveFleetPairs(orchDir, settings, logger) : [];
   } catch {
     // Pair discovery is supplemental; a broken presence root must not prevent
     // the independent doctor checks from running and reporting their own result.
@@ -171,7 +173,8 @@ export async function refreshStaleShims(orchDir: string, logger: Logger, harness
     try {
       const adapter = resolveAdapter(id);
       if (!adapter.shim) continue;
-      const diagnosis = await adapter.shim.diagnoseShim(orchDir);
+      if (!settings) continue;
+      const diagnosis = await adapter.shim.diagnoseShim(orchDir, settings, logger);
       if (diagnosis.status === "ok" || diagnosis.status === "skip") continue;
       if (!diagnosis.fix) continue;
       // An undeclared `destructive` means a safe fix; only a declared one is left for the operator.

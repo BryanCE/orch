@@ -16,6 +16,7 @@ import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { removeTempDir } from "../test/helpers/tempdir.ts";
 import { placeAgent, seedAgent } from "../test/helpers/agent.ts";
 import { withExitCode } from "../test/helpers/exit-code.ts";
+import { testServices } from "../test/helpers/services.ts";
 import { sql } from "drizzle-orm";
 
 /**
@@ -30,14 +31,15 @@ const dirs: string[] = [];
 const children: ChildProcess[] = [];
 const oldDir = process.env.ORCH_DIR;
 const oldOwner = process.env.ORCH_OWNER;
+const testSettings = {
+  enabled: { adapters: ["pi"], backends: ["headless"] },
+  defaults: { adapter: "pi", backend: "headless" },
+};
 
 function makeDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "orch-close-always-"));
   dirs.push(dir);
-  writeSettingsFixture(dir, {
-    enabled: { adapters: ["pi"], backends: ["headless"] },
-    defaults: { adapter: "pi", backend: "headless" },
-  });
+  writeSettingsFixture(dir, testSettings);
   process.env.ORCH_DIR = dir;
   process.env.ORCH_OWNER = "caller";
   return dir;
@@ -98,7 +100,7 @@ describe("close always works", () => {
       seedAgent(key, {
         adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller",
         ...(name === null ? {} : { name }),
-      });
+      }, dir);
       writeStatus(dir, key, 99999999);
     }
     // The space is not in the key any more, so it is asserted where it now
@@ -112,12 +114,12 @@ describe("close always works", () => {
       panes: records.map(([, handle, name]) => fakePane(handle, { space: "foreign-space", name })),
     });
     withExitCode(() => withRegisteredBackend(backend, () => {
-      cmdClose(["worker-name", "panekey001", "pane-id", "--json"]);
+      cmdClose(testServices({ orchDir: dir, settings: testSettings }), ["worker-name", "panekey001", "pane-id", "--json"]);
     }));
 
     expect(backend.closed).toEqual(["pane-name", "pane-key", "pane-id"]);
     for (const [key] of records) {
-      expect(spawnedRecords().has(key)).toBe(false);
+      expect(spawnedRecords(dir).has(key)).toBe(false);
       expect(existsSync(join(dir, "agents", key))).toBe(true);
     }
   });
@@ -131,7 +133,7 @@ describe("close always works", () => {
     const pid = child.pid!;
     recordProcess(dir, key, pid, processStartToken(pid)!);
     seedSpace(dir, "foreign-space");
-    placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
+    placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" }, dir);
     writeStatus(dir, key, pid);
     // The pane host is asked to close and reports success, but its inventory
     // still lists the pane afterwards: a pane that is still listed must fail
@@ -144,9 +146,9 @@ describe("close always works", () => {
     Object.defineProperty(process, "exit", { value: replacementExit });
     try {
       withExitCode(() => {
-        withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); });
+        withRegisteredBackend(backend, () => { cmdClose(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]); });
         expect(process.exitCode).toBe(1);
-        expect(spawnedRecords().has(key)).toBe(true);
+        expect(spawnedRecords(dir).has(key)).toBe(true);
         expect(existsSync(join(dir, "agents", key))).toBe(true);
       });
     } finally {
@@ -166,7 +168,7 @@ describe("close always works", () => {
     db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${key},${key},${"pi"},${dir},${key},${1})`);
     db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
     seedSpace(dir, "foreign-space");
-    placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "other" });
+    placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "other" }, dir);
     writeStatus(dir, key, pid);
 
     const originalKill = process.kill.bind(process);
@@ -181,9 +183,9 @@ describe("close always works", () => {
     Object.defineProperty(process, "exit", { value: replacementExit });
     try {
       withExitCode(() => {
-        cmdClose([key, "--json"]);
+        cmdClose(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]);
         expect(process.exitCode).toBe(1);
-        expect(spawnedRecords().has(key)).toBe(true);
+        expect(spawnedRecords(dir).has(key)).toBe(true);
         expect(existsSync(join(dir, "agents", key))).toBe(true);
       });
     } finally {
@@ -200,17 +202,17 @@ describe("close always works", () => {
     children.push(child);
     const pid = child.pid!;
     seedSpace(dir, "foreign-space");
-    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
+    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" }, dir);
     writeStatus(dir, key, pid);
 
     const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
     withExitCode(() => {
-      withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); });
+      withRegisteredBackend(backend, () => { cmdClose(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]); });
     });
 
     expect(backend.closed).toEqual([handle]);
     expect(processIsAlive(pid)).toBe(true);
-    expect(spawnedRecords().has(key)).toBe(false);
+    expect(spawnedRecords(dir).has(key)).toBe(false);
     expect(existsSync(join(dir, "agents", key))).toBe(true);
   });
 
@@ -222,14 +224,14 @@ describe("close always works", () => {
     seedAgent(key, {
       adapter: "pi", backend: "headless", space: "foreign-space", handle,
       owner: "other", spawnedBy: "other-session",
-    });
+    }, dir);
     // Foreign space, foreign holder — and close is still not gated (Rule 11).
     expect(agentView(dir, key)?.environment.space).toBe("foreign-space");
     expect(agentView(dir, key)?.heldBy?.orchId).toBe("other");
     const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
-    withExitCode(() => withRegisteredBackend(backend, () => { cmdClose([key, "--json"]); }));
+    withExitCode(() => withRegisteredBackend(backend, () => { cmdClose(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]); }));
     expect(backend.closed).toEqual([handle]);
-    expect(spawnedRecords().has(key)).toBe(false);
+    expect(spawnedRecords(dir).has(key)).toBe(false);
   });
 
   test("abort ignores owner gate", () => {
@@ -240,17 +242,17 @@ describe("close always works", () => {
     seedAgent(key, {
       adapter: "pi", backend: "headless", space: "foreign-space", handle,
       owner: "other", spawnedBy: "other-session",
-    });
+    }, dir);
     expect(agentView(dir, key)?.heldBy?.orchId).toBe("other");
-    cmdAbort([key, "--json"]);
-    expect(spawnedRecords().has(key)).toBe(true);
+    cmdAbort(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]);
+    expect(spawnedRecords(dir).has(key)).toBe(true);
   });
 
   test("duplicate close targets count once", () => {
     const dir = makeDir();
     const key = "duplicate1";
     seedSpace(dir, "foreign-space");
-    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle: "pane-duplicate", owner: "caller" });
+    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle: "pane-duplicate", owner: "caller" }, dir);
     const oldExitCode = process.exitCode;
     const originalExit = process.exit.bind(process);
     const replacementExit: (code?: string | number | null) => void = (code) => {
@@ -259,9 +261,9 @@ describe("close always works", () => {
     Object.defineProperty(process, "exit", { value: replacementExit });
     try {
       withExitCode(() => {
-        cmdClose([key, key, "--json"]);
+        cmdClose(testServices({ orchDir: dir, settings: testSettings }), [key, key, "--json"]);
         expect(process.exitCode).toBe(oldExitCode);
-        expect(spawnedRecords().has(key)).toBe(false);
+        expect(spawnedRecords(dir).has(key)).toBe(false);
       });
     } finally {
       Object.defineProperty(process, "exit", { value: originalExit });
@@ -273,7 +275,7 @@ describe("close always works", () => {
     const key = "deadpane01";
     const handle = "99999999";
     seedSpace(dir, "foreign-space");
-    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" });
+    seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" }, dir);
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, "status.json"), JSON.stringify({
@@ -283,7 +285,7 @@ describe("close always works", () => {
     const result = runCli(dir, ["close", key, "--json"]);
 
     expect(result.status).toBe(0);
-    expect(spawnedRecords().has(key)).toBe(false);
+    expect(spawnedRecords(dir).has(key)).toBe(false);
     expect(existsSync(agentDir)).toBe(true);
   }, 15_000);
 
@@ -293,8 +295,8 @@ describe("close always works", () => {
     const foreign = "spacebpane";
     seedSpace(dir, "space-a");
     seedSpace(dir, "space-b");
-    seedAgent(operator, { adapter: "pi", backend: "headless", space: "space-a", handle: "operator" });
-    seedAgent(foreign, { adapter: "pi", backend: "headless", space: "space-b", handle: "pane" });
+    seedAgent(operator, { adapter: "pi", backend: "headless", space: "space-a", handle: "operator" }, dir);
+    seedAgent(foreign, { adapter: "pi", backend: "headless", space: "space-b", handle: "pane" }, dir);
     const decision = checkWall(dir, operator, foreign, { crossSpace: false });
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toContain("space wall");

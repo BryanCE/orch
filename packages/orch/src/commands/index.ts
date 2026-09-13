@@ -382,13 +382,13 @@ export function runCommand(argv: string[]): void {
   const topic = requestedHelpTopic(cmd, rest);
   if (topic !== null) { process.stdout.write(topic); return; }
   const services = createServices();
-  const directory = services.orchDir;
-  // The setup gate never surfaces a raw config error. Either it routes into the wizard, or it
-  // prints exactly what is missing and the command that fixes it. `die` exits, so the switch
-  // below is only ever reached with a real recorded configuration.
   try {
+    const directory = services.orchDir;
+    // The setup gate never surfaces a raw config error. Either it routes into the wizard, or it
+    // prints exactly what is missing and the command that fixes it. `die` exits, so the switch
+    // below is only ever reached with a real recorded configuration.
     if (needsFirstRunSetup(services.settings.currentOrNull(), cmd)) {
-      void runFirstTimeSetup(argv, runCommand).catch((error: unknown) => die(errorMessage(error)));
+      void runFirstTimeSetup(services, argv, runCommand).catch((error: unknown) => reportCommandFailure(services.logger, error));
       return;
     }
     // Nothing recorded and no TTY to walk the wizard on: say exactly what to run, rather than
@@ -396,25 +396,23 @@ export function runCommand(argv: string[]): void {
     if (!exemptFromSetupGate(cmd) && compositionUnrecorded(services.settings.currentOrNull())) die(setupRequiredMessage(directory));
     const sanitized = preflightSkew(directory, argv);
     rest = sanitized.slice(1);
+    if (cmd === undefined) {
+      dispatchAsync(services.logger, cmdStatusVerb(services, argv));
+      return;
+    }
+    const handler = commandHandlers[cmd];
+    if (handler !== undefined) {
+      void handler(services, rest);
+      return;
+    }
+    if (cmd.startsWith("--")) dispatchAsync(services.logger, cmdStatusVerb(services, argv));
+    else {
+      services.logger.error("command.unknown", { command: cmd });
+      process.stdout.write(`Unknown command: ${cmd}\n\n`);
+      usage();
+      process.exitCode = 1;
+    }
   } catch (error: unknown) {
-    // A present-but-invalid settings.json (stale schemaVersion, absent/unknown runtime): the
-    // config layer already phrased these as plain guidance naming `orch setup`.
-    die(errorMessage(error));
-  }
-  if (cmd === undefined) {
-    dispatchAsync(services.logger, cmdStatusVerb(services, argv));
-    return;
-  }
-  const handler = commandHandlers[cmd];
-  if (handler !== undefined) {
-    void handler(services, rest);
-    return;
-  }
-  if (cmd.startsWith("--")) dispatchAsync(services.logger, cmdStatusVerb(services, argv));
-  else {
-    services.logger.error("command.unknown", { command: cmd });
-    process.stdout.write(`Unknown command: ${cmd}\n\n`);
-    usage();
-    process.exitCode = 1;
+    reportCommandFailure(services.logger, error);
   }
 }

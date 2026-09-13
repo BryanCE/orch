@@ -37,8 +37,8 @@ describe("adapter and runtime hardening", () => {
 
   test("doctor returns failures for malformed notifier config and broken agent directories", async () => {
     const directory = temp();
-    writeSettingsFixture(directory, { notify: [{ id: "command", command: "definitely-missing-notifier" }] });
-    expect(await checkNotifiers(directory, testServices({ orchDir: directory, settings: { notify: [{ id: "command", command: "definitely-missing-notifier" }] } }).settings.current())).toMatchObject({ status: "fail", id: "notifiers" });
+    writeSettingsFixture(directory, { notify: [{ id: "command", command: ["definitely-missing-notifier"] }] });
+    expect(await checkNotifiers(directory, testServices({ orchDir: directory, settings: { notify: [{ id: "command", command: ["definitely-missing-notifier"] }] } }).settings.current())).toMatchObject({ status: "fail", id: "notifiers" });
     const agents = path.join(directory, "agents");
     fs.writeFileSync(agents, "not a directory");
     expect(await checkExtensionStaleness(directory, path.join(directory, "missing.js"))).toMatchObject({ status: "fail", id: "extension-staleness" });

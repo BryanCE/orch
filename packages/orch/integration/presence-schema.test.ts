@@ -8,6 +8,7 @@ import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { seedAgent } from "../test/helpers/agent.ts";
+import { testServices } from "../test/helpers/services.ts";
 import { isRecord } from "../src/util.ts";
 
 const orchDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-presence-schema-"));
@@ -109,7 +110,7 @@ describe("presence status schema", () => {
     process.env.ORCH_DIR = orchDir;
 
     const status = readStatuses()[key]!;
-    const listed = buildEntities().find((entity) => entity.key === key)!;
+    const listed = buildEntities(orchDir, testServices({ orchDir }).settings.current()).find((entity) => entity.key === key)!;
     expect({ key: status.key, agent: status.agent }).toEqual({
       key: listed.key, agent: listed.agent ?? undefined,
     });
@@ -170,12 +171,12 @@ describe("presence status schema", () => {
       handle: "%5",
       adapter: "claude",
       cwd: "/work/project",
-    });
+    }, orchDir);
 
     // Identity is the id; the harness and cwd are hub columns; the plexer and
     // its pane handle are ENVIRONMENT, each on its own table and read back
     // through the composer. Nothing reassembles them into a flat row.
-    expect(spawnedRecords().get(key)).toMatchObject({
+    expect(spawnedRecords(orchDir).get(key)).toMatchObject({
       id: key,
       harnessId: "claude",
       cwd: "/work/project",

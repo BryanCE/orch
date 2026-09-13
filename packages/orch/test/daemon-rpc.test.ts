@@ -23,6 +23,7 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { testServices } from "./helpers/services.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { sql } from "drizzle-orm";
 import { isRecord } from "../src/util.ts";
@@ -133,7 +134,7 @@ async function startRealDaemon(dir: string, settings: Record<string, unknown>): 
   process.env.ORCH_DAEMON_DISCOVERY_DIR = discovery;
   process.env.ORCHD_ENTRYPOINT = join(import.meta.dir, "../src/daemon/orchd.ts");
   writeSettingsFixture(dir, settings);
-  await rpcRegisterSession(dir);
+  await rpcRegisterSession(dir, testServices({ orchDir: dir, settings }).logger);
   return async () => {
     const pid = provenDaemonPid(dir);
     if (pid !== undefined && pid !== process.pid) await terminateDaemon(pid, 5_000);
@@ -170,7 +171,7 @@ describe("daemon RPC", () => {
     process.env.ORCHD_ENTRYPOINT = failingEntrypoint;
     expect(existsSync(daemonRuntimeFiles(dir).token)).toBe(false);
     try {
-      const failure = await rejectionOf(rpcRegisterSession(dir));
+      const failure = await rejectionOf(rpcRegisterSession(dir, testServices({ orchDir: dir }).logger));
       if (!(failure instanceof Error)) throw new Error("hello did not reject with an Error");
       expect(failure.message).toContain("orch daemon unavailable");
       expect(failure.message).not.toContain("ENOENT");
@@ -201,7 +202,7 @@ describe("daemon RPC", () => {
     seedLiveProcess(dir, target);
     seedStatus(dir, target, { agent: "claude", state: "working" });
     try {
-      await rpcRegisterSession(dir);
+      await rpcRegisterSession(dir, testServices({ orchDir: dir }).logger);
       // An environment that offers no way to reach this agent is an ABSENCE, and
       // an absence is an answer to a human, never a failure path.
       // Claude composes no inbox steering and headless has no pane, so the dispatch
@@ -230,8 +231,8 @@ describe("daemon RPC", () => {
   test("issues one session identity to sequential invocations from one session", async () => {
     const dir = tempOrchDir();
     await start(dir);
-    const first = await rpcRegisterSession(dir);
-    const second = await rpcRegisterSession(dir);
+    const first = await rpcRegisterSession(dir, testServices({ orchDir: dir }).logger);
+    const second = await rpcRegisterSession(dir, testServices({ orchDir: dir }).logger);
     expect(second).toEqual(first);
     // An issued id is opaque; a plexer coordinate would carry `~` separators.
     expect(first.id).not.toContain("~");

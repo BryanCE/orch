@@ -6,16 +6,30 @@ import { parseGovernance, validDaemonStatus } from "../src/commands/daemon.ts";
 import { daemonLockPid } from "../src/daemon/reach.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { testServices } from "./helpers/services.ts";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { isolateHarnessSession } from "./helpers/env.ts";
 
 describe("commands/daemon", () => {
   test("parses governance and validates daemon status", () => {
     const directory = mkdtempSync(join(tmpdir(), "orch-command-daemon-"));
+    const restoreHarness = isolateHarnessSession("pi");
+    const marker = HARNESS_SESSION_ENV.pi.marker;
+    const sessionId = HARNESS_SESSION_ENV.pi.sessionId;
+    const savedMarker = process.env[marker];
+    const savedSessionId = process.env[sessionId];
+    delete process.env[marker];
+    delete process.env[sessionId];
     try {
       expect(parseGovernance(testServices({ orchDir: directory }), ["--steal", "x", "--cross-space"])).toEqual({ gov: { steal: true, crossSpace: true }, rest: ["x"] });
       expect(validDaemonStatus({ pid: 1, startedAt: "now", uptimeSec: 1, codeHash: "h", socket: "s" })).toBe(true);
       expect(validDaemonStatus({ pid: "1" })).toBe(false);
     } finally {
       removeTempDir(directory);
+      restoreHarness();
+      if (savedMarker === undefined) delete process.env[marker];
+      else process.env[marker] = savedMarker;
+      if (savedSessionId === undefined) delete process.env[sessionId];
+      else process.env[sessionId] = savedSessionId;
     }
   });
   test("reads a lock pid only from a complete lock record", () => {

@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdRename } from "../src/commands/lifecycle/rename.ts";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
@@ -37,6 +39,9 @@ import { testServices } from "./helpers/services.ts";
 
 const dirs: string[] = [];
 const oldDir = process.env.ORCH_DIR;
+const oldAgentId = process.env[LAUNCH_ENV];
+const harnessMarkers = Object.values(HARNESS_SESSION_ENV).map((entry) => entry.marker);
+const oldHarnessMarkers = new Map(harnessMarkers.map((marker) => [marker, process.env[marker]]));
 const originalWrite = process.stdout.write.bind(process.stdout);
 const SETTINGS = {
   enabled: { adapters: ["pi"], backends: ["headless"] },
@@ -49,6 +54,10 @@ afterEach(() => {
   // undefined to prove they never set one, and 0 is a value.
   process.exitCode = undefined;
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
+  if (oldAgentId === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldAgentId;
+  for (const [marker, value] of oldHarnessMarkers) {
+    if (value === undefined) delete process.env[marker]; else process.env[marker] = value;
+  }
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
@@ -59,6 +68,8 @@ function fixture(): string {
   dirs.push(dir);
   writeSettingsFixture(dir, SETTINGS);
   process.env.ORCH_DIR = dir;
+  delete process.env[LAUNCH_ENV];
+  for (const marker of harnessMarkers) delete process.env[marker];
   orm(dir);
   seedSpace(dir, "space00001");
   seedAgent(KEY, { adapter: "pi", backend: "headless", space: "space00001", handle: "w7:p2J", name: "wave2-1" }, dir);

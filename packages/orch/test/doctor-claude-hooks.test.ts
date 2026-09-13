@@ -7,6 +7,7 @@ import { claudeHookCommand, claudeHookShimPath } from "../src/adapters/claude-ho
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { createLogger } from "../src/log.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 
 const directories: string[] = [];
 const settingsFile = path.join(os.homedir(), ".claude", "settings.json");
@@ -57,6 +58,10 @@ const packageRoot = path.join(import.meta.dir, "..");
 const currentShim = claudeHookShimPath(packageRoot);
 const logger = createLogger({ file: path.join(orchHome, "doctor.log"), level: "trace" });
 
+function currentSettings() {
+  return fileSettingsManager(orchHome).current();
+}
+
 afterEach(() => {
   fs.rmSync(settingsFile, { force: true });
   if (originalSettings !== undefined) fs.writeFileSync(settingsFile, originalSettings);
@@ -68,7 +73,7 @@ describe("doctor Claude hooks shim check", () => {
     const file = settingsPath();
     writeSettings(file, { hooks: hooksFor(currentShim) });
 
-    const result = claudeAdapter.diagnoseShim(orchHome, logger);
+    const result = claudeAdapter.diagnoseShim(orchHome, { runtime: "node" }, logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "ok" });
     expect(result.detail).toContain("all orch Claude hooks are current");
@@ -79,7 +84,7 @@ describe("doctor Claude hooks shim check", () => {
     const file = settingsPath();
     writeSettings(file, { hooks: hooksFor(currentShim, (s, e) => claudeHookCommand(s, e, runtime, orchHome)) });
 
-    const result = claudeAdapter.diagnoseShim(orchHome, logger);
+    const result = claudeAdapter.diagnoseShim(orchHome, { runtime }, logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "ok" });
     writeSettingsFixture(orchHome, { runtime: "node" });
@@ -91,7 +96,7 @@ describe("doctor Claude hooks shim check", () => {
     const file = settingsPath();
     writeSettings(file, { hooks: hooksFor(currentShim, (s, e) => claudeHookCommand(s, e, runtime, orchHome)) });
 
-    const result = claudeAdapter.diagnoseShim(orchHome, logger);
+    const result = claudeAdapter.diagnoseShim(orchHome, { runtime: "node" }, logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
     expect(result.detail).toContain("missing or stale orch hooks");
@@ -101,7 +106,7 @@ describe("doctor Claude hooks shim check", () => {
     const file = settingsPath();
     writeSettings(file, { hooks: {} });
 
-    const result = claudeAdapter.diagnoseShim(orchHome, logger);
+    const result = claudeAdapter.diagnoseShim(orchHome, { runtime: "node" }, logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
     expect(result.detail).toContain("missing or stale orch hooks");
@@ -113,7 +118,7 @@ describe("doctor Claude hooks shim check", () => {
     const legacySource = path.join(packageRoot, "scripts", "claude-hooks.ts");
     writeSettings(file, { hooks: hooksFor(legacySource, (shim, event) => `bun ${shim} ${event}`) });
 
-    const result = claudeAdapter.diagnoseShim(orchHome, logger);
+    const result = claudeAdapter.diagnoseShim(orchHome, { runtime: "node" }, logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
     expect(result.detail).toContain("missing or stale orch hooks");
@@ -123,7 +128,7 @@ describe("doctor Claude hooks shim check", () => {
     const file = settingsPath();
     writeSettings(file, { hooks: hooksFor(path.join(tempDir(), "old", "claude-hooks.ts")) });
 
-    const result = claudeAdapter.diagnoseShim(orchHome, logger);
+    const result = claudeAdapter.diagnoseShim(orchHome, { runtime: "node" }, logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
     expect(result.detail).toContain("missing or stale orch hooks");
@@ -133,7 +138,7 @@ describe("doctor Claude hooks shim check", () => {
     settingsPath();
     fs.rmSync(settingsFile, { force: true });
 
-    const result = claudeAdapter.diagnoseShim(orchHome, logger);
+    const result = claudeAdapter.diagnoseShim(orchHome, { runtime: "node" }, logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "ok" });
     expect(result.detail).toContain("not set up");
@@ -143,7 +148,7 @@ describe("doctor Claude hooks shim check", () => {
     const file = settingsPath();
     fs.writeFileSync(file, "{not valid json");
 
-    const result = claudeAdapter.diagnoseShim(orchHome, logger);
+    const result = claudeAdapter.diagnoseShim(orchHome, { runtime: "node" }, logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
     expect(result.detail).toContain("malformed");

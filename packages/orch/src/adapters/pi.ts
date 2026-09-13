@@ -16,6 +16,7 @@ import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
+import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 import type { ExtensionName, Logger, SessionEntry, ToolCallContentBlock } from "../types/core.ts";
 
@@ -378,8 +379,8 @@ export class PiAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = { preTrustWorkspace: (cwd: string, cmd: string): void => this.preTrustWorkspace(cwd, cmd) };
   readonly shim = {
-    installShim: (orchDir: string, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
-    diagnoseShim: (orchDir: string): CheckResult => this.diagnoseShim
+    installShim: (orchDir: string, _settings: OrchSettings, _logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
+    diagnoseShim: (orchDir: string, _settings: OrchSettings, _logger: Logger): CheckResult => this.diagnoseShim
       ? this.diagnoseShim(orchDir)
       : { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi integration shim disabled" },
   };

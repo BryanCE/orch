@@ -58,9 +58,15 @@ describe("commands/lifecycle", () => {
 
   test("--all targets the agents this orch holds a live lease on, and drops them when it releases", () => {
     withFleet((root, key, agentId) => {
-      expect(ownedAgentKeys(testServices({ orchDir: root, settings: null }))).toContain(key);
+      expect(ownedAgentKeys(testServices({ orchDir: root, settings: {
+        enabled: { adapters: ["pi"], backends: ["headless"] },
+        defaults: { adapter: "pi", backend: "headless" },
+      } }))).toContain(key);
       releaseLease(root, agentId, "orcha00001");
-      expect(ownedAgentKeys(testServices({ orchDir: root, settings: null }))).not.toContain(key);
+      expect(ownedAgentKeys(testServices({ orchDir: root, settings: {
+        enabled: { adapters: ["pi"], backends: ["headless"] },
+        defaults: { adapter: "pi", backend: "headless" },
+      } }))).not.toContain(key);
     });
   });
 });

@@ -62,7 +62,7 @@ function detachBridge(key: string, link: BridgeLink): void {
 
 function deliverControl(targetKey: string, action: Parameters<typeof daemonDeliverControl>[3]): ReturnType<typeof daemonDeliverControl> {
   const orchDir = requiredOrchDir();
-  const settings = testServices({ orchDir, settings: null }).settings.current();
+  const settings = testServices({ orchDir, settings: {} }).settings.current();
   return daemonDeliverControl(orchDir, settings, targetKey, action);
 }
 

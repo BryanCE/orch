@@ -14,7 +14,6 @@ import { describeSkillPlacement, installSkills, packagedSkillNames, type SkillRo
 import { setupIntro, setupOutro, selectNotifiers } from "../setup/wizard.ts";
 import { presenceDir } from "../presence/store.ts";
 import type { OrchDirService, Services } from "../types/services.ts";
-import { createServices } from "../services.ts";
 import { compositionUnrecorded, resolveSetupComposition, recordComposition } from "../setup/composition.ts";
 import type { SetupComposition } from "../setup/composition.ts";
 import { parseSetupOptions } from "../setup/flags.ts";
@@ -22,6 +21,7 @@ import type { SetupOptions } from "../setup/flags.ts";
 import { installPrerequisites, installAdapterShims, wireBinaries, alignEntrypointToRuntime } from "../setup/install.ts";
 import { runSetupSmoke, smokeBlocker } from "../setup/smoke.ts";
 import type { AdapterId } from "../types/adapter.ts";
+import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult } from "../types/doctor.ts";
 
 export { compositionUnrecorded };
@@ -116,22 +116,22 @@ async function installSetupComposition(
   process.stdout.write("Presence dir:\n");
   files.mkdirSync(presenceDir(services.orchDir), { recursive: true });
   process.stdout.write(`  ${presenceDir(services.orchDir)}\n`);
-  const gaps = await installAdapterShims(services.orchDir, services.logger, composition.adapters, options.copy);
+  const gaps = await installAdapterShims(services.orchDir, services.settings.current(), services.logger, composition.adapters, options.copy);
   await offerSkills(services, args, options.interactive);
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
   if (options.interactive) await configureNotifiers(services);
   wireBinaries(options.copy);
   alignEntrypointToRuntime(composition.runtime);
-  await diagnoseAdapters(services.orchDir, composition.adapters);
+  await diagnoseAdapters(services.orchDir, services.settings.current(), services.logger, composition.adapters);
   return gaps;
 }
 
-async function diagnoseAdapters(orchDir: string, adapters: readonly AdapterId[]): Promise<void> {
+async function diagnoseAdapters(orchDir: string, settings: OrchSettings, logger: Services["logger"], adapters: readonly AdapterId[]): Promise<void> {
   // Validate each selected (installed) adapter through its own provider port.
   for (const id of adapters) {
     const adapter = resolveAdapter(id);
     if (!adapter.shim) continue;
-    const result = await adapter.shim.diagnoseShim(orchDir);
+    const result = await adapter.shim.diagnoseShim(orchDir, settings, logger);
     process.stdout.write(`  ${result.status.toUpperCase()} ${result.label}: ${result.detail}\n`);
   }
 }
@@ -224,11 +224,10 @@ export function setupRequiredMessage(orchDir: string): string {
 }
 
 /** Walk the first run through the setup wizard, then dispatch the original command via the injected dispatcher. */
-export async function runFirstTimeSetup(argv: string[], dispatch: (argv: string[]) => void): Promise<void> {
+export async function runFirstTimeSetup(services: Services, argv: string[], dispatch: (argv: string[]) => void): Promise<void> {
   process.stdout.write("First run - no harness/backend recorded yet, walking through setup.\n\n");
-  // The wizard runs before the CLI root has settings to build from.
-  const services = createServices();
   await cmdSetup(services, []);
+  services.settings.reload();
   // A cancelled wizard records nothing, so the original command must not run.
   // `process.exitCode`, never `process.exit()`: exiting truncates whatever the
   // wizard already wrote (src/commands/index.ts:272 states the same rule).

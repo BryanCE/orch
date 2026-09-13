@@ -7,7 +7,8 @@ import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
-import type { ExtensionName } from "../types/core.ts";
+import type { ExtensionName, Logger } from "../types/core.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 // orch's omp (oh-my-pi) integration. omp is its OWN harness: its own binary, its
 // own config root, its own extension bundle (extensions/omp/), and its own settle
@@ -86,8 +87,8 @@ class OmpAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = {
-    installShim: (orchDir: string, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
-    diagnoseShim: (orchDir: string): CheckResult => this.diagnoseShim(orchDir),
+    installShim: (orchDir: string, _settings: OrchSettings, _logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
+    diagnoseShim: (orchDir: string, _settings: OrchSettings, _logger: Logger): CheckResult => this.diagnoseShim(orchDir),
   };
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };

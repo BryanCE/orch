@@ -1,6 +1,8 @@
 import type { AgentState } from "../agent-state.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { CheckResult } from "./doctor.ts";
+import type { Logger } from "./core.ts";
+import type { OrchSettings } from "./settings.ts";
 import type { BridgeAction } from "../control/bridge-message.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
@@ -199,8 +201,8 @@ export interface WorkspaceTrustRole {
 }
 
 export interface ShimRole {
-  installShim(orchDir: string, opts?: ShimInstallOpts): void | Promise<void>;
-  diagnoseShim(orchDir: string): CheckResult | Promise<CheckResult>;
+  installShim(orchDir: string, settings: OrchSettings, logger: Logger, opts?: ShimInstallOpts): void | Promise<void>;
+  diagnoseShim(orchDir: string, settings: OrchSettings, logger: Logger): CheckResult | Promise<CheckResult>;
 }
 
 export interface DefaultModelRole {

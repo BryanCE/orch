@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -15,6 +15,8 @@ import { orm } from "../src/store/connection.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { testServices } from "./helpers/services.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { sql } from "drizzle-orm";
 
 /** Target resolution loads settings.json (host lookup) and die()s — killing the whole
@@ -23,6 +25,24 @@ const SETTINGS_FIXTURE = {
   enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
   defaults: { adapter: "pi", backend: "headless" },
 };
+
+const HARNESS_ENV_VARS = [...new Set(Object.values(HARNESS_SESSION_ENV).flatMap((vars) => Object.values(vars)))];
+let savedHarnessEnv: [string, string | undefined][] = [];
+
+beforeEach(() => {
+  isolateOrchEnv();
+  savedHarnessEnv = HARNESS_ENV_VARS.map((name): [string, string | undefined] => [name, process.env[name]]);
+  for (const name of HARNESS_ENV_VARS) delete process.env[name];
+});
+
+afterEach(() => {
+  for (const [name, value] of savedHarnessEnv) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  savedHarnessEnv = [];
+  restoreOrchEnv();
+});
 
 function seedSettings(root: string): void {
   writeSettingsFixture(root, SETTINGS_FIXTURE);

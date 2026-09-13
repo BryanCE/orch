@@ -112,8 +112,6 @@ describe("answer over the bridge", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     answerStatus(directory, key, { id: "question-3" });
-    attach(directory, key);
-
     expect(await rejection(deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-3" })))
       .toBeInstanceOf(BridgeDetachedError);
   });

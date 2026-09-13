@@ -42,7 +42,7 @@ function agent(directory: string, id: string): void {
 }
 
 function daemonState(directory: string) {
-  const services = testServices({ orchDir: directory, settings: null });
+  const services = testServices({ orchDir: directory, settings: {} });
   return { services, directory, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, presenceWatch: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false };
 }
 

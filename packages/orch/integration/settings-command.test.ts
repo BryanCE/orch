@@ -8,6 +8,7 @@ import { SETTINGS_REGISTRY } from "../src/settings/registry.ts";
 import { cmdSettings } from "../src/commands/settings.ts";
 import { isRecord } from "../src/util.ts";
 import { removeTempDir } from "../test/helpers/tempdir.ts";
+import { testServices } from "../test/helpers/services.ts";
 
 const directories: string[] = [];
 
@@ -176,12 +177,13 @@ describe("orch settings", () => {
 
   test("single-setting set delegates to the registry writer", async () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    const settings = { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } };
+    writeSettingsFixture(directory, settings);
     const previousOrchDir = process.env.ORCH_DIR;
     process.env.ORCH_DIR = directory;
     const writer = spyOn(registry, "writeRegisteredSetting");
     try {
-      await cmdSettings(["fleet.max_depth", "6"]);
+      await cmdSettings(testServices({ orchDir: directory, settings }), ["fleet.max_depth", "6"]);
       expect(writer).toHaveBeenCalledTimes(1);
       expect(writer).toHaveBeenCalledWith(directory, "fleet.max_depth", 6);
     } finally {

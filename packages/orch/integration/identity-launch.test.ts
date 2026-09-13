@@ -18,13 +18,17 @@ afterEach(() => {
 
 describe("launchCredential", () => {
   test("returns null when the launch environment is unset", () => {
-    expect(launchCredential()).toBeNull();
+    const directory = mkdtempSync(join(tmpdir(), "orch-identity-launch-"));
+    directories.push(directory);
+    expect(launchCredential(directory)).toBeNull();
   });
 
   test("returns a minted id", () => {
+    const directory = mkdtempSync(join(tmpdir(), "orch-identity-launch-"));
+    directories.push(directory);
     const id = mintAgentId();
     process.env[LAUNCH_ENV] = id;
-    expect(launchCredential()).toBe(id);
+    expect(launchCredential(directory)).toBe(id);
   });
 
   test("malformed value exits 1 and logs launch.invalid-key", () => {

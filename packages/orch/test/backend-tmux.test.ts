@@ -293,7 +293,7 @@ describe("TmuxBackend", () => {
     panes = [orchPane({ paneId: "%1", agentKey: "tmuxpane01" })];
     writeStatus("tmuxpane01", { state: "working" });
 
-    const backend = new TmuxBackend();
+    const backend = new TmuxBackend({ orchDir: testOrchDir });
     expect(backend.placementInventory.list()[0]?.status).toBe("working");
   });
 
@@ -306,7 +306,7 @@ describe("TmuxBackend", () => {
   test("waitAgentStatus polls presence status.json until it matches or times out", () => {
     panes = [orchPane({ paneId: "%1", agentKey: "tmuxpane01" })];
     writeStatus("tmuxpane01", { state: "working" });
-    const backend = new TmuxBackend();
+    const backend = new TmuxBackend({ orchDir: testOrchDir });
 
     expect(() => backend.agentStatus.wait("%1", "done", 50)).toThrow(/timed out/);
 

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { Services } from "../src/types/services.ts";
 import { createServices } from "../src/services.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 
 const bundleDir = mkdtempSync(join(tmpdir(), "orch-reload-bundles-"));
 afterAll(() => { removeTempDir(bundleDir); });
@@ -33,6 +34,7 @@ beforeAll(async () => {
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalOwner = process.env.ORCH_OWNER;
+const originalHarnessMarkers = Object.values(HARNESS_SESSION_ENV).map((env) => ({ marker: env.marker, value: process.env[env.marker] }));
 const dirs: string[] = [];
 
 function restoreOrchEnv(): void {
@@ -40,6 +42,10 @@ function restoreOrchEnv(): void {
   else process.env.ORCH_DIR = originalOrchDir;
   if (originalOwner === undefined) delete process.env.ORCH_OWNER;
   else process.env.ORCH_OWNER = originalOwner;
+  for (const { marker, value } of originalHarnessMarkers) {
+    if (value === undefined) delete process.env[marker];
+    else process.env[marker] = value;
+  }
 }
 
 beforeEach(restoreOrchEnv);
@@ -59,13 +65,15 @@ describe("reload", () => {
     process.env.ORCH_OWNER = "test-owner";
     writeSettingsFixture(tempOrchDir, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
 
-    const piMarker = process.env.PI_CODING_AGENT;
-    delete process.env.PI_CODING_AGENT;
+    const harnessMarkers = Object.values(HARNESS_SESSION_ENV).map((env) => ({ marker: env.marker, value: process.env[env.marker] }));
+    for (const { marker } of harnessMarkers) delete process.env[marker];
     try {
       await cmdReload(createServices({ orchDir: tempOrchDir }), ["--all", "--json"]);
     } finally {
-      if (piMarker === undefined) delete process.env.PI_CODING_AGENT;
-      else process.env.PI_CODING_AGENT = piMarker;
+      for (const { marker, value } of harnessMarkers) {
+        if (value === undefined) delete process.env[marker];
+        else process.env[marker] = value;
+      }
     }
 
     bundlePaths.forEach((file, index) => {

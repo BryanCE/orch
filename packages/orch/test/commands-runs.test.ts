@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -15,6 +15,29 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { isolateHarnessSession } from "./helpers/env.ts";
+
+let restoreHarnessSession: (() => void) | undefined;
+let savedPiMarker: string | undefined;
+let savedPiSessionId: string | undefined;
+
+beforeEach(() => {
+  restoreHarnessSession = isolateHarnessSession("pi");
+  savedPiMarker = process.env[HARNESS_SESSION_ENV.pi.marker];
+  savedPiSessionId = process.env[HARNESS_SESSION_ENV.pi.sessionId];
+  delete process.env[HARNESS_SESSION_ENV.pi.marker];
+  delete process.env[HARNESS_SESSION_ENV.pi.sessionId];
+});
+
+afterEach(() => {
+  restoreHarnessSession?.();
+  if (savedPiMarker === undefined) delete process.env[HARNESS_SESSION_ENV.pi.marker];
+  else process.env[HARNESS_SESSION_ENV.pi.marker] = savedPiMarker;
+  if (savedPiSessionId === undefined) delete process.env[HARNESS_SESSION_ENV.pi.sessionId];
+  else process.env[HARNESS_SESSION_ENV.pi.sessionId] = savedPiSessionId;
+  restoreHarnessSession = undefined;
+});
 
 function capture(run: () => void): { stdout: string; stderr: string } {
   const out: string[] = [];

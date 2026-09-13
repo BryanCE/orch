@@ -185,7 +185,7 @@ describe("HerdrBackend", () => {
     // The launch line is typed once the shell owns the terminal, and the pane is
     // read again afterwards to prove the harness — not the shell — now holds it.
     expect(herdrArgv).toEqual([
-      ["tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--env", environmentStampArg, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
+      ["tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--env", environmentStampArg, "--env", `ORCH_DIR=${testDir}`, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
       ["pane", "rename", "w0:p9", "pi-agent"],
       ["agent", "list"],
       agentStart("pi-agent", "w0:p9"),
@@ -215,7 +215,7 @@ describe("HerdrBackend", () => {
     backend.spawn(fakeAdapter, { cwd: testDir, workspace: "ws-test", split: "down", targetHandle: "w0:p1", orchDir: testDir });
 
     expect(herdrArgv[0]).toEqual(
-      ["pane", "split", "w0:p1", "--direction", "down", "--cwd", testDir, "--env", environmentStampArg, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
+      ["pane", "split", "w0:p1", "--direction", "down", "--cwd", testDir, "--env", environmentStampArg, "--env", `ORCH_DIR=${testDir}`, "--env", `ORCH_PROJECT=${projectRoot()}`, "--no-focus"],
     );
   });
 
@@ -273,7 +273,7 @@ describe("HerdrBackend", () => {
     expect(created.rootHandle).toBe("w0:p9");
     expect(herdrArgv[0]).toEqual([
       "tab", "create", "--workspace", "ws-test", "--cwd", testDir, "--no-focus",
-      "--label", "fleet", "--env", `${LAUNCH_ENV}=${key}`, "--env", `ORCH_PROJECT=${projectRoot()}`,
+      "--label", "fleet", "--env", `${LAUNCH_ENV}=${key}`,
     ]);
   });
 
@@ -445,7 +445,6 @@ describe("HerdrBackend space home", () => {
       .toEqual({ coordinate: "w7", rootGroup: "t7", rootHandle: "w7:p1" });
     expect(lastCall("workspace", "create")).toEqual([
       "workspace", "create", "--cwd", testDir, "--no-focus",
-      "--env", `ORCH_PROJECT=${projectRoot()}`,
       "--label", "orch-pack-p1",
     ]);
   });

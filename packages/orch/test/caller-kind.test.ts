@@ -42,6 +42,13 @@ afterEach(() => {
   while (directories.length > 0) removeTempDir(directories.pop() ?? "");
 });
 
+function setupOperator(): void {
+  isolateOrchEnv();
+  restoreHarnessSession = isolateHarnessSession("pi");
+  delete process.env[sessionEnv.marker];
+  delete process.env[sessionEnv.sessionId];
+}
+
 function setupClaimedAgent(token: string): string {
   isolateOrchEnv();
   restoreHarnessSession = isolateHarnessSession("pi");
@@ -77,7 +84,7 @@ describe("caller kind", () => {
   });
 
   test("no harness marker is the operator", () => {
-    isolateOrchEnv();
+    setupOperator();
     expect(callerKind()).toBe("operator");
   });
 
@@ -98,7 +105,7 @@ describe("caller kind", () => {
   });
 
   test("override flags are allowed only for the operator", () => {
-    isolateOrchEnv();
+    setupOperator();
     expect(() => forbidNonOperatorOverride(currentOrchDir(), "--force")).not.toThrow();
   });
 

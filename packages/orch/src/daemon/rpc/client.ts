@@ -15,7 +15,12 @@ import { isRecord } from "../../util.ts";
 // they only stop climbing once the delay reaches the cap.
 const RECONNECT_BASE_MS = 250;
 const RECONNECT_CAP_MS = 5_000;
-let nextRequestId = 1;
+
+/** Request ids correlate a reply to its request on ONE socket; each connection starts its own count. */
+function requestIds(): () => number {
+  let next = 1;
+  return () => next++;
+}
 
 /**
  * Issue the caller's identity. One mechanism serves both transports: the token file
@@ -145,7 +150,8 @@ export async function rpcCall<M extends RpcMethod>(
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<ResultOf<M>> {
   const socket = await connectDaemon(orchDir, timeoutMs);
-  const id = nextRequestId++;
+  const nextId = requestIds();
+  const id = nextId();
   try {
     socket.write(encodeRequest(id, method, params));
     const response = await receiveResponse(socket, id, timeoutMs);
@@ -213,6 +219,7 @@ export function subscribeEvents(
           return;
         }
         socket = connected;
+        const nextId = requestIds();
         backoffMs = RECONNECT_BASE_MS; // a healthy dial resets the climb
         retryAttempt = 0;
         readJsonMessages(connected, (line) => {
@@ -241,9 +248,9 @@ export function subscribeEvents(
           const credential = launchCredential();
           const claim = sessionClaim(orchDir);
           if (credential !== null && typeof claim.sessionToken === "string") {
-            connected.write(encodeRequest(nextRequestId++, "claim-identity", { ...claim, id: credential, sessionToken: claim.sessionToken }));
+            connected.write(encodeRequest(nextId(), "claim-identity", { ...claim, id: credential, sessionToken: claim.sessionToken }));
           } else {
-            connected.write(encodeRequest(nextRequestId++, "register-session", claim));
+            connected.write(encodeRequest(nextId(), "register-session", claim));
           }
         }
         // The first dial honours the caller's `since` (undefined = live only).
@@ -251,7 +258,7 @@ export function subscribeEvents(
         // from the last sequence delivered instead of replaying an unrelated window.
         const since = connectedBefore ? last : opts.since;
         connectedBefore = true;
-        connected.write(encodeRequest(nextRequestId++, "subscribe-events", { since }));
+        connected.write(encodeRequest(nextId(), "subscribe-events", { since }));
       })
       .catch(() => {
         // Daemon absent or the dial failed; keep retrying — it may return.

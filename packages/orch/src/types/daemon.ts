@@ -4,6 +4,7 @@ import type { NotifyEvent } from "./notify.ts";
 import type { OrchDir } from "./core.ts";
 import type { HostOs } from "./host.ts";
 import type { SettingsManager } from "./services.ts";
+import type { ModelCatalogue } from "./adapter.ts";
 import type { PresenceEntry } from "./presence.ts";
 import type { TaskRec } from "./queue.ts";
 import type { IdentityMethod, ParamsOf, ResultOf, RpcMethod } from "../daemon/rpc/protocol.ts";
@@ -256,6 +257,7 @@ export interface WorkOptions {
   maxRetries?: number;
   /** Settings for each loop iteration. The daemon passes its manager so reloads are seen. */
   settings: SettingsManager;
+  models: ModelCatalogue;
   dispatch?: (entry: PresenceEntry, task: TaskRec) => Promise<void>;
   /** Emit canonical work lifecycle events through the daemon fan-out. */
   onEvent?: (event: NotifyEvent) => void;

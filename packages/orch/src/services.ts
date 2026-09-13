@@ -7,6 +7,8 @@ import { detectHost } from "./host.ts";
 import type { Logger, OrchDir } from "./types/core.ts";
 import type { Host } from "./types/host.ts";
 import type { OrchSettings } from "./types/settings.ts";
+import type { ModelCatalogue } from "./types/adapter.ts";
+import { createModelCatalogue } from "./adapters/model-catalogue.ts";
 import type { Services, SettingsManager } from "./types/services.ts";
 
 /** The one place a path becomes an orch dir. Called where a path crosses in from outside
@@ -25,6 +27,7 @@ export interface ServicesOptions {
   orchDir?: OrchDir;
   settings?: SettingsManager;
   logger?: Logger;
+  models?: ModelCatalogue;
   host?: Host;
 }
 
@@ -43,6 +46,7 @@ export function createServices(options: ServicesOptions = {}): Services {
   const orchDir = options.orchDir ?? envOrchDir();
   const settings = options.settings ?? fileSettingsManager(orchDir);
   const logger = options.logger ?? createLogger({ file: join(orchDir, "orch.log"), level: logLevelFor(settingsForLogLevel(settings)) });
+  const models = options.models ?? createModelCatalogue(orchDir, logger);
   const host = options.host ?? detectHost();
-  return { orchDir, settings, logger, host };
+  return { orchDir, settings, logger, models, host };
 }

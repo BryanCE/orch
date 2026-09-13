@@ -13,7 +13,7 @@ import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.t
 import { describeSkillPlacement, installSkills, packagedSkillNames, type SkillRoots } from "../setup/skills.ts";
 import { setupIntro, setupOutro, selectNotifiers } from "../setup/wizard.ts";
 import { presenceDir } from "../presence/store.ts";
-import type { OrchDirService, Services } from "../types/services.ts";
+import type { Services } from "../types/services.ts";
 import { compositionUnrecorded, resolveSetupComposition, recordComposition } from "../setup/composition.ts";
 import type { SetupComposition } from "../setup/composition.ts";
 import { parseSetupOptions } from "../setup/flags.ts";
@@ -93,11 +93,11 @@ export async function offerReapMalformedRecords(
   return true;
 }
 
-async function initializeSetup(options: SetupOptions, services: OrchDirService): Promise<void> {
+async function initializeSetup(options: SetupOptions, services: Pick<Services, "orchDir" | "models">): Promise<void> {
   // Before the first prompt, and for every harness rather than the ones about to be picked:
   // the registry queries then run under the whole wizard instead of stalling the model step.
-  if (options.refresh) await refreshAdapterCatalogues(services.orchDir);
-  else warmAdapterCatalogues();
+  if (options.refresh) await refreshAdapterCatalogues(services.models);
+  else warmAdapterCatalogues(services.models);
   if (options.interactive) setupIntro();
 
   // setup is the ONE recovery path: a settings.json from an older schema (or otherwise invalid)
@@ -137,11 +137,11 @@ async function diagnoseAdapters(orchDir: OrchDir, settings: OrchSettings, logger
   }
 }
 
-async function runDoctorPass(services: Pick<Services, "orchDir" | "logger">, interactive: boolean): Promise<CheckResult[]> {
+async function runDoctorPass(services: Pick<Services, "orchDir" | "logger" | "models">, interactive: boolean): Promise<CheckResult[]> {
   process.stdout.write("Running doctor checks...\n");
-  let doctorResults = await runDoctor(services.orchDir, services.logger, {});
+  let doctorResults = await runDoctor(services, {});
   // Re-run after a reap so the passed/total count reflects the reaped records, not the pre-reap state.
-  if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(services.orchDir, services.logger, {});
+  if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(services, {});
   process.stdout.write(`Doctor: ${doctorResults.filter((result) => result.status === "ok" || result.status === "skip").length}/${doctorResults.length} checks passed\n`);
   return doctorResults;
 }
@@ -172,7 +172,7 @@ export async function cmdSetup(services: Services, args: string[]) {
   const options = parseSetupOptions(args);
   await initializeSetup(options, services);
 
-  const composition = await resolveSetupComposition(services.settings.current(), options);
+  const composition = await resolveSetupComposition(services.settings.current(), services.models, options);
   if (composition === null) return;
   const gaps = await installSetupComposition(services, composition, options, args);
   if (gaps === null) return;

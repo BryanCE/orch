@@ -14,7 +14,7 @@ import { awaitControlOutcome } from "./outcome.ts";
 import { pushToBridge } from "./bridge-links.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
-import type { AdapterCommand, AgentAdapter, LifecycleVerb } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, LifecycleVerb, ModelCatalogue } from "../types/adapter.ts";
 import type { ControlAction, ControlBoundaryOutcome } from "../types/control.ts";
 
 /**
@@ -128,11 +128,11 @@ function deliverAnswer(orchDir: OrchDir, target: string, adapter: AgentAdapter, 
  * through the presence control outcome, so a model the harness could not resolve
  * surfaces as an error instead of a false "accepted".
  */
-async function deliverModel(orchDir: OrchDir, settings: OrchSettings, target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
+async function deliverModel(orchDir: OrchDir, settings: OrchSettings, catalogue: ModelCatalogue, target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
   if (adapter.modelControl === null && !adapter.bridge?.takes.includes("model")) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot set the model on ${target}: adapter ${adapter.id} has no running-session model control` };
   }
-  assertModelAllowed(settings, adapter, model);
+  assertModelAllowed(settings, adapter, catalogue, model);
   requireLiveAgent(orchDir, target, adapter, "set model on");
   const command = adapter.modelControl?.setModel({ key: target, model, id });
   if (command) await runAdapterCommand(command, timeoutMs);
@@ -188,7 +188,7 @@ function deliverLifecycle(orchDir: OrchDir, target: string, adapter: AgentAdapte
 }
 
 /** Apply one control action to a target through its recorded adapter, failing loudly on any gap. */
-export async function deliverControl(orchDir: OrchDir, settings: OrchSettings, target: string, action: ControlAction): Promise<ControlBoundaryOutcome> {
+export async function deliverControl(orchDir: OrchDir, settings: OrchSettings, catalogue: ModelCatalogue, target: string, action: ControlAction): Promise<ControlBoundaryOutcome> {
   const timeoutMs = settings.timeouts.adapter_command_ms;
   const canonicalTarget = normalizeControlTarget(orchDir, target);
   const adapter = resolveTargetAdapter(orchDir, canonicalTarget);
@@ -199,5 +199,5 @@ export async function deliverControl(orchDir: OrchDir, settings: OrchSettings, t
   // one thing E14 says an absence must never become.
   if (action.kind === "answer") return deliverAnswer(orchDir, canonicalTarget, adapter, action);
   if (action.kind === "lifecycle") return deliverLifecycle(orchDir, canonicalTarget, adapter, action.verb);
-  return deliverModel(orchDir, settings, canonicalTarget, adapter, action.model, action.id, timeoutMs);
+  return deliverModel(orchDir, settings, catalogue, canonicalTarget, adapter, action.model, action.id, timeoutMs);
 }

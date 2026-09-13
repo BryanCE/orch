@@ -59,10 +59,10 @@ function detachBridge(key: string, link: BridgeLink): void {
   daemonDetachBridge(requiredOrchDir(), key, link);
 }
 
-function deliverControl(targetKey: string, action: Parameters<typeof daemonDeliverControl>[3]): ReturnType<typeof daemonDeliverControl> {
+function deliverControl(targetKey: string, action: Parameters<typeof daemonDeliverControl>[4]): ReturnType<typeof daemonDeliverControl> {
   const orchDir = requiredOrchDir();
-  const settings = testServices({ orchDir, settings: {} }).settings.current();
-  return daemonDeliverControl(orchDir, settings, targetKey, action);
+  const services = testServices({ orchDir, settings: {} });
+  return daemonDeliverControl(orchDir, services.settings.current(), services.models, targetKey, action);
 }
 
 /** A live agent: registered with this runner as its process, plus its status. */

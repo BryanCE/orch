@@ -3,7 +3,7 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 
 import { mintAgentId } from "../src/backends/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
-import { herdrHudActive, herdrPaneHandle } from "../src/backends/herdr/hud.ts";
+import { herdrHud } from "../src/backends/herdr/hud.ts";
 import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import { placeAgent } from "./helpers/agent.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
@@ -51,8 +51,8 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
     const root = tempOrchDir();
     const key = seedPaneAgent(root, "herdr", "%3");
     expect(process.env[LAUNCH_ENV]).toBeUndefined();
-    expect(herdrPaneHandle(key, root)).toBe("%3");
-    expect(herdrHudActive(key, root)).toBe(true);
+    expect(herdrHud.paneHandle(key, root)).toBe("%3");
+    expect(herdrHud.hudActive(key, root)).toBe(true);
   });
 
   test("the handle follows the agent when it moves pane", () => {
@@ -60,21 +60,21 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
     const key = seedPaneAgent(root, "herdr", "%3");
     // The identity key never changes; only the environment does.
     placeAgent(key, { adapter: "pi", handle: "%9" }, root);
-    expect(herdrPaneHandle(key, root)).toBe("%9");
+    expect(herdrHud.paneHandle(key, root)).toBe("%9");
     expect(process.env[LAUNCH_ENV]).toBeUndefined();
   });
 
   test("an agent on another plexer is not a herdr pane", () => {
     const root = tempOrchDir();
     const key = seedPaneAgent(root, "tmux", "%1");
-    expect(herdrPaneHandle(key, root)).toBeNull();
-    expect(herdrHudActive(key, root)).toBe(false);
+    expect(herdrHud.paneHandle(key, root)).toBeNull();
+    expect(herdrHud.hudActive(key, root)).toBe(false);
   });
 
   test("a process orch never launched is not a herdr pane", () => {
     const root = tempOrchDir();
-    expect(herdrPaneHandle(null, root)).toBeNull();
-    expect(herdrHudActive(null, root)).toBe(false);
+    expect(herdrHud.paneHandle(null, root)).toBeNull();
+    expect(herdrHud.hudActive(null, root)).toBe(false);
   });
 
   test("a key that is not a minted id resolves to no pane at all", () => {
@@ -82,7 +82,7 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
     // carries a plexer and a handle, and nothing may read them back out of it.
     const malformed = "herdr~wF~%3";
     const root = tempOrchDir();
-    expect(herdrPaneHandle(malformed, root)).toBeNull();
-    expect(herdrHudActive(malformed, root)).toBe(false);
+    expect(herdrHud.paneHandle(malformed, root)).toBeNull();
+    expect(herdrHud.hudActive(malformed, root)).toBe(false);
   });
 });

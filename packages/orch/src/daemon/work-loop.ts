@@ -112,7 +112,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const log = runnerId === undefined ? correlated : correlated.forAgent(runnerId);
   const sendPrompt = async (): Promise<void> => {
     log.info("dispatch.delivering", { target: entry.key, handle: entry.key });
-    const outcome = await deliverControl(orchDir, options.settings.current(), entry.key, { kind: "run", text: prompt, id: dispatchId });
+    const outcome = await deliverControl(orchDir, options.settings.current(), options.models, entry.key, { kind: "run", text: prompt, id: dispatchId });
     if (outcome.outcome === "answer") {
       log.debug("boundary.answer", { target: entry.key, reason: outcome.reason });
     }

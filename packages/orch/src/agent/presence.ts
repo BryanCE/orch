@@ -55,31 +55,6 @@ export function isAssistantMessageLike(value: unknown): value is AssistantMessag
   return value.errorMessage === undefined || typeof value.errorMessage === "string";
 }
 
-/** The key an interactive session orch did not spawn addresses itself by. A
- *  session is an agent, so it mints an id like any other and holds it for the
- *  life of the process; a pid is where it runs, and a key built from one reads
- *  back as a malformed identity every reader then has to ignore.
- *
- *  The id is the WHOLE key. This session is inside no
- *  plexer and in no space, and that is a missing value, not a place called
- *  `headless~local~`: stamping those two sentinels into the key is what made the
- *  web bucket every session into a fake space named "local". Where a session
- *  runs is orch's to record as environment, never the agent's to claim here. */
-let ownSessionKey: string | undefined;
-
-function sessionKey(): string {
-  ownSessionKey ??= mintAgentId();
-  return ownSessionKey;
-}
-
-// Orch-spawned agents use the launch credential; an interactive session mints its
-// own; a session with no UI has nobody to address and skips presence.
-function computeKey(hasUI: boolean): string | undefined {
-  const credential = launchCredential();
-  if (credential !== null) return credential;
-  return hasUI ? sessionKey() : undefined;
-}
-
 export function extractText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!isUnknownArray(content)) return "";
@@ -179,6 +154,32 @@ export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOpti
     asking: undefined,
   };
   Object.assign(state, launchStamp(state, options.identity.agentId, ""));
+
+  /** The key an interactive session orch did not spawn addresses itself by. A
+   *  session is an agent, so it mints an id like any other and holds it for the
+   *  life of the process; a pid is where it runs, and a key built from one reads
+   *  back as a malformed identity every reader then has to ignore.
+   *
+   *  The id is the WHOLE key. This session is inside no
+   *  plexer and in no space, and that is a missing value, not a place called
+   *  `headless~local~`: stamping those two sentinels into the key is what made the
+   *  web bucket every session into a fake space named "local". Where a session
+   *  runs is orch's to record as environment, never the agent's to claim here. */
+  let ownSessionKey: string | undefined;
+
+  function sessionKey(): string {
+    ownSessionKey ??= mintAgentId();
+    return ownSessionKey;
+  }
+
+  // Orch-spawned agents use the launch credential; an interactive session mints its
+  // own; a session with no UI has nobody to address and skips presence.
+  function computeKey(hasUI: boolean): string | undefined {
+    const credential = launchCredential();
+    if (credential !== null) return credential;
+    return hasUI ? sessionKey() : undefined;
+  }
+
   // Shared with the tool layer: the cmd-lock interception and the plexer's
   // blocked signal both raise/lower this count, and writeStatus reads it.
   const blocked: { count: number; message: string | undefined } = { count: 0, message: undefined };

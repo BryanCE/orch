@@ -25,6 +25,7 @@ import { checkRuntime } from "./runtime.ts";
 import { loadPresence } from "../presence/store.ts";
 import { agentView } from "../store/agent-view.ts";
 import type { Logger } from "../types/core.ts";
+import type { Services } from "../types/services.ts";
 
 export type { CheckResult } from "../types/doctor.ts";
 import type { AdapterId } from "../types/adapter.ts";
@@ -71,7 +72,8 @@ async function checkLiveFleetPairs(orchDir: OrchDir, settings: OrchSettings, log
   }));
 }
 
-export async function runDoctor(orchDir: OrchDir, logger: Logger, sshRunnerOrOptions: SshRunner | DoctorOptions): Promise<CheckResult[]> {
+export async function runDoctor(services: Pick<Services, "orchDir" | "logger" | "models">, sshRunnerOrOptions: SshRunner | DoctorOptions): Promise<CheckResult[]> {
+  const { orchDir, logger } = services;
   // `yes` is a command-level concern; accepting it here keeps programmatic doctor
   // runs explicit while preserving the runner's read-only diagnostic contract.
   const sshRunner = typeof sshRunnerOrOptions === "function"
@@ -102,7 +104,7 @@ export async function runDoctor(orchDir: OrchDir, logger: Logger, sshRunnerOrOpt
         ? await adapter.shim.diagnoseShim(orchDir, settings, logger)
         : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
     }),
-    isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(settings, id)),
+    isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(settings, id, services.models)),
   ]).flat();
   let livePairs: CheckResult[];
   try {

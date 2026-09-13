@@ -4,20 +4,20 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
-import { AGENT_START_TIMEOUT_MS, setHerdrExecutor } from "../src/backends/herdr/cli.ts";
+import { AGENT_START_TIMEOUT_MS, createHerdrCli, type HerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import { retryingSync } from "../src/retry.ts";
 import { projectRoot } from "../src/util.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { ENVIRONMENT_ENV } from "../src/agent/environment.ts";
-import { HERDR_BLOCKED_EVENT } from "../src/backends/herdr/index.ts";
+import { HERDR_BLOCKED_EVENT, HerdrBackend } from "../src/backends/herdr/index.ts";
 
 /** The roles a herdr pane composes, as the spawn stamps them for the agent. */
 const environmentStampArg = `${ENVIRONMENT_ENV}=${JSON.stringify({ labels: true, blockedEvent: HERDR_BLOCKED_EVENT })}`;
 
-// Replace the CLI boundary before loading HerdrBackend. This records argv without
-// ever starting a herdr process (and therefore cannot create a live pane).
+// Inject the CLI boundary. This records argv without ever starting a herdr process
+// (and therefore cannot create a live pane).
 const herdrArgv: string[][] = [];
 const moveResults: { changed: boolean; reason?: string; pane?: { pane_id: string } }[] = [];
 const liveAgentNames = new Set<string>();
@@ -68,7 +68,7 @@ function agentStart(name: string, pane: string, agentArgs: readonly string[] = [
 // being served to unrelated suites that had asked for the real thing. Injecting
 // the runner scopes the fake to this file and keeps the real argv building,
 // parsing and error wrapping under test.
-const restoreExecutor = setHerdrExecutor((_command, args) => {
+const fakeExecutor: HerdrExecutor = (_command, args) => {
   herdrArgv.push([...args]);
   const [command, subcommand] = args;
   if (command === "pane" && subcommand === "process-info") return paneProcessInfo(args[3] ?? "");
@@ -114,11 +114,10 @@ const restoreExecutor = setHerdrExecutor((_command, args) => {
   }
   // Every mutation answers with an empty body, never JSON.
   return "";
-});
+};
 
 const testDir: OrchDir = tempOrchDir("orch-backend-herdr-");
-const { HerdrBackend } = await import("../src/backends/herdr/index.ts");
-const backend = new HerdrBackend();
+const backend = new HerdrBackend(createHerdrCli(fakeExecutor));
 
 const fakeAdapter = makeFakeAdapter();
 
@@ -131,7 +130,6 @@ delete process.env.HERDR_PANE_ID;
 delete process.env[LAUNCH_ENV];
 
 afterAll(() => {
-  restoreExecutor();
   if (callerPane === undefined) delete process.env.HERDR_PANE_ID;
   else process.env.HERDR_PANE_ID = callerPane;
   if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
@@ -383,35 +381,27 @@ describe("HerdrBackend", () => {
       stderr: JSON.stringify({ error: { code: "pane_not_found" } }),
     });
     let goneCalls = 0;
-    const restoreGone = setHerdrExecutor((_command, _args, _options, policy) => {
+    const goneBackend = new HerdrBackend(createHerdrCli((_command, _args, _options, policy) => {
       const operation = (): string => {
         goneCalls += 1;
         throw gone;
       };
       return policy === undefined ? operation() : retryingSync("herdr", operation, policy);
-    });
-    try {
-      expect(() => backend.agentInput.submit("w0:p1", "ls")).toThrow(AgentGoneError);
-      expect(goneCalls).toBe(1);
-    } finally {
-      restoreGone();
-    }
+    }));
+    expect(() => goneBackend.agentInput.submit("w0:p1", "ls")).toThrow(AgentGoneError);
+    expect(goneCalls).toBe(1);
 
     const failure = new Error("temporary failure");
     let failureCalls = 0;
-    const restoreFailure = setHerdrExecutor((_command, _args, _options, policy) => {
+    const failureBackend = new HerdrBackend(createHerdrCli((_command, _args, _options, policy) => {
       const operation = (): string => {
         failureCalls += 1;
         throw failure;
       };
       return policy === undefined ? operation() : retryingSync("herdr", operation, policy);
-    });
-    try {
-      expect(() => backend.agentInput.submit("w0:p1", "ls")).toThrow("temporary failure");
-      expect(failureCalls).toBe(4);
-    } finally {
-      restoreFailure();
-    }
+    }));
+    expect(() => failureBackend.agentInput.submit("w0:p1", "ls")).toThrow("temporary failure");
+    expect(failureCalls).toBe(4);
   });
 
   test("pane rename failure reaches the role caller", () => {

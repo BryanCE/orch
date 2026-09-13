@@ -2,6 +2,7 @@ import type { OrchSettings } from "./settings.ts";
 import type { Logger, OrchDir } from "./core.ts";
 import type { Host } from "./host.ts";
 import type { SettingsFilePath } from "../settings/schema.ts";
+import type { ModelCatalogue } from "./adapter.ts";
 
 /** Parsed settings for one process. `current()` is cheap after the first call:
  * the parsed value is held until `reload()`. The daemon's file watcher calls
@@ -23,6 +24,7 @@ export interface Services {
   readonly orchDir: OrchDir;
   readonly settings: SettingsManager;
   readonly logger: Logger;
+  readonly models: ModelCatalogue;
   readonly host: Host;
 }
 

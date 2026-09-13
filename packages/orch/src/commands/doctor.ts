@@ -4,7 +4,6 @@ import { withSpinner } from "../setup/io.ts";
 import type { Services } from "../types/services.ts";
 import { renderTable } from "../table.ts";
 import type { CheckResult } from "../types/doctor.ts";
-import type { OrchDir } from "../types/core.ts";
 
 /** Only a genuine failure makes doctor exit non-zero. A warning names a situational condition
  * (outside a session, stale daemon code, a dead presence dir) that does not mean the install is
@@ -13,7 +12,7 @@ function failExit(results: readonly CheckResult[]): void {
   if (results.some((result) => result.status === "fail")) process.exitCode = 1;
 }
 
-async function runInteractiveDoctor(initial: CheckResult[], orchDirectory: OrchDir, servicesLogger: Services["logger"]): Promise<void> {
+async function runInteractiveDoctor(initial: CheckResult[], services: Pick<Services, "orchDir" | "logger" | "models">): Promise<void> {
   let results = initial;
   renderDoctorResults(results);
   const fixable = results.filter((r) => r.fix).map((r) => ({ id: r.id, label: r.label, description: r.fix!.description, destructive: r.fix!.destructive }));
@@ -27,7 +26,7 @@ async function runInteractiveDoctor(initial: CheckResult[], orchDirectory: OrchD
       "fixes applied",
       () => { for (const r of toApply) r.fix!.apply(); },
     );
-    results = await runDoctor(orchDirectory, servicesLogger, {});
+    results = await runDoctor(services, {});
     renderDoctorResults(results);
   }
   failExit(results);
@@ -37,15 +36,15 @@ export async function cmdDoctor(services: Services, args: string[]) {
   const json = args.includes("--json");
   const yes = args.includes("-y") || args.includes("--yes");
   const fix = args.includes("--fix") || yes;
-  let results = await runDoctor(services.orchDir, services.logger, {});
+  let results = await runDoctor(services, {});
   // A TTY session that did not demand json or an unattended -y apply gets the
   // interactive fix menu (bare `doctor` and `doctor --fix` both land here).
-  if (!json && !yes && process.stdin.isTTY) return runInteractiveDoctor(results, services.orchDir, services.logger);
+  if (!json && !yes && process.stdin.isTTY) return runInteractiveDoctor(results, services);
   // Unattended: -y (or --fix with no TTY to prompt on) applies every fix.
   const changes = fix
     ? applyFixes(results.filter((r) => !r.fix?.destructive)).applied
     : [];
-  if (fix && changes.length) results = await runDoctor(services.orchDir, services.logger, {});
+  if (fix && changes.length) results = await runDoctor(services, {});
   if (json) {
     process.stdout.write(JSON.stringify({ results, changes }, null, 2) + "\n");
   } else {

@@ -4,7 +4,7 @@ import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { readAssignFlag, validateSetupFlag } from "../setup/flags.ts";
 import { die } from "./target.ts";
-import type { LoggerService, Services } from "../types/services.ts";
+import type { Services } from "../types/services.ts";
 import type { AdapterId, HarnessModel } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { CatalogueReader, HarnessSection, ModelFilters, ModelRow } from "../types/command.ts";
@@ -46,9 +46,9 @@ function readTargets(args: string[], enabled: readonly AdapterId[]): AdapterId[]
 
 /** What a harness reports it can run. One that cannot enumerate lists nothing here rather than
  *  borrowing another harness's catalogue or inventing entries. */
-function readAdapterCatalogue(id: AdapterId, services: LoggerService): readonly HarnessModel[] {
+function readAdapterCatalogue(id: AdapterId, services: Pick<Services, "logger" | "models">): readonly HarnessModel[] {
   try {
-    return resolveAdapter(id).models?.listModels() ?? [];
+    return resolveAdapter(id).models?.listModels(services.models) ?? [];
   } catch (error: unknown) {
     const message = errorMessage(error);
     services.logger.error("models.catalogue-failed", { adapter: id, error: message });

@@ -128,8 +128,8 @@ Block until the pane reaches a status.
   --status      The state to wait for (default: done).
   --timeout     Give up after this many milliseconds (default: 300000).
 `,
-  result: `orch result <target> [--force] [--json]
-Print a target's result (results.jsonl, else the session's last assistant text).
+  result: `orch result <target>... [--force] [--json]
+Print each target's result (results.jsonl or session fallback); several targets print under \`== <target>\` headers, or as a JSON array with --json.
   --force       Read an agent another ${term("orch")} owns.
 `,
   tail: `orch tail <target> [-n N]
@@ -168,14 +168,15 @@ Every name is validated before any tab or pane is created — a refused spawn
 leaves nothing behind.
   --tab         Label for the new tab; an existing tab's label fills that tab.
   --dir         Directory the agents start in. Defaults to the spawner's own.
-  --model       Pin each agent's launch model.
+  --model       One model for every agent, or repeat exactly N times for per-agent models.
   --agent       Adapter id (pi, claude, codex, ...).
   --backend     Plexer id (herdr, tmux, headless). Inside a plexer the fleet lands beside you.
                 Outside every plexer the default is headless; name a plexer here to open its
                 own home, which the user grants. headless needs --prompt or --file: a detached
                 agent runs the prompt and exits.
   --prompt      One task for every agent, or repeat exactly N times for per-agent tasks.
-  --file        Read the one task from a file, or from stdin with '-', instead of argv.
+  --file        One task file for every agent (or '-' for stdin), or repeat exactly N times
+                for per-agent task files. Mirrors --prompt.
   --with        A file or directory the agents open for context when the task needs it,
                 not inlined into the prompt. Must exist. Repeat once per path.
   --tasks       JSON file containing exactly N task strings (alternative to --prompt).

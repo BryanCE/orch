@@ -1,4 +1,5 @@
 import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
+import { z } from "zod";
 import { errorMessage, isRecord } from "../../util.ts";
 import { extractVersion } from "../versions.ts";
 import { DEFAULT_TOOL_RETRY, runTool } from "../tool-exec.ts";
@@ -34,7 +35,7 @@ function errorDetail(error: unknown): string {
   return error instanceof Error ? errorMessage(error) : outputText(error);
 }
 
-type HerdrExecutor = (
+export type HerdrExecutor = (
   command: string,
   args: string[],
   options?: ExecFileSyncOptionsWithStringEncoding,
@@ -52,7 +53,7 @@ export const GONE_HANDLE_CODES = new Set(["pane_not_found", "agent_not_found"]);
 /** The default runner goes through orch's shared tool seam, so every herdr
  *  command - not just `agent start` - rides the same backoff. A test that
  *  injects its own executor replaces this wholesale and retries nothing. */
-let executeHerdr: HerdrExecutor = (command, args, options, policy) =>
+const defaultHerdrExecutor: HerdrExecutor = (command, args, options, policy) =>
   runTool(command, args, policy ?? DEFAULT_TOOL_RETRY, options ?? DEFAULT_HERDR_OPTIONS);
 
 function isHerdrPane(value: unknown): value is HerdrPane {
@@ -81,32 +82,6 @@ const MUTATION_TIMEOUT_MS = 5000;
  *  two sides can never disagree about who gave up first. */
 export const AGENT_START_TIMEOUT_MS = 30_000;
 const AGENT_START_EXEC_TIMEOUT_MS = AGENT_START_TIMEOUT_MS + MUTATION_TIMEOUT_MS;
-const listCache = new Map<string, { at: number; value: unknown }>();
-
-/** Inject the process runner for a scoped seam test; the returned function restores it. */
-export function setHerdrExecutor(executor: HerdrExecutor): () => void {
-  const previous = executeHerdr;
-  listCache.clear();
-  executeHerdr = executor;
-  return () => {
-    executeHerdr = previous;
-    listCache.clear();
-  };
-}
-
-function herdr(args: string[], policy?: RetryPolicy): unknown {
-  const cacheKey = args.join(" ");
-  const cached = listCache.get(cacheKey);
-  if (cached && Date.now() - cached.at < LIST_CACHE_TTL_MS) return cached.value;
-  try {
-    const output = executeHerdr("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
-    const value = parseHerdrOutput(output);
-    listCache.set(cacheKey, { at: Date.now(), value });
-    return value;
-  } catch (error: unknown) {
-    throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
-  }
-}
 
 /** A failed herdr command, carrying the code herdr answered with. The code is
  *  herdr's wire format and stays inside this adapter; callers read `code` rather
@@ -116,38 +91,6 @@ export class HerdrCommandError extends Error {
     super(message);
     this.name = "HerdrCommandError";
   }
-}
-
-function herdrOutput(args: string[], timeoutMs = MUTATION_TIMEOUT_MS, policy?: RetryPolicy): string {
-  // Assume a mutation: listings must not serve pre-mutation state.
-  listCache.clear();
-  try {
-    return executeHerdr("herdr", args, { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
-  } catch (error: unknown) {
-    throw new HerdrCommandError(herdrErrorCode(error), `herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
-  }
-}
-
-export function herdrJSON<T = unknown>(args: string[]): T {
-  const output = herdrOutput(args);
-  try {
-    return parseHerdrOutput(output) as T;
-  } catch {
-    throw new Error(`herdr ${args.join(" ")} returned non-JSON: ${output.slice(0, 200)}`);
-  }
-}
-
-/** A herdr command whose acknowledgement is its exit code: `pane run` answers
- *  with an empty body, so demanding JSON from it fails an already-run command. */
-export function herdrAck(args: string[], timeoutMs?: number, policy?: RetryPolicy): void {
-  herdrOutput(args, timeoutMs, policy);
-}
-
-/** Run a herdr command and hand back what it ANSWERED. Exit code alone is not the
- *  answer: herdr reports a refused notification as `{"shown":false}` and still
- *  exits 0, so a caller that reads only the exit code reports a drop as a delivery. */
-export function herdrAnswer(args: string[], timeoutMs?: number): string {
-  return herdrOutput(args, timeoutMs);
 }
 
 /** herdr reports why a start failed as a JSON error code on stderr. */
@@ -184,95 +127,105 @@ const START_RETRY: RetryPolicy = {
   retryable: (error) => herdrErrorCode(error) === "agent_pane_busy",
 };
 
-/** Start a harness in an existing pane. Blocking on both sides by nature: herdr
- *  settles the process before answering, and orch waits out the budget it set. */
-export function herdrStartAgent(args: string[], agentArgs: readonly string[] = []): void {
-  // herdr's grammar is `agent start <name> [OPTIONS] [-- [AGENT_ARG]...]`; the
-  // separator must come after every option or herdr reads the flags as agent args.
-  const fullArgs = [...args, "--timeout", String(AGENT_START_TIMEOUT_MS),
-    ...(agentArgs.length > 0 ? ["--", ...agentArgs] : [])];
-  listCache.clear();
-  try {
-    executeHerdr("herdr", fullArgs, { timeout: AGENT_START_EXEC_TIMEOUT_MS, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, START_RETRY);
-  } catch (error: unknown) {
-    // A harness that started but has not painted its first frame is not a failure.
-    if (herdrErrorCode(error) === "agent_not_ready") return;
-    throw new Error(`herdr ${fullArgs.join(" ")} failed: ${errorDetail(error)}`);
-  }
-}
-
-/** Read herdr's installed semantic version from its CLI. A missing binary or
- * an unexpected response is unknown rather than a fabricated version. */
-export function version(): string | null {
-  try {
-    return extractVersion(herdrExec(["--version"]));
-  } catch {
-    return null;
-  }
-}
-
-interface HerdrServerStatus {
+export interface HerdrServerStatus {
   readonly running: boolean;
   readonly version: string | null;
   readonly socket: string | null;
   readonly endpointCompatible: boolean | null;
 }
 
-/** A question asked to DIAGNOSE, so a silent server is the answer and never a
- *  race to retry. The default ladder costs four attempts and 1.75s of backoff on
- *  top of each timeout, which is a doctor run hanging on the one thing it was
- *  trying to report. */
+export interface HerdrCli {
+  json<S extends z.ZodType>(args: string[], schema: S): z.output<S>;
+  ack(args: string[], timeoutMs?: number, policy?: RetryPolicy): void;
+  answer(args: string[], timeoutMs?: number): string;
+  startAgent(args: string[], agentArgs?: readonly string[]): void;
+  version(): string | null;
+  serverStatus(): HerdrServerStatus;
+  reachable(): boolean;
+  panes(): HerdrPane[];
+  names(): Map<string, string>;
+  tabs(): Map<string, HerdrTab>;
+  exec(args: string[], options?: ExecFileSyncOptionsWithStringEncoding): string;
+}
+
 const ASK_ONCE: RetryPolicy = { attempts: 1, delayMs: 0, backoff: 1 };
 
-/** What herdr's running server reports about itself. The one reader of
- *  `status server` output: everything that needs the socket path, the server's
- *  version, or its compatibility asks here. herdr omits `endpoint_compatible`
- *  when its server reports no generation, and an absent fact is unknown. */
-export function herdrServerStatus(): HerdrServerStatus {
-  const result = herdr(["status", "server", "--json"], ASK_ONCE);
-  if (!isRecord(result)) throw new Error("herdr status server returned invalid response");
-  return {
-    running: result.running === true,
-    version: typeof result.version === "string" ? result.version : null,
-    socket: typeof result.socket === "string" ? result.socket : null,
-    endpointCompatible: typeof result.endpoint_compatible === "boolean" ? result.endpoint_compatible : null,
+export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): HerdrCli {
+  const listCache = new Map<string, { at: number; value: unknown }>();
+  const herdr = (args: string[], policy?: RetryPolicy): unknown => {
+    const cacheKey = args.join(" ");
+    const cached = listCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < LIST_CACHE_TTL_MS) return cached.value;
+    try {
+      const output = executor("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
+      const value = parseHerdrOutput(output);
+      listCache.set(cacheKey, { at: Date.now(), value });
+      return value;
+    } catch (error: unknown) {
+      throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
+    }
   };
-}
-
-/** True only when the herdr control socket responds. */
-export function herdrReachable(): boolean {
-  herdrPanes();
-  return true;
-}
-
-export function herdrPanes(): HerdrPane[] {
-  const result = herdr(["pane", "list"]);
-  if (!isRecord(result) || !Array.isArray(result.panes)) throw new Error("herdr pane list returned invalid response");
-  return result.panes.filter(isHerdrPane);
-}
-
-export function herdrNames(): Map<string, string> {
-  const result = herdr(["agent", "list"]);
-  if (!isRecord(result) || !Array.isArray(result.agents)) throw new Error("herdr agent list returned invalid response");
-  const names = new Map<string, string>();
-  for (const agent of result.agents.filter(isHerdrAgent)) {
-    if (agent.pane_id && agent.name) names.set(agent.pane_id, agent.name);
-  }
-  return names;
-}
-
-export function herdrTabs(): Map<string, HerdrTab> {
-  const result = herdr(["tab", "list"]);
-  if (!isRecord(result) || !Array.isArray(result.tabs)) throw new Error("herdr tab list returned invalid response");
-  const tabs = new Map<string, HerdrTab>();
-  for (const tab of result.tabs.filter(isHerdrTab)) tabs.set(tab.tab_id, tab);
-  return tabs;
-}
-
-export function herdrExec(args: string[], options: ExecFileSyncOptionsWithStringEncoding = { encoding: "utf8" }): string {
-  try {
-    return executeHerdr("herdr", args, options);
-  } catch (error: unknown) {
-    throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
-  }
+  const herdrOutput = (args: string[], timeoutMs = MUTATION_TIMEOUT_MS, policy?: RetryPolicy): string => {
+    listCache.clear();
+    try {
+      return executor("herdr", args, { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
+    } catch (error: unknown) {
+      throw new HerdrCommandError(herdrErrorCode(error), `herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
+    }
+  };
+  const cli: HerdrCli = {
+    json<S extends z.ZodType>(args: string[], schema: S): z.output<S> {
+      const output = herdrOutput(args);
+      const parsed = schema.safeParse(parseHerdrOutput(output));
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((issue) => issue.message).join(", ");
+        throw new HerdrCommandError(null, `herdr ${args.join(" ")} answered an unexpected shape: ${issues}`);
+      }
+      return parsed.data;
+    },
+    ack: (args, timeoutMs, policy) => { herdrOutput(args, timeoutMs, policy); },
+    answer: (args, timeoutMs) => herdrOutput(args, timeoutMs),
+    startAgent: (args, agentArgs = []) => {
+      const fullArgs = [...args, "--timeout", String(AGENT_START_TIMEOUT_MS), ...(agentArgs.length > 0 ? ["--", ...agentArgs] : [])];
+      listCache.clear();
+      try { executor("herdr", fullArgs, { timeout: AGENT_START_EXEC_TIMEOUT_MS, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, START_RETRY); }
+      catch (error: unknown) {
+        if (herdrErrorCode(error) === "agent_not_ready") return;
+        throw new Error(`herdr ${fullArgs.join(" ")} failed: ${errorDetail(error)}`);
+      }
+    },
+    version: () => {
+      try { return extractVersion(cli.exec(["--version"])); } catch { return null; }
+    },
+    serverStatus: () => {
+      const result = herdr(["status", "server", "--json"], ASK_ONCE);
+      if (!isRecord(result)) throw new Error("herdr status server returned invalid response");
+      return { running: result.running === true, version: typeof result.version === "string" ? result.version : null, socket: typeof result.socket === "string" ? result.socket : null, endpointCompatible: typeof result.endpoint_compatible === "boolean" ? result.endpoint_compatible : null };
+    },
+    reachable: () => { cli.panes(); return true; },
+    panes: () => {
+      const result = herdr(["pane", "list"]);
+      if (!isRecord(result) || !Array.isArray(result.panes)) throw new Error("herdr pane list returned invalid response");
+      return result.panes.filter(isHerdrPane);
+    },
+    names: () => {
+      const result = herdr(["agent", "list"]);
+      if (!isRecord(result) || !Array.isArray(result.agents)) throw new Error("herdr agent list returned invalid response");
+      const names = new Map<string, string>();
+      for (const agent of result.agents.filter(isHerdrAgent)) if (agent.pane_id && agent.name) names.set(agent.pane_id, agent.name);
+      return names;
+    },
+    tabs: () => {
+      const result = herdr(["tab", "list"]);
+      if (!isRecord(result) || !Array.isArray(result.tabs)) throw new Error("herdr tab list returned invalid response");
+      const tabs = new Map<string, HerdrTab>();
+      for (const tab of result.tabs.filter(isHerdrTab)) tabs.set(tab.tab_id, tab);
+      return tabs;
+    },
+    exec: (args, options = { encoding: "utf8" }) => {
+      try { return executor("herdr", args, options); }
+      catch (error: unknown) { throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`); }
+    },
+  };
+  return cli;
 }

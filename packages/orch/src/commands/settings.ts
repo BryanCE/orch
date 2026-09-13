@@ -121,8 +121,8 @@ export async function cmdSettingsModels(services: Services, args: string[]): Pro
 
   // Catalogues are stored and refreshed on a cycle, so an operator who just installed a model
   // needs a way to say "ask again now" rather than picking from yesterday's list.
-  if (args.includes("--refresh")) await refreshAdapterCatalogues(services.orchDir);
-  const chosen = await resolveHarnessModels(settings, readAssignFlag(args, "--model"), targets, process.stdout.isTTY === true);
+  if (args.includes("--refresh")) await refreshAdapterCatalogues(services.models);
+  const chosen = await resolveHarnessModels(settings, services.models, readAssignFlag(args, "--model"), targets, process.stdout.isTTY === true);
   if (chosen === null) return;
   // Only the targeted harnesses were prompted, so each map merges over what is already
   // recorded; a harness this run never asked about keeps every list it had.

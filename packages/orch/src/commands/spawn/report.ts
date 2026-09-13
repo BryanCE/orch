@@ -127,7 +127,7 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
     for (const agent of created) process.stdout.write(`${agent.handle}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
     printLayout(backend, group, "\nFinal tiling:");
   }
-  reportShortfall(logger, settings.n, created.length);
+  reportShortfall(logger, settings.agents.length, created.length);
   const registeredAgents = await confirmAgentsCameUp(orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settings.json);
   const registered = registeredAgents?.length ?? null;
   if (!settings.json) {
@@ -150,16 +150,21 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
       }
     }
   }
-  const warnings = await pinModels(services, logger, registeredAgents ?? [], settings.model, settings.thinking);
+  const pinEntries = (registeredAgents ?? []).flatMap((agent) => {
+    const plan = settings.agents.find((candidate) => candidate.name === agent.name);
+    return plan === undefined ? [] : [{ ...agent, model: plan.model, thinking: plan.thinking }];
+  });
+  const warnings = (await Promise.all(pinEntries.map((entry) => pinModels(services, logger, [{ key: entry.key, handle: entry.handle, name: entry.name }], entry.model, entry.thinking)))).flat();
   const dispatches: { name: string; key: string; dispatchId: string }[] = [];
-  if (registeredAgents && settings.prompts.length > 0) {
+  if (registeredAgents && settings.agents.some((agent) => agent.prompt !== null)) {
     const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
     for (const [index, agent] of created.entries()) {
       if (!registeredKeys.has(agent.key)) {
         process.stdout.write(`not dispatched: ${agent.name} never registered\n`);
         continue;
       }
-      const text = settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!;
+      const text = settings.agents[index]?.prompt;
+      if (text === undefined || text === null) continue;
       try {
         const { id: dispatchId } = await dispatchToAgent(services, logger, agent.key, text, {
           adapter: resolveAdapterOrDie(settings.adapter),
@@ -179,7 +184,7 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
     backend: settings.backend,
     tab: tabLabel,
     agents: created,
-    requested: settings.n,
+    requested: settings.agents.length,
     created: created.length,
     registered,
     warnings,

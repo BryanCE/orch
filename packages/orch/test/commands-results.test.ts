@@ -19,6 +19,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { testServices } from "./helpers/services.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { isRecord } from "../src/util.ts";
 import { sql } from "drizzle-orm";
 
 /** Target resolution loads settings.json (host lookup) and die()s — killing the whole
@@ -67,6 +68,16 @@ function seedAgent(root: OrchDir, key: string, space: string, harnessId = "pi"):
   seedLiveAgent(root, key, harnessId);
   orm(root).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, ${1})`);
   setSpace(root, key, 1, space);
+}
+
+interface JsonResultEntry { target: string; source: string; result: unknown }
+
+function isJsonResultEntry(value: unknown): value is JsonResultEntry {
+  return isRecord(value) && typeof value.target === "string" && typeof value.source === "string" && "result" in value;
+}
+
+function isJsonResultArray(value: unknown): value is JsonResultEntry[] {
+  return Array.isArray(value) && value.every(isJsonResultEntry);
 }
 
 function captureStdout(run: () => void): string {
@@ -222,6 +233,82 @@ describe("commands/results", () => {
     try {
       expect(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]))).toBe("finished without agent\n");
     } finally {
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
+  });
+
+  test.serial("renders several target results under headers", () => {
+    const root = tempOrchDir("orch-command-result-many-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    const targets = ["resultmny1", "resultmny2"];
+    try {
+      for (const [index, key] of targets.entries()) {
+        const dir = presenceAgentDir(key, root);
+        mkdirSync(dir, { recursive: true });
+        seedAgent(root, key, "test");
+        writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
+        writeFileSync(join(dir, "results.jsonl"), JSON.stringify({ text: `result-${index}` }) + "\n");
+      }
+      const output = captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), targets));
+      expect(output).toBe("== resultmny1\nresult-0\n== resultmny2\nresult-1\n");
+    } finally {
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
+  });
+
+  test.serial("renders several target results as a JSON array", () => {
+    const root = tempOrchDir("orch-command-result-many-json-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    const first = "resultjsn1";
+    const second = "resultjsn2";
+    const targets = [first, second];
+    try {
+      for (const [index, key] of targets.entries()) {
+        const dir = presenceAgentDir(key, root);
+        mkdirSync(dir, { recursive: true });
+        seedAgent(root, key, "test");
+        writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
+        writeFileSync(join(dir, "results.jsonl"), JSON.stringify({ text: `json-${index}` }) + "\n");
+      }
+      const parsed: unknown = JSON.parse(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [...targets, "--json"])));
+      if (!isJsonResultArray(parsed)) throw new Error("result output was not an array of result entries");
+      expect(parsed).toHaveLength(2);
+      expect(parsed.map((entry) => ({ target: entry.target, source: entry.source, result: entry.result }))).toEqual([
+        { target: first, source: "presence", result: { text: "json-0" } },
+        { target: second, source: "presence", result: { text: "json-1" } },
+      ]);
+    } finally {
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
+  });
+
+  test.serial("continues after a missing target and sets exit code", () => {
+    const root = tempOrchDir("orch-command-result-missing-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    const known = "resultkn01";
+    const missing = "resultms01";
+    const dir = presenceAgentDir(known, root);
+    mkdirSync(dir, { recursive: true });
+    seedAgent(root, known, "test");
+    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key: known, pid: process.pid, agent: "pi", state: "done" }));
+    writeFileSync(join(dir, "results.jsonl"), JSON.stringify({ text: "known-result" }) + "\n");
+    process.exitCode = 0;
+    try {
+      const output = captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [known, missing]));
+      expect(output).toContain("== resultkn01\nknown-result\n");
+      expect(output).toContain(`== ${missing}\nerror:`);
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = 0;
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);
     }

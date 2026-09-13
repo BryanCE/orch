@@ -15,7 +15,7 @@ import type { Logger, OrchDir } from "../../types/core.ts";
 import { homeHandle, openHome } from "../../store/home-rows.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../types/command.ts";
 import type { HomeSubject } from "../../types/backend.ts";
-import type { SpawnSettings } from "./flags.ts";
+import type { SpawnAgentPlan, SpawnSettings } from "./flags.ts";
 
 
 /**
@@ -151,7 +151,8 @@ export function tileAgentIntoGroup(orchDir: OrchDir, spec: Omit<TabSpawnSpec, "p
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(orchDir: OrchDir, settings: SpawnSettings, name: string, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
+function placeAgent(orchDir: OrchDir, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
+  const name = plan.name;
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
   return tileAgentIntoGroup(orchDir, {
     backend,
@@ -162,8 +163,8 @@ function placeAgent(orchDir: OrchDir, settings: SpawnSettings, name: string, spa
     space,
     workspace,
     group,
-    model: settings.model,
-    thinking: settings.thinking,
+    model: plan.model,
+    thinking: plan.thinking,
     preferredModels: settings.preferredModels,
     tools: settings.tools,
     workers: settings.workers,
@@ -179,8 +180,13 @@ function placeAgent(orchDir: OrchDir, settings: SpawnSettings, name: string, spa
 export function growFleetIntoGroup(orchDir: OrchDir, logger: Logger, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent[] {
   const created: CreatedAgent[] = [];
   for (const name of names) {
+    const plan = settings.agents.find((agent) => agent.name === name);
+    if (plan === undefined) {
+      logger.warn("spawn.plan-missing", { name });
+      continue;
+    }
     try {
-      created.push(placeAgent(orchDir, settings, name, space, workspace, group, backend, spawnerAgentId, role));
+      created.push(placeAgent(orchDir, settings, plan, space, workspace, group, backend, spawnerAgentId, role));
     } catch (error: unknown) {
       const message = errorMessage(error);
       logger.warn("spawn.place-failed", { backend: backend.id, name, error: message });

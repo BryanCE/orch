@@ -226,7 +226,7 @@ export async function deliverWrite(state: DaemonState, target: string, payload: 
     return "acked";
   }
   try {
-    const outcome = await deliverControl(directory, state.services.settings.current(), canonicalTarget, { kind, text, id });
+    const outcome = await deliverControl(directory, state.services.settings.current(), state.services.models, canonicalTarget, { kind, text, id });
     if (outcome.outcome === "answer") {
       const agentId = canonicalTarget;
       decisionLogger(directory, state.services.settings.currentOrNull(), { correlationId: id, agentId }).debug("boundary.answer", {
@@ -385,7 +385,7 @@ function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): 
   // entry shares a prefix. Both end with the fleet on a model nobody asked for.
   const model = params.model;
   const thinking = params.thinking;
-  assertModelAllowed(state.services.settings.current(), adapter, model);
+  assertModelAllowed(state.services.settings.current(), adapter, state.services.models, model);
   const handle = headlessBackend.spawn(adapter, {
     key,
     env: params.env,
@@ -412,7 +412,7 @@ async function setModel(state: DaemonState, params: ParamsOf<"set-model">): Prom
   const target = params.target;
   const model = params.model;
   governWrite(state, target, params);
-  await deliverControl(directory, settings.current(), target, { kind: "model", model, id: randomUUID() });
+  await deliverControl(directory, settings.current(), state.services.models, target, { kind: "model", model, id: randomUUID() });
   return { ok: true, applied: model };
 }
 
@@ -448,7 +448,7 @@ async function applyLifecycle(state: DaemonState, params: ParamsOf<"lifecycle">)
   const target = params.target;
   const verb = params.verb;
   governWrite(state, target, params);
-  await deliverControl(directory, settings.current(), target, { kind: "lifecycle", verb });
+  await deliverControl(directory, settings.current(), state.services.models, target, { kind: "lifecycle", verb });
   return { ok: true, verb };
 }
 
@@ -518,7 +518,7 @@ export async function answer(state: DaemonState, params: ParamsOf<"answer">): Pr
   governWrite(state, target, params);
   const id = randomUUID();
   const ack = await confirmDelivery(id, settings.current().timeouts.dispatch_ack_ms, async () => {
-    const outcome = await deliverControl(directory, settings.current(), target, { kind: "answer", text, id });
+    const outcome = await deliverControl(directory, settings.current(), state.services.models, target, { kind: "answer", text, id });
     if (outcome.outcome === "answer") throw new Error(outcome.text);
     if (!settleQuestion(directory, { id: current.id, answer: text, answeredAt: Date.now() })) {
       throw new Error(`question ${current.id} is no longer pending`);
@@ -763,7 +763,7 @@ export async function startDaemon(): Promise<DaemonState> {
 
   // orchd gates every spawn on the catalogues; reading them at boot keeps that gate off the
   // harness binaries, and re-stamps whatever went stale while no daemon was running.
-  warmAdapterCatalogues();
+  warmAdapterCatalogues(state.services.models);
 
   let settingsLoaded = false;
   let previousSettings = services.settings.currentOrNull();
@@ -782,7 +782,7 @@ export async function startDaemon(): Promise<DaemonState> {
           settings,
           listLiveAgents: () => liveAgentViews(directory),
           resolveAdapter: (agent) => resolveTargetAdapter(directory, agent.id),
-          deliver: (target, action) => deliverControl(directory, settings, target, action),
+          deliver: (target, action) => deliverControl(directory, settings, state.services.models, target, action),
           logger: state.logger,
         }).catch((error: unknown) => {
           state.logger?.warn("settings.repin.failed", { error: errorMessage(error) });
@@ -821,6 +821,7 @@ export async function startDaemon(): Promise<DaemonState> {
     orchDir: directory,
     pollIntervalMs: 500,
     settings: services.settings,
+    models: services.models,
     signal: state.workController.signal,
     continuous: true,
     onEvent: (event) => { state.lastActivityAt = Date.now(); emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings); },

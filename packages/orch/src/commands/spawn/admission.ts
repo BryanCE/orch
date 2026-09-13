@@ -10,6 +10,7 @@ import { errorMessage } from "../../util.ts";
 import { agentViewIndex, die, presenceById } from "../target.ts";
 import { callerSpace } from "../../identity/self.ts";
 import type { Backend } from "../../types/backend.ts";
+import type { ModelCatalogue } from "../../types/adapter.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { AgentView, GrantAction } from "../../types/store.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
@@ -101,7 +102,7 @@ export function assertSpawnCapacity(
 export function newSpaceAction(settings: SpawnSettings, backend: Backend): GrantAction {
   return {
     kind: "spawn.new-space",
-    params: { plexer: backend.id, cwd: settings.cwd, agents: String(settings.n), name: settings.prefix },
+    params: { plexer: backend.id, cwd: settings.cwd, agents: String(settings.agents.length), name: settings.prefix },
   };
 }
 
@@ -119,11 +120,11 @@ export function assertNewSpaceGranted(orchDir: OrchDir, settings: SpawnSettings,
 }
 /** Everything that can refuse a spawn, run before it creates anything. A refused
  *  spawn leaves no handle, no worktree and no queue entry. */
-export async function admitSpawn(orchDir: OrchDir, settingsFile: OrchSettings, settings: SpawnSettings, logger: Logger): Promise<void> {
+export async function admitSpawn(orchDir: OrchDir, settingsFile: OrchSettings, settings: SpawnSettings, logger: Logger, catalogue: ModelCatalogue): Promise<void> {
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.
-  assertSpawnPolicy(orchDir, settings, settings.space ?? callerSpace(orchDir), settings.n);
-  assertLaunchModelAllowed(settingsFile, settings.adapter, settings.model);
+  assertSpawnPolicy(orchDir, settings, settings.space ?? callerSpace(orchDir), settings.agents.length);
+  for (const model of new Set(settings.agents.map((agent) => agent.model))) assertLaunchModelAllowed(settingsFile, settings.adapter, catalogue, model);
   // Shim refresh is a launch side effect, so it happens only after policy
   // accepts, and only for the harness actually being launched.
   await refreshStaleShims(orchDir, logger, [settings.adapter], settingsFile);

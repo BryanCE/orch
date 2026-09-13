@@ -58,25 +58,29 @@ const settings = (preferred: string[]): OrchSettings => ({
 
 /** A pane backend that records the launch options it was handed. */
 class CapturingPaneBackend extends FakePanedBackend {
-  private captured: BackendSpawnOpts | undefined;
+  private captured: BackendSpawnOpts[] = [];
 
   constructor() {
     super({ id: "herdr" });
   }
 
   override spawn(_adapter: AgentAdapter, opts: BackendSpawnOpts): string {
-    this.captured = opts;
-    return "%7";
+    this.captured.push(opts);
+    return `%${this.captured.length + 6}`;
   }
 
   seen(): BackendSpawnOpts | undefined {
+    return this.captured.at(-1);
+  }
+
+  allSeen(): readonly BackendSpawnOpts[] {
     return this.captured;
   }
 }
 
-function capturingPaneBackend(): { backend: Backend; seen: () => BackendSpawnOpts | undefined } {
+function capturingPaneBackend(): { backend: Backend; seen: () => BackendSpawnOpts | undefined; allSeen: () => readonly BackendSpawnOpts[] } {
   const backend = new CapturingPaneBackend();
-  return { backend, seen: () => backend.seen() };
+  return { backend, seen: () => backend.seen(), allSeen: () => backend.allSeen() };
 }
 
 describe("the preferred quicklist reaches every launch route", () => {
@@ -100,6 +104,32 @@ describe("the preferred quicklist reaches every launch route", () => {
     });
 
     expect(seen()?.preferredModels).toEqual(QUICKLIST);
+  });
+
+  test("two created agents retain their own model tuning", () => {
+    const directory = makeTempOrchDir();
+    seedSpace(directory, "wsA");
+    const { backend, allSeen } = capturingPaneBackend();
+
+    for (const [name, model, thinking] of [["quick-a", "openai/gpt-5.6", "medium"], ["quick-b", "anthropic/claude-sonnet-4.5", "high"]] as const) {
+      spawnOneIntoTab(directory, {
+        backend,
+        adapter: piAdapter,
+        adapterId: "pi",
+        name,
+        cwd: "/tmp",
+        space: "wsA",
+        group: "tab1",
+        model,
+        thinking,
+        preferredModels: QUICKLIST,
+      });
+    }
+
+    expect(allSeen().map((opts) => ({ model: opts.model, thinking: opts.thinking }))).toEqual([
+      { model: "openai/gpt-5.6", thinking: "medium" },
+      { model: "anthropic/claude-sonnet-4.5", thinking: "high" },
+    ]);
   });
 
   test("an unconfigured quicklist stays empty rather than becoming a default one", () => {

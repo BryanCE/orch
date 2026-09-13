@@ -22,6 +22,7 @@ import type { RunRecord } from "../src/types/store.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
 import type { BridgeMessage } from "../src/control/bridge-message.ts";
+import { testServices } from "./helpers/services.ts";
 
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
@@ -270,6 +271,7 @@ describe("retention sweep", () => {
         continuous: true,
         signal: controller.signal,
         settings: settingsManager,
+        models: testServices({ orchDir }).models,
       });
       await loop;
     } finally {

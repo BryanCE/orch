@@ -11,8 +11,8 @@ import { execFile } from "node:child_process";
 import { isAgentId } from "../identity.ts";
 import { requestJsonLine } from "../../presence/socket-client.ts";
 import { environmentOf } from "../../store/agent-view.ts";
-import { herdrServerStatus } from "./cli.ts";
-import { herdrEnvironmentPresent } from "./index.ts";
+import type { HerdrCli } from "./cli.ts";
+import { herdrBackend, herdrEnvironmentPresent } from "./index.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import { isUnknownArray, optionalString, truncate } from "../../util.ts";
@@ -30,22 +30,25 @@ const HERDR_PLEXER = "herdr";
 /** Herdr's own report of where its server listens. Asked once and remembered:
  *  one server serves the machine, and orchd outside every session still has to
  *  reach it. Asking herdr beats guessing a path or storing one that goes stale. */
-let reportedSocket: string | null | undefined;
+interface HudState {
+  reportedSocket: string | null | undefined;
+  metadataSeq: number;
+}
 
-function serverSocketPath(): string | undefined {
-  if (reportedSocket !== undefined) return reportedSocket ?? undefined;
+function serverSocketPath(state: HudState, cli: HerdrCli): string | undefined {
+  if (state.reportedSocket !== undefined) return state.reportedSocket ?? undefined;
   try {
-    reportedSocket = herdrServerStatus().socket;
+    state.reportedSocket = cli.serverStatus().socket;
   } catch {
-    reportedSocket = null;
+    state.reportedSocket = null;
   }
-  return reportedSocket ?? undefined;
+  return state.reportedSocket ?? undefined;
 }
 
 /** Herdr's control socket. A process inside a pane is told where it is; every
  *  other process — orchd is never in a pane — asks herdr itself. */
-function herdrSocketPath(): string | undefined {
-  return herdrEnvironmentPresent() ? process.env.HERDR_SOCKET_PATH : serverSocketPath();
+function herdrSocketPath(state: HudState, cli: HerdrCli): string | undefined {
+  return herdrEnvironmentPresent() ? process.env.HERDR_SOCKET_PATH : serverSocketPath(state, cli);
 }
 
 /**
@@ -57,7 +60,7 @@ function herdrSocketPath(): string | undefined {
  * an agent that moved kept writing into a pane it had left. Environment is
  * mutable, so it is asked for on every call and never frozen at import.
  */
-export function herdrPaneHandle(id: string | null, orchDir: OrchDir): string | null {
+function paneHandle(id: string | null, orchDir: OrchDir): string | null {
   // An id that is not minted names no agent orch registered, so there is no
   // environment to compose — never a pane handle to fall back on.
   if (!isAgentId(id)) return null;
@@ -79,21 +82,14 @@ export function herdrPaneHandle(id: string | null, orchDir: OrchDir): string | n
  * internally, so selecting this provider never grants more than each function
  * already allowed itself.
  */
-export function herdrHudActive(id: string | null, orchDir: OrchDir): boolean {
-  return herdrPaneHandle(id, orchDir) !== null;
+function hudActive(id: string | null, orchDir: OrchDir): boolean {
+  return paneHandle(id, orchDir) !== null;
 }
 
 // ---- pane custom-status metadata ----
 
-let metadataSeq = Date.now() * 1000;
-
-function nextMetadataSeq(): number {
-  metadataSeq += 1;
-  return metadataSeq;
-}
-
-function sendHerdrMetadata(paneId: string, customStatus: string): void {
-  const socketPath = herdrSocketPath();
+function sendHerdrMetadata(state: HudState, cli: HerdrCli, paneId: string, customStatus: string): void {
+  const socketPath = herdrSocketPath(state, cli);
   if (!socketPath) return;
   const request = {
     id: `${HERDR_METADATA_SOURCE}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
@@ -102,7 +98,7 @@ function sendHerdrMetadata(paneId: string, customStatus: string): void {
       pane_id: paneId,
       source: HERDR_METADATA_SOURCE,
       custom_status: customStatus,
-      seq: nextMetadataSeq(),
+      seq: state.metadataSeq += 1,
     },
   };
   void requestJsonLine(socketPath, request, 500);
@@ -113,14 +109,14 @@ function sendHerdrMetadata(paneId: string, customStatus: string): void {
  * emits when this process owns the herdr pane it would report against and the
  * derived status line actually changed.
  */
-export function createPaneStatusReporter(id: string | null, paneId: string | null, orchDir: OrchDir): (snapshot: PaneStatusSnapshot) => void {
+function createPaneStatusReporterInternal(state: HudState, cli: HerdrCli, id: string | null, paneId: string | null, orchDir: OrchDir): (snapshot: PaneStatusSnapshot) => void {
   let lastCustomStatus: string | undefined;
 
   // Report only against the pane this process actually occupies right now: a
   // stale handle would paint someone else's pane with this agent's status.
   function reportablePane(): string | null {
-    if (!herdrSocketPath() || paneId === null) return null;
-    return paneId === herdrPaneHandle(id, orchDir) ? paneId : null;
+    if (!herdrSocketPath(state, cli) || paneId === null) return null;
+    return paneId === paneHandle(id, orchDir) ? paneId : null;
   }
 
   function currentCustomStatus(snapshot: PaneStatusSnapshot): string | undefined {
@@ -139,7 +135,7 @@ export function createPaneStatusReporter(id: string | null, paneId: string | nul
     const customStatus = currentCustomStatus(snapshot);
     if (!customStatus || customStatus === lastCustomStatus) return;
     lastCustomStatus = customStatus;
-    sendHerdrMetadata(pane, customStatus);
+    sendHerdrMetadata(state, cli, pane, customStatus);
   };
 }
 
@@ -198,8 +194,8 @@ function findPaneTab(tabs: unknown, pane: HerdrEntityLike | undefined): HerdrEnt
  * status write entirely; a lookup that fails leaves the previous labels in
  * place but still reports true.
  */
-export async function readPaneLabels(id: string | null, apply: (labels: PaneLabels) => void, orchDir: OrchDir): Promise<boolean> {
-  const handle = herdrPaneHandle(id, orchDir);
+async function readPaneLabelsInternal(id: string | null, apply: (labels: PaneLabels) => void, orchDir: OrchDir): Promise<boolean> {
+  const handle = paneHandle(id, orchDir);
   if (handle === null) return false;
   try {
     const [paneOutput, tabOutput] = await Promise.all([
@@ -220,7 +216,7 @@ export async function readPaneLabels(id: string | null, apply: (labels: PaneLabe
 
 // ---- desktop notifications ----
 
-export function notifyHerdr(event: BridgeNotifyEvent): void {
+function notifyInternal(event: BridgeNotifyEvent): void {
   const { title, body } = notificationText(event, { colorize: true });
   try {
     execFile("herdr", ["notification", "show", title, "--body", body, "--sound", "request", "--position", "bottom-left"], () => {
@@ -230,4 +226,25 @@ export function notifyHerdr(event: BridgeNotifyEvent): void {
     // best-effort
   }
 }
+
+export interface HerdrHud {
+  paneHandle: (id: string | null, orchDir: OrchDir) => string | null;
+  hudActive: (id: string | null, orchDir: OrchDir) => boolean;
+  createPaneStatusReporter: (id: string | null, paneId: string | null, orchDir: OrchDir) => (snapshot: PaneStatusSnapshot) => void;
+  readPaneLabels: (id: string | null, apply: (labels: PaneLabels) => void, orchDir: OrchDir) => Promise<boolean>;
+  notify: (event: BridgeNotifyEvent) => void;
+}
+
+export function createHerdrHud(cli: HerdrCli): HerdrHud {
+  const state: HudState = { reportedSocket: undefined, metadataSeq: Date.now() * 1000 };
+  return {
+    paneHandle: (id, orchDir) => paneHandle(id, orchDir),
+    hudActive: (id, orchDir) => hudActive(id, orchDir),
+    createPaneStatusReporter: (id, paneId, orchDir) => createPaneStatusReporterInternal(state, cli, id, paneId, orchDir),
+    readPaneLabels: (id, apply, orchDir) => readPaneLabelsInternal(id, apply, orchDir),
+    notify: notifyInternal,
+  };
+}
+
+export const herdrHud = createHerdrHud(herdrBackend.cli);
 

@@ -48,7 +48,7 @@ describe("work reaches an agent through its link", () => {
     seedStatus(directory, target, { agent: "pi", state: "idle" });
     const deliveries = fakeLink(directory, target);
 
-    const outcome = await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), target, { kind: "run", text: "do the work", id: "dispatch-1" });
+    const outcome = await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), testServices({ orchDir: directory }).models, target, { kind: "run", text: "do the work", id: "dispatch-1" });
 
     expect(outcome).toEqual({ outcome: "invoke", ack: "expected" });
     expect(deliveries).toEqual([{ id: "dispatch-1", message: { action: "dispatch", text: "do the work" } }]);
@@ -61,7 +61,7 @@ describe("work reaches an agent through its link", () => {
     seedLiveProcess(directory, target);
     seedStatus(directory, target, { agent: "claude", state: "idle" });
 
-    const outcome = await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), target, { kind: "run", text: "do the work", id: "dispatch-2" });
+    const outcome = await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), testServices({ orchDir: directory }).models, target, { kind: "run", text: "do the work", id: "dispatch-2" });
 
     expect(outcome).toEqual({
       outcome: "answer",

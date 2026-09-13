@@ -52,7 +52,7 @@ describe("every agent has an attached link", () => {
     const handleless = agent(directory);
 
     for (const target of [placed, headless, handleless]) {
-      await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), target.key, { kind: "run", text: "go", id: `dispatch-${target.key}` });
+      await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), testServices({ orchDir: directory }).models, target.key, { kind: "run", text: "go", id: `dispatch-${target.key}` });
       expect(target.deliveries).toEqual([{
         id: `dispatch-${target.key}`,
         message: { action: "dispatch", text: "go" },
@@ -64,7 +64,7 @@ describe("every agent has an attached link", () => {
     const directory = storeDir();
     const target = agent(directory);
 
-    expect((await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), target.key, { kind: "steer", text: "adjust", id: "steer-1" }))).toEqual({
+    expect((await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), testServices({ orchDir: directory }).models, target.key, { kind: "steer", text: "adjust", id: "steer-1" }))).toEqual({
       outcome: "invoke",
       ack: "expected",
     });

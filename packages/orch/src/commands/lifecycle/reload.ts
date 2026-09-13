@@ -50,7 +50,7 @@ function awaitBridgeRefresh(orchDir: OrchDir, statusPath: string, presenceKey: s
 
 /** Apply a lifecycle verb to an agent with no console through the daemon, which owns
  *  every lifecycle mechanism. A detached agent has none, so this reports its refusal. */
-type LifecycleServices = Pick<Services, "orchDir" | "settings" | "logger">;
+type LifecycleServices = Pick<Services, "orchDir" | "settings" | "logger" | "models">;
 
 async function lifecycleThroughDaemon(services: LifecycleServices, verb: LifecycleVerb, key: string, handle: string): Promise<ReloadResult> {
   const statusPath = path.join(presenceAgentDir(key, services.orchDir), STATUS_FILE);
@@ -218,10 +218,10 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
 /** The command a restart relaunches the harness on. Restart is a FRESH launch,
  *  so the model is resolved exactly like spawn and reset rather than letting the
  *  harness fall back to its own default. */
-function restartLaunchCommand(orchDir: OrchDir, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings): string {
+function restartLaunchCommand(orchDir: OrchDir, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings, catalogue: Services["models"]): string {
   if (cmd !== null) return cmd;
   const tuning = resolveTuningOrDie({}, settings, adapter.id);
-  assertLaunchModelAllowed(settings, adapter.id, tuning.model);
+  assertLaunchModelAllowed(settings, adapter.id, catalogue, tuning.model);
   return adapterCommand(harnessId, settings, { model: tuning.model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] });
 }
 
@@ -249,7 +249,7 @@ async function restartOneTarget(services: LifecycleServices, target: string, cmd
     process.stdout.write(`${restarted.handle}: ${reason}\n`);
     return false;
   }
-  const launch = restartLaunchCommand(services.orchDir, cmd, harness, adapter, settings);
+  const launch = restartLaunchCommand(services.orchDir, cmd, harness, adapter, settings, services.models);
   if (!flags.json) process.stdout.write(`Restarting ${describeHandle(handle)} (${launch})...\n`);
   if (!restartAgentAndAwaitBridge(orchDir, logger, backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
   if (!flags.json) process.stdout.write(`${describeHandle(handle)}: bridge live.\n`);

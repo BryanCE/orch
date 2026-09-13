@@ -52,6 +52,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
         once: true,
         json: true,
         settings: testServices({ orchDir: dir, settings: {} }).settings,
+        models: testServices({ orchDir: dir }).models,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();
@@ -74,6 +75,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       await runWorkLoop({
         orchDir: dir, pollIntervalMs: 10, once: true, json: true,
         settings: testServices({ orchDir: dir, settings: {} }).settings,
+        models: testServices({ orchDir: dir }).models,
         dispatch: () => Promise.resolve(),
         onEvent: (event) => events.push(event),
       });
@@ -91,6 +93,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       await runWorkLoop({
         orchDir: dir, pollIntervalMs: 10, once: true, json: true,
         settings: testServices({ orchDir: dir, settings: {} }).settings,
+        models: testServices({ orchDir: dir }).models,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();

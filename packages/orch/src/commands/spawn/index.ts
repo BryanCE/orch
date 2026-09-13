@@ -36,17 +36,19 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
   if (settings.commandFlag) die("--cmd requires a backend that places agents; headless launches use the selected adapter.");
   // A headless agent has no TTY to idle on: it runs its prompt and exits, so work
   // dispatched after launch would arrive at a dead process.
-  if (settings.prompts.length === 0 || settings.prompts.some((prompt) => !prompt.trim())) die(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" or --file <path> (a headless agent runs it and exits)`);
+  if (settings.agents.some((agent) => !agent.prompt?.trim())) die(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" or --file <path> (a headless agent runs it and exits)`);
   // Headless agents mint their identity under the backend's own grouping (headless → "local"),
   // never the caller's herdr identity; the cap check must match that same bucket, not callerSpace().
   const space = settings.space ?? "local";
-  assertSpawnPolicy(services.orchDir, settings, space, settings.n);
-  assertSpawnCapacity(services.orchDir, settings, space, settings.n);
+  assertSpawnPolicy(services.orchDir, settings, space, settings.agents.length);
+  assertSpawnCapacity(services.orchDir, settings, space, settings.agents.length);
   const adapter = resolveAdapterOrDie(settings.adapter);
   const maySpawn = maySpawnFrom(services.orchDir, selfId(services.orchDir), settingsFile.fleet.max_depth);
   const created: CreatedAgent[] = [];
-  const names = claimSpawnNames(services.orchDir, settings.names, space);
+  const names = claimSpawnNames(services.orchDir, settings.agents.map((agent) => agent.name), space);
   for (const [index, name] of names.entries()) {
+    const plan = settings.agents[index];
+    if (plan === undefined) die(`missing spawn plan for ${name}`);
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
     adapter.workspaceTrust?.preTrustWorkspace(cwd, settings.cmd);
     try {
@@ -69,12 +71,12 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
           ...worktreeEnv(settings.worktree ? cwd : undefined, settings.worktree ? `orch/${name}` : undefined),
           ...(spawnerAgentId ? { ORCH_SPAWNER_AGENT_ID: spawnerAgentId } : {}),
         },
-        model: settings.model,
-        thinking: settings.thinking,
+        model: plan.model,
+        thinking: plan.thinking,
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
         preferredModels: [...settings.preferredModels],
-        prompt: workerPrompt(settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!, false, adapter, { maySpawn, spawnerRepliable: spawner.key !== null, ...workerRules(settingsFile) }),
+        prompt: workerPrompt(plan.prompt ?? "", false, adapter, { maySpawn, spawnerRepliable: spawner.key !== null, ...workerRules(settingsFile) }),
         tools: settings.tools,
         workers: settings.workers,
       }, {}, settingsFile.timeouts.adapter_command_ms);
@@ -93,14 +95,14 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
   // Same gate the placed path uses: an adapter with a bridge is only reachable once
   // its bridge has come up (P2-3 makes "up" mean attached), so returning before that
   // hands the caller a key it cannot dispatch to yet.
-  reportShortfall(services.logger, settings.n, created.length);
+  reportShortfall(services.logger, settings.agents.length, created.length);
   const registered = adapter.bridge ? await awaitBridgeAttach(services.orchDir, services.logger, created, settings.json) : [];
   const stalled = created.filter((agent) => !registered.some((candidate) => candidate.key === agent.key));
   if (stalled.length > 0) process.exitCode = 1;
   if (settings.json) process.stdout.write(JSON.stringify({
     backend: settings.backend,
     agents: created,
-    requested: settings.n,
+    requested: settings.agents.length,
     created: created.length,
     registered: registered.length,
   }) + "\n");
@@ -197,12 +199,14 @@ function launchPrepared(
 ): CreatedAgent[] {
   const { settings, backend, adapter, space, workspace, groupId, spawnerAgentId } = context;
   const created: CreatedAgent[] = [];
-  for (const item of prepared) {
+  for (const [index, item] of prepared.entries()) {
     if (item.handle === undefined) continue;
+    const plan = settings.agents[index];
+    if (plan === undefined) throw new Error(`missing spawn plan for ${item.name}`);
     try {
       created.push(spawnOneIntoTab(services.orchDir, {
         backend, adapter, adapterId: settings.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
-        model: settings.model, thinking: settings.thinking, preferredModels: settings.preferredModels,
+        model: plan.model, thinking: plan.thinking, preferredModels: settings.preferredModels,
         tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined,
         worktree: settings.worktree ? item.cwd : undefined, branch: item.branch,
         spawnerAgentId, intoHandle: item.handle, key: item.key, env: item.env,
@@ -236,7 +240,7 @@ function placeSpawn(
   });
   // A7/Rule 11: no space is NULL, never "" — a sentinel string is a space name
   // nobody created, and registration rightly refuses it.
-  assertSpawnCapacity(orchDir, settings, placement.space, settings.n);
+  assertSpawnCapacity(orchDir, settings, placement.space, settings.agents.length);
   return placement;
 }
 
@@ -262,8 +266,8 @@ function seatFleet(orchDir: OrchDir, backend: Backend, groupHome: GroupHomeRole,
   return { group: seatFleetInHome(backend, groupHome, home, settings.label, prepared), workspace: home.coordinate };
 }
 
-async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "settings">, settingsFile: OrchSettings, settings: SpawnSettings): Promise<void> {
-  await admitSpawn(services.orchDir, settingsFile, settings, services.logger);
+async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "settings" | "models">, settingsFile: OrchSettings, settings: SpawnSettings): Promise<void> {
+  await admitSpawn(services.orchDir, settingsFile, settings, services.logger, services.models);
   // A spawned agent already carries its id; only a driving session registers.
   const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(services.orchDir, services.logger)).id;
   const spawner: Spawner = { id: spawnerAgentId, environment: environmentOf(services.orchDir, spawnerAgentId) };
@@ -275,7 +279,7 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
   const placement = placeSpawn(services.orchDir, settings, backend, spawner);
   const { space } = placement;
   const adapter = resolveAdapterOrDie(settings.adapter);
-  const names = claimSpawnNames(services.orchDir, settings.names, space);
+  const names = claimSpawnNames(services.orchDir, settings.agents.map((agent) => agent.name), space);
   // `--tab <existing>` fills that tab instead of opening a new one, auto-balancing
   // as it fills, so no follow-up move/tile is needed. There is no implicit
   // "grow the fleet under this prefix" path: names are per-slice and unnumbered
@@ -306,8 +310,9 @@ export async function cmdSpawn(services: Services, args: string[]) {
 
 export async function cmdTile(services: Services, args: string[]) {
   const flags = parseSpawnFlags(args);
+  if (flags.modelFlags.length > 1) die("orch tile creates one agent; give --model once");
   const settingsFile = services.settings.current();
-  const { adapter, model, thinking, preferredModels } = resolveSpawnAgentSettings(flags, settingsFile);
+  const { adapter, model, thinking, preferredModels } = resolveSpawnAgentSettings({ ...flags, modelFlag: flags.modelFlags[0] }, settingsFile);
   const selectedBackend = resolveBackend({ explicit: flags.backendFlag ?? null, configured: settingsFile.defaults.backend ?? null });
   if (!selectedBackend.placementInventory) die(`orch tile requires an environment that places agents; ${selectedBackend.id} places none.`);
   if (!selectedBackend.groupHome || !selectedBackend.groupLayout) {
@@ -317,7 +322,7 @@ export async function cmdTile(services: Services, args: string[]) {
     return;
   }
   const selectedAdapter = resolveAdapterOrDie(adapter);
-  assertLaunchModelAllowed(settingsFile, adapter, model);
+  assertLaunchModelAllowed(settingsFile, adapter, services.models, model);
   const target = flags.positional[0];
   const requestedName = flags.positional[1];
   // Tile CREATES an agent, so it names one too. An agent

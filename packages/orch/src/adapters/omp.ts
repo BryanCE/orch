@@ -1,11 +1,10 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
 import { isRecord } from "../util.ts";
-import { adapterLogger, bridgeExtensionArgv, diagnoseExtensionLink, installExtensionLink, modelSelectionArgv, PI_LIFECYCLE_TEXT, piSessionView, presenceAgentState, presenceFor, resultFromPresenceOrSession, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
+import { bridgeExtensionArgv, diagnoseExtensionLink, installExtensionLink, modelSelectionArgv, PI_LIFECYCLE_TEXT, piSessionView, presenceAgentState, presenceFor, resultFromPresenceOrSession, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
 import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { ExtensionName, Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -36,10 +35,6 @@ function modelRow(entry: unknown): HarnessModel[] {
 /** Ask omp itself what it can run; its registry is a private SQLite database, so its CLI is
  *  the only supported reader. */
 const OMP_MODELS_ARGV = ["models", "--json"] as const;
-
-function queryOmpModels(orchDir: OrchDir): readonly HarnessModel[] {
-  return parseOmpModelsOutput(readModelCatalogue(orchDir, adapterLogger(orchDir), "omp", OMP_MODELS_ARGV));
-}
 
 /** Map `omp models --json` onto orch's provider/id vocabulary; that shape lives only here. */
 function parseOmpModelsOutput(stdout: string): readonly HarnessModel[] {
@@ -91,8 +86,8 @@ class OmpAdapter implements AgentAdapter {
     diagnoseShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger): CheckResult => this.diagnoseShim(orchDir),
   };
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
-  readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
-  readonly modelWarm = { warmModels: (): Promise<void> => this.warmModels() };
+  readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseOmpModelsOutput(catalogue.read("omp", OMP_MODELS_ARGV)) };
+  readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("omp", OMP_MODELS_ARGV) };
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
   readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceFor(key, orchDir) !== undefined };
 
@@ -159,16 +154,6 @@ class OmpAdapter implements AgentAdapter {
   /** Read omp's persisted default model from ~/.omp/agent/settings.json. */
   defaultModelString(): string | undefined {
     return settingsDefaultModel(OMP_AGENT_DIR);
-  }
-
-  /** Report what omp says it can run, asked of omp itself. */
-  listModels(orchDir?: OrchDir): readonly HarnessModel[] {
-    return orchDir === undefined ? [] : queryOmpModels(orchDir);
-  }
-
-  /** omp's registry is a shell-out; start it early so setup's next prompt covers the wait. */
-  warmModels(orchDir?: OrchDir): Promise<void> {
-    return orchDir === undefined ? Promise.resolve() : warmModelCatalogue("omp", OMP_MODELS_ARGV, orchDir);
   }
 
   /** Link the prebuilt omp-bridge bundle into omp's extension directory. */

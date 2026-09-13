@@ -1,5 +1,5 @@
 import { registerNotifier } from "../../notify/sinks.ts";
-import { herdrNotifier } from "./notify.ts";
+import { createHerdrNotifier } from "./notify.ts";
 import { binaryOnPath, errorMessage, isRecord } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { environmentStamp } from "../../agent/environment.ts";
@@ -11,16 +11,17 @@ export const HERDR_BLOCKED_EVENT = "herdr:blocked";
 
 /** What a pane in this plexer composes, as the agent inside it will read it. */
 const HERDR_ENVIRONMENT_STAMP = environmentStamp({ labels: true, blockedEvent: HERDR_BLOCKED_EVENT });
-import { GONE_HANDLE_CODES, HERDR_INPUT_RETRY, HerdrCommandError, herdrAck, herdrExec, herdrJSON, herdrNames, herdrPanes, herdrServerStatus, herdrStartAgent, herdrTabs, version } from "./cli.ts";
+import { GONE_HANDLE_CODES, HERDR_INPUT_RETRY, HerdrCommandError, createHerdrCli, type HerdrCli } from "./cli.ts";
+import { layoutReplySchema, moveReplySchema, paneOpenReplySchema, tabOpenReplySchema, workspaceListReplySchema, workspaceOpenReplySchema } from "./wire.ts";
 import { AgentGoneError } from "../../control/agent-gone.ts";
 import { homeLabel } from "../backend.ts";
 import { isAgentId } from "../identity.ts";
 import { createCaptureRole } from "../../presence/roles.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendRect, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { OrchDir } from "../../types/core.ts";
-import type { HerdrHandle, HerdrPane, HerdrTab, HerdrWorkspace } from "../../types/plexer.ts";
+import type { HerdrHandle, HerdrPane, HerdrTab } from "../../types/plexer.ts";
 
 const HERDR_BACKEND: BackendId = "herdr";
 
@@ -57,8 +58,8 @@ export function callerPaneHandle(): string | undefined {
 }
 
 /** The workspace holding one pane, or null when herdr no longer lists it. */
-function paneWorkspace(handle: HerdrHandle): string | null {
-  return herdrPanes().find((pane) => pane.pane_id === handle)?.workspace_id ?? null;
+function paneWorkspace(handle: HerdrHandle, cli: HerdrCli): string | null {
+  return cli.panes().find((pane) => pane.pane_id === handle)?.workspace_id ?? null;
 }
 
 /** The workspace a pane or tab opens in is the one orch resolved and asked for.
@@ -137,6 +138,12 @@ const ZOOM_FLAGS: Record<BackendZoomMode, string> = { on: "--on", off: "--off", 
  *  prompt than a split of a pane already running one. */
 /** Herdr pane backend: adapts the herdr CLI to the plexer Backend port. */
 export class HerdrBackend implements Backend<HerdrHandle> {
+  readonly cli: HerdrCli;
+  readonly notifier: ReturnType<typeof createHerdrNotifier>;
+  constructor(cli: HerdrCli = createHerdrCli()) {
+    this.cli = cli;
+    this.notifier = createHerdrNotifier(cli);
+  }
   readonly id = HERDR_BACKEND;
   private orchDir: OrchDir | undefined;
   readonly process = new LocalProcessRole<HerdrHandle>(placedShellPid(() => this.foreground));
@@ -161,13 +168,13 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     },
   };
   readonly agentInput = {
-    submit: (handle: HerdrHandle, text: string): void => { reportGoneHandle(handle, () => herdrAck(["pane", "run", handle, text], undefined, HERDR_INPUT_RETRY)); },
-    sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { reportGoneHandle(handle, () => herdrAck(["pane", "send-keys", handle, ...keys], undefined, HERDR_INPUT_RETRY)); },
-    focus: (handle: HerdrHandle): void => { herdrAck(["agent", "focus", handle]); },
+    submit: (handle: HerdrHandle, text: string): void => { reportGoneHandle(handle, () => this.cli.ack(["pane", "run", handle, text], undefined, HERDR_INPUT_RETRY)); },
+    sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { reportGoneHandle(handle, () => this.cli.ack(["pane", "send-keys", handle, ...keys], undefined, HERDR_INPUT_RETRY)); },
+    focus: (handle: HerdrHandle): void => { this.cli.ack(["agent", "focus", handle]); },
   };
   readonly foreground: ForegroundRole<HerdrHandle> = {
     read: (handle) => {
-      const out = herdrExec(["pane", "process-info", "--pane", handle], {
+      const out = this.cli.exec(["pane", "process-info", "--pane", handle], {
         timeout: 5000,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -192,31 +199,31 @@ export class HerdrBackend implements Backend<HerdrHandle> {
           : null;
       return { handle: this.openPane(workspace, { cwd: request.cwd, env: request.env, split: request.split }, targetHandle) };
     },
-    close: (handle) => { herdrAck(["pane", "close", handle]); },
+    close: (handle) => { this.cli.ack(["pane", "close", handle]); },
   };
   readonly placementInventory: PlacementInventoryRole<HerdrHandle> = {
     current: () => {
       const handle = callerPaneHandle();
-      return handle ? { handle, workspace: paneWorkspace(handle), group: null } : null;
+      return handle ? { handle, workspace: paneWorkspace(handle, this.cli), group: null } : null;
     },
     list: () => this.panesWithMetadata(),
-    coordinateOf: paneWorkspace,
+    coordinateOf: (handle) => paneWorkspace(handle, this.cli),
   };
   /** The last visible lines of a pane's screen. Throws on failure. */
   readonly screen: ScreenRole<HerdrHandle> = {
-    read: (handle, lines) => herdrExec(["pane", "read", handle, "--source", "recent-unwrapped", "--lines", String(lines)], {
+    read: (handle, lines) => this.cli.exec(["pane", "read", handle, "--source", "recent-unwrapped", "--lines", String(lines)], {
       timeout: 5000,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }),
   };
-  readonly zooming: ZoomRole<HerdrHandle> = { setZoom: (handle, mode) => { herdrAck(["pane", "zoom", handle, ZOOM_FLAGS[mode]]); } };
-  readonly labeling: LabelRole<HerdrHandle> = { setLabel: (handle, name) => { herdrAck(["pane", "rename", handle, name]); } };
-  readonly agentNaming: AgentNamingRole<HerdrHandle> = { renameAgent: (handle, name) => { herdrAck(["agent", "rename", handle, name]); } };
+  readonly zooming: ZoomRole<HerdrHandle> = { setZoom: (handle, mode) => { this.cli.ack(["pane", "zoom", handle, ZOOM_FLAGS[mode]]); } };
+  readonly labeling: LabelRole<HerdrHandle> = { setLabel: (handle, name) => { this.cli.ack(["pane", "rename", handle, name]); } };
+  readonly agentNaming: AgentNamingRole<HerdrHandle> = { renameAgent: (handle, name) => { this.cli.ack(["agent", "rename", handle, name]); } };
   /** Blocks until herdr reports the status; provider failures and timeouts throw. */
   readonly agentStatus: AgentStatusRole<HerdrHandle> = {
     wait: (handle, status, timeoutMs) => {
-      herdrExec(["agent", "wait", handle, "--until", status, "--timeout", String(timeoutMs)], {
+      this.cli.exec(["agent", "wait", handle, "--until", status, "--timeout", String(timeoutMs)], {
         timeout: timeoutMs + 5000,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -224,30 +231,29 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     },
   };
   readonly groupHome: GroupHomeRole<HerdrHandle> = {
-    list: () => [...herdrTabs().values()].map(groupFromTab),
+    list: () => [...this.cli.tabs().values()].map(groupFromTab),
     create: (opts: CreateGroupRequest): CreatedGroup<HerdrHandle> => {
       const args = ["tab", "create", "--workspace", targetWorkspace(opts.workspace), "--cwd", opts.cwd, "--no-focus"];
       if (opts.label) args.push("--label", opts.label);
       args.push(...this.paneEnvFlags({ env: opts.env }));
-      const result = herdrJSON<{ tab: HerdrTab; root_pane: HerdrPane }>(args);
-      if (!result?.tab?.tab_id || !result.root_pane?.pane_id) throw new Error("tab create returned no tab/root pane");
+      const result = this.cli.json(args, tabOpenReplySchema);
       return { group: groupFromTab(result.tab), rootHandle: result.root_pane.pane_id };
     },
-    rename: (coordinate, label) => { herdrAck(["tab", "rename", coordinate, label]); },
-    close: (coordinate) => { herdrAck(["tab", "close", coordinate]); },
-    focus: (coordinate) => { herdrAck(["tab", "focus", coordinate]); },
+    rename: (coordinate, label) => { this.cli.ack(["tab", "rename", coordinate, label]); },
+    close: (coordinate) => { this.cli.ack(["tab", "close", coordinate]); },
+    focus: (coordinate) => { this.cli.ack(["tab", "focus", coordinate]); },
     move: (request: MoveRequest<HerdrHandle>) => {
       if (request.group === null) {
         const args = ["pane", "move", request.handle, "--new-tab", "--no-focus"];
         if (request.label) args.push("--label", request.label);
-        herdrJSON<{ move_result?: { pane?: { pane_id?: string } } }>(args);
+        this.cli.json(args, moveReplySchema);
         return;
       }
       const move = this.movePaneIntoTab(request.handle, request.group, request.split, request.against ?? request.targetHandle);
       if (move.changed) return;
       if (move.reason !== "same_tab") throw new Error(`herdr refused to move ${request.handle} into ${request.group}: ${move.reason ?? "unchanged"}`);
       const bounceArgs = ["pane", "move", request.handle, "--new-tab", "--no-focus"];
-      const bouncedResult = herdrJSON<{ move_result?: { pane?: { pane_id?: string } } }>(bounceArgs);
+      const bouncedResult = this.cli.json(bounceArgs, moveReplySchema);
       const bounced = bouncedResult?.move_result?.pane?.pane_id ?? request.handle;
       const reseated = this.movePaneIntoTab(bounced, request.group, request.split, request.against ?? request.targetHandle);
       if (!reseated.changed) throw new Error(`herdr left ${bounced} outside tab ${request.group}`);
@@ -255,7 +261,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   };
   readonly groupLayout: GroupLayoutRole<HerdrHandle> = {
     read: (group: string): BackendGroupLayout<HerdrHandle> => {
-      const panes = herdrPanes().filter((pane) => pane.tab_id === group);
+      const panes = this.cli.panes().filter((pane) => pane.tab_id === group);
       if (!panes.length) throw new Error(`no panes on tab ${group}`);
       const rects = panes.flatMap((pane) => pane.rect ? [{ handle: pane.pane_id, rect: pane.rect }] : []);
       return rects.length === panes.length ? { group, placements: rects } : this.tabLayoutOf(panes[0]!.pane_id);
@@ -269,11 +275,11 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       // inside it reads as random agents beside the human's own panes.
       return this.openWorkspace({ cwd: request.cwd, label: homeLabel(subject, request.label), env: request.env });
     },
-    rename: (coordinate, label): void => { herdrAck(["workspace", "rename", coordinate, label]); },
+    rename: (coordinate, label): void => { this.cli.ack(["workspace", "rename", coordinate, label]); },
     // Closing takes the worktree homes opened under this one with it. Rule 11: close is
     // never gated, and a close that refuses is a home the human cannot kill through orch.
-    close: (coordinate): void => { herdrAck(["workspace", "close", coordinate, "--group"]); },
-    focus: (coordinate): void => { herdrAck(["workspace", "focus", coordinate]); },
+    close: (coordinate): void => { this.cli.ack(["workspace", "close", coordinate, "--group"]); },
+    focus: (coordinate): void => { this.cli.ack(["workspace", "focus", coordinate]); },
   };
 
   /** True when the herdr binary is resolvable on PATH. */
@@ -282,7 +288,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   private installedVersion(): string | null {
-    return version();
+    return this.cli.version();
   }
 
   /** herdr's server as the version port describes one. A server that is not
@@ -292,7 +298,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     // no server. Throwing here made one missing binary the failure of every
     // command that reads the fleet.
     try {
-      const status = herdrServerStatus();
+      const status = this.cli.serverStatus();
       return status.running ? { version: status.version, compatible: status.endpointCompatible } : null;
     } catch {
       return null;
@@ -345,7 +351,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       this.startAgentInPane(adapter, handle, opts);
     } catch (error: unknown) {
       try {
-        herdrAck(["pane", "close", handle]);
+        this.cli.ack(["pane", "close", handle]);
       } catch (cleanupError: unknown) {
         const original = errorMessage(error);
         const cleanup = errorMessage(cleanupError);
@@ -360,15 +366,15 @@ export class HerdrBackend implements Backend<HerdrHandle> {
    *  caller's: only it knows whether the pane is one it just opened. */
   private startAgentInPane(adapter: AgentAdapter, handle: HerdrHandle, opts: BackendSpawnOpts): void {
     const name = paneName(adapter, opts);
-    herdrAck(["pane", "rename", handle, name]);
+    this.cli.ack(["pane", "rename", handle, name]);
     if (!/^[a-z][a-z0-9_-]{0,31}$/.test(name)) throw new Error(`invalid herdr agent name: ${name}`);
-    if ([...herdrNames().values()].includes(name)) throw new Error(`herdr agent name collision: ${name}`);
+    if ([...this.cli.names().values()].includes(name)) throw new Error(`herdr agent name collision: ${name}`);
     // herdr owns the readiness handshake: `agent start` pins the pane's terminal
     // id, retries `agent_pane_busy` while the shell is still initializing, and
     // only then submits the launch. Polling for a shell here raced that retry and
-    // blocked orch's loop doing it. `herdrStartAgent` supplies `--timeout`.
+    // blocked orch's loop doing it. `cli.startAgent` supplies `--timeout`.
     const args = this.launchArgs(adapter, opts);
-    herdrStartAgent(["agent", "start", name, "--kind", adapter.id, "--pane", handle], args);
+    this.cli.startAgent(["agent", "start", name, "--kind", adapter.id, "--pane", handle], args);
   }
 
   /** The arguments herdr appends to its own canonical executable.
@@ -408,7 +414,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     const opened: { command: string; args: string[] } = splitFrom
       ? { command: "pane split", args: ["pane", "split", splitFrom, "--direction", opts.split === "down" ? "down" : "right", ...flags] }
       : { command: "tab create", args: ["tab", "create", "--workspace", workspace, ...flags] };
-    const result = herdrJSON<{ pane?: HerdrPane; root_pane?: HerdrPane }>(opened.args);
+    const result = this.cli.json(opened.args, paneOpenReplySchema);
     const handle = result.pane?.pane_id ?? result.root_pane?.pane_id;
     if (!handle) throw new Error(`herdr ${opened.command} returned no pane: ${JSON.stringify(result)}`);
     return handle;
@@ -417,9 +423,9 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   /** Every pane with its workspace, tab, name and agent metadata. Private:
    *  `placementInventory` is the one public address for this (2.2). */
   private panesWithMetadata(): BackendTarget<HerdrHandle>[] {
-    const tabs = herdrTabs();
-    const names = herdrNames();
-    return herdrPanes().map((pane) => {
+    const tabs = this.cli.tabs();
+    const names = this.cli.names();
+    return this.cli.panes().map((pane) => {
       const tab = pane.tab_id ? tabs.get(pane.tab_id) : undefined;
       return {
         handle: pane.pane_id,
@@ -439,7 +445,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   private movePaneIntoTab(handle: HerdrHandle, group: string, split: BackendSplit, against?: HerdrHandle): { handle: HerdrHandle; changed: boolean; reason: string | null } {
     const args = ["pane", "move", handle, "--tab", group, "--split", split, "--no-focus"];
     if (against) args.push("--target-pane", against);
-    const result = herdrJSON<{ move_result?: { changed?: boolean; reason?: string; pane?: { pane_id?: string } } }>(args);
+    const result = this.cli.json(args, moveReplySchema);
     return {
       handle: result?.move_result?.pane?.pane_id ?? handle,
       changed: result?.move_result?.changed !== false,
@@ -449,11 +455,11 @@ export class HerdrBackend implements Backend<HerdrHandle> {
 
   /** Geometry of the tab containing a pane. Throws when unresolvable. */
   private tabLayoutOf(handle: HerdrHandle): BackendGroupLayout<HerdrHandle> {
-    const result = herdrJSON<{ layout: { tab_id: string; panes: { pane_id: string; rect: BackendRect }[] } }>(
+    const result = this.cli.json(
       ["pane", "layout", "--pane", handle],
+      layoutReplySchema,
     );
-    const layout = result?.layout;
-    if (!layout || !Array.isArray(layout.panes)) throw new Error(`no layout for ${handle}`);
+    const layout = result.layout;
     return {
       group: layout.tab_id,
       placements: layout.panes.map((pane) => ({ handle: pane.pane_id, rect: pane.rect })),
@@ -464,7 +470,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   private openWorkspace(opts: { cwd: string; label?: string | null; env?: Readonly<Record<string, string>> }): CreatedHome<HerdrHandle> {
     const args = ["workspace", "create", "--cwd", opts.cwd, "--no-focus", ...this.paneEnvFlags({ env: opts.env })];
     if (opts.label) args.push("--label", opts.label);
-    const result = herdrJSON<{ workspace?: HerdrWorkspace; root_pane?: HerdrPane }>(args);
+    const result = this.cli.json(args, workspaceOpenReplySchema);
     const coordinate = result?.workspace?.workspace_id;
     const rootGroup = result?.root_pane?.tab_id;
     const rootHandle = result?.root_pane?.pane_id;
@@ -474,8 +480,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
 
   /** Throws on herdr failure (callers surface the error). */
   private herdrWorkspaces(): PlexerHome[] {
-    const result = herdrJSON<{ workspaces: HerdrWorkspace[] }>(["workspace", "list"]);
-    return (result?.workspaces ?? []).map((workspace) => ({
+    const result = this.cli.json(["workspace", "list"], workspaceListReplySchema);
+    return result.workspaces.map((workspace) => ({
       coordinate: workspace.workspace_id,
       label: workspace.label ?? null,
     }));
@@ -486,4 +492,4 @@ export class HerdrBackend implements Backend<HerdrHandle> {
 /** Shared herdr backend instance for command wiring. */
 export const herdrBackend = new HerdrBackend();
 
-registerNotifier(herdrNotifier);
+registerNotifier(herdrBackend.notifier);

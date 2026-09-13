@@ -85,7 +85,7 @@ describe("answer over the bridge", () => {
     answerStatus(directory, key, { id: "question-1" });
     const deliveries = attach(directory, key);
 
-    expect(await deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-1" }))
+    expect(await deliverControl(directory, settingsFor(directory), testServices({ orchDir: directory }).models, key, { kind: "answer", text: "yes", id: "answer-1" }))
       .toEqual({ outcome: "invoke", ack: "expected" });
     expect(deliveries).toEqual([{
       id: "answer-1",
@@ -100,7 +100,7 @@ describe("answer over the bridge", () => {
     answerStatus(directory, key);
     const deliveries = attach(directory, key);
 
-    expect(await deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-2" }))
+    expect(await deliverControl(directory, settingsFor(directory), testServices({ orchDir: directory }).models, key, { kind: "answer", text: "yes", id: "answer-2" }))
       .toEqual({ outcome: "answer", reason: "not-asking", text: `${key} is not asking a question` });
     expect(deliveries).toHaveLength(0);
   });
@@ -110,7 +110,7 @@ describe("answer over the bridge", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     answerStatus(directory, key, { id: "question-3" });
-    expect(await rejection(deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-3" })))
+    expect(await rejection(deliverControl(directory, settingsFor(directory), testServices({ orchDir: directory }).models, key, { kind: "answer", text: "yes", id: "answer-3" })))
       .toBeInstanceOf(BridgeDetachedError);
   });
 
@@ -125,7 +125,7 @@ describe("answer over the bridge", () => {
     });
     attach(directory, key);
 
-    expect(await rejection(deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-4" })))
+    expect(await rejection(deliverControl(directory, settingsFor(directory), testServices({ orchDir: directory }).models, key, { kind: "answer", text: "yes", id: "answer-4" })))
       .toBeInstanceOf(AgentGoneError);
   });
 
@@ -137,7 +137,7 @@ describe("answer over the bridge", () => {
     seedLiveProcess(directory, key);
     seedStatus(directory, key, { agent: "claude" });
 
-    expect(await deliverControl(directory, settingsFor(directory), key, { kind: "answer", text: "yes", id: "answer-5" })).toEqual({
+    expect(await deliverControl(directory, settingsFor(directory), testServices({ orchDir: directory }).models, key, { kind: "answer", text: "yes", id: "answer-5" })).toEqual({
       outcome: "answer",
       reason: "no-environment-role",
       text: `cannot answer ${key}: adapter claude takes no answers`,

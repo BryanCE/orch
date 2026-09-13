@@ -97,8 +97,8 @@ DISPATCH WORK
   orch steer <target> <text...>    orchd pushes it down the agent's bridge link; the reply says whether the agent applied it.
   orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
                                  Block until the pane reaches a status (default done, 300000ms).
-  orch result <target> [--force] [--json]
-                                 Print a target's result (results.jsonl or session fallback).
+  orch result <target>... [--force] [--json]
+                                 Print each target's result (results.jsonl or session fallback); several targets print under \`== <target>\` headers, or as a JSON array with --json.
                                  --force reads an agent another ${term("orch")} owns.
   orch tail <target> [-n N]      Last N session entries (default 20), human-readable.
   orch session <target>          Resolved session path + quick stats.

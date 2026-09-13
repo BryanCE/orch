@@ -210,12 +210,24 @@ export interface DefaultModelRole {
   defaultModelString(): string | undefined;
 }
 
+/** A harness's model listing: stored on disk per orch dir, cached in memory for one process.
+ * Built once at the composition root and carried on Services. */
+export interface ModelCatalogue {
+  /** The stored answer for `bin argv`, re-queried in the background once stale; only a command
+   * never asked before makes the caller wait. Empty string when the harness cannot answer. */
+  read(bin: string, argv: readonly string[]): string;
+  /** Start a background query unless a fresh answer is already stored. Silent on failure. */
+  warm(bin: string, argv: readonly string[]): Promise<void>;
+  /** Forget every answer, in memory and on disk, so the next read asks the harnesses again. */
+  forget(): void;
+}
+
 export interface ModelCatalogueRole {
-  listModels(): readonly HarnessModel[];
+  listModels(catalogue: ModelCatalogue): readonly HarnessModel[];
 }
 
 export interface ModelWarmRole {
-  warmModels(): Promise<void>;
+  warmModels(catalogue: ModelCatalogue): Promise<void>;
 }
 
 /** The harness runs orch's bridge: it attaches to orchd at start and applies deliveries

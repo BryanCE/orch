@@ -1,20 +1,20 @@
 import { resolveAdapter } from "../adapters/registry.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { repickCommand, signedOutFix } from "../adapters/prerequisites.ts";
-import type { AdapterId } from "../types/adapter.ts";
+import type { AdapterId, ModelCatalogue } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 /** Confirm a harness still enumerates models and still offers the one orch records as its default.
  *  A harness signed out of its provider enumerates nothing, which is what silently strips every
  *  model choice out of setup. */
-export function checkHarnessModels(settings: OrchSettings | null, harness: AdapterId): CheckResult {
+export function checkHarnessModels(settings: OrchSettings | null, harness: AdapterId, catalogue: ModelCatalogue): CheckResult {
   const id = `models-${harness}`;
   const label = `${harness} models`;
   const adapter = resolveAdapter(harness);
   if (!adapter.models) return { id, label, status: "skip", detail: `${harness} enumerates no catalogue of its own` };
 
-  const offered = adapter.models.listModels();
+  const offered = adapter.models.listModels(catalogue);
   if (!offered.length) {
     return { id, label, status: "warn", detail: `${harness} lists no models - ${signedOutFix(harness)}` };
   }

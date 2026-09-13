@@ -3,7 +3,7 @@ import { retryingSync } from "../retry.ts";
 import type { ToolExecutor } from "../types/backend.ts";
 import type { RetryPolicy } from "../types/core.ts";
 
-const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
+export const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
   encoding: "utf8",
   timeout: 5000,
   stdio: ["ignore", "pipe", "pipe"],
@@ -16,20 +16,13 @@ export const DEFAULT_TOOL_RETRY: RetryPolicy = { attempts: 4, delayMs: 250, back
 
 const realExecutor: ToolExecutor = (binary, args, options) => execFileSync(binary, [...args], options);
 
-let executor: ToolExecutor = realExecutor;
-
-/** Replace the process boundary. Tests drive orch's tool handling without ever
- *  starting a plexer, which is the only way to exercise the retry paths. */
-export function setToolExecutor(next: ToolExecutor | null): void {
-  executor = next ?? realExecutor;
-}
-
 /** Run one external tool command, reattempting the failures the policy admits. */
 export function runTool(
   binary: string,
   args: readonly string[],
   policy: RetryPolicy = DEFAULT_TOOL_RETRY,
   options: ExecFileSyncOptionsWithStringEncoding = DEFAULT_OPTIONS,
+  executor: ToolExecutor = realExecutor,
 ): string {
   return retryingSync(`${binary} ${args.join(" ")}`, () => executor(binary, args, options), policy);
 }
@@ -41,9 +34,10 @@ export function runToolBestEffort(
   args: readonly string[],
   policy: RetryPolicy = DEFAULT_TOOL_RETRY,
   options: ExecFileSyncOptionsWithStringEncoding = DEFAULT_OPTIONS,
+  executor: ToolExecutor = realExecutor,
 ): string | null {
   try {
-    return runTool(binary, args, policy, options);
+    return runTool(binary, args, policy, options, executor);
   } catch {
     return null;
   }

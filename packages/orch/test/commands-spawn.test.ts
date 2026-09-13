@@ -1,11 +1,11 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { cmdSpawn } from "../src/commands/spawn/index.ts";
-import { parseSpawnFlags } from "../src/commands/spawn/flags.ts";
+import { parseSpawnFlags, resolveSpawnSettings } from "../src/commands/spawn/flags.ts";
 import { workerPrompt } from "../src/worker-prompt.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { CommandRefusal } from "../src/refusal.ts";
@@ -135,6 +135,60 @@ describe("commands/spawn", () => {
   // many panes you get. There is no --name flag to preserve.
   test("the positionals are the agent names", () => expect(parseSpawnFlags(["worker", "checker", "--agent", "claude", "--backend", "headless", "--json"])).toMatchObject({ positional: ["worker", "checker"], adapterFlag: "claude", backendFlag: "headless", json: true, unknownFlags: [] }));
   test("collects repeated prompts in agent order", () => expect(parseSpawnFlags(["a", "b", "c", "--prompt", "one", "--prompt", "two", "--prompt", "three"]).promptFlags).toEqual(["one", "two", "three"]));
+  test("collects repeated files and models in order", () => expect(parseSpawnFlags(["a", "b", "--file", "one", "--file", "two", "--model", "m1", "--model", "m2"]).promptFiles).toEqual(["one", "two"]));
+  test("collects repeated models in order", () => expect(parseSpawnFlags(["a", "b", "--model", "m1", "--model", "m2"]).modelFlags).toEqual(["m1", "m2"]));
+
+  const settingsFor = (dir: OrchDir) => testServices({
+    orchDir: dir,
+    settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } },
+  }).settings.current();
+
+  test("resolves one prompt file per agent", () => {
+    const dir = tempOrchDir("orch-spawn-files-");
+    tempDirs.push(dir);
+    const taskDir = mkdtempSync(join(dir, "tasks-"));
+    const files = ["first", "second", "third"].map((text, index) => {
+      const file = join(taskDir, `${index}.txt`);
+      writeFileSync(file, `  ${text}  `);
+      return file;
+    });
+    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "c", "--file", files[0]!, "--file", files[1]!, "--file", files[2]!]), settingsFor(dir));
+    expect(settings.agents.map((agent) => agent.prompt)).toEqual(["first", "second", "third"]);
+  });
+
+  test("reuses one prompt file for every agent", () => {
+    const dir = tempOrchDir("orch-spawn-file-one-");
+    tempDirs.push(dir);
+    const file = join(mkdtempSync(join(dir, "tasks-")), "task.txt");
+    writeFileSync(file, "  shared  ");
+    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "c", "--file", file]), settingsFor(dir));
+    expect(settings.agents.map((agent) => agent.prompt)).toEqual(["shared", "shared", "shared"]);
+  });
+
+  test("refuses an incorrect number of prompt files", () => {
+    const dir = tempOrchDir("orch-spawn-file-count-");
+    tempDirs.push(dir);
+    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "c", "--file", "one", "--file", "two"]), settingsFor(dir))).toThrow(/accepts one value for all agents or exactly 3 values/);
+  });
+
+  test("refuses stdin prompt files more than once", () => {
+    const dir = tempOrchDir("orch-spawn-file-stdin-");
+    tempDirs.push(dir);
+    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "--file", "-", "--file", "-"]), settingsFor(dir))).toThrow(/--file - reads stdin once; name it at most once/);
+  });
+
+  test("resolves one model per agent", () => {
+    const dir = tempOrchDir("orch-spawn-models-");
+    tempDirs.push(dir);
+    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "--model", "openrouter/openai/gpt-5.6-luna", "--model", "openrouter/anthropic/claude-sonnet-4.5"]), settingsFor(dir));
+    expect(settings.agents[0]?.model).not.toBe(settings.agents[1]?.model);
+  });
+
+  test("refuses an incorrect number of models", () => {
+    const dir = tempOrchDir("orch-spawn-model-count-");
+    tempDirs.push(dir);
+    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "--model", "m1", "--model", "m2", "--model", "m3"]), settingsFor(dir))).toThrow(/accepts one value for all agents or exactly 2 values/);
+  });
   test("each pi flavor launches its own binary and preserves raw prompt", () => {
     expect(piAdapter.interactiveCmd({})).toBe("pi");
     expect(piAdapter.headlessCmd("go", {})[0]).toBe("pif");

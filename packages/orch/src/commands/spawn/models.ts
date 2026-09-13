@@ -6,7 +6,7 @@ import { SpawnRefusalError } from "../../refusal.ts";
 import { errorMessage } from "../../util.ts";
 import { retryingAsync } from "../../retry.ts";
 import { callDaemon } from "../daemon.ts";
-import type { AdapterId } from "../../types/adapter.ts";
+import type { AdapterId, ModelCatalogue } from "../../types/adapter.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 import type { Logger, RetryPolicy } from "../../types/core.ts";
 import type { Services } from "../../types/services.ts";
@@ -53,9 +53,7 @@ async function deliverModelPin(services: Pick<Services, "orchDir" | "settings" |
 export async function pinModels(
   services: Pick<Services, "orchDir" | "settings" | "logger">,
   logger: Logger,
-  created: { key: string; handle: string; name: string }[],
-  model: string,
-  thinking?: ThinkingLevel,
+  created: readonly { key: string; handle: string; name: string; model: string; thinking: ThinkingLevel }[],
 ): Promise<string[]> {
   // The pin must carry the SAME thinking effort the launch resolved. Pinning the
   // bare model re-set the harness's model and dropped the level, so the agent fell
@@ -63,15 +61,18 @@ export async function pinModels(
   // however `defaults.thinking` was configured. Spawn, `orch model` and reset's
   // re-pin all route through the same resolution.
   // `model:level` is the control plane's wire spelling, never a stored shape.
-  const spec = modelSpec(model, thinking);
-  const results = await Promise.all(created.map(async ({ key, handle, name }) => ({
-    handle,
-    name,
-    failure: await deliverModelPin(services, key, spec),
-  })));
+  const results = await Promise.all(created.map(async ({ key, handle, name, model, thinking }) => {
+    const spec = modelSpec(model, thinking);
+    return {
+      handle,
+      name,
+      spec,
+      failure: await deliverModelPin(services, key, spec),
+    };
+  }));
   const warnings = results
     .filter((result) => result.failure)
-    .map((result) => `could not pin ${result.name} (${result.handle}) to ${spec}: ${result.failure}`);
+    .map((result) => `could not pin ${result.name} (${result.handle}) to ${result.spec}: ${result.failure}`);
   for (const warning of warnings) {
     logger.warn("spawn.model-pin-failed", { warning });
     process.stdout.write(`warning: ${warning}\n`);
@@ -82,10 +83,10 @@ export async function pinModels(
 /** The harness this command runs: flag, then ORCH_ADAPTER, then the configured default. */
 
 /** Enforce orch's model policy at the command's side-effect gate. */
-export function assertLaunchModelAllowed(settings: OrchSettings, adapterId: AdapterId, model: string): void {
+export function assertLaunchModelAllowed(settings: OrchSettings, adapterId: AdapterId, catalogue: ModelCatalogue, model: string): void {
   const adapter = resolveAdapterOrDie(adapterId);
   try {
-    assertModelAllowed(settings, adapter, model);
+    assertModelAllowed(settings, adapter, catalogue, model);
   } catch (error: unknown) {
     throw new SpawnRefusalError(errorMessage(error));
   }

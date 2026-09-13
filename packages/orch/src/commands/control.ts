@@ -300,9 +300,9 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
   const tuning = resolveTuningOrDie(flags, settings, adapter.id);
   const { model, thinking } = tuning;
-  assertLaunchModelAllowed(settings, adapter.id, model);
+  assertLaunchModelAllowed(settings, adapter.id, services.models, model);
   if (!dispatchSettings.keepContext) await clearSession(services, key, gov.steal === true);
-  const pinWarnings = await pinModels(services, services.logger, [{ key, handle: dispatchSettings.handle, name: dispatchSettings.ent.name ?? dispatchSettings.handle }], model, thinking);
+  const pinWarnings = await pinModels(services, services.logger, [{ key, handle: dispatchSettings.handle, name: dispatchSettings.ent.name ?? dispatchSettings.handle, model, thinking }]);
   if (pinWarnings.length > 0) process.exitCode = 1;
   const headerContext = workerHeaderContext(services.orchDir, settings);
   const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent, agentViewIndex(services.orchDir)), context: headerContext, gov });

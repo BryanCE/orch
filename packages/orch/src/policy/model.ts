@@ -1,7 +1,7 @@
 import { allowedModelPatterns } from "../settings/read.ts";
 import { splitThinkingSuffix } from "./thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
-import type { AdapterId, AgentAdapter, HarnessModel } from "../types/adapter.ts";
+import type { AdapterId, AgentAdapter, HarnessModel, ModelCatalogue } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 /**
@@ -50,8 +50,8 @@ function correctedSpecHint(harness: AdapterId, candidates: readonly string[]): s
  * whatever registry entry shares a prefix. A harness that enumerates nothing cannot
  * be checked, and orch does not pretend otherwise.
  */
-export function assertModelOffered(adapter: AgentAdapter, model: string): void {
-  assertModelListed(adapter.id, adapter.models?.listModels() ?? [], model);
+export function assertModelOffered(adapter: AgentAdapter, catalogue: ModelCatalogue, model: string): void {
+  assertModelListed(adapter.id, adapter.models?.listModels(catalogue) ?? [], model);
 }
 
 /** The same rejection against a catalogue the caller already holds, so a caller that has asked
@@ -65,11 +65,11 @@ export function assertModelListed(harness: AdapterId, offered: readonly HarnessM
 }
 
 /** Reject a model the harness does not offer or the settings allowlist refuses. */
-export function assertModelAllowed(settings: OrchSettings, adapter: AgentAdapter, model: string): void {
-  assertModelOffered(adapter, model);
+export function assertModelAllowed(settings: OrchSettings, adapter: AgentAdapter, catalogue: ModelCatalogue, model: string): void {
+  assertModelOffered(adapter, catalogue, model);
   const { bare } = splitThinkingSuffix(model);
   if (isAllowedModel(settings, adapter.id, bare)) return;
-  const permitted = (adapter.models?.listModels() ?? [])
+  const permitted = (adapter.models?.listModels(catalogue) ?? [])
     .map((candidate) => candidate.spec)
     .filter((spec) => isAllowedModel(settings, adapter.id, spec));
   throw new Error(`model ${bare} is not in models.allowed.${adapter.id} (${allowedModelPatterns(settings, adapter.id).join(", ")}); ${correctedSpecHint(adapter.id, permitted)}`);

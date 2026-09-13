@@ -58,6 +58,7 @@ describe("the work loop is not a second presence-transition source", () => {
         pollIntervalMs: 10,
         continuous: true,
         settings: testServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings,
+        models: testServices({ orchDir }).models,
         signal: controller.signal,
         onEvent: (event) => published.push(event),
       });

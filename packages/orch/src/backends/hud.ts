@@ -16,12 +16,7 @@ import type { OrchDir } from "../types/core.ts";
  *
  * Adding a HUD for another plexer means appending a provider here.
  */
-import {
-  createPaneStatusReporter,
-  herdrHudActive,
-  notifyHerdr,
-  readPaneLabels,
-} from "./herdr/hud.ts";
+import { herdrHud } from "./herdr/hud.ts";
 
 const NO_HUD: PaneHud = {
   statusReporter: () => () => { /* no pane status line */ },
@@ -37,11 +32,11 @@ interface PaneHudProvider {
 
 const PROVIDERS: readonly PaneHudProvider[] = [
   {
-    isActive: herdrHudActive,
+    isActive: herdrHud.hudActive,
     hud: (id, orchDir) => ({
-      statusReporter: (paneId) => createPaneStatusReporter(id, paneId, orchDir),
-      notify: notifyHerdr,
-      readLabels: (apply) => readPaneLabels(id, apply, orchDir),
+      statusReporter: (paneId) => herdrHud.createPaneStatusReporter(id, paneId, orchDir),
+      notify: herdrHud.notify,
+      readLabels: (apply) => herdrHud.readPaneLabels(id, apply, orchDir),
     }),
   },
 ];

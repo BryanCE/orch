@@ -1,5 +1,5 @@
 import type { OrchSettings } from "../../types/settings.ts";
-import { herdrAnswer, herdrReachable } from "./cli.ts";
+import type { HerdrCli } from "./cli.ts";
 import { HERDR_SINK_ID } from "../backend.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
@@ -11,20 +11,20 @@ function herdrRunsAgents(settings: OrchSettings | null): boolean {
 }
 
 /** Herdr-owned native notification sink. */
-export const herdrNotifier: Notifier = {
-  id: HERDR_SINK_ID,
-  label: "Herdr",
-  metadata: { description: "Herdr native notifications", requiredConfig: [] },
-  remediation: "fix: enable the herdr plexer in orch setup, and start herdr so its control socket answers",
-  // Where orch SPAWNS decides whether herdr notifications mean anything; the shell
-  // that happens to be running setup, an install, or the daemon decides nothing.
-  // Gating on HERDR_ENV tied the sink to the caller's pane and hid it from every
-  // `orch setup` run outside one.
-  available: (settings) => herdrRunsAgents(settings) && herdrReachable(),
-  // Synchronous and throws on transport failure; wrapping it in `async` promised
-  // an await that never existed.
-  deliver: (event, _config) => Promise.resolve(deliverHerdrNotification(notificationText(event))),
-};
+export function createHerdrNotifier(cli: HerdrCli): Notifier {
+  const io: NotificationIo = {
+    send: (args) => cli.answer([...args]),
+    wait: (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); },
+  };
+  return {
+    id: HERDR_SINK_ID,
+    label: "Herdr",
+    metadata: { description: "Herdr native notifications", requiredConfig: [] },
+    remediation: "fix: enable the herdr plexer in orch setup, and start herdr so its control socket answers",
+    available: (settings) => herdrRunsAgents(settings) && cli.reachable(),
+    deliver: (event, _config) => Promise.resolve(deliverHerdrNotification(notificationText(event), io)),
+  };
+}
 
 /**
  * How many times a `busy` herdr is waited out before the notification is given up.
@@ -64,13 +64,6 @@ function readNotificationAnswer(output: string): NotificationAnswer | null {
   return { shown, reason: typeof reason === "string" ? reason : null };
 }
 
-const realIo: NotificationIo = {
-  send: (args) => herdrAnswer([...args]),
-  // Atomics.wait, not a spin: the delivery path is synchronous, and burning a core
-  // for 2.5s inside the daemon to wait for a toast is worse than the dropped toast.
-  wait: (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); },
-};
-
 /**
  * Deliver one toast, waiting out a busy screen instead of dropping it.
  *
@@ -79,7 +72,7 @@ const realIo: NotificationIo = {
  * exit code only, so a wave of eight agents produced one visible notification and
  * seven silent losses that were all reported as delivered.
  */
-export function deliverHerdrNotification(text: { title: string; body: string }, io: NotificationIo = realIo): boolean {
+export function deliverHerdrNotification(text: { title: string; body: string }, io: NotificationIo): boolean {
   const args = ["notification", "show", text.title, "--body", text.body];
   for (let attempt = 0; attempt <= BUSY_RETRIES; attempt++) {
     const answer = readNotificationAnswer(io.send(args));

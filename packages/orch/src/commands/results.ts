@@ -16,8 +16,8 @@ import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapt
 import type { AgentView } from "../types/store.ts";
 import type { Entity, Logger, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
-import type { OrchSettings } from "../types/settings.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
+import { CommandRefusal } from "../refusal.ts";
 
 function resultLogger(logger: Logger, key?: string) {
   return key !== undefined && isAgentId(key) ? logger.forAgent(key) : logger;
@@ -25,46 +25,16 @@ function resultLogger(logger: Logger, key?: string) {
 
 interface QuestionRow { key: string; name: string | null; age: string; question: string; id?: string; ts?: string; space?: string; host?: string; warning?: string }
 
-function writeHistoricalResult(logger: Logger, run: { result?: unknown }, json: boolean, key?: string): boolean {
-  if (run.result === undefined) return false;
-  resultLogger(logger, key).info("result.history-fallback");
-  // Stdout carries what the human asked for — here, the result
-  // text itself. A provenance notice on stdout corrupts `orch result … | …`.
-  process.stdout.write("(result from run history)\n");
-  if (json) {
-    process.stdout.write(JSON.stringify(run.result, null, 2) + "\n");
-    return true;
-  }
-  const text = typeof run.result === "string" ? run.result : resultText(run.result) ?? JSON.stringify(run.result);
-  process.stdout.write((text ?? "") + "\n");
-  return true;
-}
+type ResultSource = "presence" | "dispatch" | "history" | "session";
+type ResultLookup =
+  | { readonly kind: "found"; readonly source: ResultSource; readonly payload: unknown }
+  | { readonly kind: "missing"; readonly reason: string };
 
-interface ResultOptions { json: boolean; force: boolean; target?: string }
+interface ResultOptions { json: boolean; force: boolean; targets: string[] }
 
 function parseResultArgs(args: string[]): ResultOptions {
   const { enabled, positional } = splitOptionFlags(args, ["--json", "--force"]);
-  return { json: enabled.has("--json"), force: enabled.has("--force"), target: positional[0] };
-}
-
-function writeRemoteResult(orchDir: OrchDir, settings: OrchSettings, target: string, options: ResultOptions): boolean {
-  const remote = targetHost(settings.hosts, target);
-  if (!remote) return false;
-  forbidNonOperatorOverride(orchDir, "remote targets");
-  const host = settings.hosts[remote.host];
-  const destination = host?.dest;
-  if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
-  const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(options.force ? ["--force"] : []), ...(options.json ? ["--json"] : [])]), { timeoutMs: host.timeout_ms });
-  if (!result.ok) die(`Host "${remote.host}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
-  process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
-  return true;
-}
-
-function writePresenceResult(result: unknown, json: boolean): boolean {
-  if (!result) return false;
-  if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-  else process.stdout.write((resultText(result) ?? "") + "\n");
-  return true;
+  return { json: enabled.has("--json"), force: enabled.has("--force"), targets: positional };
 }
 
 function adapterResultText(orchDir: OrchDir, ent: Entity, adapter: AgentAdapter): string | undefined {
@@ -80,74 +50,114 @@ function sessionViewValue(view: SessionView | undefined, key: keyof SessionView)
   return view?.[key] ?? null;
 }
 
-function writeAdapterJson(ent: Entity, adapter: AgentAdapter, text: string): void {
+function adapterResultDocument(ent: Entity, adapter: AgentAdapter, text: string): unknown {
   const view = adapterSessionView(ent, adapter);
-  process.stdout.write(JSON.stringify({
+  return {
     text, task: sessionViewValue(view, "task"), model: sessionViewValue(view, "model"),
     thinking: sessionViewValue(view, "thinking"), tokens: sessionViewValue(view, "tokens"),
     cost: sessionViewValue(view, "cost"), turns: sessionViewValue(view, "turns"),
     sessionPath: ent.sessionPath,
-  }, null, 2) + "\n");
+  };
 }
 
-function writeAdapterResult(orchDir: OrchDir, logger: Logger, ent: Entity, views: ReadonlyMap<string, AgentView>, json: boolean): boolean {
-  const adapter = entityAdapter(ent, views);
-  if (!adapter) return false;
-  const text = adapterResultText(orchDir, ent, adapter);
-  if (!text) return false;
-  resultLogger(logger, ent.key).info("result.adapter-fallback");
-  // Same rule: where the text came from is diagnosis, not the result.
-  process.stdout.write("(no results.jsonl - falling back to adapter-extracted session text)\n");
-  if (json) writeAdapterJson(ent, adapter, text);
-  else process.stdout.write(text + "\n");
-  return true;
-}
-
-/** The result of the dispatch the agent is on NOW, or a refusal naming its state.
- *  `results.jsonl` is append-only and survives a reset, so its newest line is the
- *  previous task's answer until the current one settles. The run row is bound to
- *  the dispatch id, so it can never hand back the wrong task. */
-function writeCurrentDispatchResult(services: Pick<Services, "orchDir" | "logger">, dispatchId: string, key: string, json: boolean): void {
-  const run = selectRun(services.orchDir, dispatchId);
-  if (run?.result === undefined) {
-    die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${key}\`.`);
-  }
-  resultLogger(services.logger, key).info("result.current-dispatch", { dispatchId });
-  if (json) process.stdout.write(JSON.stringify(run.result, null, 2) + "\n");
-  else process.stdout.write((typeof run.result === "string" ? run.result : resultText(run.result) ?? JSON.stringify(run.result)) + "\n");
-}
-
-function tryHistoricalTarget(orchDir: OrchDir, logger: Logger, target: string, json: boolean): boolean {
-  if (loadPresence(orchDir).has(target)) return false;
-  const historical = latestRunForKey(orchDir, target);
-  return historical ? writeHistoricalResult(logger, historical, json, target) : false;
-}
-
-export function cmdResult(services: Services, args: string[]) {
-  const options = parseResultArgs(args);
-  const settings = services.settings.current();
-  const target = options.target;
-  if (!target) die("usage: orch result <target> [--force] [--json]");
-  if (writeRemoteResult(services.orchDir, settings, target, options)) return;
-  let ent: Entity;
+/** Resolve one target without writing output. Refusals become data for multi-target callers. */
+function lookupResult(services: Services, target: string, force: boolean): ResultLookup {
   try {
-    ent = resolveTarget(services.orchDir, settings, target);
+    const settings = services.settings.current();
+    const remote = targetHost(settings.hosts, target);
+    if (remote) {
+      forbidNonOperatorOverride(services.orchDir, "remote targets");
+      const host = settings.hosts[remote.host];
+      const destination = host?.dest;
+      if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
+      const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(force ? ["--force"] : []), "--json"]), { timeoutMs: host.timeout_ms });
+      if (!result.ok) die(`Host "${remote.host}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
+      let payload: unknown;
+      try { payload = JSON.parse(result.stdout); } catch { payload = result.stdout.trimEnd(); }
+      return { kind: "found", source: "presence", payload };
+    }
+    let ent: Entity;
+    try {
+      ent = resolveTarget(services.orchDir, settings, target);
+    } catch (error: unknown) {
+      if (!(error instanceof CommandRefusal)) throw error;
+      if (callerKind(services.orchDir) === "operator" && !loadPresence(services.orchDir).has(target)) {
+        const historical = latestRunForKey(services.orchDir, target);
+        if (historical?.result !== undefined) {
+          resultLogger(services.logger, target).info("result.history-fallback");
+          return { kind: "found", source: "history", payload: historical.result };
+        }
+      }
+      return { kind: "missing", reason: error.message };
+    }
+    assertAgentOwned(services.orchDir, target, ent, force);
+    const dispatchId = ent.presence?.status?.dispatchId;
+    if (dispatchId) {
+      const run = selectRun(services.orchDir, dispatchId);
+      if (run?.result === undefined) {
+        die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${ent.key}\`.`);
+      }
+      resultLogger(services.logger, ent.key).info("result.current-dispatch", { dispatchId });
+      return { kind: "found", source: "dispatch", payload: run.result };
+    }
+    if (ent.presence?.result) return { kind: "found", source: "presence", payload: ent.presence.result };
+    const historical = latestRunForKey(services.orchDir, ent.key);
+    if (historical?.result !== undefined) {
+      resultLogger(services.logger, ent.key).info("result.history-fallback");
+      return { kind: "found", source: "history", payload: historical.result };
+    }
+    const adapter = entityAdapter(ent, agentViewIndex(services.orchDir));
+    const text = adapter ? adapterResultText(services.orchDir, ent, adapter) : undefined;
+    if (adapter && text) {
+      resultLogger(services.logger, ent.key).info("result.adapter-fallback");
+      return { kind: "found", source: "session", payload: adapterResultDocument(ent, adapter, text) };
+    }
+    return { kind: "missing", reason: `No result available for "${target}" (no results.jsonl and no adapter-extractable session text).` };
   } catch (error: unknown) {
-    // A reaped presence directory leaves no entity for resolveTarget. Only the
-    // operator may use its exact canonical key to address durable run history;
-    // a session must not learn whether a foreign key ever existed.
-    if (callerKind(services.orchDir) === "operator" && tryHistoricalTarget(services.orchDir, services.logger, target, options.json)) return;
+    if (error instanceof CommandRefusal) return { kind: "missing", reason: error.message };
     throw error;
   }
-  // Names are a flat namespace across every orchestrator, so an unscoped read
-  // hands one session's work product to another as if it were its own.
-  assertAgentOwned(services.orchDir, target, ent, options.force);
-  const dispatchId = ent.presence?.status?.dispatchId;
-  if (dispatchId) return writeCurrentDispatchResult(services, dispatchId, ent.key, options.json);
-  if (writePresenceResult(ent.presence?.result, options.json)) return;
-  const historical = latestRunForKey(services.orchDir, ent.key);
-  if (historical && writeHistoricalResult(services.logger, historical, options.json, ent.key)) return;
-  if (writeAdapterResult(services.orchDir, services.logger, ent, agentViewIndex(services.orchDir), options.json)) return;  die(`No result available for "${target}" (no results.jsonl and no adapter-extractable session text).`);
+}
+
+function humanResult(payload: unknown): string {
+  return typeof payload === "string" ? payload : resultText(payload) ?? JSON.stringify(payload);
+}
+
+function printHumanBody(entry: { target: string; lookup: ResultLookup }): void {
+  if (entry.lookup.kind === "missing") {
+    process.stdout.write(`error: ${entry.lookup.reason}\n`);
+    return;
+  }
+  if (entry.lookup.source === "history") process.stdout.write("(result from run history)\n");
+  if (entry.lookup.source === "session") process.stdout.write("(no results.jsonl - falling back to adapter-extracted session text)\n");
+  process.stdout.write(humanResult(entry.lookup.payload) + "\n");
+}
+
+function printResults(entries: readonly { target: string; lookup: ResultLookup }[], json: boolean): void {
+  const missing = entries.some((entry) => entry.lookup.kind === "missing");
+  if (json) {
+    if (entries.length === 1 && entries[0]?.lookup.kind === "missing") throw new CommandRefusal(entries[0].lookup.reason);
+    const output = entries.length === 1
+      ? entries[0]?.lookup.kind === "found" ? entries[0].lookup.payload : undefined
+      : entries.map((entry) => entry.lookup.kind === "found"
+        ? { target: entry.target, source: entry.lookup.source, result: entry.lookup.payload }
+        : { target: entry.target, error: entry.lookup.reason });
+    process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+  } else {
+    if (entries.length === 1 && entries[0]?.lookup.kind === "missing") throw new CommandRefusal(entries[0].lookup.reason);
+    for (const entry of entries) {
+      if (entries.length > 1) process.stdout.write(`== ${entry.target}\n`);
+      printHumanBody(entry);
+    }
+  }
+  if (entries.length > 1 && missing) process.exitCode = 1;
+}
+
+export function cmdResult(services: Services, args: string[]): void {
+  const options = parseResultArgs(args);
+  if (options.targets.length === 0) die("usage: orch result <target>... [--force] [--json]");
+  const entries = options.targets.map((target) => ({ target, lookup: lookupResult(services, target, options.force) }));
+  printResults(entries, options.json);
 }
 
 export async function cmdQuestions(services: Services, args: string[]): Promise<void> {

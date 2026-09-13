@@ -64,7 +64,7 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
   const tuning = resolveTuningOrDie(flags, settings, adapter.id);
   const { model, thinking } = tuning;
-  assertLaunchModelAllowed(settings, adapter.id, model);
+  assertLaunchModelAllowed(settings, adapter.id, services.models, model);
   const cleared: ClearedAgent[] = [];
   for (const target of targets) {
     const agent = await clearSession(services, target, force);

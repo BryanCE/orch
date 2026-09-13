@@ -1,10 +1,9 @@
-import { forgetModelCatalogues } from "./model-catalogue.ts";
+import type { ModelCatalogue } from "../types/adapter.ts";
 import { piAdapter } from "./pi.ts";
 import { ompAdapter } from "./omp.ts";
 import { codexAdapter } from "./codex.ts";
 import { claudeAdapter } from "./claude.ts";
 import type { AgentAdapter } from "../types/adapter.ts";
-import type { OrchDir } from "../types/core.ts";
 
 const adapters: readonly AgentAdapter[] = [piAdapter, ompAdapter, codexAdapter, claudeAdapter];
 
@@ -16,15 +15,15 @@ export function allAdapters(): readonly AgentAdapter[] {
 /** Start every harness's registry query at once and wait for none of them. orch warms harnesses
  *  the user has not selected and may never select: whether a harness is installed on this machine
  *  is knowable without being asked, and knowing it already is what keeps setup instant. */
-export function warmAdapterCatalogues(): void {
-  for (const adapter of adapters) if (adapter.modelWarm) void adapter.modelWarm.warmModels();
+export function warmAdapterCatalogues(catalogue: ModelCatalogue): void {
+  for (const adapter of adapters) if (adapter.modelWarm) void adapter.modelWarm.warmModels(catalogue);
 }
 
 /** Discard every stored catalogue and ask the harnesses again, resolving once they have all
  *  answered. The manual half of the refresh cycle, for a model installed minutes ago. */
-export async function refreshAdapterCatalogues(orchDir: OrchDir): Promise<void> {
-  forgetModelCatalogues(orchDir);
-  await Promise.all(adapters.map((adapter) => adapter.modelWarm ? adapter.modelWarm.warmModels() : Promise.resolve()));
+export async function refreshAdapterCatalogues(catalogue: ModelCatalogue): Promise<void> {
+  catalogue.forget();
+  await Promise.all(adapters.map((adapter) => adapter.modelWarm ? adapter.modelWarm.warmModels(catalogue) : Promise.resolve()));
 }
 
 /** Find an adapter by id. */

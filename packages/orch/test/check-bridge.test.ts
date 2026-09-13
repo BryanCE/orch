@@ -51,7 +51,7 @@ function readWebRepoLines(relPath: string): string[] {
 
 describe("10.1 packages must not import concrete backends/adapters (checkPackageImportLine)", () => {
   test("flags a concrete backend implementation import", () => {
-    const line = 'import { herdrTabs } from "../../../../src/backends/herdr/cli.ts";';
+    const line = 'import { createHerdrCli } from "../../../../src/backends/herdr/cli.ts";';
     expect(checkPackageImportLine(line)).toContain("concrete backend");
   });
 

@@ -5,5 +5,5 @@ import { testServices } from "./services.ts";
 
 /** runDoctor with a test logger: doctor tests exercise the runner, never the logger. */
 export function runTestDoctor(orchDir: OrchDir, options: SshRunner | DoctorOptions = {}): Promise<CheckResult[]> {
-  return runDoctor(orchDir, testServices({ orchDir }).logger, options);
+  return runDoctor(testServices({ orchDir }), options);
 }

@@ -1,19 +1,16 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { readModelCatalogue, warmModelCatalogue } from "./model-catalogue.ts";
 import { loadPresence, readJSON, statusForPresence } from "../presence/store.ts";
 import { errnoCode, isRecord, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
-import { decisionLogger } from "../daemon/decision-log.ts";
-import { fileSettingsManager } from "../settings/manager.ts";
 import { packageRoot } from "../util.ts";
 import { isAgentState } from "../agent-state.ts";
 import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -150,14 +147,6 @@ export function parsePiModelsOutput(output: string): readonly HarnessModel[] {
 
 /** Ask pi itself which authenticated models it can run. */
 const PI_MODELS_ARGV = ["--list-models"] as const;
-
-export function adapterLogger(orchDir: OrchDir): Logger {
-  return decisionLogger(orchDir, fileSettingsManager(orchDir).currentOrNull());
-}
-
-function queryPiModels(orchDir: OrchDir): readonly HarnessModel[] {
-  return parsePiModelsOutput(readModelCatalogue(orchDir, adapterLogger(orchDir), "pi", PI_MODELS_ARGV));
-}
 
 /** True when a launch command starts one of the named binaries. */
 function launchesBinary(binaries: readonly string[], cmd: string): boolean {
@@ -385,8 +374,8 @@ export class PiAdapter implements AgentAdapter {
       : { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi integration shim disabled" },
   };
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
-  readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
-  readonly modelWarm = { warmModels: (): Promise<void> => this.warmModels() };
+  readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parsePiModelsOutput(catalogue.read("pi", PI_MODELS_ARGV)) };
+  readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("pi", PI_MODELS_ARGV) };
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
   readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceFor(key, orchDir) !== undefined };
 
@@ -460,16 +449,6 @@ export class PiAdapter implements AgentAdapter {
   /** Read pi's persisted default model from ~/.pi/agent/settings.json. */
   defaultModelString(): string | undefined {
     return settingsDefaultModel(PI_AGENT_DIR);
-  }
-
-  /** Ask pi's own registry through its supported model-listing command. */
-  listModels(orchDir?: OrchDir): readonly HarnessModel[] {
-    return orchDir === undefined ? [] : queryPiModels(orchDir);
-  }
-
-  /** pi's registry is a shell-out; start it early so setup's next prompt covers the wait. */
-  warmModels(orchDir?: OrchDir): Promise<void> {
-    return orchDir === undefined ? Promise.resolve() : warmModelCatalogue("pi", PI_MODELS_ARGV, orchDir);
   }
 
   /** Link the prebuilt bridge bundle into pi's extension directory. */

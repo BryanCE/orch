@@ -63,6 +63,7 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
         once: true,
         json: true,
         settings: testServices({ orchDir: dir, settings: {} }).settings,
+        models: testServices({ orchDir: dir }).models,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();

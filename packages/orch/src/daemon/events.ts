@@ -52,12 +52,12 @@ function eventTokens(status: object): AgentNotifyEvent["tokens"] | undefined {
   const values = [input, output, cacheRead, cacheWrite];
   if (values.some((value) => value !== undefined && typeof value !== "number")) return undefined;
   if (values.every((value) => value === undefined)) return undefined;
-  const normalized: NonNullable<AgentNotifyEvent["tokens"]> = {};
-  if (typeof input === "number") normalized.input = input;
-  if (typeof output === "number") normalized.output = output;
-  if (typeof cacheRead === "number") normalized.cacheRead = cacheRead;
-  if (typeof cacheWrite === "number") normalized.cacheWrite = cacheWrite;
-  return normalized;
+  return {
+    ...(typeof input === "number" ? { input } : {}),
+    ...(typeof output === "number" ? { output } : {}),
+    ...(typeof cacheRead === "number" ? { cacheRead } : {}),
+    ...(typeof cacheWrite === "number" ? { cacheWrite } : {}),
+  };
 }
 
 /** The state a status claims, overruled by the recorded process: a dead process
@@ -282,6 +282,7 @@ function runRecordForTransition(
   event: NotifyEvent,
   result: string | undefined,
 ): RunRecord | undefined {
+  if (event.type !== "transition" && event.type !== "asking") return undefined;
   const dispatchId = event.dispatchId;
   if (!dispatchId) return undefined;
 
@@ -471,9 +472,6 @@ export function isRepeatTransition(event: NotifyEvent, now = Date.now()): boolea
   let askCount = "";
   let gaveUp = "";
   switch (event.type) {
-    case "transition":
-    case "asking":
-    case "closed":
     case "transition":
     case "asking":
       oldState = event.oldState;

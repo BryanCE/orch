@@ -75,7 +75,8 @@ describe("spawn policy caps", () => {
     });
     const settings = fileSettingsManager(dir).current();
     const bareFlags = {};
-    const resolved = ["spawn", "dispatch", "reset", "model"].map(() => resolveTuningOrDie(bareFlags, settings, "pi"));
+    const unpinned = { model: null, thinking: null };
+    const resolved = ["spawn", "dispatch", "reset", "model"].map(() => resolveTuningOrDie(bareFlags, settings, "pi", unpinned));
     expect(resolved.map((tuning) => modelSpec(tuning.model, tuning.thinking))).toEqual([
       "openai/gpt-5.6:medium",
       "openai/gpt-5.6:medium",
@@ -83,12 +84,30 @@ describe("spawn policy caps", () => {
       "openai/gpt-5.6:medium",
     ]);
     const defaultsOnly = { ...settings, defaults: { ...settings.defaults, thinking_by_harness: {} } };
-    const defaultTuning = resolveTuningOrDie({}, defaultsOnly, "pi");
+    const defaultTuning = resolveTuningOrDie({}, defaultsOnly, "pi", null);
     expect(modelSpec(defaultTuning.model, defaultTuning.thinking)).toBe("openai/gpt-5.6:high");
-    const suffixed = resolveTuningOrDie({ modelFlag: "openai/gpt-5.6:low" }, settings, "pi");
+    const suffixed = resolveTuningOrDie({ modelFlag: "openai/gpt-5.6:low" }, settings, "pi", null);
     expect(modelSpec(suffixed.model, suffixed.thinking)).toBe("openai/gpt-5.6:low");
-    const flagged = resolveTuningOrDie({ modelFlag: "openai/gpt-5.6:low", thinkingFlag: "xhigh" }, settings, "pi");
+    const flagged = resolveTuningOrDie({ modelFlag: "openai/gpt-5.6:low", thinkingFlag: "xhigh" }, settings, "pi", null);
     expect(modelSpec(flagged.model, flagged.thinking)).toBe("openai/gpt-5.6:xhigh");
+  });
+
+  test("an agent's own pin outranks the default and only this command's flags outrank the pin", () => {
+    const dir = tempOrchDir("orch-tuning-pin-");
+    tempDirs.push(dir);
+    writeSettingsFixture(dir, {
+      defaults: { thinking: "high", models: { pi: "openai/gpt-5.6" }, thinking_by_harness: { pi: "medium" } },
+    });
+    const settings = fileSettingsManager(dir).current();
+    const pinned = { model: "openai/gpt-5.6-luna", thinking: "low" };
+    const kept = resolveTuningOrDie({}, settings, "pi", pinned);
+    expect(modelSpec(kept.model, kept.thinking)).toBe("openai/gpt-5.6-luna:low");
+    const effortOnly = resolveTuningOrDie({ thinkingFlag: "xhigh" }, settings, "pi", pinned);
+    expect(modelSpec(effortOnly.model, effortOnly.thinking)).toBe("openai/gpt-5.6-luna:xhigh");
+    const renamed = resolveTuningOrDie({ modelFlag: "openai/gpt-5.6-sol:high" }, settings, "pi", pinned);
+    expect(modelSpec(renamed.model, renamed.thinking)).toBe("openai/gpt-5.6-sol:high");
+    const unpinned = resolveTuningOrDie({}, settings, "pi", { model: null, thinking: null });
+    expect(modelSpec(unpinned.model, unpinned.thinking)).toBe("openai/gpt-5.6:medium");
   });
 
   test("launch env uses the minted agent id name", () => {

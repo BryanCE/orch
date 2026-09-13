@@ -8,6 +8,23 @@ import type { EventSubscription, RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
+type RpcEvent = Parameters<RpcServer["emit"]>[0];
+type TransitionEvent = Extract<RpcEvent, { type: "transition" }>;
+
+function transitionEvent(overrides: Partial<TransitionEvent> = {}): TransitionEvent {
+  return {
+    type: "transition",
+    key: "event",
+    ts: 0,
+    agent: "agent",
+    tab: "tab",
+    model: "model",
+    oldState: "idle",
+    newState: "working",
+    ...overrides,
+  };
+}
+
 function waitFor<T>(read: () => T[], length: number, timeoutMs = 5_000): Promise<T[]> {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs;
@@ -68,28 +85,28 @@ describe("subscribeEvents reconnect", () => {
     const orchDir: OrchDir = tempOrchDir("orchd-rpc-reconnect-");
     let server: RpcServer | undefined;
     let subscription: EventSubscription | undefined;
-    const received: unknown[] = [];
+    const received: RpcEvent[] = [];
     try {
       server = await startRpcServer(orchDir, stubRpcHandlers());
       subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event), undefined, true);
-      server.emit({ name: "before-restart" });
+      server.emit(transitionEvent({ key: "before-restart" }));
       await waitFor(() => received, 1);
-      expect(received).toEqual([{ name: "before-restart" }]);
+      expect(received.map((event) => event.key)).toEqual(["before-restart"]);
 
       // The daemon goes away with its socket, then returns on the same ORCH_DIR.
       await server.close();
       server = await startRpcServer(orchDir, stubRpcHandlers());
       // Emitted while the subscription is still redialling: it lands in the new
       // daemon's replay buffer and must be delivered once the socket is back.
-      server.emit({ name: "after-restart" });
+      server.emit(transitionEvent({ key: "after-restart" }));
 
       await waitFor(() => received, 2);
-      expect(received).toContainEqual({ name: "after-restart" });
+      expect(received.map((event) => event.key)).toContain("after-restart");
 
       // A live event after reconnection flows too.
-      server.emit({ name: "post-reconnect" });
+      server.emit(transitionEvent({ key: "post-reconnect" }));
       await waitFor(() => received, 3);
-      expect(received).toContainEqual({ name: "post-reconnect" });
+      expect(received.map((event) => event.key)).toContain("post-reconnect");
     } finally {
       subscription?.close();
       await server?.close();
@@ -100,11 +117,11 @@ describe("subscribeEvents reconnect", () => {
   test("close stops the retry loop so a returning daemon delivers nothing", async () => {
     const orchDir: OrchDir = tempOrchDir("orchd-rpc-reconnect-stop-");
     let server: RpcServer | undefined;
-    const received: unknown[] = [];
+    const received: RpcEvent[] = [];
     try {
       server = await startRpcServer(orchDir, stubRpcHandlers());
       const subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event));
-      server.emit({ name: "one" });
+      server.emit(transitionEvent({ key: "one" }));
       await waitFor(() => received, 1);
 
       await server.close();
@@ -112,9 +129,9 @@ describe("subscribeEvents reconnect", () => {
 
       // A fresh daemon the closed subscription must never latch onto.
       server = await startRpcServer(orchDir, stubRpcHandlers());
-      server.emit({ name: "two" });
+      server.emit(transitionEvent({ key: "two" }));
       await delay(1_000);
-      expect(received).toEqual([{ name: "one" }]);
+      expect(received.map((event) => event.key)).toEqual(["one"]);
     } finally {
       await server?.close();
       removeTempDir(orchDir);

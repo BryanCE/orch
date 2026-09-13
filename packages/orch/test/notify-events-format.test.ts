@@ -72,9 +72,12 @@ function event(overrides: Partial<TransitionEvent> = {}): NotifyEvent {
   return { ...base, ...overrides };
 }
 
-function transition(orchDir: OrchDir, key: string, status: object, previous = "working") {
+function transition(orchDir: OrchDir, key: string, status: object, previous = "working"): NotifyEvent {
   const states = new Map([[key, previous]]);
-  return derivePresenceTransition(orchDir, key, { pid: process.pid, ...status }, { name: "worker", tab: null }, states);
+  const value = derivePresenceTransition(orchDir, key, { pid: process.pid, ...status }, { name: "worker", tab: null }, states);
+  expect(value).not.toBeNull();
+  if (value === null) throw new Error("expected a presence transition");
+  return value;
 }
 
 function eventTask(value: NotifyEvent | undefined): string | undefined {

@@ -122,7 +122,9 @@ describe("worker prompt capability composition", () => {
         state: "done",
         task: workerPrompt("real task", false, getAdapter(adapter)),
       }, { name: null, tab: null }, states);
-      expect(event?.task).toBe("real task");
+      expect(event?.type).toBe("transition");
+      if (event?.type !== "transition") throw new Error("expected transition event");
+      expect(event.task).toBe("real task");
     }
   });
 });

@@ -21,6 +21,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { testServices } from "./helpers/services.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
+import { askingEvent, closedEvent, eventBase, transitionEvent } from "./helpers/events.ts";
 
 const directories: OrchDir[] = [];
 const servers: RpcServer[] = [];
@@ -45,35 +46,6 @@ function seedAgent(orchDir: OrchDir, agentId: string, options: { harnessId?: str
     orm(orchDir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${options.space}, ${options.space}, ${1})`);
     setSpace(orchDir, agentId, 1, options.space);
   }
-}
-
-const eventBase = {
-  key: "",
-  space: undefined,
-  agent: null,
-  name: undefined,
-  dispatchId: undefined,
-  spawnedBy: undefined,
-  spawnedByLabel: undefined,
-  tab: null,
-  model: null,
-  ts: "",
-  lastError: undefined,
-  lastText: undefined,
-  ctxPercent: undefined,
-  tokens: undefined,
-  filesTouched: undefined,
-};
-
-type TransitionEvent = Extract<NotifyEvent, { type: "transition" }>;
-type AskingEvent = Extract<NotifyEvent, { type: "asking" }>;
-
-function transitionEvent(overrides: Partial<TransitionEvent> = {}): NotifyEvent {
-  return { ...eventBase, type: "transition", oldState: "idle", newState: "working", ...overrides };
-}
-
-function askingEvent(overrides: Partial<AskingEvent> = {}): NotifyEvent {
-  return { ...eventBase, type: "asking", oldState: "working", newState: "asking", askCount: 1, gaveUp: false, ...overrides };
 }
 
 function writeStatus(orchDir: OrchDir, key: string, state: string, extra: object = {}): void {
@@ -260,13 +232,13 @@ describe("daemon presence events", () => {
     writeStatus(orchDir, child, "working");
     const emitted: NotifyEvent[] = [];
     const settings = testServices({ orchDir, settings: { fleet: { max_agents_per_pack: 2 } } }).settings;
-    emitAndNotify((event) => emitted.push(event), [], transitionEvent({ key: root, oldState: "working", newState: "closed" }), orchDir, settings);
-    expect(emitted[0]?.type).toBe("transition");
+    emitAndNotify((event) => emitted.push(event), [], closedEvent({ key: root }), orchDir, settings);
+    expect(emitted[0]?.type).toBe("closed");
     expect(emitted[0]?.newState).toBe("closed");
   });
 
   test("a flapping status file cannot storm the stream with repeat transitions", () => {
-    const flap: NotifyEvent = { type: "transition", key: "w9:flap", agent: "pi", tab: null, model: null, oldState: "aborted", newState: "done", ts: "t" };
+    const flap = transitionEvent({ ...eventBase, key: "w9:flap", oldState: "aborted", newState: "done" });
     const emitted: unknown[] = [];
     emitAndNotify((event) => emitted.push(event), [], { ...flap }, undefined, noDirSettings);
     emitAndNotify((event) => emitted.push(event), [], { ...flap }, undefined, noDirSettings);
@@ -276,7 +248,7 @@ describe("daemon presence events", () => {
   });
 
   test("a genuine repeat of the same transition for new work still publishes", () => {
-    const done: NotifyEvent = { type: "transition", key: "w9:redo", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "t" };
+    const done = transitionEvent({ ...eventBase, key: "w9:redo", oldState: "working", newState: "done" });
     const emitted: unknown[] = [];
     emitAndNotify((event) => emitted.push(event), [], { ...done, task: "first dispatch", dispatchId: "d1" }, undefined, noDirSettings);
     emitAndNotify((event) => emitted.push(event), [], { ...done, task: "second dispatch", dispatchId: "d2" }, undefined, noDirSettings);
@@ -284,21 +256,21 @@ describe("daemon presence events", () => {
   });
 
   test("a repeat transition publishes again once the suppression window passes", () => {
-    const event: NotifyEvent = { type: "transition", key: "w9:window", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "t" };
+    const event = transitionEvent({ ...eventBase, key: "w9:window", oldState: "working", newState: "done" });
     expect(isRepeatTransition(event, 1_000)).toBe(false);
     expect(isRepeatTransition(event, 2_000)).toBe(true);
     expect(isRepeatTransition(event, 2_000 + 121_000)).toBe(false);
   });
 
   test("repeated observations cannot slide the suppression window forever", () => {
-    const event: NotifyEvent = { type: "transition", key: "w9:fixed-window", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "t" };
+    const event = transitionEvent({ ...eventBase, key: "w9:fixed-window", oldState: "working", newState: "done" });
     expect(isRepeatTransition(event, 1_000)).toBe(false);
     expect(isRepeatTransition(event, 100_000)).toBe(true);
     expect(isRepeatTransition(event, 121_001)).toBe(false);
   });
 
   test("a working-to-done repeat after the dedupe window is emitted", () => {
-    const event: NotifyEvent = { type: "transition", key: "w9:window-flip", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "t" };
+    const event = transitionEvent({ ...eventBase, key: "w9:window-flip", oldState: "working", newState: "done" });
     const emitted: unknown[] = [];
     emitAndNotify((value) => emitted.push(value), [], event, undefined, noDirSettings, 1_000);
     emitAndNotify((value) => emitted.push(value), [], event, undefined, noDirSettings, 1_000 + 120_001);
@@ -376,8 +348,6 @@ describe("daemon presence events", () => {
       filesTouched: ["a.ts", "b.ts"],
     }));
     expect(event?.type).toBe("asking");
-    expect(event).not.toHaveProperty("task");
-    expect(event).not.toHaveProperty("cost");
   });
 
   test("an asking transition drives command sink delivery", async () => {

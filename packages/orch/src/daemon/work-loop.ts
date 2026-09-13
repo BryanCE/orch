@@ -235,6 +235,11 @@ function reaskEvent(orchDir: OrchDir, question: QuestionRow, nowMs: number, askC
   switch (event.type) {
     case "asking":
       return { ...event, task: `Q: ${question.question}` };
+    case "transition":
+    case "message":
+    case "closed":
+    case "task":
+      return event;
     default: {
       const exhaustive: never = event;
       return exhaustive;

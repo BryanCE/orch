@@ -1,4 +1,5 @@
 import type { OrchDir } from "../types/core.ts";
+import type { AgentTuning } from "../types/store.ts";
 import "../store/suppress-sqlite-warning.ts";
 import {
   acquireDaemonLock,

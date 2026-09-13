@@ -13,8 +13,10 @@ function settingsDirectory(thinking: "medium" | "high", model: string): OrchDir 
   return directory;
 }
 
+const unpinned = { model: null, thinking: null };
+
 function agents(): readonly LiveAgentForRepin[] {
-  return [{ id: "agent-one", harnessId: "pi" }, { id: "agent-two", harnessId: "pi" }];
+  return [{ id: "agent-one", harnessId: "pi", tuning: unpinned }, { id: "agent-two", harnessId: "pi", tuning: unpinned }];
 }
 
 function adapter(): RepinAdapterCapabilities {
@@ -55,6 +57,35 @@ describe("daemon settings tuning re-pin", () => {
       ["agent-two", "provider/new:high"],
     ]);
     expect(calls.every((call) => call.action.id.length > 0)).toBe(true);
+  });
+
+  test("keeps the tuning a pinned agent holds and tunes only the unpinned one", async () => {
+    const previousDirectory = settingsDirectory("medium", "provider/old");
+    const settingsDirectoryNext = settingsDirectory("high", "provider/new");
+    directories.push(previousDirectory, settingsDirectoryNext);
+    const calls: { target: string; model: string }[] = [];
+    const kept: string[] = [];
+
+    await repinLiveFleet({
+      previousSettings: fileSettingsManager(previousDirectory).current(),
+      settings: fileSettingsManager(settingsDirectoryNext).current(),
+      listLiveAgents: (): readonly LiveAgentForRepin[] => [
+        { id: "agent-one", harnessId: "pi", tuning: { model: "provider/mine", thinking: "low" } },
+        { id: "agent-two", harnessId: "pi", tuning: unpinned },
+      ],
+      resolveAdapter: (_agent: LiveAgentForRepin): RepinAdapterCapabilities => adapter(),
+      deliver: (target: string, action: Extract<ControlAction, { kind: "model" }>): Promise<ControlBoundaryOutcome> => {
+        calls.push({ target, model: action.model });
+        return Promise.resolve({ outcome: "invoke", ack: "none" });
+      },
+      logger: {
+        info: (event: string): void => { if (event === "settings.repin.kept") kept.push(event); },
+        warn: (event: string): void => { void event; },
+      },
+    });
+
+    expect(calls).toEqual([{ target: "agent-two", model: "provider/new:high" }]);
+    expect(kept).toEqual(["settings.repin.kept"]);
   });
 
   test("does not pin when tuning settings did not change", async () => {

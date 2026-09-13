@@ -11,10 +11,10 @@ import { createHash } from "node:crypto";
 import { createDaemonClient } from "./daemon-client.ts";
 import { registerFleetMonitor } from "./monitor.ts";
 import { createAgentPresence } from "./presence.ts";
-import { orchDir } from "../presence/writer.ts";
 import { agentEnvironment, isBlockedSignal, isPaneLabels } from "./environment.ts";
 import { registerAgentTools } from "./tools.ts";
 import type { FleetStatusRenderer, HarnessApi, HarnessBridge, HarnessIdentity } from "../types/agent.ts";
+import type { SettingsManager } from "../types/services.ts";
 
 /** The digest must stay byte-identical to computeCodeHash in src/daemon/lifecycle.ts; doctor compares the two. */
 export function hashExtensionFile(file: string): string {
@@ -26,13 +26,13 @@ export function registerHarnessBridge(
   harness: HarnessApi,
   identity: HarnessIdentity,
   extensionHash: string,
-  ui?: { renderFleetStatus?: FleetStatusRenderer; fleet?: boolean },
+  options: { orchDir: string; settings: SettingsManager; renderFleetStatus?: FleetStatusRenderer; fleet?: boolean },
 ): HarnessBridge {
   // This bridge knows no plexer. What its environment composes was decided by
   // orch at spawn and stamped into the launch env; what its environment KNOWS is
   // answered by orchd, the one process that talks to a plexer at all.
   const environment = agentEnvironment();
-  const daemon = createDaemonClient(orchDir());
+  const daemon = createDaemonClient(options.orchDir, options.settings);
 
   const presence = createAgentPresence({ harness, identity, extensionHash, daemon });
 
@@ -53,7 +53,7 @@ export function registerHarnessBridge(
     identity,
     notify: (event) => { void daemon.ask("notify", { ...event }); },
     refreshLabels,
-  });
+  }, options.orchDir, options.settings);
 
   // The environment names its own blocked signal; the bridge only listens for
   // whatever it was told. An environment that raises none names none.
@@ -69,11 +69,11 @@ export function registerHarnessBridge(
   // it stays empty and renders nothing.
   // A composition root that ships its own orchestrator seat opts out of the
   // generic status line so exactly one writer owns the fleet surface.
-  const fleet = ui?.fleet === false
+  const fleet = options.fleet === false
     ? undefined
-    : registerFleetMonitor(harness, orchDir(), {
+    : registerFleetMonitor(harness, options.orchDir, {
         ownKey: (context) => presence.ownPresenceKey(context) || undefined,
-        renderStatus: ui?.renderFleetStatus,
+        renderStatus: options.renderFleetStatus,
       });
   return { fleet, ownKey: () => presence.state.key || undefined };
 }

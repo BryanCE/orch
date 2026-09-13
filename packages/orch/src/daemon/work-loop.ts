@@ -17,7 +17,6 @@ import { loadPresence, statusForPresence } from "../presence/store.ts";
 import { pendingQuestions, type QuestionRow } from "../store/question-rows.ts";
 import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
 import { STATUS_FILE } from "../presence/schema.ts";
-import { loadSettings } from "../settings/read.ts";
 import { workerHeaderFor, workerRules } from "../worker-prompt.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { isAgentId } from "../backends/identity.ts";
@@ -94,7 +93,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const runnerId = currentAttempt(task)?.agentId ?? (isAgentId(entry.key) ? entry.key : undefined);
   const view = runnerId === undefined ? null : agentView(options.orchDir, runnerId);
   const adapterId = view?.harnessId ?? entry.status?.agent;
-  const rules = workerRules(options.getSettings?.() ?? loadSettings(options.orchDir));
+  const rules = workerRules(options.settings.current());
   // The daemon is not this agent's spawner; provenance names it. Only a spawner
   // still writing live presence can receive the reply the clause instructs, and
   // a presence key is that spawner's minted id.
@@ -115,7 +114,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
       log.debug("boundary.answer", { target: entry.key, reason: outcome.reason });
     }
   };
-  const dispatchAckTimeoutMs = (options.getSettings?.() ?? loadSettings(options.orchDir)).timeouts.dispatch_ack_ms;
+  const dispatchAckTimeoutMs = options.settings.current().timeouts.dispatch_ack_ms;
   try {
     await sendPrompt();
     let status = await waitForWorking(entry, task, dispatchAckTimeoutMs);
@@ -245,7 +244,7 @@ function settleError(orchDir: string, task: TaskRec, error: string, entry: Prese
 async function assignTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec, emit: (event: NotifyEvent) => void): Promise<void> {
   try {
     await (options.dispatch ?? ((entry, task) => dispatchTask(options, entry, task)))(entry, task);
-    const dispatchAckTimeoutMs = (options.getSettings?.() ?? loadSettings(options.orchDir)).timeouts.dispatch_ack_ms;
+    const dispatchAckTimeoutMs = options.settings.current().timeouts.dispatch_ack_ms;
     const state = await waitForTaskState(entry, task, dispatchAckTimeoutMs);
     const current = requireTask(options.orchDir, task.id);
     if (state === "timeout") {
@@ -270,12 +269,12 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
  *  deriving them here too is what published every agent transition twice. */
 export async function runWorkLoop(options: WorkOptions): Promise<void> {
   const emit = options.onEvent ?? ((event: NotifyEvent): void => {
-    emitAndNotify(() => { /* noop */ }, loadSettings(options.orchDir).notify, event, options.orchDir);
+    emitAndNotify(() => { /* noop */ }, options.settings.current().notify, event, options.orchDir);
   });
   const questionState = new Map<string, QuestionReaskState>();
   let lastSweepAt = Number.NEGATIVE_INFINITY;
   while (!options.signal?.aborted) {
-    const settings = options.getSettings?.();
+    const settings = options.settings.current();
     if (settings !== undefined) {
       const nowMs = Date.now();
       const sweepIntervalMs = settings.retention.sweep_interval_ms;

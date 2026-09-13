@@ -3,7 +3,7 @@ import type { CheckResult } from "../types/doctor.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 /** Report live agents that have remained unclaimed past the configured threshold. */
-export function checkUnclaimedAgents(orchDir: string, settings: OrchSettings | null, now = Date.now()): CheckResult {
+export function checkUnclaimedAgents(orchDir: string, settings: OrchSettings | null, now: number): CheckResult {
   const threshold = settings?.doctor.unclaimed_after_ms;
   if (threshold === undefined) {
     return { id: "unclaimed-agents", label: "Unclaimed agents", status: "skip", detail: "no settings.json; doctor.unclaimed_after_ms is not configured" };

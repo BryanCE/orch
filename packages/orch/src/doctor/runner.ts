@@ -1,4 +1,4 @@
-import { loadSettingsOrNull } from "../settings/read.ts";
+import { fileSettingsManager } from "../settings/manager.ts";
 import { settingsDefects } from "../settings/defects.ts";
 import { settingsPath } from "../settings/schema.ts";
 import { errorMessage } from "../util.ts";
@@ -27,6 +27,7 @@ import { commandLogger } from "../commands/logging.ts";
 
 export type { CheckResult } from "../types/doctor.ts";
 import type { AdapterId } from "../types/adapter.ts";
+import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult, DoctorOptions, SshRunner } from "../types/doctor.ts";
 
 async function isolated(id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
@@ -37,12 +38,12 @@ async function isolated(id: string, label: string, check: () => Promise<CheckRes
   }
 }
 
-async function settingsDependent(orchDir: string, id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
+async function settingsDependent(orchDir: string, settings: OrchSettings | null, id: string, label: string, check: (settings: OrchSettings | null) => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
   const defects = settingsDefects(settingsPath(orchDir));
   if (defects.length > 0) {
     return { id, label, status: "skip", detail: `settings.json has ${defects.length} unreadable key(s); fix: orch settings` };
   }
-  return isolated(id, label, check);
+  return isolated(id, label, () => check(settings));
 }
 
 /** Validate every distinct live adapter/backend composition independently. */
@@ -69,7 +70,7 @@ async function checkLiveFleetPairs(orchDir: string): Promise<CheckResult[]> {
   }));
 }
 
-export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner | DoctorOptions = runSSH): Promise<CheckResult[]> {
+export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner | DoctorOptions): Promise<CheckResult[]> {
   // `yes` is a command-level concern; accepting it here keeps programmatic doctor
   // runs explicit while preserving the runner's read-only diagnostic contract.
   const sshRunner = typeof sshRunnerOrOptions === "function"
@@ -79,14 +80,15 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
   // providers, and checkSettingsFile owns the user-facing failure result, so neither an absent nor a
   // malformed settings.json can prevent the neutral checks from running. doctor is the command
   // you reach for when the install is broken; it never refuses to run for want of configuration.
+  let settings: OrchSettings | null = null;
   let enabledAdapters: AdapterId[] = [];
   let enabledBackends: string[] = [];
   let configuredBackend: string | null = null;
   try {
-    const config = loadSettingsOrNull(orchDir);
-    enabledAdapters = config?.enabled.adapters ?? [];
-    enabledBackends = config?.enabled.backends ?? [];
-    configuredBackend = config?.defaults.backend ?? null;
+    settings = fileSettingsManager(orchDir).currentOrNull();
+    enabledAdapters = settings?.enabled.adapters ?? [];
+    enabledBackends = settings?.enabled.backends ?? [];
+    configuredBackend = settings?.defaults.backend ?? null;
   } catch {}
   const bins = binaryStatus(enabledAdapters);
   const providerChecks = enabledAdapters.map((id) => [
@@ -97,7 +99,7 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
       const adapter = resolveAdapter(id);
       return adapter.shim ? await adapter.shim.diagnoseShim() : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
     }),
-    isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(orchDir, id)),
+    isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(settings, id)),
   ]).flat();
   let livePairs: CheckResult[];
   try {
@@ -122,14 +124,14 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
     isolated("settings", "Settings validity", () => checkSettingsFile(orchDir)),
     isolated("runtime", "Declared runtime", () => checkRuntime(orchDir)),
-    settingsDependent(orchDir, "skill-links", "Skill links", () => checkSkillLinks(orchDir)),
-    settingsDependent(orchDir, "spawn-limits", "Spawn limits", () => checkSpawnLimits(orchDir)),
-    settingsDependent(orchDir, "provenance-depth", "Provenance depth", () => checkProvenanceDepth(orchDir)),
-    settingsDependent(orchDir, "unclaimed-agents", "Unclaimed agents", () => checkUnclaimedAgents(orchDir)),
-    settingsDependent(orchDir, "command-locks", "Command locks", () => checkCommandLocks(orchDir)),
+    settingsDependent(orchDir, settings, "skill-links", "Skill links", (current) => checkSkillLinks(current)),
+    settingsDependent(orchDir, settings, "spawn-limits", "Spawn limits", (current) => checkSpawnLimits(current)),
+    settingsDependent(orchDir, settings, "provenance-depth", "Provenance depth", (current) => checkProvenanceDepth(orchDir, current)),
+    settingsDependent(orchDir, settings, "unclaimed-agents", "Unclaimed agents", (current) => checkUnclaimedAgents(orchDir, current, Date.now())),
+    settingsDependent(orchDir, settings, "command-locks", "Command locks", (current) => checkCommandLocks(current)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
-    settingsDependent(orchDir, "notify-sinks", "Notification sinks", () => checkNotifySinks(orchDir, bins)),
-    settingsDependent(orchDir, "notifiers", "Notifiers", () => checkNotifiers(orchDir)),
+    settingsDependent(orchDir, settings, "notify-sinks", "Notification sinks", (current) => checkNotifySinks(current, bins)),
+    settingsDependent(orchDir, settings, "notifiers", "Notifiers", (current) => checkNotifiers(current)),
     isolated("orchdir-location", "ORCH_DIR location", () => checkOrchDirLocation(orchDir)),
     isolated("orchd-registration", "orchd registration", checkDaemonRegistration),
     isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),
@@ -138,9 +140,9 @@ export async function runDoctor(orchDir: string, sshRunnerOrOptions: SshRunner |
     isolated("orchd-socket", "orchd socket", () => checkDaemonSocket(orchDir)),
     isolated("orphan-daemons", "Orphaned daemons", () => checkOrphanDaemons(orchDir)),
     isolated("os-executors", "OS-side executors", checkOsExecutors),
-    settingsDependent(orchDir, "remote-ssh", "Remote SSH reachability", () => checkRemoteReachability(orchDir, sshRunner)),
-    settingsDependent(orchDir, "remote-orch-version", "Remote orch version/schema", () => checkRemoteVersion(orchDir, sshRunner)),
-    settingsDependent(orchDir, "remote-orch-dir", "Remote ORCH_DIR", () => checkRemoteOrchDir(orchDir, sshRunner)),
+    settingsDependent(orchDir, settings, "remote-ssh", "Remote SSH reachability", (current) => checkRemoteReachability(current, sshRunner)),
+    settingsDependent(orchDir, settings, "remote-orch-version", "Remote orch version/schema", (current) => checkRemoteVersion(current, sshRunner)),
+    settingsDependent(orchDir, settings, "remote-orch-dir", "Remote ORCH_DIR", (current) => checkRemoteOrchDir(current, sshRunner)),
     isolated("worktree-gitignore", "Worktree gitignore", checkWorktreeGitignore),
   ]);
 }
@@ -160,9 +162,9 @@ export function applyFixes(results: CheckResult[]): { applied: string[] } {
  *  run it first — a freshly updated orch must never launch agents on the last
  *  version's bridge. `harnesses` is required and never widened to "every enabled
  *  adapter": reloading a pi agent has no business rewriting Claude's hooks. */
-export async function refreshStaleShims(orchDir: string, harnesses: readonly string[]): Promise<string[]> {
+export async function refreshStaleShims(orchDir: string, harnesses: readonly string[], settings: OrchSettings | null): Promise<string[]> {
   const refreshed: string[] = [];
-  const enabled = loadSettingsOrNull(orchDir)?.enabled.adapters ?? [];
+  const enabled = settings?.enabled.adapters ?? [];
   for (const id of enabled.filter((adapter) => harnesses.includes(adapter))) {
     try {
       const adapter = resolveAdapter(id);

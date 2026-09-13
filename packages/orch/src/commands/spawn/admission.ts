@@ -59,7 +59,7 @@ export function spawnPolicyError(
 }
 
 export function assertSpawnPolicy(orchDir: string, settings: Pick<OrchSettings, "fleet">, space: string | null, requested: number): void {
-  const refusal = spawnPolicyError(settings, space, requested, agentViewIndex(orchDir), presenceById(loadPresence(orchDir)), spawnerIdentity().key);
+  const refusal = spawnPolicyError(settings, space, requested, agentViewIndex(orchDir), presenceById(loadPresence(orchDir)), spawnerIdentity(orchDir).key);
   if (refusal) throw new SpawnRefusalError(`spawn refused: ${refusal}`);
 }
 
@@ -121,8 +121,8 @@ export function assertNewSpaceGranted(orchDir: string, settings: SpawnSettings, 
 export async function admitSpawn(orchDir: string, settings: SpawnSettings): Promise<void> {
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.
-  assertSpawnPolicy(orchDir, settings, settings.space ?? callerSpace(), settings.n);
-  assertLaunchModelAllowed(settings.adapter, settings.model);
+  assertSpawnPolicy(orchDir, settings, settings.space ?? callerSpace(orchDir), settings.n);
+  assertLaunchModelAllowed(orchDir, settings.adapter, settings.model);
   // Shim refresh is a launch side effect, so it happens only after policy
   // accepts, and only for the harness actually being launched.
   await refreshStaleShims(orchDir, [settings.adapter]);

@@ -99,9 +99,9 @@ export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
 // beside it as plain fields, never folded into it. The caller owns error policy
 // (warn-and-continue vs die); this throws on backend failure.
 export function spawnOneIntoTab(orchDir: string, spec: TabSpawnSpec): CreatedAgent {
-  assertNameFree(spec.name, spec.space);
+  assertNameFree(orchDir, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
-  const spawner = spawnerIdentity();
+  const spawner = spawnerIdentity(orchDir);
   const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
   let place: BackendHandle | undefined;
   if (spec.placement) {

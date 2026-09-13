@@ -1,7 +1,6 @@
 import { closeSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
-import { orchDir } from "../../presence/writer.ts";
 import { errorMessage, pidAlive } from "../../util.ts";
 import { decisionLogger } from "../../daemon/decision-log.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
@@ -20,9 +19,8 @@ import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts"
 
 const HEADLESS_BACKEND: BackendId = "headless";
 
-/** `orchDir()` owns the default; a backend re-spelling it is how the two drift. */
-function orchDirectory(override?: string): string {
-  return override ?? orchDir();
+function orchDirectory(orchDir: string): string {
+  return orchDir;
 }
 
 function logDirectory(directory: string): string {
@@ -108,14 +106,14 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** A detached handle carries the OS pid, which a relaunch replaces, so the
    *  recorded environment is its one source. */
   readonly handleLookup: HandleLookupRole<HeadlessHandle> = {
-    handleFor: (key: string): HeadlessHandle | undefined =>
-      this.liveHandles().find((handle) => handle.key === key && handle.alive),
+    handleFor: (key: string, orchDir: string): HeadlessHandle | undefined =>
+      this.liveHandles(orchDir).find((handle) => handle.key === key && handle.alive),
   };
   // A detached process has no plexer integration to version.
   readonly versionInfo: null = null;
   readonly serverInfo: null = null;
   readonly logPruning: LogPruningRole = {
-    prune: (cutoff: Date, liveKeys: readonly string[], orchDir?: string): number => this.pruneLogFiles(cutoff, liveKeys, orchDir),
+    prune: (cutoff: Date, liveKeys: readonly string[], orchDir: string): number => this.pruneLogFiles(cutoff, liveKeys, orchDir),
   };
   readonly capture = capture;
   readonly placement = null;
@@ -241,13 +239,13 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
 
   /** Every registered headless handle with a fresh liveness result. Private:
    *  `handleLookup` is the one public address for this (2.2). */
-  private liveHandles(): HeadlessHandle[] {
-    const directory = orchDirectory();
+  private liveHandles(orchDir: string): HeadlessHandle[] {
+    const directory = orchDirectory(orchDir);
     return headlessHandles(directory).map((handle) => makeHeadlessHandle(handle.pid, handle.key, this.isPidAlive(handle.pid)));
   }
 
   /** Remove old headless logs, retaining every log belonging to a live presence. */
-  private pruneLogFiles(cutoff: Date, liveKeys: readonly string[], orchDir?: string): number {
+  private pruneLogFiles(cutoff: Date, liveKeys: readonly string[], orchDir: string): number {
     const logsDir = logDirectory(orchDirectory(orchDir));
     let names: string[];
     try {

@@ -12,12 +12,12 @@ import {
   requestJsonLine,
   type JsonLineLink,
 } from "../presence/socket-client.ts";
-import { loadSettingsOrNull } from "../settings/read.ts";
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { isRecord } from "../util.ts";
 import type { ControlOutcomeReport, DaemonClient } from "../types/agent.ts";
+import type { SettingsManager } from "../types/services.ts";
 
-export function createDaemonClient(orchDir: string): DaemonClient {
+export function createDaemonClient(orchDir: string, settings: SettingsManager): DaemonClient {
   const ackedMessageIds = new Set<string>();
   const pending = new Map<number, (result: unknown) => void>();
   let nextRequestId = 1;
@@ -105,6 +105,11 @@ export function createDaemonClient(orchDir: string): DaemonClient {
 
   function scheduleReconnect(onDelivery: (delivery: BridgeDelivery) => void): void {
     if (!attachWanted || reconnectTimer !== undefined) return;
+    try {
+      reconnectMs = settings.currentOrNull()?.daemon.bridge_reconnect_ms ?? SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
+    } catch {
+      reconnectMs = SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
+    }
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined;
       void dial(onDelivery);
@@ -145,11 +150,6 @@ export function createDaemonClient(orchDir: string): DaemonClient {
 
   function attach(key: string, onDelivery: (delivery: BridgeDelivery) => void): void {
     detach();
-    try {
-      reconnectMs = loadSettingsOrNull(orchDir)?.daemon.bridge_reconnect_ms ?? SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
-    } catch {
-      reconnectMs = SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
-    }
     attachWanted = true;
     attachedKey = key;
     void dial(onDelivery);

@@ -24,5 +24,5 @@ export function createCaptureRole(root: RootSource): CaptureRole {
 }
 
 /** Shared capture role for providers whose environment uses orch's local presence files. */
-export const capture: CaptureRole = createCaptureRole(() => orchDir());
+export const capture: CaptureRole = createCaptureRole(orchDir);
 

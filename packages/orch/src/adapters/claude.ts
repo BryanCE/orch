@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { declaredRuntime } from "../settings/read.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import { loadPresence, statusForPresence } from "../presence/store.ts";
-
+import { orchDir } from "../presence/writer.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import { isAgentState } from "../agent-state.ts";
@@ -78,7 +78,7 @@ function pruneStaleShimHooks(list: unknown[], command: string): { list: unknown[
 }
 
 /** Wire the presence hook shim into ~/.claude/settings.json without disturbing unrelated hooks. */
-function installClaudeHooks(pkgRoot: string, orchDir: string): void {
+function installClaudeHooks(pkgRoot: string): void {
   const claudeDir = path.join(HOME, ".claude");
   const claudeSettingsPath = path.join(claudeDir, "settings.json");
   let settings: Record<string, unknown>;
@@ -98,7 +98,7 @@ function installClaudeHooks(pkgRoot: string, orchDir: string): void {
   const shim = claudeHookShimPath(pkgRoot);
   // The shim is plain ESM JS; wire it to the runtime DECLARED in settings.json.
   // orch never probes PATH to pick one — the declaration is the only source.
-  const runtime = declaredRuntime(orchDir);
+  const runtime = declaredRuntime(orchDir());
   const added: string[] = [];
   let prunedStale = false;
   const hooks = isRecord(settings.hooks) ? settings.hooks : (settings.hooks === undefined ? {} : null);
@@ -109,7 +109,7 @@ function installClaudeHooks(pkgRoot: string, orchDir: string): void {
   }
   settings.hooks = hooks;
   for (const event of ["SessionStart", "Stop", "Notification"] as const) {
-    const command = claudeHookCommand(shim, event, runtime, orchDir);
+    const command = claudeHookCommand(shim, event, runtime, orchDir());
     const entries = hooks[event];
     if (entries !== undefined && !Array.isArray(entries)) {
       commandLogger().warn("claude.hook-event-invalid", { path: claudeSettingsPath, event });
@@ -160,9 +160,9 @@ function registeredHookCommands(settings: Record<string, unknown>, event: string
 }
 
 /** Events whose orch hook is unregistered or left over from a build under another runtime. */
-function staleHookEvents(settings: Record<string, unknown>, shim: string, runtime: OrchRuntime, orchDir: string): string[] {
+function staleHookEvents(settings: Record<string, unknown>, shim: string, runtime: OrchRuntime): string[] {
   return CLAUDE_HOOK_EVENTS.filter((event) =>
-    !registeredHookCommands(settings, event).includes(claudeHookCommand(shim, event, runtime, orchDir)));
+    !registeredHookCommands(settings, event).includes(claudeHookCommand(shim, event, runtime, orchDir())));
 }
 
 class ClaudeAdapter implements AgentAdapter {
@@ -175,8 +175,8 @@ class ClaudeAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = {
-    installShim: (orchDir: string): void => this.installShim(orchDir),
-    diagnoseShim: (orchDir: string): CheckResult => this.diagnoseShim(orchDir),
+    installShim: (): void => this.installShim(),
+    diagnoseShim: (): CheckResult => this.diagnoseShim(),
   };
   readonly defaultModel = null;
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
@@ -267,12 +267,12 @@ class ClaudeAdapter implements AgentAdapter {
    *  definitions — every dispatch goes through orch itself. Skills are not installed
    *  here either: they are read by every harness, so setup writes them once into the
    *  configured roots rather than once per adapter. */
-  installShim(orchDir: string): void {
-    installClaudeHooks(packageRoot(), orchDir);
+  installShim(): void {
+    installClaudeHooks(packageRoot());
   }
 
   /** Verify the same Claude hook entries written by installShim. */
-  diagnoseShim(orchDir: string): CheckResult {
+  diagnoseShim(): CheckResult {
     const settingsPath = path.join(HOME, ".claude", "settings.json");
     const id = "claude-hooks";
     const label = "Claude hooks shim";
@@ -307,13 +307,13 @@ class ClaudeAdapter implements AgentAdapter {
     // which is the exact drift the runtime key exists to surface.
     let runtime: OrchRuntime;
     try {
-      runtime = declaredRuntime(orchDir);
+      runtime = declaredRuntime(orchDir());
     } catch {
       // checkSettingsFile owns the malformed-settings detail; a broken settings file must not
       // crash an unrelated diagnostic.
       return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
     }
-    const missing = staleHookEvents(settings, shim, runtime, orchDir);
+    const missing = staleHookEvents(settings, shim, runtime);
     // Repairing drift IS reinstalling: installShim is idempotent and additive.
     return missing.length
       ? {

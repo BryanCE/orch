@@ -18,7 +18,7 @@ export function selfIdentity(orchDir: string): SelfIdentity | null {
   const session = callerSession();
   const token = session?.sessionId;
   if (token) {
-    const id = agentIdBySessionToken(orchDir(), token);
+    const id = agentIdBySessionToken(orchDir, token);
     return id === null ? null : { id };
   }
   // No token: the session IS a process — the harness's own, or the shell that
@@ -27,7 +27,7 @@ export function selfIdentity(orchDir: string): SelfIdentity | null {
   const pid = sessionProcessPid(session);
   const startToken = processStartToken(pid);
   if (startToken === undefined) return null;
-  const id = agentIdByProcess(orchDir(), pid, startToken);
+  const id = agentIdByProcess(orchDir, pid, startToken);
   return id === null ? null : { id };
 }
 

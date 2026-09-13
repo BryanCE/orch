@@ -2,7 +2,7 @@ import type { SessionAgentIdentity } from "./store.ts";
 import type { StatusRow } from "./command.ts";
 import type { NotifyEvent } from "./notify.ts";
 import type { OsSide } from "./core.ts";
-import type { OrchSettings } from "./settings.ts";
+import type { SettingsManager } from "./services.ts";
 import type { PresenceEntry } from "./presence.ts";
 import type { TaskRec } from "./queue.ts";
 
@@ -254,8 +254,8 @@ export interface WorkOptions {
   /** Suppress human progress output for machine-readable callers. */
   json?: boolean;
   maxRetries?: number;
-  /** Return the latest settings for each loop iteration. */
-  getSettings?: () => OrchSettings;
+  /** Settings for each loop iteration. The daemon passes its manager so reloads are seen. */
+  settings: SettingsManager;
   dispatch?: (entry: PresenceEntry, task: TaskRec) => Promise<void>;
   /** Emit canonical work lifecycle events through the daemon fan-out. */
   onEvent?: (event: NotifyEvent) => void;

@@ -199,8 +199,8 @@ export interface WorkspaceTrustRole {
 }
 
 export interface ShimRole {
-  installShim(opts?: ShimInstallOpts): void | Promise<void>;
-  diagnoseShim(): CheckResult | Promise<CheckResult>;
+  installShim(orchDir: string, opts?: ShimInstallOpts): void | Promise<void>;
+  diagnoseShim(orchDir: string): CheckResult | Promise<CheckResult>;
 }
 
 export interface DefaultModelRole {

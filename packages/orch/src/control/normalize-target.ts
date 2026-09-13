@@ -23,7 +23,7 @@ export function normalizeControlTarget(orchDir: string, target: string): string 
     throw new Error(`control target must be a non-empty string: ${JSON.stringify(target)}`);
   }
 
-  const presence = loadPresence();
+  const presence = loadPresence(orchDir);
   if (presence.has(target)) return target;
 
   const matches = agentViews(orchDir).filter((view) =>

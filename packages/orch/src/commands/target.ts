@@ -47,8 +47,8 @@ export function parseTargetPrompt(args: string[], ignoredFlag: string, usage: st
   return { target, prompt };
 }
 
-export function requirePresenceTarget(target: string): Entity {
-  const ent = resolveTarget(target);
+export function requirePresenceTarget(root: string, settings: OrchSettings, target: string): Entity {
+  const ent = resolveTarget(root, settings, target);
   if (!ent.presence) die(`Target "${target}" has no agent dir.`);
   return ent;
 }
@@ -76,7 +76,7 @@ export function agentViewIndex(root: string): Map<string, AgentView> {
 /** Presence re-indexed by minted id so an {@link AgentView} joins to it without
  *  ever reconstructing a key. Entries whose directory name carries no identity
  *  belong to no agent orch minted. */
-export function presenceById(presence: ReadonlyMap<string, PresenceEntry> = loadPresence()): Map<string, PresenceEntry> {
+export function presenceById(presence: ReadonlyMap<string, PresenceEntry>): Map<string, PresenceEntry> {
   const byId = new Map<string, PresenceEntry>();
   for (const entry of presence.values()) {
     if (isAgentId(entry.key)) byId.set(entry.key, entry);
@@ -105,8 +105,8 @@ export function leaseHolderOf(orchDir: string, key: string): string | null {
   }
 }
 
-export function livePanePresenceEntries(): PresenceEntry[] {
-  return [...loadPresence().values()].filter((pres) => pres.alive && looksLikePaneKey(pres.key));
+export function livePanePresenceEntries(root: string): PresenceEntry[] {
+  return [...loadPresence(root).values()].filter((pres) => pres.alive && looksLikePaneKey(pres.key));
 }
 
 export function targetHost(hosts: OrchSettings["hosts"], target: string): { host: string; target: string } | null {
@@ -138,32 +138,32 @@ export function remoteWrite(
   if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
 }
 
-export function callerOwnerToken(): string | undefined {
+export function callerOwnerToken(root: string): string | undefined {
   // The stamped owner is the id orch issued this process - the same id its
   // leases are held by. Never a plexer coordinate: that names an environment,
   // matches no stored record, and made orch refuse the fleet it had just spawned.
   const explicit = process.env.ORCH_OWNER;
   if (explicit) return explicit;
-  return selfId();
+  return selfId(root);
 }
 
 /** Refuse bulk operations that cannot identify their calling orchestrator. */
-export function requireCallerOwnerToken(): string {
-  forbidNonOperatorOverride("--all");
-  const token = callerOwnerToken();
+export function requireCallerOwnerToken(root: string): string {
+  forbidNonOperatorOverride(root, "--all");
+  const token = callerOwnerToken(root);
   if (!token) die(`Bulk operation refused: set ORCH_OWNER to identify this ${term("orch")}.`);
   return token;
 }
 
 /** True when this process was launched as an orch-spawned agent. */
-export function callerIsSpawnedAgent(): boolean {
-  return callerKind() === "agent";
+export function callerIsSpawnedAgent(root: string): boolean {
+  return callerKind(root) === "agent";
 }
 
 /** Owner-gate overrides are operator-only. A spawned agent may touch exactly
  *  what it spawned — no flag widens that, ever. */
-export function forbidNonOperatorOverride(flag: string): void {
-  if (callerKind() !== "operator") {
+export function forbidNonOperatorOverride(root: string, flag: string): void {
+  if (callerKind(root) !== "operator") {
     die(`${flag} is operator-only: a driving session may only touch agents it holds.`);
   }
 }
@@ -173,8 +173,8 @@ export function forbidNonOperatorOverride(flag: string): void {
 /** Where the caller acts: its own space, else the space its owner token names.
  *  An operator driving orch from outside any pane still operates a space, and
  *  losing that made its own fleet foreign to it. */
-export function actorSpace(token: string): string | null {
-  return callerSpace() ?? spaceOfAgent(token);
+export function actorSpace(root: string, token: string): string | null {
+  return callerSpace(root) ?? spaceOfAgent(root, token);
 }
 
 /** Whether the caller may drive this agent.
@@ -183,21 +183,21 @@ export function actorSpace(token: string): string | null {
  *  column on a wide row and never a second id space. Failing that, the human
  *  operator of a space controls every agent composed into it. */
 export function ownsAgent(orchDir: string, agent: Pick<AgentView, "id" | "heldBy">): boolean {
-  const token = callerOwnerToken();
+  const token = callerOwnerToken(orchDir);
   if (!token) return false;
   if (agent.heldBy?.orchId === token) return true;
-  return !callerIsSpawnedAgent()
-    && operatorControls(orchDir, token, agent.id, actorSpace(token), true);
+  return !callerIsSpawnedAgent(orchDir)
+    && operatorControls(orchDir, token, agent.id, actorSpace(orchDir, token), true);
 }
 
 /** Return the exact session address that spawned this caller. */
-export function selfSpawnAddress(): string | undefined {
-  return spawnerIdentity().key ?? undefined;
+export function selfSpawnAddress(root: string): string | undefined {
+  return spawnerIdentity(root).key ?? undefined;
 }
 
 /** True when a record predates spawn-session stamping or belongs to this session. */
-export function spawnedBySelf(record: { spawnedBy?: string }): boolean {
-  return record.spawnedBy === undefined || record.spawnedBy === selfSpawnAddress();
+export function spawnedBySelf(root: string, record: { spawnedBy?: string }): boolean {
+  return record.spawnedBy === undefined || record.spawnedBy === selfSpawnAddress(root);
 }
 
 export function assertAgentOwned(
@@ -208,7 +208,7 @@ export function assertAgentOwned(
   views?: ReadonlyMap<string, AgentView>,
 ): void {
   if (force) {
-    forbidNonOperatorOverride("--force");
+    forbidNonOperatorOverride(orchDir, "--force");
     return;
   }
   // Ownership is the open lease and nothing else. A closed one is history, and
@@ -221,11 +221,12 @@ export function assertAgentOwned(
 
 export function backendTarget(
   orchDir: string,
+  settings: OrchSettings,
   target: string,
   command: string,
   views?: ReadonlyMap<string, AgentView>,
 ): { backend: Backend; handle: string; key: string } {
-  const ent = resolveTarget(target);
+  const ent = resolveTarget(orchDir, settings, target);
   // The plexer is an ENVIRONMENT axis composed onto the agent, never a segment
   // of its key: an agent that moves plexers keeps the identity it was minted with.
   const view = viewForKey(views ?? agentViewIndex(orchDir), ent.key);
@@ -355,11 +356,11 @@ function lifecycleHandle(ent: Entity, view: AgentView | undefined): BackendHandl
  * Close is cleanup, so it must still resolve a dead or headless record after
  * the backend has stopped reporting the pane.
  */
-export function resolveLifecycleTarget(orchDir: string, target: string): LifecycleTarget {
+export function resolveLifecycleTarget(orchDir: string, settings: OrchSettings, target: string): LifecycleTarget {
   const allViews = agentViewIndex(orchDir);
-  const views = new Map([...allViews].filter(([key]) => callerMayResolve({ key })));
-  const presence = presenceById();
-  const entities = buildEntities({ skipBackends: true }).filter((entity) => callerMayResolve(entity));
+  const views = new Map([...allViews].filter(([key]) => callerMayResolve(orchDir, { key })));
+  const presence = presenceById(loadPresence(orchDir));
+  const entities = buildEntities(orchDir, settings, { skipBackends: true }).filter((entity) => callerMayResolve(orchDir, entity));
   const inventory = resolveFromInventory(entities, views, target);
   const composed = inventory.ent ? inventory : resolveFromViews(entities, views, presence, target);
   const view = composed.view ?? (composed.ent ? viewForKey(views, composed.ent.key) : undefined);
@@ -369,7 +370,7 @@ export function resolveLifecycleTarget(orchDir: string, target: string): Lifecyc
   // Lifecycle resolution must obey the same open-lease wall as ordinary target
   // resolution. The operator remains unscoped so the human can still close a
   // foreign agent; a driving session gets the ordinary unknown-target refusal.
-  if (!callerMayResolve(ent)) refuseForeignTarget(target);
+  if (!callerMayResolve(orchDir, ent)) refuseForeignTarget(target);
   const backendId = view?.environment.plexer ?? ent.backend;
   const backend = backendId ? getBackend(backendId) : undefined;
   if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(backendId)}.`);

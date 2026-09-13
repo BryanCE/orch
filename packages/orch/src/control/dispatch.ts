@@ -11,7 +11,7 @@ import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { agentProcessLive, setTuning } from "../store/interval-rows.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { pushToBridge } from "./bridge-links.ts";
-import type { OrchSettings } from "../settings/schema.ts";
+import type { OrchSettings } from "../types/settings.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AdapterCommand, AgentAdapter, LifecycleVerb } from "../types/adapter.ts";
 import type { ControlAction, ControlBoundaryOutcome } from "../types/control.ts";
@@ -32,7 +32,7 @@ function isPromptAction(action: ControlAction): action is PromptAction {
 
 /** Resolve the adapter recorded for a target via presence status, then the spawn registry. */
 export function resolveTargetAdapter(orchDir: string, target: string): AgentAdapter | undefined {
-  const agent = loadPresence().get(target)?.status?.agent ?? agentView(orchDir, target)?.harnessId;
+  const agent = loadPresence(orchDir).get(target)?.status?.agent ?? agentView(orchDir, target)?.harnessId;
   if (typeof agent !== "string" || !agent) return undefined;
   return resolveAdapter(agent);
 }
@@ -84,14 +84,14 @@ function requireLiveAgent(orchDir: string, target: string, adapter: AgentAdapter
  * answered while the pane sits in `asking` with no transition to notice. A pending
  * question has its own primitive; refuse and name it.
  */
-function refuseSteerWhileAsking(target: string, action: PromptAction): void {
+function refuseSteerWhileAsking(orchDir: string, target: string, action: PromptAction): void {
   if (action.kind !== "steer") return;
-  if (loadPresence().get(target)?.status?.state !== "asking") return;
+  if (loadPresence(orchDir).get(target)?.status?.state !== "asking") return;
   throw new Error(`cannot steer ${target}: it is awaiting an answer - use 'orch answer ${target} "<text>"'`);
 }
 
 async function deliverPrompt(orchDir: string, target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<ControlBoundaryOutcome> {
-  refuseSteerWhileAsking(target, action);
+  refuseSteerWhileAsking(orchDir, target, action);
   const bridgeAction = action.kind === "run" ? "dispatch" : "steer";
   if (adapter.bridge?.takes.includes(bridgeAction)) {
     requireLiveAgent(orchDir, target, adapter, action.kind);

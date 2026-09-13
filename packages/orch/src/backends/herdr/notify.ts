@@ -1,5 +1,4 @@
-import { loadSettingsOrNull } from "../../settings/read.ts";
-import { orchDir } from "../../presence/writer.ts";
+import type { OrchSettings } from "../../types/settings.ts";
 import { herdrAnswer, herdrReachable } from "./cli.ts";
 import { HERDR_SINK_ID } from "../backend.ts";
 import { notificationText } from "../../notify/format.ts";
@@ -7,8 +6,8 @@ import { isRecord } from "../../util.ts";
 import type { NotificationIo, Notifier } from "../../types/notify.ts";
 
 /** True when herdr is one of the plexers orch launches agents into. */
-function herdrRunsAgents(): boolean {
-  return loadSettingsOrNull(orchDir())?.enabled.backends.includes("herdr") ?? false;
+function herdrRunsAgents(settings: OrchSettings | null): boolean {
+  return settings?.enabled.backends.includes("herdr") ?? false;
 }
 
 /** Herdr-owned native notification sink. */
@@ -21,7 +20,7 @@ export const herdrNotifier: Notifier = {
   // that happens to be running setup, an install, or the daemon decides nothing.
   // Gating on HERDR_ENV tied the sink to the caller's pane and hid it from every
   // `orch setup` run outside one.
-  available: () => herdrRunsAgents() && herdrReachable(),
+  available: (settings) => herdrRunsAgents(settings) && herdrReachable(),
   // Synchronous and throws on transport failure; wrapping it in `async` promised
   // an await that never existed.
   deliver: (event, _config) => Promise.resolve(deliverHerdrNotification(notificationText(event))),

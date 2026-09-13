@@ -113,8 +113,8 @@ export function printLayout(backend: Backend, group: string, header: string) {
  *  orchd are UNMANAGED: no steer, model pin, or result reaches them, and printing
  *  the tiling and "Spawned N agent(s)" over that silence is what sent an operator
  *  dispatching into a fleet that answered nothing. Null when orchd answers. */
-export async function reportControlPlaneOutage(logger: Logger, placementCount: number): Promise<string | null> {
-  const outage = await daemonOutage();
+export async function reportControlPlaneOutage(orchDir: string, logger: Logger, placementCount: number): Promise<string | null> {
+  const outage = await daemonOutage(orchDir);
   if (!outage) return null;
   logger.error("spawn.control-plane-unreachable", { panes: placementCount, error: outage });
   process.stdout.write(`CONTROL PLANE UNREACHABLE - ${placementCount} pane(s) are UNMANAGED: ${outage}\n`);
@@ -123,7 +123,7 @@ export async function reportControlPlaneOutage(logger: Logger, placementCount: n
 }
 
 export async function reportSpawnResults(orchDir: string, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
-  const maySpawn = maySpawnFrom(orchDir, selfId(), settingsFile.fleet.max_depth);
+  const maySpawn = maySpawnFrom(orchDir, selfId(orchDir), settingsFile.fleet.max_depth);
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.handle}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
     printLayout(backend, group, "\nFinal tiling:");
@@ -134,7 +134,7 @@ export async function reportSpawnResults(orchDir: string, logger: Logger, settin
   if (!settings.json) {
     const views = agentViewIndex(orchDir);
     const presence = presenceById(loadPresence(orchDir));
-    const caller = selfId();
+    const caller = selfId(orchDir);
     const callerRoot = caller === undefined
       ? created.map((agent) => views.get(agent.key)?.rootAgentId).find((root): root is string => root !== undefined)
       : views.get(caller)?.rootAgentId;
@@ -151,7 +151,7 @@ export async function reportSpawnResults(orchDir: string, logger: Logger, settin
       }
     }
   }
-  const warnings = await pinModels(logger, registeredAgents ?? [], settings.model, settings.thinking);
+  const warnings = await pinModels(orchDir, logger, registeredAgents ?? [], settings.model, settings.thinking);
   const dispatches: { name: string; key: string; dispatchId: string }[] = [];
   if (registeredAgents && settings.prompts.length > 0) {
     const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
@@ -162,7 +162,7 @@ export async function reportSpawnResults(orchDir: string, logger: Logger, settin
       }
       const text = settings.prompts.length === 1 ? settings.prompts[0]! : settings.prompts[index]!;
       try {
-        const { id: dispatchId } = await dispatchToAgent(agent.key, text, {
+        const { id: dispatchId } = await dispatchToAgent(orchDir, agent.key, text, {
           adapter: resolveAdapterOrDie(settings.adapter),
           context: { maySpawn, spawnerRepliable: true, ...workerRules(settingsFile) },
         });
@@ -175,7 +175,7 @@ export async function reportSpawnResults(orchDir: string, logger: Logger, settin
       }
     }
   }
-  const outage = warnings.length ? await reportControlPlaneOutage(logger, created.length) : null;
+  const outage = warnings.length ? await reportControlPlaneOutage(orchDir, logger, created.length) : null;
   if (settings.json) process.stdout.write(JSON.stringify({
     backend: settings.backend,
     tab: tabLabel,

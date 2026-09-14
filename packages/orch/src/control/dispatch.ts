@@ -107,8 +107,17 @@ async function deliverPrompt(orchDir: OrchDir, target: string, adapter: AgentAda
   const route = resolveTargetRoute(orchDir, target);
   if (!route?.backend.placementInventory) return { outcome: "answer", reason: "not-placed", text: `${target} is placed nowhere; ${action.kind} does not apply.` };
   if (!route.backend.agentInput) return { outcome: "answer", reason: "no-environment-role", text: `this environment does not provide ${action.kind}` };
+  if (inputDraftPresent(adapter, route.backend, route.handle)) return { outcome: "hold", reason: "input-draft" };
   route.backend.agentInput.submit(route.handle, action.text);
   return { outcome: "invoke", ack: "none" };
+}
+
+/** Whether keys sent into the pane now would submit a draft a human is still typing. */
+function inputDraftPresent(adapter: AgentAdapter, backend: Backend, handle: BackendHandle): boolean {
+  const draft = adapter.inputDraft;
+  const screen = backend.screen;
+  if (draft === null || screen === null) return false;
+  return draft.draftPresent(screen.read(handle, draft.screenLines));
 }
 
 function deliverAnswer(orchDir: OrchDir, target: string, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>): ControlBoundaryOutcome {

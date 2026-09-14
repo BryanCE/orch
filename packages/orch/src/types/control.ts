@@ -31,4 +31,6 @@ export type ControlAck = "expected" | "none";
 
 export type ControlBoundaryOutcome =
   | { readonly outcome: "invoke"; readonly ack: ControlAck }
-  | { readonly outcome: "answer"; readonly text: string; readonly reason: "not-placed" | "no-environment-role" | "not-asking" };
+  | { readonly outcome: "answer"; readonly text: string; readonly reason: "not-placed" | "no-environment-role" | "not-asking" }
+  /** Not delivered now: the target's input line holds a draft the keys would submit. */
+  | { readonly outcome: "hold"; readonly reason: "input-draft" };

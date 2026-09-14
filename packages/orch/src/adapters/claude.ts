@@ -151,6 +151,22 @@ function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Lo
  */
 const CLAUDE_HOOK_EVENTS = ["SessionStart", "Stop", "Notification"] as const;
 
+/** Claude Code renders its input box in the last lines of the screen: a rule, the
+ *  prompt line, a rule, then the status line. The prompt line is `❯` alone when
+ *  empty and `❯ <text>` while a human types. */
+const CLAUDE_INPUT_SCREEN_LINES = 6;
+const CLAUDE_PROMPT_LINE = /^❯(?<draft>.*)$/mu;
+
+/** True when the last prompt line on screen carries text after the `❯` marker. */
+function claudeDraftPresent(screen: string): boolean {
+  const lines = screen.split("\n").reverse();
+  for (const line of lines) {
+    const prompt = CLAUDE_PROMPT_LINE.exec(line);
+    if (prompt?.groups?.draft !== undefined) return prompt.groups.draft.trim().length > 0;
+  }
+  return false;
+}
+
 /** Every command string registered under one Claude hook event, ignoring malformed entries. */
 function registeredHookCommands(settings: Record<string, unknown>, event: string): string[] {
   const entries = isRecord(settings.hooks) ? settings.hooks[event] : undefined;
@@ -184,6 +200,7 @@ class ClaudeAdapter implements AgentAdapter {
   readonly modelWarm = null;
   readonly bridge = null;
   readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => loadPresence(orchDir).has(key) };
+  readonly inputDraft = { screenLines: CLAUDE_INPUT_SCREEN_LINES, draftPresent: claudeDraftPresent };
 
   /** State is authoritative only when the Claude settings hooks are installed. */
   readonly hookDriven = true;

@@ -26,6 +26,26 @@ export { liveSpawnCounts } from "../../policy/capacity.ts";
 const SPAWN_POLICY_OFFERS = `bind the task to a live ${term("slave")} (orch dispatch <name>) or put it on the pack queue (orch queue add)`;
 
 
+/** Live members of the spawner's pack, the spawner itself included. A bare
+ *  operator session has no pack: its scope is the space it spawns into, and
+ *  with no space named it fills nothing but the fleet it asks for. */
+function livePackMembers(
+  settings: Pick<OrchSettings, "fleet">,
+  space: string | null,
+  views: ReadonlyMap<string, AgentView>,
+  presence: ReadonlyMap<string, PresenceEntry>,
+  packRoot: string | null,
+): number {
+  if (packRoot === null && space === null) return 1;
+  const capacity = computeFleetCapacity(views, presence, { fleet: settings.fleet }, {
+    packRootId: packRoot,
+    packSpace: packRoot === null ? space : undefined,
+  });
+  // The root itself counts as a live member when it holds no row of its own.
+  const rootWithoutRow = packRoot === null || !views.has(packRoot) ? 1 : 0;
+  return packsUsed(capacity) + rootWithoutRow;
+}
+
 /** Return a spawn policy refusal without allocating a handle, worktree, or queue entry. */
 export function spawnPolicyError(
   settings: Pick<OrchSettings, "fleet">,
@@ -45,14 +65,7 @@ export function spawnPolicyError(
     return `maximum spawn depth is ${maxDepth} (this spawner is at depth ${depth}; fleet.max_depth). ${SPAWN_POLICY_OFFERS} Raise it with \`orch settings\`.`;
   }
   const packRoot = spawnerId === null ? null : views.get(spawnerId)?.rootAgentId ?? spawnerId;
-  // A bare operator session has no pack; its scope is the space it is spawning into.
-  const capacity = computeFleetCapacity(views, presence, { fleet: settings.fleet }, {
-    packRootId: packRoot,
-    packSpace: packRoot === null ? space : undefined,
-  });
-  let live = packsUsed(capacity);
-  // The root itself counts as a live member when it holds no row of its own.
-  if (packRoot === null || !views.has(packRoot)) live++;
+  const live = livePackMembers(settings, space, views, presence, packRoot);
   const cap = settings.fleet.max_agents_per_pack;
   if (live + requested > cap) {
     return `pack cap ${cap} exceeded (${live} live member${live === 1 ? "" : "s"} + ${requested} requested; fleet.max_agents_per_pack). ${SPAWN_POLICY_OFFERS}`;

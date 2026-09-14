@@ -240,6 +240,15 @@ export interface PresenceRegistrationRole {
   isRegistered(key: string, orchDir: OrchDir): boolean;
 }
 
+/** The harness's input line as it renders on screen. Keys typed into a pane land after
+ *  whatever a human already typed there, so a submit carries the draft with it. */
+export interface InputDraftRole {
+  /** How many screen lines from the bottom hold the harness's input box. */
+  readonly screenLines: number;
+  /** True when the screen's input line holds text a human has not sent yet. */
+  draftPresent(screen: string): boolean;
+}
+
 export interface AgentAdapter {
   /** Stable adapter id recorded in the spawn registry and presence status. */
   readonly id: AdapterId;
@@ -265,6 +274,8 @@ export interface AgentAdapter {
   readonly modelWarm: ModelWarmRole | null;
   readonly bridge: BridgeRole | null;
   readonly presenceRegistration: PresenceRegistrationRole | null;
+  /** Draft detection on the rendered input line, absent when keys never go into this harness's pane. */
+  readonly inputDraft: InputDraftRole | null;
   /**
    * Env var this harness's interactive session exports into its subprocesses,
    * letting orch name the session KIND a spawn came from when the caller is not

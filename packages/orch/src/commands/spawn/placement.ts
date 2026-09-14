@@ -12,7 +12,7 @@ import { callerOwnerToken, die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
 import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
-import { homeHandle, openHome } from "../../store/home-rows.ts";
+import { clearHome, homeHandle, openHome } from "../../store/home-rows.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../types/command.ts";
 import type { HomeSubject } from "../../types/backend.ts";
 import type { SpawnAgentPlan, SpawnSettings } from "./flags.ts";
@@ -49,7 +49,7 @@ export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlac
   // plexer holds a home for it. A home recorded in another plexer is not this
   // one's to drive, so its absence here is simply no coordinate.
   if (space !== null) {
-    return { space, workspace: homeHandle(directory, { kind: "space", id: space }, backend.id) ?? undefined, homeToOpen: null };
+    return { space, workspace: listedHomeHandle(directory, { kind: "space", id: space }, backend) ?? undefined, homeToOpen: null };
   }
   // Already inside this plexer: the fleet lands beside the caller, so there is no
   // window to open and nothing to ask the human for. WHERE the caller sits is an
@@ -64,10 +64,22 @@ export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlac
   // answer, not a failure (E14): the plexer places the fleet on its own default.
   if (backend.spaceHome === null || packRootId === null) return { space: null, workspace: undefined, homeToOpen: null };
   const subject: HomeSubject = { kind: "pack", id: packRootId };
-  const existing = homeHandle(directory, subject, backend.id);
+  const existing = listedHomeHandle(directory, subject, backend);
   if (existing !== null) return { space: null, workspace: existing, homeToOpen: null };
   grantNewHome();
   return { space: null, workspace: undefined, homeToOpen: subject };
+}
+
+/** The recorded home coordinate the plexer still lists. A home the human closed
+ *  from the plexer side leaves its row open; that row is dropped here so the
+ *  subject is owed a fresh home instead of a spawn into a coordinate that is gone. */
+function listedHomeHandle(directory: OrchDir, subject: HomeSubject, backend: Backend): string | null {
+  const recorded = homeHandle(directory, subject, backend.id);
+  if (recorded === null) return null;
+  const role = backend.spaceHome;
+  if (role === null || role.list().some((home) => home.coordinate === recorded)) return recorded;
+  clearHome(directory, subject);
+  return null;
 }
 
 /** The plexer coordinate holding the caller's recorded place. A caller with no

@@ -8,7 +8,7 @@ import { processStartToken } from "../src/process-identity.ts";
 import { governWrite, deliverWrite } from "../src/daemon/server/handlers/write.ts";
 import { isLogRecord } from "../src/log.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { seedStatus } from "./helpers/presence.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { LogRecord, OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
@@ -105,8 +105,11 @@ describe("daemon decision trail", () => {
     const directory = fixture();
     // A bare minted id: an agent with no pane is not a different KIND of
     // identity, it is the same identity with one environment axis absent (A1).
+    // It has a spawner: a raw session's channel is its event stream, not a boundary.
     const target = mintAgentId();
-    seedStatus(directory, target, { agent: "claude", pid: process.pid });
+    agent(directory, "orch1");
+    seedAgent(target, { adapter: "claude", spawnedBy: "orch1" }, directory);
+    seedLiveProcess(directory, target);
 
     // Await the promise itself rather than `.resolves`: the linter does not see
     // matcher chains as Thenable, and awaiting the call is the same assertion.

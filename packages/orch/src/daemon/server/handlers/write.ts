@@ -98,6 +98,11 @@ export async function deliverWrite(state: DaemonState, target: string, payload: 
       log.warn("dispatch.refused", { target: canonicalTarget, reason: outcome.reason, text: outcome.text });
       return "acked";
     }
+    // A draft in the target's input line would go out with the text; the drain retries.
+    if (outcome.outcome === "hold") {
+      log.info("dispatch.held", { target: canonicalTarget, reason: outcome.reason });
+      return "failed";
+    }
     return outcome.ack === "expected" ? "queued" : "acked";
   } catch (error) {
     if (isAgentGone(error)) {

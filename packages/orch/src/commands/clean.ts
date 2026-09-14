@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { closeOutboxForDeadTargets, loadPresence, reapDeadPresenceDirs, reapMalformedPresenceDirs } from "../presence/store.ts";
+import { presenceAgentDir } from "../presence/writer.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { livePresenceHolders } from "../store/connection.ts";
 import { errorMessage } from "../util.ts";
@@ -131,8 +132,9 @@ export function removeDeadAgentDirs(services: Services, json: boolean, options: 
   for (const failure of result.failed) {
     const message = errorMessage(failure.error);
     const log = isAgentId(failure.entry.key) ? services.logger.forAgent(failure.entry.key) : services.logger;
-    log.error("clean.presence-remove-failed", { path: failure.entry.dir, error: message });
-    process.stdout.write(`failed to remove ${failure.entry.dir}: ${message}\n`);
+    const directory = presenceAgentDir(failure.entry.key, options.root);
+    log.error("clean.presence-remove-failed", { path: directory, error: message });
+    process.stdout.write(`failed to remove ${directory}: ${message}\n`);
   }
   const removed = result.removed.map((entry) => entry.key);
   if (!json) {

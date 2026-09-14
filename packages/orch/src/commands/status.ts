@@ -5,7 +5,7 @@ import { deriveDriveState, NO_ORCH_DRIVER } from "../agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../policy/capacity.ts";
 
 import { getAdapter } from "../adapters/registry.ts";
-import { collapse, buildEntities, sortEntities } from "../entities.ts";
+import { buildEntities, sortEntities } from "../entities/inventory.ts";
 import { getBackend } from "../backends/registry.ts";
 import { runRemoteAsync } from "../remote.ts";
 import { renderTable } from "../table.ts";
@@ -17,17 +17,17 @@ import { dim } from "../tui/screen.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { loadPresence } from "../presence/store.ts";
+import { pendingQuestion } from "../store/question-rows.ts";
 import {
   agentViewIndex,
   die,
   firstNonEmptyText,
   forbidNonOperatorOverride,
   presenceById,
-  resultText,
   splitOptionFlags,
   viewForKey,
 } from "./target.ts";
-import { truncate } from "../util.ts";
+import { collapse, truncate } from "../util.ts";
 import { isDaemonStatusRow } from "../daemon/rpc/protocol.ts";
 import type { AgentAdapter, SessionView } from "../types/adapter.ts";
 import type { AgentView } from "../types/store.ts";
@@ -60,7 +60,7 @@ interface Provenance {
 
 /** Resolve the adapter recorded for one entity (spawn registry, then presence, then backend report). */
 export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView>): AgentAdapter | undefined {
-  return getAdapter(viewForKey(views, ent.key)?.harnessId ?? ent.presence?.status?.agent ?? ent.agent ?? "");
+  return getAdapter(viewForKey(views, ent.key)?.harnessId ?? ent.agent ?? "");
 }
 
 function currentOrchId(orchDir: OrchDir): string | null {
@@ -87,9 +87,9 @@ function formatModel(provider: string | null | undefined, model: string, thinkin
 
 /** Build a model string from a presence status when one is reported. */
 function presenceModelString(pres: PresenceEntry | null): string | null {
-  const model = pres?.status?.model;
-  if (!model?.id) return null;
-  return formatModel(model.provider, model.id, pres?.status?.thinking);
+  const status = pres?.status;
+  if (!status?.modelId) return null;
+  return formatModel(status.modelProvider, status.modelId, status.thinking);
 }
 
 /** Build a model string from a session tail when one is reported. */
@@ -116,7 +116,7 @@ function deriveState(pres: PresenceEntry | null, ent: Entity, sview: SessionView
   }
   // presence = live bridge → no fallback marker
   if (!pres.alive) return { state: "exited", stateFallback: false, exited: true };
-  return { state: pres.status.asking ? "asking" : pres.status.state ?? "unknown", stateFallback: false, exited: false };
+  return { state: pres.status.state === "asking" ? "asking" : pres.status.state ?? "unknown", stateFallback: false, exited: false };
 }
 
 /** Pick the reported cost: presence first, then session view, else zero. */
@@ -128,8 +128,20 @@ function deriveCost(pres: PresenceEntry | null, sview: SessionView | null): numb
 
 /** Read the context-window percent from presence, or null when unreported. */
 function deriveContextPercent(pres: PresenceEntry | null): number | null {
-  if (pres?.status?.context && typeof pres.status.context.percent === "number") return pres.status.context.percent;
-  return null;
+  return pres?.status?.contextPercent ?? null;
+}
+
+function presenceTokens(pres: PresenceEntry | null): StatusRow["tokens"] {
+  const status = pres?.status;
+  if (!status) return null;
+  const values = [status.tokensIn, status.tokensOut, status.cacheRead, status.cacheWrite];
+  if (values.every((value) => value === null)) return null;
+  return {
+    ...(status.tokensIn === null ? {} : { input: status.tokensIn }),
+    ...(status.tokensOut === null ? {} : { output: status.tokensOut }),
+    ...(status.cacheRead === null ? {} : { cacheRead: status.cacheRead }),
+    ...(status.cacheWrite === null ? {} : { cacheWrite: status.cacheWrite }),
+  };
 }
 
 /** Read a session tail only when the adapter declares that capability. */
@@ -138,13 +150,16 @@ function sessionViewFor(ent: Entity, adapter: AgentAdapter | undefined): Session
   return adapter.sessionView.readSessionView({ sessionPath: ent.sessionPath }) ?? null;
 }
 
-function deriveViewTask(pres: PresenceEntry | null, sview: SessionView | null): string {
-  const question = pres?.status?.asking?.question;
-  return firstNonEmptyText(question ? `Q: ${question}` : undefined, pres?.status?.task, sview?.task);
+function deriveViewTask(pres: PresenceEntry | null, sview: SessionView | null, directory: OrchDir, agentId: string): string {
+  const status = pres?.status;
+  const question = status?.state === "asking"
+    ? pendingQuestion(directory, agentId)?.question ?? status.blockedMessage
+    : undefined;
+  return firstNonEmptyText(question ? `Q: ${question}` : undefined, status?.task, sview?.task);
 }
 
 function deriveViewLast(pres: PresenceEntry | null, sview: SessionView | null): string {
-  return firstNonEmptyText(pres?.status?.lastText, resultText(pres?.result), sview?.lastText);
+  return firstNonEmptyText(pres?.status?.lastText, pres?.result, sview?.lastText);
 }
 
 /**
@@ -152,19 +167,15 @@ function deriveViewLast(pres: PresenceEntry | null, sview: SessionView | null): 
  * the immutable spawner; worktree/branch are environment axes; cwd is the
  * agent's own. Nothing here reads a second copy of any of them off one wide row.
  */
-function viewProvenance(
-  pres: PresenceEntry | null,
-  view: AgentView | undefined,
-): Provenance {
-  const status = pres?.status ?? null;
+function viewProvenance(view: AgentView | undefined): Provenance {
   return {
-    spawnedBy: view?.spawnedBy ?? status?.spawnedBy ?? null,
+    spawnedBy: view?.spawnedBy ?? null,
     // The spawner's name is a JOIN the composer already makes; a second copy
     // beside the child goes stale the moment the spawner is renamed.
-    spawnedByLabel: view?.spawnedByName ?? status?.spawnedByLabel ?? null,
-    worktree: view?.environment.worktree ?? status?.worktree ?? null,
-    branch: view?.environment.branch ?? status?.branch ?? null,
-    cwd: view?.cwd ?? status?.cwd ?? null,
+    spawnedByLabel: view?.spawnedByName ?? null,
+    worktree: view?.environment.worktree ?? null,
+    branch: view?.environment.branch ?? null,
+    cwd: view?.cwd ?? null,
   };
 }
 
@@ -614,7 +625,7 @@ export function statusRowFromEntity(
   const agentView = viewForKey(views, entity.key);
   const modelFull = deriveModelString(pres, sview, adapter);
   const { state, stateFallback, exited } = deriveState(pres, entity, sview);
-  const provenance = viewProvenance(pres, agentView);
+  const provenance = viewProvenance(agentView);
   const alive = pres?.alive ?? false;
   const spaceNames = orchNames(entity.key, views);
   const spaceId = spaceNames.spaceId ?? entity.space;
@@ -640,23 +651,22 @@ export function statusRowFromEntity(
     modelShort: modelFull.replace(/^openai-codex\//, ""),
     state: displayStatusState({ state, alive, exited }),
     stateFallback,
-    staleExtension: isBridgeExtensionStale(pres?.status?.extensionHash, undefined, staleHashes),
+    staleExtension: isBridgeExtensionStale(pres?.status?.extensionHash ?? undefined, undefined, staleHashes),
     exited,
     alive,
     cost: deriveCost(pres, sview),
     ctxPercent: deriveContextPercent(pres),
     // Collapse deliberately at the row boundary so JSON and table cells agree.
-    task: collapse(deriveViewTask(pres, sview)),
+    task: collapse(deriveViewTask(pres, sview, directory, entity.key)),
     dispatchId: pres?.status?.dispatchId ?? null,
     lastText: collapse(deriveViewLast(pres, sview)),
     backendStatus: entity.backendStatus,
     backend: entity.backend,
     capabilities: backendCapabilities(entity),
     sessionPath: entity.sessionPath,
-    presenceDir: pres?.dir ?? null,
     presenceOnly: entity.presenceOnly,
     bridgeAttached: null,
-    tokens: sview?.tokens ?? pres?.status?.tokens ?? null,
+    tokens: sview?.tokens ?? presenceTokens(pres),
     turns: pres?.status?.turns ?? sview?.turns ?? null,
     spaceId,
     spaceName: spaceNames.spaceName ?? resolveSpaceName(spaceId, spaces),
@@ -699,7 +709,7 @@ export function warningStatusRow(host: string, warning: string): StatusRow {
     spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
     focused: false, model: "", modelShort: "", state: "warning", stateFallback: false, staleExtension: false,
     exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,
-    backendStatus: null, backend: null, capabilities: null, sessionPath: null, presenceDir: null, presenceOnly: false,
+    backendStatus: null, backend: null, capabilities: null, sessionPath: null, presenceOnly: false,
     bridgeAttached: null, tokens: null, turns: null, host, warning,
   };
 }

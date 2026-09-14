@@ -33,7 +33,7 @@ function isPromptAction(action: ControlAction): action is PromptAction {
 
 /** Resolve the adapter recorded for a target via presence status, then the spawn registry. */
 export function resolveTargetAdapter(orchDir: OrchDir, target: string): AgentAdapter | undefined {
-  const agent = loadPresence(orchDir).get(target)?.status?.agent ?? agentView(orchDir, target)?.harnessId;
+  const agent = agentView(orchDir, target)?.harnessId;
   if (typeof agent !== "string" || !agent) return undefined;
   return resolveAdapter(agent);
 }

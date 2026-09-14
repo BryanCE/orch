@@ -8,7 +8,7 @@
  * indistinguishable from a passing one. The CLI boundary is the one place that
  * turns a refusal into an exit code.
  *
- * This module is a leaf on purpose: `src/entities.ts` and `src/commands/` both
+ * This module is a leaf on purpose: `src/entities/resolve.ts` and `src/commands/` both
  * raise refusals, and neither may import the other.
  */
 import type { AmbiguousCandidate } from "./types/core.ts";
@@ -29,7 +29,7 @@ export function die(message: string): never {
 /**
  * The ONE wording for "that target matched more than one agent".
  *
- * This refusal used to have three. `entities.ts`
+ * This refusal used to have three. `entities/resolve.ts`
  * printed a bare candidate list with no advice, so a caller read it as a
  * listing command's output and lost the turn; `resolveAgentView` said "address
  * by id" and `resolveLifecycleTarget` said "address by key" — two names for a

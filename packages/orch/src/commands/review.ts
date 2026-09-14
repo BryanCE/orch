@@ -1,10 +1,8 @@
-import { collapse } from "../entities.ts";
 import { loadPresence } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
-import { errorMessage } from "../util.ts";
+import { collapse, errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
 import { agentAddress, agentViewIndex, die, presenceById } from "./target.ts";
-import { resultText } from "./target.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
 import { repositoryBranch, repositoryCommonRoot, worktreeReviewSummary, mergeReviewBranch, removeMergedWorktree } from "../worktree.ts";
@@ -128,10 +126,10 @@ function reviewItems(orchDir: OrchDir): ReviewItem[] {
       const details = worktreeReviewSummary(worktree, base, branch);
       if (details.commitsAhead === 0) continue;
       const status = entry.status;
-      const adapter = view.harnessId ?? status?.agent;
+      const adapter = view.harnessId;
       if (!adapter) continue;
       const key = agentAddress(view, presence);
-      const resultSummary = resultText(entry.result) ? collapse(resultText(entry.result)!) : "";
+      const resultSummary = entry.result ? collapse(entry.result) : "";
       items.push({
         target: reviewTarget({ key, branch }),
         key,

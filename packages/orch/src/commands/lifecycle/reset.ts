@@ -1,6 +1,4 @@
-import * as path from "node:path";
-import { STATUS_FILE } from "../../presence/schema.ts";
-import { presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
+import { selectAgentStatus } from "../../store/status-rows.ts";
 import { reclaimAgent } from "../../store/agent-rows.ts";
 import { tuningOf } from "../../store/agent-view.ts";
 import { modelSpec } from "../../policy/thinking.ts";
@@ -39,15 +37,13 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
   const { entity: ent, handle } = resolveLifecycleTarget(services.orchDir, services.settings.current(), target);
   const label = describeHandle(handle);
   assertAgentOwned(services.orchDir, target, ent, force);
-  const statusPath = path.join(presenceAgentDir(ent.key, services.orchDir), STATUS_FILE);
-  const before = readPresenceStatus(statusPath);
-  const beforeUpdated = Date.parse(typeof before?.updatedAt === "string" ? before.updatedAt : "");
+  const beforeUpdated = selectAgentStatus(services.orchDir, ent.key)?.updatedAt;
   const sentAt = Date.now();
   // The daemon owns every lifecycle mechanism: a console gets the adapter's
   // text, an agent with none is refused. Neither is the CLI's to choose.
   reclaimAgent(services.orchDir, ent.key);
   await writeRpc(services, "lifecycle", { target: ent.key, verb: "reset" });
-  if (!awaitIdleAfter(statusPath, beforeUpdated, sentAt)) die(`${label}: reset did not become ready within 75s.`);
+  if (!awaitIdleAfter(services.orchDir, ent.key, beforeUpdated, sentAt)) die(`${label}: reset did not become ready within 75s.`);
   return { key: ent.key, handle: label, name: ent.name ?? label };
 }
 

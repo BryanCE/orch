@@ -1,6 +1,9 @@
-import { buildEntities, recipientFor, recipientLabel, resolvePane, resolveTarget } from "../../entities.ts";
+import { buildEntities } from "../../entities/inventory.ts";
+import { recipientFor } from "../../entities/lookup.ts";
+import { resolvePane, resolveTarget } from "../../entities/resolve.ts";
+import { recipientLabel } from "../../recipient.ts";
 import { isAgentId } from "../../backends/identity.ts";
-import { readPresenceStatus } from "../../presence/writer.ts";
+import { selectAgentStatus } from "../../store/status-rows.ts";
 import { retryingSync } from "../../retry.ts";
 import { isRecord } from "../../util.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
@@ -10,7 +13,7 @@ import { entityAdapter } from "../status.ts";
 import { parseGovernance, writeRpc } from "../daemon.ts";
 import { agentViewIndex, backendTarget, die, ownsAgent, parseTargetPrompt, requireCallerOwnerToken, viewForKey } from "../target.ts";
 import type { Services } from "../../types/services.ts";
-import type { Logger } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 
 export function lifecycleLogger(logger: Logger, key: string) {
   return isAgentId(key) ? logger.forAgent(key) : logger;
@@ -66,16 +69,15 @@ export function cmdWait(services: Services, args: string[]) {
 
 /** Block until the agent's own presence status reports idle from a write newer than
  *  the one we replaced. A stale idle is the pre-reset session answering for the new one. */
-export function awaitIdleAfter(statusPath: string, beforeUpdated: number, sentAt: number): boolean {
+export function awaitIdleAfter(orchDir: OrchDir, presenceKey: string, beforeUpdated: number | undefined, sentAt: number): boolean {
   return retryingSync(
     "await idle presence",
     () => {
-      const status = readPresenceStatus(statusPath);
-      const updated = Date.parse(typeof status?.updatedAt === "string" ? status.updatedAt : "");
-      const advanced = Number.isFinite(updated)
-        && (!Number.isFinite(beforeUpdated) || updated > beforeUpdated)
-        && updated >= sentAt - 1000;
-      return advanced && status?.state === "idle";
+      const status = selectAgentStatus(orchDir, presenceKey);
+      const advanced = status !== undefined
+        && (beforeUpdated === undefined || status.updatedAt > beforeUpdated)
+        && status.updatedAt >= sentAt - 1000;
+      return advanced && status.state === "idle";
     },
     { attempts: 300, delayMs: 250, backoff: 1 },
     { sleepSync: sleepMs, retryOnResult: (value) => !value },

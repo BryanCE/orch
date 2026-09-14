@@ -1,10 +1,11 @@
 import { isAgentId } from "../backends/identity.ts";
-import { collapse, resolveTarget, spaceOf } from "../entities.ts";
+import { resolveTarget } from "../entities/resolve.ts";
+import { spaceOf } from "../policy/space.ts";
 import { loadPresence } from "../presence/store.ts";
 import { selfId } from "../identity/self.ts";
 import { callerKind } from "../policy/caller.ts";
 import { holdsLease } from "../store/lease-rows.ts";
-import { isRecord, truncate } from "../util.ts";
+import { collapse, isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";

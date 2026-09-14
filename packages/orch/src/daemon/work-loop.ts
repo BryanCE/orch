@@ -1,6 +1,5 @@
 import type { OrchDir } from "../types/core.ts";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import { deliverControl } from "../control/dispatch.ts";
 import { errorMessage } from "../util.ts";
 import {
@@ -12,13 +11,14 @@ import {
   recordTaskFailure,
   type TaskRec,
 } from "../queue.ts";
-import { composeAskingEvent, emitAndNotify } from "./events.ts";
+import { emitAndNotify } from "./events.ts";
+import { askingEventFromRow } from "./status-events.ts";
 import { deliverTaskResult } from "./result-delivery.ts";
-import { loadPresence, statusForPresence } from "../presence/store.ts";
+import { loadPresence } from "../presence/store.ts";
 import { pendingQuestions, type QuestionRow } from "../store/question-rows.ts";
-import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
-import { STATUS_FILE } from "../presence/schema.ts";
+import { selectAgentStatus } from "../store/status-rows.ts";
 import { workerHeaderFor, workerRules } from "../worker-prompt.ts";
+import { abstractAgentLabel } from "../notify/format.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { agentById } from "../store/agent-rows.ts";
@@ -73,16 +73,16 @@ function currentAttempt(task: TaskRec) {
   return task.attempts.at(-1);
 }
 
-export function statusSpeaksForTask(status: { dispatchId?: string } | null, task: TaskRec): boolean {
+export function statusSpeaksForTask(status: { dispatchId?: string | null } | null, task: TaskRec): boolean {
   if (!status) return false;
-  return status.dispatchId === undefined || status.dispatchId === currentAttempt(task)?.dispatchId;
+  return status.dispatchId === null || status.dispatchId === undefined || status.dispatchId === currentAttempt(task)?.dispatchId;
 }
 
 async function waitForWorking(entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   let state: string | null = null;
   do {
-    const status = statusForPresence(entry);
+    const status = entry.status;
     state = status?.state ?? null;
     if (state === "working" && statusSpeaksForTask(status, task)) return state;
     if (Date.now() >= deadline) return state;
@@ -96,12 +96,12 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   // the tables that own each fact, never decoded out of the address.
   const runnerId = currentAttempt(task)?.agentId ?? (isAgentId(entry.key) ? entry.key : undefined);
   const view = runnerId === undefined ? null : agentView(orchDir, runnerId);
-  const adapterId = view?.harnessId ?? entry.status?.agent;
+  const adapterId = view?.harnessId;
   const rules = workerRules(options.settings.current());
   // The daemon is not this agent's spawner; provenance names it. Only a spawner
   // still writing live presence can receive the reply the clause instructs, and
   // a presence key is that spawner's minted id.
-  const spawnerKey = view?.spawnedBy ?? entry.status?.spawnedBy;
+  const spawnerKey = view?.spawnedBy;
   const spawnerRepliable = typeof spawnerKey === "string" && agentProcessLive(orchDir, spawnerKey);
   const header = workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...rules });
   const prompt = `${header}\n\n${task.text}`;
@@ -138,7 +138,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
 async function waitForTaskState(entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const status = statusForPresence(entry);
+    const status = entry.status;
     const state = status?.state;
     if ((state === "working" || state === "done" || state === "error") && statusSpeaksForTask(status, task)) return state;
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -146,15 +146,18 @@ async function waitForTaskState(entry: PresenceEntry, task: TaskRec, timeoutMs: 
   return "timeout";
 }
 
-function taskEvent(entry: PresenceEntry, task: TaskRec, oldState: TaskState, newState: TaskState, lastError?: string): NotifyEvent {
-  const status = statusForPresence(entry);
+function taskEvent(orchDir: OrchDir, entry: PresenceEntry, task: TaskRec, oldState: TaskState, newState: TaskState, lastError?: string): NotifyEvent {
+  const view = agentView(orchDir, entry.key);
+  const space = task.scopeSpaceId ?? undefined;
+  const name = view?.name ?? null;
   return {
     type: "task",
     // Cq4: the lifecycle/result event belongs to the enqueuer, not the runner.
     key: task.enqueuedBy,
-    space: task.scopeSpaceId ?? undefined,
-    agent: status?.label ?? status?.agent ?? currentAttempt(task)?.agentId ?? null,
-    tab: status?.tabLabel ?? null,
+    space,
+    agent: name ?? abstractAgentLabel(space ?? "space", entry.key),
+    name,
+    tab: null,
     model: null,
     oldState,
     newState,
@@ -175,17 +178,17 @@ function settleClaimedTasks(orchDir: OrchDir, settings: ReturnType<WorkOptions["
     // a retry may land; pack work therefore survives one member disappearing.
     if (!agent || !agent.alive) {
       const settled = recordTaskFailure(orchDir, task.id, `claiming agent ${attempt.agentId} is gone`);
-      if (agent) emit(taskEvent(agent, settled, task.state, settled.state, attempt.error ?? undefined));
+      if (agent) emit(taskEvent(orchDir, agent, settled, task.state, settled.state, attempt.error ?? undefined));
       continue;
     }
-    const status = statusForPresence(agent);
+    const status = agent.status;
     if (!statusSpeaksForTask(status, task)) continue;
     if (status?.state === "done") {
       const settled = recordTaskDone(orchDir, task.id, agent.result);
       deliverTaskResult(orchDir, settings, task.id);
-      emit(taskEvent(agent, settled, task.state, settled.state));
+      emit(taskEvent(orchDir, agent, settled, task.state, settled.state));
     }
-    if (status?.state === "error") settleError(orchDir, settings, task, typeof status?.lastError === "string" ? status.lastError : "agent reported error", agent, emit);
+    if (status?.state === "error") settleError(orchDir, settings, task, status.lastError ?? "agent reported error", agent, emit);
   }
 }
 
@@ -223,14 +226,13 @@ export function reaskQuestions(options: ReaskQuestionsOptions): void {
   }
 }
 
-function reaskEvent(orchDir: OrchDir, question: QuestionRow, nowMs: number, askCount: number, gaveUp: boolean): NotifyEvent {
-  const status = readPresenceStatus(join(presenceAgentDir(question.agentId, orchDir), STATUS_FILE));
-  const event = composeAskingEvent(
+function reaskEvent(orchDir: OrchDir, question: QuestionRow, nowMs: number, askCount: number, gaveUp: boolean): NotifyEvent | null {
+  const status = selectAgentStatus(orchDir, question.agentId);
+  if (status === undefined) return null;
+  const event = askingEventFromRow(
     orchDir,
-    question.agentId,
     status,
-    { name: null, tab: null },
-    { previous: "asking" },
+    "asking",
     askCount,
     gaveUp,
     new Date(nowMs),
@@ -245,7 +247,7 @@ function settleError(orchDir: OrchDir, settings: ReturnType<WorkOptions["setting
   // Cq4: a failure reports back too — silence is the worst outcome for the
   // orch that asked, and it may be in another pack with nothing else to read.
   deliverTaskResult(orchDir, settings, task.id);
-  emit(taskEvent(entry, settled, task.state, settled.state, error));
+  emit(taskEvent(orchDir, entry, settled, task.state, settled.state, error));
 }
 
 async function assignTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec, emit: (event: NotifyEvent) => void): Promise<void> {
@@ -257,14 +259,14 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
     const current = requireTask(orchDir, task.id);
     if (state === "timeout") {
       const failed = recordTaskFailure(orchDir, task.id, "agent did not acknowledge working");
-      emit(taskEvent(entry, failed, current.state, failed.state, "agent did not acknowledge working"));
+      emit(taskEvent(orchDir, entry, failed, current.state, failed.state, "agent did not acknowledge working"));
       return;
     }
     if (state === "error") return settleError(orchDir, options.settings.current(), current, "agent reported error", entry, emit);
     if (state === "done") {
       const done = recordTaskDone(orchDir, task.id, loadPresence(orchDir).get(entry.key)?.result);
       deliverTaskResult(orchDir, options.settings.current(), task.id);
-      emit(taskEvent(entry, done, current.state, done.state));
+      emit(taskEvent(orchDir, entry, done, current.state, done.state));
     }
   } catch (error) {
     const current = requireTask(orchDir, task.id);
@@ -301,7 +303,10 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
         intervalMs: questionSettings.renag_ms,
         limit: questionSettings.renag_limit,
         state: questionState,
-        emit: (question, askCount, gaveUp) => emit(reaskEvent(orchDir, question, nowMs, askCount, gaveUp)),
+        emit: (question, askCount, gaveUp) => {
+          const event = reaskEvent(orchDir, question, nowMs, askCount, gaveUp);
+          if (event !== null) emit(event);
+        },
       });
     }
     const maxRetries = settings?.queue.max_retries ?? options.maxRetries ?? 1;
@@ -320,7 +325,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
       if (!task || !claimTask(orchDir, task.id, agentId, dispatchId)) continue;
       assigned++;
       const claimed = requireTask(orchDir, task.id);
-      emit(taskEvent(entry, claimed, task.state, claimed.state));
+      emit(taskEvent(orchDir, entry, claimed, task.state, claimed.state));
       await assignTask(options, entry, claimed, emit);
       if (options.once || options.signal?.aborted) break;
     }

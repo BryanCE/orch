@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadPresence, readJSON, statusForPresence } from "../presence/store.ts";
+import { loadPresence, readJSON } from "../presence/store.ts";
 import { errnoCode, isRecord, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
@@ -118,7 +118,7 @@ export function presenceFor(key: string, orchDir: OrchDir): PresenceEntry | unde
 /** The presence state a pi-shaped harness's bridge last wrote for this agent. */
 export function presenceAgentState(key: string, orchDir: OrchDir): AgentState {
   const presence = presenceFor(key, orchDir);
-  return presence ? stateFrom(statusForPresence(presence)?.state) : "unknown";
+  return presence ? stateFrom(presence.status?.state) : "unknown";
 }
 
 /**
@@ -377,7 +377,7 @@ export class PiAdapter implements AgentAdapter {
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parsePiModelsOutput(catalogue.read("pi", PI_MODELS_ARGV)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("pi", PI_MODELS_ARGV) };
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
-  readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceFor(key, orchDir) !== undefined };
+  readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => loadPresence(orchDir).has(key) };
 
   /** Start pi directly in an interactive backend session. Worker options use the same
    * composition as restricted launches, so tile/spawn cannot silently drop extensions. */

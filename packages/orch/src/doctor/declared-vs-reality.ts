@@ -9,14 +9,13 @@ import { agentEndings, agentHandles, agentLeases, agentPlexers, agentProcesses, 
 import { currentProcess, currentTuning } from "../store/interval-rows.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { modelSpec } from "../policy/thinking.ts";
-import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
-import { STATUS_FILE } from "../presence/schema.ts";
+import { selectAgentStatus } from "../store/status-rows.ts";
 import type { CheckResult, DeclaredVsRealityDependencies, PlexerInventoryEntry } from "../types/doctor.ts";
 
 const DEFAULT_DEPENDENCIES: DeclaredVsRealityDependencies = {
   processAlive: recordedInstanceIsLive,
   plexerInventory: defaultInventory,
-  readPresenceStatus,
+  agentStatus: selectAgentStatus,
 };
 
 /** The doctor asks through injected `processAlive` so a check can be run against
@@ -78,10 +77,10 @@ function orphanFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDepende
 function tuningFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies): string[] {
   return liveAgentViews(orchDir).flatMap((agent) => {
     const tuning = currentTuning(orchDir, agent.id);
-    const status = dependencies.readPresenceStatus(join(presenceAgentDir(agent.id, orchDir), STATUS_FILE));
-    if (tuning === undefined || status === null) return [];
+    const status = dependencies.agentStatus(orchDir, agent.id);
+    if (tuning === undefined || status === undefined) return [];
     const declared = modelSpec(tuning.model, tuning.thinking);
-    const runningModel = `${status.model?.provider}/${status.model?.id}`;
+    const runningModel = `${status.modelProvider}/${status.modelId}`;
     const running = modelSpec(runningModel, status.thinking);
     if (declared === running) return [];
     return [`agent ${agent.id} (${agent.name}): declared ${declared}, running ${running}`];

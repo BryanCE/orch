@@ -6,15 +6,18 @@ import { scopeToSpace, spaceOf } from "../policy/space.ts";
 import { agentView, liveAgentViews } from "../store/agent-view.ts";
 import { agentProcessLive } from "../store/interval-rows.ts";
 import { loadPresence } from "../presence/store.ts";
+import type { AgentStatusRow } from "../store/status-rows.ts";
 import type { DriveState } from "../types/agent.ts";
-import type { JsonRecord } from "../types/core.ts";
+
+type PeerStatus = Pick<AgentStatusRow, "state" | "task" | "lastText" | "modelId" | "thinking" | "contextPercent" | "sessionPath" | "project">;
 
 export interface PeerViewPeer {
   key: string;
   name: string;
   harness: string;
   spawnedBy: string | null;
-  status: JsonRecord | null;
+  status: PeerStatus | null;
+  result: string | null;
 }
 
 export interface PeerView {
@@ -31,6 +34,19 @@ export interface PeerView {
 function mayCrossFleets(orchDir: OrchDir, callerId: string | null): boolean {
   if (callerId === null) return true;
   return depthOf((id) => agentView(orchDir, id), callerId) === 0;
+}
+
+function statusFields(status: AgentStatusRow): PeerStatus {
+  return {
+    state: status.state,
+    task: status.task,
+    lastText: status.lastText,
+    modelId: status.modelId,
+    thinking: status.thinking,
+    contextPercent: status.contextPercent,
+    sessionPath: status.sessionPath,
+    project: status.project,
+  };
 }
 
 /** Roots may request every space; a non-root caller sees its descendants and
@@ -65,7 +81,8 @@ export function peerView(orchDir: OrchDir, ownKey: string, keys: string[], allSp
       name: view.name,
       harness: view.harnessId,
       spawnedBy: view.spawnedBy,
-      status: status === null || status === undefined ? null : Object.fromEntries(Object.entries(status)),
+      status: status === null || status === undefined ? null : statusFields(status),
+      result: presence.get(key)?.result ?? null,
     }];
   });
   const spaces: Record<string, string | null> = {};

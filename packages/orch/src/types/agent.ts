@@ -341,10 +341,8 @@ export interface ModelControlDeps {
   harness: HarnessApi;
   /** The running agent's context, read fresh so a retry sees a registry that just loaded. */
   context: () => HarnessContext | undefined;
-  /** Append the outcome to this agent's presence history. */
-  recordOutcome: (outcome: JsonRecord) => void;
   /** Report the outcome to orchd, which replies to whoever is waiting. */
   reportOutcome: (outcome: ControlOutcome) => Promise<boolean>;
-  /** Re-read the applied model into presence state and flush status.json. */
+  /** Re-read the applied model into presence state and report the refreshed status. */
   refreshPresence: () => void;
 }

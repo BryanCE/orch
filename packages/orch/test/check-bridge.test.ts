@@ -254,7 +254,7 @@ describe("10.5 identity construction is issuer-only (checkIdentityConstructionLi
 
   test("passes the clean tree: every identity construction is allowed or registered", () => {
     const unregistered: string[] = [];
-    for (const file of ["src/entities.ts", "src/commands/spawn/index.ts", "src/daemon/rpc/registration.ts", "src/backends/identity.ts"]) {
+    for (const file of ["src/entities/target.ts", "src/entities/lookup.ts", "src/entities/space.ts", "src/entities/inventory.ts", "src/entities/resolve.ts", "src/commands/spawn/index.ts", "src/daemon/rpc/registration.ts", "src/backends/identity.ts"]) {
       const allowed = IDENTITY_CONSTRUCTION_ALLOWLIST.get(file) ?? new Set<string>();
       for (const line of readRepoLines(file)) {
         if (allowed.has(line.trim())) continue;

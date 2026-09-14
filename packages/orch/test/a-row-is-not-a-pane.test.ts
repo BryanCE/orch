@@ -3,7 +3,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildEntities } from "../src/entities.ts";
+import { buildEntities } from "../src/entities/inventory.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";

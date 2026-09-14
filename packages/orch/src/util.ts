@@ -55,6 +55,10 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function collapse(value: string): string {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
 /** Read a Node syscall error code only when the thrown value actually carries a string code. */
 export function errnoCode(value: unknown): string | undefined {
   if (typeof value !== "object" || value === null || !("code" in value)) return undefined;

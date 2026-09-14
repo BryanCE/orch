@@ -12,11 +12,10 @@ import { execFile } from "node:child_process";
 import { errorMessage } from "../util.ts";
 import { Context, Effect, Layer, Stream } from "effect";
 import { subscribeEvents } from "../daemon/rpc/client.ts";
-import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
+import { presenceAgentDir } from "../presence/writer.ts";
 import { sendPeerMessage } from "../agent/peers.ts";
 import { isNotifyEvent } from "../notify/event.ts";
-import * as path from "node:path";
-import { STATUS_FILE } from "../presence/schema.ts";
+import { selectAgentStatus } from "../store/status-rows.ts";
 import { PackAbortError, PackSendError } from "./domain.ts";
 import type { PackEnrichment, PackSourceConfig, PackSourceShape } from "../types/seat.ts";
 import type { NotifyEvent } from "../types/notify.ts";
@@ -41,19 +40,19 @@ function makePackSource(config: PackSourceConfig): PackSourceShape {
     transitions,
     ownKey: config.ownKey,
     enrich(key: string): PackEnrichment {
-      const dir = presenceAgentDir(key, config.orchDir);
-      const status = readPresenceStatus(path.join(dir, STATUS_FILE));
+      const status = selectAgentStatus(config.orchDir, key);
       if (!status) return {};
       return {
-        sessionPath: status.sessionPath,
-        presenceDir: dir,
-        cwd: status.cwd,
-        thinking: status.thinking,
-        usage: status.context
-          ? { tokens: status.context.tokens, percent: status.context.percent }
-          : undefined,
-        lastText: status.lastText,
-        asking: status.asking ? { question: status.asking.question, id: status.asking.id } : undefined,
+        sessionPath: status.sessionPath ?? undefined,
+        presenceDir: presenceAgentDir(key, config.orchDir),
+        thinking: status.thinking ?? undefined,
+        usage: status.contextPercent === null && status.contextTokens === null
+          ? undefined
+          : {
+              tokens: status.contextTokens ?? undefined,
+              percent: status.contextPercent ?? undefined,
+            },
+        lastText: status.lastText ?? undefined,
       };
     },
     send(key: string, text: string) {

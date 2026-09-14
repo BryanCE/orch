@@ -1,7 +1,7 @@
 import type { OrchRuntime } from "../runtimes.ts";
-import type { PresenceStatus } from "./presence.ts";
+import type { AgentStatusRow } from "../store/status-rows.ts";
 import type { ServerReport } from "./backend.ts";
-import type { SshResult } from "./core.ts";
+import type { OrchDir, SshResult } from "./core.ts";
 
 /** Shared result shape returned by doctor checks and adapter diagnostics. */
 export interface FixDescriptor {
@@ -62,7 +62,7 @@ export interface PlexerInventoryEntry {
 export interface DeclaredVsRealityDependencies {
   readonly processAlive: (pid: number, startToken: string | null) => boolean;
   readonly plexerInventory: (plexerId: string) => readonly PlexerInventoryEntry[] | null;
-  readonly readPresenceStatus: (file: string) => PresenceStatus | null;
+  readonly agentStatus: (orchDir: OrchDir, id: string) => AgentStatusRow | undefined;
 }
 
 export type SshRunner = (destination: string, command: string, options?: { timeoutMs?: number }) => SshResult;

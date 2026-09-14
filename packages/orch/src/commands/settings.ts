@@ -19,7 +19,7 @@ import { die } from "./target.ts";
 import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
-import { runSettingsEditor } from "../settings/shell.ts";
+import { runSettingsEditor } from "../settings/shell/index.ts";
 import type { NotifierChoice } from "../types/notify.ts";
 import type { NotifyEntry, NotifyState, OrchSettings, SettingKind } from "../types/settings.ts";
 import type { Services } from "../types/services.ts";

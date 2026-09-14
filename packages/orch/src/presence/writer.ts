@@ -144,7 +144,7 @@ export function parseJsonArgument(raw: string | undefined): JsonRecord {
   }
 }
 
-function launchEnvFacts(): LaunchEnvFacts {
+export function launchEnvFacts(): LaunchEnvFacts {
   const value = (name: string): string | null => {
     const raw = process.env[name];
     return typeof raw === "string" && raw.length > 0 ? raw : null;

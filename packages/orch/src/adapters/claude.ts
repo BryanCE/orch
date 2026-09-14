@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { declaredRuntime } from "../settings/read.ts";
 
 import type { OrchRuntime } from "../runtime.ts";
-import { loadPresence, statusForPresence } from "../presence/store.ts";
+import { loadPresence } from "../presence/store.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import { isAgentState } from "../agent-state.ts";
@@ -218,8 +218,8 @@ class ClaudeAdapter implements AgentAdapter {
   detectState(input: ClaudeStateDetectionInput, orchDir: OrchDir): AgentState {
     const presence = presenceFor(input.key, orchDir);
     if (presence) {
-      const status = statusForPresence(presence);
-      if (status) return stateFrom(status.state);
+      const state = presence.status?.state;
+      if (state !== undefined) return stateFrom(state);
     }
     if (input.signal || (input.exitCode !== undefined && input.exitCode !== 0)) return "error";
     if (input.exitCode === 0) return "done";
@@ -245,7 +245,7 @@ class ClaudeAdapter implements AgentAdapter {
     const resultText = textValue(isRecord(result) ? result.text : undefined);
     if (resultText !== undefined) return resultText;
 
-    const statusTranscript = presence?.status?.sessionPath;
+    const statusTranscript = presence?.status?.sessionPath ?? undefined;
     const transcriptText = lastAssistantFromJsonl(readTextFile(input.sessionPath ?? statusTranscript));
     if (transcriptText !== undefined) return transcriptText;
 

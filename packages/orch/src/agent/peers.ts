@@ -12,7 +12,7 @@ import { term } from "../policy/vocabulary.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { recipientLabel } from "../recipient.ts";
 import { agentProcessLive } from "../store/interval-rows.ts";
-import { presenceAgentDir, readLatestResult, readStatus } from "../presence/writer.ts";
+import { presenceAgentDir } from "../presence/writer.ts";
 import { isRecord, optionalString, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
@@ -181,14 +181,10 @@ export async function peerSummaries(orchDir: OrchDir, daemon: DaemonClient, ownK
 export async function sendPeerMessage(orchDir: OrchDir, daemon: DaemonClient, target: string, text: string, ownKey: string, allSpaces = false): Promise<string> {
   const resolved = await resolvePeer(orchDir, daemon, target, ownKey, allSpaces);
   if ("error" in resolved) return resolved.error;
-  // The receiver learns the sender's NAME with the key beside it as the reply
-  // address — both sides of every message carry full identity.
-  const ownName = optionalString(readStatus(presenceAgentDir(ownKey, orchDir)).label);
-  const message = `[from ${ownName ? `${ownName} (${ownKey})` : ownKey}] ${text}`;
   const response = await daemon.ask("message", {
     from: ownKey,
     target: resolved.peer.key,
-    text: message,
+    text,
   });
   if (response === undefined) return "error: daemon unreachable; message not sent";
   // The sender knows a peer by its name and harness, not by the transport key that routed there.
@@ -360,11 +356,9 @@ export function registerPeerTools(orchDir: OrchDir, harness: HarnessApi, presenc
         const ownKey = presence.ownPresenceKey(ctx);
         const resolved = await resolvePeer(orchDir, daemon, params.target, ownKey, crossSpace);
         if ("error" in resolved) return resolved.error;
-        const resultRecord = readLatestResult(resolved.peer.dir) ?? {};
         const status = resolved.peer.status ?? {};
-        const text = typeof resultRecord.text === "string"
-          ? resultRecord.text
-          : typeof status.lastText === "string" ? status.lastText : "";
+        const text = resolved.peer.result
+          ?? (typeof status.lastText === "string" ? status.lastText : "");
         return JSON.stringify({
           key: resolved.peer.key,
           space: null,

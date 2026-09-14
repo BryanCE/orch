@@ -210,7 +210,15 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
     },
     postControlOutcome: (report: ControlOutcomeReport): Promise<boolean> => post("control-outcome", report),
     reportStatus: (key: string, patch: StatusPatch): Promise<boolean> =>
-      postOnLinkOrAsk("report-status", { key, status: patch }),
+      postOnLinkOrAsk("report-status", {
+        key,
+        status: {
+          ...patch,
+          filesTouched: patch.filesTouched === null || patch.filesTouched === undefined
+            ? patch.filesTouched
+            : [...patch.filesTouched],
+        },
+      }),
     reportResult: (key: string, result: ResultReport): Promise<boolean> =>
       postOnLinkOrAsk("report-result", { key, result }),
   };

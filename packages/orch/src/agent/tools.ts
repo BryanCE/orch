@@ -125,8 +125,7 @@ export function registerAgentTools(
     async execute(_toolCallId, params: OrchAskParams, signal, _onUpdate, ctx: HarnessContext) {
       try {
         const agentId = presence.ownPresenceKey(ctx);
-        const dir = presence.dir();
-        if (!dir) return noOrchestratorAnswer();
+        if (!agentId) return noOrchestratorAnswer();
         const id = Math.random().toString(36).slice(2, 10);
         const askedAt = Date.now();
         const ts = new Date(askedAt).toISOString();
@@ -233,7 +232,7 @@ export function registerAgentTools(
     presence.setLastCtx(ctx);
     presence.initPresence(ctx.hasUI);
     state.state = "working";
-    state.startedAt = new Date().toISOString();
+    state.startedAt = Date.now();
     state.finishedAt = undefined;
     state.currentFile = undefined;
     state.filesTouched = [];
@@ -416,17 +415,15 @@ export function registerAgentTools(
     const partial = extractText(message.content);
     state.state = stopReason === "aborted" ? "aborted" : "error";
     state.lastError = errorText;
-    state.finishedAt = new Date().toISOString();
+    state.finishedAt = Date.now();
     presence.updateContextUsage(ctx);
-    if (presence.dir()) {
-      const text = partial.trim()
-        ? `${partial.trim()}\n\n[${stopReason}] ${errorText}`
-        : `[${stopReason}] ${errorText}`;
-      runText.lastFull = text;
-      runText.runFull = text;
-      state.lastText = truncate(text, LAST_TEXT_MAX);
-      presence.writeResult(text, { error: errorText, stopReason });
-    }
+    const text = partial.trim()
+      ? `${partial.trim()}\n\n[${stopReason}] ${errorText}`
+      : `[${stopReason}] ${errorText}`;
+    runText.lastFull = text;
+    runText.runFull = text;
+    state.lastText = truncate(text, LAST_TEXT_MAX);
+    presence.writeResult(text);
     presence.writeStatus();
   }
 
@@ -449,10 +446,10 @@ export function registerAgentTools(
     // falls back to the last assistant text in the native session file.
     const finalText = runText.runFull;
     state.state = finalText ? "done" : "idle";
-    state.finishedAt = new Date().toISOString();
+    state.finishedAt = Date.now();
     try {
       if (ctx) presence.updateContextUsage(ctx);
-      if (finalText && presence.dir()) presence.writeResult(finalText);
+      if (finalText) presence.writeResult(finalText);
     } catch (error: unknown) {
       // A failing end-hook operation must not strand the agent as working. Keep
       // the terminal state and retain a useful error for the daemon/event row.

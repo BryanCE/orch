@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { buildEntities } from "../src/entities.ts";
+import { buildEntities } from "../src/entities/inventory.ts";
 import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";

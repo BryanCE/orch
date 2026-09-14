@@ -4,7 +4,6 @@ import {loadPresence} from "../presence/store.ts";
 import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
 import { cmdSpawn } from "../commands/spawn/index.ts";
-import { resultText } from "../commands/target.ts";
 
 import type { SmokeSteps } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
@@ -43,7 +42,7 @@ function defaultSmokeSteps(services: Services): SmokeSteps {
   return {
   spawnHeadless: (cwd, prompt) => spawnHeadlessSmokeAgent(services, cwd, prompt),
   buildPrompt: buildSmokePrompt,
-  readResultText: (key) => resultText(loadPresence(services.orchDir).get(key)?.result),
+  readResultText: (key) => loadPresence(services.orchDir).get(key)?.result ?? undefined,
   cleanup: (key) => closeSmokeAgent(services.orchDir, key),
   now: () => Date.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

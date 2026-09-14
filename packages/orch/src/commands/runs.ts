@@ -1,8 +1,8 @@
 import { selectRuns } from "../store/run-rows.ts";
 import { loadPresence } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
-import { collapse, resolveTarget } from "../entities.ts";
-import { truncate } from "../util.ts";
+import { resolveTarget } from "../entities/resolve.ts";
+import { collapse, truncate } from "../util.ts";
 import { formatTimestamp } from "../format.ts";
 import { callerKind } from "../policy/caller.ts";
 import { die } from "./target.ts";

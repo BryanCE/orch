@@ -53,8 +53,9 @@ async function checkLiveFleetPairs(orchDir: OrchDir, settings: OrchSettings, log
   const pairs = new Set<string>();
   for (const entry of loadPresence(orchDir).values()) {
     if (!entry.alive) continue;
-    const adapter = typeof entry.status?.agent === "string" ? entry.status.agent : undefined;
-    const backend = agentView(orchDir, entry.key)?.environment.plexer;
+    const view = agentView(orchDir, entry.key);
+    const adapter = view?.harnessId;
+    const backend = view?.environment.plexer;
     if (adapter && backend) pairs.add(`${adapter}\u0000${backend}`);
   }
   return Promise.all([...pairs].map(async (encoded) => {

@@ -1,6 +1,8 @@
 import { getBackend } from "../backends/registry.ts";
 import { isAgentId } from "../backends/identity.ts";
-import { buildEntities, callerMayResolve, parseTarget, refuseForeignTarget, resolveTarget } from "../entities.ts";
+import { buildEntities } from "../entities/inventory.ts";
+import { callerMayResolve, refuseForeignTarget, resolveTarget } from "../entities/resolve.ts";
+import { parseTarget } from "../entities/target.ts";
 import { callerSpace, selfId, spaceOfAgent } from "../identity/self.ts";
 import { callerKind } from "../policy/caller.ts";
 import { operatorControls } from "../policy/space.ts";

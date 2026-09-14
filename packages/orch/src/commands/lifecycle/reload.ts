@@ -1,8 +1,7 @@
 import * as files from "node:fs";
 import * as path from "node:path";
 import { refreshStaleShims } from "../../doctor/runner.ts";
-import { STATUS_FILE } from "../../presence/schema.ts";
-import { presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
+import { selectAgentStatus } from "../../store/status-rows.ts";
 import { reclaimAgent } from "../../store/agent-rows.ts";
 import { tuningOf } from "../../store/agent-view.ts";
 import { retryingSync } from "../../retry.ts";
@@ -35,14 +34,14 @@ export interface ReloadResult {
 
 /** Block until the agent's bridge republishes status.json while its recorded
  *  process is live, proving the harness came back. */
-function awaitBridgeRefresh(orchDir: OrchDir, statusPath: string, presenceKey: string, wasUpdatedAt: string, tries: number): boolean {
+function awaitBridgeRefresh(orchDir: OrchDir, presenceKey: string, wasUpdatedAt: number | undefined, tries: number): boolean {
   return retryingSync(
     "await bridge refresh",
     () => {
-      const status = readPresenceStatus(statusPath);
-      return typeof status?.updatedAt === "string"
+      const status = selectAgentStatus(orchDir, presenceKey);
+      return status !== undefined
         && agentProcessLive(orchDir, presenceKey)
-        && Date.parse(status.updatedAt) > Date.parse(wasUpdatedAt);
+        && (wasUpdatedAt === undefined || status.updatedAt > wasUpdatedAt);
     },
     { attempts: tries, delayMs: 500, backoff: 1 },
     { sleepSync: sleepMs, retryOnResult: (value) => !value },
@@ -54,24 +53,21 @@ function awaitBridgeRefresh(orchDir: OrchDir, statusPath: string, presenceKey: s
 type LifecycleServices = Pick<Services, "orchDir" | "settings" | "logger" | "models">;
 
 async function lifecycleThroughDaemon(services: LifecycleServices, verb: LifecycleVerb, key: string, handle: string): Promise<ReloadResult> {
-  const statusPath = path.join(presenceAgentDir(key, services.orchDir), STATUS_FILE);
-  const wasUpdatedAt = readPresenceStatus(statusPath)?.updatedAt;
-  if (typeof wasUpdatedAt !== "string") return { handle, ok: false, reason: "no bridge status.json to verify against" };
+  const wasUpdatedAt = selectAgentStatus(services.orchDir, key)?.updatedAt;
+  if (wasUpdatedAt === undefined) return { handle, ok: false, reason: "no bridge status.json to verify against" };
   try {
     await writeRpc(services, "lifecycle", { target: key, verb });
   } catch (error: unknown) {
     return { handle, ok: false, reason: errorMessage(error) };
   }
-  return awaitBridgeRefresh(services.orchDir, statusPath, key, wasUpdatedAt, 60)
+  return awaitBridgeRefresh(services.orchDir, key, wasUpdatedAt, 60)
     ? { handle, ok: true }
     : { handle, ok: false, reason: `bridge status.json did not refresh within 30s after ${verb}` };
 }
 
 export function reloadAgentAndAwaitBridge(orchDir: OrchDir, backend: Backend, handle: string, presenceKey: string, reloadText: string): ReloadResult {
   try {
-    const statusPath = path.join(presenceAgentDir(presenceKey, orchDir), STATUS_FILE);
-    const old = readPresenceStatus(statusPath);
-    const oldUpdatedAt = typeof old?.updatedAt === "string" ? old.updatedAt : "";
+    const oldUpdatedAt = selectAgentStatus(orchDir, presenceKey)?.updatedAt;
     backend.agentInput?.sendKeys(handle, ["Escape"]);
     sleepMs(500);
     if (!backend.agentInput) throw new Error("target environment cannot take input");
@@ -79,9 +75,10 @@ export function reloadAgentAndAwaitBridge(orchDir: OrchDir, backend: Backend, ha
     const refreshed = retryingSync(
       "await bridge refresh",
       () => {
-        const st = readPresenceStatus(statusPath);
-        return typeof st?.updatedAt === "string"
-          && agentProcessLive(orchDir, presenceKey) && Date.parse(st.updatedAt) > Date.parse(oldUpdatedAt);
+        const st = selectAgentStatus(orchDir, presenceKey);
+        return st !== undefined
+          && agentProcessLive(orchDir, presenceKey)
+          && (oldUpdatedAt === undefined || st.updatedAt > oldUpdatedAt);
       },
       { attempts: 60, delayMs: 500, backoff: 1 },
       { sleepSync: sleepMs, retryOnResult: (value) => !value },
@@ -100,7 +97,6 @@ function touchReloadSignal(orchDir: OrchDir): void {
 }
 
 function restartAgentAndAwaitBridge(orchDir: OrchDir, logger: Logger, backend: Backend, handle: string, cmd: string, presenceKey: string, quitText: string): boolean {
-  const statusPath = path.join(presenceAgentDir(presenceKey, orchDir), STATUS_FILE);
   backend.agentInput?.sendKeys(handle, ["Escape"]);
   sleepMs(500);
   if (!backend.agentInput) throw new Error("target environment cannot take input");
@@ -121,8 +117,8 @@ function restartAgentAndAwaitBridge(orchDir: OrchDir, logger: Logger, backend: B
   const refreshed = retryingSync(
     "await relaunched bridge",
     () => {
-      const st = readPresenceStatus(statusPath);
-      return typeof st?.updatedAt === "string" && agentProcessLive(orchDir, presenceKey);
+      const st = selectAgentStatus(orchDir, presenceKey);
+      return st !== undefined && agentProcessLive(orchDir, presenceKey);
     },
     { attempts: 40, delayMs: 500, backoff: 1 },
     { sleepSync: sleepMs, retryOnResult: (value) => !value },

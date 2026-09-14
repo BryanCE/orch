@@ -496,8 +496,9 @@ async function message(state: DaemonState, params: ParamsOf<"message">): Promise
   const settings = state.services.settings;
   const from = params.from;
   const target = params.target;
-  const text = params.text;
-  const accepted = acceptMail(directory, settings.currentOrNull(), from, target, text);
+  const sender = agentView(directory, params.from);
+  const prefix = sender ? `[from ${sender.name} (${params.from})] ` : `[from ${params.from}] `;
+  const accepted = acceptMail(directory, settings.currentOrNull(), from, target, prefix + params.text);
   const timeoutMs = settings.current().timeouts.dispatch_ack_ms;
   let ack: "acknowledged" | "unavailable";
   try {

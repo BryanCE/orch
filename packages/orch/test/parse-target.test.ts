@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatTarget, parseTarget } from "../src/entities.ts";
+import { formatTarget, parseTarget } from "../src/entities/target.ts";
 
 const hosts = {
   box1: { dest: "user@box1.example" },

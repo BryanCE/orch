@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { entitySpace, scopeEntitiesToSpace, spaceOf } from "../src/entities.ts";
-import { checkWall } from "../src/policy/space.ts";
+import { entitySpace, scopeEntitiesToSpace } from "../src/entities/space.ts";
+import { checkWall, spaceOf } from "../src/policy/space.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { Entity, OrchDir } from "../src/types/core.ts";

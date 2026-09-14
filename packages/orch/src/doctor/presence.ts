@@ -1,8 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
-import * as path from "node:path";
 import { loadPresence, malformedPresenceDirs, presenceDir } from "../presence/store.ts";
-import { agentView } from "../store/agent-view.ts";
+import { presenceAgentDir } from "../presence/writer.ts";
 import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
 import { truncate } from "../util.ts";
@@ -19,22 +18,6 @@ function humanAge(ms: number): string {
   const hr = Math.floor(min / 60);
   if (hr < 24) return `${hr}h ago`;
   return `${Math.floor(hr / 24)}d ago`;
-}
-
-/** One human-legible line identifying a presence dir — so nobody deletes a live session blind. */
-function describePresenceDir(entry: PresenceEntry, orchDir: OrchDir): string {
-  const { key, description = {} } = entry;
-  const label = description.label?.trim() ?? "";
-  const cwd = description.cwd ?? null;
-  const project = cwd ? path.basename(cwd) : null;
-  const agent = description.agent ?? null;
-  const space = agentView(orchDir, key)?.environment.space ?? null;
-  const stamp = description.updatedAt ?? description.finishedAt ?? null;
-  const seen = stamp ? `last seen ${humanAge(Date.now() - Date.parse(stamp))}` : null;
-  const head = label ? `${label} (${key})` : key;
-  return [head, project ? `project ${project}` : null, space ? `space ${space}` : null, agent, seen]
-    .filter(Boolean)
-    .join(" | ");
 }
 
 export function checkMalformedPresenceRecords(orchDir: OrchDir): CheckResult {
@@ -56,7 +39,7 @@ export function checkMalformedPresenceRecords(orchDir: OrchDir): CheckResult {
     const reasons: string[] = [];
     if (entry.status === null) reasons.push(`missing or invalid schema (expected ${PRESENCE_SCHEMA})`);
     if (!reasons.length) continue;
-    ignoredRecords.push({ path: entry.dir, reason: reasons.join("; ") });
+    ignoredRecords.push({ path: presenceAgentDir(entry.key, orchDir), reason: reasons.join("; ") });
   }
 
   if (ignoredRecords.length) {
@@ -107,22 +90,27 @@ export async function checkStalePresence(orchDir: OrchDir): Promise<CheckResult>
   await Promise.resolve();
   const entries = loadPresence(orchDir);
   if (!entries.size) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no agent dirs" };
-  const stale: { entry: PresenceEntry; description: string }[] = [];
+  const stale: PresenceEntry[] = [];
   for (const entry of entries.values()) {
-    if (!entry.alive) stale.push({ entry, description: describePresenceDir(entry, orchDir) });
+    if (!entry.alive) stale.push(entry);
   }
   if (!stale.length) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no dead agent dirs" };
+  const descriptions = stale.map((entry) => {
+    const updatedAt = entry.status?.updatedAt;
+    const seen = updatedAt === undefined || updatedAt === null ? "unknown" : humanAge(Date.now() - updatedAt);
+    return `${entry.key} | last seen ${seen}`;
+  });
   return {
     id: "stale-presence",
     label: "Stale presence dirs",
     status: "warn",
-    detail: `${stale.length} dead agent dir${stale.length === 1 ? "" : "s"} (verify before removing):\n    ${stale.map((item) => item.description).join("\n    ")}`,
+    detail: `${stale.length} dead agent dir${stale.length === 1 ? "" : "s"} (verify before removing):\n    ${descriptions.join("\n    ")}`,
     fix: {
-      description: `Delete ${stale.length} dead presence dir${stale.length === 1 ? "" : "s"}: ${stale.map((item) => item.description).join("; ")}`,
+      description: `Delete ${stale.length} dead presence dir${stale.length === 1 ? "" : "s"}: ${descriptions.join("; ")}`,
       destructive: true,
       apply() {
-        for (const { entry } of stale) {
-          filesystem.rmSync(entry.dir, { recursive: true, force: true });
+        for (const entry of stale) {
+          filesystem.rmSync(presenceAgentDir(entry.key, orchDir), { recursive: true, force: true });
         }
       },
     },

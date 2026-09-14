@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { homeLabel } from "../backend.ts";
 import { isAgentId } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
@@ -9,8 +8,7 @@ import { environmentStamp } from "../../agent/environment.ts";
  *  nothing to relay. Adding one means editing this stamp and nothing else. */
 const TMUX_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: null });
 import { sleepMs } from "../shell-ready.ts";
-import { STATUS_FILE } from "../../presence/schema.ts";
-import { presenceAgentDir, readPresenceStatus } from "../../presence/writer.ts";
+import { selectAgentStatus } from "../../store/status-rows.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects } from "./cli.ts";
 import { createCaptureRole } from "../../presence/roles.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
@@ -28,7 +26,7 @@ function tmuxEnvArgs(env: Readonly<Record<string, string>>): string[] {
 /** Agent status read from the presence protocol for one pane's stamped key. */
 function statusForAgentKey(key: string, orchDir: OrchDir): string | null {
   if (!key) return null;
-  const status = readPresenceStatus(join(presenceAgentDir(key, orchDir), STATUS_FILE));
+  const status = selectAgentStatus(orchDir, key);
   return status?.state ?? null;
 }
 
@@ -324,10 +322,9 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     const key = this.agentKeyOf(handle);
     if (!key) return false;
     if (this.orchDir === undefined) return false;
-    const statusPath = join(presenceAgentDir(key, this.orchDir), STATUS_FILE);
     const deadline = Date.now() + timeoutMs;
     while (true) {
-      if (readPresenceStatus(statusPath)?.state === status) return true;
+      if (selectAgentStatus(this.orchDir, key)?.state === status) return true;
       if (Date.now() >= deadline) return false;
       sleepMs(250);
     }

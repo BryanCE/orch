@@ -9,7 +9,7 @@ import { cmdStatus, parseStatusOptions, scopeFleetRows } from "../src/commands/s
 import { cmdNew } from "../src/commands/lifecycle/reset.ts";
 import { cmdRuns } from "../src/commands/runs.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
-import { resolveTarget } from "../src/entities.ts";
+import { resolveTarget } from "../src/entities/resolve.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { orm } from "../src/store/connection.ts";

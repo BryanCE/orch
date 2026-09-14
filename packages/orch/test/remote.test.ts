@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseTarget, formatTarget } from "../src/entities.ts";
+import { parseTarget, formatTarget } from "../src/entities/target.ts";
 
 describe("host-prefixed targets", () => {
   const hosts = { gpu1: { dest: "bryan@gpu1" }, lab: { dest: "lab.example" } };

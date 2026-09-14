@@ -163,7 +163,6 @@ const daemonStatusRow = z.object({
     logPruning: z.boolean(),
   }).nullable(),
   sessionPath: z.string().nullable(),
-  presenceDir: z.string().nullable(),
   presenceOnly: z.boolean(),
   bridgeAttached: z.boolean().nullable(),
   tokens: z.unknown(),

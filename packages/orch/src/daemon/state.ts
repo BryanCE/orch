@@ -1,0 +1,124 @@
+import type { OrchDir, Logger } from "../types/core.ts";
+import { computeCodeHash } from "./lifecycle.ts";
+import { fileURLToPath } from "node:url";
+import { rpcCall } from "./rpc/client.ts";
+import { loadPresence } from "../presence/store.ts";
+import { currentLease } from "../store/lease-rows.ts";
+import { agentById } from "../store/agent-rows.ts";
+import { recordedProcessIsLive } from "../store/interval-rows.ts";
+import { bridgeAttached } from "../control/bridge-links.ts";
+import { fleetStatusRows } from "../commands/status.ts";
+import type { DaemonStatusRow, LeaseStatusPayload, PresenceWatch, RpcHandler, RpcHandlers, RpcServer } from "../types/daemon.ts";
+import type { SettingsWatch } from "../types/settings.ts";
+import type { Services } from "../types/services.ts";
+
+/** The one spelling of "is this lease's holder still running". A start token
+ *  proves the pid is the SAME process instance, not a recycled number. */
+/** Whether the orchestrator holding a lease is still alive. Rule 11: a dead
+ *  holder is not a collision, so its lease must never gate a driving verb. */
+function leaseHolderIsAlive(directory: OrchDir, holderId: string): boolean {
+  return recordedProcessIsLive(directory, holderId);
+}
+
+/** Derive lease facts from the normalized agent/lease rows, never from presence or ownership files. */
+export function deriveLeasePayload(directory: OrchDir, key: string): LeaseStatusPayload {
+  // An agent key IS its minted id (A1); a key that is not one names no agent and
+  // stays unknown rather than being guessed at.
+  const agentId = key;
+  if (!agentById(directory, agentId)) return { lease: null, leaseKnown: false };
+  const lease = currentLease(directory, agentId);
+  if (!lease) return { lease: null, leaseKnown: true };
+  const holderName = agentById(directory, lease.orchId)?.name;
+  return {
+    lease: {
+      holderId: lease.orchId,
+      holderName: holderName === undefined || holderName === "" ? lease.orchId : holderName,
+      holderAlive: recordedProcessIsLive(directory, lease.orchId),
+    },
+    leaseKnown: true,
+  };
+}
+
+export const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url);
+export const bootCodeHash = computeCodeHash(entrypoint);
+export const startedAt = new Date();
+export interface DaemonState {
+  readonly services: Services;
+  readonly directory: OrchDir;
+  readonly workController: AbortController;
+  server: RpcServer | undefined;
+  workLoop: Promise<void> | undefined;
+  workLoopRunning: boolean;
+  outboxDrain: ReturnType<typeof setInterval> | undefined;
+  presenceWatch: PresenceWatch | undefined;
+  livenessTick?: { stop(): void };
+  settingsWatch: SettingsWatch | undefined;
+  lastActivityAt: number;
+  logger: Logger | undefined;
+  fatalLogged: boolean;
+}
+
+/** The daemon owes its own exit: with nothing to serve, staying resident only
+ *  accumulates orphaned processes. Live agents, event subscribers, or recent RPC
+ *  traffic each count as being in use. */
+export function idleShutdownDue(input: { idleMinutes: number; liveAgents: number; connections: number; msSinceActivity: number }): boolean {
+  if (input.idleMinutes <= 0) return false;
+  if (input.liveAgents > 0 || input.connections > 0) return false;
+  return input.msSinceActivity >= input.idleMinutes * 60_000;
+}
+
+export function liveAgentCount(directory: OrchDir): number {
+  return [...loadPresence(directory).values()].filter((entry) => entry.alive).length;
+}
+
+/** Every served call proves the daemon is in use; the idle clock restarts. */
+export function touchHandler<M extends Exclude<keyof RpcHandlers, "register-session" | "claim-identity">>(state: DaemonState, handler: RpcHandler<M>): RpcHandler<M> {
+  return (params, emit, context) => { state.lastActivityAt = Date.now(); return handler(params, emit, context); };
+}
+
+export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandlers {
+  return {
+    "daemon-status": touchHandler(state, handlers["daemon-status"]),
+    "subscribe-events": touchHandler(state, handlers["subscribe-events"]),
+    "environment-labels": touchHandler(state, handlers["environment-labels"]),
+    "peer-view": touchHandler(state, handlers["peer-view"]),
+    notify: touchHandler(state, handlers.notify),
+    "report-status": touchHandler(state, handlers["report-status"]),
+    "report-result": touchHandler(state, handlers["report-result"]),
+    status: touchHandler(state, handlers.status),
+    attach: touchHandler(state, handlers.attach),
+    dispatch: touchHandler(state, handlers.dispatch),
+    steer: touchHandler(state, handlers.steer),
+    message: touchHandler(state, handlers.message),
+    answer: touchHandler(state, handlers.answer),
+    "set-model": touchHandler(state, handlers["set-model"]),
+    lifecycle: touchHandler(state, handlers.lifecycle),
+    "spawn-headless": touchHandler(state, handlers["spawn-headless"]),
+    "agent-closed": touchHandler(state, handlers["agent-closed"]),
+    question: touchHandler(state, handlers.question),
+    questions: touchHandler(state, handlers.questions),
+    ack: touchHandler(state, handlers.ack),
+    "control-outcome": touchHandler(state, handlers["control-outcome"]),
+    reload: touchHandler(state, handlers.reload),
+  };
+}
+
+/** The fleet as the daemon sees it, in orch's one status-row shape. Serving a reduced
+ *  second shape here is what left the method unusable and every client reading files. */
+export function fleetStatus(state: DaemonState): { rows: DaemonStatusRow[] } {
+  const directory = state.directory;
+  const current = state.services.settings.current();
+  const rows = fleetStatusRows(current, current.spaces, { directory });
+  return {
+    rows: rows.map((row) => ({ ...row, ...deriveLeasePayload(directory, row.key), bridgeAttached: bridgeAttached(directory, row.key) })),
+  };
+}
+
+export async function socketAnswers(directory: OrchDir): Promise<boolean> {
+  try {
+    await rpcCall(directory, "daemon-status", undefined, 200);
+    return true;
+  } catch {
+    return false;
+  }
+}

@@ -1,6 +1,5 @@
 /** Events composed from the agent_status row. The daemon accepted the report at the socket boundary; nothing here re-validates. */
 import type { AgentState } from "../adapters/adapter.ts";
-import { collapse } from "../entities.ts";
 import { abstractAgentLabel } from "../notify/format.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { pendingQuestion } from "../store/question-rows.ts";
@@ -8,7 +7,7 @@ import { agentView } from "../store/agent-view.ts";
 import { filesTouchedOf, type AgentStatusRow } from "../store/status-rows.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { OrchDir } from "../types/core.ts";
-import { truncate } from "../util.ts";
+import { collapse, truncate } from "../util.ts";
 import { stripWorkerHeader } from "../worker-prompt.ts";
 
 type TransitionEvent = Extract<NotifyEvent, { readonly type: "transition" }>;

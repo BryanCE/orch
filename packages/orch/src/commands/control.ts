@@ -1,11 +1,11 @@
-import * as path from "node:path";
-import { collapse, recipientFor, recipientLabel, resolveTarget } from "../entities.ts";
-import { STATUS_FILE } from "../presence/schema.ts";
+import { recipientFor } from "../entities/lookup.ts";
+import { resolveTarget } from "../entities/resolve.ts";
+import { recipientLabel } from "../recipient.ts";
 import { spawnedRecords } from "../presence/store.ts";
-import { presenceAgentDir, readPresenceStatus } from "../presence/writer.ts";
+import { selectAgentStatus } from "../store/status-rows.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { tuningOf } from "../store/agent-view.ts";
-import { errorMessage, isRecord, truncate } from "../util.ts";
+import { collapse, errorMessage, isRecord, truncate } from "../util.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { modelSpec } from "../policy/thinking.ts";
@@ -212,10 +212,10 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
 /** Retarget an agent's model. Throws with the agent's own reason when it refuses —
  *  the daemon does not return until the agent has confirmed the change. */
 async function setAgentModel(services: Pick<Services, "orchDir" | "settings" | "logger">, agentKey: string, modelArg: string, gov: WriteGovernance = {}): Promise<{ old: string | null; now: string; unchanged: boolean }> {
-  const old = readPresenceStatus(path.join(presenceAgentDir(agentKey, services.orchDir), STATUS_FILE));
+  const old = selectAgentStatus(services.orchDir, agentKey);
   // A presence record stores the model structurally; render it in the same provider/id:thinking
   // form the caller passes, so the reported previous value and the no-op comparison both work.
-  const previous = old?.model?.id ? modelSpec(`${old.model.provider ?? ""}/${old.model.id}`, old.thinking) : null;
+  const previous = old?.modelId ? modelSpec(`${old.modelProvider ?? ""}/${old.modelId}`, old.thinking) : null;
   await writeRpc(services, "set-model", { target: agentKey, model: modelArg }, gov);
   return { old: previous, now: modelArg, unchanged: previous === modelArg };
 }

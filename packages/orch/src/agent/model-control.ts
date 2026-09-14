@@ -52,9 +52,9 @@ export async function resolveRegistryModel(
   return { model, thinking };
 }
 
-/** pi's control-command applier: resolves+applies a model or thinking change and records the outcome. */
+/** pi's control-command applier: resolves+applies a model or thinking change and reports the outcome. */
 export function createModelControl(deps: ModelControlDeps) {
-  const { harness, context, recordOutcome, reportOutcome, refreshPresence } = deps;
+  const { harness, context, reportOutcome, refreshPresence } = deps;
   const findModel: FindRegistryModel = (provider, id) => context()?.modelRegistry.find(provider, id);
 
   let pin: { model: ResolvedModel; thinking?: ThinkingLevel } | undefined;
@@ -118,10 +118,6 @@ export function createModelControl(deps: ModelControlDeps) {
       ...(applied === undefined ? {} : { applied }),
       ...(error === undefined ? {} : { error }),
     };
-    recordOutcome({
-      ...outcome,
-      ts: new Date().toISOString(),
-    });
     await reportOutcome(outcome);
   }
 
@@ -156,7 +152,6 @@ export function createModelControl(deps: ModelControlDeps) {
     } catch (thrown: unknown) {
       error = thrown instanceof Error ? thrown.message : String(thrown);
     }
-    recordOutcome({ id, requested, success: error === undefined, ts: new Date().toISOString(), ...(applied === undefined ? {} : { applied }), ...(error === undefined ? {} : { error }) });
     const settled: ControlOutcome = { id, command: "model", requested, ...(applied === undefined ? {} : { applied }), ...(error === undefined ? {} : { error }) };
     await reportOutcome(settled);
     refreshPresence();

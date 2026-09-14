@@ -15,7 +15,7 @@ import type { PresenceEntry } from "../src/types/presence.ts";
  * it looks like output, so they read it as an answer rather than as "your
  * dispatch did not happen".
  *
- * There were THREE wordings for this one refusal — `entities.ts` printed a
+ * There were THREE wordings for this one refusal — `entities/resolve.ts` printed a
  * candidate list with no advice at all, `resolveAgentView` said "address by id",
  * and `resolveLifecycleTarget` said "address by key" — for a fact A1 settles:
  * the key IS the id. Rule 9 forbids two mechanisms for one fact; this is one

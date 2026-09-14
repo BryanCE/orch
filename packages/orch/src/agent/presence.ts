@@ -8,20 +8,14 @@ import type { OrchDir } from "../types/core.ts";
 // the composition root.
 import { mintAgentId } from "../backends/identity.ts";
 import { launchCredential } from "../identity/launch.ts";
-import { PRESENCE_SCHEMA } from "../presence/schema.ts";
-import {
-  appendOutcome,
-  ensurePresenceAgentDir,
-  launchStamp,
-  writeResult as writePresenceResult,
-  writeStatus as writePresenceStatus,
-} from "../presence/writer.ts";
+import { launchEnvFacts } from "../presence/writer.ts";
 import { isRecord, isUnknownArray, optionalString, projectRoot, sessionFilePath } from "../util.ts";
 import { createModelControl } from "./model-control.ts";
 import { isSessionUsage, sessionUsageCost } from "../session.ts";
 import type { AgentState } from "../adapters/adapter.ts";
 import type { AgentPresenceOptions, AssistantMessageLike, HarnessContext } from "../types/agent.ts";
 import type { JsonRecord } from "../types/core.ts";
+import type { ResultReport, StatusPatch } from "../types/presence.ts";
 import type { BridgeDelivery, BridgeMessage } from "../control/bridge-message.ts";
 
 export const LAST_TEXT_MAX = 400;
@@ -59,7 +53,6 @@ export function extractText(content: unknown): string {
  * initializer is the compiler asking for a declaration.
  */
 interface AgentPresenceState {
-  schema: typeof PRESENCE_SCHEMA;
   agent: string;
   key: string;
   /** The launch stamps the agent's display name and its spawner's identity into
@@ -68,7 +61,6 @@ interface AgentPresenceState {
   spawnedBy: string | null;
   spawnedByLabel: string | null;
   tabLabel: string | null;
-  pid: number;
   cwd: string;
   project: string | undefined;
   /** Stamped by the launch when this agent got its own git worktree; absent for
@@ -91,9 +83,9 @@ interface AgentPresenceState {
   turns: number;
   sessionPath: string | undefined;
   sessionId: string | undefined;
-  startedAt: string | undefined;
-  finishedAt: string | undefined;
-  updatedAt: string;
+  startedAt: number | undefined;
+  finishedAt: number | undefined;
+  updatedAt: number;
   steersReceived: number;
   asking: { question: string; id: string; ts: string } | undefined;
 }
@@ -101,11 +93,8 @@ interface AgentPresenceState {
 export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOptions) {
   const { harness, daemon, extensionHash } = options;
 
-  let dir: string | undefined;
-
   let lastCtx: HarnessContext | undefined;
   const state: AgentPresenceState = {
-    schema: PRESENCE_SCHEMA,
     agent: options.identity.agentId,
     key: "",
     // The launch stamps the agent's display name and its spawner's identity into
@@ -114,7 +103,6 @@ export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOpti
     spawnedBy: null,
     spawnedByLabel: null,
     tabLabel: null,
-    pid: process.pid,
     cwd: process.cwd(),
     project: projectRoot(),
     // Stamped by the launch when this agent got its own git worktree; absent
@@ -139,11 +127,22 @@ export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOpti
     sessionId: undefined,
     startedAt: undefined,
     finishedAt: undefined,
-    updatedAt: new Date().toISOString(),
+    updatedAt: Date.now(),
     steersReceived: 0,
     asking: undefined,
   };
-  Object.assign(state, launchStamp(state, options.identity.agentId, ""));
+
+  function applyLaunchFacts(key: string): void {
+    const facts = launchEnvFacts();
+    state.label = facts.label;
+    state.spawnedBy = facts.spawnedBy;
+    state.spawnedByLabel = facts.spawnedByLabel;
+    state.worktree = facts.worktree ?? undefined;
+    state.branch = facts.branch ?? undefined;
+    state.key = key;
+  }
+
+  applyLaunchFacts("");
 
   /** The key an interactive session orch did not spawn addresses itself by. A
    *  session is an agent, so it mints an id like any other and holds it for the
@@ -180,37 +179,49 @@ export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOpti
   /** The last pushed text delivery, kept so the run it starts can name its dispatch. */
   let delivered: { id: string; text: string } | undefined;
 
-  function writeStatus() {
-    if (!dir) return;
-    state.updatedAt = new Date().toISOString();
-    const out: JsonRecord = {
-      ...state,
-      extensionHash,
-      key: state.key,
-    };
-    if (blocked.count > 0) {
-      out.state = "blocked";
-      out.blockedMessage = blocked.message;
-    }
-    writePresenceStatus(dir, out);
-  }
-
-  function writeResult(text: string, details: JsonRecord = {}): void {
-    if (!dir) return;
-    writePresenceResult(dir, {
-      schema: PRESENCE_SCHEMA,
-      text,
-      ...details,
+  function writeStatus(): void {
+    if (state.key === "") return;
+    state.updatedAt = Date.now();
+    const patch: StatusPatch = {
+      state: blocked.count > 0 ? "blocked" : state.state,
+      lastError: state.lastError ?? null,
+      model: state.model ?? null,
+      thinking: state.thinking,
       task: state.task,
       dispatchId: state.dispatchId,
+      lastText: state.lastText,
+      currentFile: state.currentFile,
+      filesTouched: state.filesTouched,
+      tokens: state.tokens,
+      cost: state.cost,
+      context: state.context ?? null,
+      turns: state.turns,
+      sessionPath: state.sessionPath,
+      sessionId: state.sessionId,
+      project: state.project ?? null,
+      extensionHash,
+      startedAt: state.startedAt ?? null,
+      finishedAt: state.finishedAt ?? null,
+      blockedMessage: blocked.count > 0 ? blocked.message ?? null : null,
+    };
+    void daemon.reportStatus(state.key, patch);
+  }
+
+  function writeResult(text: string, _details: JsonRecord = {}): void {
+    if (state.key === "") return;
+    const result: ResultReport = {
+      text,
+      dispatchId: state.dispatchId,
+      task: state.task,
       model: state.model,
       thinking: state.thinking,
       tokens: state.tokens,
       cost: state.cost,
       turns: state.turns,
       sessionPath: state.sessionPath,
-      finishedAt: state.finishedAt,
-    });
+      finishedAt: state.finishedAt ?? Date.now(),
+    };
+    void daemon.reportResult(state.key, result);
   }
 
   function updateSessionRef(ctx: HarnessContext): void {
@@ -297,7 +308,7 @@ export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOpti
       // final turn only contained tools and has no assistant message.
       if (state.state === "working" && ctx.isIdle()) {
         state.state = latestText.trim() ? "done" : "idle";
-        state.finishedAt = new Date().toISOString();
+        state.finishedAt = Date.now();
       }
     } catch {}
   }
@@ -307,9 +318,6 @@ export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOpti
   const modelControl = createModelControl({
     harness,
     context: () => lastCtx,
-    recordOutcome: (outcome) => {
-      if (dir) appendOutcome(dir, outcome);
-    },
     reportOutcome: (outcome) => daemon.postControlOutcome({ ...outcome, key: state.key }),
     refreshPresence: () => {
       if (lastCtx) updateModel(lastCtx);
@@ -394,14 +402,11 @@ export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOpti
     writeStatus();
   }
 
-  function initPresence(hasUI: boolean) {
-    if (dir) return;
+  function initPresence(hasUI: boolean): void {
+    if (state.key !== "") return;
     const key = computeKey(hasUI);
     if (!key) return;
-    const candidate = ensurePresenceAgentDir(key, orchDir);
-    if (!candidate) return;
-    dir = candidate;
-    Object.assign(state, launchStamp(state, options.identity.agentId, key));
+    applyLaunchFacts(key);
     // Subprocesses of this session (the harness's own shell tools running the
     // orch CLI) inherit this, so a spawn made FROM here can hand its workers
     // this session's reply address — whatever harness this happens to be.
@@ -430,8 +435,6 @@ export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOpti
     state,
     blocked,
     text,
-    /** Presence directory once initialised, or undefined when presence is skipped. */
-    dir: (): string | undefined => dir,
     answers,
     modelControl,
     lastCtx: (): HarnessContext | undefined => lastCtx,

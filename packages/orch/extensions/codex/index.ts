@@ -10,28 +10,22 @@
  * Identity parsing stays in its one boundary module (src/backends/identity.ts);
  * the notify wire vocabulary stays in its one leaf module
  * (src/adapters/codex-events.ts, which the adapter itself delegates to — the
- * adapter proper is setup-time code this shim must not carry); the presence
- * write goes through the one shared writer (src/presence/writer.ts).
+ * adapter proper is setup-time code this shim must not carry); presence reports
+ * go through the daemon socket.
  */
 import { detectCodexState, extractCodexResult } from "../../src/adapters/codex-events.ts";
-import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
-import { launchStamp, parseJsonArgument, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
-import { baseStatus, presenceSession } from "../../src/presence/session.ts";
-import { projectRoot } from "../../src/util.ts";
-import { textValue, truncateOptional } from "../../src/util.ts";
-import type { JsonRecord } from "../../src/types/core.ts";
+import { presenceSession } from "../../src/presence/session.ts";
+import { reportOnce } from "../../src/presence/socket-client.ts";
+import { projectRoot, textValue, truncateOptional } from "../../src/util.ts";
+import type { StatusPatch } from "../../src/types/presence.ts";
 
-const AGENT_ID = "codex";
 const MAX_TEXT = 400;
 
 const session = presenceSession();
 if (session.kind === "not-orch") process.exit(0);
 
 const raw = process.argv[2];
-const payload = parseJsonArgument(raw);
 
-const previous = readStatus(session.directory);
-const now = new Date().toISOString();
 // Every codex notify event today is `agent-turn-complete`, fired only after a
 // settled successful turn (design D1) — synthesizing exitCode: 0 here (never
 // inside detectState itself) is what makes that resolve to "done" rather than
@@ -39,33 +33,22 @@ const now = new Date().toISOString();
 const state = detectCodexState({ output: raw, exitCode: 0 });
 const resultText = extractCodexResult({ output: raw });
 // The headless backend mirrors the log path it recorded at spawn (D3a) into
-// this env var so the notify write can stamp the same sessionPath the backend
+// this env var so the notify report can stamp the same sessionPath the backend
 // registry knows about, without ever scanning a directory for it.
-const sessionPath = textValue(process.env.ORCH_AGENT_LOG) ?? textValue(previous.sessionPath);
-
-// No pid: a notify program only ever sees the shell that ran it. Liveness is
-// the process orch recorded at spawn (Rule 11), never a guess written here.
-const status: JsonRecord = {
-  ...launchStamp(previous, AGENT_ID, session.key),
-  ...baseStatus({
-    cwd: textValue(payload.cwd) ?? textValue(previous.cwd) ?? process.cwd(),
-    project: projectRoot(),
-    lastText: truncateOptional(resultText, MAX_TEXT) ?? textValue(previous.lastText) ?? null,
-    updatedAt: now,
-  }),
+const sessionPath = textValue(process.env.ORCH_AGENT_LOG);
+const finishedAt = Date.now();
+const patch: StatusPatch = {
   state,
-  sessionPath,
-  finishedAt: now,
+  lastText: truncateOptional(resultText, MAX_TEXT) ?? undefined,
+  sessionPath: sessionPath ?? undefined,
+  project: projectRoot(),
+  finishedAt,
 };
-writeStatus(session.directory, status);
 
+await reportOnce(session.orchDir, "report-status", { key: session.key, status: patch }, session.timeoutMs);
 if (resultText !== undefined) {
-  writeResult(session.directory, {
-    schema: PRESENCE_SCHEMA,
-    agent: AGENT_ID,
+  await reportOnce(session.orchDir, "report-result", {
     key: session.key,
-    text: resultText,
-    sessionPath,
-    finishedAt: now,
-  });
+    result: { text: resultText, sessionPath, finishedAt },
+  }, session.timeoutMs);
 }

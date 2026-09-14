@@ -1,6 +1,6 @@
-import { resolveTarget, spaceOf } from "../entities.ts";
+import { resolveTarget } from "../entities/resolve.ts";
 import { callerSpace, ensureCallerRegistered } from "../identity/self.ts";
-import { scopeToSpace, withinSpaceCeiling } from "../policy/space.ts";
+import { scopeToSpace, spaceOf, withinSpaceCeiling } from "../policy/space.ts";
 import { agentInMineScope, agentInScope, resolveCallerScope } from "../policy/scope.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { isAgentId } from "../backends/identity.ts";

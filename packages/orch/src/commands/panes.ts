@@ -1,4 +1,6 @@
-import { buildEntities, entitySpace, scopeEntitiesToSpace, sortEntities, resolveTarget } from "../entities.ts";
+import { buildEntities, sortEntities } from "../entities/inventory.ts";
+import { entitySpace, scopeEntitiesToSpace } from "../entities/space.ts";
+import { resolveTarget } from "../entities/resolve.ts";
 import type { Services, SettingsService } from "../types/services.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";

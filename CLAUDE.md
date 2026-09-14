@@ -16,13 +16,13 @@ User-only, no exceptions, not through a worker or subagent or orch verb, not "ju
 - `orch daemon reload`, `orch daemon restart`, `orch daemon stop`
 When a change needs one of these, stop, hand Bryan the command, and wait until he says it ran. Never poll, never assume, never retry.
 
-# RULE 0. THE GATE IS `bun check`. ORCHS RUN IT ON THEIR FILES. THE DELEGATOR RUNS THE ONE THAT COUNTS.
-Every orch runs `bun check` on what it touched and pastes it clean in its result. The delegator runs `bun check` once over the whole tree before every commit. That run is the gate. `bun test` is scoped to touched files, always. Nothing commits on a dirty gate or a red test.
+# RULE 0. THE GATE IS `bun check` OVER THE WHOLE TREE.
+Whoever edits a file runs `bun check` on it and pastes the clean output. Whoever commits runs `bun check` once over the whole tree first. That run is the gate. `bun test` is scoped to touched files, always. Nothing commits on a dirty gate or a red test.
 
 # RULE 0.1. TESTS: ONLY THE FILES YOU TOUCHED, ON THE SIDE THAT OWNS THE DISK, ONCE. SOME ARE BRYAN-ONLY.
 Every test lives in `packages/orch/test/` and runs under the plain `bun test` runner. There is no second test directory and no second test script.
 
-Bryan-only, never run by the delegator or an orch, no exceptions: `test/smoke.sh`, and any test that opens a pane, a window, or a terminal, or drives a real plexer. They open terminals on Bryan's screen while he works. Running one without his say-so is a firing offence. Bryan runs them and pastes the output. You fix what is in it.
+Bryan-only, never run by anyone else, no exceptions: `test/smoke.sh`, and any test that opens a pane, a window, or a terminal, or drives a real plexer. They open terminals on Bryan's screen while he works. Running one without his say-so is a firing offence. Bryan runs them and pastes the output. You fix what is in it.
 
 Everything else: run the test files your change touched, once, after the edits are complete. Not before, not again, not five times in a row. Pick them by what imports the changed module directly, not by a grep over the test tree, because a broad grep pulls in Bryan-only files. The full suite is Bryan's. He runs it and pastes it to you.
 
@@ -37,27 +37,14 @@ Bryan works from two places: WSL only at home, Windows plus WSL at the office. T
   ```
 Never run tests across the boundary. A `\\wsl$` read from powershell is as slow as a `/mnt/c` read from WSL. A timeout from a cross-boundary run is not a finding. Do not report it, bump a timeout, or profile it.
 
-Orchs: no `git diff`, no `git status`, no `git log`, no fallow, no re-reading a file you already changed. Edit, run your touched test files plus lint and tc once, paste, report done.
-
 # RULE 1. BRYAN'S FILE IS GROUND TRUTH. NEVER ARGUE WITH IT.
 A file or output he hands you is the current state. Never call it stale, cached, a snapshot, or outdated. Never re-characterize it as "just warnings" or "only fallow". Open it. Fix every item.
 
 # RULE 2. DO NOT ARGUE. FIX IT.
 No debating counts, severity, or whether it matters. If it is in the file or Bryan said fix it, fix it. Zero pushback, zero caveats, zero "actually".
 
-# RULE 3. BE FAST. DISPATCH IN ONE SHOT.
-Minutes, not half an hour. The moment work splits, spawn the fleet and dispatch every slice in one message. No serial setup, no re-reading state you already have. One pass per slice, one owner per file: no two agents touch the same file in a wave, and a slice is done only when its owner's scoped check and tests are green.
-
-# RULE 4. FLEET DISCIPLINE. See the `orch` skill.
-- `luna:high` is the default. Escalate `luna:xhigh`, then `sol:low`, then `sol:high` (cap), only for the one agent whose task failed. Never terra. `luna:low` for trivially mechanical slices.
-- Max 4 agents per tab, tiled. Split bigger fleets across tabs.
-- `reload` live-reloads code in place. `reset` starts a new session. `restart` closes and relaunches. Use `reload`, never `restart`, to pick up code.
-
 # RULE 6. RUNTIME-PORTABLE CODE. BUN IS A BUILD TOOL ONLY.
 Runtime code in `src/` and `extensions/` must run under any JS runtime: node, deno, bun, whatever comes next. Target the `node:` builtins, the baseline every runtime implements. No `Bun.*` API, no `bun:*` import, no deno globals. The one exception is `bun:sqlite` as a guarded fallback behind `node:sqlite` in `packages/orch/src/store/connection.ts`. Use `node:child_process`, `node:fs`, timers. `bun:test` in `test/` is fine. The installed `orch` runs the packaged `dist/bin/orch.js`, not `bin/orch.ts`, so CLI source edits need Bryan's `bun run build:orch:dev` to take effect.
-
-# RULE 7. FRESH CONTEXT PER TASK.
-`orch dispatch` clears the session and re-pins the model before it sends, so a new task never lands on a used session. Never pass `--keep-context` for a new task; it exists only to add to work already in flight. `orch reset <target>` (alias `new`) is for clearing a session without sending work.
 
 # RULE 8. NO LEGACY. NO BACK-COMPAT. ONE SHAPE.
 Nothing has published. There is exactly one current shape for every record, config, and file. Never write code that accepts, migrates, or special-cases old data. Old records are malformed: reap them or error. When a shape changes, fix every writer, reader, fixture, and test in the same change.

@@ -78,9 +78,10 @@ Who does what, with no overlap:
 - **You** plan, gather through orchs, write the task list, dispatch, read diffs, run the
   wider scoped checks, and decide. You never run the full test suite and you never do a
   task an orch could do.
-- **An orch** does exactly what its task says, runs the named tests once at the end of the
-  dispatch (never between edits, never repeatedly), and reports back in the shape the task
-  asked for. It never plans, never investigates past what it was named, never decides. A task that makes it do any of those
+- **An orch** does exactly what its task says, verifies only what the header tells it to
+  (the named tests once at the end of the dispatch, or nothing at all when you said you
+  would check), and reports back in the shape the task asked for. It never plans, never
+  investigates past what it was named, never decides, never re-runs a check to be sure. A task that makes it do any of those
   was under-specced, and the fix is a better task, not a smarter orch.
 
 The mechanics that keep the cycle fast:
@@ -92,15 +93,16 @@ The mechanics that keep the cycle fast:
   moment the list exists (a shell loop over the `### T<n>.` headings), with the list's
   conventions header on top. Then a refill is one `orch dispatch <name> --file specs/T<n>.md
   --with <report>`, never a rewrite.
-- **Size each dispatch for speed. That is your call, every wave.** The normal shape is one
-  task per dispatch. When the list turns into many small mechanical tasks of one kind
-  (convert a fixture, rename a call, drop an import), that shape is the slow one: a refill
-  and a diff read cost more than the task, so a twenty-file sweep becomes twenty cycles.
-  Batch those instead, about five per dispatch, each on its own file, and tell the orch in
-  the header to edit straight through: no tests and no `bun check` between tasks, no
-  stopping to verify, one test run at the very end, you run the wider checks when the batch
-  lands. Planning how to split and delegate the work for the best wall-clock is the
-  orchestrator's job; nobody else will do it.
+- **Orchestrate for speed, every time, from the tasks in front of you.** There is no one
+  shape. Look at the task list and pick the split that finishes soonest: how many orchs,
+  how much each carries, and whether they verify their own work. Twenty two-line edits of
+  one kind (convert a fixture, rename a call, drop an import) are five orchs with four
+  edits each, told in the header to edit straight through with no tests and no `bun check`,
+  because a refill and a diff read cost more than the edit and you run the checks when the
+  batch lands. Five larger slices that each touch logic are five orchs with one slice each,
+  running their own named tests once at the end. A mix is a mix. Following one recipe
+  regardless of the work is the slow path; deciding the split is the orchestrator's job and
+  nobody else will do it.
 - **`pending` is not `blocked`.** Tasks in one wave compile against each other. An orch
   whose own files are clean but whose `bun check` names only another task's files reports
   `pending: <files>` and is done. `blocked` is reserved for its own slice. Say this in the

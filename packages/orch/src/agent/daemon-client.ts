@@ -15,6 +15,7 @@ import {
 } from "../presence/socket-client.ts";
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import type { ControlOutcomeReport, DaemonClient } from "../types/agent.ts";
+import type { ResultReport, StatusPatch } from "../types/presence.ts";
 import { parseRpcResult, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/rpc/protocol.ts";
 import { parseRpcLine } from "../daemon/rpc/wire.ts";
 import type { SettingsManager } from "../types/services.ts";
@@ -188,6 +189,11 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
   const post = async <M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<boolean> =>
     await ask(method, params) !== undefined;
 
+  const postOnLinkOrAsk = async <M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<boolean> => {
+    if (link?.send({ id: nextRequestId++, method, params }) === true) return true;
+    return post(method, params);
+  };
+
   return {
     isAcked: (id: string): boolean => ackedMessageIds.has(id),
     markAcked: (id: string): void => {
@@ -197,14 +203,15 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
     attach,
     detach,
     attached: (): boolean => linkAttached,
-    postAck: async (id: string): Promise<boolean> => {
-      if (link?.send({ id: nextRequestId++, method: "ack", params: { id } }) === true) return true;
-      return post("ack", { id });
-    },
+    postAck: async (id: string): Promise<boolean> => postOnLinkOrAsk("ack", { id }),
     postQuestion: async (notice: AgentNotice): Promise<void> => {
       if (link?.send({ id: nextRequestId++, method: "question", params: notice }) === true) return;
       await post("question", notice);
     },
     postControlOutcome: (report: ControlOutcomeReport): Promise<boolean> => post("control-outcome", report),
+    reportStatus: (key: string, patch: StatusPatch): Promise<boolean> =>
+      postOnLinkOrAsk("report-status", { key, status: patch }),
+    reportResult: (key: string, result: ResultReport): Promise<boolean> =>
+      postOnLinkOrAsk("report-result", { key, result }),
   };
 }

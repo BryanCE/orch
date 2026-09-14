@@ -6,6 +6,7 @@ import type { subscribeEvents } from "../daemon/rpc/client.ts";
 import type { AgentState } from "../agent-state.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { JsonRecord, OrchDir, SessionUsage } from "./core.ts";
+import type { ResultReport, StatusPatch } from "./presence.ts";
 import type { ParamsOf, ResultOf, RpcMethod } from "../daemon/rpc/protocol.ts";
 
 /**
@@ -325,6 +326,10 @@ export interface DaemonClient {
   postQuestion(notice: AgentNotice): Promise<void>;
   /** Reports a control outcome to orchd, which replies to whoever is waiting. */
   postControlOutcome(report: ControlOutcomeReport): Promise<boolean>;
+  /** Reports this agent's current status to orchd. */
+  reportStatus(key: string, patch: StatusPatch): Promise<boolean>;
+  /** Reports this agent's settled result to orchd. */
+  reportResult(key: string, result: ResultReport): Promise<boolean>;
 }
 
 export type ResolvedModel = NonNullable<HarnessContext["model"]>;

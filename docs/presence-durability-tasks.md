@@ -47,33 +47,29 @@ test asserts exactly-once.
 
 ---
 
-## T2. Stop the dual write — agents write their own rows
+## T2. Agent state travels over the socket; files are history
 
-**Defect.** An agent writes state to a file; a different process later copies it
-into a table. Two systems, no shared transaction, and a window where one landed
-and the other did not. `fs.watch` is the least reliable link in it (see the
-learnings doc §4: on WSL2 `/mnt/*`, `inotify_add_watch()` succeeds and delivers
-nothing, silently).
+**Defect.** A harness writes `status.json`; orchd `fs.watch`es N agent directories
+plus a safety poll, reads the file, diffs it, and mirrors it into `runs`. Two
+systems, no shared transaction, and on WSL2 `/mnt/*` the watch delivers nothing
+(learnings §4). 34 modules read the file to make decisions. It is the one channel
+that never moved to the daemon.
 
-The store is already configured for it: `journal_mode = WAL`, `busy_timeout = 5000`
-(`src/store/connection.ts:189-195`). Fleet cap is 4 agents/tab — an order of
-magnitude under where WAL write contention starts to bite (~20 concurrent writers).
+**Change.** Three RPCs carry everything a harness has to say: `report-status` (a
+patch of its current state; absent keeps, `null` clears), `report-result` (one
+settled turn), and `control-outcome` (what it did with a control command). orchd
+merges the patch into `agent_status` (one row per agent, a cell), diffs `state`
+against the previous row, and publishes the transition. It appends
+`status.jsonl`, `results.jsonl`, `outcomes.jsonl` under `$ORCH_DIR/agents/<id>/`
+as history. Nothing reads them. Liveness stays `agent_processes`; one daemon tick
+on `daemon.liveness_poll_ms` publishes `exited` for a dead process.
+`startPresenceWatch`, the safety poll, `status.json`, `atomicWrite`, and
+`loadPresence` are deleted. Every reader queries the store.
 
-**Change.** The agent writes its own status/result rows transactionally, then
-appends the same event to its JSONL. Delete `runRecordForTransition` and the
-`upsertRun` call from the watcher — `runs` stops being a mirror.
-
-The daemon keeps notifying, because SQLite has no cross-process change hook. It
-polls `PRAGMA data_version` on a read connection and diffs, instead of watching N
-agent directories. That also removes the WSL2 `/mnt` failure mode, where
-`fs.watch` never fires.
-
-On-disk layout and file contents do not change. Only who writes them, and who is
-allowed to read them for correctness (nobody).
-
-**Done when.** A dispatch that completes with orchd stopped still has a `runs`
-row; killing the watcher loses notifications, never data; deleting `agents/`
-mid-run loses no state the CLI reports.
+**Done when.** `rm -rf $ORCH_DIR/agents/*` mid-run changes nothing that `orch
+status`, `orch result`, or `orch events` reports. No `fs.watch` under `src/`
+outside `src/settings/`. No module outside `src/presence/` names a presence
+file, and `status.json` appears nowhere. `check-bridge` enforces all three.
 
 ---
 

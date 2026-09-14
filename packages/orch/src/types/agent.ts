@@ -5,7 +5,7 @@ import type { AgentNotice, BridgeDelivery } from "../control/bridge-message.ts";
 import type { subscribeEvents } from "../daemon/rpc/client.ts";
 import type { AgentState } from "../agent-state.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
-import type { JsonRecord, OrchDir } from "./core.ts";
+import type { JsonRecord, OrchDir, SessionUsage } from "./core.ts";
 import type { ParamsOf, ResultOf, RpcMethod } from "../daemon/rpc/protocol.ts";
 
 /**
@@ -223,18 +223,10 @@ export interface FleetMonitorOptions {
   callerKind?: () => CallerKind;
 }
 
-export interface UsageLike {
-  input?: number;
-  output?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-  cost?: { total?: number };
-}
-
 export interface AssistantMessageLike {
   role: string;
   content: unknown;
-  usage?: UsageLike;
+  usage?: SessionUsage;
   stopReason?: string;
   errorMessage?: string;
 }

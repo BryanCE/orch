@@ -99,7 +99,7 @@ export function assertSpawnCapacity(
 /** Exactly what opening a space for this fleet would do. Every field the
  *  human must see is here: it is both what they read and what the grant is
  *  bound to, so the two can never describe different actions. */
-export function newSpaceAction(settings: SpawnSettings, backend: Backend): GrantAction {
+function newSpaceAction(settings: SpawnSettings, backend: Backend): GrantAction {
   return {
     kind: "spawn.new-space",
     params: { plexer: backend.id, cwd: settings.cwd, agents: String(settings.agents.length), name: settings.prefix },

@@ -179,8 +179,10 @@ const settingsValueExtractors = {
     tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port,
     idle_shutdown_minutes: root.daemon?.idle_shutdown_minutes ?? SETTINGS_DEFAULTS.daemon.idle_shutdown_minutes,
     outbox_drain_ms: root.daemon?.outbox_drain_ms ?? SETTINGS_DEFAULTS.daemon.outbox_drain_ms,
+    liveness_poll_ms: root.daemon?.liveness_poll_ms ?? SETTINGS_DEFAULTS.daemon.liveness_poll_ms,
     bridge_reconnect_ms: root.daemon?.bridge_reconnect_ms ?? SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms,
     outbox_max_attempts: root.daemon?.outbox_max_attempts ?? SETTINGS_DEFAULTS.daemon.outbox_max_attempts,
+    report_timeout_ms: root.daemon?.report_timeout_ms ?? SETTINGS_DEFAULTS.daemon.report_timeout_ms,
   }),
   doctor: (root: Partial<SettingsFile>) => ({
     unclaimed_after_ms: root.doctor?.unclaimed_after_ms ?? SETTINGS_DEFAULTS.doctor.unclaimed_after_ms,

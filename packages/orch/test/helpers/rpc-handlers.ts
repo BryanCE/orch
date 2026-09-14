@@ -23,6 +23,8 @@ export function stubRpcHandlers(overrides: Partial<RpcHandlers> = {}): RpcHandle
     question: notStubbed,
     questions: notStubbed,
     ack: notStubbed,
+    "report-status": notStubbed,
+    "report-result": notStubbed,
     "control-outcome": notStubbed,
     reload: notStubbed,
     ...overrides,

@@ -1,23 +1,23 @@
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { STATUS_FILE } from "./schema.ts";
 // The presence protocol is orch's, and src/presence/ owns it (Rule 10). The
 // directory layout is defined there and imported here — a second copy in the
 // store is how a writer and a reader end up disagreeing about where a record
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
-import { isPresenceStatus, presenceAgentDir, presenceRoot, readLatestResult, readPresenceStatus } from "./writer.ts";
-import { liveAgentViews } from "../store/agent-view.ts";
+import { presenceAgentDir, presenceRoot } from "./writer.ts";
+import { agentViewIndex, agentViews } from "../store/agent-view.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { eq } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-rows.ts";
 import { agentProcessLive } from "../store/interval-rows.ts";
 import { agents } from "../db/schema.ts";
-import { isRecord, readJsonFile } from "../util.ts";
+import { selectAgentStatus } from "../store/status-rows.ts";
+import { selectRuns } from "../store/run-rows.ts";
 import type { AgentView } from "../types/store.ts";
 import type { OrchDir } from "../types/core.ts";
-import type { DeadPresenceReapResult, PresenceDescription, PresenceEntry, PresenceStatus } from "../types/presence.ts";
+import type { DeadPresenceReapResult, PresenceEntry } from "../types/presence.ts";
 
 export function presenceDir(root: OrchDir): string {
   return presenceRoot(root);
@@ -39,23 +39,6 @@ export function presenceRootFault(root: OrchDir): string | null {
  *  name IS the identity — no remapping. */
 export function removePresenceAgentDir(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
-}
-
-export function readJSON<T = unknown>(file: string): T | null {
-  const parsed = readJsonFile(file);
-  return parsed === undefined ? null : parsed as T;
-}
-
-/** Keep only fields doctor may display when a status fails the schema gate. */
-function describePresenceStatus(value: unknown): PresenceDescription {
-  if (!isRecord(value)) return {};
-  const description: PresenceDescription = {};
-  if (typeof value.label === "string") description.label = value.label;
-  if (typeof value.cwd === "string") description.cwd = value.cwd;
-  if (typeof value.agent === "string") description.agent = value.agent;
-  if (typeof value.updatedAt === "string") description.updatedAt = value.updatedAt;
-  if (typeof value.finishedAt === "string") description.finishedAt = value.finishedAt;
-  return description;
 }
 
 function isErrorCode(error: unknown, code: string): boolean {
@@ -80,12 +63,10 @@ function isErrorCode(error: unknown, code: string): boolean {
  * history is `agentViews`/`agentView`, which still see everything.
  */
 export function spawnedRecords(root: OrchDir): Map<string, AgentView> {
-  const index = new Map<string, AgentView>();
-  // A store that does not exist yet is an empty fleet, not a crash: `orch
-  // status` runs before anything has ever been spawned.
-  try {
-    for (const view of liveAgentViews(root)) index.set(view.id, view);
-  } catch { /* nothing spawned yet */ }
+  const index = agentViewIndex(root);
+  for (const [id, view] of index) {
+    if (view.endedAt !== null) index.delete(id);
+  }
   return index;
 }
 
@@ -113,18 +94,6 @@ export function closeOutboxForDeadTargets(root: OrchDir): number {
     closed += closeOutboxForTarget(root, target);
   }
   return closed;
-}
-
-/** Return the newest valid orch timestamp recorded in an agent's presence files. */
-function newestRecordedInstant(entry: PresenceEntry): number | null {
-  const values: unknown[] = [];
-  if (entry.status) values.push(entry.status.startedAt, entry.status.finishedAt, entry.status.updatedAt, entry.status.asking?.ts);
-  if (isRecord(entry.result)) values.push(entry.result.startedAt, entry.result.finishedAt, entry.result.updatedAt);
-  const instants = values
-    .filter((value): value is string => typeof value === "string")
-    .map((value) => Date.parse(value))
-    .filter((value) => Number.isFinite(value));
-  return instants.length > 0 ? Math.max(...instants) : null;
 }
 
 function presenceDirectoryNames(root: OrchDir): string[] {
@@ -182,9 +151,11 @@ export function reapDeadPresenceDirs(root: OrchDir, olderThan?: Date): DeadPrese
   for (const entry of loadPresence(root).values()) {
     if (entry.alive) continue;
     if (cutoffMs !== undefined) {
-      // Filesystem mtimes are incidental (rewrites, copies, and extraction can
-      // change them). Retention is based only on instants orch recorded.
-      const recorded = newestRecordedInstant(entry);
+      // Retention is based only on instants orch recorded in the status row.
+      const status = entry.status;
+      const recorded = status === null
+        ? null
+        : Math.max(status.updatedAt, status.finishedAt ?? status.updatedAt);
       if (recorded !== null && recorded >= cutoffMs) continue;
     }
     try {
@@ -199,41 +170,14 @@ export function reapDeadPresenceDirs(root: OrchDir, olderThan?: Date): DeadPrese
 
 export function loadPresence(root: OrchDir): Map<string, PresenceEntry> {
   const presence = new Map<string, PresenceEntry>();
-  let keys: string[];
-  try {
-    keys = readdirSync(presenceDir(root));
-  } catch (error: unknown) {
-    // An agents path that is missing, or is a file where a directory belongs,
-    // holds no presence either way. Doctor reports the malformed path — it can
-    // only do that if reading it returns empty instead of throwing.
-    if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTDIR")) return presence;
-    throw error;
-  }
-  for (const key of keys) {
-    // A presence directory is named by the minted id and nothing else, so
-    // a name that does not parse names NO agent - there is nothing to key the
-    // four facts on. Rule 8: an old-shape record is malformed, never a second
-    // shape to accept. It is reaped by `reapMalformedPresenceDirs`, not read.
-    if (!isAgentId(key)) continue;
-    const dir = presenceAgentDir(key, root);
-    try {
-      if (!statSync(dir).isDirectory()) continue;
-    } catch {
-      continue;
-    }
-    const statusRecord = readJSON<unknown>(join(dir, STATUS_FILE));
-    const status = isPresenceStatus(statusRecord) ? statusRecord : null;
-    const description = describePresenceStatus(statusRecord);
-    const result = readLatestResult(dir);
-    // Liveness is the recorded process, never a pid the agent wrote about itself
-    // (Rule 11). Descriptive metadata is separate, so malformed records can never
-    // enter live paths.
-    presence.set(key, { key, dir, status, description, result, alive: agentProcessLive(root, key) });
+  for (const view of agentViews(root)) {
+    const status = selectAgentStatus(root, view.id) ?? null;
+    const result = selectRuns(root, { agentKey: view.id, limit: 5 })
+      .find((run) => run.result !== undefined && run.result !== null)?.result;
+    const textResult = typeof result === "string" ? result : null;
+    const alive = view.endedAt === null && agentProcessLive(root, view.id);
+    presence.set(view.id, { key: view.id, status, result: textResult, alive });
   }
   return presence;
-}
-
-export function statusForPresence(presence: PresenceEntry): PresenceStatus | null {
-  return readPresenceStatus(join(presence.dir, STATUS_FILE));
 }
 

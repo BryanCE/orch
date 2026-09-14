@@ -36,7 +36,7 @@ export function agentInScope(input: AgentScopeInput): boolean {
  * fleet question with an empty table. Null here is what makes the default
  * unscoped for a human and scoped for an orch, with no flag on either side.
  */
-export async function callerScopeAddress(logger: Logger, directory: OrchDir, options: { register?: boolean } = {}): Promise<string | undefined> {
+async function callerScopeAddress(logger: Logger, directory: OrchDir, options: { register?: boolean } = {}): Promise<string | undefined> {
   const launched = launchCredential();
   if (launched !== null) return launched;
   if (callerSession() === null) return undefined;

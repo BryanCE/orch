@@ -1,6 +1,6 @@
 import type { AgentState } from "../agent-state.ts";
 import type { OrchSettings } from "./settings.ts";
-import type { TaskRec } from "./queue.ts";
+import type { TaskState } from "./queue.ts";
 
 /** What every event says about who it is about. */
 export interface EventIdentity {
@@ -31,8 +31,6 @@ export interface AgentActivity {
   readonly filesTouched?: readonly string[];
   readonly capacity?: { readonly packUsed: number; readonly packCap: number };
 }
-
-export type TaskState = TaskRec["state"];
 
 export type NotifyEvent =
   | (EventIdentity & AgentActivity & { readonly type: "transition"; readonly oldState: AgentState; readonly newState: Exclude<AgentState, "asking"> })

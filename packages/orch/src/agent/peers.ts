@@ -107,11 +107,6 @@ async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient, ownKey: s
   };
 }
 
-/** Whether the stamped spawner has a live process and status record. */
-export async function spawnerReachable(orchDir: OrchDir, daemon: DaemonClient, ownKey: string): Promise<boolean> {
-  return await liveSpawnerPeer(orchDir, daemon, ownKey) !== undefined;
-}
-
 /** The caller's own orchestrator, resolved by the address its launch stamped.
  *  The fleet wall never applies here: the spawner handed this worker its own
  *  address at launch, and replying to it is the one always-valid cross-scope edge. */

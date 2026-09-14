@@ -165,6 +165,40 @@ export const agentEndings = sqliteTable("agent_endings", {
   closedBy: text("closed_by").references(() => agents.id),
 });
 
+/** The agent's current state as it last reported it over the socket. One row per
+ *  agent, replaced in place: a cell, not a log. History is orchd's status.jsonl.
+ *  Liveness is NOT here (agent_processes); a dead process reads `exited` whatever
+ *  this row says. */
+export const agentStatus = sqliteTable("agent_status", {
+  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  state: text("state").notNull(),
+  lastError: text("last_error"),
+  modelProvider: text("model_provider"),
+  modelId: text("model_id"),
+  thinking: text("thinking"),
+  task: text("task"),
+  dispatchId: text("dispatch_id"),
+  lastText: text("last_text"),
+  currentFile: text("current_file"),
+  filesTouched: text("files_touched"),
+  tokensIn: integer("tokens_in"),
+  tokensOut: integer("tokens_out"),
+  cacheRead: integer("cache_read"),
+  cacheWrite: integer("cache_write"),
+  cost: real("cost"),
+  contextTokens: integer("context_tokens"),
+  contextPercent: real("context_percent"),
+  turns: integer("turns"),
+  sessionPath: text("session_path"),
+  sessionId: text("session_id"),
+  project: text("project"),
+  extensionHash: text("extension_hash"),
+  startedAt: integer("started_at"),
+  finishedAt: integer("finished_at"),
+  updatedAt: integer("updated_at").notNull(),
+  blockedMessage: text("blocked_message"),
+});
+
 export const agentPlexers = sqliteTable("agent_plexers", {
   agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
   plexerId: text("plexer_id").notNull().references(() => plexers.id),

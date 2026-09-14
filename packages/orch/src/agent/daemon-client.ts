@@ -41,7 +41,7 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
 
   async function answerFrom<M extends RpcMethod>(endpoint: string | number, method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined> {
     const requestId = nextRequestId++;
-    const line = await requestJsonLine(endpoint, { id: requestId, method, params }, 500);
+    const line = await requestJsonLine(endpoint, { id: requestId, method, params }, settings.current().daemon.report_timeout_ms);
     if (line === undefined) return undefined;
     let value: unknown;
     try {

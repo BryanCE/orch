@@ -7,7 +7,7 @@
  */
 
 /** Levenshtein distance, one row at a time. */
-export function editDistance(left: string, right: string): number {
+function editDistance(left: string, right: string): number {
   const row = Array.from({ length: right.length + 1 }, (_, index) => index);
   for (let i = 1; i <= left.length; i += 1) {
     let diagonal = row[0]!;

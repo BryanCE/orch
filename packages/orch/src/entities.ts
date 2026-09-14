@@ -5,7 +5,7 @@ import { agentById } from "./store/agent-rows.ts";
 import { checkWall, sameSpace, spaceOf } from "./policy/space.ts";
 import { errorMessage } from "./util.ts";
 import { abstractAgentLabel } from "./notify/format.ts";
-import { agentViews } from "./store/agent-view.ts";
+import { agentViewIndex } from "./store/agent-view.ts";
 import { callerSpace, selfId } from "./identity/self.ts";
 import { callerKind } from "./policy/caller.ts";
 import { holdsLease } from "./store/lease-rows.ts";
@@ -44,16 +44,6 @@ export function formatTarget(ref: TargetRef): string {
   return ref.host ? `${ref.host}/${ref.target}` : ref.target;
 }
 
-/** Every agent the store knows, indexed by its minted id — the ONLY key the
- *  store has. A store that does not exist yet is an empty fleet, not a crash. */
-function viewsById(root: OrchDir): Map<string, AgentView> {
-  const index = new Map<string, AgentView>();
-  try {
-    for (const view of agentViews(root)) index.set(view.id, view);
-  } catch { /* nothing spawned yet */ }
-  return index;
-}
-
 /** Join a presence/pane key to its agent through the minted id alone. Reading
  *  the whole key as an identity is what made a MOVED agent look like a new one. */
 function viewForKey(views: ReadonlyMap<string, AgentView>, key: string): AgentView | undefined {
@@ -84,7 +74,7 @@ function recipientName(root: OrchDir, status: PresenceEntry["status"], space: st
   return normalizedAgentName(root, key) ?? status?.label ?? status?.agent ?? abstractAgentLabel(space, key);
 }
 
-export function recipientFor(root: OrchDir, key: string, views = viewsById(root)): Recipient {
+export function recipientFor(root: OrchDir, key: string, views = agentViewIndex(root)): Recipient {
   const view = viewForKey(views, key);
   const status = loadPresence(root).get(key)?.status ?? null;
   const space = view?.environment.space ?? spaceOf(root, key) ?? "space";
@@ -288,7 +278,7 @@ function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
 
 export function buildEntities(root: OrchDir, settings: OrchSettings, options: { skipBackends?: boolean } = {}): Entity[] {
   const presence = loadPresence(root);
-  const fleet: Fleet = { views: viewsById(root), presence, presenceById: indexPresenceById(presence), census: paneCensus(settings) };
+  const fleet: Fleet = { views: agentViewIndex(root), presence, presenceById: indexPresenceById(presence), census: paneCensus(settings) };
   const usedPresence = new Set<string>();
   const backendEntities = options.skipBackends
     ? []

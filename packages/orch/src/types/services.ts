@@ -34,4 +34,3 @@ export interface Services {
 
 export type OrchDirService = Pick<Services, "orchDir">;
 export type SettingsService = Pick<Services, "settings">;
-export type LoggerService = Pick<Services, "logger">;

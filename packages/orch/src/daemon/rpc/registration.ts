@@ -14,7 +14,7 @@ export function isRegisterSessionResponse(value: unknown): value is RegisterSess
   return RPC_RESULTS["register-session"].safeParse(value).success;
 }
 
-function nonEmpty(value: string | undefined): string | undefined {
+export function nonEmpty(value: string | undefined): string | undefined {
   return value === "" ? undefined : value;
 }
 

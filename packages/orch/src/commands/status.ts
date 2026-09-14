@@ -242,7 +242,7 @@ export interface CallerScope {
   kind: CallerKind;
 }
 
-export function callerScope(orchDir: OrchDir): CallerScope {
+function callerScope(orchDir: OrchDir): CallerScope {
   const kind = callerKind(orchDir);
   const id = selfId(orchDir) ?? null;
   return { id, ceiling: kind === "operator" || id === null ? null : spaceOfAgent(orchDir, id), kind };
@@ -324,7 +324,7 @@ export interface StatusFilter {
   states: ReadonlySet<string>;
 }
 
-export const NO_STATUS_FILTER: StatusFilter = { columns: new Set(), states: new Set() };
+const NO_STATUS_FILTER: StatusFilter = { columns: new Set(), states: new Set() };
 
 /** `--filter=owner,env,done`: a column name drops that column; any other name drops rows in that state. */
 function parseStatusFilter(args: readonly string[]): StatusFilter {

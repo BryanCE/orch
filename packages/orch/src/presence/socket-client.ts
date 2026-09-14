@@ -3,7 +3,7 @@
 // (which JSON method/params to send) stays with each caller — this moves the
 // transport, not the protocol.
 import { createConnection } from "node:net";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
 import { isRecord } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -36,6 +36,32 @@ export function readPortPath(file: string): number | undefined {
 
 export function readPortFile(orchDir: OrchDir): number | undefined {
   return readPortPath(daemonRuntimeFiles(orchDir).port);
+}
+
+/** Send one report to the daemon, trying its unix socket before its TCP port. */
+export async function reportOnce(
+  orchDir: OrchDir,
+  method: "report-status" | "report-result",
+  params: unknown,
+  timeoutMs: number,
+): Promise<boolean> {
+  const runtime = daemonRuntimeFiles(orchDir);
+  const endpoints: (string | number)[] = [];
+  if (existsSync(runtime.socket)) endpoints.push(runtime.socket);
+  const port = readPortFile(orchDir);
+  if (port !== undefined) endpoints.push(port);
+
+  for (const endpoint of endpoints) {
+    const line = await requestJsonLine(endpoint, { id: 1, method, params }, timeoutMs);
+    if (line === undefined) continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (isRecord(parsed) && "result" in parsed) return true;
+    } catch {
+      // Try the next advertised endpoint when the response is not JSON.
+    }
+  }
+  return false;
 }
 
 export interface JsonLineLink {

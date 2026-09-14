@@ -25,15 +25,6 @@ function configFor(entry: NotifyEntry): Record<string, unknown> {
   return {};
 }
 
-export function loadNotifierEntries(orchDir: OrchDir, settings: OrchSettings | null): NotifyEntry[] {
-  try {
-    return settings?.notify ?? [];
-  } catch (error: unknown) {
-    warning(orchDir, `could not load settings.json: ${oneLine(error)}`);
-    return [];
-  }
-}
-
 class NotifierRegistry {
   private readonly notifiers: Map<NotifyEntry["id"], Notifier>;
   private readonly emitWarning: (message: string) => void;

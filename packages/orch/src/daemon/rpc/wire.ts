@@ -83,7 +83,7 @@ export function parseRpcLine(value: unknown): RpcLine | null {
   return null;
 }
 
-export function encodeLine(line: RpcLine): string {
+function encodeLine(line: RpcLine): string {
   switch (line.kind) {
     case "reply":
       return `${JSON.stringify({ id: line.id, result: line.result })}\n`;
@@ -168,6 +168,8 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "question": return parseOne(method, RPC_PARAMS[method], id, value);
     case "questions": return parseOne(method, RPC_PARAMS[method], id, value);
     case "ack": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "report-status": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "report-result": return parseOne(method, RPC_PARAMS[method], id, value);
     case "control-outcome": return parseOne(method, RPC_PARAMS[method], id, value);
     case "reload": return parseOne(method, RPC_PARAMS[method], id, value);
     case "register-session": return parseOne(method, RPC_PARAMS[method], id, value);

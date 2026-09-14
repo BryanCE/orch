@@ -235,7 +235,7 @@ export interface HerdrHud {
   notify: (event: BridgeNotifyEvent) => void;
 }
 
-export function createHerdrHud(cli: HerdrCli): HerdrHud {
+function createHerdrHud(cli: HerdrCli): HerdrHud {
   const state: HudState = { reportedSocket: undefined, metadataSeq: Date.now() * 1000 };
   return {
     paneHandle: (id, orchDir) => paneHandle(id, orchDir),

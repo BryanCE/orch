@@ -159,7 +159,7 @@ function findReviewItem(orchDir: OrchDir, target: string): ReviewItem {
   return item;
 }
 
-export function reviewTarget(agent: { key: string; branch: string | null }): string {
+function reviewTarget(agent: { key: string; branch: string | null }): string {
   const branch = agent.branch ?? "";
   return branch.startsWith("orch/") ? branch.slice("orch/".length) : branch || agent.key;
 }

@@ -24,12 +24,12 @@ export async function spawnHeadlessSmokeAgent(services: Services, cwd: string, p
 }
 
 /** The trivial task the smoke agent is launched on. `orch spawn` adds the worker header. */
-export function buildSmokePrompt(): string {
+function buildSmokePrompt(): string {
   return "Reply with the single word: ready";
 }
 
 /** Best-effort close of the headless smoke agent by its key. */
-export function closeSmokeAgent(orchDir: OrchDir, key: string): void {
+function closeSmokeAgent(orchDir: OrchDir, key: string): void {
   try {
     const backend = resolveBackend({ configured: "headless" });
     const handle = backend.handleLookup?.handleFor(key, orchDir);
@@ -39,7 +39,7 @@ export function closeSmokeAgent(orchDir: OrchDir, key: string): void {
   }
 }
 
-export function defaultSmokeSteps(services: Services): SmokeSteps {
+function defaultSmokeSteps(services: Services): SmokeSteps {
   return {
   spawnHeadless: (cwd, prompt) => spawnHeadlessSmokeAgent(services, cwd, prompt),
   buildPrompt: buildSmokePrompt,

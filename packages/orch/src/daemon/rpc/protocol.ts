@@ -13,6 +13,7 @@ import type { PaneLabels } from "../../types/plexer.ts";
 import type { LifecycleVerb } from "../../types/adapter.ts";
 import type { DaemonStatusRow, PendingQuestionView } from "../../types/daemon.ts";
 import type { BridgeNotification } from "../../types/agent.ts";
+import type { ResultReport, StatusPatch } from "../../types/presence.ts";
 
 const RPC_ERROR_CODES = [
   "INVALID_REQUEST", "INVALID_PARAMS", "METHOD_NOT_FOUND", "HANDLER_ERROR",
@@ -56,6 +57,42 @@ const notifyParams = z.object({
   lastError: optionalText,
   cost: z.number().optional(),
 }) satisfies z.ZodType<BridgeNotification>;
+
+const STATUS_PATCH = z.object({
+  state: z.enum(AGENT_STATES).optional(),
+  lastError: z.string().nullish(),
+  model: z.object({ provider: z.string(), id: z.string() }).nullish(),
+  thinking: z.string().nullish(),
+  task: z.string().nullish(),
+  dispatchId: z.string().nullish(),
+  lastText: z.string().nullish(),
+  currentFile: z.string().nullish(),
+  filesTouched: z.array(z.string()).nullish(),
+  tokens: z.object({ input: z.number(), output: z.number(), cacheRead: z.number(), cacheWrite: z.number() }).nullish(),
+  cost: z.number().nullish(),
+  context: z.object({ tokens: z.number(), percent: z.number().nullish() }).nullish(),
+  turns: z.number().nullish(),
+  sessionPath: z.string().nullish(),
+  sessionId: z.string().nullish(),
+  project: z.string().nullish(),
+  extensionHash: z.string().nullish(),
+  startedAt: z.number().nullish(),
+  finishedAt: z.number().nullish(),
+  blockedMessage: z.string().nullish(),
+}) satisfies z.ZodType<StatusPatch>;
+
+const RESULT_REPORT = z.object({
+  text: z.string(),
+  dispatchId: z.string().nullish(),
+  task: z.string().nullish(),
+  model: z.object({ provider: z.string(), id: z.string() }).nullish(),
+  thinking: z.string().nullish(),
+  tokens: z.object({ input: z.number(), output: z.number(), cacheRead: z.number(), cacheWrite: z.number() }).nullish(),
+  cost: z.number().nullish(),
+  turns: z.number().nullish(),
+  sessionPath: z.string().nullish(),
+  finishedAt: z.number(),
+}) satisfies z.ZodType<ResultReport>;
 
 const SESSION_CLAIM = z.object({
   token: z.string(),
@@ -156,6 +193,8 @@ export const RPC_PARAMS = {
     projectRoot: z.string().optional(),
   }),
   notify: notifyParams,
+  "report-status": z.object({ key: nonBlank, status: STATUS_PATCH }),
+  "report-result": z.object({ key: nonBlank, result: RESULT_REPORT }),
   status: z.undefined(),
   attach: z.object({ key: nonBlank }),
   dispatch: GOVERNANCE.extend({ target: nonBlank, text: nonBlank }),
@@ -207,6 +246,8 @@ export const RPC_RESULTS = {
   "environment-labels": z.custom<PaneLabels>(isPaneLabels).nullable(),
   "peer-view": z.custom<PeerView>(isPeerView),
   notify: OK,
+  "report-status": OK,
+  "report-result": OK,
   status: z.object({ rows: z.array(daemonStatusRow) }),
   attach: z.object({ attached: z.literal(true), open: z.number() }),
   dispatch: ACCEPTED,

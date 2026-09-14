@@ -195,9 +195,9 @@ function placeRemainingAgents(
 function launchPrepared(
   services: Pick<Services, "orchDir" | "logger">,
   prepared: readonly PreparedAgent[],
-  context: { settings: SpawnSettings; backend: Backend; adapter: AgentAdapter; space: string | null; workspace: string | undefined; groupId: string; spawnerAgentId: string | null },
+  context: { settings: SpawnSettings; settingsFile: OrchSettings; backend: Backend; adapter: AgentAdapter; space: string | null; workspace: string | undefined; groupId: string; spawnerAgentId: string | null },
 ): CreatedAgent[] {
-  const { settings, backend, adapter, space, workspace, groupId, spawnerAgentId } = context;
+  const { settings, settingsFile, backend, adapter, space, workspace, groupId, spawnerAgentId } = context;
   const created: CreatedAgent[] = [];
   for (const [index, item] of prepared.entries()) {
     if (item.handle === undefined) continue;
@@ -207,6 +207,7 @@ function launchPrepared(
       created.push(spawnOneIntoTab(services.orchDir, {
         backend, adapter, adapterId: settings.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         model: plan.model, thinking: plan.thinking, preferredModels: settings.preferredModels,
+        reportTimeoutMs: settingsFile.daemon.report_timeout_ms,
         tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined,
         worktree: settings.worktree ? item.cwd : undefined, branch: item.branch,
         spawnerAgentId, intoHandle: item.handle, key: item.key, env: item.env,
@@ -295,7 +296,7 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
   const prepared = prepareAgents(services.orchDir, settings, adapter, names);
   const { group, workspace } = seatFleet(services.orchDir, backend, groupHome, placement, settings, prepared);
   placeRemainingAgents(services.logger, backend, prepared, group.id, workspace, settings.tiling.first_split);
-  const created = launchPrepared(services, prepared, { settings, backend, adapter, space, workspace, groupId: group.id, spawnerAgentId });
+  const created = launchPrepared(services, prepared, { settings, settingsFile, backend, adapter, space, workspace, groupId: group.id, spawnerAgentId });
   if (created.length === 0) {
     try { groupHome.close(group.id); } catch { /* best effort */ }
     die("all spawns failed");
@@ -365,6 +366,7 @@ export async function cmdTile(services: Services, args: string[]) {
       model,
       thinking,
       preferredModels,
+      reportTimeoutMs: settingsFile.daemon.report_timeout_ms,
       spawnerAgentId,
     });
   } catch (e: unknown) {

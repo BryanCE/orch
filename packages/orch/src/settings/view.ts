@@ -170,7 +170,7 @@ export interface RepairScreen {
   readonly status: string | undefined;
 }
 
-export const REPAIR_KEYBAR = "up/down move | r rename | s set | d drop | l leave | enter save | esc quit without saving";
+const REPAIR_KEYBAR = "up/down move | r rename | s set | d drop | l leave | enter save | esc quit without saving";
 
 /** What one standing choice will do to the file, in the words of the thing it does. */
 export function repairActionLabel(defect: SettingsDefect, choice: RepairChoice): string {

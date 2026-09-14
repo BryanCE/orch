@@ -4,22 +4,6 @@ import type { DaemonClient } from "./agent.ts";
 import type { OrchDir } from "./core.ts";
 import type { NotifyEvent } from "./notify.ts";
 
-/** One transition as orch's daemon publishes it; the pack's only event source. */
-export interface PackTransition {
-  readonly key: string;
-  readonly name: string;
-  readonly oldState: string;
-  readonly newState: string;
-  readonly model: string | null;
-  readonly task?: string;
-  readonly lastError?: string;
-  readonly cost?: number;
-  readonly ts?: string;
-  readonly seq?: number;
-  readonly dispatchId?: string;
-  readonly spawnedBy?: string;
-}
-
 /** Presence-store facts that events do not carry, refreshed on read. */
 export interface PackEnrichment {
   readonly sessionPath?: string;

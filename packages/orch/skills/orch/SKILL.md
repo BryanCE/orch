@@ -1,6 +1,6 @@
 ---
 name: orch
-description: Drive the orch CLI to run a fleet of coding agents - spawn, dispatch work, watch state transitions, and collect results. The moment you are told to use orch, use it, or spawn agents, your FIRST action is `orch spawn` - one command, no preflight, no driving the plexer yourself, no asking. Then watch the push stream; never babysit with a blocking wait. Use for any multi-agent dispatch, for spawn/tile/close/reset lifecycle, for the durable task queue, or when an orch command errors.
+description: Drive the orch CLI to run a fleet of coding agents - spawn, dispatch work, watch state transitions, and collect results. The moment you are told to use orch, use it, or spawn agents, your FIRST action is `orch spawn` - one command, no preflight, no driving the plexer yourself, no asking. Then run the job as waves (recon orchs write reports, you write one task list, you dispatch 3-4 exact tasks at a time and refill the instant one lands) and watch the push stream; never babysit with a blocking wait. Use for any multi-agent dispatch, for spawn/tile/close/reset lifecycle, for the durable task queue, or when an orch command errors.
 allowed-tools: Bash, Read
 ---
 
@@ -41,6 +41,66 @@ Dispatch clears the context itself, so there is no reset step between two tasks.
 orch dispatch api-types 'the full task spec'
 orch dispatch api-routes --file slice.md --with src/api/routes.ts   # spec too long for a line
 ```
+
+## Waves
+
+Every job, planning included, runs as waves of 3 to 4 orchs. Nobody idles: not you, not an
+orch. The order is fixed. Doing step 3 before step 2 is the failure this section exists to
+stop.
+
+1. **Recon wave.** Before you read the tree yourself, spawn 3 to 4 orchs whose only job is
+   to read and report. Each gets one topic, an exact answer shape (file:line, signatures,
+   a table), and one report file to write. You read the reports, not the tree. Your context
+   is for planning, theirs is for reading.
+2. **Task list.** You write it, in one sitting, from the reports, before any implementing
+   dispatch goes out. Not an orch. Not "a few quick tasks first while I think": that is the
+   failure this step exists to stop. It takes minutes, not the length of a wave. One task
+   list file (see `reference/fleet.md` for the shape). Every task names exact files, exact edits with names and signatures, the
+   test files to run, and the report shape to answer with. A task is 1 to 3 minutes of
+   mechanical work. If a task needs the orch to investigate or choose, it is not a task:
+   send another recon wave or split it. Group tasks into waves by file ownership, so no two
+   tasks in one wave touch the same file. Mark checkpoints between waves.
+3. **Dispatch the whole wave at once.** One message: 3 to 4 dispatches, each `--file` on
+   its task, `--with` on the report it cites, and `orch events` armed as a Monitor.
+4. **Prepare the next wave while this one runs.** Write the next specs now. By the time
+   they are written the first orchs are landing. Read each diff, run `bun check` on the
+   files that task touched and `bun test` on the test files that task named. A set of tests,
+   never the full suite. A finding is a new task for the next wave, not an edit you make.
+5. **Refill the instant an orch lands.** `orch rename` to the next slice, `orch dispatch`
+   the next task. Close an orch only when the task list has nothing left for it. Never
+   clear an orch while work remains.
+6. **Checkpoint.** At every marked checkpoint: run the scoped checks over everything landed
+   since the last one, report progress to the user in a few lines, and run what the user
+   asked for at checkpoints (their commit skill, a summary). Then start the next wave.
+
+Who does what, with no overlap:
+
+- **You** plan, gather through orchs, write the task list, dispatch, read diffs, run the
+  wider scoped checks, and decide. You never run the full test suite and you never do a
+  task an orch could do.
+- **An orch** does exactly what its task says, runs `bun check` and the named tests on its
+  own slice, and reports back in the shape the task asked for. It never plans, never
+  investigates past what it was named, never decides. A task that makes it do any of those
+  was under-specced, and the fix is a better task, not a smarter orch.
+
+The mechanics that keep the cycle fast:
+
+- **Time budget.** Recon plus task list is a small fraction of the job. If orchs have been
+  idle while you write, you are the bottleneck: dispatch what is ready and finish the list
+  while they run.
+- **One spec file per task.** Cut every task out of the task list into its own file the
+  moment the list exists (a shell loop over the `### T<n>.` headings), with the list's
+  conventions header on top. Then a refill is one `orch dispatch <name> --file specs/T<n>.md
+  --with <report>`, never a rewrite.
+- **`pending` is not `blocked`.** Tasks in one wave compile against each other. An orch
+  whose own files are clean but whose `bun check` names only another task's files reports
+  `pending: <files>` and is done. `blocked` is reserved for its own slice. Say this in the
+  conventions header so no orch stalls on a neighbour's red.
+- **A question gets a scope grant, not a discussion.** When an orch asks whether it may touch
+  a caller outside its named files, answer in one line: yes, these three files, this one
+  change, name them in your done line. Then move on.
+- **Rename on refill.** `orch rename <target> <slice>` in the same command as the dispatch,
+  so the status column and the events stream name the work, not the spawn.
 
 ## Rules
 

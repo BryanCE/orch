@@ -1,70 +1,13 @@
 import type { AdapterId } from "./adapter.ts";
+import type { AgentState } from "../adapters/adapter.ts";
 import type { BackendId } from "./backend.ts";
 import type { JsonRecord } from "./core.ts";
-
-export interface PresenceStatus {
-  /** Must equal PRESENCE_SCHEMA (src/presence/schema.ts); anything else is malformed. */
-  schema: number;
-  agent?: string;
-  key?: string;
-  cwd?: string;
-  project?: string;
-  /** Git worktree the launch isolated this agent into; absent when it shares the fleet's tree. */
-  worktree?: string;
-  /** Branch of that worktree. */
-  branch?: string;
-  state?: string;
-  lastError?: string;
-  model?: { provider?: string; id?: string };
-  thinking?: string;
-  task?: string;
-  /** Id of the orch dispatch whose prompt the agent is running; absent on a
-   *  human-typed run or a bridge that cannot attribute one (hook-based). */
-  dispatchId?: string;
-  lastText?: string;
-  currentFile?: string;
-  /** Files the agent's writing tools touched this run, when its bridge tracks them. */
-  filesTouched?: string[];
-  tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
-  cost?: number;
-  context?: { tokens?: number; percent?: number };
-  turns?: number;
-  sessionPath?: string;
-  sessionId?: string;
-  startedAt?: string;
-  finishedAt?: string;
-  updatedAt?: string;
-  extensionHash?: string;
-  label?: string | null;
-  /** Address of the session that spawned this agent (its presence key, else its
-   *  governance token); absent for agents nothing spawned. */
-  spawnedBy?: string;
-  /** Human description of the spawner: "lead-1 (pi)", "claude session", "operator". */
-  spawnedByLabel?: string;
-  tabLabel?: string | null;
-  asking?: { question: string; id: string; ts: string };
-  blockedMessage?: string;
-}
-
-/** Safe, descriptive fields retained from every status.json, including records
- * that fail the live schema gate. This is intentionally not PresenceStatus:
- * callers can identify malformed dirs without ever treating them as live. */
-export interface PresenceDescription {
-  label?: string;
-  cwd?: string;
-  agent?: string;
-  updatedAt?: string;
-  finishedAt?: string;
-}
+import type { AgentStatusRow } from "../store/status-rows.ts";
 
 export interface PresenceEntry {
   key: string;
-  dir: string;
-  /** Current-schema status only. Malformed or unstamped records are null. */
-  status: PresenceStatus | null;
-  /** Descriptive metadata from disk; never used to establish liveness. */
-  description?: PresenceDescription;
-  result: unknown;
+  status: AgentStatusRow | null;
+  result: string | null;
   alive: boolean;
 }
 
@@ -119,20 +62,44 @@ export interface LaunchEnvFacts {
 }
 
 /**
- * Exactly the fields `launchStamp` carries forward from a prior record. Stating
- * them means a caller holding a DECLARED status shape (an interface, which has no
- * index signature) passes it without a cast, AND the compiler checks that this
- * function only reads what it says it reads — which `Record<string, unknown>`
- * never could.
+ * What a harness reports about its own current state, over the daemon socket.
+ * A PATCH: an absent field keeps the stored value, `null` clears it. Instants
+ * are epoch millis (Rule 11). Identity, provenance, environment and tuning
+ * are never in here; orch records those itself.
  */
-export interface LaunchStampable {
-  readonly label?: unknown;
-  readonly spawnedBy?: unknown;
-  readonly spawnedByLabel?: unknown;
-  readonly worktree?: unknown;
-  readonly branch?: unknown;
-  readonly tabLabel?: unknown;
-  readonly cost?: unknown;
-  readonly tokens?: unknown;
-  readonly turns?: unknown;
+export interface StatusPatch {
+  state?: AgentState;
+  lastError?: string | null;
+  model?: { provider: string; id: string } | null;
+  thinking?: string | null;
+  task?: string | null;
+  dispatchId?: string | null;
+  lastText?: string | null;
+  currentFile?: string | null;
+  filesTouched?: readonly string[] | null;
+  tokens?: { input: number; output: number; cacheRead: number; cacheWrite: number } | null;
+  cost?: number | null;
+  context?: { tokens: number; percent?: number | null } | null;
+  turns?: number | null;
+  sessionPath?: string | null;
+  sessionId?: string | null;
+  project?: string | null;
+  extensionHash?: string | null;
+  startedAt?: number | null;
+  finishedAt?: number | null;
+  blockedMessage?: string | null;
+}
+
+/** One settled turn, reported over the daemon socket. */
+export interface ResultReport {
+  text: string;
+  dispatchId?: string | null;
+  task?: string | null;
+  model?: { provider: string; id: string } | null;
+  thinking?: string | null;
+  tokens?: { input: number; output: number; cacheRead: number; cacheWrite: number } | null;
+  cost?: number | null;
+  turns?: number | null;
+  sessionPath?: string | null;
+  finishedAt: number;
 }

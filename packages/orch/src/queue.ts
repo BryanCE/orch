@@ -42,7 +42,7 @@ function mapAttempt(row: AttemptRow): TaskAttemptRec {
   };
 }
 
-export function isTaskOptions(value: unknown): value is TaskOptions {
+function isTaskOptions(value: unknown): value is TaskOptions {
   if (!isRecord(value)) return false;
   if ("agent" in value && typeof value.agent !== "string") return false;
   if ("model" in value && typeof value.model !== "string") return false;
@@ -84,7 +84,7 @@ export function requireTask(orchDir: OrchDir, id: string): TaskRec {
 /** Packs an agent may put work into: the one it is a member of, plus every pack
  *  it currently holds a live agent in. Adoption earns the right; provenance on
  *  its own never grants it (Cq1). */
-export function packsOpenTo(orchDir: OrchDir, enqueuer: AgentRow): Set<string> {
+function packsOpenTo(orchDir: OrchDir, enqueuer: AgentRow): Set<string> {
   const packs = new Set([enqueuer.rootAgentId]);
   for (const lease of leasesByOrch(orchDir, enqueuer.id)) {
     const held = agentById(orchDir, lease.agentId);

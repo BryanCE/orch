@@ -157,6 +157,17 @@ export function agentViews(orchDir: OrchDir): AgentView[] {
   return views;
 }
 
+/** Every agent the store knows, indexed by its minted id. An absent store is an empty fleet. */
+export function agentViewIndex(orchDir: OrchDir): Map<string, AgentView> {
+  const index = new Map<string, AgentView>();
+  try {
+    for (const view of agentViews(orchDir)) index.set(view.id, view);
+  } catch {
+    // Nothing spawned yet.
+  }
+  return index;
+}
+
 /** Agents that have not ended. Liveness of the PROCESS is a separate question
  *  answered by presence; this is the store's own record of what was closed. */
 export function liveAgentViews(orchDir: OrchDir): AgentView[] {

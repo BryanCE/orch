@@ -7,7 +7,7 @@ import { decisionLogger } from "../decision-log.ts";
 import type { EventSubscription } from "../../types/daemon.ts";
 import { parseRpcResult, type ParamsOf, type ResultOf, type RpcMethod } from "./protocol.ts";
 import { DaemonAbsentError, DaemonUnreachableError, RpcError, type RpcLine, DEFAULT_TIMEOUT_MS, encodeRequest, endpointPaths, readJsonMessages, responseError } from "./wire.ts";
-import { sessionClaim } from "./registration.ts";
+import { nonEmpty, sessionClaim } from "./registration.ts";
 import { errorMessage, isRecord } from "../../util.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 
@@ -34,10 +34,6 @@ function requestIds(): () => number {
  * display, never for authorization: a same-uid caller that misreports its session
  * gains nothing it could not already do by dialing again.
  */
-export function nonEmpty(value: string | undefined): string | undefined {
-  if (value === "") return undefined;
-  return value;
-}
 function connect(pathOrPort: string | number, timeoutMs: number): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = typeof pathOrPort === "string"
@@ -252,8 +248,9 @@ export function subscribeEvents(
           // The token is read fresh because a restart mints a new credential.
           const credential = launchCredential();
           const claim = sessionClaim(orchDir);
-          if (credential !== null && typeof claim.sessionToken === "string") {
-            connected.write(encodeRequest(nextId(), "claim-identity", { ...claim, id: credential, sessionToken: claim.sessionToken }));
+          const sessionToken = nonEmpty(typeof claim.sessionToken === "string" ? claim.sessionToken : undefined);
+          if (credential !== null && sessionToken !== undefined) {
+            connected.write(encodeRequest(nextId(), "claim-identity", { ...claim, id: credential, sessionToken }));
           } else {
             connected.write(encodeRequest(nextId(), "register-session", claim));
           }

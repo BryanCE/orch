@@ -159,6 +159,8 @@ export interface TabSpawnSpec {
    *  letting the launch mint a second one. */
   key?: string;
   env?: Readonly<Record<string, string>>;
+  /** How long the harness waits for orchd to accept a report, in milliseconds. */
+  reportTimeoutMs?: number;
   tools?: string;
   /** What this worker may load; absent lets the adapter apply no policy. */
   workers?: WorkerPolicy;

@@ -55,7 +55,7 @@ Nothing has published. There is exactly one current shape for every record, conf
 # RULE 10. PER-HARNESS CODE LIVES IN `extensions/<harness>/`.
 `extensions/pi/`, `extensions/claude/`, `extensions/codex/`. Never a generic name (`bridge`, `shim`), never in `scripts/`. `scripts/` is build tooling.
 - Harness is not backend. Code gated on a plexer (`backend === "herdr"`, `HERDR_SOCKET_PATH`, tmux panes) goes in `src/backends/<plexer>/`, never `extensions/`.
-- The presence protocol is orch's. `status.json`, `result.json`, `inbox.jsonl`, `ack.jsonl` and their writers live in `src/presence/`. Every harness imports that writer. Nobody reimplements `atomicWrite`.
+- The presence protocol is orch's, and it is the daemon socket. A harness reports state, results, and control outcomes over RPC (`report-status`, `report-result`, `control-outcome`) and never touches `$ORCH_DIR/agents/`. orchd owns that directory and appends `status.jsonl`, `results.jsonl`, `outcomes.jsonl` there as history. Nothing reads those files to make a decision. `rm -rf $ORCH_DIR/agents/*` loses history and nothing else. The one history appender lives in `src/presence/`.
 - Bundle output names are decoupled from source dirs in `src/bridge-bundles/metadata.ts`. Renaming a source dir must not rename a shipped artifact. The bundler (`src/bridge-bundles/build.ts`) is build tooling; runtime `src/**` never imports it.
 - `scripts/check-bridge.ts` enforces this. Its `extensions` scan must stay recursive or it scans nothing and passes.
 
@@ -65,7 +65,7 @@ The agent model below is law, same standing as Rule 9. It binds identity, keys, 
 - Four facts, never welded. Identity is a minted id and nothing else. Provenance is who spawned it, immutable. Ownership is a lease. Environment is where it is (cwd, repo, worktree, branch, plexer, handle, OS side), mutable. No fifth fact, no lifetime column.
 - Everything has an environment. orch's grouping is a space. "Workspace" is a plexer's word and never appears in orch's model, CLI, or UI.
 - Never encode environment into identity. No `<backend>~<workspace>~<handle>` key. `"local"` is a missing value with a name. `wF` is herdr's id. Both become columns.
-- Delivery and read are orch's mechanism. A pane is a shortcut. `inbox.jsonl` to bridge to `ack.jsonl` needs no screen.
+- Delivery and read are orch's mechanism, over the daemon socket. A pane is a shortcut. An outbox row pushed to the bridge and acked back needs no screen.
 - Branch on declared capabilities, never on an environment id. Adding an environment edits zero renderers, commands, or policy.
 - Ownership is mutual exclusion, not authorization. `dispatch`, `steer`, `model`, `reset` are gated against a live foreign holder. `abort`, `close`, `reap` are never gated. The human can always kill.
 - Work survives its spawner. No lifetime, no `--detached`, no fate-sharing, no grace timer. `detach` means release the lease.
@@ -88,3 +88,6 @@ Two places computing the same thing is a bug. Grep and run `fallow` before you w
 
 # RULE 17. NOTHING IS HARDCODED.
 Every number, cap, depth, timeout, port, path, or name is a setting in `settings.json` (schema, `SETTINGS_DEFAULTS`, registry help line, required type) or an env var. `?? <literal>` on a settings read is forbidden.
+
+# RULE 18. NO FILE IS A STATE OR CONTROL CHANNEL.
+State, control, results, and liveness travel over the daemon socket and live in the store. A file under `$ORCH_DIR` is either config (`settings.json`), a daemon runtime file (`orchd.*`), or append-only history that orchd writes and nothing reads back. Never `fs.watch`, never a rewritten JSON cell, never a poll over a directory. A reader that opens a file to decide anything is the bug. The fix is a store query or an RPC.

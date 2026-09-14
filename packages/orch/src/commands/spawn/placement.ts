@@ -117,7 +117,7 @@ export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAg
     handle = spec.backend.spawn(spec.adapter, {
       key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
       intoHandle: place, orchDir, model: spec.model, thinking, preferredModels: spec.preferredModels,
-      tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
+      reportTimeoutMs: spec.reportTimeoutMs, tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
     });
   } catch (error: unknown) {
     if ((spec.placement !== undefined || spec.intoHandle !== undefined) && spec.backend.placement) {
@@ -146,7 +146,7 @@ export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAg
  *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
  *  is tiling one agent at a time — the balance only holds while every agent is
  *  placed by the same planner reading the same layout. */
-export function tileAgentIntoGroup(orchDir: OrchDir, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): CreatedAgent {
+function tileAgentIntoGroup(orchDir: OrchDir, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): CreatedAgent {
   return spawnOneIntoTab(orchDir, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
 }
 

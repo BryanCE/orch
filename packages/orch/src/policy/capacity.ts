@@ -35,8 +35,8 @@ export function packsUsed(capacity: FleetCapacity): number {
 
 type CapacitySettings = Pick<OrchSettings, "fleet"> & Partial<Pick<OrchSettings, "spaces">>;
 
-/** The one liveness join used by spawn admission and capacity reporting. */
-export function liveAgentViews(
+/** Views whose agents are alive per presence, used by spawn admission and capacity reporting. */
+export function presenceAliveViews(
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
 ): readonly AgentView[] {
@@ -49,7 +49,7 @@ export function liveSpawnCounts(
   presence: ReadonlyMap<string, PresenceEntry>,
 ): Map<string, number> {
   const counts = new Map<string, number>();
-  for (const view of liveAgentViews(views, presence)) {
+  for (const view of presenceAliveViews(views, presence)) {
     const space = view.environment.space;
     if (space === null) continue;
     counts.set(space, (counts.get(space) ?? 0) + 1);
@@ -92,7 +92,7 @@ export function computeFleetCapacity(
   settings: CapacitySettings,
   options: { readonly packRootId?: string | null; readonly packSpace?: string | null } = {},
 ): FleetCapacity {
-  const live = liveAgentViews(views, presence);
+  const live = presenceAliveViews(views, presence);
   const cap = settings.fleet.max_agents_per_pack;
   const packsByRoot = new Map<string, CapacityPack>();
   for (const view of selectedPack(live, views, options.packRootId, options.packSpace)) {

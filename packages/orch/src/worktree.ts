@@ -58,7 +58,7 @@ export function listAgentWorktrees(repoRoot: string): string[] {
 }
 
 /** Remove an existing worktree, optionally discarding uncommitted changes. */
-export function removeWorktree(repoRoot: string, worktreePath: string, force = false): void {
+function removeWorktree(repoRoot: string, worktreePath: string, force = false): void {
   const root = repositoryRoot(repoRoot);
   git(root, ["worktree", "remove", ...(force ? ["--force"] : []), worktreePath]);
 }

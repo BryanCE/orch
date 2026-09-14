@@ -17,7 +17,7 @@ import type { OrchSettings } from "../types/settings.ts";
 export const ORCH_ENV_VARS = [
   LAUNCH_ENV, ENVIRONMENT_ENV, "ORCH_DIR", "ORCH_PROJECT", "ORCH_AGENT_NAME",
   "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL", "ORCH_AGENT_WORKTREE", "ORCH_AGENT_BRANCH",
-  "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_SPACE", "ORCH_HARNESS",
+  "ORCH_OWNER", "ORCH_SESSION_KEY", "ORCH_SPACE", "ORCH_HARNESS", "ORCH_REPORT_TIMEOUT_MS",
 ] as const;
 
 /**
@@ -80,13 +80,14 @@ export function worktreeEnv(path: string | undefined, branch: string | undefined
  * than leaving it unset.
  */
 export function agentLaunchEnv(
-  opts: Pick<BackendSpawnOpts, "key" | "orchDir" | "env">,
+  opts: Pick<BackendSpawnOpts, "key" | "orchDir" | "env" | "reportTimeoutMs">,
   extra: Readonly<Record<string, string | undefined>> = {},
 ): Record<string, string> {
   const values: Partial<Record<(typeof ORCH_ENV_VARS)[number], string | undefined>> = {
     [LAUNCH_ENV]: opts.key,
     ORCH_DIR: opts.orchDir,
     ORCH_PROJECT: projectRoot(),
+    ORCH_REPORT_TIMEOUT_MS: opts.reportTimeoutMs === undefined ? undefined : String(opts.reportTimeoutMs),
   };
   const candidates: Record<string, string | undefined> = Object.fromEntries(
     ORCH_ENV_VARS.map((name) => [name, values[name]]),

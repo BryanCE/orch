@@ -8,7 +8,7 @@ import { SETTINGS_DEFAULTS } from "./schema.ts";
 
 /** One parse per process until `reload()`. A malformed file throws from `currentOrNull`
  * every time it is asked, never caches the failure, so the next call after a fix succeeds. */
-export function createSettingsManager(storage: SettingsStorage): SettingsManager {
+function createSettingsManager(storage: SettingsStorage): SettingsManager {
   let held: { value: OrchSettings | null } | undefined;
   const currentOrNull = (): OrchSettings | null => {
     if (held === undefined) {

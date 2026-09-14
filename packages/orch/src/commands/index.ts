@@ -298,7 +298,7 @@ type Handler = (services: Services, args: string[]) => void | Promise<void>;
  * command unwinds. Every failure is logged here before it is rendered; refusals
  * and unexpected failures follow the same boundary behavior.
  */
-export function reportCommandFailure(logger: Logger, error: unknown): void {
+function reportCommandFailure(logger: Logger, error: unknown): void {
   logger.error("command.failed", { error: errorMessage(error) });
   process.stdout.write(errorMessage(error) + "\n");
   process.exitCode = 1;

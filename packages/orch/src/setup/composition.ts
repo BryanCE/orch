@@ -115,7 +115,7 @@ export async function resolveHarnessModels(
 /** Tell the operator how to make an installed-but-signed-out harness usable, and what to
  *  run afterwards. Skipping the model prompt is silent otherwise: an empty list looks
  *  like orch forgot to ask. */
-export function emptyCatalogueHint(harnessId: string): string {
+function emptyCatalogueHint(harnessId: string): string {
   return [
     `Hey - ${harnessId} is installed but lists no models, so it has nothing to spawn with.`,
     `It is not signed in yet, not configured, or its login went stale. No model was recorded for it.`,
@@ -126,7 +126,7 @@ export function emptyCatalogueHint(harnessId: string): string {
 /** Ask a harness what it can run, ONCE per setup run — both model prompts read this one answer,
  *  so they can never disagree about what the harness offers. Resolves against the stored
  *  catalogue, so a harness asked before answers without shelling out at all. */
-export async function readHarnessCatalogue(harness: AgentAdapter, catalogue: ModelCatalogue, interactive: boolean): Promise<readonly HarnessModel[]> {
+async function readHarnessCatalogue(harness: AgentAdapter, catalogue: ModelCatalogue, interactive: boolean): Promise<readonly HarnessModel[]> {
   if (harness.modelWarm) await harness.modelWarm.warmModels(catalogue);
   if (!interactive) return harness.models?.listModels(catalogue) ?? [];
   logStep(`asking ${harness.id} which models it can run...`);
@@ -140,7 +140,7 @@ export async function readHarnessCatalogue(harness: AgentAdapter, catalogue: Mod
  * reports it can run, else its own default when non-interactive. orch decides and records; the
  * harness only enumerates. Null when the user cancels, empty when the harness offers nothing
  * and the operator named nothing either. */
-export async function resolveDefaultModel(
+async function resolveDefaultModel(
   flag: string | undefined,
   harness: AgentAdapter,
   offered: readonly HarnessModel[],
@@ -177,7 +177,7 @@ export async function resolveRuntime(
 
 /** What each of a harness's two model lists was recorded as: the quicklist its own picker
  *  shows, and the gate its spawns are held to. Neither is the other, so both are named. */
-export function modelListsNote(preferred: readonly string[] | undefined, allowed: readonly string[] | undefined): string {
+function modelListsNote(preferred: readonly string[] | undefined, allowed: readonly string[] | undefined): string {
   const quicklist = preferred?.length ?? 0;
   const gate = allowed?.length ?? 0;
   return `  picker: ${quicklist || "none"}, allowed: ${gate || "all offered"}`;

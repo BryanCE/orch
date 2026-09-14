@@ -96,7 +96,7 @@ function holderStillAlive(directory: OrchDir, orchId: string): boolean {
 /** C3 - the one place that answers "may this orch drive that agent?". Mutual
  *  exclusion, never authorization: only a LIVE foreign holder excludes, and only
  *  a deliberate --steal takes an agent from one. */
-export function assertNotHeldByLiveForeignOrch(
+function assertNotHeldByLiveForeignOrch(
   directory: OrchDir,
   agent: AgentRow,
   holderId: string,

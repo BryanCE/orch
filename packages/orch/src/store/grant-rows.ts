@@ -42,7 +42,7 @@ function isGrantKind(value: string): value is GrantKind {
 
 /** Sorted `name=value` lines under the kind: the exact bytes the hash covers
  *  and, at the next attestation tier, the exact bytes a hardware key signs. */
-export function canonicalAction(action: GrantAction): string {
+function canonicalAction(action: GrantAction): string {
   const fields = Object.keys(action.params).sort().map((name) => `${name}=${action.params[name]}`);
   return [action.kind, ...fields].join("\n");
 }

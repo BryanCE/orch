@@ -14,6 +14,10 @@ export const PRESENCE_SCHEMA = 1;
 
 /** Agent-written liveness/state record. Written by every harness artifact. */
 export const STATUS_FILE = "status.json";
+
+/** orchd-appended status history, one line per report the daemon accepted. History
+ * for a human and jq; nothing reads it back. */
+export const STATUS_LOG_FILE = "status.jsonl";
 /** Agent-appended turn output, one line per settled dispatch. The newest line is
  * the current result; the ones above it are that agent's history. */
 export const RESULTS_FILE = "results.jsonl";

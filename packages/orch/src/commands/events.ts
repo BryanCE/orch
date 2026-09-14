@@ -166,7 +166,7 @@ export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCal
  * nothing owns nothing, so a watch armed before the first spawn is silence by
  * construction, and a monitor sat on it for three minutes saying nothing.
  */
-export function ownedAgentCount(scope: ResolvedCallerScope, root: OrchDir): number {
+function ownedAgentCount(scope: ResolvedCallerScope, root: OrchDir): number {
   if (!scope.mine || scope.address === undefined) return 0;
   let owned = 0;
   for (const [agentId, record] of spawnedRecords(root)) {
@@ -177,7 +177,7 @@ export function ownedAgentCount(scope: ResolvedCallerScope, root: OrchDir): numb
 }
 
 /** What a caller owning nothing is told, in place of an empty stream. */
-export function emptyScopeNotice(): string {
+function emptyScopeNotice(): string {
   return "orch events: you own no agents, so nothing can arrive on this stream yet."
     + " It covers whatever you spawn or dispatch to from here on; --space-wide watches the rest of your space now.\n";
 }

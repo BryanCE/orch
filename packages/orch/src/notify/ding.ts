@@ -61,8 +61,7 @@ const HOSTS: Record<HostOs, Host> = {
 
 const BELL = "";
 
-/** The packaged bin that plays this from a command sink - the value `orch settings` suggests
- *  when someone turns the command sink on, so nobody has to remember what to type there. */
+/** The packaged bin that plays this from a command sink; setup wires it onto PATH by this name. */
 export const ORCH_DING_BIN = "orch-ding";
 
 function host(): Host {

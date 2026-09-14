@@ -72,7 +72,7 @@ async function offerSkills(
 /** Surface the reappable malformed presence records the closing doctor pass found and, on a TTY,
  * offer to reap them (default: keep) — so setup resolves what it can rather than reporting it as a
  * post-setup failure (11.2). Non-interactive runs report only. Returns whether any were reaped. */
-export async function offerReapMalformedRecords(
+async function offerReapMalformedRecords(
   results: readonly CheckResult[],
   interactive: boolean,
   askConfirm: (count: number) => Promise<boolean> = (count) => promptConfirm(`Reap ${count} malformed presence record${count === 1 ? "" : "s"} now?`),

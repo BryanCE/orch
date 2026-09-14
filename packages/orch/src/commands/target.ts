@@ -3,7 +3,6 @@ import { isAgentId } from "../backends/identity.ts";
 import { buildEntities, callerMayResolve, parseTarget, refuseForeignTarget, resolveTarget } from "../entities.ts";
 import { callerSpace, selfId, spaceOfAgent } from "../identity/self.ts";
 import { callerKind } from "../policy/caller.ts";
-import { spawnerIdentity } from "../policy/spawner.ts";
 import { operatorControls } from "../policy/space.ts";
 import { term } from "../policy/vocabulary.ts";
 import { runSSH } from "../remote.ts";
@@ -96,7 +95,7 @@ export function agentAddress(view: AgentView, presence: ReadonlyMap<string, Pres
 }
 
 /** The live lease holder for one identity key, or null when nothing holds it. */
-export function leaseHolderOf(orchDir: OrchDir, key: string): string | null {
+function leaseHolderOf(orchDir: OrchDir, key: string): string | null {
   if (!isAgentId(key)) return null;
   try {
     return currentLease(orchDir, key)?.orchId ?? null;
@@ -193,16 +192,6 @@ export function ownsAgent(orchDir: OrchDir, agent: Pick<AgentView, "id" | "heldB
   if (agent.heldBy?.orchId === token) return true;
   return !callerIsSpawnedAgent(orchDir)
     && operatorControls(orchDir, token, agent.id, actorSpace(orchDir, token), true);
-}
-
-/** Return the exact session address that spawned this caller. */
-export function selfSpawnAddress(root: OrchDir): string | undefined {
-  return spawnerIdentity(root).key ?? undefined;
-}
-
-/** True when a record predates spawn-session stamping or belongs to this session. */
-export function spawnedBySelf(root: OrchDir, record: { spawnedBy?: string }): boolean {
-  return record.spawnedBy === undefined || record.spawnedBy === selfSpawnAddress(root);
 }
 
 export function assertAgentOwned(

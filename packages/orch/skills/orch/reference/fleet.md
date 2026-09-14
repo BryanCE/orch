@@ -102,3 +102,47 @@ one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
   their slice's test files. Full-suite gates stay with the user.
 - **Self-hosting boundary.** Changes to orch's own code bite only after rebuild, daemon
   reload, and respawn. Bridges reconnect to a restarted daemon on their own.
+
+## The task list file
+
+The task list is the contract between the recon reports and the dispatches. It lives in a
+scratch directory, one file per job. It is written once from the reports, then only appended
+to as findings come back. Each task is a self-contained spec that an orch receives verbatim
+through `--file`, so it carries everything the orch needs and nothing it has to look up.
+
+```markdown
+# <job>  (reports: recon/readers.md, recon/daemon.md)
+
+## Wave 1  (files: src/a.ts | src/b.ts | test/a.test.ts)
+
+### T1. <one-line title>            owner: src/a.ts
+Edit src/a.ts:
+- L42 `export function foo(x: string): Foo` → rename to `bar`, same signature.
+- Remove the import of `oldThing` at L3.
+Run: bun check packages/orch/src/a.ts ; bun test packages/orch/test/a.test.ts
+Report: one line. "done: <files>, check clean, tests <n> pass" or "blocked: <exact error>".
+
+### T2. ...
+
+## CHECKPOINT 1
+scoped checks: bun check packages/orch/src/a.ts packages/orch/src/b.ts ; bun test packages/orch/test/a.test.ts
+user: run their commit skill, report progress.
+
+## Wave 2  (files: ...)
+```
+
+What makes a task dispatchable:
+
+- **Exact.** Paths, line numbers from the report, the current signature and the target
+  signature, the names to use. The orch pattern-matches; it does not read around.
+- **Small.** One to three edits, 1 to 3 minutes. A task that lists five edits is two tasks.
+- **Owned.** No two tasks in one wave touch the same file. Ownership is the wave's
+  concurrency guarantee, so it is decided here and never by the orch.
+- **Self-checking.** The task names the exact `bun check` and `bun test` commands for its
+  slice. The orch runs them once, after its edits, and puts the result in its report.
+- **Answerable in one line.** The report shape is written into the task. A one-line answer
+  is what lets the orchestrator refill instantly instead of reading a page.
+
+Recon tasks use the same shape with no edits: a topic, an exact answer shape, one report
+file, and the reply "report written". Their reports are what `--with` points at in the
+waves that follow.

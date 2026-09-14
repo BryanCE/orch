@@ -15,12 +15,6 @@ export function seedStatus(root: OrchDir, key: string, status: Record<string, un
   return directory;
 }
 
-/** Seed a status record into an already-resolved presence directory. */
-export function seedStatusInDir(directory: OrchDir, status: Record<string, unknown>): void {
-  mkdirSync(directory, { recursive: true });
-  writeStatus(directory, { schema: PRESENCE_SCHEMA, ...status });
-}
-
 /** Build a complete in-memory presence entry for tests that consume composed entities. */
 export function presenceEntryFixture(overrides: Partial<PresenceEntry> = {}): PresenceEntry {
   return {

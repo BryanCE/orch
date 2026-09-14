@@ -15,7 +15,7 @@
  */
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { OUTCOMES_FILE, PRESENCE_SCHEMA, RESULTS_FILE, STATUS_FILE } from "./schema.ts";
+import { OUTCOMES_FILE, PRESENCE_SCHEMA, RESULTS_FILE, STATUS_FILE, STATUS_LOG_FILE } from "./schema.ts";
 import { isRecord, readJsonFile } from "../util.ts";
 import type { LaunchEnvFacts, LaunchStampable, PresenceRecord, PresenceStatus } from "../types/presence.ts";
 import type { OrchDir, JsonRecord } from "../types/core.ts";
@@ -45,7 +45,7 @@ export function ensurePresenceAgentDir(key: string, root: OrchDir): string | und
 }
 
 /** Path to one protocol file inside a presence directory. */
-export function presenceFile(directory: string, name: string): string {
+function presenceFile(directory: string, name: string): string {
   return join(directory, name);
 }
 
@@ -73,7 +73,7 @@ export function namesPresenceFile(filename: string, target: string): boolean {
  * torn record still beats no record. Never throws — presence is best-effort and
  * must not take down the harness it is observing.
  */
-export function atomicWrite(file: string, value: unknown): void {
+function atomicWrite(file: string, value: unknown): void {
   const serialized = JSON.stringify(value, null, 2);
   const temporary = temporaryName(file);
   try {
@@ -144,7 +144,7 @@ export function parseJsonArgument(raw: string | undefined): JsonRecord {
   }
 }
 
-export function launchEnvFacts(): LaunchEnvFacts {
+function launchEnvFacts(): LaunchEnvFacts {
   const value = (name: string): string | null => {
     const raw = process.env[name];
     return typeof raw === "string" && raw.length > 0 ? raw : null;
@@ -198,6 +198,11 @@ export function writeResult(directory: string, result: PresenceRecord): void {
 /** Append what the agent did with one control command. */
 export function appendOutcome(directory: string, outcome: PresenceRecord): void {
   appendPresenceLine(directory, OUTCOMES_FILE, outcome);
+}
+
+/** Append one accepted status report to the agent's history. Daemon-side only. */
+export function appendStatusHistory(directory: string, record: PresenceRecord): void {
+  appendPresenceLine(directory, STATUS_LOG_FILE, record);
 }
 
 /** The newest settled result, or null when none has settled. Scans up from the

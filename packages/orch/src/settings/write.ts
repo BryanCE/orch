@@ -48,11 +48,6 @@ function updateSettingsFile(settings: SettingsManager, mutate: (root: Partial<Se
   ));
 }
 
-/** Write a candidate settings root only after schema and composition validation. */
-export function writeSettingsRoot(settings: SettingsManager, candidate: unknown): void {
-  settings.update(() => serializeSettingsRoot(settings.file, candidate));
-}
-
 function copyRecord(root: object): Record<string, unknown> {
   const copy: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(root)) copy[key] = value;
@@ -267,9 +262,4 @@ export function writeSettingsNotify(settings: SettingsManager, entries: readonly
     const configured = new Set(upserted.map((entry) => entry.id));
     return { ...root, notify: [...upserted, ...entries.filter((entry) => !configured.has(entry.id))] };
   });
-}
-
-/** Drop the `notify` entry for one sink id. Callers gate on it being configured. */
-export function deleteSettingsNotify(settings: SettingsManager, id: NotifyEntry["id"]): void {
-  updateSettingsFile(settings, (root) => ({ ...root, notify: (root.notify ?? []).filter((entry) => entry.id !== id) }));
 }

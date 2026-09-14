@@ -97,13 +97,3 @@ export function releaseCommandLock(orchDir: OrchDir, pid = process.pid, startTok
     throw error;
   }
 }
-
-export function readCommandLock(orchDir: OrchDir): CommandLock | null {
-  return loadLock(lockPath(orchDir));
-}
-
-/** The current holder only when its process instance is still alive. */
-export function readLiveCommandLock(orchDir: OrchDir): CommandLock | null {
-  const lock = loadLock(lockPath(orchDir));
-  return lock && processInstanceMatches(lock.pid, lock.start_token) ? lock : null;
-}

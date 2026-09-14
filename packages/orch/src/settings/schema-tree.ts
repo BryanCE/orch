@@ -38,7 +38,7 @@ export function jsonSchemaNode(value: unknown): JsonSchemaNode | null {
 const JSON_SCHEMA = z.toJSONSchema(SETTINGS_FILE_SCHEMA);
 
 /** The node at a dotted key, or null when the schema declares no such path. */
-export function findSchemaNode(key: string): JsonSchemaNode | null {
+function findSchemaNode(key: string): JsonSchemaNode | null {
   let current: unknown = JSON_SCHEMA;
   for (const segment of key.split(".")) {
     const properties = jsonSchemaNode(current)?.properties;

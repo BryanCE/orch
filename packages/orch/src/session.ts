@@ -38,7 +38,7 @@ function isSessionContent(value: unknown): value is SessionContent {
   return typeof value === "string" || (Array.isArray(value) && value.every(isContentBlock));
 }
 
-function isSessionUsage(value: unknown): value is SessionUsage {
+export function isSessionUsage(value: unknown): value is SessionUsage {
   if (!isRecord(value)) return false;
   const numeric = ["input", "output", "cacheRead", "cacheWrite"];
   if (numeric.some((key) => value[key] !== undefined && typeof value[key] !== "number")) return false;
@@ -46,6 +46,10 @@ function isSessionUsage(value: unknown): value is SessionUsage {
     if (!isRecord(value.cost) || (value.cost.total !== undefined && typeof value.cost.total !== "number")) return false;
   }
   return true;
+}
+
+export function sessionUsageCost(usage: SessionUsage): number {
+  return typeof usage.cost === "number" ? usage.cost : usage.cost?.total ?? 0;
 }
 
 function isOptionalStringField(value: Record<string, unknown>, key: string): boolean {
@@ -127,7 +131,7 @@ function applyAssistantUsage(data: SessionData, usage: SessionUsage): void {
   data.tokens.output += usage.output ?? 0;
   data.tokens.cacheRead += usage.cacheRead ?? 0;
   data.tokens.cacheWrite += usage.cacheWrite ?? 0;
-  const cost = usage.cost && typeof usage.cost === "object" ? usage.cost.total : usage.cost;
+  const cost = sessionUsageCost(usage);
   if (typeof cost === "number") data.cost += cost;
 }
 

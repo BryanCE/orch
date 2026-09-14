@@ -18,6 +18,7 @@ import { createServices } from "../services.ts";
 import { watchSettings } from "../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify, startPresenceWatch } from "./events.ts";
+import { acceptResultReport, acceptStatusReport, startLivenessTick } from "./status-report.ts";
 import { loadPresence } from "../presence/store.ts";
 import { errorMessage, errorTrace } from "../util.ts";
 import { realpathSync } from "node:fs";
@@ -27,6 +28,7 @@ import { withTransaction } from "../store/connection.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageState, selectOpenOutboxForTarget, selectOutboxMessage } from "../store/outbox-rows.ts";
 import { insertControlOutcome } from "../store/control-outcome-rows.ts";
+import { appendOutcome, ensurePresenceAgentDir } from "../presence/writer.ts";
 import { settleControlOutcome } from "../control/outcome.ts";
 import { acknowledgeDelivery, confirmDelivery } from "../control/ack.ts";
 import type { ControlOutcomeReport } from "../types/agent.ts";
@@ -106,6 +108,7 @@ export interface DaemonState {
   workLoopRunning: boolean;
   outboxDrain: ReturnType<typeof setInterval> | undefined;
   presenceWatch: PresenceWatch | undefined;
+  livenessTick?: { stop(): void };
   settingsWatch: SettingsWatch | undefined;
   lastActivityAt: number;
   logger: Logger | undefined;
@@ -137,6 +140,8 @@ function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandlers {
     "environment-labels": touchHandler(state, handlers["environment-labels"]),
     "peer-view": touchHandler(state, handlers["peer-view"]),
     notify: touchHandler(state, handlers.notify),
+    "report-status": touchHandler(state, handlers["report-status"]),
+    "report-result": touchHandler(state, handlers["report-result"]),
     status: touchHandler(state, handlers.status),
     attach: touchHandler(state, handlers.attach),
     dispatch: touchHandler(state, handlers.dispatch),
@@ -397,6 +402,7 @@ function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): 
     // The quicklist the harness's own picker gets. It is NOT a second gate: the launch model
     // was ruled on above, and a model outside this list stays launchable.
     preferredModels: params.preferredModels,
+    reportTimeoutMs: state.services.settings.current().daemon.report_timeout_ms,
     tools: params.tools,
     workers: params.workers,
   });
@@ -616,6 +622,7 @@ async function shutDown(state: DaemonState, reason: string): Promise<void> {
   state.logger?.info("daemon.stopping", { reason });
   if (state.outboxDrain) clearInterval(state.outboxDrain);
   state.presenceWatch?.stop();
+  state.livenessTick?.stop();
   state.settingsWatch?.stop();
   state.workController.abort();
   await state.workLoop;
@@ -638,6 +645,7 @@ export async function startDaemon(): Promise<DaemonState> {
     workLoopRunning: false,
     outboxDrain: undefined,
     presenceWatch: undefined,
+    livenessTick: undefined,
     settingsWatch: undefined,
     lastActivityAt: Date.now(),
     logger: undefined,
@@ -711,6 +719,8 @@ export async function startDaemon(): Promise<DaemonState> {
         activePaneHud(event.key, directory).notify(composed);
         return { ok: true };
       },
+      "report-status": (params) => acceptStatusReport(directory, params.key, params.status, (event) => emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings)),
+      "report-result": (params) => acceptResultReport(directory, params.key, params.result),
       status: () => fleetStatus(state),
       attach: (params) => {
         const key = params.key;
@@ -752,6 +762,8 @@ export async function startDaemon(): Promise<DaemonState> {
           settledAt: Date.now(),
           ...(params.error === undefined ? {} : { error: params.error }),
         });
+        const presenceDirectory = ensurePresenceAgentDir(report.key, directory);
+        if (presenceDirectory !== undefined) appendOutcome(presenceDirectory, { ts: Date.now(), ...report });
         settleControlOutcome(report);
         return { ok: true };
       },
@@ -810,6 +822,30 @@ export async function startDaemon(): Promise<DaemonState> {
     onWarn: (message) => state.logger?.warn("config.warning", { message }),
   });
   const paintPane = createPanePainter(directory);
+  const publishPresenceEvent = (event: NotifyEvent): void => {
+    state.lastActivityAt = Date.now();
+    // The agent no longer paints its own pane: its bundle carries no plexer.
+    const painted = isAgentId(event.key) ? event.key : undefined;
+    if (painted !== undefined) {
+      switch (event.type) {
+        case "transition":
+        case "asking":
+          paintPane(painted, { state: event.newState, cost: event.cost ?? 0, ...(event.task === undefined ? {} : { task: event.task }) });
+          break;
+        case "closed":
+          paintPane(painted, { state: "closed", cost: 0 });
+          break;
+        case "message":
+        case "task":
+          break;
+        default: {
+          const exhaustive: never = event;
+          return exhaustive;
+        }
+      }
+    }
+    emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings);
+  };
   state.presenceWatch = startPresenceWatch({
     orchDir: directory,
     metadataFor: (key) => {
@@ -825,31 +861,9 @@ export async function startDaemon(): Promise<DaemonState> {
       if (spawner) metadata.spawnedByLabel = spawner.name;
       return metadata;
     },
-    onEvent: (event) => {
-      state.lastActivityAt = Date.now();
-      // The agent no longer paints its own pane: its bundle carries no plexer.
-      const painted = isAgentId(event.key) ? event.key : undefined;
-      if (painted !== undefined) {
-        switch (event.type) {
-          case "transition":
-          case "asking":
-            paintPane(painted, { state: event.newState, cost: event.cost ?? 0, ...(event.task === undefined ? {} : { task: event.task }) });
-            break;
-          case "closed":
-            paintPane(painted, { state: "closed", cost: 0 });
-            break;
-          case "message":
-          case "task":
-            break;
-          default: {
-            const exhaustive: never = event;
-            return exhaustive;
-          }
-        }
-      }
-      emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings);
-    },
+    onEvent: publishPresenceEvent,
   });
+  state.livenessTick = startLivenessTick(directory, services.settings.current().daemon.liveness_poll_ms, publishPresenceEvent);
   state.workLoopRunning = true;
   state.workLoop = runWorkLoop({
     orchDir: directory,

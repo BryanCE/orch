@@ -55,7 +55,7 @@ export function homeHandle(directory: OrchDir, subject: HomeSubject, plexerId: s
 }
 
 /** Record a coordinate a plexer just handed back. */
-export function recordHome(
+function recordHome(
   directory: OrchDir,
   subject: HomeSubject,
   plexerId: string,

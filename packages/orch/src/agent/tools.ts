@@ -15,6 +15,7 @@ import type { SettingsManager } from "../types/services.ts";
 import { acquireCommandLock, matchesLockedCommand, releaseCommandLock } from "../control/cmd-lock.ts";
 import { registerPeerTools, toolResult } from "./peers.ts";
 import { extractText, isAssistantMessageLike, HEARTBEAT_MS, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
+import { sessionUsageCost } from "../session.ts";
 import { isRecord, isUnknownArray, optionalString, truncate } from "../util.ts";
 import { prepareWorkerTask } from "../worker-prompt.ts";
 import type { AgentToolsOptions, AssistantMessageLike, BridgeNotification, BridgeToolResult, HarnessApi, HarnessContext } from "../types/agent.ts";
@@ -266,7 +267,7 @@ export function registerAgentTools(
       state.tokens.output += usage.output ?? 0;
       state.tokens.cacheRead += usage.cacheRead ?? 0;
       state.tokens.cacheWrite += usage.cacheWrite ?? 0;
-      state.cost += usage.cost?.total ?? 0;
+      state.cost += sessionUsageCost(usage);
     }
     presence.writeStatus();
   });

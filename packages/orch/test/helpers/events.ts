@@ -10,7 +10,6 @@ export const eventBase: EventIdentity = {
 
 type TransitionEvent = Extract<NotifyEvent, { type: "transition" }>;
 type AskingEvent = Extract<NotifyEvent, { type: "asking" }>;
-type MessageEvent = Extract<NotifyEvent, { type: "message" }>;
 type ClosedEvent = Extract<NotifyEvent, { type: "closed" }>;
 type TaskEvent = Extract<NotifyEvent, { type: "task" }>;
 
@@ -20,10 +19,6 @@ export function transitionEvent(overrides: Partial<TransitionEvent> = {}): Trans
 
 export function askingEvent(overrides: Partial<AskingEvent> = {}): AskingEvent {
   return { ...eventBase, type: "asking", oldState: "working", newState: "asking", askCount: 1, gaveUp: false, ...overrides };
-}
-
-export function messageEvent(overrides: Partial<MessageEvent> = {}): MessageEvent {
-  return { ...eventBase, type: "message", newState: "message", dispatchId: "dispatch-1", mail: { id: "mail-1", text: "hello" }, ...overrides };
 }
 
 export function closedEvent(overrides: Partial<ClosedEvent> = {}): ClosedEvent {

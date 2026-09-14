@@ -222,7 +222,7 @@ function composeBase(
   };
 }
 
-export function composeTransitionEvent(
+function composeTransitionEvent(
   orchDir: OrchDir,
   key: string,
   status: unknown,
@@ -256,24 +256,6 @@ export function composeAskingEvent(
     askCount,
     gaveUp,
   };
-}
-
-/** Compose the canonical event shape for callers that accept either member. */
-export function composeAgentEvent(
-  orchDir: OrchDir,
-  key: string,
-  status: unknown,
-  metadata: PresenceMetadata,
-  transition: { previous: AgentState; state: AgentState; askCount?: number; gaveUp?: boolean },
-  now = new Date(),
-): NotifyEvent {
-  if (transition.state === "asking") {
-    return composeAskingEvent(orchDir, key, status, metadata, transition, transition.askCount ?? 1, transition.gaveUp ?? false, now);
-  }
-  return composeTransitionEvent(orchDir, key, status, metadata, {
-    previous: transition.previous,
-    state: transition.state,
-  }, now);
 }
 
 /** Derive one transition from a status file. First observations only seed state. */

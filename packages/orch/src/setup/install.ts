@@ -8,6 +8,7 @@ import { resolveAdapter } from "../adapters/registry.ts";
 import { PREREQUISITES } from "../adapters/prerequisites.ts";
 import { binaryStatus } from "../doctor/bins.ts";
 import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
+import { ORCH_DING_BIN } from "../notify/ding.ts";
 import { withSpinner } from "./io.ts";
 import { chooseInstalls } from "./wizard.ts";
 import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
@@ -25,12 +26,12 @@ function home(): string {
 }
 
 /** Print the manual install commands for each missing prerequisite. */
-export function printInstallHints(missing: readonly { bin: string; cmd: string }[]): void {
+function printInstallHints(missing: readonly { bin: string; cmd: string }[]): void {
   for (const { bin, cmd } of missing) process.stdout.write(`  install ${bin}: ${cmd}\n`);
 }
 
 /** Decide which missing prerequisites to install: multiselect when interactive, all with -y, none otherwise. Null on cancel. */
-export async function resolveInstallTargets(
+async function resolveInstallTargets(
   missing: readonly { bin: string; cmd: string }[],
   interactive: boolean,
   yes: boolean,
@@ -53,7 +54,7 @@ export async function resolveInstallTargets(
 }
 
 /** Install one prerequisite: silent under a spinner when interactive, streamed otherwise. */
-export function runInstall(logger: Logger, bin: string, cmd: string, interactive: boolean): void {
+function runInstall(logger: Logger, bin: string, cmd: string, interactive: boolean): void {
   try {
     if (interactive) {
       withSpinner(`Installing ${bin}...`, `${bin} installed`, () => execFileSync("bash", ["-c", cmd], { stdio: "ignore" }));
@@ -84,7 +85,7 @@ function symlinkOrCopyBin(src: string, dest: string): "link" | "copy" {
 }
 
 /** Point `dest` at `src`, replacing any existing entry (symlink, or a full copy under --copy). */
-export function linkBin(src: string, dest: string, copy: boolean): void {
+function linkBin(src: string, dest: string, copy: boolean): void {
   files.mkdirSync(path.dirname(dest), { recursive: true });
   files.rmSync(dest, { recursive: true, force: true });
   const wired = copy ? copyBin(src, dest) : symlinkOrCopyBin(src, dest);
@@ -92,9 +93,9 @@ export function linkBin(src: string, dest: string, copy: boolean): void {
 }
 
 export interface MissingPrerequisite { bin: string; cmd: string }
-export interface ManualPrerequisite { id: string; url: string }
+interface ManualPrerequisite { id: string; url: string }
 
-export function reportAdapterPrerequisites(
+function reportAdapterPrerequisites(
   adapters: readonly AdapterId[],
   bins: Record<string, boolean>,
   queueInstall: (id: string) => void,
@@ -106,7 +107,7 @@ export function reportAdapterPrerequisites(
   }
 }
 
-export function reportBackendPrerequisites(
+function reportBackendPrerequisites(
   backends: readonly BackendId[],
   bins: Record<string, boolean>,
   queueInstall: (id: string) => void,
@@ -119,7 +120,7 @@ export function reportBackendPrerequisites(
   }
 }
 
-export async function installSelectedPrerequisites(
+async function installSelectedPrerequisites(
   logger: Logger,
   missing: readonly MissingPrerequisite[],
   interactive: boolean,
@@ -243,7 +244,7 @@ export function wireBinaries(copy: boolean): void {
   for (const [name, rel] of [
     ["orch", path.join("dist", "bin", "orch.js")],
     ["pif", path.join("bin", "pif")],
-    ["orch-ding", path.join("dist", "bin", "orch-ding.js")],
+    [ORCH_DING_BIN, path.join("dist", "bin", `${ORCH_DING_BIN}.js`)],
   ] as const) {
     const resolved = binaryPath(name);
     const packageBin = path.join(pkgRoot, rel);

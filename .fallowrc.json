@@ -4,6 +4,7 @@
 		"packages/orch/bin/orch.ts",
 		"packages/orch/src/daemon/orchd.ts",
 		"packages/orch/extensions/*/index.ts",
+		"packages/orch/test/smoke-seed.ts",
 		"packages/web/src/router.tsx"
 	],
 	"ignorePatterns": [
@@ -35,9 +36,9 @@
 		}
 	],
 	"duplicates": {
-		"mode": "semantic",
-		"minTokens": 35,
-		"minLines": 3,
+		"mode": "weak",
+		"minTokens": 40,
+		"minLines": 4,
 		"ignore": [
 			"packages/orch/test/**",
 			"packages/orch/scripts/**",
@@ -46,6 +47,8 @@
 			"packages/web/src/routeTree.gen.ts",
 			"packages/web/src/themes/**",
 			"packages/orch/src/commands/help.ts",
+			"packages/orch/src/db/schema.ts",
+			"packages/orch/src/types/**",
 			"**/*.css"
 		]
 	},

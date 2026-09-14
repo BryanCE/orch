@@ -18,8 +18,9 @@ import {
 } from "../presence/writer.ts";
 import { isRecord, isUnknownArray, optionalString, projectRoot, sessionFilePath } from "../util.ts";
 import { createModelControl } from "./model-control.ts";
+import { isSessionUsage, sessionUsageCost } from "../session.ts";
 import type { AgentState } from "../adapters/adapter.ts";
-import type { AgentPresenceOptions, AssistantMessageLike, HarnessContext, UsageLike } from "../types/agent.ts";
+import type { AgentPresenceOptions, AssistantMessageLike, HarnessContext } from "../types/agent.ts";
 import type { JsonRecord } from "../types/core.ts";
 import type { BridgeDelivery, BridgeMessage } from "../control/bridge-message.ts";
 
@@ -37,20 +38,9 @@ function isTextBlock(value: unknown): value is TextBlockLike {
   return isRecord(value) && value.type === "text" && typeof value.text === "string";
 }
 
-function isUsageLike(value: unknown): value is UsageLike {
-  if (!isRecord(value)) return false;
-  if (value.input !== undefined && typeof value.input !== "number") return false;
-  if (value.output !== undefined && typeof value.output !== "number") return false;
-  if (value.cacheRead !== undefined && typeof value.cacheRead !== "number") return false;
-  if (value.cacheWrite !== undefined && typeof value.cacheWrite !== "number") return false;
-  if (value.cost === undefined) return true;
-  return isRecord(value.cost)
-    && (value.cost.total === undefined || typeof value.cost.total === "number");
-}
-
 export function isAssistantMessageLike(value: unknown): value is AssistantMessageLike {
   if (!isRecord(value) || value.role !== "assistant" || !("content" in value)) return false;
-  if (value.usage !== undefined && !isUsageLike(value.usage)) return false;
+  if (value.usage !== undefined && !isSessionUsage(value.usage)) return false;
   if (value.stopReason !== undefined && typeof value.stopReason !== "string") return false;
   return value.errorMessage === undefined || typeof value.errorMessage === "string";
 }
@@ -281,7 +271,7 @@ export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOpti
         output += message.usage.output ?? 0;
         cacheRead += message.usage.cacheRead ?? 0;
         cacheWrite += message.usage.cacheWrite ?? 0;
-        cost += message.usage.cost?.total ?? 0;
+        cost += sessionUsageCost(message.usage);
       }
 
       if (hasUsage) {

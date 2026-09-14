@@ -78,7 +78,7 @@ export function reportShortfall(logger: Logger, requested: number, placed: numbe
 /** How many agents actually came up, or `null` when the harness cannot say.
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
-export async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<CreatedAgent[] | null> {
+async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<CreatedAgent[] | null> {
   if (adapter.bridge) {
     return await awaitBridgeAttach(orchDir, logger, created, json);
   }
@@ -104,14 +104,11 @@ export function printLayout(backend: Backend, group: string, header: string) {
     process.stdout.write(`  ${r[0]!.padEnd(w0)}  ${r[1]!.padEnd(w1)}  ${r[2]!}\n`);
 }
 
-/** The command one harness launches under, built by that harness's own adapter. `launch` carries
- *  what this launch selected — the model it starts on and the quicklist its picker shows — so a
- *  previewed command is the command the backend actually runs. */
 /** Announce a fleet whose control plane is down, and fail the launch. Panes without
  *  orchd are UNMANAGED: no steer, model pin, or result reaches them, and printing
  *  the tiling and "Spawned N agent(s)" over that silence is what sent an operator
  *  dispatching into a fleet that answered nothing. Null when orchd answers. */
-export async function reportControlPlaneOutage(orchDir: OrchDir, logger: Logger, placementCount: number): Promise<string | null> {
+async function reportControlPlaneOutage(orchDir: OrchDir, logger: Logger, placementCount: number): Promise<string | null> {
   const outage = await daemonOutage(orchDir);
   if (!outage) return null;
   logger.error("spawn.control-plane-unreachable", { panes: placementCount, error: outage });

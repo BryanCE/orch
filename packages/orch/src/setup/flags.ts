@@ -14,7 +14,7 @@ export function readAssignFlag(args: string[], name: string): string | undefined
 }
 
 /** Read every repeatable --model value, accepting both `--model value` and `--model=value`. */
-export function readModelFlags(args: string[]): string[] {
+function readModelFlags(args: string[]): string[] {
   const values: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];

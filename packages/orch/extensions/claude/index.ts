@@ -10,22 +10,20 @@
  * through the one shared writer (src/presence/writer.ts) — this shim holds only
  * claude-specific transcript/hook-event parsing. The bundle inlines both.
  *
- * Presence fidelity is coarse by design: SessionStart writes `working`,
- * Notification writes `blocked`, and Stop writes `done`/`idle` — those are
- * the only three hook events this shim wires, so there are no mid-run
- * tool/token/cost transitions between them (unlike pi's live extension).
+ * Presence fidelity is coarse by design: hooks report over the daemon socket;
+ * orchd is down -> the report is dropped and history has a gap; the agent keeps
+ * running.
  */
 import { readFileSync } from "node:fs";
-import { PRESENCE_SCHEMA } from "../../src/presence/schema.ts";
-import { launchStamp, readJsonStdin, readStatus, writeResult, writeStatus } from "../../src/presence/writer.ts";
-import { baseStatus, presenceSession } from "../../src/presence/session.ts";
-import { isRecord, projectRoot } from "../../src/util.ts";
-import { textValue, truncateOptional } from "../../src/util.ts";
+import { readJsonStdin } from "../../src/presence/writer.ts";
+import { presenceSession } from "../../src/presence/session.ts";
+import { reportOnce } from "../../src/presence/socket-client.ts";
+import { isRecord, projectRoot, textValue, truncateOptional } from "../../src/util.ts";
 import { lastAssistantFromJsonl } from "../../src/adapters/transcript.ts";
 import { prepareWorkerTask } from "../../src/worker-prompt.ts";
 import type { JsonRecord } from "../../src/types/core.ts";
+import type { StatusPatch } from "../../src/types/presence.ts";
 
-const AGENT_ID = "claude";
 const MAX_TEXT = 400;
 const MAX_TASK = 200;
 
@@ -39,13 +37,12 @@ function readTranscript(transcriptPath: string | undefined): string | undefined 
   }
 }
 
-
 function eventName(argument: string | undefined, input: JsonRecord): string {
   const hookEventName = textValue(input.hook_event_name) ?? "";
   return (argument ?? hookEventName).toLowerCase().replace(/[^a-z]/g, "");
 }
 
-function modelValue(input: JsonRecord): { provider?: string; id?: string } | undefined {
+function modelValue(input: JsonRecord): { provider: string; id: string } | undefined {
   const model = input.model ?? input.model_id ?? input.modelId;
   if (typeof model === "string" && model.trim()) return { provider: "anthropic", id: model.trim() };
   if (isRecord(model) && typeof model.id === "string") {
@@ -55,70 +52,51 @@ function modelValue(input: JsonRecord): { provider?: string; id?: string } | und
 }
 
 const input = readJsonStdin();
-const session = presenceSession(textValue(input.session_id ?? input.sessionId) ?? null);
+const sessionId = textValue(input.session_id ?? input.sessionId);
+const session = presenceSession(sessionId);
 if (session.kind === "not-orch") process.exit(0);
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
 const transcriptPath = textValue(input.transcript_path ?? input.transcriptPath);
-const now = new Date().toISOString();
-const previous = readStatus(session.directory);
-const model = modelValue(input) ?? previous.model;
+const transcriptText = lastAssistantFromJsonl(readTranscript(transcriptPath));
+const lastText = truncateOptional(transcriptText, MAX_TEXT);
 const rawTask = input.task ?? input.prompt ?? input.initial_prompt;
 const preparedTask = typeof rawTask === "string" ? prepareWorkerTask(rawTask, MAX_TASK) : undefined;
-const task = textValue(preparedTask) ?? previous.task;
-const sessionId = textValue(input.session_id ?? input.sessionId) ?? previous.sessionId;
-const existingText = textValue(previous.lastText);
-const transcriptText = lastAssistantFromJsonl(readTranscript(transcriptPath ?? textValue(previous.sessionPath)));
-const lastText = truncateOptional(transcriptText ?? existingText, MAX_TEXT);
-
-// No pid: a hook only ever sees the shell that ran it. Liveness is the process
-// orch recorded at spawn (Rule 11), never a guess written here.
-const status: JsonRecord = {
-  ...launchStamp(previous, AGENT_ID, session.key),
-  ...baseStatus({
-    cwd: textValue(input.cwd) ?? textValue(previous.cwd) ?? process.cwd(),
-    project: projectRoot(),
-    lastText: lastText ?? null,
-    updatedAt: now,
-  }),
-  model,
-  task,
-  sessionPath: transcriptPath ?? previous.sessionPath,
-  sessionId,
+const patch: StatusPatch = {
+  model: modelValue(input) ?? undefined,
+  task: preparedTask ?? undefined,
+  sessionPath: transcriptPath ?? undefined,
+  sessionId: sessionId ?? undefined,
+  lastText: lastText ?? undefined,
+  project: projectRoot(),
 };
 
 if (event === "sessionstart" || event === "sessionstarted") {
-  status.state = "working";
-  status.startedAt = previous.startedAt ?? now;
-  delete status.finishedAt;
-  delete status.asking;
-  delete status.blockedMessage;
+  patch.state = "working";
+  patch.startedAt = Date.now();
+  patch.finishedAt = null;
+  patch.blockedMessage = null;
 } else if (event === "notification") {
   const message = textValue(input.message ?? input.notification ?? input.question) ?? "Claude is waiting for input";
-  const askingId = textValue(input.id ?? input.request_id ?? input.requestId) ?? `claude-${process.pid}-${Date.now()}`;
-  status.state = "blocked";
-  status.blockedMessage = message;
-  status.asking = { question: truncateOptional(message, MAX_TASK) ?? message, id: askingId, ts: now };
+  patch.state = "asking";
+  patch.blockedMessage = message;
 } else if (event === "stop" || event === "stopped") {
-  status.state = transcriptText || existingText ? "done" : "idle";
-  status.finishedAt = now;
-  delete status.asking;
-  delete status.blockedMessage;
-  if (transcriptText) {
-    writeResult(session.directory, {
-      schema: PRESENCE_SCHEMA,
-      agent: AGENT_ID,
-      key: session.key,
-      text: transcriptText,
-      sessionPath: status.sessionPath,
-      model: status.model,
-      cost: status.cost,
-      finishedAt: now,
-    });
-  }
+  patch.state = transcriptText ? "done" : "idle";
+  patch.finishedAt = Date.now();
+  patch.blockedMessage = null;
 } else {
-  // Unknown hook names should not corrupt a previously useful status row.
   process.exit(0);
 }
 
-writeStatus(session.directory, status);
+await reportOnce(session.orchDir, "report-status", { key: session.key, status: patch }, session.timeoutMs);
+if ((event === "stop" || event === "stopped") && transcriptText) {
+  await reportOnce(session.orchDir, "report-result", {
+    key: session.key,
+    result: {
+      text: transcriptText,
+      sessionPath: transcriptPath ?? null,
+      model: patch.model ?? null,
+      finishedAt: Date.now(),
+    },
+  }, session.timeoutMs);
+}

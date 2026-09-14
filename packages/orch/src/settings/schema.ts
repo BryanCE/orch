@@ -80,7 +80,7 @@ export const SETTINGS_DEFAULTS = {
   logging: { level: "info" },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
-  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120 },
+  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
   doctor: { unclaimed_after_ms: 120_000 },
   workers: { inherit_extensions: true, builtin_tools: true },
   tiling: { first_split: "rows" },
@@ -196,8 +196,10 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     idle_shutdown_minutes: z.number().int().min(0).optional(),
     /** How often orchd retries queued writes and consumes acknowledgements. */
     outbox_drain_ms: PositiveInt.optional(),
+    liveness_poll_ms: PositiveInt.optional(),
     bridge_reconnect_ms: PositiveInt.optional(),
     outbox_max_attempts: PositiveInt.optional(),
+    report_timeout_ms: PositiveInt.optional(),
   }).optional(),
   doctor: z.strictObject({
     /** Milliseconds an agent may remain unclaimed after spawn before doctor reports it. */
@@ -222,7 +224,7 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
 export type SettingsFile = z.infer<typeof SETTINGS_FILE_SCHEMA>;
 
 /** The settings filename, as a directory watcher sees it. */
-export const SETTINGS_FILE = "settings.json";
+const SETTINGS_FILE = "settings.json";
 
 /** The path of an orch dir's settings.json. Branded so a bare directory, or any other
  *  string, cannot be handed to code that expects the file. Minted here and nowhere else. */

@@ -8,7 +8,7 @@ import type { SettingsManager } from "../types/services.ts";
 /** Manual reload trigger: touching this file reloads settings without editing it. */
 export const RELOAD_SIGNAL_FILE = "reload.signal";
 
-export function triggersReload(filename: string | Buffer | null | undefined): boolean {
+function triggersReload(filename: string | Buffer | null | undefined): boolean {
   return namesSettingsFile(filename) || filename?.toString() === RELOAD_SIGNAL_FILE;
 }
 
@@ -104,7 +104,7 @@ export function watchSettings(settings: Pick<SettingsManager, "file">, opts: Set
   return { stop };
 }
 
-export function statSignature(file: string): string {
+function statSignature(file: string): string {
   try {
     const stat = filesystem.statSync(file);
     return `${stat.mtimeMs}:${stat.size}:${stat.ino}`;

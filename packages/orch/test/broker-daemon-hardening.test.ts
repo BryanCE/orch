@@ -7,8 +7,27 @@ import { drainOutbox } from "../src/daemon/outbox.ts";
 import { ReplayBuffer } from "../src/daemon/rpc/replay.ts";
 import type { BridgeMessage } from "../src/control/bridge-message.ts";
 import type { OutboxDelivery } from "../src/types/daemon.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
+
+type RpcEvent = Parameters<ReplayBuffer["push"]>[0];
+type TransitionEvent = Extract<RpcEvent, { type: "transition" }>;
+const fixtureAgent = mintAgentId();
+
+function transitionEvent(overrides: Partial<TransitionEvent> = {}): TransitionEvent {
+  return {
+    type: "transition",
+    key: "event",
+    ts: new Date(0).toISOString(),
+    agent: fixtureAgent,
+    tab: "tab",
+    model: "model",
+    oldState: "idle",
+    newState: "working",
+    ...overrides,
+  };
+}
 
 const dirs: OrchDir[] = [];
 afterEach(() => {
@@ -74,7 +93,7 @@ describe("broker daemon hardening", () => {
   test("replay after the newest sequence is empty without a gap", () => {
     const dir = fixture();
     const buffer = new ReplayBuffer(dir);
-    buffer.push("event");
+    buffer.push(transitionEvent({ key: "event" }));
     expect(buffer.since(99)).toEqual({ events: [], gap: false, oldestSeq: 1 });
   });
 

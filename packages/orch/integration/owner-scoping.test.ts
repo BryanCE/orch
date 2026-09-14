@@ -153,9 +153,11 @@ describe("fleet ownership scoping", () => {
     // Identity is injected through ownKey; no launch credential is set.
     delete process.env[LAUNCH_ENV];
 
+    // A root may cross fleets. A non-root sees its descendants and its ancestors
+    // (the reply path to its spawner), never a foreign fleet.
     expect(peerView(dir, root, [child, grandchild, foreignRoot], true).visible).toEqual([child, grandchild, foreignRoot]);
-    expect(peerView(dir, child, [root, grandchild, foreignRoot], true).visible).toEqual([grandchild]);
-    expect(peerView(dir, grandchild, [root, child, foreignRoot], true).visible).toEqual([]);
+    expect(peerView(dir, child, [root, grandchild, foreignRoot], true).visible).toEqual([root, grandchild]);
+    expect(peerView(dir, grandchild, [root, child, foreignRoot], true).visible).toEqual([root, child]);
   });
 
   test("owner token uses ORCH_OWNER, else this process's own minted id", () => {

@@ -1,5 +1,3 @@
-import type { TaskState } from "../../src/types/queue.ts";
-import type { AgentState } from "../../src/agent-state.ts";
 import type { EventIdentity, NotifyEvent } from "../../src/types/notify.ts";
 
 export const eventBase: EventIdentity = {
@@ -25,13 +23,13 @@ export function askingEvent(overrides: Partial<AskingEvent> = {}): AskingEvent {
 }
 
 export function messageEvent(overrides: Partial<MessageEvent> = {}): MessageEvent {
-  return { ...eventBase, type: "message", newState: "message", dispatchId: "dispatch-1", mail: { id: "mail-1", text: "message" }, ...overrides };
+  return { ...eventBase, type: "message", newState: "message", dispatchId: "dispatch-1", mail: { id: "mail-1", text: "hello" }, ...overrides };
 }
 
 export function closedEvent(overrides: Partial<ClosedEvent> = {}): ClosedEvent {
-  return { ...eventBase, type: "closed", oldState: "working", newState: "closed", ...overrides };
+  return { ...eventBase, type: "closed", oldState: "done", newState: "closed", ...overrides };
 }
 
 export function taskEvent(overrides: Partial<TaskEvent> = {}): TaskEvent {
-  return { ...eventBase, type: "task", oldState: "queued", newState: "claimed", task: "task", ...overrides };
+  return { ...eventBase, type: "task", oldState: "queued", newState: "claimed", task: "run the task", ...overrides };
 }

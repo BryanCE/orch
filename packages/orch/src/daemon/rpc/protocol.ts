@@ -176,7 +176,7 @@ export const RPC_PARAMS = {
     tools: optionalText,
     workers: workerPolicy.optional(),
   }),
-  "agent-closed": z.object({ key: nonBlank, oldState: nonBlank }),
+  "agent-closed": z.object({ key: nonBlank, oldState: z.enum(AGENT_STATES) }),
   question: z.custom<AgentNotice>(isAgentNotice),
   questions: z.object({ all: z.boolean().optional() }).optional(),
   ack: z.object({ id: nonBlank }),

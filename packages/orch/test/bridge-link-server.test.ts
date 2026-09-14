@@ -108,8 +108,8 @@ describe("daemon bridge links", () => {
     const reply = await lineAt(lines, 0);
     const pushed = await lineAt(lines, 1);
     expect(reply).toEqual({ id: 1, result: { attached: true, open: 1 } });
-    expect(pushed).toEqual({ event: { kind: "delivery", ...delivery } });
-    expect(isBridgeDelivery(pushed.event)).toBe(true);
+    expect(pushed).toEqual({ delivery });
+    expect(isBridgeDelivery(pushed.delivery)).toBe(true);
     expect(notifications).toEqual([key]);
     expect(attachedBridgeKeys()).toEqual([key]);
     expect(server.attachedBridgeCount()).toBe(1);
@@ -144,7 +144,7 @@ describe("daemon bridge links", () => {
     pushToBridge(directories[0]!, key, { id: "row-2", message: { action: "dispatch", text: "new" } });
     const pushed = await lineAt(secondLines, 1);
     expect(firstLines).toHaveLength(1);
-    expect(pushed).toEqual({ event: { kind: "delivery", id: "row-2", message: { action: "dispatch", text: "new" } } });
+    expect(pushed).toEqual({ delivery: { id: "row-2", message: { action: "dispatch", text: "new" } } });
     expect(notifications).toEqual([key, key]);
     expect(server.attachedBridgeCount()).toBe(1);
     first.destroy();

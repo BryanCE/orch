@@ -34,6 +34,23 @@ import { row } from "./helpers/rows.ts";
 const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 
+type RpcEvent = Parameters<RpcServer["emit"]>[0];
+type TransitionEvent = Extract<RpcEvent, { type: "transition" }>;
+
+function transitionEvent(overrides: Partial<TransitionEvent> = {}): TransitionEvent {
+  return {
+    type: "transition",
+    key: "event",
+    ts: new Date(0).toISOString(),
+    agent: "agent",
+    tab: "tab",
+    model: "model",
+    oldState: "idle",
+    newState: "working",
+    ...overrides,
+  };
+}
+
 function tempOrchDir(): OrchDir {
   const dir = makeTempOrchDir("orch-rpc-");
   dirs.push(dir);
@@ -87,7 +104,7 @@ async function start(dir: OrchDir): Promise<RpcServer> {
   const server = await startRpcServer(dir, stubRpcHandlers({
     ack: (_params) => ({ ok: true }),
     "subscribe-events": (_params, emit) => {
-      setTimeout(() => emit({ kind: "pushed", value: 1 }), 5);
+      setTimeout(() => emit(transitionEvent({ key: "pushed" })), 5);
       return { subscribed: true };
     },
   }));
@@ -113,8 +130,8 @@ async function fakeBridge(dir: OrchDir, key: string): Promise<FakeBridge> {
       const parsed: unknown = JSON.parse(line);
       if (!isRecord(parsed)) return;
       if (parsed.id === 1 && isRecord(parsed.result)) resolveAttach?.(parsed.result);
-      if (isRecord(parsed.event) && parsed.event.kind === "delivery" && typeof parsed.event.id === "string" && isRecord(parsed.event.message)) {
-        resolveDelivery?.({ id: parsed.event.id, message: parsed.event.message });
+      if (isRecord(parsed.delivery) && typeof parsed.delivery.id === "string" && isRecord(parsed.delivery.message)) {
+        resolveDelivery?.({ id: parsed.delivery.id, message: parsed.delivery.message });
       }
     },
     onClose: () => undefined,
@@ -385,49 +402,49 @@ describe("daemon RPC", () => {
   test("delivers pushed subscription events", async () => {
     const dir = tempOrchDir();
     const server = await start(dir);
-    const received: unknown[] = [];
+    const received: RpcEvent[] = [];
     const subscription = subscribeEvents(dir, { since: 0 }, (value) => received.push(value));
     await Bun.sleep(25);
-    server.emit({ kind: "pushed", value: 1 });
+    server.emit(transitionEvent({ key: "pushed" }));
     const deadline = Date.now() + 2_000;
     while (received.length === 0 && Date.now() < deadline) await Bun.sleep(5);
-    expect(received).toContainEqual({ kind: "pushed", value: 1 });
+    expect(received.map((event) => event.key)).toContain("pushed");
     subscription.close();
   });
 
   test("replays durable events after a daemon restart without a gap", async () => {
     const dir = tempOrchDir();
     const first = await start(dir);
-    const received: unknown[] = [];
+    const received: RpcEvent[] = [];
     const gaps: number[] = [];
     const subscription = subscribeEvents(dir, { since: 0 }, (event) => received.push(event), (oldest) => gaps.push(oldest));
     const deadline = Date.now() + 2_000;
     while (first.subscriberCount() === 0 && Date.now() < deadline) await Bun.sleep(5);
-    first.emit({ value: 1 });
+    first.emit(transitionEvent({ key: "one" }));
     while (received.length < 1 && Date.now() < deadline) await Bun.sleep(5);
-    expect(received).toEqual([{ value: 1 }]);
+    expect(received.map((event) => event.key)).toEqual(["one"]);
     await first.close();
     servers.splice(servers.indexOf(first), 1);
     const second = await start(dir);
     const secondDeadline = Date.now() + 3_000;
     while (second.subscriberCount() === 0 && Date.now() < secondDeadline) await Bun.sleep(5);
-    second.emit({ value: 2 });
+    second.emit(transitionEvent({ key: "two" }));
     while (received.length < 2 && Date.now() < secondDeadline) await Bun.sleep(5);
-    expect(received).toEqual([{ value: 1 }, { value: 2 }]);
+    expect(received.map((event) => event.key)).toEqual(["one", "two"]);
     expect(gaps).toEqual([]);
     subscription.close();
   });
 
   test("reports the oldest sequence when replay starts before the pruned window", () => {
     const dir = tempOrchDir();
-    appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), { value: 1 });
-    appendEvent(dir, Date.parse("2024-01-02T00:00:00.000Z"), { value: 2 });
-    appendEvent(dir, Date.parse("2024-01-03T00:00:00.000Z"), { value: 3 });
+    appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), transitionEvent({ key: "one" }));
+    appendEvent(dir, Date.parse("2024-01-02T00:00:00.000Z"), transitionEvent({ key: "two" }));
+    appendEvent(dir, Date.parse("2024-01-03T00:00:00.000Z"), transitionEvent({ key: "three" }));
     deleteEventsBefore(dir, Date.parse("2024-01-03T00:00:00.000Z"));
     const replay = new ReplayBuffer(dir).since(0);
     expect(replay.gap).toBe(true);
     expect(replay.oldestSeq).toBe(3);
-    expect(replay.events).toEqual([{ seq: 3, event: { value: 3 } }]);
+    expect(replay.events).toEqual([{ seq: 3, event: transitionEvent({ key: "three" }) }]);
   });
 
   test("removes a stale unix socket when the daemon owns the lock", async () => {

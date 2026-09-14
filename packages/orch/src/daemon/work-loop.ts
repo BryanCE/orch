@@ -12,7 +12,7 @@ import {
   recordTaskFailure,
   type TaskRec,
 } from "../queue.ts";
-import { composeAgentEvent, emitAndNotify } from "./events.ts";
+import { composeAskingEvent, emitAndNotify } from "./events.ts";
 import { deliverTaskResult } from "./result-delivery.ts";
 import { loadPresence, statusForPresence } from "../presence/store.ts";
 import { pendingQuestions, type QuestionRow } from "../store/question-rows.ts";
@@ -224,27 +224,17 @@ export function reaskQuestions(options: ReaskQuestionsOptions): void {
 
 function reaskEvent(orchDir: OrchDir, question: QuestionRow, nowMs: number, askCount: number, gaveUp: boolean): NotifyEvent {
   const status = readPresenceStatus(join(presenceAgentDir(question.agentId, orchDir), STATUS_FILE));
-  const event = composeAgentEvent(
+  const event = composeAskingEvent(
     orchDir,
     question.agentId,
     status,
     { name: null, tab: null },
-    { previous: "asking", state: "asking", askCount, gaveUp },
+    { previous: "asking" },
+    askCount,
+    gaveUp,
     new Date(nowMs),
   );
-  switch (event.type) {
-    case "asking":
-      return { ...event, task: `Q: ${question.question}` };
-    case "transition":
-    case "message":
-    case "closed":
-    case "task":
-      return event;
-    default: {
-      const exhaustive: never = event;
-      return exhaustive;
-    }
-  }
+  return { ...event, task: `Q: ${question.question}` };
 }
 
 function settleError(orchDir: OrchDir, settings: ReturnType<WorkOptions["settings"]["current"]>, task: TaskRec, error: string, entry: PresenceEntry, emit: (event: NotifyEvent) => void): void {

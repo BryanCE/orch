@@ -702,9 +702,13 @@ export async function startDaemon(): Promise<DaemonState> {
         return peerView(directory, params.ownKey, keys, params.allSpaces === true, params.projectRoot);
       },
       notify: (event: ParamsOf<"notify">) => {
-        const composed: NotifyEvent = event.newState === "asking"
-          ? { type: "asking", ...event, askCount: 1, gaveUp: false }
-          : { type: "transition", ...event };
+        const { newState } = event;
+        if (newState === "asking") {
+          const composed: NotifyEvent = { ...event, type: "asking", newState: "asking", askCount: 1, gaveUp: false };
+          activePaneHud(event.key, directory).notify(composed);
+          return { ok: true };
+        }
+        const composed: NotifyEvent = { ...event, type: "transition", newState };
         activePaneHud(event.key, directory).notify(composed);
         return { ok: true };
       },
@@ -826,7 +830,24 @@ export async function startDaemon(): Promise<DaemonState> {
       state.lastActivityAt = Date.now();
       // The agent no longer paints its own pane: its bundle carries no plexer.
       const painted = isAgentId(event.key) ? event.key : undefined;
-      if (painted !== undefined) paintPane(painted, { state: event.newState, cost: event.cost ?? 0, ...(event.task === undefined ? {} : { task: event.task }) });
+      if (painted !== undefined) {
+        switch (event.type) {
+          case "transition":
+          case "asking":
+            paintPane(painted, { state: event.newState, cost: event.cost ?? 0, ...(event.task === undefined ? {} : { task: event.task }) });
+            break;
+          case "closed":
+            paintPane(painted, { state: "closed", cost: 0 });
+            break;
+          case "message":
+          case "task":
+            break;
+          default: {
+            const exhaustive: never = event;
+            return exhaustive;
+          }
+        }
+      }
       emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings);
     },
   });

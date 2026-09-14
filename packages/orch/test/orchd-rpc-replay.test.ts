@@ -4,6 +4,26 @@ import { REPLAY_WINDOW, ReplayBuffer } from "../src/daemon/rpc/replay.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+
+type RpcEvent = Parameters<RpcServer["emit"]>[0];
+type TransitionEvent = Extract<RpcEvent, { type: "transition" }>;
+const fixtureAgent = mintAgentId();
+
+function transitionEvent(overrides: Partial<TransitionEvent> = {}): TransitionEvent {
+  return {
+    type: "transition",
+    key: "event",
+    ts: new Date(0).toISOString(),
+    agent: fixtureAgent,
+    tab: "tab",
+    model: "model",
+    oldState: "idle",
+    newState: "working",
+    ...overrides,
+  };
+}
 
 const dirs: OrchDir[] = [];
 
@@ -20,14 +40,17 @@ afterEach(() => {
 describe("orchd RPC replay buffer", () => {
   test("assigns monotonic sequence numbers and replays after a sequence", () => {
     const buffer = new ReplayBuffer(fixture());
-    expect(buffer.push("one")).toEqual({ event: "one", seq: 1 });
-    expect(buffer.push("two")).toEqual({ event: "two", seq: 2 });
-    expect(buffer.push("three")).toEqual({ event: "three", seq: 3 });
+    const one = transitionEvent({ key: "one" });
+    const two = transitionEvent({ key: "two" });
+    const three = transitionEvent({ key: "three" });
+    expect(buffer.push(one)).toEqual({ event: one, seq: 1 });
+    expect(buffer.push(two)).toEqual({ event: two, seq: 2 });
+    expect(buffer.push(three)).toEqual({ event: three, seq: 3 });
     expect(buffer.since(1)).toMatchObject({
       gap: false,
       events: [
-        { event: "two", seq: 2 },
-        { event: "three", seq: 3 },
+        { event: two, seq: 2 },
+        { event: three, seq: 3 },
       ],
     });
     expect(buffer.since(0).events).toHaveLength(3);
@@ -35,29 +58,35 @@ describe("orchd RPC replay buffer", () => {
 
   test("replays from inside the surviving range without a gap", () => {
     const dir = fixture();
-    appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), "one");
-    appendEvent(dir, Date.parse("2024-01-02T00:00:00.000Z"), "two");
-    appendEvent(dir, Date.parse("2024-01-03T00:00:00.000Z"), "three");
+    const one = transitionEvent({ key: "one" });
+    const two = transitionEvent({ key: "two" });
+    const three = transitionEvent({ key: "three" });
+    appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), one);
+    appendEvent(dir, Date.parse("2024-01-02T00:00:00.000Z"), two);
+    appendEvent(dir, Date.parse("2024-01-03T00:00:00.000Z"), three);
     deleteEventsBefore(dir, Date.parse("2024-01-02T00:00:00.000Z"));
     const buffer = new ReplayBuffer(dir);
     // Sequence 1 is immediately before the retained range, so no event is missing.
     expect(buffer.since(1)).toEqual({
-      events: [{ event: "two", seq: 2 }, { event: "three", seq: 3 }],
+      events: [{ event: two, seq: 2 }, { event: three, seq: 3 }],
       gap: false,
       oldestSeq: 2,
     });
-    expect(buffer.since(2)).toEqual({ events: [{ event: "three", seq: 3 }], gap: false, oldestSeq: 2 });
+    expect(buffer.since(2)).toEqual({ events: [{ event: three, seq: 3 }], gap: false, oldestSeq: 2 });
   });
 
   test("reports a gap when the requested sequence predates retained history", () => {
     const dir = fixture();
-    appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), "one");
-    appendEvent(dir, Date.parse("2024-01-02T00:00:00.000Z"), "two");
-    appendEvent(dir, Date.parse("2024-01-03T00:00:00.000Z"), "three");
+    const one = transitionEvent({ key: "one" });
+    const two = transitionEvent({ key: "two" });
+    const three = transitionEvent({ key: "three" });
+    appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), one);
+    appendEvent(dir, Date.parse("2024-01-02T00:00:00.000Z"), two);
+    appendEvent(dir, Date.parse("2024-01-03T00:00:00.000Z"), three);
     deleteEventsBefore(dir, Date.parse("2024-01-02T00:00:00.000Z"));
     const replay = new ReplayBuffer(dir).since(0);
     expect(replay).toEqual({
-      events: [{ event: "two", seq: 2 }, { event: "three", seq: 3 }],
+      events: [{ event: two, seq: 2 }, { event: three, seq: 3 }],
       gap: true,
       oldestSeq: 2,
     });
@@ -70,14 +99,14 @@ describe("orchd RPC replay buffer", () => {
 
   test("limits replay size without pruning durable events", () => {
     const buffer = new ReplayBuffer(fixture());
-    for (let seq = 1; seq <= REPLAY_WINDOW + 2; seq++) buffer.push(seq);
+    for (let seq = 1; seq <= REPLAY_WINDOW + 2; seq++) buffer.push(transitionEvent({ key: String(seq) }));
 
     const replay = buffer.since(0);
     expect(replay.gap).toBe(false);
     expect(replay.oldestSeq).toBe(1);
-    expect(replay.events[0]).toEqual({ event: 1, seq: 1 });
+    expect(replay.events[0]).toEqual({ event: transitionEvent({ key: "1" }), seq: 1 });
     expect(replay.events).toHaveLength(REPLAY_WINDOW);
     // The limit applies to this reply only; the rows beyond it remain replayable.
-    expect(buffer.since(REPLAY_WINDOW).events[0]).toEqual({ event: REPLAY_WINDOW + 1, seq: REPLAY_WINDOW + 1 });
+    expect(buffer.since(REPLAY_WINDOW).events[0]).toEqual({ event: transitionEvent({ key: String(REPLAY_WINDOW + 1) }), seq: REPLAY_WINDOW + 1 });
   }, 10_000);
 });

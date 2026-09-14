@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { loadPresence } from "../../presence/store.ts";
+import { isAgentState } from "../../agent-state.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
 import { agentById, endAgent } from "../../store/agent-rows.ts";
 import { selfId, selfIdentity } from "../../identity/self.ts";
@@ -56,8 +57,10 @@ function endClosedAgent(orchDir: OrchDir, key: string): ClosedAgent | null {
   if (row && !row.ending) {
     const by = selfId(root);
     endAgent(root, agentId, Date.now(), by !== undefined && agentById(root, by) ? by : null);
-    const oldState = loadPresence(root).get(key)?.status?.state ?? "exited";
-    return { key, oldState };
+    // The presence file is the boundary: a state it does not carry, or one orch
+    // does not know, means the agent had already left.
+    const reported = loadPresence(root).get(key)?.status?.state;
+    return { key, oldState: isAgentState(reported) ? reported : "exited" };
   }
   return null;
 }

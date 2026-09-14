@@ -6,17 +6,19 @@ import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { subscribeEvents } from "../src/daemon/rpc/client.ts";
 import type { EventSubscription, RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 type RpcEvent = Parameters<RpcServer["emit"]>[0];
 type TransitionEvent = Extract<RpcEvent, { type: "transition" }>;
+const fixtureAgent = mintAgentId();
 
 function transitionEvent(overrides: Partial<TransitionEvent> = {}): TransitionEvent {
   return {
     type: "transition",
     key: "event",
-    ts: 0,
-    agent: "agent",
+    ts: new Date(0).toISOString(),
+    agent: fixtureAgent,
     tab: "tab",
     model: "model",
     oldState: "idle",

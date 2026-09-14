@@ -196,21 +196,18 @@ function activityFields(value: object, state: AgentState): PresenceActivityField
   return { ...activityCore(value, state), ...activityContext(value) };
 }
 
-/** Compose the canonical event shape for a status observation. Re-asks use this
- * same composer as filesystem-derived transitions, so their identity and activity
- * fields cannot drift from live presence events. */
-export function composeAgentEvent(
+/** Build the identity and activity shared by every status-derived event. */
+function composeBase(
   orchDir: OrchDir,
   key: string,
   status: unknown,
   metadata: PresenceMetadata,
-  transition: { previous: AgentState; state: AgentState; askCount?: number; gaveUp?: boolean },
-  now = new Date(),
-): NotifyEvent {
+  state: AgentState,
+  now: Date,
+) {
   const value = statusObject(status);
   const identity = identityFields(orchDir, key, value, metadata);
-  const activity = activityFields(value, transition.state);
-  const base = {
+  return {
     key,
     space: identity.space,
     agent: identity.agent,
@@ -221,24 +218,62 @@ export function composeAgentEvent(
     tab: identity.tab,
     model: identity.model,
     ts: now.toISOString(),
-    ...activity,
+    ...activityFields(value, state),
   };
-  if (transition.state === "asking") {
-    return {
-      ...base,
-      type: "asking",
-      oldState: transition.previous,
-      newState: "asking",
-      askCount: transition.askCount ?? 1,
-      gaveUp: transition.gaveUp ?? false,
-    };
-  }
+}
+
+export function composeTransitionEvent(
+  orchDir: OrchDir,
+  key: string,
+  status: unknown,
+  metadata: PresenceMetadata,
+  transition: { previous: AgentState; state: Exclude<AgentState, "asking"> },
+  now = new Date(),
+): Extract<NotifyEvent, { readonly type: "transition" }> {
   return {
-    ...base,
+    ...composeBase(orchDir, key, status, metadata, transition.state, now),
     type: "transition",
     oldState: transition.previous,
     newState: transition.state,
   };
+}
+
+export function composeAskingEvent(
+  orchDir: OrchDir,
+  key: string,
+  status: unknown,
+  metadata: PresenceMetadata,
+  transition: { previous: AgentState },
+  askCount: number,
+  gaveUp: boolean,
+  now = new Date(),
+): Extract<NotifyEvent, { readonly type: "asking" }> {
+  return {
+    ...composeBase(orchDir, key, status, metadata, "asking", now),
+    type: "asking",
+    oldState: transition.previous,
+    newState: "asking",
+    askCount,
+    gaveUp,
+  };
+}
+
+/** Compose the canonical event shape for callers that accept either member. */
+export function composeAgentEvent(
+  orchDir: OrchDir,
+  key: string,
+  status: unknown,
+  metadata: PresenceMetadata,
+  transition: { previous: AgentState; state: AgentState; askCount?: number; gaveUp?: boolean },
+  now = new Date(),
+): NotifyEvent {
+  if (transition.state === "asking") {
+    return composeAskingEvent(orchDir, key, status, metadata, transition, transition.askCount ?? 1, transition.gaveUp ?? false, now);
+  }
+  return composeTransitionEvent(orchDir, key, status, metadata, {
+    previous: transition.previous,
+    state: transition.state,
+  }, now);
 }
 
 /** Derive one transition from a status file. First observations only seed state. */
@@ -252,7 +287,10 @@ export function derivePresenceTransition(
 ): NotifyEvent | null {
   const transition = nextPresenceTransition(orchDir, key, status, states);
   if (!transition || !isAgentState(transition.previous)) return null;
-  return composeAgentEvent(orchDir, key, status, metadata, {
+  if (transition.state === "asking") {
+    return composeAskingEvent(orchDir, key, status, metadata, { previous: transition.previous }, 1, false, now);
+  }
+  return composeTransitionEvent(orchDir, key, status, metadata, {
     previous: transition.previous,
     state: transition.state,
   }, now);
@@ -282,8 +320,21 @@ function runRecordForTransition(
   event: NotifyEvent,
   result: string | undefined,
 ): RunRecord | undefined {
-  if (event.type !== "transition" && event.type !== "asking") return undefined;
-  const dispatchId = event.dispatchId;
+  let dispatchId: string | undefined;
+  switch (event.type) {
+    case "transition":
+    case "asking":
+      dispatchId = event.dispatchId;
+      break;
+    case "message":
+    case "closed":
+    case "task":
+      return undefined;
+    default: {
+      const exhaustive: never = event;
+      return exhaustive;
+    }
+  }
   if (!dispatchId) return undefined;
 
   // startedAt is optional in the presence protocol. A dispatch still gets a row
@@ -490,7 +541,6 @@ export function isRepeatTransition(event: NotifyEvent, now = Date.now()): boolea
       task = event.task;
       break;
     case "message":
-      dispatchId = event.dispatchId;
       break;
     default: {
       const exhaustive: never = event;

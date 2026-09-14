@@ -74,13 +74,14 @@ describe("peer discovery walls on the project", () => {
     expect("peer" in allowed).toBe(true);
   });
 
-  test("a record with no project stamp is malformed and never listed", async () => {
+  test("a record with no project stamp is not walled: it belongs to no other project", async () => {
     const directory = makeOrchDir();
     seedAgent("unstamped1", {}, directory);
     seedLiveProcess(directory, "unstamped1");
     seedStatus(directory, "unstamped1", { pid: process.pid, state: "working", project: undefined });
 
-    expect(await peerSummaries(directory, daemonClientForPeers(directory, ["unstamped1"]), ownKey)).toEqual([]);
+    const keys = (await peerSummaries(directory, daemonClientForPeers(directory, ["unstamped1"]), ownKey)).map((peer) => peer.key);
+    expect(keys).toEqual(["unstamped1"]);
   });
 
   test("a spawned agent's all_workspaces flag is ignored", async () => {

@@ -4,6 +4,8 @@ import { insertAgent } from "../src/store/agent-rows.ts";
 import { adoptLease, currentLease } from "../src/store/lease-rows.ts";
 import { agentView, liveAgentViews } from "../src/store/agent-view.ts";
 import { sweepExpiredRows } from "../src/daemon/server/retention.ts";
+import { reapDeadAgentRecords } from "../src/presence/store.ts";
+import { seedLiveProcess } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
@@ -17,7 +19,8 @@ import type { OrchDir } from "../src/types/core.ts";
  * memory, not tokens. An unleased agent is
  * the NORMAL resting state after its orch died (D2), not a defect to tidy away.
  * The temptation is a sweep, and the sweep is exactly what this row forbids:
- * age is not a fact about whether work is wanted.
+ * age is not a fact about whether work is wanted. Two sweeps run in the daemon,
+ * the retention sweep and the liveness tick's reap, and neither may take it.
  */
 
 const dirs: OrchDir[] = [];
@@ -30,6 +33,10 @@ function fixture(): OrchDir {
   db.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   insertAgent(d, { id: "loose", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "loose", createdAt: 1 });
   insertAgent(d, { id: "adopter", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "adopter", createdAt: 2 });
+  // Both run: the loose agent rests, the adopter is an orch waiting to take it.
+  seedLiveProcess(d, "loose");
+  seedLiveProcess(d, "adopter");
+  seedStatus(d, "loose", { agent: "pi", pid: process.pid, state: "idle" });
   return d;
 }
 
@@ -45,23 +52,27 @@ function aggressiveRetention(): Pick<OrchSettings, "retention"> {
 /** Far enough ahead that any age-based rule would have fired many times over. */
 const FAR_FUTURE = new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000);
 
+/** One daemon pass: the retention sweep and the liveness tick's reap. */
+function sweep(d: OrchDir): string[] {
+  sweepExpiredRows(d, aggressiveRetention(), FAR_FUTURE);
+  return reapDeadAgentRecords(d);
+}
+
 describe("unleased and idle stays alive and adoptable (D3)", () => {
-  test("a decade of retention sweeps never ages out an unleased idle agent", () => {
+  test("a decade of sweeps never ages out an unleased idle agent", () => {
     const d = fixture();
-    seedStatus(d, "loose", { agent: "pi", pid: process.pid, state: "idle" });
     expect(currentLease(d, "loose")).toBeNull();
 
-    sweepExpiredRows(d, aggressiveRetention(), FAR_FUTURE);
+    expect(sweep(d)).toEqual([]);
 
-    // Nothing ages it out: no ending was written, and it is still live.
+    // Nothing ages it out: its process runs, so it is still live.
     expect(agentView(d, "loose")?.endedAt).toBeNull();
     expect(liveAgentViews(d).map((v) => v.id)).toContain("loose");
   });
 
   test("and it is still adoptable afterwards — the point of keeping it", () => {
     const d = fixture();
-    seedStatus(d, "loose", { agent: "pi", pid: process.pid, state: "idle" });
-    sweepExpiredRows(d, aggressiveRetention(), FAR_FUTURE);
+    sweep(d);
 
     // "Adoptable" is a claim about what an orch can still DO with it, not just
     // about a surviving row. A swept-but-broken agent would fail here.
@@ -69,16 +80,15 @@ describe("unleased and idle stays alive and adoptable (D3)", () => {
     expect(agentView(d, "loose")?.heldBy).toEqual({ orchId: "adopter", since: 100 });
   });
 
-  test("the sweep reaps only agents that actually ENDED, never merely unleased ones", () => {
+  test("the reap takes only agents whose process is GONE, never merely unleased ones", () => {
     const d = fixture();
     insertAgent(d, { id: "ended", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "ended", createdAt: 3 });
     orm(d).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${"ended"},${10},${null})`);
 
-    sweepExpiredRows(d, aggressiveRetention(), FAR_FUTURE);
-
-    // An ending is the ONE thing that makes a record sweepable. The ended agent
-    // is gone; the unleased one, swept in the same pass with the same window, is
-    // untouched — so the sweep is keyed on the ending and never on age or lease.
+    // A gone process is the ONE thing that makes a record reapable. The ended
+    // agent is gone; the unleased one, swept in the same pass, is untouched —
+    // so the reap is keyed on liveness and never on age or lease.
+    expect(sweep(d)).toEqual(["ended"]);
     expect(agentView(d, "ended")).toBeNull();
     expect(agentView(d, "loose")?.endedAt).toBeNull();
     expect(liveAgentViews(d).map((v) => v.id)).toContain("loose");
@@ -86,8 +96,7 @@ describe("unleased and idle stays alive and adoptable (D3)", () => {
 
   test("repeated sweeps are stable: an unleased agent survives every one of them", () => {
     const d = fixture();
-    seedStatus(d, "loose", { agent: "pi", pid: process.pid, state: "idle" });
-    for (let i = 0; i < 5; i += 1) sweepExpiredRows(d, aggressiveRetention(), FAR_FUTURE);
+    for (let i = 0; i < 5; i += 1) expect(sweep(d)).toEqual([]);
     expect(liveAgentViews(d).map((v) => v.id)).toContain("loose");
     expect(currentLease(d, "loose")).toBeNull();
   });

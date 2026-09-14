@@ -4,6 +4,7 @@ import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, NOTIFY_SINK_FIELD, NotifyEntrySchema } f
 import { isRecord, valueAtPath } from "../util.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
 import { isBackendId } from "../backends/backend.ts";
+import { term } from "../policy/vocabulary.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import type { NotifyEntry, OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
 import type { SettingsManager } from "../types/services.ts";
@@ -153,7 +154,7 @@ const HELP: Readonly<Record<string, string>> = {
   "fleet.worker_peer_tools": "Whether workers may use peer tools.",
   "fleet.cross_space": "Whether workers may cross space boundaries.",
   "mail.to_spawner": "Where mail a worker sends the agent that spawned it lands. prompt types it into that agent's input as it arrives, except while the human is in that pane, when it goes to orch events instead; events publishes it as a message event on orch events and leaves the input alone.",
-  "mail.to_worker": "Where every other mail lands: an orchestrator to its worker, peer to peer, a task result to its enqueuer. prompt types it into the recipient's input; events publishes it on orch events.",
+  "mail.to_worker": `Where every other mail lands: an ${term("orch")} to its worker, peer to peer, a task result to its enqueuer. prompt types it into the recipient's input; events publishes it on orch events.`,
   "models.allowed": "Model allowlist patterns by harness.",
   "models.preferred": "Model quicklists by harness.",
   "workers.inherit_extensions": "Whether workers inherit harness extensions.",

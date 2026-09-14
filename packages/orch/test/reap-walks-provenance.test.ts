@@ -1,14 +1,11 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-
-
-
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { sweepExpiredRows } from "../src/daemon/server/retention.ts";
+import { reapDeadAgentRecords } from "../src/presence/store.ts";
+import { seedLiveProcess } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
 
 /**
@@ -18,7 +15,8 @@ import { sql } from "drizzle-orm";
  * `agents.spawned_by` deliberately has NO `ON DELETE CASCADE`: provenance is
  * immutable history, and a cascade would silently erase a whole subtree because
  * somebody reaped one row at the top. So the tree is walked and the reap is
- * refused while anything below it is still live.
+ * refused while anything below it is still live. The daemon runs this on its
+ * liveness tick; an agent is dead once its process is gone.
  */
 
 const dirs: OrchDir[] = [];
@@ -34,65 +32,41 @@ function fixture(): OrchDir {
   return d;
 }
 
-function end(dir: OrchDir, id: string, at: number): void {
-  orm(dir).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${id},${at},${null})`);
-}
-
-/** Every window at zero so nothing survives the sweep by luck. The fixture is
- *  COMPLETE for what it is typed as: `sweepExpiredRows` takes the retention
- *  section, so that section is the whole value and there is nothing to cast past. */
-function retention(): Pick<OrchSettings, "retention"> {
-  return {
-    retention: { ended_agents_days: 0, queue_days: 0, events_days: 0, runs_days: 0, outbox_days: 0, control_outcomes_days: 0, logs_days: 0 },
-  };
-}
-
-const FAR_FUTURE = new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000);
-
 describe("reap walks the provenance tree (H3)", () => {
-  test("an ended agent with a still-present descendant is NOT reaped", () => {
+  test("a dead agent with a live descendant is NOT reaped", () => {
     const d = fixture();
-    // Only the top of the chain ended. Its child and grandchild are still rows.
-    end(d, "orch", 10);
+    // Only the middle of the chain runs. Its parent is dead, and so is its child.
+    seedLiveProcess(d, "child");
 
-    sweepExpiredRows(d, retention(), FAR_FUTURE);
+    expect(reapDeadAgentRecords(d)).toEqual(["grand"]);
 
-    // Reaping it would orphan the subtree, so the sweep leaves it alone.
-    expect(agentView(d, "orch")?.endedAt).toBe(10);
+    // Reaping the root would orphan the live child, so the sweep leaves it alone.
+    expect(agentView(d, "orch")).not.toBeNull();
     expect(agentView(d, "child")).not.toBeNull();
   });
 
-  test("the tree is reaped from the LEAF up, one sweep per level", () => {
+  test("the tree is reaped from the LEAF up", () => {
     const d = fixture();
-    end(d, "orch", 10);
-    end(d, "child", 11);
-    end(d, "grand", 12);
 
-    // The leaf has no descendants, so it goes first.
-    sweepExpiredRows(d, retention(), FAR_FUTURE);
+    // Nothing runs. The leaf has no descendants, so it goes first, then its
+    // parent has none either, and the root goes last.
+    expect(reapDeadAgentRecords(d)).toEqual(["grand", "child", "orch"]);
     expect(agentView(d, "grand")).toBeNull();
-    expect(agentView(d, "child")).not.toBeNull();
-
-    // With the leaf gone, its parent now has none either.
-    sweepExpiredRows(d, retention(), FAR_FUTURE);
     expect(agentView(d, "child")).toBeNull();
-
-    sweepExpiredRows(d, retention(), FAR_FUTURE);
     expect(agentView(d, "orch")).toBeNull();
   });
 
-  test("a LIVE descendant blocks the reap even when the parent ended long ago", () => {
+  test("a LIVE descendant blocks the reap of every ancestor", () => {
     const d = fixture();
-    end(d, "orch", 10);
-    end(d, "child", 11);
-    // `grand` never ended — it is still working.
+    // `grand` is still working; its parent and grandparent are gone.
+    seedLiveProcess(d, "grand");
 
-    sweepExpiredRows(d, retention(), FAR_FUTURE);
-    sweepExpiredRows(d, retention(), FAR_FUTURE);
+    expect(reapDeadAgentRecords(d)).toEqual([]);
+    expect(reapDeadAgentRecords(d)).toEqual([]);
 
     // Nothing in the chain may go while the leaf is alive: deleting `child`
     // would erase the grandchild's provenance while the grandchild still runs.
-    expect(agentView(d, "grand")?.endedAt).toBeNull();
+    expect(agentView(d, "grand")).not.toBeNull();
     expect(agentView(d, "child")).not.toBeNull();
     expect(agentView(d, "orch")).not.toBeNull();
   });

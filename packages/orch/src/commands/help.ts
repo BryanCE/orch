@@ -16,7 +16,7 @@ Glanceable table of the fleet (the default command when none is given).
 Bare 'orch status' is the normal use: every agent this session owns, with cost and
 context. A human at a raw terminal owns none and sees the whole machine.
 The table ends with one capacity line: \`pack you 5/10 - pack <other> 2/10 - space <name> 4/6 - machine 7/unlimited\`.
-One pack per orchestrator, yours first, each against fleet.max_agents_per_pack; packs never sum.
+One pack per ${term("orch")}, yours first, each against fleet.max_agents_per_pack; packs never sum.
 \`machine\` is the live total against fleet.max_agents_total; \`unlimited\` means that setting is absent.
 Read it before every spawn wave: it names the free slots and who holds the rest.
 'state' is what the agent says about itself; 'backendStatus' (--json) is what the plexer says

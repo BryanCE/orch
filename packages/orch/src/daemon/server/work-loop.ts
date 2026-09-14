@@ -78,11 +78,13 @@ export function statusSpeaksForTask(status: { dispatchId?: string | null } | nul
   return status.dispatchId === null || status.dispatchId === undefined || status.dispatchId === currentAttempt(task)?.dispatchId;
 }
 
-async function waitForWorking(entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string | null> {
+/** The agent's status as the store holds it NOW. A presence entry is a snapshot
+ *  taken before the dispatch; the report that answers it lands after. */
+async function waitForWorking(orchDir: OrchDir, entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   let state: string | null = null;
   do {
-    const status = entry.status;
+    const status = selectAgentStatus(orchDir, entry.key) ?? null;
     state = status?.state ?? null;
     if (state === "working" && statusSpeaksForTask(status, task)) return state;
     if (Date.now() >= deadline) return state;
@@ -121,13 +123,13 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const dispatchAckTimeoutMs = options.settings.current().timeouts.dispatch_ack_ms;
   try {
     await sendPrompt();
-    let status = await waitForWorking(entry, task, dispatchAckTimeoutMs);
+    let status = await waitForWorking(orchDir, entry, task, dispatchAckTimeoutMs);
     let retried = false;
     if (status !== "working") {
       retried = true;
       log.debug("retry.attempt", { target: entry.key, attempt: 2, delay: 0 });
       await sendPrompt();
-      status = await waitForWorking(entry, task, dispatchAckTimeoutMs);
+      status = await waitForWorking(orchDir, entry, task, dispatchAckTimeoutMs);
     }
     if (!options.json) process.stdout.write(`Dispatched to ${entry.key} -> status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
   } catch (error) {
@@ -135,10 +137,10 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   }
 }
 
-async function waitForTaskState(entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string> {
+async function waitForTaskState(orchDir: OrchDir, entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const status = entry.status;
+    const status = selectAgentStatus(orchDir, entry.key) ?? null;
     const state = status?.state;
     if ((state === "working" || state === "done" || state === "error") && statusSpeaksForTask(status, task)) return state;
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -255,7 +257,7 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
   try {
     await (options.dispatch ?? ((entry, task) => dispatchTask(options, entry, task)))(entry, task);
     const dispatchAckTimeoutMs = options.settings.current().timeouts.dispatch_ack_ms;
-    const state = await waitForTaskState(entry, task, dispatchAckTimeoutMs);
+    const state = await waitForTaskState(orchDir, entry, task, dispatchAckTimeoutMs);
     const current = requireTask(orchDir, task.id);
     if (state === "timeout") {
       const failed = recordTaskFailure(orchDir, task.id, "agent did not acknowledge working");

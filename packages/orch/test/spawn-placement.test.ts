@@ -63,7 +63,13 @@ class RecordingHomeRole implements SpaceHomeRole<string> {
   readonly renamed: { coordinate: string; label: string }[] = [];
   readonly focused: string[] = [];
   private next = 0;
-  list(): readonly PlexerHome[] { return []; }
+  /** Every home opened and not yet closed: a recorded home the plexer no longer
+   *  lists reads as one the human closed, and is owed again. */
+  list(): readonly PlexerHome[] {
+    return this.created
+      .map((home, index) => ({ coordinate: `w${index + 1}`, label: home.request.label ?? null }))
+      .filter((home) => !this.closed.includes(home.coordinate));
+  }
   create(subject: HomeSubject, request: CreateHomeRequest): CreatedHome<string> {
     this.created.push({ subject, request });
     const coordinate = `w${++this.next}`;

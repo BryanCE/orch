@@ -3,7 +3,7 @@ import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { normalizeControlTarget } from "../src/control/normalize-target.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
-import { agentById, ensureHarness } from "../src/store/agent-rows.ts";
+import { agentById, endAgent, ensureHarness } from "../src/store/agent-rows.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
@@ -124,9 +124,11 @@ describe("one key per pane spawn (12.1)", () => {
       preferredModels: [],
     });
 
-    // No presence is ever stamped, so the first agent is not alive: its name is
-    // free immediately. Under name-as-identity this collided forever.
+    // The fake pane reports the runner's own pid, so the first agent is alive
+    // until it ENDS; ending frees the name. Under name-as-identity this collided forever.
     const first = spawnAudit();
+    expect(spawnAudit).toThrow(/already live/);
+    endAgent(dir, first.key, Date.now(), null);
     const second = spawnAudit();
 
     expect(second.key).not.toBe(first.key);

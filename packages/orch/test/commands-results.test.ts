@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { formatAge, cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
-import { presenceAgentDir, writeResult } from "../src/presence/writer.ts";
+import { presenceAgentDir, writeResult } from "../src/presence/history.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { DaemonAbsentError } from "../src/daemon/rpc/wire.ts";

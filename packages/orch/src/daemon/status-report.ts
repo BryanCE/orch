@@ -7,7 +7,7 @@ import { agentView } from "../store/agent-view.ts";
 import { agentProcessLive } from "../store/interval-rows.ts";
 import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../store/status-rows.ts";
 import { upsertRun } from "../store/run-rows.ts";
-import { appendStatusHistory, ensurePresenceAgentDir, writeResult } from "../presence/writer.ts";
+import { appendStatusHistory, ensurePresenceAgentDir, writeResult } from "../presence/history.ts";
 import { askingEventFromRow, transitionEventFromRow } from "./status-events.ts";
 
 const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited", "idle"]);

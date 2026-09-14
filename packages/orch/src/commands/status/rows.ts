@@ -3,11 +3,14 @@ import { spawnerIdentity } from "../../policy/spawner.ts";
 import { modelSpec } from "../../policy/thinking.ts";
 import { deriveDriveState, NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
 import { getAdapter } from "../../adapters/registry.ts";
+import { buildEntities, sortEntities } from "../../entities/inventory.ts";
 import { getBackend } from "../../backends/registry.ts";
 import { spaceName as resolveSpaceName } from "../../policy/space.ts";
 import { currentLease } from "../../store/lease-rows.ts";
+import { spawnedRecords } from "../../presence/store.ts";
 import { pendingQuestion } from "../../store/question-rows.ts";
-import { agentViewIndex, firstNonEmptyText, viewForKey } from "../target.ts";
+import { firstNonEmptyText } from "../target.ts";
+import { viewForKey } from "../../entities/lookup.ts";
 import { collapse } from "../../util.ts";
 import { displayStatusState, isTTY } from "./options.ts";
 import { dim } from "../../tui/screen.ts";
@@ -217,7 +220,6 @@ export function statusRowFromEntity(
     backend: entity.backend,
     capabilities: backendCapabilities(entity),
     sessionPath: entity.sessionPath,
-    presenceOnly: entity.presenceOnly,
     bridgeAttached: null,
     tokens: sview?.tokens ?? presenceTokens(pres),
     turns: pres?.status?.turns ?? sview?.turns ?? null,
@@ -236,7 +238,7 @@ interface FleetStatusOptions {
 
 export function fleetStatusRows(settings: OrchSettings, spaces: OrchSettings["spaces"], options: FleetStatusOptions): StatusRow[] {
   const directory = options.directory;
-  const views = agentViewIndex(directory);
+  const views = spawnedRecords(directory);
   const staleHashes = options.bundleHashes?.() ?? new Set(shippedBundleHashes());
   const orchId = options.orchId?.() ?? currentOrchId(directory);
   return sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }))
@@ -249,7 +251,7 @@ export function warningStatusRow(host: string, warning: string): StatusRow {
     spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
     focused: false, model: "", modelShort: "", state: "warning", stateFallback: false, staleExtension: false,
     exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,
-    backendStatus: null, backend: null, capabilities: null, sessionPath: null, presenceOnly: false,
+    backendStatus: null, backend: null, capabilities: null, sessionPath: null,
     bridgeAttached: null, tokens: null, turns: null, host, warning,
   };
 }

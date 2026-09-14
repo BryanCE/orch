@@ -101,17 +101,17 @@ function entitiesFromBackend(root: OrchDir, backend: Backend, fleet: Fleet, used
     .map((target) => entityFromBackendTarget(root, backend, target, keyByHandle, fleet, usedPresence));
 }
 
-function presenceStatusFields(entry: PresenceEntry): Pick<Entity, "agent" | "sessionPath"> {
+function presenceStatusFields(entry: PresenceEntry, view: AgentView | undefined): Pick<Entity, "agent" | "sessionPath"> {
   const status = entry.status;
   return {
-    agent: status?.agent ?? null,
+    agent: view?.harnessId ?? null,
     sessionPath: status?.sessionPath ?? null,
   };
 }
 
 function presenceOnlyEntity(root: OrchDir, entry: PresenceEntry, fleet: Fleet): Entity {
   const view = viewForKey(fleet.views, entry.key);
-  const statusFields = presenceStatusFields(entry);
+  const statusFields = presenceStatusFields(entry, view);
   // U1: a pane is environment, so orch's own record answers for it. The agent's
   // self-report reached `peek` as a handle no plexer had.
   const plexer = view?.environment.plexer ?? null;

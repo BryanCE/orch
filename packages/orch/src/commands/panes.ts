@@ -5,14 +5,15 @@ import type { Services, SettingsService } from "../types/services.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
-import { agentAddress, agentViewIndex, assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent, presenceById, viewForKey } from "./target.ts";
+import { agentAddress, assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent, presenceById } from "./target.ts";
 import { isAgentId } from "../backends/identity.ts";
+import { viewForKey } from "../entities/lookup.ts";
 import { openingPlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
-import { displaySpace } from "./status.ts";
+import { displaySpace } from "./status/options.ts";
 import { spaceName } from "../policy/space.ts";
 import { setHandle } from "../store/interval-rows.ts";
 import { ambiguousTargetRefusal } from "../refusal.ts";
-import { loadPresence } from "../presence/store.ts";
+import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSplit, TilePlacement } from "../types/backend.ts";
 
 type BoundaryPlan<T> =
@@ -132,7 +133,7 @@ export function resolveTab(services: Pick<Services, "orchDir" | "settings" | "lo
   const ent = resolveTarget(services.orchDir, services.settings.current(), target);
   // Which plexer an agent is in is an ENVIRONMENT axis composed onto it, not a
   // segment of its identity: an agent that moves keeps the id it was minted with.
-  const plexer = viewForKey(agentViewIndex(services.orchDir), ent.key)?.environment.plexer ?? ent.backend;
+  const plexer = viewForKey(spawnedRecords(services.orchDir), ent.key)?.environment.plexer ?? ent.backend;
   if (plexer !== null && plexer !== backend.id) die(`Target "${target}" belongs to backend ${plexer}.`);
   // The identity id names the agent and carries no pane; the resolved entity's
   // paneId is the only backend handle for it.
@@ -183,7 +184,7 @@ function assertGroupAgentsOwned(services: Pick<Services, "orchDir">, backend: Ba
   if (force) return;
   const handles = new Set((backend.placementInventory?.list() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
   const presence = presenceById(loadPresence(services.orchDir));
-  for (const view of agentViewIndex(services.orchDir).values()) {
+  for (const view of spawnedRecords(services.orchDir).values()) {
     // Ownership is the open lease; the pane handle is environment. A group is a
     // set of PLACES, so it is matched on the handle and refused on the lease.
     const holder = view.heldBy?.orchId;

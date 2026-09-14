@@ -1,7 +1,7 @@
 import { isAgentId } from "../backends/identity.ts";
 import { resolveTarget } from "../entities/resolve.ts";
 import { spaceOf } from "../policy/space.ts";
-import { loadPresence } from "../presence/store.ts";
+import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { selfId } from "../identity/self.ts";
 import { callerKind } from "../policy/caller.ts";
 import { holdsLease } from "../store/lease-rows.ts";
@@ -9,8 +9,8 @@ import { collapse, isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
 import { rpcCall } from "../daemon/rpc/client.ts";
-import { agentViewIndex, assertAgentOwned, die, forbidNonOperatorOverride, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
-import { entityAdapter } from "./status.ts";
+import { assertAgentOwned, die, forbidNonOperatorOverride, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
+import { entityAdapter } from "./status/rows.ts";
 import { latestRunForKey } from "./runs.ts";
 import { selectRun } from "../store/run-rows.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
@@ -61,59 +61,75 @@ function adapterResultDocument(ent: Entity, adapter: AgentAdapter, text: string)
   };
 }
 
+function lookupRemoteResult(services: Services, settings: ReturnType<Services["settings"]["current"]>, remote: NonNullable<ReturnType<typeof targetHost>>, force: boolean): ResultLookup {
+  forbidNonOperatorOverride(services.orchDir, "remote targets");
+  const host = settings.hosts[remote.host];
+  const destination = host?.dest;
+  if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
+  const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(force ? ["--force"] : []), "--json"]), { timeoutMs: host.timeout_ms });
+  if (!result.ok) die(`Host "${remote.host}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
+  let payload: unknown;
+  try { payload = JSON.parse(result.stdout); } catch { payload = result.stdout.trimEnd(); }
+  return { kind: "found", source: "presence", payload };
+}
+
+function resolveResultTarget(services: Services, settings: ReturnType<Services["settings"]["current"]>, target: string): Entity | ResultLookup {
+  let ent: Entity;
+  try {
+    ent = resolveTarget(services.orchDir, settings, target);
+  } catch (error: unknown) {
+    if (!(error instanceof CommandRefusal)) throw error;
+    if (callerKind(services.orchDir) === "operator" && !loadPresence(services.orchDir).has(target)) {
+      const historical = latestRunForKey(services.orchDir, target);
+      if (historical?.result !== undefined) {
+        resultLogger(services.logger, target).info("result.history-fallback");
+        return { kind: "found", source: "history", payload: historical.result };
+      }
+    }
+    return { kind: "missing", reason: error.message };
+  }
+  return ent;
+}
+
+function lookupResolvedResult(services: Services, target: string, ent: Entity, force: boolean): ResultLookup {
+  assertAgentOwned(services.orchDir, target, ent, force);
+  const dispatchId = ent.presence?.status?.dispatchId;
+  if (dispatchId) {
+    const run = selectRun(services.orchDir, dispatchId);
+    if (run?.result === undefined) {
+      die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${ent.key}\`.`);
+    }
+    resultLogger(services.logger, ent.key).info("result.current-dispatch", { dispatchId });
+    return { kind: "found", source: "dispatch", payload: run.result };
+  }
+  if (ent.presence?.result) return { kind: "found", source: "presence", payload: ent.presence.result };
+  const historical = latestRunForKey(services.orchDir, ent.key);
+  if (historical?.result !== undefined) {
+    resultLogger(services.logger, ent.key).info("result.history-fallback");
+    return { kind: "found", source: "history", payload: historical.result };
+  }
+  const adapter = entityAdapter(ent, spawnedRecords(services.orchDir));
+  const text = adapter ? adapterResultText(services.orchDir, ent, adapter) : undefined;
+  if (adapter && text) {
+    resultLogger(services.logger, ent.key).info("result.adapter-fallback");
+    return { kind: "found", source: "session", payload: adapterResultDocument(ent, adapter, text) };
+  }
+  return { kind: "missing", reason: `No result available for "${target}" (no results.jsonl and no adapter-extractable session text).` };
+}
+
+function lookupResultBody(services: Services, target: string, force: boolean): ResultLookup {
+  const settings = services.settings.current();
+  const remote = targetHost(settings.hosts, target);
+  if (remote) return lookupRemoteResult(services, settings, remote, force);
+  const resolved = resolveResultTarget(services, settings, target);
+  if ("kind" in resolved) return resolved;
+  return lookupResolvedResult(services, target, resolved, force);
+}
+
 /** Resolve one target without writing output. Refusals become data for multi-target callers. */
 function lookupResult(services: Services, target: string, force: boolean): ResultLookup {
   try {
-    const settings = services.settings.current();
-    const remote = targetHost(settings.hosts, target);
-    if (remote) {
-      forbidNonOperatorOverride(services.orchDir, "remote targets");
-      const host = settings.hosts[remote.host];
-      const destination = host?.dest;
-      if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
-      const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(force ? ["--force"] : []), "--json"]), { timeoutMs: host.timeout_ms });
-      if (!result.ok) die(`Host "${remote.host}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
-      let payload: unknown;
-      try { payload = JSON.parse(result.stdout); } catch { payload = result.stdout.trimEnd(); }
-      return { kind: "found", source: "presence", payload };
-    }
-    let ent: Entity;
-    try {
-      ent = resolveTarget(services.orchDir, settings, target);
-    } catch (error: unknown) {
-      if (!(error instanceof CommandRefusal)) throw error;
-      if (callerKind(services.orchDir) === "operator" && !loadPresence(services.orchDir).has(target)) {
-        const historical = latestRunForKey(services.orchDir, target);
-        if (historical?.result !== undefined) {
-          resultLogger(services.logger, target).info("result.history-fallback");
-          return { kind: "found", source: "history", payload: historical.result };
-        }
-      }
-      return { kind: "missing", reason: error.message };
-    }
-    assertAgentOwned(services.orchDir, target, ent, force);
-    const dispatchId = ent.presence?.status?.dispatchId;
-    if (dispatchId) {
-      const run = selectRun(services.orchDir, dispatchId);
-      if (run?.result === undefined) {
-        die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${ent.key}\`.`);
-      }
-      resultLogger(services.logger, ent.key).info("result.current-dispatch", { dispatchId });
-      return { kind: "found", source: "dispatch", payload: run.result };
-    }
-    if (ent.presence?.result) return { kind: "found", source: "presence", payload: ent.presence.result };
-    const historical = latestRunForKey(services.orchDir, ent.key);
-    if (historical?.result !== undefined) {
-      resultLogger(services.logger, ent.key).info("result.history-fallback");
-      return { kind: "found", source: "history", payload: historical.result };
-    }
-    const adapter = entityAdapter(ent, agentViewIndex(services.orchDir));
-    const text = adapter ? adapterResultText(services.orchDir, ent, adapter) : undefined;
-    if (adapter && text) {
-      resultLogger(services.logger, ent.key).info("result.adapter-fallback");
-      return { kind: "found", source: "session", payload: adapterResultDocument(ent, adapter, text) };
-    }
-    return { kind: "missing", reason: `No result available for "${target}" (no results.jsonl and no adapter-extractable session text).` };
+    return lookupResultBody(services, target, force);
   } catch (error: unknown) {
     if (error instanceof CommandRefusal) return { kind: "missing", reason: error.message };
     throw error;
@@ -395,7 +411,7 @@ export function cmdTail(services: Services, args: string[]) {
   const target = options.target;
   if (!target) die("usage: orch tail <target> [-n N] [--json]");
   const ent = resolveTarget(services.orchDir, services.settings.current(), target);
-  const adapter = resolveSessionTailAdapter(agentViewIndex(services.orchDir), target, ent);
+  const adapter = resolveSessionTailAdapter(spawnedRecords(services.orchDir), target, ent);
   const view = adapter.sessionView?.readSessionView({ sessionPath: ent.sessionPath ?? undefined });
   if (!view) die(`No session data for "${target}" (${ent.sessionPath ?? "unknown path"}).`);
   if (options.json) writeTailJson(target, ent, view, options.lines);
@@ -436,7 +452,7 @@ export function cmdSession(services: Services, args: string[]) {
   if (!target) die("usage: orch session <target> [--json]");
   const ent = resolveTarget(services.orchDir, services.settings.current(), target);
   if (!ent.sessionPath) die(`No session path known for "${target}".`);
-  const adapter = resolveSessionTailAdapter(agentViewIndex(services.orchDir), target, ent);
+  const adapter = resolveSessionTailAdapter(spawnedRecords(services.orchDir), target, ent);
   const view = adapter.sessionView?.readSessionView({ sessionPath: ent.sessionPath });
   if (options.json) writeSessionJson(ent, view);
   else writeSessionText(ent, view);

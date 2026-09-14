@@ -5,7 +5,8 @@ import { describe, expect, test } from "bun:test";
 
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { cmdStatus, parseStatusOptions, scopeFleetRows } from "../src/commands/status.ts";
+import { cmdStatus } from "../src/commands/status/index.ts";
+import { parseStatusOptions, scopeFleetRows } from "../src/commands/status/options.ts";
 import { cmdNew } from "../src/commands/lifecycle/reset.ts";
 import { cmdRuns } from "../src/commands/runs.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
@@ -16,7 +17,7 @@ import { orm } from "../src/store/connection.ts";
 import { agents } from "../src/db/schema.ts";
 import { eq } from "drizzle-orm";
 import type { StatusRow } from "../src/types/command.ts";
-import type { CallerScope } from "../src/commands/status.ts";
+import type { CallerScope } from "../src/commands/status/options.ts";
 import { testServices } from "./helpers/services.ts";
 
 function row(key: string, ownerId: string | null, spaceId = "space"): StatusRow {
@@ -26,7 +27,7 @@ function row(key: string, ownerId: string | null, spaceId = "space"): StatusRow 
     worktree: null, branch: null, cwd: null, focused: false, model: "pi/model", modelShort: "model",
     state: "working", stateFallback: false, exited: false, alive: true, cost: 0, ctxPercent: null,
     task: null, dispatchId: null, lastText: null, backendStatus: null, backend: null, capabilities: null,
-    sessionPath: null, presenceDir: null, presenceOnly: true, bridgeAttached: null, tokens: null, turns: null,
+    sessionPath: null, bridgeAttached: null, tokens: null, turns: null,
     spaceId,
   };
 }

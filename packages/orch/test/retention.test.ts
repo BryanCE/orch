@@ -16,7 +16,7 @@ import { acquireLease } from "../src/store/lease-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
-import { writeResult } from "../src/presence/writer.ts";
+import { writeResult } from "../src/presence/history.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { RunRecord } from "../src/types/store.ts";
 import type { OrchSettings } from "../src/types/settings.ts";

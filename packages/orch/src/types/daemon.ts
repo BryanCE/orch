@@ -144,34 +144,6 @@ export type OsSideExecution<T> =
   | { readonly outcome: "ran"; readonly value: T }
   | { readonly outcome: "answer"; readonly reason: "no-environment-role"; readonly exitCode: 0; readonly text: string };
 
-export interface PresenceMetadata {
-  name: string | null;
-  tab: string | null;
-  /** Address of the session that spawned this agent. */
-  spawnedBy?: string;
-  /** Human description of the session that spawned this agent. */
-  spawnedByLabel?: string;
-};
-
-export interface PresenceWatchOptions {
-  orchDir: OrchDir;
-  onEvent: (event: NotifyEvent) => void;
-  initialStates?: Map<string, string>;
-  keys?: Map<string, PresenceMetadata>;
-  metadataFor?: (key: string) => PresenceMetadata;
-  acceptKey?: (key: string) => boolean;
-  pollIntervalMs?: number;
-  /** Test seam for verifying every watcher is closed when its directory disappears. */
-  onWatcherClosed?: () => void;
-};
-
-export interface PresenceWatch {
-  states: Map<string, string>;
-  scan: () => void;
-  stop: () => void;
-  readonly watcherCount: () => number;
-};
-
 export interface LeasePayload {
   readonly holderId: string;
   readonly holderName: string;

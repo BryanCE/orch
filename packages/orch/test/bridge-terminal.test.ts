@@ -2,7 +2,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { readStatus } from "../src/presence/writer.ts";
+import { selectAgentStatus } from "../src/store/status-rows.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import type { HarnessApi, HarnessContext, HarnessEventHandler } from "../src/types/agent.ts";
 import { testServices } from "./helpers/services.ts";
@@ -85,11 +85,10 @@ describe("bridge terminal turn seam", () => {
     if (text !== undefined) harness.fire("message_end", { message: { role: "assistant", content: text } }, ctx);
     harness.fire(signal, event, signal === "agent_settled" ? undefined : ctx);
     await Promise.resolve();
-    const directory = presence.dir();
-    if (!directory) throw new Error("presence did not initialise");
-    const status = readStatus(directory);
+    const status = selectAgentStatus(root, key);
+    if (!status) throw new Error("presence status was not reported");
     presence.stopPresence();
-    return typeof status.state === "string" ? status.state : "";
+    return status.state;
   }
 
   test("empty and tool-only turn_end turns still publish a terminal idle state", async () => {

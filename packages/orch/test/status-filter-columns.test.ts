@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { filterRowKeys, formatStatusTable } from "../src/commands/status.ts";
+import { filterRowKeys } from "../src/commands/status/options.ts";
+import { formatStatusTable } from "../src/commands/status/table.ts";
 import type { StatusRow } from "../src/types/command.ts";
 
 /** A COMPLETE StatusRow, so a field added to the shape breaks this factory (Rule 13). */
@@ -35,8 +36,6 @@ function statusRow(overrides: Partial<StatusRow>): StatusRow {
     backend: "headless",
     capabilities: null,
     sessionPath: null,
-    presenceDir: null,
-    presenceOnly: false,
     bridgeAttached: null,
     tokens: null,
     turns: null,

@@ -43,7 +43,7 @@ export interface EventsOptions {
 
 export interface EventsContext {
   options: EventsOptions;
-  accepts: (key: string) => boolean;
+  accepts: (key: string, type: NotifyEvent["type"]) => boolean;
   emit: (event: NotifyEvent, streamSeq: number) => boolean;
 }
 
@@ -59,6 +59,29 @@ export function eventWithinSpaceWall(root: OrchDir, key: string, ceiling: string
   return withinSpaceCeiling(spaceOf(root, key), ceiling);
 }
 
+/** Whether one streamed event belongs on this caller's stream. */
+export function eventAcceptor(root: OrchDir, options: EventsOptions, items: ReadonlySet<string>, scope: ResolvedCallerScope): EventsContext["accepts"] {
+  return (key, type) => {
+    // The key IS the minted id (A1), so there is one lookup and no second id space.
+    const agentId = isAgentId(key) ? key : null;
+    // A message event is keyed by its RECIPIENT, so mail a worker sent this session
+    // carries this session's own key. That is the only event of its own a session
+    // watches: its own transitions are what it is doing, not what it owns.
+    if (key === scope.address) return type === "message";
+    const inScope = options.targets.length
+      ? items.has(key)
+      : agentId !== null && eventWithinSpaceWall(root, agentId, callerSpace(root));
+    if (!inScope) return false;
+    const leaseOwner = currentLease(root, agentId ?? key)?.orchId ?? null;
+    return agentInScope({
+      spaceWide: !scope.mine,
+      mineAddress: scope.address,
+      leaseOwner,
+      recordSpawnedBy: spawnedRecords(root).get(agentId ?? key)?.spawnedBy ?? undefined,
+    });
+  };
+}
+
 export async function cmdEvents(services: Services, args: string[]) {
   const options = parseEventsOptions(args);
   await ensureDaemon(services.orchDir, services.logger);
@@ -66,22 +89,7 @@ export async function cmdEvents(services: Services, args: string[]) {
   if (options.scope === "any") forbidNonOperatorOverride(services.orchDir, "--space-wide");
   const items = eventsItems(options, services.orchDir, services.settings.current());
   const scope = await resolveCallerScope(services.logger, options.scope, services.orchDir);
-  const accepts = (key: string): boolean => {
-    // The key IS the minted id (A1), so there is one lookup and no second id space.
-    const agentId = isAgentId(key) ? key : null;
-    if (key === scope.address) return true;
-    const inScope = options.targets.length
-      ? items.has(key)
-      : agentId !== null && eventWithinSpaceWall(services.orchDir, agentId, callerSpace(services.orchDir));
-    if (!inScope) return false;
-    const leaseOwner = currentLease(services.orchDir, agentId ?? key)?.orchId ?? null;
-    return agentInScope({
-      spaceWide: !scope.mine,
-      mineAddress: scope.address,
-      leaseOwner,
-      recordSpawnedBy: spawnedRecords(services.orchDir).get(agentId ?? key)?.spawnedBy ?? undefined,
-    });
-  };
+  const accepts = eventAcceptor(services.orchDir, options, items, scope);
   const context: EventsContext = { options, accepts, emit: eventWriter(options, services.orchDir) };
   // Notification delivery is orchd's, not the client's: the daemon fans every
   // transition out to the sinks configured in settings.json whether or not
@@ -363,7 +371,7 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
     services.orchDir,
     context.options.sinceSeq === undefined ? {} : { since: context.options.sinceSeq },
     (value, streamSeq) => {
-      if (!isNotifyEvent(value) || !context.accepts(value.key)) return;
+      if (!isNotifyEvent(value) || !context.accepts(value.key, value.type)) return;
       if (context.emit(value, streamSeq) && context.options.once) transport.close();
     },
     (oldestSeq) => {
@@ -373,7 +381,7 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
   );
   void pending.then((value) => {
     for (const question of value.questions) {
-      if (!context.accepts(question.agentId)) continue;
+      if (!context.accepts(question.agentId, "asking")) continue;
       if (context.emit(pendingQuestionEvent(question, services.orchDir), 0) && context.options.once) {
         transport.close();
         break;

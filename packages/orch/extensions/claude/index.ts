@@ -7,7 +7,7 @@
  * never assume one. Usage: `<runtime> <shim> SessionStart|Stop|Notification`;
  * Claude sends the hook payload as JSON on stdin. Identity parsing stays in
  * its one boundary module (src/backends/identity.ts) and the presence writes go
- * through the one shared writer (src/presence/writer.ts) — this shim holds only
+ * through the one shared writer (src/presence/history.ts) — this shim holds only
  * claude-specific transcript/hook-event parsing. The bundle inlines both.
  *
  * Presence fidelity is coarse by design: hooks report over the daemon socket;
@@ -15,7 +15,7 @@
  * running.
  */
 import { readFileSync } from "node:fs";
-import { readJsonStdin } from "../../src/presence/writer.ts";
+import { readJsonStdin } from "../../src/presence/history.ts";
 import { presenceSession } from "../../src/presence/session.ts";
 import { reportOnce } from "../../src/presence/socket-client.ts";
 import { isRecord, projectRoot, textValue, truncateOptional } from "../../src/util.ts";

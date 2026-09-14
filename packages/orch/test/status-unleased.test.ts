@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { formatOwnerCell, statusRowFromEntity } from "../src/commands/status.ts";
+import { formatOwnerCell, statusRowFromEntity } from "../src/commands/status/rows.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";

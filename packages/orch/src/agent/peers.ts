@@ -6,13 +6,13 @@ import type { OrchDir } from "../types/core.ts";
 //
 // The counterpart module presence.ts owns THIS agent's own record; the split is
 // by subject, not by mechanism. All filesystem access goes through the shared
-// presence writer (src/presence/writer.ts) per CLAUDE.md Rule 10.
+// presence writer (src/presence/history.ts) per CLAUDE.md Rule 10.
 import { Type } from "typebox";
 import { term } from "../policy/vocabulary.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { recipientLabel } from "../recipient.ts";
 import { agentProcessLive } from "../store/interval-rows.ts";
-import { presenceAgentDir } from "../presence/writer.ts";
+import { presenceAgentDir } from "../presence/history.ts";
 import { isRecord, optionalString, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
@@ -45,7 +45,8 @@ export function isPeerView(value: unknown): value is PeerView {
     && typeof peer.name === "string"
     && typeof peer.harness === "string"
     && (peer.spawnedBy === null || typeof peer.spawnedBy === "string")
-    && (peer.status === null || isRecord(peer.status))))
+    && (peer.status === null || isRecord(peer.status))
+    && (peer.result === null || typeof peer.result === "string")))
     && value.visible.every((key) => typeof key === "string")
     && Object.values(value.spaces).every((space) => space === null || typeof space === "string")
     && Object.values(value.drive).every(isDriveState);
@@ -71,6 +72,7 @@ async function livePeers(orchDir: OrchDir, daemon: DaemonClient, ownKey: string,
         harness: peer.harness,
         spawnedBy: peer.spawnedBy,
         status: peer.status,
+        result: peer.result,
       }))
       .sort((left, right) => left.key.localeCompare(right.key));
     return { peers, view };
@@ -104,6 +106,7 @@ async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient, ownKey: s
     harness: peer.harness,
     spawnedBy: peer.spawnedBy,
     status: peer.status,
+    result: peer.result,
   };
 }
 

@@ -6,7 +6,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { buildEntities } from "../src/entities/inventory.ts";
 import { entitySpace } from "../src/entities/space.ts";
-import { presenceAgentDir } from "../src/presence/writer.ts";
+import { presenceAgentDir } from "../src/presence/history.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";

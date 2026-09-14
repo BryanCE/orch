@@ -2,7 +2,7 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { errorMessage, isRecord, packageRoot } from "../util.ts";
 import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/lifecycle.ts";
-import { cmdStatusVerb } from "./status-verb.ts";
+import { cmdStatusVerb } from "./status/verb.ts";
 import { cmdSpawn, cmdTile } from "./spawn/index.ts";
 import { cmdAnswer, cmdBroadcast, cmdDispatch, cmdModel, cmdPipe, cmdSteer } from "./control.ts";
 import { cmdRun, cmdWait } from "./lifecycle/index.ts";

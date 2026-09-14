@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { isRecord } from "../src/util.ts";
-import { seedStatus } from "./helpers/presence.ts";
+import { acceptStatusReport } from "../src/daemon/status-report.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { testServices } from "./helpers/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -50,37 +50,26 @@ describe("orch presence notifications", () => {
     const command = nodeCommand(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(output)}, fs.readFileSync(0, "utf8"));`);
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = orchDir;
-    const { presenceAgentDir } = await import("../src/presence/writer.ts");
-    const agentsDir = presenceAgentDir(key, orchDir);
     seedAgent(key, { name: "Test agent" }, orchDir);
     seedLiveProcess(orchDir, key);
-    seedStatus(orchDir, key, { state: "idle", label: "Test agent" });
     writeSettingsFixture(orchDir, {
       notify: [{ id: "command", on: ["working"], command }],
     });
 
     try {
-      // The presence watch is orch's ONE presence-transition source; the work loop
-      // publishes task events only, which is why this exercises the watch.
-      const { emitAndNotify, startPresenceWatch } = await import("../src/daemon/events.ts");
+      const { emitAndNotify } = await import("../src/daemon/events.ts");
       const entries = fileSettingsManager(orchDir).current().notify;
       expect(entries).toEqual([{ id: "command", on: ["working"], command }]);
-      const watch = startPresenceWatch({
-        orchDir,
-        pollIntervalMs: 20,
-        onEvent: (event) => emitAndNotify(() => { /* no rpc server in this test */ }, entries, event, orchDir, testServices({ orchDir, settings: { notify: [{ id: "command", on: ["working"], command }] } }).settings),
-      });
-      try {
-        // startPresenceWatch seeds the initial idle state during its first scan.
-        seedStatus(orchDir, key, { state: "working", label: "Test agent" });
-        const payload: Record<string, unknown> = await waitForFile(output);
-        expect(payload).toMatchObject({ space: "space", newState: "working" });
-        expect(payload.title).toEqual(expect.stringContaining("WORKING [space] Test agent"));
-      } finally {
-        watch.stop();
-      }
+      const settings = testServices({ orchDir, settings: { notify: [{ id: "command", on: ["working"], command }] } }).settings;
+      const publish = (event: Parameters<typeof emitAndNotify>[2]): void => {
+        emitAndNotify(() => { /* no rpc server in this test */ }, entries, event, orchDir, settings);
+      };
+      acceptStatusReport(orchDir, key, { state: "idle" }, publish);
+      acceptStatusReport(orchDir, key, { state: "working" }, publish);
+      const payload: Record<string, unknown> = await waitForFile(output);
+      expect(payload).toMatchObject({ space: "space", newState: "working" });
+      expect(payload.title).toEqual(expect.stringContaining("WORKING [space] Test agent"));
     } finally {
-      removeTempDir(agentsDir);
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;
     }

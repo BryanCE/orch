@@ -1,6 +1,7 @@
 import { getBackend } from "../backends/registry.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { buildEntities } from "../entities/inventory.ts";
+import { viewForKey } from "../entities/lookup.ts";
 import { callerMayResolve, refuseForeignTarget, resolveTarget } from "../entities/resolve.ts";
 import { parseTarget } from "../entities/target.ts";
 import { callerSpace, selfId, spaceOfAgent } from "../identity/self.ts";
@@ -58,22 +59,6 @@ function looksLikePaneKey(key: string): boolean {
   return isAgentId(key);
 }
 
-/**
- * The identity a presence key names, or null when it names none.
- *
- * The store is keyed by the minted id alone, so every join from a directory
- * name to an agent goes through here. Nothing downstream slices a plexer or a
- * space out of the key: those are environment, composed separately (A1).
- */
-
-
-/** Every agent the store knows, indexed by its minted id. The index itself is
- *  built in exactly ONE place (src/presence/store.ts); a second copy is how two
- *  callers end up disagreeing about what the fleet is. */
-export function agentViewIndex(root: OrchDir): Map<string, AgentView> {
-  return spawnedRecords(root);
-}
-
 /** Presence re-indexed by minted id so an {@link AgentView} joins to it without
  *  ever reconstructing a key. Entries whose directory name carries no identity
  *  belong to no agent orch minted. */
@@ -83,10 +68,6 @@ export function presenceById(presence: ReadonlyMap<string, PresenceEntry>): Map<
     if (isAgentId(entry.key)) byId.set(entry.key, entry);
   }
   return byId;
-}
-
-export function viewForKey(views: ReadonlyMap<string, AgentView>, key: string): AgentView | undefined {
-  return isAgentId(key) ? views.get(key) : undefined;
 }
 
 /** The address that reaches an agent: the presence key it actually has, else
@@ -225,7 +206,7 @@ export function backendTarget(
   const ent = resolveTarget(orchDir, settings, target);
   // The plexer is an ENVIRONMENT axis composed onto the agent, never a segment
   // of its key: an agent that moves plexers keeps the identity it was minted with.
-  const view = viewForKey(views ?? agentViewIndex(orchDir), ent.key);
+  const view = viewForKey(views ?? spawnedRecords(orchDir), ent.key);
   const plexer = view?.environment.plexer ?? ent.backend;
   const backend = plexer === null ? undefined : getBackend(plexer);
   if (!backend) die(`orch ${command}: backend ${JSON.stringify(plexer)} is not registered.`);
@@ -353,7 +334,7 @@ function lifecycleHandle(ent: Entity, view: AgentView | undefined): BackendHandl
  * the backend has stopped reporting the pane.
  */
 export function resolveLifecycleTarget(orchDir: OrchDir, settings: OrchSettings, target: string): LifecycleTarget {
-  const allViews = agentViewIndex(orchDir);
+  const allViews = spawnedRecords(orchDir);
   const views = new Map([...allViews].filter(([key]) => callerMayResolve(orchDir, { key })));
   const presence = presenceById(loadPresence(orchDir));
   const entities = buildEntities(orchDir, settings, { skipBackends: true }).filter((entity) => callerMayResolve(orchDir, entity));

@@ -164,6 +164,7 @@ export interface Peer {
   harness: string;
   spawnedBy: string | null;
   status: JsonRecord | null;
+  result: string | null;
 }
 
 export interface PeerResolutionError {

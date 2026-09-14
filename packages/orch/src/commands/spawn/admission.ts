@@ -5,9 +5,9 @@ import { term } from "../../policy/vocabulary.ts";
 import { depthOf } from "../../policy/provenance.ts";
 import { SpawnRefusalError } from "../../refusal.ts";
 import { refreshStaleShims } from "../../doctor/runner.ts";
-import { loadPresence } from "../../presence/store.ts";
+import { loadPresence, spawnedRecords } from "../../presence/store.ts";
 import { errorMessage } from "../../util.ts";
-import { agentViewIndex, die, presenceById } from "../target.ts";
+import { die, presenceById } from "../target.ts";
 import { callerSpace } from "../../identity/self.ts";
 import type { Backend } from "../../types/backend.ts";
 import type { ModelCatalogue } from "../../types/adapter.ts";
@@ -61,7 +61,7 @@ export function spawnPolicyError(
 }
 
 export function assertSpawnPolicy(orchDir: OrchDir, settings: Pick<OrchSettings, "fleet">, space: string | null, requested: number): void {
-  const refusal = spawnPolicyError(settings, space, requested, agentViewIndex(orchDir), presenceById(loadPresence(orchDir)), spawnerIdentity(orchDir).key);
+  const refusal = spawnPolicyError(settings, space, requested, spawnedRecords(orchDir), presenceById(loadPresence(orchDir)), spawnerIdentity(orchDir).key);
   if (refusal) throw new SpawnRefusalError(`spawn refused: ${refusal}`);
 }
 
@@ -79,7 +79,7 @@ export function assertSpawnCapacity(
   settings: Pick<OrchSettings, "fleet">,
   space: string | null,
   requested: number,
-  views: ReadonlyMap<string, AgentView> = agentViewIndex(orchDir),
+  views: ReadonlyMap<string, AgentView> = spawnedRecords(orchDir),
   presence: ReadonlyMap<string, PresenceEntry> = presenceById(loadPresence(orchDir)),
 ): void {
   const counts = liveSpawnCounts(views, presence);

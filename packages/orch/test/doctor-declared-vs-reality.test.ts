@@ -4,7 +4,6 @@ import { describeBackendEnvironments } from "../src/doctor/backends.ts";
 import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { readPresenceStatus } from "../src/presence/writer.ts";
 import { runTestDoctor } from "./helpers/doctor.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
@@ -31,7 +30,7 @@ function recordProcess(dir: OrchDir, id: string, pid: number, token: string | nu
 const testDependencies = {
   processAlive: (pid: number) => pid === process.pid,
   plexerInventory: () => [],
-  readPresenceStatus,
+  agentStatus: () => undefined,
 };
 
 afterEach(() => {

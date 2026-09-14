@@ -10,7 +10,7 @@ import { closeAllStores } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { setHandle, setSpace } from "../src/store/interval-rows.ts";
-import { presenceAgentDir } from "../src/presence/writer.ts";
+import { presenceAgentDir } from "../src/presence/history.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";

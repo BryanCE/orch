@@ -38,6 +38,20 @@ async function resolveSelfId(directory: OrchDir, logger: Services["logger"]): Pr
   return launchCredential() ?? (await rpcRegisterSession(directory, logger)).id;
 }
 
+/** Run a queue verb against the daemon as the registered caller; any failure is a refusal. */
+async function withQueueCaller(
+  services: Pick<Services, "orchDir" | "logger">,
+  run: (callerId: string) => void | Promise<void>,
+): Promise<void> {
+  try {
+    await ensureDaemon(services.orchDir, services.logger);
+    const callerId = await resolveSelfId(services.orchDir, services.logger);
+    await run(callerId);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+}
+
 function takeValue(args: string[], flag: string): { value?: string; rest: string[] } {
   const index = args.indexOf(flag);
   if (index < 0) return { rest: args };
@@ -157,15 +171,11 @@ async function queueEdit(services: Pick<Services, "orchDir" | "logger">, invocat
   if (!id || !text || invocation.worktree || invocation.agent || invocation.pack || invocation.space) {
     die("usage: orch queue edit <id> <task text> [--json]");
   }
-  try {
-    await ensureDaemon(services.orchDir, services.logger);
-    const callerId = await resolveSelfId(services.orchDir, services.logger);
+  await withQueueCaller(services, (callerId) => {
     const task = editTask(services.orchDir, id, callerId, { text });
     if (task.error) die(task.error);
     writeQueueTask(task, invocation.json, `Edited ${task.id}`);
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
+  });
 }
 
 async function queueTakeOn(services: Pick<Services, "orchDir" | "logger">, invocation: QueueInvocation): Promise<void> {
@@ -173,15 +183,11 @@ async function queueTakeOn(services: Pick<Services, "orchDir" | "logger">, invoc
   if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.pack || invocation.space) {
     die("usage: orch queue take-on <id> [--agent <target>] [--json]");
   }
-  try {
-    await ensureDaemon(services.orchDir, services.logger);
-    const callerId = await resolveSelfId(services.orchDir, services.logger);
+  await withQueueCaller(services, (callerId) => {
     const taker = invocation.agent ? resolveAgent(services.orchDir, invocation.agent) : callerId;
     const task = takeOnTask(services.orchDir, id, taker);
     writeQueueTask(task, invocation.json, `Took on ${task.id}`);
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
+  });
 }
 
 async function queueReap(services: Pick<Services, "orchDir" | "logger">, invocation: QueueInvocation): Promise<void> {
@@ -189,15 +195,11 @@ async function queueReap(services: Pick<Services, "orchDir" | "logger">, invocat
   if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.agent || invocation.pack || invocation.space) {
     die("usage: orch queue reap <id> [--json]");
   }
-  try {
-    await ensureDaemon(services.orchDir, services.logger);
-    const callerId = await resolveSelfId(services.orchDir, services.logger);
+  await withQueueCaller(services, (callerId) => {
     reapTask(services.orchDir, id, callerId);
     if (invocation.json) process.stdout.write(JSON.stringify({ id, state: "reaped" }) + "\n");
     else process.stdout.write(`Reaped ${id}\n`);
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
+  });
 }
 
 /** The pack whose consent is being recorded: the caller's own, or that of an
@@ -216,9 +218,7 @@ async function queueIntake(services: Pick<Services, "orchDir" | "logger">, invoc
   if (invocation.positional.length > 1 || invocation.worktree || invocation.pack || invocation.space || (!space && invocation.close)) {
     die("usage: orch queue intake [<space id>] [--close] [--agent <target>] [--json]");
   }
-  try {
-    await ensureDaemon(services.orchDir, services.logger);
-    const callerId = await resolveSelfId(services.orchDir, services.logger);
+  await withQueueCaller(services, (callerId) => {
     const pack = packOfCaller(services.orchDir, invocation, callerId);
     const intakes = space === undefined
       ? packIntakes(services.orchDir, pack)
@@ -228,9 +228,7 @@ async function queueIntake(services: Pick<Services, "orchDir" | "logger">, invoc
     if (invocation.json) process.stdout.write(JSON.stringify(intakes, null, 2) + "\n");
     else if (intakes.length === 0) process.stdout.write("No space intakes.\n");
     else for (const intake of intakes) process.stdout.write(`${intake.spaceId} ${intake.until === null ? "open" : "closed"}\n`);
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
+  });
 }
 
 async function queueCancel(services: Pick<Services, "orchDir" | "logger">, invocation: QueueInvocation): Promise<void> {
@@ -238,15 +236,11 @@ async function queueCancel(services: Pick<Services, "orchDir" | "logger">, invoc
   if (!id || invocation.positional.length !== 1 || invocation.worktree || invocation.agent || invocation.pack || invocation.space) {
     die("usage: orch queue cancel <id> [--json]");
   }
-  try {
-    await ensureDaemon(services.orchDir, services.logger);
-    const callerId = await resolveSelfId(services.orchDir, services.logger);
+  await withQueueCaller(services, (callerId) => {
     const task = cancelTask(services.orchDir, id, callerId, { human: true });
     if (task.error) die(task.error);
     writeQueueTask(task, invocation.json, `Cancelled ${task.id}`);
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
+  });
 }
 
 export async function cmdQueue(services: Services, args: string[]): Promise<void> {

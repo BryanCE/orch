@@ -7,7 +7,7 @@ import { fileSettingsManager } from "../src/settings/manager.ts";
 import { cmdSpawn } from "../src/commands/spawn/index.ts";
 import { assertTabCapacity, spawnPolicyError } from "../src/commands/spawn/admission.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
-import { presenceAgentDir } from "../src/presence/writer.ts";
+import { presenceAgentDir } from "../src/presence/history.ts";
 import { agentViews } from "../src/store/agent-view.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { orm } from "../src/store/connection.ts";
@@ -46,7 +46,6 @@ function fixtureMaps(agents: AgentView[]): { views: Map<string, AgentView>; pres
     views: new Map(agents.map((view): [string, AgentView] => [view.id, view])),
     presence: new Map(agents.map((view): [string, PresenceEntry] => [view.id, {
       key: view.id,
-      dir: "",
       status: null,
       result: null,
       alive: true,

@@ -103,11 +103,7 @@ export function payload(event: NotifyEvent): string {
   return JSON.stringify(notificationPayload(event));
 }
 
-export function notificationText(event: NotifyEvent, options: { colorize?: boolean } = {}): { title: string; body: string } {
-  const space = eventSpace(event);
-  const agent = eventAgent(event, space);
-  const color = spaceColor(space);
-  const state = oneLine(textValue(event.newState) ?? "unknown").toUpperCase();
+function notificationSummary(event: NotifyEvent): string {
   let summary: string;
   switch (event.type) {
     case "transition":
@@ -137,9 +133,10 @@ export function notificationText(event: NotifyEvent, options: { colorize?: boole
     }
   }
   summary = oneLine(summary).replace(/^Q:\s*/i, "").slice(0, 60);
-  const spaceLabel = `[${space}]`;
-  const coloredSpace = options.colorize ? `${spaceAnsi(space)}${spaceLabel}\u001b[0m` : spaceLabel;
-  const title = `${state} ${coloredSpace} ${agent}: ${summary}`;
+  return summary;
+}
+
+function notificationDetails(event: NotifyEvent, title: string, space: string, color: string): string {
   const details: string[] = [title, `Space: ${space} (${color})`];
   if (event.tab) details.push(`Tab: ${event.tab}`);
   if (event.model) details.push(`Model: ${event.model}`);
@@ -147,5 +144,18 @@ export function notificationText(event: NotifyEvent, options: { colorize?: boole
   if ("lastError" in event && event.lastError && event.newState !== "error") details.push(`Error: ${oneLine(event.lastError)}`);
   const cost = "cost" in event ? event.cost : undefined;
   if (typeof cost === "number") details.push(`Cost: $${cost.toFixed(2)}`);
-  return { title, body: details.join("\n") };
+  return details.join("\n");
+}
+
+export function notificationText(event: NotifyEvent, options: { colorize?: boolean } = {}): { title: string; body: string } {
+  const space = eventSpace(event);
+  const agent = eventAgent(event, space);
+  const color = spaceColor(space);
+  const state = oneLine(textValue(event.newState) ?? "unknown").toUpperCase();
+  const summary = notificationSummary(event);
+  const spaceLabel = `[${space}]`;
+  const coloredSpace = options.colorize ? `${spaceAnsi(space)}${spaceLabel}\u001b[0m` : spaceLabel;
+  const title = `${state} ${coloredSpace} ${agent}: ${summary}`;
+  const body = notificationDetails(event, title, space, color);
+  return { title, body };
 }

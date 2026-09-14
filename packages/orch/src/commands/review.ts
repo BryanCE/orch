@@ -1,8 +1,8 @@
-import { loadPresence } from "../presence/store.ts";
+import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { collapse, errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
-import { agentAddress, agentViewIndex, die, presenceById } from "./target.ts";
+import { agentAddress, die, presenceById } from "./target.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
 import { repositoryBranch, repositoryCommonRoot, worktreeReviewSummary, mergeReviewBranch, removeMergedWorktree } from "../worktree.ts";
@@ -115,7 +115,7 @@ function reviewItems(orchDir: OrchDir): ReviewItem[] {
   // presence joins to that agent by its minted id — not by a pane key.
   const presence = presenceById(loadPresence(orchDir));
   const items: ReviewItem[] = [];
-  for (const view of agentViewIndex(orchDir).values()) {
+  for (const view of spawnedRecords(orchDir).values()) {
     const { worktree, branch } = view.environment;
     if (worktree === null || branch === null) continue;
     const entry = presence.get(view.id);

@@ -2,18 +2,20 @@ import { describe, expect, test } from "bun:test";
 import { orchDirAt } from "../src/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { displayStatusState, formatNoRowsMessage, formatSpace, formatStatusTable, normalizeStatusRow, scopeFleetRows, statusRowFromEntity as composeStatusRow, warningStatusRow } from "../src/commands/status.ts";
+import { displayStatusState, formatNoRowsMessage, formatSpace, scopeFleetRows } from "../src/commands/status/options.ts";
+import { normalizeStatusRow } from "../src/commands/status/fetch.ts";
+import { formatStatusTable } from "../src/commands/status/table.ts";
+import { statusRowFromEntity as composeStatusRow, warningStatusRow } from "../src/commands/status/rows.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../src/policy/capacity.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { Entity } from "../src/types/core.ts";
 import type { StatusRow } from "../src/types/command.ts";
-import type { CallerScope } from "../src/commands/status.ts";
-import { presenceEntryFixture } from "./helpers/presence.ts";
+import type { CallerScope } from "../src/commands/status/options.ts";
+import { presenceEntryFixture, statusRow } from "./helpers/presence.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import { sql } from "drizzle-orm";
 
@@ -23,12 +25,12 @@ function entityFixture(overrides: Partial<Entity> = {}): Entity {
     key: "appagent01", paneId: "app:p1", managed: true, name: "worker", tabLabel: "app", agent: "pi",
     focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, ended: false, space: "local",
     presence: presenceEntryFixture({
-      key: "appagent01", dir: "/tmp/pres",
-      status: {
-        schema: PRESENCE_SCHEMA, agent: "pi", state: "working", task: "build the thing", lastText: "on it",
-        cost: 2.5, context: { percent: 33 }, model: { provider: "openai-codex", id: "gpt-5.6" },
-        thinking: "medium", tokens: { input: 10 }, turns: 4,
-      },
+      key: "appagent01",
+      status: statusRow({
+        agentId: "appagent01", state: "working", task: "build the thing", lastText: "on it",
+        cost: 2.5, contextPercent: 33, modelProvider: "openai-codex", modelId: "gpt-5.6",
+        thinking: "medium", tokensIn: 10, turns: 4,
+      }),
     }),
     ...overrides,
   };
@@ -40,7 +42,7 @@ function statusRowFixture(overrides: Partial<StatusRow> = {}): StatusRow {
     spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, focused: false,
     model: "-", modelShort: "-", state: "unknown", stateFallback: false, exited: false, alive: true,
     cost: 0, ctxPercent: null, task: null, dispatchId: null, lastText: null, backendStatus: null,
-    backend: null, capabilities: null, sessionPath: null, presenceDir: null, presenceOnly: false,
+    backend: null, capabilities: null, sessionPath: null,
     bridgeAttached: null, tokens: null, turns: null,
     ...overrides,
   };
@@ -49,8 +51,12 @@ function statusRowFixture(overrides: Partial<StatusRow> = {}): StatusRow {
 const seededEntity = entityFixture();
 const syntheticOrchDir: OrchDir = orchDirAt("/tmp");
 
-function statusRowFromEntity(entity: Entity, views: Parameters<typeof composeStatusRow>[1]): ReturnType<typeof composeStatusRow> {
-  return composeStatusRow(entity, views, undefined, {}, null, syntheticOrchDir);
+function statusRowFromEntity(
+  entity: Entity,
+  views: Parameters<typeof composeStatusRow>[1],
+  directory: OrchDir = syntheticOrchDir,
+): ReturnType<typeof composeStatusRow> {
+  return composeStatusRow(entity, views, undefined, {}, null, directory);
 }
 
 describe("commands/status", () => {
@@ -111,8 +117,8 @@ describe("commands/status", () => {
       key: "hless00001", paneId: null, name: null, tabLabel: null, focused: false,
       presenceOnly: true, space: "local",
       presence: {
-        key: "hless00001", dir: "/tmp", alive: true, result: { text: "answer" },
-        status: { schema: PRESENCE_SCHEMA, agent: "pi", state: "working", task: "task", cost: 1.25, context: { percent: 42 } },
+        key: "hless00001", alive: true, result: "answer",
+        status: statusRow({ agentId: "hless00001", state: "working", task: "task", cost: 1.25, contextPercent: 42 }),
       },
     });
     const row = statusRowFromEntity(entity, new Map());
@@ -123,8 +129,8 @@ describe("commands/status", () => {
       key: "hless00001", paneId: null, name: null, tabLabel: null, focused: false,
       presenceOnly: true, space: "local",
       presence: {
-        key: "hless00001", dir: "/tmp", alive: false, result: null,
-        status: { schema: PRESENCE_SCHEMA, agent: "pi", state: "working" },
+        key: "hless00001", alive: false, result: null,
+        status: statusRow({ agentId: "hless00001", state: "working" }),
       },
     });
     const row = statusRowFromEntity(entity, new Map());
@@ -135,14 +141,16 @@ describe("commands/status", () => {
   test("asking presence is surfaced as a question while still reporting live state", () => {
     const entity = entityFixture({
       presence: presenceEntryFixture({
-        status: {
-          schema: PRESENCE_SCHEMA, agent: "pi", state: "working", asking: { question: "Need approval", id: "q1", ts: "now" },
-          task: "ignored task",
-        },
+        status: statusRow({ agentId: "appagent01", state: "asking", blockedMessage: "Need approval", task: "ignored task" }),
       }),
     });
-    const row = statusRowFromEntity(entity, new Map());
-    expect(row).toMatchObject({ state: "asking", exited: false, task: "Q: Need approval", alive: true });
+    const directory = tempOrchDir("orch-status-question-");
+    try {
+      const row = statusRowFromEntity(entity, new Map(), directory);
+      expect(row).toMatchObject({ state: "asking", exited: false, task: "Q: Need approval", alive: true });
+    } finally {
+      removeTempDir(directory);
+    }
   });
   test("shared status row carries presence-derived fields", () => {
     const row = statusRowFromEntity(seededEntity, new Map());
@@ -150,7 +158,7 @@ describe("commands/status", () => {
       key: "appagent01", paneId: "app:p1", name: "worker", tab: "app", agent: "pi",
       focused: true, model: "openai-codex/gpt-5.6:medium", modelShort: "gpt-5.6:medium",
       state: "working", stateFallback: false, exited: false, cost: 2.5, ctxPercent: 33,
-      task: "build the thing", lastText: "on it", presenceOnly: false, tokens: { input: 10 },
+      task: "build the thing", lastText: "on it", tokens: { input: 10 },
       turns: 4, spaceId: "local",
     });
     expect(row.host).toBeUndefined();
@@ -236,7 +244,7 @@ describe("commands/status", () => {
     const child = agentViewFixture("child", { name: "child", rootAgentId: "root", spawnedBy: "root", environment: { space: "main" } });
     const other = agentViewFixture("other", { name: "other", rootAgentId: "other", environment: { space: "main" } });
     const views = new Map([root, child, other].map((view) => [view.id, view]));
-    const presence = new Map([root, child, other].map((view) => [view.id, presenceEntryFixture({ key: view.id, alive: true, dir: "/tmp" })]));
+    const presence = new Map([root, child, other].map((view) => [view.id, presenceEntryFixture({ key: view.id, alive: true })]));
     const capacity = computeFleetCapacity(views, presence, {
       fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 3, max_agents_per_space: { main: 6 }, max_agents_total: 10, worker_peer_tools: false, cross_space: false },
       spaces: { main: "main" },

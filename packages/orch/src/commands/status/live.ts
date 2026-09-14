@@ -1,13 +1,15 @@
-import { subscribeEvents } from "../daemon/rpc/client.ts";
-import { ensureDaemon, rpcRegisterSession } from "../daemon/reach.ts";
-import { ensureCallerRegistered } from "../identity/self.ts";
-import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, dim } from "../tui/screen.ts";
-import { die, forbidNonOperatorOverride } from "./target.ts";
-import { formatStatusTable, readStatusResult } from "./status.ts";
-import type { StatusOptions, StatusTableOptions } from "./status.ts";
-import type { StatusRow } from "../types/command.ts";
-import type { EventSubscription } from "../types/daemon.ts";
-import type { Services } from "../types/services.ts";
+import { subscribeEvents } from "../../daemon/rpc/client.ts";
+import { ensureDaemon, rpcRegisterSession } from "../../daemon/reach.ts";
+import { ensureCallerRegistered } from "../../identity/self.ts";
+import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, dim } from "../../tui/screen.ts";
+import { die, forbidNonOperatorOverride } from "../target.ts";
+import { formatStatusTable } from "./table.ts";
+import { readStatusResult } from "./fetch.ts";
+import type { StatusOptions } from "./options.ts";
+import type { StatusTableOptions } from "./table.ts";
+import type { StatusRow } from "../../types/command.ts";
+import type { EventSubscription } from "../../types/daemon.ts";
+import type { Services } from "../../types/services.ts";
 
 function twoDigits(value: number): string {
   return value.toString().padStart(2, "0");

@@ -1,5 +1,6 @@
 import type { OrchDir } from "../types/core.ts";
 import { loadPresence, reapDeadPresenceDirs, reapSpawnedRecord } from "../presence/store.ts";
+import { presenceAgentDir } from "../presence/history.ts";
 import { allBackends } from "../backends/registry.ts";
 import { errorMessage } from "../util.ts";
 import { decisionLogger } from "./decision-log.ts";
@@ -56,7 +57,7 @@ function removeExpiredAgentDirs(orchDir: OrchDir, cutoff: Date): number {
   const recordsRemoved = removeExpiredAgentRecords(orchDir, cutoff);
   const result = reapDeadPresenceDirs(orchDir, cutoff);
   for (const failure of result.failed) {
-    decisionLogger(orchDir, null).warn("retention.sweep-failed", { area: "ended_agents", dir: failure.entry.dir, error: errorMessage(failure.error) });
+    decisionLogger(orchDir, null).warn("retention.sweep-failed", { area: "ended_agents", dir: presenceAgentDir(failure.entry.key, orchDir), error: errorMessage(failure.error) });
   }
   // The registry row and presence directory represent one logical agent. Count
   // their union so removing both does not inflate the retention metric.

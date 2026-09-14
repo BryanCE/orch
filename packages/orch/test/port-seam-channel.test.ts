@@ -2,14 +2,15 @@ import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
 import { afterEach, describe, expect, test } from "bun:test";
-import { deliverWrite } from "../src/daemon/orchd.ts";
+import { deliverWrite } from "../src/daemon/handlers/write.ts";
 import { orchDirAt } from "../src/services.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { presenceAgentDir, writeResult, writeStatus } from "../src/presence/writer.ts";
+import { presenceAgentDir, writeResult } from "../src/presence/history.ts";
 import { createCaptureRole } from "../src/presence/roles.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageState } from "../src/store/outbox-rows.ts";
+import { mergeAgentStatus } from "../src/store/status-rows.ts";
 import { deliverOutboxMessage } from "../src/daemon/outbox.ts";
 import type { OutboxDeps } from "../src/types/daemon.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -25,7 +26,7 @@ const saved = process.env.ORCH_DIR;
 function outboxDeps(orchDir: OrchDir): OutboxDeps {
   const services = testServices({ orchDir, settings: {} });
   return {
-    deliver: (target, payload, id) => deliverWrite({ services, directory: orchDir, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, presenceWatch: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false }, target, payload, id),
+    deliver: (target, payload, id) => deliverWrite({ services, directory: orchDir, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false }, target, payload, id),
     maxAttempts: 3,
     now: () => 0,
   };
@@ -113,8 +114,9 @@ describe("orch bridge links and capture roles", () => {
     const orchDir = tempOrchDir();
     const key = "capturedg1";
     const agentDir = presenceAgentDir(key, orchDir);
+    seedAgent(key, { adapter: "codex" }, orchDir);
     fs.mkdirSync(agentDir, { recursive: true });
-    writeStatus(agentDir, { schema: PRESENCE_SCHEMA, key, agent: "codex", pid: process.pid, state: "done" });
+    mergeAgentStatus(orchDir, key, { state: "done" }, Date.now());
     writeResult(agentDir, { schema: PRESENCE_SCHEMA, key, text: "captured result" });
 
     const captured = createCaptureRole(orchDir).read(key, { source: "all" });

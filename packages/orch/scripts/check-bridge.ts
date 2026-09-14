@@ -333,6 +333,28 @@ function checkPresenceFilenameLine(line: string, relPath: string): string | unde
   return undefined;
 }
 
+const STATE_FILE_SCOPE_PREFIXES: readonly string[] = ["src/", "extensions/", "scripts/"];
+
+export function checkStateFileLine(line: string, relPath: string): string | undefined {
+  const normalizedPath = relPath.replace(/\\/g, "/");
+  if (!STATE_FILE_SCOPE_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix))) return undefined;
+  if (quotedLiteralPattern("status.json").test(line)) {
+    return "status.json is gone: state travels over the socket (Rule 18)";
+  }
+  return undefined;
+}
+
+const FS_WATCH_IMPORT = /\bimport\s*\{[^}\r\n]*\bwatch\b[^}\r\n]*\}\s*from\s*[\"']node:fs[\"']/;
+
+export function checkFsWatchLine(line: string, relPath: string): string | undefined {
+  const normalizedPath = relPath.replace(/\\/g, "/");
+  if (normalizedPath === "src/settings/watch.ts") return undefined;
+  if (/\b(?:fs|filesystem)\.watch\s*\(/.test(line) || FS_WATCH_IMPORT.test(line)) {
+    return "fs.watch is banned outside src/settings/watch.ts (Rule 18)";
+  }
+  return undefined;
+}
+
 /**
  * D2.1 — a package (`packages/<pkg>/src/**`) may reach into core only through
  * the ports: registry, policy, store, config, daemon client. A concrete backend
@@ -630,6 +652,10 @@ const CORE_BACKEND_IMPORT = new RegExp(`from\\s+["'][^"']*backends\\/(?:${altern
 const HARNESS_ID_LITERAL = new RegExp(`["']\\b(?:${alternation(HARNESS_IDS)})\\b["']`);
 
 export function checkCoreScopeLine(line: string, relPath: string): string | undefined {
+  const stateFileViolation = checkStateFileLine(line, relPath);
+  if (stateFileViolation) return stateFileViolation;
+  const fsWatchViolation = checkFsWatchLine(line, relPath);
+  if (fsWatchViolation) return fsWatchViolation;
   const backendEnvViolation = checkBackendEnvLine(line, relPath);
   if (backendEnvViolation) return backendEnvViolation;
   const presenceViolation = checkPresenceFilenameLine(line, relPath);
@@ -707,6 +733,10 @@ function runAllChecks(): void {
     }
     const bridgeBundleViolation = checkBridgeBundleImportLine(line, relPath);
     if (bridgeBundleViolation) return bridgeBundleViolation;
+    const stateFileViolation = checkStateFileLine(line, relPath);
+    if (stateFileViolation) return stateFileViolation;
+    const fsWatchViolation = checkFsWatchLine(line, relPath);
+    if (fsWatchViolation) return fsWatchViolation;
     const backendEnvViolation = checkBackendEnvLine(line, relPath);
     if (backendEnvViolation) return backendEnvViolation;
     if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden outside backends (boundary modules live directly under backends/)";
@@ -725,6 +755,10 @@ function runAllChecks(): void {
     if (compositionRootViolation) return compositionRootViolation;
     const launchEnvViolation = checkLaunchEnvLine(line, relPath);
     if (launchEnvViolation) return launchEnvViolation;
+    const stateFileViolation = checkStateFileLine(line, relPath);
+    if (stateFileViolation) return stateFileViolation;
+    const fsWatchViolation = checkFsWatchLine(line, relPath);
+    if (fsWatchViolation) return fsWatchViolation;
     // A harness extension is per-HARNESS code (Rule 10), never per-plexer, so
     // the identity-branch rule applies here whole: nothing under extensions/ may
     // branch on a plexer id or ask a port whether it has a method. Deliberately
@@ -748,6 +782,10 @@ function runAllChecks(): void {
     if (compositionRootViolation) return compositionRootViolation;
     const launchEnvViolation = checkLaunchEnvLine(line, relPath);
     if (launchEnvViolation) return launchEnvViolation;
+    const stateFileViolation = checkStateFileLine(line, relPath);
+    if (stateFileViolation) return stateFileViolation;
+    const fsWatchViolation = checkFsWatchLine(line, relPath);
+    if (fsWatchViolation) return fsWatchViolation;
     if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in scripts";
     if (line.includes("TMUX_PANE")) return "TMUX_PANE is forbidden in scripts";
     if (/process\.env\.HERDR(?!_ENV\b|_SOCKET_PATH\b)/.test(line)) return "process.env.HERDR is forbidden in scripts";
@@ -758,6 +796,10 @@ function runAllChecks(): void {
   const adapterFiles = scanDirectory("src/adapters", new Set(["adapter.ts"]), (line, relPath) => {
     const launchEnvViolation = checkLaunchEnvLine(line, relPath);
     if (launchEnvViolation) return launchEnvViolation;
+    const stateFileViolation = checkStateFileLine(line, relPath);
+    if (stateFileViolation) return stateFileViolation;
+    const fsWatchViolation = checkFsWatchLine(line, relPath);
+    if (fsWatchViolation) return fsWatchViolation;
     const presenceViolation = checkPresenceFilenameLine(line, relPath);
     if (presenceViolation) return presenceViolation;
     if (line.includes("HERDR_PANE_ID")) return "HERDR_PANE_ID is forbidden in agent adapters";
@@ -774,6 +816,10 @@ function runAllChecks(): void {
     if (compositionRootViolation) return compositionRootViolation;
     const launchEnvViolation = checkLaunchEnvLine(line, relPath);
     if (launchEnvViolation) return launchEnvViolation;
+    const stateFileViolation = checkStateFileLine(line, relPath);
+    if (stateFileViolation) return stateFileViolation;
+    const fsWatchViolation = checkFsWatchLine(line, relPath);
+    if (fsWatchViolation) return fsWatchViolation;
     const environmentCapabilityViolation = checkEnvironmentCapabilityLine(line, relPath);
     if (environmentCapabilityViolation) return environmentCapabilityViolation;
     const backendEnvViolation = checkBackendEnvLine(line, relPath);

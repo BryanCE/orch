@@ -8,11 +8,11 @@ import { join } from "node:path";
 import { cmdClean, liveWorktreeOwner, removeDeadAgentDirs } from "../src/commands/clean.ts";
 import { claimAgent, ensureHarness, insertAgent, setWorktree } from "../src/store/agent-rows.ts";
 import { insertOutboxMessage, selectOutboxMessage } from "../src/store/outbox-rows.ts";
-import { agentViewIndex, presenceById } from "../src/commands/target.ts";
+import { presenceById } from "../src/commands/target.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { loadPresence } from "../src/presence/store.ts";
+import { loadPresence, spawnedRecords } from "../src/presence/store.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { isolateHarnessSession } from "./helpers/env.ts";
@@ -91,7 +91,7 @@ describe("worktree ownership reads the composed environment", () => {
       seedStatus(root, "live000001", { key: "live000001" });
       seedStatus(root, "dead000001", { key: "dead000001" });
 
-      const views = [...agentViewIndex(root).values()];
+      const views = [...spawnedRecords(root).values()];
       const presence = presenceById(loadPresence(root));
       expect(liveWorktreeOwner(join(root, "wt-live"), views, presence)).toBe(true);
       expect(liveWorktreeOwner(join(root, "wt-dead"), views, presence)).toBe(false);

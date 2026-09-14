@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { getAdapter } from "../src/adapters/registry.ts";
 import { stripWorkerHeader, workerPrompt } from "../src/worker-prompt.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
-import { derivePresenceTransition } from "../src/daemon/events.ts";
+import { transitionEventFromRow } from "../src/daemon/status-events.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
+import { seedAgent } from "./helpers/agent.ts";
+import { statusRow } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
@@ -116,12 +118,12 @@ describe("worker prompt capability composition", () => {
     const orchDir = makeTempOrchDir();
     for (const adapter of ["codex", "pi"] as const) {
       const key = `${adapter}-events`;
-      const states = new Map([[key, "working"]]);
-      const event = derivePresenceTransition(orchDir, key, {
-        pid: process.pid,
+      seedAgent(key, { adapter }, orchDir);
+      const event = transitionEventFromRow(orchDir, statusRow({
+        agentId: key,
         state: "done",
         task: workerPrompt("real task", false, getAdapter(adapter)),
-      }, { name: null, tab: null }, states);
+      }), "working", "done");
       expect(event?.type).toBe("transition");
       if (event?.type !== "transition") throw new Error("expected transition event");
       expect(event.task).toBe("real task");

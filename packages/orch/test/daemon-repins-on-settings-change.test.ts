@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { fileSettingsManager } from "../src/settings/manager.ts";
-import { repinLiveFleet, type LiveAgentForRepin, type RepinAdapterCapabilities } from "../src/daemon/orchd.ts";
+import { repinLiveFleet, type LiveAgentForRepin, type RepinAdapterCapabilities } from "../src/daemon/repin.ts";
 import type { ControlAction, ControlBoundaryOutcome } from "../src/types/control.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";

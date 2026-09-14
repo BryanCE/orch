@@ -5,7 +5,7 @@ import { join } from "node:path";
 // store is how a writer and a reader end up disagreeing about where a record
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
-import { presenceAgentDir, presenceRoot } from "./writer.ts";
+import { presenceAgentDir, presenceRoot } from "./history.ts";
 import { agentViewIndex, agentViews } from "../store/agent-view.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { eq } from "drizzle-orm";

@@ -80,6 +80,8 @@ function fakeDaemon(): {
     },
     postQuestion: () => Promise.resolve(),
     postControlOutcome: () => Promise.resolve(true),
+    reportStatus: () => Promise.resolve(true),
+    reportResult: () => Promise.resolve(true),
   };
   return {
     daemon,

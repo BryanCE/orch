@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { refreshStaleShims } from "../../doctor/runner.ts";
 import { selectAgentStatus } from "../../store/status-rows.ts";
 import { reclaimAgent } from "../../store/agent-rows.ts";
-import { tuningOf } from "../../store/agent-view.ts";
+import { agentView, tuningOf } from "../../store/agent-view.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
 import { agentProcessLive } from "../../store/interval-rows.ts";
@@ -146,7 +146,7 @@ function planReloads(orchDir: OrchDir, settings: OrchSettings, targets: readonly
     try {
       const resolved = resolveLifecycleTarget(orchDir, settings, target);
       assertAgentOwned(orchDir, target, resolved.entity, force);
-      const harness = resolved.entity.agent ?? resolved.entity.presence?.status?.agent;
+      const harness = agentView(orchDir, resolved.entity.key)?.harnessId;
       if (!harness) throw new Error(`Target "${target}" has no recorded harness - cannot determine its reload mechanism`);
       const adapter = resolveAdapterOrDie(harness);
       const reloadCmd = adapter.lifecycleControl?.lifecycleCmd("reload");
@@ -230,7 +230,7 @@ async function restartOneTarget(services: LifecycleServices, target: string, cmd
   const settings = services.settings.current();
   const { entity: ent, backend, handle } = resolveLifecycleTarget(orchDir, settings, target);
   assertAgentOwned(orchDir, target, ent, flags.force);
-  const harness = ent.agent ?? ent.presence?.status?.agent;
+  const harness = agentView(orchDir, ent.key)?.harnessId;
   if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
   const adapter = resolveAdapterOrDie(harness);
   const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");

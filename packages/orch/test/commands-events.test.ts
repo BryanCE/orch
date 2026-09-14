@@ -3,7 +3,7 @@ import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { eventWithinSpaceWall, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { eventAcceptor, eventWithinSpaceWall, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
 import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
@@ -181,6 +181,22 @@ describe("commands/events space wall", () => {
   test("a key naming no registered agent is in no space", () => {
     const root = tempOrchDir();
     expect(eventWithinSpaceWall(root, mintAgentId(), "w1")).toBe(false);
+  });
+
+  // A session watches what it OWNS. Its own transitions are what it is doing, and
+  // streaming them back is how an orchestrator's monitor filled with its own lines.
+  // Mail is the one exception: a message event is keyed by its recipient.
+  test("a session hears its workers and its mail, never its own transitions", () => {
+    const root = tempOrchDir();
+    const me = mintAgentId();
+    const worker = mintAgentId();
+    seedSpace(root, "w1");
+    registerSpawnedAgent(root, { key: worker, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${worker}`, cwd: root, name: "recon", model: "test", space: "w1", spawner: me, process: { pid: process.pid, startToken: "commands-events-self-fixture" } });
+    const accepts = eventAcceptor(root, { ...parseEventsOptions([]), targets: ["recon"] }, new Set([worker]), { mine: true, address: me });
+    expect(accepts(worker, "transition")).toBe(true);
+    expect(accepts(me, "message")).toBe(true);
+    expect(accepts(me, "transition")).toBe(false);
+    expect(accepts(me, "asking")).toBe(false);
   });
 });
 

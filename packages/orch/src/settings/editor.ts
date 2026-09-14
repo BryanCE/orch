@@ -96,33 +96,52 @@ function upsertWrite(
   return writes.map((write, index) => (index === existingIndex ? next : write));
 }
 
+function validateBooleanValue(value: unknown): string | null {
+  return typeof value === "boolean" ? null : "Value must be a boolean";
+}
+
+function validateIntegerValue(kind: Extract<SettingKind, { readonly kind: "integer" }>, value: unknown): string | null {
+  if (typeof value !== "number" || !Number.isInteger(value)) return "Value must be an integer";
+  if (kind.min !== undefined && value < kind.min) return `Value must be at least ${kind.min}`;
+  if (kind.max !== undefined && value > kind.max) return `Value must be at most ${kind.max}`;
+  return null;
+}
+
+function validateChoiceValue(kind: Extract<SettingKind, { readonly kind: "choice" }>, value: unknown): string | null {
+  return typeof value === "string" && kind.choices.includes(value)
+    ? null
+    : `Value must be one of: ${kind.choices.join(", ")}`;
+}
+
+function validateMultiValue(kind: Extract<SettingKind, { readonly kind: "multi" }>, value: unknown): string | null {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+    return "Value must be a list of strings";
+  }
+  return value.every((item) => kind.choices.includes(item))
+    ? null
+    : `Values must be chosen from: ${kind.choices.join(", ")}`;
+}
+
+function validateSinksValue(kind: Extract<SettingKind, { readonly kind: "sinks" }>, value: unknown): string | null {
+  if (!Array.isArray(value)) return "Value must be a list of sinks";
+  const ids = value.map((entry) => isRecord(entry) ? entry.id : undefined);
+  return ids.every((id) => typeof id === "string" && kind.choices.includes(id))
+    ? null
+    : `Sinks must be chosen from: ${kind.choices.join(", ")}`;
+}
+
 function validateValue(kind: SettingKind, value: unknown): string | null {
   switch (kind.kind) {
     case "boolean":
-      return typeof value === "boolean" ? null : "Value must be a boolean";
+      return validateBooleanValue(value);
     case "integer":
-      if (typeof value !== "number" || !Number.isInteger(value)) return "Value must be an integer";
-      if (kind.min !== undefined && value < kind.min) return `Value must be at least ${kind.min}`;
-      if (kind.max !== undefined && value > kind.max) return `Value must be at most ${kind.max}`;
-      return null;
+      return validateIntegerValue(kind, value);
     case "choice":
-      return typeof value === "string" && kind.choices.includes(value)
-        ? null
-        : `Value must be one of: ${kind.choices.join(", ")}`;
+      return validateChoiceValue(kind, value);
     case "multi":
-      if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
-        return "Value must be a list of strings";
-      }
-      return value.every((item) => kind.choices.includes(item))
-        ? null
-        : `Values must be chosen from: ${kind.choices.join(", ")}`;
-    case "sinks": {
-      if (!Array.isArray(value)) return "Value must be a list of sinks";
-      const ids = value.map((entry) => isRecord(entry) ? entry.id : undefined);
-      return ids.every((id) => typeof id === "string" && kind.choices.includes(id))
-        ? null
-        : `Sinks must be chosen from: ${kind.choices.join(", ")}`;
-    }
+      return validateMultiValue(kind, value);
+    case "sinks":
+      return validateSinksValue(kind, value);
     case "text":
       return typeof value === "string" ? null : "Value must be text";
     case "list":

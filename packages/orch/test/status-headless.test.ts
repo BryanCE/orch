@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatNoRowsMessage, scopeFleetRows } from "../src/commands/status.ts";
+import { formatNoRowsMessage, scopeFleetRows } from "../src/commands/status/options.ts";
 import type { StatusRow } from "../src/types/command.ts";
 
 function statusRow(overrides: Partial<StatusRow> = {}): StatusRow {
@@ -9,7 +9,7 @@ function statusRow(overrides: Partial<StatusRow> = {}): StatusRow {
     focused: false, model: "pi/model", modelShort: "model", state: "working", stateFallback: false,
     staleExtension: false, exited: false, alive: true, cost: 0, ctxPercent: null, task: null,
     dispatchId: null, lastText: null, backendStatus: null, backend: null, capabilities: null,
-    sessionPath: null, presenceDir: null, presenceOnly: true, bridgeAttached: null, tokens: null, turns: null,
+    sessionPath: null, bridgeAttached: null, tokens: null, turns: null,
     ...overrides,
   };
 }

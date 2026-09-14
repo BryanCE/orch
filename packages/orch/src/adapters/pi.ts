@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadPresence, readJSON } from "../presence/store.ts";
-import { errnoCode, isRecord, shellQuote } from "../util.ts";
+import { loadPresence } from "../presence/store.ts";
+import { errnoCode, isRecord, readJsonFile, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
 import { computeCodeHash } from "../daemon/lifecycle.ts";
@@ -157,7 +157,8 @@ function launchesBinary(binaries: readonly string[], cmd: string): boolean {
 /** Pre-approve a workspace in a harness's trust store so its first launch does not block. */
 function writeTrustEntry(trustFile: string, cwd: string) {
   const resolved = path.resolve(cwd);
-  const map = readJSON<Record<string, unknown>>(trustFile) ?? {};
+  const parsed = readJsonFile(trustFile);
+  const map = isRecord(parsed) ? parsed : {};
   if (map[resolved] === true) return;
   map[resolved] = true;
   fs.mkdirSync(path.dirname(trustFile), { recursive: true });
@@ -168,7 +169,8 @@ function writeTrustEntry(trustFile: string, cwd: string) {
 /** The `provider/model` a pi-flavour build launches on, or nothing when it names no
  *  model of its own — inventing one hands orch a spec no registry can resolve. */
 export function settingsDefaultModel(agentDir: string): string | undefined {
-  const source = readJSON<Record<string, unknown>>(path.join(agentDir, "settings.json")) ?? {};
+  const parsed = readJsonFile(path.join(agentDir, "settings.json"));
+  const source = isRecord(parsed) ? parsed : {};
   if (typeof source.defaultModel !== "string" || !source.defaultModel) return undefined;
   const provider = typeof source.defaultProvider === "string" ? source.defaultProvider : "openai-codex";
   return `${provider}/${source.defaultModel}`;

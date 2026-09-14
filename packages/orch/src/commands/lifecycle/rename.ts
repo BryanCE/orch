@@ -1,10 +1,12 @@
 import { isAgentId } from "../../backends/identity.ts";
 import { assertNameFree } from "../../policy/name.ts";
+import { spawnedRecords } from "../../presence/store.ts";
 import { renameAgent as renameNormalizedAgent } from "../../store/agent-rows.ts";
 import { errorMessage } from "../../util.ts";
 import { lifecycleLogger } from "./index.ts";
 import { describeHandle } from "./close.ts";
-import { agentViewIndex, assertAgentOwned, backendTarget, die, viewForKey } from "../target.ts";
+import { assertAgentOwned, backendTarget, die } from "../target.ts";
+import { viewForKey } from "../../entities/lookup.ts";
 import type { Backend, BackendHandle } from "../../types/backend.ts";
 import type { AgentView } from "../../types/store.ts";
 import type { Services } from "../../types/services.ts";
@@ -69,7 +71,7 @@ export function cmdRename(services: Services, args: string[]) {
   const target = positional[0];
   const name = positional[1];
   if (!target || !name) die("usage: orch rename <target> <name> [--pane] [--force]");
-  const views = agentViewIndex(services.orchDir);
+  const views = spawnedRecords(services.orchDir);
   const { backend, handle, key } = backendTarget(services.orchDir, services.settings.current(), target, "rename", views);
   assertAgentOwned(services.orchDir, target, { key }, force, views);
   // Renaming an agent moves a label only: orch's registry owns the name, the

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { formatStatusTable } from "../src/commands/status.ts";
+import { formatStatusTable } from "../src/commands/status/table.ts";
 import { CLEAR_SCREEN } from "../src/tui/screen.ts";
-import { createRefreshController, renderLiveStatus } from "../src/commands/status-live.ts";
+import { createRefreshController, renderLiveStatus } from "../src/commands/status/live.ts";
 import type { StatusRow } from "../src/types/command.ts";
 
 const fixture: StatusRow = {
@@ -34,8 +34,6 @@ const fixture: StatusRow = {
   backend: null,
   capabilities: null,
   sessionPath: null,
-  presenceDir: null,
-  presenceOnly: false,
   bridgeAttached: null,
   tokens: null,
   turns: null,

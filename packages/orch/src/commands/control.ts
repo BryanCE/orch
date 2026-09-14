@@ -4,14 +4,14 @@ import { recipientLabel } from "../recipient.ts";
 import { spawnedRecords } from "../presence/store.ts";
 import { selectAgentStatus } from "../store/status-rows.ts";
 import { registerSpawnedAgent } from "../store/spawn-registration.ts";
-import { tuningOf } from "../store/agent-view.ts";
+import { agentView, tuningOf } from "../store/agent-view.ts";
 import { collapse, errorMessage, isRecord, truncate } from "../util.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
-import { agentViewIndex, assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, ownerTokenOrDie, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
-import { entityAdapter } from "./status.ts";
+import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, ownerTokenOrDie, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
+import { entityAdapter } from "./status/rows.ts";
 import { pickAdapter, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
 import { clearSession } from "./lifecycle/reset.ts";
@@ -157,7 +157,7 @@ export async function cmdPipe(services: Services, args: string[]) {
   if (!src || !dst) die('usage: orch pipe <src> <dst> ["instruction"] [--json]');
   const source = requirePresenceTarget(services.orchDir, services.settings.current(), src);
   const extractInput = { key: source.presence!.key, sessionPath: source.sessionPath ?? undefined };
-  const resultTextValue = entityAdapter(source, agentViewIndex(services.orchDir))?.extractResult(extractInput, services.orchDir) ?? resultText(source.presence!.result);
+  const resultTextValue = entityAdapter(source, spawnedRecords(services.orchDir))?.extractResult(extractInput, services.orchDir) ?? resultText(source.presence!.result);
   if (!resultTextValue) die(`No result text available for "${src}".`);
   const destination = requirePresenceTarget(services.orchDir, services.settings.current(), dst);
   const text = `[piped from ${source.presence!.key}] ${instruction ? instruction + "\n" : ""}${resultTextValue}`;
@@ -194,7 +194,7 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
   const ent = resolveTarget(services.orchDir, services.settings.current(), target, { crossSpace: gov.crossSpace });
   assertAgentOwned(services.orchDir, target, ent, gov.steal);
   const handle = ent.paneId ?? ent.key;
-  const harness = ent.agent ?? ent.presence?.status?.agent;
+  const harness = agentView(services.orchDir, ent.key)?.harnessId;
   if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its model mechanism.`);
   const adapter = resolveAdapterOrDie(harness);
   const tuning = resolveTuningOrDie({ modelFlag: modelArg }, services.settings.current(), adapter.id, null);
@@ -310,7 +310,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const pinWarnings = await pinModels(services, services.logger, [{ key, handle: dispatchSettings.handle, name: dispatchSettings.ent.name ?? dispatchSettings.handle, model, thinking }]);
   if (pinWarnings.length > 0) process.exitCode = 1;
   const headerContext = workerHeaderContext(services.orchDir, settings);
-  const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent, agentViewIndex(services.orchDir)), context: headerContext, gov });
+  const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent, spawnedRecords(services.orchDir)), context: headerContext, gov });
   if (!spawnedRecords(services.orchDir).has(key)) recordAdoptedAgent(services.orchDir, key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the agent runs the prompt this command sent, not some other delivery.

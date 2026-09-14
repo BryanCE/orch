@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
-import { fleetStatusRows, renderStatusTable, statusRowFromEntity } from "../src/commands/status.ts";
+import { renderStatusTable } from "../src/commands/status/table.ts";
+import { fleetStatusRows, statusRowFromEntity } from "../src/commands/status/rows.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import type { StatusRow } from "../src/types/command.ts";
 import type { Entity, OrchDir } from "../src/types/core.ts";
@@ -15,8 +16,8 @@ function row(overrides: Partial<StatusRow> = {}): StatusRow {
     model: "pi/model", modelShort: "model", state: "working", stateFallback: false,
     staleExtension: false, exited: false, alive: true, cost: 0, ctxPercent: null,
     task: "Q: approve", dispatchId: null, lastText: "finished", backendStatus: null,
-    backend: null, capabilities: null, sessionPath: null, presenceDir: null,
-    presenceOnly: false, bridgeAttached: null, tokens: null, turns: null, spaceId: null, spaceName: null,
+    backend: null, capabilities: null, sessionPath: null,
+    bridgeAttached: null, tokens: null, turns: null, spaceId: null, spaceName: null,
     rootAgentId: null, rootAgentName: null,
   };
   return { ...base, ...overrides };
@@ -37,7 +38,7 @@ function entityWithQuestion(): Entity {
     agent: "pi", focused: false, backendStatus: null, backend: null, sessionPath: null,
     presenceOnly: true, ended: false, space: null,
     presence: {
-      key: "agent00001", dir: "/tmp", alive: true, result: { text: " finished  " },
+      key: "agent00001", dir: "/tmp", alive: true, result: " finished  ",
       status: { schema: 1, state: "asking", asking: { question: "  approve  ", id: "q1", ts: "now" }, task: "ignored" },
     },
   };

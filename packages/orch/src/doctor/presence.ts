@@ -1,7 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
 import { loadPresence, malformedPresenceDirs, presenceDir } from "../presence/store.ts";
-import { presenceAgentDir } from "../presence/writer.ts";
+import { presenceAgentDir } from "../presence/history.ts";
 import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
 import { truncate } from "../util.ts";

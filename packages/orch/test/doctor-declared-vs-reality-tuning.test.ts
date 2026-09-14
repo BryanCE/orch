@@ -1,18 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
 import { setTuning } from "../src/store/interval-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import type { DeclaredVsRealityDependencies } from "../src/types/doctor.ts";
-import type { PresenceStatus } from "../src/types/presence.ts";
+import type { AgentStatusRow } from "../src/store/status-rows.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 const directories: OrchDir[] = [];
 
-function fixture(status: PresenceStatus | null): { directory: OrchDir; dependencies: DeclaredVsRealityDependencies } {
+function fixture(status: AgentStatusRow | null): { directory: OrchDir; dependencies: DeclaredVsRealityDependencies } {
   const directory = tempOrchDir("orch-doctor-tuning-");
   directories.push(directory);
   seedAgent("agent-1", { name: "worker", model: "openai/model-a" }, directory);
@@ -22,13 +21,41 @@ function fixture(status: PresenceStatus | null): { directory: OrchDir; dependenc
     dependencies: {
       processAlive: () => true,
       plexerInventory: () => [],
-      readPresenceStatus: () => status,
+      agentStatus: (_orchDir, id) => id === "agent-1" ? status ?? undefined : undefined,
     },
   };
 }
 
-function status(provider: string, id: string, thinking: string): PresenceStatus {
-  return { schema: PRESENCE_SCHEMA, model: { provider, id }, thinking };
+function status(provider: string, id: string, thinking: string): AgentStatusRow {
+  return {
+    agentId: "agent-1",
+    state: "working",
+    lastError: null,
+    modelProvider: provider,
+    modelId: id,
+    thinking,
+    task: null,
+    dispatchId: null,
+    lastText: null,
+    currentFile: null,
+    filesTouched: null,
+    tokensIn: null,
+    tokensOut: null,
+    cacheRead: null,
+    cacheWrite: null,
+    cost: null,
+    contextTokens: null,
+    contextPercent: null,
+    turns: null,
+    sessionPath: null,
+    sessionId: null,
+    project: null,
+    extensionHash: null,
+    startedAt: null,
+    finishedAt: null,
+    updatedAt: Date.now(),
+    blockedMessage: null,
+  };
 }
 
 afterEach(() => {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fleetStatusRows } from "../src/commands/status.ts";
+import { fleetStatusRows } from "../src/commands/status/rows.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { testServices } from "./helpers/services.ts";
 import type { OrchSettings } from "../src/types/settings.ts";

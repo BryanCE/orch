@@ -16,8 +16,9 @@ import { isAgentGone } from "../../control/agent-gone.ts";
 import { bridgeAttached } from "../../control/bridge-links.ts";
 import { isBridgeMessage } from "../../control/bridge-message.ts";
 import { agentView } from "../../store/agent-view.ts";
-import { agentProcessLive, recordedProcessIsLive } from "../../store/interval-rows.ts";
+import { agentProcessLive } from "../../store/interval-rows.ts";
 import { decisionLogger } from "../decision-log.ts";
+import { leaseHolderIsAlive } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import type { Governance, ParamsOf } from "../rpc/protocol.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
@@ -132,7 +133,7 @@ export function governWrite(state: DaemonState, target: string, params: Governan
   const lease = currentLease(directory, targetId);
   const actorId = actor;
   const holderId = lease?.orchId;
-  const holderAlive = lease === null ? false : recordedProcessIsLive(directory, lease.orchId);
+  const holderAlive = lease === null ? false : leaseHolderIsAlive(directory, lease.orchId);
   const foreignLease = lease !== null && holderId !== actorId;
   // Every grant is part of the decision trail, not just the interesting ones: a
   // dispatch whose lease step left no record cannot be told apart from one that
@@ -224,7 +225,7 @@ export async function dispatch(state: DaemonState, params: ParamsOf<"dispatch">)
   return confirmTextWrite(state, "dispatch", params);
 }
 
-async function message(state: DaemonState, params: ParamsOf<"message">): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
+export async function message(state: DaemonState, params: ParamsOf<"message">): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
   const directory = state.directory;
   const settings = state.services.settings;
   const from = params.from;

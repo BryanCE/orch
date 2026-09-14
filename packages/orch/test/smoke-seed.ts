@@ -11,8 +11,8 @@
  */
 import { envOrchDir } from "../src/services.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { ensurePresenceAgentDir, writeResult, writeStatus } from "../src/presence/writer.ts";
+import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { upsertRun } from "../src/store/run-rows.ts";
 import { isAgentId } from "../src/backends/identity.ts";
 
 const [key, pidText] = process.argv.slice(2);
@@ -23,6 +23,9 @@ if (!isAgentId(key) || pidText === undefined || !/^[1-9][0-9]*$/.test(pidText)) 
 
 const root = envOrchDir();
 const now = new Date().toISOString();
+const startedAt = Date.parse(now);
+const dispatchId = "smoke-fixture";
+const text = "Fixture result";
 const cwd = "/tmp/smoke";
 
 registerSpawnedAgent(root, {
@@ -37,27 +40,18 @@ registerSpawnedAgent(root, {
   process: { pid: Number(pidText), startToken: null },
 });
 
-const directory = ensurePresenceAgentDir(key, root);
-if (directory === undefined) {
-  console.error(`cannot create the presence directory for ${key} under ${root}`);
-  process.exit(1);
-}
-
-writeStatus(directory, {
-  schema: PRESENCE_SCHEMA,
-  agent: "pi",
-  key,
-  cwd,
+mergeAgentStatus(root, key, {
   state: "asking",
-  asking: { question: "Proceed with the fixture?", id: "q-fixture", ts: now },
+  dispatchId,
   model: { provider: "openai-codex", id: "gpt-5" },
   thinking: "medium",
   cost: 12.34,
-  context: { percent: 42 },
+  context: { tokens: 0, percent: 42 },
   task: "Exercise the smoke fixture",
   lastText: "Fixture is healthy",
-  tokens: { input: 10, output: 20 },
+  tokens: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0 },
   turns: 3,
-  updatedAt: now,
-});
-writeResult(directory, { text: "Fixture result", ts: "2020-01-01T00:00:00.000Z" });
+  startedAt,
+  project: cwd,
+}, Date.now());
+upsertRun(root, { dispatchId, agentKey: key, state: "done", startedAt, result: text });

@@ -1,5 +1,4 @@
 import type { OrchDir, Recipient } from "../types/core.ts";
-import { loadPresence } from "../presence/store.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { spaceOf } from "../policy/space.ts";
 import { abstractAgentLabel } from "../notify/format.ts";
@@ -33,18 +32,17 @@ export function normalizedAgentName(root: OrchDir, key: string): string | null {
   try { return agentById(root, key)?.name ?? null; } catch { return null; }
 }
 
-function recipientName(root: OrchDir, status: PresenceEntry["status"], space: string, key: string): string {
-  return normalizedAgentName(root, key) ?? status?.label ?? status?.agent ?? abstractAgentLabel(space, key);
+function recipientName(view: AgentView | undefined, space: string, key: string): string {
+  return view?.label ?? view?.name ?? abstractAgentLabel(space, key);
 }
 
 export function recipientFor(root: OrchDir, key: string, views = agentViewIndex(root)): Recipient {
   const view = viewForKey(views, key);
-  const status = loadPresence(root).get(key)?.status ?? null;
   const space = view?.environment.space ?? spaceOf(root, key) ?? "space";
   return {
-    name: recipientName(root, status, space, key),
+    name: recipientName(view, space, key),
     // The harness is the agent's own, never the plexer it happens to sit in.
-    harness: view?.harnessId ?? status?.agent ?? null,
+    harness: view?.harnessId ?? null,
     multiplexer: view?.environment.plexer ?? null,
     // A missing handle is a missing shortcut, not an unreachable agent: orch's
     // own link is addressed by the key either way.

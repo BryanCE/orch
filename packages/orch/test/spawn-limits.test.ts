@@ -5,8 +5,7 @@ import { checkSpawnLimits } from "../src/doctor/settings-file.ts";
 import { assertSpawnCapacity, liveSpawnCounts, spawnPolicyError } from "../src/commands/spawn/admission.ts";
 import { SpawnRefusalError } from "../src/refusal.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { seedStatus } from "./helpers/presence.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { seedStatus, statusRow } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import type { AgentView } from "../src/types/store.ts";
@@ -34,8 +33,8 @@ function storeDir(): OrchDir {
 /** Liveness is `alive`, which the loader fills from the recorded process row —
  *  presence carries state, never a pid a fixture can pass off as one. */
 function presence(key: string, alive = true): PresenceEntry {
-  const dir = seedStatus(storeDir(), key, { key });
-  return { key, dir, status: { schema: PRESENCE_SCHEMA, key }, result: null, alive };
+  seedStatus(storeDir(), key, { key });
+  return { key, status: statusRow({ agentId: key }), result: null, alive };
 }
 
 /** Both maps are keyed by the MINTED ID; presence joins to an agent by identity,

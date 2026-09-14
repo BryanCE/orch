@@ -27,7 +27,7 @@ flowchart TB
         POLICY["policy/<br/>caller, capacity, scope, space, model, workers"]
         QUEUE["queue.ts<br/>durable tasks, attempts, cancellations"]
         SETTINGS["settings/<br/>$ORCH_DIR/settings.json, one schema"]
-        PRESENCE["presence/<br/>the ONE writer: status.json, results.jsonl, outcomes.jsonl"]
+        PRESENCE["presence/history.ts<br/>orchd-only appender: status.jsonl, results.jsonl, outcomes.jsonl"]
         STORE[("store/<br/>SQLite via node:sqlite<br/>agents, leases, tasks, runs, events, outbox")]
     end
 
@@ -50,7 +50,7 @@ flowchart TB
         EXT_PI["extensions/pi + omp<br/>bundled bridge in-process<br/>src/agent/harness-bridge"]
         EXT_CLAUDE["extensions/claude<br/>settings.json hook shim"]
         EXT_CODEX["extensions/codex<br/>notify program shim"]
-        PRESDIR[/"$ORCH_DIR/agents/&lt;id&gt;/<br/>status.json · results.jsonl · outcomes.jsonl"/]
+        PRESDIR[/"$ORCH_DIR/agents/&lt;id&gt;/<br/>status.jsonl · results.jsonl · outcomes.jsonl<br/>history only, nothing reads it"/]
     end
 
     CLI -- "rpc over socket" --> RPC
@@ -70,11 +70,12 @@ flowchart TB
     Backends -- "open pane / process" --> Agents
     OUTBOX -- "bridge link push over socket<br/>(outbox row → ack)" --> EXT_PI
     EXT_PI -- "daemon-client: register, ack, report" --> RPC
-    EXT_PI --> PRESENCE
-    EXT_CLAUDE --> PRESENCE
-    EXT_CODEX --> PRESENCE
+    EXT_PI -- "report-status / report-result over the link" --> RPC
+    EXT_CLAUDE -- "report-status / report-result, one-shot socket" --> RPC
+    EXT_CODEX -- "report-status / report-result, one-shot socket" --> RPC
     PRESENCE --> PRESDIR
-    PRESDIR -- "watched by" --> EVENTS
+    RPC -- "merge agent_status row, publish transition" --> STORE
+    RPC -- "append history" --> PRESENCE
 
     DOCTOR["orch doctor<br/>src/doctor — declared vs reality"]
     DOCTOR -.-> SETTINGS

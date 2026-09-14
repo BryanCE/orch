@@ -12,6 +12,7 @@ import { peerView } from "../src/daemon/peer-view.ts";
 import { selfIdentity } from "../src/identity/self.ts";
 import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { presenceAgentDir } from "../src/presence/history.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { claimAgent, ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
@@ -119,7 +120,8 @@ describe("a driving session mints an id, it is not placed by name", () => {
     delete process.env[LAUNCH_ENV];
     const presence = presenceFor();
     presence.initPresence(true);
-    const directory = presence.dir();
+    const key = presence.keyOrCompute(true);
+    const directory = presenceAgentDir(key, orchDirAt(process.env.ORCH_DIR!));
     presence.stopPresence();
     expect(directory).toBeDefined();
     expect(isAgentId(basename(directory ?? ""))).toBe(true);
@@ -131,7 +133,7 @@ describe("a driving session mints an id, it is not placed by name", () => {
     process.env[LAUNCH_ENV] = id;
     const presence = presenceFor();
     presence.initPresence(false);
-    const directory = presence.dir();
+    const directory = presenceAgentDir(id, orchDirAt(process.env.ORCH_DIR!));
     presence.stopPresence();
     expect(basename(directory ?? "")).toBe(id);
   });

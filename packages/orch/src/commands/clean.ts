@@ -1,6 +1,6 @@
 import * as path from "node:path";
-import { closeOutboxForDeadTargets, loadPresence, reapDeadPresenceDirs, reapMalformedPresenceDirs } from "../presence/store.ts";
-import { presenceAgentDir } from "../presence/writer.ts";
+import { closeOutboxForDeadTargets, loadPresence, reapDeadPresenceDirs, reapMalformedPresenceDirs, spawnedRecords } from "../presence/store.ts";
+import { presenceAgentDir } from "../presence/history.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { livePresenceHolders } from "../store/connection.ts";
 import { errorMessage } from "../util.ts";
@@ -14,7 +14,7 @@ import {
   worktreeHasChanges,
   worktreeHasCommitsAheadOf,
 } from "../worktree.ts";
-import { agentViewIndex, callerIsSpawnedAgent, die, presenceById } from "./target.ts";
+import { callerIsSpawnedAgent, die, presenceById } from "./target.ts";
 import type { AgentView } from "../types/store.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
@@ -70,7 +70,7 @@ function cleanWorktrees(root: OrchDir, logger: Logger, force: boolean, json = fa
     die(errorMessage(error));
   }
   const baseBranch = repositoryBranch(repoRoot);
-  const views = [...agentViewIndex(root).values()];
+  const views = [...spawnedRecords(root).values()];
   const presence = presenceById(loadPresence(root));
   const worktrees = listAgentWorktrees(repoRoot);
   let reported = false;

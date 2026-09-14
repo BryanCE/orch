@@ -13,7 +13,7 @@ function view(id: string, name: string, rootAgentId: string, space: string): Age
 }
 
 function livePresence(id: string): PresenceEntry {
-  return { key: id, dir: id, status: null, result: null, alive: true };
+  return { key: id, status: null, result: null, alive: true };
 }
 
 const settings = {

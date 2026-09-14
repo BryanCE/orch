@@ -1,5 +1,5 @@
 import { rpcCall } from "../../daemon/rpc/client.ts";
-import { loadPresence } from "../../presence/store.ts";
+import { loadPresence, spawnedRecords } from "../../presence/store.ts";
 import { maySpawnFrom } from "../../policy/spawner.ts";
 import { workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
@@ -8,7 +8,7 @@ import { dispatchToAgent } from "../control.ts";
 import { errorMessage, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/reach.ts";
 import { selfId } from "../../identity/self.ts";
-import { agentViewIndex, presenceById } from "../target.ts";
+import { presenceById } from "../target.ts";
 import { isAgentId } from "../../backends/identity.ts";
 import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../../policy/capacity.ts";
 import type { Backend } from "../../types/backend.ts";
@@ -128,7 +128,7 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
   const registeredAgents = await confirmAgentsCameUp(orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settings.json);
   const registered = registeredAgents?.length ?? null;
   if (!settings.json) {
-    const views = agentViewIndex(orchDir);
+    const views = spawnedRecords(orchDir);
     const presence = presenceById(loadPresence(orchDir));
     const caller = selfId(orchDir);
     const callerRoot = caller === undefined

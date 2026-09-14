@@ -12,7 +12,7 @@ import { execFile } from "node:child_process";
 import { errorMessage } from "../util.ts";
 import { Context, Effect, Layer, Stream } from "effect";
 import { subscribeEvents } from "../daemon/rpc/client.ts";
-import { presenceAgentDir } from "../presence/writer.ts";
+import { presenceAgentDir } from "../presence/history.ts";
 import { sendPeerMessage } from "../agent/peers.ts";
 import { isNotifyEvent } from "../notify/event.ts";
 import { selectAgentStatus } from "../store/status-rows.ts";

@@ -1,5 +1,5 @@
 import { buildEntities } from "../../entities/inventory.ts";
-import { recipientFor } from "../../entities/lookup.ts";
+import { recipientFor, viewForKey } from "../../entities/lookup.ts";
 import { resolvePane, resolveTarget } from "../../entities/resolve.ts";
 import { recipientLabel } from "../../recipient.ts";
 import { isAgentId } from "../../backends/identity.ts";
@@ -9,9 +9,10 @@ import { isRecord } from "../../util.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { workerPrompt } from "../../worker-prompt.ts";
 import { workerHeaderContext } from "../../policy/spawner.ts";
-import { entityAdapter } from "../status.ts";
+import { entityAdapter } from "../status/rows.ts";
+import { spawnedRecords } from "../../presence/store.ts";
 import { parseGovernance, writeRpc } from "../daemon.ts";
-import { agentViewIndex, backendTarget, die, ownsAgent, parseTargetPrompt, requireCallerOwnerToken, viewForKey } from "../target.ts";
+import { backendTarget, die, ownsAgent, parseTargetPrompt, requireCallerOwnerToken } from "../target.ts";
 import type { Services } from "../../types/services.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 
@@ -28,7 +29,7 @@ export async function cmdRun(services: Services, args: string[]): Promise<void> 
   const settings = services.settings.current();
   const { ent, pane } = resolvePane(services.orchDir, settings, target, { crossSpace: gov.crossSpace });
   const headerContext = workerHeaderContext(services.orchDir, settings);
-  const result = await writeRpc(services, "dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent, agentViewIndex(services.orchDir)), headerContext) }, gov);
+  const result = await writeRpc(services, "dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent, spawnedRecords(services.orchDir)), headerContext) }, gov);
   const recipient = recipientFor(services.orchDir, ent.key);
   if (json) process.stdout.write(JSON.stringify({ target: pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}.\n`);
@@ -89,7 +90,7 @@ export function awaitIdleAfter(orchDir: OrchDir, presenceKey: string, beforeUpda
 export function ownedAgentKeys(services: Pick<Services, "orchDir" | "settings">): string[] {
   // Ownership is the OPEN lease (Rule 11). A released one is history and must
   // stop answering here, or `--all` keeps steering agents this orch let go.
-  const views = agentViewIndex(services.orchDir);
+  const views = spawnedRecords(services.orchDir);
   return buildEntities(services.orchDir, services.settings.current())
     .filter((ent) => {
       if (!ent.presence) return false;

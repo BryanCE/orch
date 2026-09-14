@@ -1,7 +1,7 @@
 import { deriveDriveState, DEAD_HOLDER_DRIVER } from "../agent/drive-state.ts";
 import { formatTimestamp } from "../format.ts";
 import { removePresenceAgentDir } from "../presence/store.ts";
-import { presenceAgentDir } from "../presence/writer.ts";
+import { presenceAgentDir } from "../presence/history.ts";
 import { rpcRegisterSession } from "../daemon/reach.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { asc, eq } from "drizzle-orm";

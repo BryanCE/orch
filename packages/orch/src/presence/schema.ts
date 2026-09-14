@@ -12,9 +12,6 @@ export const PRESENCE_SCHEMA = 1;
 /* The presence directory holds the agent's status record and its history;
  * control traffic travels over the daemon socket. */
 
-/** Agent-written liveness/state record. Written by every harness artifact. */
-export const STATUS_FILE = "status.json";
-
 /** orchd-appended status history, one line per report the daemon accepted. History
  * for a human and jq; nothing reads it back. */
 export const STATUS_LOG_FILE = "status.jsonl";

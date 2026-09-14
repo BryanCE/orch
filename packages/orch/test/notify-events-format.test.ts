@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { derivePresenceTransition } from "../src/daemon/events.ts";
+import { transitionEventFromRow } from "../src/daemon/status-events.ts";
 import { orchDirAt } from "../src/services.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -9,6 +9,9 @@ import { notificationText, spaceColor } from "../src/notify/format.ts";
 import { TASK_MAX } from "../src/agent/presence.ts";
 import { prepareWorkerTask, workerHeaderFor } from "../src/worker-prompt.ts";
 import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
+import { seedAgent } from "./helpers/agent.ts";
+import { statusRow } from "./helpers/presence.ts";
+import type { AgentState } from "../src/adapters/adapter.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
@@ -72,12 +75,17 @@ function event(overrides: Partial<TransitionEvent> = {}): NotifyEvent {
   return { ...base, ...overrides };
 }
 
-function transition(orchDir: OrchDir, key: string, status: object, previous = "working"): NotifyEvent {
-  const states = new Map([[key, previous]]);
-  const value = derivePresenceTransition(orchDir, key, { pid: process.pid, ...status }, { name: "worker", tab: null }, states);
-  expect(value).not.toBeNull();
-  if (value === null) throw new Error("expected a presence transition");
-  return value;
+type TransitionState = Exclude<AgentState, "asking">;
+type TransitionStatus = {
+  state?: TransitionState;
+  task?: string;
+  asking?: { question: string };
+};
+
+function transition(orchDir: OrchDir, key: string, status: TransitionStatus, previous: AgentState = "working"): NotifyEvent {
+  const state: TransitionState = status.asking === undefined ? status.state ?? "done" : "working";
+  const task = status.asking === undefined ? status.task : `Q: ${status.asking.question}`;
+  return transitionEventFromRow(orchDir, statusRow({ agentId: key, state, task: task ?? null }), previous, state);
 }
 
 function eventTask(value: NotifyEvent | undefined): string | undefined {
@@ -171,6 +179,7 @@ describe("notification and presence event formatting", () => {
 
   test("presence eventTask strips worker preamble, truncates plain tasks, and formats questions", () => {
     const orchDir = tempOrchDir();
+    seedAgent(TASK_KEY, { name: "worker" }, orchDir);
     const dispatched = `${workerHeaderFor(undefined)}\n\nbuild the real thing`;
     expect(eventTask(transition(orchDir, TASK_KEY, { state: "done", task: dispatched }))).toBe("build the real thing");
 
@@ -184,7 +193,7 @@ describe("notification and presence event formatting", () => {
 
   // A1: the event's space is COMPOSED from the agent's own environment satellite,
   // never parsed out of the presence key. A key that names no agent has none.
-  test("derivePresenceTransition composes the space from the agent's environment", () => {
+  test("transitionEventFromRow composes the space from the agent's environment", () => {
     const orchDir = tempOrchDir();
     const registeredKey = "spacedagn1";
     ensureHarness(orchDir, "pi", "pi");

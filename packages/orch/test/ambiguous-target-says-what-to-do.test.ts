@@ -22,7 +22,7 @@ import type { PresenceEntry } from "../src/types/presence.ts";
  * builder, and every raiser uses it.
  */
 
-const presence = (key: string, alive: boolean): PresenceEntry => ({ key, dir: key, status: null, result: null, alive });
+const presence = (key: string, alive: boolean): PresenceEntry => ({ key, status: null, result: null, alive });
 
 function view(id: string, name: string): AgentView {
   return {

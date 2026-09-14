@@ -2,7 +2,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import type { Governance } from "../src/daemon/rpc/protocol.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { governWrite as daemonGovernWrite } from "../src/daemon/orchd.ts";
+import { governWrite as daemonGovernWrite } from "../src/daemon/handlers/write.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { withTransaction, orm } from "../src/store/connection.ts";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
@@ -33,7 +33,6 @@ function governWrite(directory: OrchDir, target: string, params: TestGovernance)
     workLoop: undefined,
     workLoopRunning: false,
     outboxDrain: undefined,
-    presenceWatch: undefined,
     settingsWatch: undefined,
     lastActivityAt: 0,
     logger: undefined,

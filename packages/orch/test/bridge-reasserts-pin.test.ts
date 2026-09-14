@@ -102,6 +102,8 @@ function fakeDaemon(): {
         reports.push(report);
         return Promise.resolve(true);
       },
+      reportStatus: () => Promise.resolve(true),
+      reportResult: () => Promise.resolve(true),
     },
     deliver: (delivery) => onDelivery?.(delivery),
     reports,

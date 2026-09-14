@@ -7,8 +7,8 @@ import { currentLease } from "../store/lease-rows.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { recordedProcessIsLive } from "../store/interval-rows.ts";
 import { bridgeAttached } from "../control/bridge-links.ts";
-import { fleetStatusRows } from "../commands/status.ts";
-import type { DaemonStatusRow, LeaseStatusPayload, PresenceWatch, RpcHandler, RpcHandlers, RpcServer } from "../types/daemon.ts";
+import { fleetStatusRows } from "../commands/status/rows.ts";
+import type { DaemonStatusRow, LeaseStatusPayload, RpcHandler, RpcHandlers, RpcServer } from "../types/daemon.ts";
 import type { SettingsWatch } from "../types/settings.ts";
 import type { Services } from "../types/services.ts";
 
@@ -16,7 +16,7 @@ import type { Services } from "../types/services.ts";
  *  proves the pid is the SAME process instance, not a recycled number. */
 /** Whether the orchestrator holding a lease is still alive. Rule 11: a dead
  *  holder is not a collision, so its lease must never gate a driving verb. */
-function leaseHolderIsAlive(directory: OrchDir, holderId: string): boolean {
+export function leaseHolderIsAlive(directory: OrchDir, holderId: string): boolean {
   return recordedProcessIsLive(directory, holderId);
 }
 
@@ -50,7 +50,6 @@ export interface DaemonState {
   workLoop: Promise<void> | undefined;
   workLoopRunning: boolean;
   outboxDrain: ReturnType<typeof setInterval> | undefined;
-  presenceWatch: PresenceWatch | undefined;
   livenessTick?: { stop(): void };
   settingsWatch: SettingsWatch | undefined;
   lastActivityAt: number;

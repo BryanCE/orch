@@ -18,6 +18,8 @@ import {
   checkEnvironmentCapabilityLine,
   checkLaunchEnvLine,
   checkPlexerLiteralLine,
+  checkStateFileLine,
+  checkFsWatchLine,
   ENVIRONMENT_ROLE_NAMES,
 } from "../scripts/check-bridge.ts";
 
@@ -36,8 +38,21 @@ describe("presence filenames stay limited to the live protocol", () => {
     expect(checkCoreScopeLine('const file = "inbox.jsonl";', "src/commands/control.ts")).toBeUndefined();
   });
 
-  test("status.json remains a presence-filename breach", () => {
-    expect(checkCoreScopeLine('const file = "status.json";', "src/commands/control.ts")).toContain("presence filename");
+  test("status.json is a state-file breach", () => {
+    expect(checkCoreScopeLine('const file = "status.json";', "src/commands/control.ts")).toContain("state travels over the socket");
+  });
+});
+
+describe("Rule 18 forbids state files and fs.watch outside their sanctioned sites", () => {
+  test("status.json is forbidden under src but allowed outside the scanned scopes", () => {
+    expect(checkStateFileLine('const file = "status.json";', "src/presence/schema.ts")).toContain("state travels over the socket");
+    expect(checkStateFileLine('const file = "status.json";', "packages/web/src/status.ts")).toBeUndefined();
+  });
+
+  test("fs.watch is forbidden outside src/settings/watch.ts", () => {
+    expect(checkFsWatchLine("filesystem.watch(directory);", "src/daemon/events.ts")).toContain("fs.watch is banned");
+    expect(checkFsWatchLine('import { watch } from "node:fs";', "src/daemon/events.ts")).toContain("fs.watch is banned");
+    expect(checkFsWatchLine('import { watch } from "node:fs";', "src/settings/watch.ts")).toBeUndefined();
   });
 });
 
@@ -98,7 +113,7 @@ describe("composition happens only at roots (checkCompositionRootLine)", () => {
     for (const relPath of [
       "src/commands/index.ts",
       "src/commands/setup.ts",
-      "src/daemon/orchd.ts",
+      "src/daemon/" + "orchd.ts",
       "extensions/pi/index.ts",
       "extensions/omp/index.ts",
       "scripts/retire-daemon.ts",
@@ -441,7 +456,7 @@ describe("the closed plexer-id set is spelled in exactly one line", () => {
 
   test("the definition line is allowed where it lives, and nowhere else", () => {
     expect(checkPlexerLiteralLine(DEFINITION, "src/types/backend.ts", "outside backends")).toBeUndefined();
-    expect(checkPlexerLiteralLine(DEFINITION, "src/commands/status.ts", "outside backends"))
+    expect(checkPlexerLiteralLine(DEFINITION, "src/commands/status/rows.ts", "outside backends"))
       .toBe("quoted herdr/tmux literals are forbidden outside backends");
   });
 

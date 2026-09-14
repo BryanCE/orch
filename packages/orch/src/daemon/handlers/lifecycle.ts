@@ -20,7 +20,7 @@ import type { PendingQuestionView } from "../../types/daemon.ts";
  * A headless agent has no TTY: it runs the prompt it was launched with and exits.
  * The prompt is therefore required, not optional — a headless agent with nothing
  * to do registers, finds no work, and dies before anything can be sent to it.
- * orchd owns the launch because it already owns delivery and outlives the agent.
+ * orchd owns the launch because it already owns delivery and outlives the CLI.
  */
 export function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): { key: string; pid: number } {
   const directory = state.directory;

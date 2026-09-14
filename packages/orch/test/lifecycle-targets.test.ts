@@ -9,7 +9,7 @@ import type { PresenceEntry } from "../src/types/presence.ts";
  * moving it must never change which agent answers.
  */
 
-const presence = (key: string, alive: boolean): PresenceEntry => ({ key, dir: key, status: null, result: null, alive });
+const presence = (key: string, alive: boolean): PresenceEntry => ({ key, status: null, result: null, alive });
 
 function view(id: string, name: string, handle: string | null = null): AgentView {
   return {

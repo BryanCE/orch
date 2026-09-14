@@ -8,7 +8,7 @@ import type { OrchDir } from "../types/core.ts";
 // the composition root.
 import { mintAgentId } from "../backends/identity.ts";
 import { launchCredential } from "../identity/launch.ts";
-import { launchEnvFacts } from "../presence/writer.ts";
+import { launchEnvFacts } from "../presence/history.ts";
 import { isRecord, isUnknownArray, optionalString, projectRoot, sessionFilePath } from "../util.ts";
 import { createModelControl } from "./model-control.ts";
 import { isSessionUsage, sessionUsageCost } from "../session.ts";

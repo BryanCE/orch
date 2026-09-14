@@ -120,19 +120,16 @@ export function remoteWrite(
   if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
 }
 
+/** The id orch issued this process, the same id its leases are held by; undefined
+ *  when orch has never registered it. */
 export function callerOwnerToken(root: OrchDir): string | undefined {
-  // The stamped owner is the id orch issued this process - the same id its
-  // leases are held by. Never a plexer coordinate: that names an environment,
-  // matches no stored record, and made orch refuse the fleet it had just spawned.
-  const explicit = process.env.ORCH_OWNER;
-  if (explicit) return explicit;
   return selfId(root);
 }
 
 /** The calling orchestrator's token, or a refusal naming the fix. No operator gate: the caller acts on its own agents. */
 export function ownerTokenOrDie(root: OrchDir): string {
   const token = callerOwnerToken(root);
-  if (!token) die(`Bulk operation refused: set ORCH_OWNER to identify this ${term("orch")}.`);
+  if (!token) die(`Bulk operation refused: this ${term("orch")} is not registered; spawn or adopt an agent first, or name the targets.`);
   return token;
 }
 

@@ -84,8 +84,8 @@ export async function callDaemon<M extends GovernedMethod>(services: Pick<Servic
   }
   if (gov.steal) forbidNonOperatorOverride(directory, "--steal");
   if (gov.crossSpace) forbidNonOperatorOverride(directory, "--cross-space");
-  // The write actor is the same token spawn stamps as owner (ORCH_OWNER, else
-  // the id orch issued); anything else and an orchestrator cannot steer its own fleet.
+  // The write actor is the id orch issued this process, the same one spawn
+  // stamps as owner; anything else and an orchestrator cannot steer its own fleet.
   const actor = callerOwnerToken(directory) ?? null;
   const actorLocation = actor === null ? null : actorSpace(directory, actor);
   const governance: Governance = {

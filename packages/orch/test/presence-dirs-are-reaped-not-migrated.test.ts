@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 
 import { join } from "node:path";
-import { loadPresence, reapDeadPresenceDirs } from "../src/presence/store.ts";
+import { loadPresence, reapExpiredPresenceDirs } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -67,7 +67,7 @@ describe("a presence dir in the old shape is reaped, never migrated (J4)", () =>
     const stale = seedDir(root, "headless~local~worker");
     const live = seedLiveDir(root, "liveagent1");
 
-    reapDeadPresenceDirs(root);
+    reapExpiredPresenceDirs(root, new Date());
 
     expect(existsSync(stale)).toBe(false);
     // A live agent in the current shape is untouched: the sweep reaps what is
@@ -79,7 +79,7 @@ describe("a presence dir in the old shape is reaped, never migrated (J4)", () =>
     const root = fixture();
     seedDir(root, "herdr~wF~p9");
 
-    reapDeadPresenceDirs(root);
+    reapExpiredPresenceDirs(root, new Date());
 
     // Reaped, not migrated: no directory of any name is left behind carrying
     // what it held, and its contents are not re-filed under a minted id.
@@ -93,9 +93,9 @@ describe("a presence dir in the old shape is reaped, never migrated (J4)", () =>
     const dead = ensurePresenceAgentDir("deadagent1", root);
     if (dead === undefined) throw new Error("no history dir");
 
-    const result = reapDeadPresenceDirs(root);
+    const removed = reapExpiredPresenceDirs(root, new Date());
 
     expect(existsSync(dead)).toBe(false);
-    expect(result.removed.map((entry) => entry.key)).toEqual(["deadagent1"]);
+    expect(removed).toEqual(["deadagent1"]);
   });
 });

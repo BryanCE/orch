@@ -6,7 +6,7 @@ import { hostOs } from "../host.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
-import { orm } from "./connection.ts";
+import { orm, withTransaction } from "./connection.ts";
 import type { SpawnRegistration } from "../types/store.ts";
 
 /**
@@ -17,6 +17,12 @@ import type { SpawnRegistration } from "../types/store.ts";
  * an agent that moves keeps the identity it was minted with.
  */
 export function registerSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string {
+  // One transaction: the daemon reaps any agent row without a live process on
+  // its liveness tick, so the row and its process must land together.
+  return withTransaction(directory, () => writeSpawnedAgent(directory, input));
+}
+
+function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string {
   const agentId = input.key;
   const now = input.now ?? Date.now();
   const spawnerId = input.spawner && agentById(directory, input.spawner) ? input.spawner : null;
@@ -46,10 +52,11 @@ export function registerSpawnedAgent(directory: OrchDir, input: SpawnRegistratio
   writeEnvironment(directory, agentId, now, host, input);
   // Ownership is the LAST word: `owner` is who holds the agent now, the spawner
   // only the fallback for a launch that named nobody else. An agent never holds
-  // its own lease (`agent_leases_not_self`).
+  // its own lease (`agent_leases_not_self`). A holder is an agent orch already
+  // registered; orch never conjures one.
   const holder = input.owner ?? spawnerId;
   if (holder !== null && holder !== undefined && holder !== agentId) {
-    ensureOrchAgent(directory, holder, input.harnessId, now);
+    if (!agentById(directory, holder)) throw new Error(`orch: holder ${holder} is not a registered agent`);
     acquireLease(directory, agentId, holder, now);
   }
   return agentId;
@@ -74,18 +81,10 @@ function writeEnvironment(directory: OrchDir, agentId: string, now: number, host
   if (input.worktree) setWorktree(directory, agentId, input.worktree.path, input.worktree.branch);
 }
 
-/** Rule 11: an orchestrator IS an agent. A holder orch has never registered gets
- *  a row in the ONE agent table rather than a second id space beside it. */
 /** A7 — a space is the user's to create; a spawn into an unknown one is refused
  *  rather than inventing the place it names. */
 function requireSpace(directory: OrchDir, spaceId: string): void {
   if (!orm(directory).select({ id: spaces.id }).from(spaces).where(eq(spaces.id, spaceId)).get()) {
     throw new Error(`orch: no space named "${spaceId}". Create it first with 'orch space create ${spaceId}'.`);
   }
-}
-
-export function ensureOrchAgent(directory: OrchDir, orchId: string, harnessId: string, now: number): void {
-  if (agentById(directory, orchId)) return;
-  ensureHarness(directory, harnessId, harnessId, now);
-  insertAgent(directory, { id: orchId, harnessId, cwd: process.cwd(), name: orchId, createdAt: now });
 }

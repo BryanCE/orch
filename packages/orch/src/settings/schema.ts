@@ -162,8 +162,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
    * completed runs, delivered outbox messages, and logs. */
   logging: z.strictObject({ level: z.enum(["error", "warn", "info", "debug", "trace"]).optional() }).optional(),
   retention: z.strictObject({
-    /** Ended agent records and presence directories older than this many days. */
-    ended_agents_days: PositiveInt.optional(),
+    /** JSONL history of gone agents older than this many days; null keeps it forever. */
+    ended_agents_days: PositiveInt.nullable().optional(),
     /** Settled queue tasks older than this many days. */
     queue_days: PositiveInt.optional(),
     /** Stored events older than this many days. */

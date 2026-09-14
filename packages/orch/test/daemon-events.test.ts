@@ -11,6 +11,7 @@ import { emitAndNotify, isRepeatTransition } from "../src/daemon/server/events.t
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { subscribeEvents } from "../src/daemon/client/rpc.ts";
 import { selectAgentStatus } from "../src/store/status-rows.ts";
+import { agentView } from "../src/store/agent-view.ts";
 import { statusRow } from "./helpers/presence.ts";
 import { seedAgent as registerAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
@@ -374,7 +375,7 @@ describe("daemon presence events", () => {
     expect(stringProperty(jsonValue(output), "title")).toStartWith("ASKING");
   });
 
-  test("liveness turns a dead process into exited", async () => {
+  test("liveness announces a dead process as exited, then reaps its rows", async () => {
     const orchDir = tempOrchDir();
     const key = mintAgentId();
     registerAgent(key, { name: key }, orchDir);
@@ -384,6 +385,8 @@ describe("daemon presence events", () => {
     await waitFor(() => events.some((event) => eventState(event) === "exited"));
     tick.stop();
     expect(events.some((event) => eventState(event) === "exited")).toBe(true);
-    expect(selectAgentStatus(orchDir, key)?.state).toBe("exited");
+    // Dead means gone: no row of any kind is left for it.
+    expect(selectAgentStatus(orchDir, key)).toBeUndefined();
+    expect(agentView(orchDir, key)).toBeNull();
   });
 });

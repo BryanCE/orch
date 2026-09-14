@@ -1,6 +1,5 @@
 import type { OrchDir } from "../../types/core.ts";
-import { loadPresence, reapDeadPresenceDirs, reapSpawnedRecord } from "../../presence/store.ts";
-import { presenceAgentDir } from "../../presence/history.ts";
+import { loadPresence, reapExpiredPresenceDirs } from "../../presence/store.ts";
 import { allBackends } from "../../backends/registry.ts";
 import { errorMessage } from "../../util.ts";
 import { decisionLogger } from "../client/decision-log.ts";
@@ -9,36 +8,10 @@ import { deleteDeliveredBefore } from "../../store/outbox-rows.ts";
 import { deleteControlOutcomesBefore } from "../../store/control-outcome-rows.ts";
 import { deleteSettledTasksBefore } from "../../store/task-rows.ts";
 import { deleteRunsBefore } from "../../store/run-rows.ts";
-
-
 import { rmSync, statSync } from "node:fs";
 import { daemonRuntimeFiles } from "../client/runtime-files.ts";
 import type { OrchSettings } from "../../types/settings.ts";
-
-
-/** Delete ended agent records only when no descendants remain.
- *
- *  A1: an agent is reaped by its IDENTITY and by nothing else. Environment,
- *  ownership and provenance are satellites of the hub row, so deleting the hub
- *  takes them with it; there is no second key to sweep, and no scan of a wide
- *  row is needed to discover the identities an agent is filed under. */
-function removeExpiredAgentRecords(orchDir: OrchDir, cutoff: Date): { count: number; ids: Set<string> } {
-  // A parent is kept while any child row still points at it: `agents.spawned_by`
-  // has no ON DELETE CASCADE, so reaping it first would orphan the child.
-  const parents = orm(orchDir).selectDistinct({ id: agents.spawnedBy }).from(agents)
-    .where(isNotNull(agents.spawnedBy)).all().flatMap((row) => row.id === null ? [] : [row.id]);
-  const ids = orm(orchDir).select({ agentId: agentEndings.agentId }).from(agentEndings)
-    .where(and(lt(agentEndings.endedAt, cutoff.getTime()),
-      parents.length === 0 ? undefined : notInArray(agentEndings.agentId, parents)))
-    .all().map((row) => row.agentId);
-  for (const id of ids) reapSpawnedRecord(id, orchDir, { agentId: id });
-  return { count: ids.length, ids: new Set(ids) };
-}
-
 import type { SweepCounts } from "../../types/daemon.ts";
-import { and, isNotNull, lt, notInArray } from "drizzle-orm";
-import { orm } from "../../store/connection.ts";
-import { agentEndings, agents } from "../../db/schema.ts";
 export type { SweepCounts };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -47,25 +20,7 @@ export const ORCH_LOG_MAX_BYTES = 10 * 1024 * 1024;
 
 interface SweepEntry {
   name: keyof SweepCounts;
-  days: number;
-  remove: (cutoff: Date) => number;
-}
-
-/** Reap old dead presence through the shared presence/clean path. */
-function removeExpiredAgentDirs(orchDir: OrchDir, cutoff: Date): number {
-  // Agent records and their presence directories share this ended-agent window.
-  const recordsRemoved = removeExpiredAgentRecords(orchDir, cutoff);
-  const result = reapDeadPresenceDirs(orchDir, cutoff);
-  for (const failure of result.failed) {
-    decisionLogger(orchDir, null).warn("retention.sweep-failed", { area: "ended_agents", dir: presenceAgentDir(failure.entry.key, orchDir), error: errorMessage(failure.error) });
-  }
-  // The registry row and presence directory represent one logical agent. Count
-  // their union so removing both does not inflate the retention metric.
-  const dirsRemovedOnly = result.removed.filter((entry) => {
-    const agentId = entry.key;
-    return !recordsRemoved.ids.has(agentId);
-  }).length;
-  return recordsRemoved.count + dirsRemovedOnly;
+  remove: () => number;
 }
 
 /** Ask each backend that owns logs to prune its stale artifacts. */
@@ -111,18 +66,21 @@ function removeExpiredLogs(orchDir: OrchDir, cutoff: Date): number {
 export function sweepExpiredRows(orchDir: OrchDir, settings: Pick<OrchSettings, "retention">, now: Date): SweepCounts {
   const counts: SweepCounts = { queue: 0, outbox: 0, control_outcomes: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 };
   const cutoff = (days: number): Date => new Date(now.getTime() - days * DAY_MS);
+  const { retention } = settings;
   const entries: SweepEntry[] = [
-    { name: "queue", days: settings.retention.queue_days, remove: (date) => deleteSettledTasksBefore(orchDir, date.getTime()) },
-    { name: "outbox", days: settings.retention.outbox_days, remove: (date) => deleteDeliveredBefore(orchDir, date.getTime()) },
-    { name: "control_outcomes", days: settings.retention.control_outcomes_days, remove: (date) => deleteControlOutcomesBefore(orchDir, date.getTime()) },
-    { name: "events", days: settings.retention.events_days, remove: (date) => deleteEventsBefore(orchDir, date.getTime()) },
-    { name: "runs", days: settings.retention.runs_days, remove: (date) => deleteRunsBefore(orchDir, date.getTime()) },
-    { name: "ended_agents", days: settings.retention.ended_agents_days, remove: (date) => removeExpiredAgentDirs(orchDir, date) },
-    { name: "logs", days: settings.retention.logs_days, remove: (date) => removeExpiredLogs(orchDir, date) },
+    { name: "queue", remove: () => deleteSettledTasksBefore(orchDir, cutoff(retention.queue_days).getTime()) },
+    { name: "outbox", remove: () => deleteDeliveredBefore(orchDir, cutoff(retention.outbox_days).getTime()) },
+    { name: "control_outcomes", remove: () => deleteControlOutcomesBefore(orchDir, cutoff(retention.control_outcomes_days).getTime()) },
+    { name: "events", remove: () => deleteEventsBefore(orchDir, cutoff(retention.events_days).getTime()) },
+    { name: "runs", remove: () => deleteRunsBefore(orchDir, cutoff(retention.runs_days).getTime()) },
+    // A gone agent's rows leave on the daemon's liveness tick, not here. Only its
+    // JSONL history ages, and a null window keeps that history forever.
+    { name: "ended_agents", remove: () => retention.ended_agents_days === null ? 0 : reapExpiredPresenceDirs(orchDir, cutoff(retention.ended_agents_days)).length },
+    { name: "logs", remove: () => removeExpiredLogs(orchDir, cutoff(retention.logs_days)) },
   ];
   for (const entry of entries) {
     try {
-      counts[entry.name] = entry.remove(cutoff(entry.days));
+      counts[entry.name] = entry.remove();
     } catch (error: unknown) {
       decisionLogger(orchDir, null).warn("retention.sweep-failed", { area: entry.name, error: errorMessage(error) });
     }

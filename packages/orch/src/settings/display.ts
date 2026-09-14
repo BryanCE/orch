@@ -9,11 +9,12 @@
 import { isRecord } from "../util.ts";
 import type { SettingKind } from "../types/settings.ts";
 
-/** A settings value as one line: scalars bare, shapes as JSON, nothing as "(none)". */
+/** A settings value as one line: scalars bare, shapes as JSON, null or nothing as "(none)". */
 export function displayValue(value: unknown): string {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
+  if (value === null) return "(none)";
   return JSON.stringify(value) ?? "(none)";
 }
 

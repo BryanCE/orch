@@ -255,21 +255,40 @@ export function closeAllStores(): void {
     opened.client.close();
     connections.delete(path);
   }
+  openTransactions.clear();
+}
+
+/** How many transactions are open on each connection, so a nested call becomes a
+ *  savepoint inside the outer one instead of a second BEGIN sqlite refuses. */
+const openTransactions = new Map<string, number>();
+
+interface TransactionVerbs { readonly begin: string; readonly commit: string; readonly rollback: string }
+
+function transactionVerbs(depth: number): TransactionVerbs {
+  if (depth === 0) return { begin: "BEGIN IMMEDIATE", commit: "COMMIT", rollback: "ROLLBACK" };
+  const savepoint = `nested_${depth}`;
+  return { begin: `SAVEPOINT ${savepoint}`, commit: `RELEASE ${savepoint}`, rollback: `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}` };
 }
 
 /** One immediate transaction around `body`, on the same cached connection every
  *  store module writes through. drizzle's own `transaction` takes a callback
  *  bound to a scoped handle; orch's writers reach the connection by orch dir, so
- *  the boundary is stated here in the driver's own terms. */
+ *  the boundary is stated here in the driver's own terms. A call inside another
+ *  is a savepoint, so a writer composed of writers commits or rolls back as one. */
 export function withTransaction<T>(orchDir: OrchDir, body: () => T): T {
   const db = openDatabase(orchDir).client;
-  db.exec("BEGIN IMMEDIATE");
+  const depth = openTransactions.get(orchDir) ?? 0;
+  const verbs = transactionVerbs(depth);
+  db.exec(verbs.begin);
+  openTransactions.set(orchDir, depth + 1);
   try {
     const result = body();
-    db.exec("COMMIT");
+    db.exec(verbs.commit);
     return result;
   } catch (error) {
-    try { db.exec("ROLLBACK"); } catch {}
+    try { db.exec(verbs.rollback); } catch {}
     throw error;
+  } finally {
+    openTransactions.set(orchDir, depth);
   }
 }

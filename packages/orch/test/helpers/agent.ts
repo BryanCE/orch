@@ -1,7 +1,11 @@
 import type { OrchDir } from "../../src/types/core.ts";
-import { ensureOrchAgent, registerSpawnedAgent } from "../../src/store/spawn-registration.ts";
-import { ensureHost, ensurePlexer } from "../../src/store/agent-rows.ts";
+import { hostname } from "node:os";
+import { registerSpawnedAgent } from "../../src/store/spawn-registration.ts";
+import { agentById, ensureHarness, ensureHost, ensurePlexer, getOrCreateSessionAgent, insertAgent } from "../../src/store/agent-rows.ts";
 import { hostOs } from "../../src/host.ts";
+import { OPERATOR_HARNESS_ID } from "../../src/policy/caller.ts";
+import { sessionProcessPid } from "../../src/identity/self.ts";
+import { processStartToken } from "../../src/process-identity.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace } from "../../src/store/interval-rows.ts";
 import { adoptLease, currentLease } from "../../src/store/lease-rows.ts";
 import type { RecordedProcess } from "../../src/types/backend.ts";
@@ -15,8 +19,30 @@ export function runnerProcess(): RecordedProcess {
 /** A pid no process holds, so a seeded record reads as a dead one. */
 export const DEAD_PID = 2147483646;
 
+/** A registered orchestrator row, as `register-session` mints one: an agent with
+ *  no process of its own yet. A fixture's holder must exist before it holds. */
+export function seedOrch(directory: OrchDir, id: string, harnessId = "pi", now = Date.now()): void {
+  if (agentById(directory, id)) return;
+  ensureHarness(directory, harnessId, harnessId, now);
+  insertAgent(directory, { id, harnessId, cwd: process.cwd(), name: id, createdAt: now });
+}
+
+/** Register the test runner as an operator orch, the way `register-session` does
+ *  for a plain shell: its parent process, no session token. Returns the id
+ *  `selfId()` then resolves to. The caller isolates harness markers first. */
+export function seedOperator(directory: OrchDir, now = Date.now()): string {
+  const pid = sessionProcessPid(null);
+  const startToken = processStartToken(pid);
+  if (startToken === undefined) throw new Error(`no start token for the runner's parent pid ${pid}`);
+  return getOrCreateSessionAgent(directory, {
+    pid, startToken, sessionToken: null, harnessId: OPERATOR_HARNESS_ID, cwd: process.cwd(),
+    label: `${OPERATOR_HARNESS_ID} session ${pid}`, hostId: hostname(), hostName: hostname(), hostOs: hostOs(), now,
+  }).id;
+}
+
 /** Seed one agent through the same writer production uses. It has no live process; seedLiveProcess states one. */
 export function seedAgent(key: string, facts: AgentFacts = {}, directory: OrchDir): void {
+  if (facts.owner !== undefined && facts.owner !== key) seedOrch(directory, facts.owner, facts.adapter ?? "pi");
   registerSpawnedAgent(directory, {
     key,
     harnessId: facts.adapter ?? "pi",
@@ -65,7 +91,7 @@ export function placeAgent(key: string, facts: AgentFacts = {}, directory: OrchD
   if (facts.space !== undefined) setSpace(directory, key, now, facts.space);
   if (facts.handle !== undefined) setHandle(directory, key, now, facts.handle);
   if (facts.owner !== undefined && facts.owner !== key && currentLease(directory, key)?.orchId !== facts.owner) {
-    ensureOrchAgent(directory, facts.owner, facts.adapter ?? "pi", now);
+    seedOrch(directory, facts.owner, facts.adapter ?? "pi", now);
     adoptLease(directory, key, facts.owner, now);
   }
 }

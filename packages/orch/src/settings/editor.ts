@@ -101,7 +101,8 @@ function validateBooleanValue(value: unknown): string | null {
 }
 
 function validateIntegerValue(kind: Extract<SettingKind, { readonly kind: "integer" }>, value: unknown): string | null {
-  if (typeof value !== "number" || !Number.isInteger(value)) return "Value must be an integer";
+  if (kind.none && value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value)) return kind.none ? "Value must be an integer or none" : "Value must be an integer";
   if (kind.min !== undefined && value < kind.min) return `Value must be at least ${kind.min}`;
   if (kind.max !== undefined && value > kind.max) return `Value must be at most ${kind.max}`;
   return null;

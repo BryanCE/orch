@@ -241,6 +241,7 @@ export interface SweepCounts {
   control_outcomes: number;
   events: number;
   runs: number;
+  /** JSONL history directories past the retention window. */
   ended_agents: number;
   logs: number;
 }

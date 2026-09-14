@@ -19,7 +19,7 @@ import { peerView } from "../src/daemon/server/peer-view.ts";
 import type { ParamsOf, ResultOf } from "../src/daemon/client/protocol.ts";
 
 const IDENTITY_ENV = [
-  "ORCH_DIR", LAUNCH_ENV, "ORCH_SESSION_KEY", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
+  "ORCH_DIR", LAUNCH_ENV, "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",
   "ORCH_AGENT_NAME", "ORCH_AGENT_WORKTREE", "ORCH_AGENT_BRANCH",
   ...allAdapters().flatMap((adapter) => [adapter.sessionEnvMarker, adapter.sessionIdEnv, adapter.sessionPidEnv])
     .filter((name): name is string => name !== undefined),
@@ -199,7 +199,7 @@ describe("the spawner address invariant", () => {
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION_ID = "c0f80035-1859";
     // A session is an agent with the same addressability. Its address is
-    // the id orch minted for it, not a plexer coordinate and not ORCH_SESSION_KEY.
+    // the id orch minted for it, never a plexer coordinate.
     const registered = getOrCreateSessionAgent(orchDir, {
       pid: 4242, startToken: "tok", sessionToken: "c0f80035-1859", harnessId: "claude",
       cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,

@@ -254,8 +254,8 @@ Adopt an unleased agent, or every available orphan. A live lease holder must rel
   reap: `orch reap <target>
 orch reap
 orch reap --dead [--json]
-Delete an agent record and its presence directory. Refuses while the process or any descendant
-is live; ending is never gated by the lease.
+Delete an agent record. Its JSONL history stays until retention ages it out. Refuses while the
+process or any descendant is live; ending is never gated by the lease.
 Bare 'orch reap' on a TTY opens an interactive multiselect over live agents; provably-dead rows are pre-checked.
   --dead       Non-interactive sweep of provably-dead agents.
   --json       Emit reaped target/name records.
@@ -302,8 +302,9 @@ Check the install: runtime, composition, backends, daemon, presence, sinks, host
 `,
   clean: `orch clean [--force] [--worktrees]
 Remove agent dirs that name no agent and close queued writes to dead agents.
-Ended agents are history and stay unless forced.
-  --force       Also delete every dead agent's records and dir; with --worktrees, discard unmerged work.
+The daemon reaps a gone agent's records on its next sweep; its JSONL history ages out
+under retention.ended_agents_days. --force does both now.
+  --force       Also delete every dead agent's records and history dir; with --worktrees, discard unmerged work.
   --worktrees   Also remove orphaned worktrees that are empty or merged.
 `,
   setup: `orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--model <model[:thinking]> | --model <harness>=<model[:thinking]> ...]

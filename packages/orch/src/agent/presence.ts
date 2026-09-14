@@ -406,10 +406,6 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     const key = computeKey(hasUI);
     if (!key) return;
     applyLaunchFacts(key);
-    // Subprocesses of this session (the harness's own shell tools running the
-    // orch CLI) inherit this, so a spawn made FROM here can hand its workers
-    // this session's reply address — whatever harness this happens to be.
-    process.env.ORCH_SESSION_KEY = key;
     daemon.attach(key, (delivery) => {
       void routeDelivery(delivery).catch(() => {
         /* A failed apply remains unacked for daemon redelivery. */

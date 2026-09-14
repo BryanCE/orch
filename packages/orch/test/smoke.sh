@@ -21,10 +21,12 @@ trap cleanup EXIT INT TERM
 
 mkdir -p "$ORCH_FIXTURE"
 # No plexer on PATH, no launch credential, no ambient orch: every command sees
-# exactly the fixture and nothing from the operator's own fleet.
+# exactly the fixture and nothing from the operator's own fleet. Every ORCH_*
+# variable goes, so the launch env is spelled in src and nowhere here.
 export PATH=/usr/bin:/bin
+for name in $(compgen -e | grep '^ORCH_'); do unset "$name"; done
+unset HERDR_ENV HERDR_SOCKET_PATH TMUX
 export ORCH_DIR="$ORCH_FIXTURE"
-unset ORCH_ADAPTER ORCH_BACKEND ORCH_MODEL ORCH_WORKTREE ORCH_AGENT_ID ORCH_OWNER ORCH_ENVIRONMENT HERDR_ENV HERDR_SOCKET_PATH TMUX
 # The caller must read as the OPERATOR. A harness session marker inherited from
 # the shell that launched this script (src/adapters/session-env.ts) would make
 # orch scope every command to a driving session that holds nothing.

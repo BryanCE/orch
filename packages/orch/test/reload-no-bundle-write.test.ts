@@ -8,7 +8,8 @@ import { join } from "node:path";
 import type { Services } from "../src/types/services.ts";
 import { createServices } from "../src/services.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { seedOperator } from "./helpers/agent.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 const bundleDir = mkdtempSync(join(tmpdir(), "orch-reload-bundles-"));
 afterAll(() => { removeTempDir(bundleDir); });
@@ -34,23 +35,11 @@ beforeAll(async () => {
   ({ cmdReload } = await import("../src/commands/lifecycle/reload.ts"));
 });
 
-const originalOrchDir = process.env.ORCH_DIR;
-const originalOwner = process.env.ORCH_OWNER;
-const originalHarnessMarkers = Object.values(HARNESS_SESSION_ENV).map((env) => ({ marker: env.marker, value: process.env[env.marker] }));
 const dirs: OrchDir[] = [];
 
-function restoreOrchEnv(): void {
-  if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
-  else process.env.ORCH_DIR = originalOrchDir;
-  if (originalOwner === undefined) delete process.env.ORCH_OWNER;
-  else process.env.ORCH_OWNER = originalOwner;
-  for (const { marker, value } of originalHarnessMarkers) {
-    if (value === undefined) delete process.env[marker];
-    else process.env[marker] = value;
-  }
-}
-
-beforeEach(restoreOrchEnv);
+// The runner is the operator: `--all` on a drive verb is operator-only, and an
+// operator is a registered parent process, nothing else (Rule 19).
+beforeEach(isolateOrchEnv);
 
 // Point ORCH_DIR away first: a later reader of a stale ORCH_DIR recreates whatever it names.
 afterEach(() => {
@@ -64,19 +53,10 @@ describe("reload", () => {
     const orchDir = tempOrchDir("orch-reload-");
     dirs.push(orchDir);
     process.env.ORCH_DIR = orchDir;
-    process.env.ORCH_OWNER = "test-owner";
     writeSettingsFixture(orchDir, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
+    seedOperator(orchDir);
 
-    const harnessMarkers = Object.values(HARNESS_SESSION_ENV).map((env) => ({ marker: env.marker, value: process.env[env.marker] }));
-    for (const { marker } of harnessMarkers) delete process.env[marker];
-    try {
-      await cmdReload(createServices({ orchDir }), ["--all", "--json"]);
-    } finally {
-      for (const { marker, value } of harnessMarkers) {
-        if (value === undefined) delete process.env[marker];
-        else process.env[marker] = value;
-      }
-    }
+    await cmdReload(createServices({ orchDir }), ["--all", "--json"]);
 
     bundlePaths.forEach((file, index) => {
       expect(readFileSync(file)).toEqual(before[index]!.bytes);

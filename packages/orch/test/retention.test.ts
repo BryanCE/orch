@@ -17,6 +17,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { ensurePresenceAgentDir } from "../src/presence/history.ts";
+import { reapDeadAgentRecords } from "../src/presence/store.ts";
 import type { RunRecord } from "../src/types/store.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
@@ -90,6 +91,13 @@ function presenceDir(orchDir: OrchDir, key: string): string {
   return dir;
 }
 
+/** Give a history directory one JSONL file and set every mtime in it to one instant. */
+function touchHistory(dir: string, at: Date): void {
+  writeFileSync(join(dir, "status.jsonl"), "{}\n");
+  utimesSync(join(dir, "status.jsonl"), at, at);
+  utimesSync(dir, at, at);
+}
+
 /** Move every recorded instant of a seeded agent to one point in time. */
 function ageAgent(orchDir: OrchDir, key: string, at: number): void {
   const db = orm(orchDir);
@@ -115,6 +123,14 @@ describe("retention sweep", () => {
     expect(retention.events_days).toBe(7);
     expect(retention.outbox_days).toBe(7);
     expect(retention.logs_days).toBe(7);
+  });
+
+  test("a null ended_agents_days is the user's own choice, never the default", () => {
+    const orchDir = fixture();
+    writeFileSync(settingsPath(orchDir), JSON.stringify({
+      schemaVersion: SETTINGS_SCHEMA, runtime: "node", retention: { ended_agents_days: null },
+    }));
+    expect(fileSettingsManager(orchDir).currentOrNull()!.retention.ended_agents_days).toBeNull();
   });
   test("uses each table's own window and keeps queued and claimed tasks", () => {
     const orchDir = fixture();
@@ -157,10 +173,10 @@ describe("retention sweep", () => {
     expect(counts.runs).toBe(1);
   });
 
-  // A1: an ended agent is reaped by its IDENTITY. Its environment, its lease and
+  // A1: a gone agent is reaped by its IDENTITY. Its environment, its lease and
   // its worktree are satellites of that id and go with it; nothing is keyed by a
   // pane, so nothing survives because a presence directory was never created.
-  test("reaps expired agents by identity, taking every satellite with them", () => {
+  test("reaps a gone agent by identity, taking every satellite with it", () => {
     const orchDir = fixture();
     const agentId = "expirednop";
     const holder = "holderorch";
@@ -176,7 +192,7 @@ describe("retention sweep", () => {
     db.run(sql`INSERT INTO agent_plexers(agent_id,plexer_id) VALUES (${agentId},${"headless"})`);
     acquireLease(orchDir, agentId, holder, Date.parse(old));
 
-    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
+    expect(reapDeadAgentRecords(orchDir)).toEqual([agentId]);
     expect(row(db, sql`SELECT id FROM agents WHERE id=${agentId}`)).toBeUndefined();
     expect(row(db, sql`SELECT agent_id FROM agent_worktrees WHERE agent_id=${agentId}`)).toBeUndefined();
     expect(row(db, sql`SELECT agent_id FROM agent_plexers WHERE agent_id=${agentId}`)).toBeUndefined();
@@ -186,55 +202,77 @@ describe("retention sweep", () => {
     expect(row(db, sql`SELECT id FROM agents WHERE id=${holder}`)).not.toBeUndefined();
   });
 
-  test("reaps a dead agent whose every recorded instant is past the window", () => {
+  // A gone agent's rows have no window: the liveness tick reaps them. The sweep
+  // touches only its JSONL history, which ages under ended_agents_days.
+  test("a dead parent goes in the same reap as its dead child", () => {
+    const orchDir = fixture();
+    seedAgent("deadparent", {}, orchDir);
+    seedAgent("deadchild1", { spawnedBy: "deadparent" }, orchDir);
+    expect(reapDeadAgentRecords(orchDir).sort()).toEqual(["deadchild1", "deadparent"]);
+    expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id='deadparent'`)).toBeUndefined();
+  });
+
+  test("a dead parent stays while a live child still points at it", () => {
+    const orchDir = fixture();
+    seedAgent("deadparent", {}, orchDir);
+    seedAgent("livechild1", { spawnedBy: "deadparent" }, orchDir);
+    seedLiveProcess(orchDir, "livechild1");
+    expect(reapDeadAgentRecords(orchDir)).toEqual([]);
+    expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id='deadparent'`)).not.toBeUndefined();
+  });
+
+  test("a dead agent a task still points at stays for a later reap", () => {
+    const orchDir = fixture();
+    seedQueueTask(orchDir, "queued", "queued", "2026-01-31T00:00:00.000Z");
+    expect(reapDeadAgentRecords(orchDir)).toEqual([]);
+    expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id='queue-agent'`)).not.toBeUndefined();
+  });
+
+  test("the sweep leaves a dead agent's rows alone and keeps its young history", () => {
     const orchDir = fixture();
     const key = "deadagent1";
     const dir = presenceDir(orchDir, key);
     seedStatus(orchDir, key, {});
-    ageAgent(orchDir, key, OLD);
-    orm(orchDir).run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${key},${OLD},NULL)`);
-    utimesSync(dir, NOW, NOW);
-    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
-    expect(existsSync(dir)).toBe(false);
-    expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id=${key}`)).toBeUndefined();
-  });
-
-  test("keeps a dead agent whose status was updated inside the window", () => {
-    const orchDir = fixture();
-    const key = "deadagentn";
-    const dir = presenceDir(orchDir, key);
-    seedStatus(orchDir, key, {});
-    ageAgent(orchDir, key, OLD);
-    orm(orchDir).run(sql`UPDATE agent_status SET updated_at=${RECENT} WHERE agent_id=${key}`);
-    utimesSync(dir, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
+    touchHistory(dir, NOW);
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(0);
+    expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id=${key}`)).not.toBeUndefined();
     expect(existsSync(dir)).toBe(true);
   });
 
-  test("reaps a dead agent with no status row by its creation instant", () => {
+  test("removes a gone agent's history once its last write is past the window", () => {
     const orchDir = fixture();
     const key = "deadagentm";
     const dir = presenceDir(orchDir, key);
     seedAgent(key, {}, orchDir);
-    ageAgent(orchDir, key, OLD);
-    utimesSync(dir, NOW, NOW);
+    reapDeadAgentRecords(orchDir);
+    touchHistory(dir, new Date(OLD));
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
     expect(existsSync(dir)).toBe(false);
   });
 
-  test("keeps a dead agent whose finished instant alone is inside the window", () => {
+  test("keeps history whose newest file is inside the window", () => {
     const orchDir = fixture();
-    const key = "deadagentr";
+    const key = "deadagentn";
     const dir = presenceDir(orchDir, key);
-    seedStatus(orchDir, key, {});
-    ageAgent(orchDir, key, OLD);
-    orm(orchDir).run(sql`UPDATE agent_status SET finished_at=${RECENT} WHERE agent_id=${key}`);
-    utimesSync(dir, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
+    seedAgent(key, {}, orchDir);
+    touchHistory(dir, new Date(OLD));
+    writeFileSync(join(dir, "results.jsonl"), "{}\n");
+    utimesSync(join(dir, "results.jsonl"), new Date(RECENT), new Date(RECENT));
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
   });
 
-  test("never reaps a live agent regardless of age", () => {
+  test("a null window keeps history forever", () => {
+    const orchDir = fixture();
+    const key = "deadagentr";
+    const dir = presenceDir(orchDir, key);
+    seedAgent(key, {}, orchDir);
+    touchHistory(dir, new Date("2020-01-01T00:00:00.000Z"));
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: null }), NOW).ended_agents).toBe(0);
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  test("never reaps a live agent or its history regardless of age", () => {
     const orchDir = fixture();
     const key = "liveagent1";
     const dir = presenceDir(orchDir, key);
@@ -242,9 +280,11 @@ describe("retention sweep", () => {
     seedLiveProcess(orchDir, key);
     seedStatus(orchDir, key, {});
     ageAgent(orchDir, key, OLD);
-    utimesSync(dir, new Date(OLD), new Date(OLD));
+    touchHistory(dir, new Date(OLD));
+    expect(reapDeadAgentRecords(orchDir)).toEqual([]);
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 1 }), NOW).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
+    expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id=${key}`)).not.toBeUndefined();
   });
 
   test("sweeps old logs but preserves logs for live agents", () => {

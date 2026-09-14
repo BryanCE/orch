@@ -30,7 +30,6 @@ const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
 const dirs: OrchDir[] = [];
 const children: ChildProcess[] = [];
 const oldDir = process.env.ORCH_DIR;
-const oldOwner = process.env.ORCH_OWNER;
 const testSettings = {
   enabled: { adapters: ["pi"], backends: ["headless"] },
   defaults: { adapter: "pi", backend: "headless" },
@@ -41,13 +40,12 @@ function makeDir(): OrchDir {
   dirs.push(dir);
   writeSettingsFixture(dir, testSettings);
   process.env.ORCH_DIR = dir;
-  process.env.ORCH_OWNER = "caller";
   return dir;
 }
 
 function runCli(dir: OrchDir, args: string[]): { status: number | null; output: string } {
   const result = Bun.spawnSync([process.execPath, binPath, ...args], {
-    env: { ...process.env, ORCH_DIR: dir, ORCH_OWNER: "caller" },
+    env: { ...process.env, ORCH_DIR: dir },
     stdout: "pipe",
     stderr: "pipe",
     timeout: 15_000,
@@ -55,8 +53,11 @@ function runCli(dir: OrchDir, args: string[]): { status: number | null; output: 
   return { status: result.exitCode, output: `${result.stdout.toString()}\n${result.stderr.toString()}` };
 }
 
+/** A working agent as orchd records one: the status row, plus the history
+ *  directory orchd opens on the first report. Close ends the row and leaves the history. */
 function writeStatus(dir: OrchDir, key: string): void {
   mergeAgentStatus(dir, key, { state: "working" }, Date.now());
+  mkdirSync(join(dir, "agents", key), { recursive: true });
 }
 
 function recordProcess(dir: OrchDir, key: string, pid: number, startToken: string): void {
@@ -80,7 +81,6 @@ afterEach(async () => {
     })));
   while (dirs.length) removeTempDir(dirs.pop()!);
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
-  if (oldOwner === undefined) delete process.env.ORCH_OWNER; else process.env.ORCH_OWNER = oldOwner;
 });
 
 describe("close always works", () => {

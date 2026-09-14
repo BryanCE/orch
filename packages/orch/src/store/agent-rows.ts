@@ -281,9 +281,9 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
     }).run();
     return { id, label: input.label, kind: "session" };
   });
-  // Placement runs AFTER the registration transaction: `closeThenOpen` opens its
-  // own, and sqlite has no nested one. It is idempotent, so a crash in between
-  // is repaired by the session's next registration rather than leaving a second row.
+  // Placement runs AFTER the registration transaction. It is idempotent, so a
+  // crash in between is repaired by the session's next registration rather than
+  // leaving a second row.
   if (repointedAgentId !== null) {
     decisionLogger(orchDir, null).info("session.repointed", { agentId: repointedAgentId, harnessId: input.harnessId });
   }

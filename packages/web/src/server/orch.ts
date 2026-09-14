@@ -108,7 +108,7 @@ type SendResult = SendAcceptedResult | MessageUnavailable | DaemonDown;
  * request has no orch agent identity to provide as the daemon's `from` parameter.
  */
 export const sendToAgent = createServerFn({ method: "POST" })
-  .inputValidator((input: { key: string; text: string; kind: "message" | "steer" | "dispatch" }) => input)
+  .validator((input: { key: string; text: string; kind: "message" | "steer" | "dispatch" }) => input)
   .handler(async ({ data }): Promise<SendResult> => {
     if (data.kind === "message") return { ok: false, accepted: false, reason: "message-unavailable" };
     try {
@@ -136,7 +136,7 @@ export const getFleet = createServerFn({ method: "GET" }).handler(async (): Prom
 });
 
 export const answerAgent = createServerFn({ method: "POST" })
-  .inputValidator((input: { key: string; text: string; questionId?: string }) => input)
+  .validator((input: { key: string; text: string; questionId?: string }) => input)
   .handler(async ({ data }): Promise<SendAck | DaemonDown> => {
     try {
       const { result } = await daemonRpc<SendAck>("answer", { target: data.key, text: data.text, questionId: data.questionId });
@@ -149,7 +149,7 @@ export const answerAgent = createServerFn({ method: "POST" })
 // The daemon exposes reset, reload and restart here; closing and aborting agents have
 // no daemon capability and therefore are not browser controls yet.
 export const controlAgent = createServerFn({ method: "POST" })
-  .inputValidator((input: { key: string; verb: LifecycleVerb }) => input)
+  .validator((input: { key: string; verb: LifecycleVerb }) => input)
   .handler(async ({ data }): Promise<{ ok: true; verb: LifecycleVerb } | DaemonDown> => {
     try {
       const { result } = await daemonRpc<{ ok: true; verb: LifecycleVerb }>("lifecycle", { target: data.key, verb: data.verb });
@@ -160,7 +160,7 @@ export const controlAgent = createServerFn({ method: "POST" })
   });
 
 export const setAgentModel = createServerFn({ method: "POST" })
-  .inputValidator((input: { key: string; model: string }) => input)
+  .validator((input: { key: string; model: string }) => input)
   .handler(async ({ data }): Promise<{ ok: true; applied: string } | DaemonDown> => {
     try {
       const { result } = await daemonRpc<{ ok: true; applied: string }>("set-model", { target: data.key, model: data.model });
@@ -192,7 +192,7 @@ export const getQuestions = createServerFn({ method: "GET" }).handler(async (): 
 });
 
 export const spawnAgents = createServerFn({ method: "POST" })
-  .inputValidator((input: SpawnAgentInput) => input)
+  .validator((input: SpawnAgentInput) => input)
   .handler(async ({ data }): Promise<SpawnAgentResult | DaemonDown> => {
     try {
       const { result } = await daemonRpc<SpawnAgentResult>("spawn-headless", data);

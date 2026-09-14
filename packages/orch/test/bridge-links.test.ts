@@ -36,8 +36,8 @@ function attach(key: string, link: BridgeLink): void {
 /** A live agent addressable by id and by name, so the registry can canonicalize either. */
 function liveAgent(name: string): string {
   const key = mintAgentId();
-  seedStatus(directory, key, { agent: "pi", pid: process.pid });
   seedAgent(key, { name }, directory);
+  seedStatus(directory, key, { agent: "pi", pid: process.pid });
   return key;
 }
 

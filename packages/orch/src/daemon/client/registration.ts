@@ -2,6 +2,7 @@ import type { OrchDir } from "../../types/core.ts";
 import { hostname } from "node:os";
 import { readFileSync } from "node:fs";
 import { callerSession } from "../../adapters/session-env.ts";
+import { OPERATOR_HARNESS_ID } from "../../policy/caller.ts";
 import { sessionProcessPid } from "../../identity/self.ts";
 import { allBackends } from "../../backends/registry.ts";
 import { endpointPaths } from "./wire.ts";
@@ -51,7 +52,7 @@ export function sessionClaim(orchDir: OrchDir, label?: string): SessionClaim {
   const token = readFileSync(endpointPaths(orchDir).token, "utf8").trim();
   const session = callerSession();
   const configuredHarness = nonEmpty(process.env.ORCH_HARNESS?.trim());
-  const harness = configuredHarness ?? session?.harnessId ?? "cli";
+  const harness = configuredHarness ?? session?.harnessId ?? OPERATOR_HARNESS_ID;
   const sessionToken = session?.sessionId ?? null;
   const environment = callerEnvironment();
   return {

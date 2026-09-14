@@ -5,10 +5,10 @@ import { join } from "node:path";
 // store is how a writer and a reader end up disagreeing about where a record
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
-import { presenceAgentDir, presenceRoot } from "./history.ts";
-import { agentView, agentViewIndex, agentViews } from "../store/agent-view.ts";
+import { presenceRoot } from "./history.ts";
+import { agentViewIndex, agentViews } from "../store/agent-view.ts";
 import { isAgentId } from "../backends/identity.ts";
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-rows.ts";
 import { agentProcessLive } from "../store/interval-rows.ts";
@@ -17,7 +17,7 @@ import { selectAgentStatus } from "../store/status-rows.ts";
 import { selectRuns } from "../store/run-rows.ts";
 import type { AgentView } from "../types/store.ts";
 import type { OrchDir } from "../types/core.ts";
-import type { DeadPresenceReapResult, PresenceEntry } from "../types/presence.ts";
+import type { PresenceEntry } from "../types/presence.ts";
 
 export function presenceDir(root: OrchDir): string {
   return presenceRoot(root);
@@ -70,17 +70,52 @@ export function spawnedRecords(root: OrchDir): Map<string, AgentView> {
   return index;
 }
 
-/** Reap one agent: the hub row (which cascades every satellite, lease and
- *  ending), its open writes, and its presence directory. There is no second id
- *  space to clean. A reaped agent reads nothing, so a write left open would
- *  retry on every drain tick forever. */
-export function reapSpawnedRecord(key: string, root: OrchDir, options: { agentId?: string } = {}): void {
-  const agentId = options.agentId ?? key;
-  if (agentId !== undefined) {
-    try { orm(root).delete(agents).where(eq(agents.id, agentId)).run(); } catch {}
+/** Delete one agent's hub row, which cascades every satellite, lease and
+ *  ending, and close its open writes: a reaped agent reads nothing, so a write
+ *  left open would retry on every drain tick forever. Its JSONL history under
+ *  the presence directory is untouched; that ages out on its own. */
+export function reapAgentRecord(agentId: string, root: OrchDir): void {
+  orm(root).delete(agents).where(eq(agents.id, agentId)).run();
+  closeOutboxForTarget(root, agentId);
+}
+
+/** A row that another row still points at (a task it enqueued, a lease it held)
+ *  cannot go yet. sqlite says so through this one message, which drizzle wraps
+ *  as the cause of its own query error. */
+function isForeignKeyRefusal(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.message.includes("FOREIGN KEY constraint failed")) return true;
+  return isForeignKeyRefusal(error.cause);
+}
+
+/** Every agent still named as a spawner by a remaining row. `agents.spawned_by`
+ *  has no ON DELETE CASCADE, so a parent goes only after its children. */
+function spawnerIds(root: OrchDir): Set<string> {
+  return new Set(orm(root).selectDistinct({ id: agents.spawnedBy }).from(agents)
+    .where(isNotNull(agents.spawnedBy)).all().flatMap((row) => row.id === null ? [] : [row.id]));
+}
+
+/** Delete the rows of every agent whose process is gone, children before
+ *  parents. An agent a remaining row still points at stays for a later sweep;
+ *  that is a reference holding, never a failure. Answers with the ids removed. */
+export function reapDeadAgentRecords(root: OrchDir): string[] {
+  const removed: string[] = [];
+  let dead = [...loadPresence(root).values()].filter((entry) => !entry.alive).map((entry) => entry.key);
+  while (dead.length > 0) {
+    const referenced = spawnerIds(root);
+    const leaves = dead.filter((id) => !referenced.has(id));
+    if (leaves.length === 0) break;
+    for (const id of leaves) {
+      try {
+        reapAgentRecord(id, root);
+        removed.push(id);
+      } catch (error: unknown) {
+        if (!isForeignKeyRefusal(error)) throw error;
+      }
+    }
+    dead = dead.filter((id) => !leaves.includes(id));
   }
-  closeOutboxForTarget(root, key);
-  removePresenceAgentDir(presenceAgentDir(key, root));
+  return removed;
 }
 
 /** Close every open write whose target has no live presence, answering with how
@@ -140,38 +175,28 @@ export function reapMalformedPresenceDirs(root: OrchDir): string[] {
   return removed;
 }
 
-/** Reap dead presence directories old enough for retention. This is the shared
- * path for daemon retention and `orch clean --force`; it also removes the agent
- * rows and closes their open writes. */
-export function reapDeadPresenceDirs(root: OrchDir, olderThan?: Date): DeadPresenceReapResult {
-  const removed: PresenceEntry[] = [];
-  const failed: { entry: PresenceEntry; error: unknown }[] = [];
-  const cutoffMs = olderThan?.getTime();
-  reapMalformedPresenceDirs(root);
-  for (const entry of loadPresence(root).values()) {
-    if (entry.alive) continue;
-    if (cutoffMs !== undefined) {
-      // Retention ages by instants recorded in the store, never filesystem age.
-      // Without a status row, the agent ages by its ending or creation instant.
-      const status = entry.status;
-      const view = agentView(root, entry.key);
-      if (view === null) continue;
-      const recorded = Math.max(
-        status?.updatedAt ?? view.createdAt,
-        status?.finishedAt ?? view.createdAt,
-        view.endedAt ?? view.createdAt,
-        view.createdAt,
-      );
-      if (recorded >= cutoffMs) continue;
-    }
-    try {
-      reapSpawnedRecord(entry.key, root);
-      removed.push(entry);
-    } catch (error: unknown) {
-      failed.push({ entry, error });
-    }
+/** The instant of the last append into a history directory. The JSONL files are
+ *  append-only, so the newest file mtime is the agent's last recorded activity. */
+function lastWriteMs(dir: string): number {
+  let latest = statSync(dir).mtimeMs;
+  for (const name of readdirSync(dir)) latest = Math.max(latest, statSync(join(dir, name)).mtimeMs);
+  return latest;
+}
+
+/** Remove the JSONL history of every agent that is not live, once its last
+ *  write is older than the cutoff. A live agent's directory is never touched.
+ *  A directory that names no agent is not history and goes at any age. */
+export function reapExpiredPresenceDirs(root: OrchDir, olderThan: Date): string[] {
+  const removed = reapMalformedPresenceDirs(root);
+  const live = new Set([...loadPresence(root).values()].filter((entry) => entry.alive).map((entry) => entry.key));
+  for (const name of presenceDirectoryNames(root)) {
+    if (live.has(name)) continue;
+    const dir = join(presenceDir(root), name);
+    if (lastWriteMs(dir) >= olderThan.getTime()) continue;
+    removePresenceAgentDir(dir);
+    removed.push(name);
   }
-  return { removed, failed };
+  return removed;
 }
 
 export function loadPresence(root: OrchDir): Map<string, PresenceEntry> {

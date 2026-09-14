@@ -25,14 +25,12 @@ import type { OrchDir } from "../src/types/core.ts";
 
 const dirs: OrchDir[] = [];
 const oldDir = process.env.ORCH_DIR;
-const oldOwner = process.env.ORCH_OWNER;
 const originalWrite = process.stdout.write.bind(process.stdout);
 
 afterEach(() => {
   process.stdout.write = originalWrite;
   closeAllStores();
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
-  if (oldOwner === undefined) delete process.env.ORCH_OWNER; else process.env.ORCH_OWNER = oldOwner;
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
@@ -46,7 +44,6 @@ function fixture(): OrchDir {
   dirs.push(dir);
   writeSettingsFixture(dir, fixtureSettings);
   process.env.ORCH_DIR = dir;
-  process.env.ORCH_OWNER = "orcha00001";
   seedSpace(dir, "space00001");
   return dir;
 }

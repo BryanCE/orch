@@ -6,6 +6,10 @@ import type { OrchDir } from "../types/core.ts";
 
 export type { CallerKind };
 
+/** The harness id an operator registers under: a bare shell driving orch, with no
+ *  adapter, no bridge and no shim. Doctor never asks it for one. */
+export const OPERATOR_HARNESS_ID = "cli";
+
 /** Classify the caller from its harness marker and, for workers, its claim. */
 export function callerKind(orchDir: OrchDir): CallerKind {
   const session = callerSession();

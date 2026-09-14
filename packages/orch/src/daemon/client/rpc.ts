@@ -162,6 +162,25 @@ export async function rpcCall<M extends RpcMethod>(
     socket.destroy();
   }
 }
+
+type IdentityHandshake =
+  | { method: "claim-identity"; params: ParamsOf<"claim-identity"> }
+  | { method: "register-session"; params: ParamsOf<"register-session"> };
+
+/** The identity request a subscribing process sends on each dial, read fresh
+ *  because a daemon restart mints a new token. A spawned agent IS the id in its
+ *  launch credential: with a session token it claims that id, without one it
+ *  sends nothing. Registering it as a session minted a second agent on the same
+ *  pane pid at every spawn. Only a session orch never spawned registers. */
+function identityHandshake(orchDir: OrchDir): IdentityHandshake | undefined {
+  const credential = launchCredential();
+  const claim = sessionClaim(orchDir);
+  if (credential === null) return { method: "register-session", params: claim };
+  const sessionToken = nonEmpty(typeof claim.sessionToken === "string" ? claim.sessionToken : undefined);
+  if (sessionToken === undefined) return undefined;
+  return { method: "claim-identity", params: { ...claim, id: credential, sessionToken } };
+}
+
 /**
  * Subscribe to daemon-pushed events, self-healing across daemon restarts. The
  * socket dying is the disconnect signal: on close or error the subscription
@@ -241,19 +260,9 @@ export function subscribeEvents(
         });
         connected.once("error", onDisconnect);
         connected.once("close", onDisconnect);
-        // Re-register bridge sessions on every daemon instance. The token is
-        // read fresh because a restart mints a new credential; this handshake
-        // shares the same socket as the event subscription.
         if (identify) {
-          // The token is read fresh because a restart mints a new credential.
-          const credential = launchCredential();
-          const claim = sessionClaim(orchDir);
-          const sessionToken = nonEmpty(typeof claim.sessionToken === "string" ? claim.sessionToken : undefined);
-          if (credential !== null && sessionToken !== undefined) {
-            connected.write(encodeRequest(nextId(), "claim-identity", { ...claim, id: credential, sessionToken }));
-          } else {
-            connected.write(encodeRequest(nextId(), "register-session", claim));
-          }
+          const handshake = identityHandshake(orchDir);
+          if (handshake !== undefined) connected.write(encodeRequest(nextId(), handshake.method, handshake.params));
         }
         // The first dial honours the caller's `since` (undefined = live only).
         // Durable sequence numbers survive daemon restarts, so reconnects resume

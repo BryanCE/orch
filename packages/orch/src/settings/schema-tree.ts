@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { SETTINGS_FILE_SCHEMA } from "./schema.ts";
-import { isRecord } from "../util.ts";
+import { isRecord, isUnknownArray } from "../util.ts";
 
 /**
  * The settings schema as a walkable tree.
@@ -19,11 +19,30 @@ export interface JsonSchemaNode {
   readonly minimum?: number;
   readonly exclusiveMinimum?: number;
   readonly maximum?: number;
+  /** The node also accepts null: zod's `.nullable()`, emitted as `anyOf [node, null]`. */
+  readonly nullable?: boolean;
 }
 
-export function jsonSchemaNode(value: unknown): JsonSchemaNode | null {
-  if (!isRecord(value)) return null;
+function isNullNode(value: unknown): boolean {
+  return isRecord(value) && value.type === "null";
+}
+
+/** The one non-null branch of a nullable node, or the value itself when it is not one. */
+function nullableBranch(value: Record<string, unknown>): { node: unknown; nullable: boolean } {
+  const branches: unknown = value.anyOf;
+  if (!isUnknownArray(branches) || branches.length !== 2) return { node: value, nullable: false };
+  const node: unknown = branches.find((branch) => !isNullNode(branch));
+  if (node === undefined || !branches.some(isNullNode)) return { node: value, nullable: false };
+  return { node, nullable: true };
+}
+
+export function jsonSchemaNode(candidate: unknown): JsonSchemaNode | null {
+  if (!isRecord(candidate)) return null;
+  const { node, nullable } = nullableBranch(candidate);
+  if (!isRecord(node)) return null;
+  const value = node;
   return {
+    nullable,
     type: typeof value.type === "string" ? value.type : undefined,
     enum: Array.isArray(value.enum) ? value.enum : undefined,
     constant: value.const,

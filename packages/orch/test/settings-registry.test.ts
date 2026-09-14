@@ -1,4 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
+import type { SettingSpec } from "../src/types/settings.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
@@ -8,6 +9,7 @@ import { SETTINGS_FILE_SCHEMA, settingsPath } from "../src/settings/schema.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFullTree } from "../src/settings/write.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
+import { parseSettingValue } from "../src/settings/parse.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const dirs: OrchDir[] = [];
@@ -21,6 +23,13 @@ function tempDir(): OrchDir {
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop() ?? "");
 });
+
+/** The registry entry for a key the test knows exists. */
+function registered(key: string): SettingSpec {
+  const setting = SETTINGS_REGISTRY.find((entry) => entry.key === key);
+  if (setting === undefined) throw new Error(`no registered setting ${key}`);
+  return setting;
+}
 
 interface SchemaWithShape { readonly shape?: Record<string, unknown> }
 
@@ -153,6 +162,30 @@ describe("settings registry", () => {
     writeRegisteredSetting(fileSettingsManager(directory), "fleet.max_depth", 2);
     const raw: unknown = JSON.parse(readFileSync(settingsPath(directory), "utf8"));
     expect(raw).toMatchObject({ fleet: { max_depth: 2 } });
+  });
+
+  test("retention.ended_agents_days is an integer that accepts none", () => {
+    const setting = registered("retention.ended_agents_days");
+    expect(setting.type).toMatchObject({ kind: "integer", min: 1, none: true });
+    expect(parseSettingValue(setting, "none")).toEqual({ ok: true, value: null });
+    expect(parseSettingValue(setting, "30")).toEqual({ ok: true, value: 30 });
+    expect(parseSettingValue(setting, "forever").ok).toBe(false);
+  });
+
+  test("retention.ended_agents_days writes null and reads it back as null", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, completeSettings());
+    writeRegisteredSetting(fileSettingsManager(directory), "retention.ended_agents_days", null);
+    const raw: unknown = JSON.parse(readFileSync(settingsPath(directory), "utf8"));
+    expect(raw).toMatchObject({ retention: { ended_agents_days: null } });
+    expect(fileSettingsManager(directory).current().retention.ended_agents_days).toBeNull();
+  });
+
+  test("an integer without none refuses none", () => {
+    const setting = registered("retention.queue_days");
+    expect(setting.type).toMatchObject({ kind: "integer", min: 1 });
+    expect(setting.type).not.toHaveProperty("none");
+    expect(parseSettingValue(setting, "none").ok).toBe(false);
   });
 
   test("contains no duplicate keys", () => {

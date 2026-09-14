@@ -1,11 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
+import { seedOperator, seedOrch } from "./helpers/agent.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -20,9 +22,11 @@ import type { OrchDir } from "../src/types/core.ts";
  * class of bug (1.1, 1.2), and it is only fixed when the second writer is GONE —
  * which means the first must be sufficient on its own.
  */
-const oldOrchDir = process.env.ORCH_DIR;
-const oldOwner = process.env.ORCH_OWNER;
 const dirs: OrchDir[] = [];
+
+// The runner spawns as the operator: a registered parent process and nothing
+// else names the owner (Rule 19).
+beforeEach(isolateOrchEnv);
 
 function tempOrchDir(): OrchDir {
   const dir = freshOrchDir("orch-one-writer-");
@@ -34,10 +38,7 @@ function tempOrchDir(): OrchDir {
 afterEach(() => {
   closeAllStores();
   while (dirs.length) removeTempDir(dirs.pop()!);
-  if (oldOrchDir === undefined) delete process.env.ORCH_DIR;
-  else process.env.ORCH_DIR = oldOrchDir;
-  if (oldOwner === undefined) delete process.env.ORCH_OWNER;
-  else process.env.ORCH_OWNER = oldOwner;
+  restoreOrchEnv();
 });
 
 describe("one writer records a spawned agent (2.1)", () => {
@@ -46,6 +47,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     seedSpace(dir, "wsOne");
     const key = mintAgentId();
     const owner = mintAgentId();
+    seedOrch(dir, owner);
 
     registerSpawnedAgent(dir, {
       key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%3",
@@ -63,8 +65,7 @@ describe("one writer records a spawned agent (2.1)", () => {
   test("a spawn leaves NOTHING for a second writer to fill in", () => {
     const dir = tempOrchDir();
     seedSpace(dir, "wsTwo");
-    const owner = mintAgentId();
-    process.env.ORCH_OWNER = owner;
+    const owner = seedOperator(dir);
 
     const agent = spawnOneIntoTab(dir, {
       backend: new FakePanedBackend({ id: "herdr" }),
@@ -91,7 +92,7 @@ describe("one writer records a spawned agent (2.1)", () => {
   // is what the pane host receives; orch's space is never handed to the plexer.
   test("a spawn into NO space records no space and hands the plexer only its coordinate", () => {
     const dir = tempOrchDir();
-    process.env.ORCH_OWNER = mintAgentId();
+    seedOperator(dir);
     const backend = new FakePanedBackend({ id: "herdr" });
 
     const agent = spawnOneIntoTab(dir, {

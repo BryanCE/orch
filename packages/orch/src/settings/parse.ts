@@ -11,7 +11,8 @@ function parseBooleanSetting(input: string): SettingValueResult {
 }
 
 function parseIntegerSetting(kind: Extract<SettingKind, { readonly kind: "integer" }>, input: string): SettingValueResult {
-  if (!/^-?\d+$/.test(input)) return { ok: false, reason: "expected an integer" };
+  if (kind.none && input === "none") return { ok: true, value: null };
+  if (!/^-?\d+$/.test(input)) return { ok: false, reason: kind.none ? "expected an integer or none" : "expected an integer" };
   const value = Number(input);
   if (!Number.isSafeInteger(value)) return { ok: false, reason: "expected a safe integer" };
   if (kind.min !== undefined && value < kind.min) return { ok: false, reason: `expected an integer >= ${kind.min}` };

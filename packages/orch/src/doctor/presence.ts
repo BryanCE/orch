@@ -3,7 +3,6 @@ import * as filesystem from "node:fs";
 import { basename } from "node:path";
 import { loadPresence, malformedPresenceDirs, presenceDir } from "../presence/store.ts";
 import { presenceAgentDir } from "../presence/history.ts";
-import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
 import { truncate } from "../util.ts";
 import { agentView } from "../store/agent-view.ts";
@@ -23,26 +22,18 @@ function humanAge(ms: number): string {
 }
 
 export function checkMalformedPresenceRecords(orchDir: OrchDir): CheckResult {
-  const entries = loadPresence(orchDir);
-  if (!entries.size && !filesystem.existsSync(presenceDir(orchDir))) {
+  if (!filesystem.existsSync(presenceDir(orchDir))) {
     return { id: "malformed-presence", label: "Malformed presence records", status: "ok", detail: "no presence records", ignoredRecords: [] };
   }
 
-  const ignoredRecords: IgnoredPresenceRecord[] = [];
   // The directory name IS the agent id: anything else — a
   // `<plexer>~<grouping>~<id>` key, a pane handle, a name — is a record no agent
   // answers to, whatever wrote it. `loadPresence` skips those entirely, because
   // they are not presence; doctor is the one caller that must SEE them, so it
   // reads the raw directory names instead of pretending they are entries.
-  for (const malformed of malformedPresenceDirs(orchDir)) {
-    ignoredRecords.push({ path: malformed.dir, reason: "malformed identity key" });
-  }
-  for (const entry of entries.values()) {
-    const reasons: string[] = [];
-    if (entry.status === null) reasons.push(`missing or invalid schema (expected ${PRESENCE_SCHEMA})`);
-    if (!reasons.length) continue;
-    ignoredRecords.push({ path: presenceAgentDir(entry.key, orchDir), reason: reasons.join("; ") });
-  }
+  // An agent with no status row is not malformed: a driving session never reports one.
+  const ignoredRecords: IgnoredPresenceRecord[] = malformedPresenceDirs(orchDir)
+    .map((malformed) => ({ path: malformed.dir, reason: "malformed identity key" }));
 
   if (ignoredRecords.length) {
     return {

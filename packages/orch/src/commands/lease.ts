@@ -1,7 +1,6 @@
 import { deriveDriveState, DEAD_HOLDER_DRIVER } from "../agent/drive-state.ts";
 import { formatTimestamp } from "../format.ts";
-import { removePresenceAgentDir } from "../presence/store.ts";
-import { presenceAgentDir } from "../presence/history.ts";
+import { reapAgentRecord } from "../presence/store.ts";
 import { rpcRegisterSession } from "../daemon/client/reach.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { asc, eq } from "drizzle-orm";
@@ -163,12 +162,9 @@ export function reapAgent(directory: OrchDir, target: string, now = Date.now()):
     throw new Error(`Cannot reap ${displayName(agent)}: process is still running; close first.`);
   }
   // Foreign leases never gate ending/reaping. Delete descendants first because
-  // agents.spawned_by intentionally has no ON DELETE CASCADE.
-  const db = orm(directory);
-  for (const child of [...descendants].reverse()) db.delete(agents).where(eq(agents.id, child.id)).run();
-  db.delete(agents).where(eq(agents.id, agent.id)).run();
-  for (const child of descendants) removePresenceAgentDir(presenceAgentDir(child.id, directory));
-  removePresenceAgentDir(presenceAgentDir(agent.id, directory));
+  // agents.spawned_by intentionally has no ON DELETE CASCADE. JSONL history stays.
+  for (const child of [...descendants].reverse()) reapAgentRecord(child.id, directory);
+  reapAgentRecord(agent.id, directory);
   return { id: agent.id, name: displayName(agent), reaped: true };
 }
 

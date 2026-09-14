@@ -36,7 +36,7 @@ export interface OrchSettings {
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[] };
   queue: { max_retries: number };
-  retention: { ended_agents_days: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };
+  retention: { ended_agents_days: number | null; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };
   lock: { retries: number; interval_ms: number; stale_ms: number };
   questions?: { renag_ms: number; renag_limit: number };
   logging?: { level: LogLevel };
@@ -79,7 +79,8 @@ export type SettingSource = "flag" | "env" | "settings.json" | "default";
 
 export type SettingKind =
   | { readonly kind: "boolean" }
-  | { readonly kind: "integer"; readonly min?: number; readonly max?: number }
+  /** `none` is accepted when the setting may be switched off; it is stored as null. */
+  | { readonly kind: "integer"; readonly min?: number; readonly max?: number; readonly none?: true }
   | { readonly kind: "choice"; readonly choices: readonly string[] }
   | { readonly kind: "multi"; readonly choices: readonly string[] }
   /** A pick-list of delivery sinks. Each picked sink is an object: its id, the one value

@@ -32,9 +32,11 @@ describe("commands/clean", () => {
       seedLiveProcess(root, "liveagent1");
       seedStatus(root, "liveagent1", {});
       ensurePresenceAgentDir("liveagent1", root);
-      expect(removeDeadAgentDirs(testServices({ orchDir: root, settings: null }), true, { root })).toEqual(["deadagent1"]);
+      expect(removeDeadAgentDirs(true, root)).toEqual(["deadagent1"]);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
+      expect(loadPresence(root).has("deadagent1")).toBe(false);
+      expect(loadPresence(root).has("liveagent1")).toBe(true);
     } finally { closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 

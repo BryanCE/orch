@@ -44,11 +44,6 @@ export interface AgentFacts {
   spawnedByLabel?: string;
 }
 
-export interface DeadPresenceReapResult {
-  removed: PresenceEntry[];
-  failed: { entry: PresenceEntry; error: unknown }[];
-}
-
 /** A presence protocol record. Domain name for the shared JSON record shape. */
 export type PresenceRecord = JsonRecord;
 

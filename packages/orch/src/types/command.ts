@@ -4,13 +4,6 @@ import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentEnvironment, AgentView } from "./store.ts";
 import type { Entity, LogLevel, OrchDir, WorkerHeaderContext } from "./core.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
-export interface DeadAgentSweepOptions {
-  /** Root to inspect; omitted for the operator's configured ORCH_DIR. */
-  root?: OrchDir;
-  /** Only reap directories whose mtime is before this cutoff. */
-  olderThan?: Date;
-}
-
 export interface DispatchToAgentOptions {
   raw?: boolean;
   adapter?: AgentAdapter;

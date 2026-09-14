@@ -6,6 +6,7 @@ import { errorMessage } from "../util.ts";
 import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
+import { OPERATOR_HARNESS_ID } from "../policy/caller.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
 import { describeBackendEnvironments, checkBackendVersions } from "./backends.ts";
 import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";
@@ -55,6 +56,8 @@ async function checkLiveFleetPairs(orchDir: OrchDir, settings: OrchSettings, log
     if (!entry.alive) continue;
     const view = agentView(orchDir, entry.key);
     const adapter = view?.harnessId;
+    // An operator shell is an agent with no adapter behind it; there is no shim to check.
+    if (adapter === OPERATOR_HARNESS_ID) continue;
     const backend = view?.environment.plexer;
     if (adapter && backend) pairs.add(`${adapter}\u0000${backend}`);
   }

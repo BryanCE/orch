@@ -113,7 +113,7 @@ describe("composition happens only at roots (checkCompositionRootLine)", () => {
     for (const relPath of [
       "src/commands/index.ts",
       "src/commands/setup.ts",
-      "src/daemon/" + "orchd.ts",
+      "src/daemon/server/orchd.ts",
       "extensions/pi/index.ts",
       "extensions/omp/index.ts",
       "scripts/retire-daemon.ts",

@@ -34,7 +34,7 @@ function kindFor(key: string): SettingKind {
   if (node.type === "integer") {
     const min = node.minimum ?? (node.exclusiveMinimum === undefined ? undefined : node.exclusiveMinimum + 1);
     const max = node.maximum;
-    return { kind: "integer", ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }) };
+    return { kind: "integer", ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }), ...(node.nullable ? { none: true } : {}) };
   }
   if (node.type === "array") {
     const item = jsonSchemaNode(node.items);
@@ -163,7 +163,7 @@ const HELP: Readonly<Record<string, string>> = {
   "workers.verify_commands": "Commands a worker runs to verify its own slice before it reports.",
   "queue.max_retries": "Maximum retries for queued tasks.",
   "logging.level": "Minimum level written to logs.",
-  "retention.ended_agents_days": "Days to retain ended agents.",
+  "retention.ended_agents_days": "Days to keep a gone agent's JSONL history under $ORCH_DIR/agents; none keeps it forever.",
   "retention.queue_days": "Days to retain settled queue tasks.",
   "retention.events_days": "Days to retain events.",
   "retention.runs_days": "Days to retain completed runs.",

@@ -113,9 +113,11 @@ export function requireEnabledComposition(file: string, root: SettingsFile): voi
   }
 }
 
-/** Keep section extractors declarative; each field follows the same absent-value rule. */
+/** Keep section extractors declarative; each field follows the same absent-value rule.
+ *  Only an ABSENT field takes the default: a stored null is the user's own choice. */
 function settingOr<T>(value: T | undefined, fallback: T): T {
-  return value ?? fallback;
+  if (value === undefined) return fallback;
+  return value;
 }
 
 /** Extract each settings section independently so adding a field cannot grow one branch ladder. */

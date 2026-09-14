@@ -12,7 +12,7 @@ import { peerView } from "../src/daemon/server/peer-view.ts";
 import { selfIdentity } from "../src/identity/self.ts";
 import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { presenceAgentDir } from "../src/presence/history.ts";
+import { ensurePresenceAgentDir, presenceAgentDir } from "../src/presence/history.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { claimAgent, ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
@@ -45,7 +45,6 @@ const COMPOSITE_KEY = "headless~local~7x5hd4h610";
 const directories: OrchDir[] = [];
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
-const originalSessionKey = process.env.ORCH_SESSION_KEY;
 const originalHarnessMarker = process.env[HARNESS_SESSION_ENV.pi.marker];
 const originalSessionId = process.env[HARNESS_SESSION_ENV.pi.sessionId];
 
@@ -62,8 +61,6 @@ afterEach(() => {
   else process.env.ORCH_DIR = originalOrchDir;
   if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
   else process.env[LAUNCH_ENV] = originalAgentKey;
-  if (originalSessionKey === undefined) delete process.env.ORCH_SESSION_KEY;
-  else process.env.ORCH_SESSION_KEY = originalSessionKey;
   if (originalHarnessMarker === undefined) delete process.env[HARNESS_SESSION_ENV.pi.marker];
   else process.env[HARNESS_SESSION_ENV.pi.marker] = originalHarnessMarker;
   if (originalSessionId === undefined) delete process.env[HARNESS_SESSION_ENV.pi.sessionId];
@@ -152,8 +149,7 @@ describe("this process's own identity is the id and nothing else", () => {
 describe("the fleet wall is lifted by the absence of a launch, not by a key's shape", () => {
   /** Two agents in one space, in two different projects. The wall is what keeps
    *  a worker's `all` flag from reaching the other project's fleet. */
-  function twoProjects(ownKey: string): { directory: OrchDir; foreignKey: string } {
-    const directory = tempOrchDir();
+  function twoProjects(directory: OrchDir, ownKey: string): string {
     seedStatus(directory, ownKey, { agent: "pi", label: "caller", pid: process.pid, state: "idle" });
     const foreignKey = mintAgentId();
     seedStatus(directory, foreignKey, {
@@ -163,15 +159,16 @@ describe("the fleet wall is lifted by the absence of a launch, not by a key's sh
       state: "working",
       project: "/some/other/project",
     });
-    return { directory, foreignKey };
+    return foreignKey;
   }
 
   test("an agent orch launched may not cross into another project's fleet", () => {
+    const directory = tempOrchDir();
     const ownKey = mintAgentId();
-    const { directory, foreignKey } = twoProjects(ownKey);
-    const sessionToken = "agent-key-session";
     seedAgent("rootagent1", { adapter: "pi" }, directory);
     seedAgent(ownKey, { adapter: "pi", spawnedBy: "rootagent1" }, directory);
+    const foreignKey = twoProjects(directory, ownKey);
+    const sessionToken = "agent-key-session";
     expect(claimAgent(directory, ownKey, sessionToken, 1)).toEqual({ kind: "stamped" });
     process.env[LAUNCH_ENV] = ownKey;
     process.env[HARNESS_SESSION_ENV.pi.marker] = "1";
@@ -218,15 +215,18 @@ describe("who drives an agent is looked up by its id", () => {
 describe("doctor reads a presence directory name as an id", () => {
   test("a composite directory name is a malformed identity key", () => {
     const directory = tempOrchDir();
-    seedStatus(directory, COMPOSITE_KEY, { schema: PRESENCE_SCHEMA, agent: "pi", pid: DEAD_PID, state: "idle" });
+    ensurePresenceAgentDir(COMPOSITE_KEY, directory);
     const result = checkMalformedPresenceRecords(directory);
     expect(result.status).toBe("fail");
     expect(result.ignoredRecords?.[0]?.reason).toContain("malformed identity key");
   });
 
-  test("a minted id with a current stamp is well formed", () => {
+  test("a minted id is well formed, with or without a status row", () => {
     const directory = tempOrchDir();
-    seedStatus(directory, mintAgentId(), { schema: PRESENCE_SCHEMA, agent: "pi", pid: DEAD_PID, state: "idle" });
+    const reported = mintAgentId();
+    ensurePresenceAgentDir(reported, directory);
+    seedStatus(directory, reported, { schema: PRESENCE_SCHEMA, agent: "pi", pid: DEAD_PID, state: "idle" });
+    ensurePresenceAgentDir(mintAgentId(), directory);
     const result = checkMalformedPresenceRecords(directory);
     expect(result.status).toBe("ok");
     expect(result.ignoredRecords).toEqual([]);

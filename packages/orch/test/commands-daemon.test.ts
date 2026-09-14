@@ -28,7 +28,7 @@ describe("commands/daemon", () => {
         uptimeSec: 1,
         codeHash: "h",
         socket: "s",
-        subsystems: { workLoop: "running", presenceWatch: "running", settingsWatch: "running" },
+        subsystems: { workLoop: "running", livenessTick: "running", settingsWatch: "running" },
       }).success).toBe(true);
       expect(RPC_RESULTS["daemon-status"].safeParse({ pid: "1" }).success).toBe(false);
     } finally {

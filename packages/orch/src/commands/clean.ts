@@ -1,7 +1,5 @@
 import * as path from "node:path";
-import { closeOutboxForDeadTargets, loadPresence, reapDeadPresenceDirs, reapMalformedPresenceDirs, spawnedRecords } from "../presence/store.ts";
-import { presenceAgentDir } from "../presence/history.ts";
-import { isAgentId } from "../backends/identity.ts";
+import { closeOutboxForDeadTargets, loadPresence, reapDeadAgentRecords, reapExpiredPresenceDirs, reapMalformedPresenceDirs, spawnedRecords } from "../presence/store.ts";
 import { livePresenceHolders } from "../store/connection.ts";
 import { errorMessage } from "../util.ts";
 import {
@@ -19,7 +17,6 @@ import type { AgentView } from "../types/store.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
 import type { PresenceEntry } from "../types/presence.ts";
-import type { DeadAgentSweepOptions } from "../types/command.ts";
 
 /** Whether a live agent still runs from this worktree.
  *
@@ -128,19 +125,15 @@ function nothingToReapMessage(root: OrchDir): string {
     + `--force reaps DEAD agents only; close them first ('orch close --all'), then retry.\n`;
 }
 
-export function removeDeadAgentDirs(services: Services, json: boolean, options: DeadAgentSweepOptions & { root: OrchDir }): string[] {
-  const result = reapDeadPresenceDirs(options.root, options.olderThan);
-  for (const failure of result.failed) {
-    const message = errorMessage(failure.error);
-    const log = isAgentId(failure.entry.key) ? services.logger.forAgent(failure.entry.key) : services.logger;
-    const directory = presenceAgentDir(failure.entry.key, options.root);
-    log.error("clean.presence-remove-failed", { path: directory, error: message });
-    process.stdout.write(`failed to remove ${directory}: ${message}\n`);
-  }
-  const removed = result.removed.map((entry) => entry.key);
+/** `--force` is the operator's "now": every gone agent's rows and every dead
+ *  agent's JSONL history go at once, with no retention window. */
+export function removeDeadAgentDirs(json: boolean, root: OrchDir, now = new Date()): string[] {
+  const reaped = reapDeadAgentRecords(root);
+  const removed = reapExpiredPresenceDirs(root, now);
   if (!json) {
+    if (reaped.length) process.stdout.write("Reaped dead agents:\n" + reaped.map((r) => "  " + r).join("\n") + "\n");
     if (removed.length) process.stdout.write("Removed dead agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
-    else process.stdout.write(nothingToReapMessage(options.root));
+    if (!reaped.length && !removed.length) process.stdout.write(nothingToReapMessage(root));
   }
   return removed;
 }
@@ -156,7 +149,7 @@ export function cmdClean(services: Services, args: string[]) {
   const options = validateCleanArgs(args.filter((arg) => arg !== "--json"));
   const malformed = removeMalformedAgentDirs(json, services.orchDir);
   const closed = closeDeadAgentWrites(json, services.orchDir);
-  const removed = options.force ? removeDeadAgentDirs(services, json, { root: services.orchDir }) : [];
+  const removed = options.force ? removeDeadAgentDirs(json, services.orchDir) : [];
   const worktrees = options.worktrees ? cleanWorktrees(services.orchDir, services.logger, options.force, json) : 0;
   if (json) process.stdout.write(JSON.stringify({ malformed, closed, removed, worktrees }) + "\n");
 }

@@ -7,6 +7,8 @@ import { subscribeEvents } from "../src/daemon/client/rpc.ts";
 import type { EventSubscription, RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { agentViews } from "../src/store/agent-view.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 type RpcEvent = Parameters<RpcServer["emit"]>[0];
@@ -135,6 +137,51 @@ describe("subscribeEvents reconnect", () => {
       await delay(1_000);
       expect(received.map((event) => event.key)).toEqual(["one"]);
     } finally {
+      await server?.close();
+      removeTempDir(orchDir);
+    }
+  });
+});
+
+describe("subscribeEvents identity handshake", () => {
+  test("a spawned agent never registers as a session", async () => {
+    const orchDir: OrchDir = tempOrchDir("orchd-rpc-identify-spawned-");
+    const previous = process.env[LAUNCH_ENV];
+    process.env[LAUNCH_ENV] = mintAgentId();
+    let server: RpcServer | undefined;
+    let subscription: EventSubscription | undefined;
+    const received: RpcEvent[] = [];
+    try {
+      server = await startRpcServer(orchDir, stubRpcHandlers());
+      subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event), undefined, true);
+      server.emit(transitionEvent({ key: "one" }));
+      await waitFor(() => received, 1);
+      expect(agentViews(orchDir)).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env[LAUNCH_ENV];
+      else process.env[LAUNCH_ENV] = previous;
+      subscription?.close();
+      await server?.close();
+      removeTempDir(orchDir);
+    }
+  });
+
+  test("a session without a launch credential registers once", async () => {
+    const orchDir: OrchDir = tempOrchDir("orchd-rpc-identify-session-");
+    const previous = process.env[LAUNCH_ENV];
+    delete process.env[LAUNCH_ENV];
+    let server: RpcServer | undefined;
+    let subscription: EventSubscription | undefined;
+    const received: RpcEvent[] = [];
+    try {
+      server = await startRpcServer(orchDir, stubRpcHandlers());
+      subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event), undefined, true);
+      server.emit(transitionEvent({ key: "one" }));
+      await waitFor(() => received, 1);
+      expect(agentViews(orchDir)).toHaveLength(1);
+    } finally {
+      if (previous !== undefined) process.env[LAUNCH_ENV] = previous;
+      subscription?.close();
       await server?.close();
       removeTempDir(orchDir);
     }

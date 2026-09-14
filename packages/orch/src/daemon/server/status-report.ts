@@ -8,6 +8,8 @@ import { agentProcessLive } from "../../store/interval-rows.ts";
 import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../../store/status-rows.ts";
 import { upsertRun } from "../../store/run-rows.ts";
 import { appendStatusHistory, ensurePresenceAgentDir, writeResult } from "../../presence/history.ts";
+import { reapDeadAgentRecords } from "../../presence/store.ts";
+import { decisionLogger } from "../client/decision-log.ts";
 import { askingEventFromRow, transitionEventFromRow } from "./status-events.ts";
 
 const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited", "idle"]);
@@ -111,6 +113,9 @@ export function startLivenessTick(
   intervalMs: number,
   publish: (event: NotifyEvent) => void,
 ): { stop(): void } {
+  // An agent is alive while its harness process runs. Once it is gone its
+  // exit is announced and its rows leave the store; the JSONL history keeps
+  // what it did.
   const tick = (): void => {
     for (const row of selectAgentStatuses(orchDir)) {
       if (row.state === "exited" || !isAgentState(row.state)) continue;
@@ -119,6 +124,8 @@ export function startLivenessTick(
       const updated = mergeAgentStatus(orchDir, row.agentId, { state: "exited", finishedAt: now }, now);
       publish(transitionEventFromRow(orchDir, updated.current, row.state, "exited", new Date(now)));
     }
+    const reaped = reapDeadAgentRecords(orchDir);
+    if (reaped.length > 0) decisionLogger(orchDir, null).info("agents.reaped", { agents: reaped.join(",") });
   };
   const timer = setInterval(tick, intervalMs);
   timer.unref?.();

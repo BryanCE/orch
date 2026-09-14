@@ -2,16 +2,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle";
-import { daemonRuntimeFiles } from "../src/daemon/runtime-files";
+import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/client/process";
+import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { DaemonAbsentError, DaemonUnreachableError } from "../src/daemon/rpc/wire.ts";
-import { ReplayBuffer } from "../src/daemon/rpc/replay.ts";
-import { isRegisterSessionResponse } from "../src/daemon/rpc/registration.ts";
-import { rpcCall, subscribeEvents } from "../src/daemon/rpc/client.ts";
+import { DaemonAbsentError, DaemonUnreachableError } from "../src/daemon/client/wire.ts";
+import { ReplayBuffer } from "../src/daemon/server/replay.ts";
+import { isRegisterSessionResponse } from "../src/daemon/client/registration.ts";
+import { rpcCall, subscribeEvents } from "../src/daemon/client/rpc.ts";
 import { openJsonLineLink, readPortFile, type JsonLineLink } from "../src/presence/socket-client.ts";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
-import { rpcRegisterSession } from "../src/daemon/reach.ts";
+import { startRpcServer } from "../src/daemon/server/rpc.ts";
+import { rpcRegisterSession } from "../src/daemon/client/reach.ts";
 import { endAgent, ensureHarness, insertAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { outboxMessageState, selectOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
@@ -149,7 +149,7 @@ async function startRealDaemon(dir: OrchDir, settings: Record<string, unknown>):
   const previousEntrypoint = process.env.ORCHD_ENTRYPOINT;
   process.env.ORCH_DIR = dir;
   process.env.ORCH_DAEMON_DISCOVERY_DIR = discovery;
-  process.env.ORCHD_ENTRYPOINT = join(import.meta.dir, "../src/daemon/orchd.ts");
+  process.env.ORCHD_ENTRYPOINT = join(import.meta.dir, "../src/daemon/server/orchd.ts");
   writeSettingsFixture(dir, settings);
   await rpcRegisterSession(dir, testServices({ orchDir: dir, settings }).logger);
   return async () => {
@@ -206,7 +206,7 @@ describe("daemon RPC", () => {
     const previousEntrypoint = process.env.ORCHD_ENTRYPOINT;
     process.env.ORCH_DIR = dir;
     process.env.ORCH_DAEMON_DISCOVERY_DIR = discovery;
-    process.env.ORCHD_ENTRYPOINT = join(import.meta.dir, "../src/daemon/orchd.ts");
+    process.env.ORCHD_ENTRYPOINT = join(import.meta.dir, "../src/daemon/server/orchd.ts");
     writeSettingsFixture(dir, { defaults: { adapter: "claude" } });
     // A1: the target IS the minted id. The plexer that cannot reach it and the
     // space it is not in are environment, composed from their own tables.
@@ -506,7 +506,11 @@ describe("daemon RPC", () => {
   test("dispatch reports unavailable while a live agent has no bridge", async () => {
     const dir = tempOrchDir();
     const target = mintAgentId();
-    seedStatus(dir, target, { agent: "pi", pid: process.pid, state: "working" });
+    const spawner = mintAgentId();
+    seedAgent(spawner, { adapter: "pi" }, dir);
+    seedAgent(target, { adapter: "pi", spawnedBy: spawner }, dir);
+    seedLiveProcess(dir, target);
+    seedStatus(dir, target, { agent: "pi", state: "working" });
     const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" }, timeouts: { dispatch_ack_ms: 10 } });
     try {
       const result = await rpcCall(dir, "dispatch", { target, text: "queued" });

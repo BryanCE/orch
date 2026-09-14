@@ -1,9 +1,9 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { acceptMail } from "../src/daemon/mail.ts";
-import { deliverTaskResult } from "../src/daemon/result-delivery.ts";
-import { isBridgeMessage } from "../src/control/bridge-message.ts";
+import { acceptMail } from "../src/daemon/server/mail.ts";
+import { deliverTaskResult } from "../src/daemon/server/result-delivery.ts";
+import { isMailMessage } from "../src/control/bridge-message.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { enqueueTask, insertAttempt, settleAttempt, taskState } from "../src/store/task-rows.ts";
@@ -67,8 +67,8 @@ describe("results go to the enqueuer as mail", () => {
     expect(row).toBeDefined();
     if (row === undefined) throw new Error("result mail row was not queued");
     const payload = row.payload;
-    expect(isBridgeMessage(payload)).toBe(true);
-    if (!isBridgeMessage(payload) || payload.action !== "steer") throw new Error("result payload is not a steer message");
+    expect(isMailMessage(payload)).toBe(true);
+    if (!isMailMessage(payload)) throw new Error("result payload is not mail");
     expect(payload.text).toContain("survey the repo");
     expect(payload.text).toContain('"findings":3');
     expect(payload.text).toContain("runner");
@@ -85,8 +85,8 @@ describe("results go to the enqueuer as mail", () => {
     expect(row).toBeDefined();
     if (row === undefined) throw new Error("failed result mail row was not queued");
     const payload = row.payload;
-    expect(isBridgeMessage(payload)).toBe(true);
-    if (!isBridgeMessage(payload) || payload.action !== "steer") throw new Error("failed result payload is not a steer message");
+    expect(isMailMessage(payload)).toBe(true);
+    if (!isMailMessage(payload)) throw new Error("failed result payload is not mail");
     expect(payload.text).toContain("the tool blew up");
   });
 
@@ -122,15 +122,14 @@ describe("acceptMail", () => {
     expect(() => acceptMail(directory, settingsFor(directory), "asker", "runner", "\t")).toThrow("text is required");
   });
 
-  test("queues a BridgeMessage steer payload", () => {
+  test("queues a mail payload naming its sender, routed by direction when it is delivered", () => {
     const directory = fixture();
     const accepted = acceptMail(directory, settingsFor(directory), "asker", "runner", "hello");
     const row = selectOutboxMessage(directory, accepted.id);
 
     expect(row).toBeDefined();
     if (row === undefined) throw new Error("mail row was not queued");
-    expect(isBridgeMessage(row.payload)).toBe(true);
-    if (!isBridgeMessage(row.payload)) throw new Error("mail payload is not a bridge message");
-    expect(row.payload).toEqual({ action: "steer", text: "hello" });
+    expect(isMailMessage(row.payload)).toBe(true);
+    expect(row.payload).toEqual({ action: "mail", from: "asker", text: "hello" });
   });
 });

@@ -1,5 +1,5 @@
 import type { OrchDir } from "../types/core.ts";
-import { computeCodeHash } from "../daemon/lifecycle.ts";
+import { computeCodeHash } from "../daemon/client/process.ts";
 import { EXTENSION_NAMES, extensionBundlePath } from "../bridge-bundles/metadata.ts";
 import { loadPresence, presenceRootFault } from "../presence/store.ts";
 import { packageRoot } from "../util.ts";

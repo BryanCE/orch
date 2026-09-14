@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 
 // The daemon's endpoint names and $ORCH_DIR have exactly one definition site; the web
 // server reads them through the @orch/* seam rather than restating either one.
-import { daemonRuntimeFiles } from "@orch/daemon/runtime-files.ts";
+import { daemonRuntimeFiles } from "@orch/daemon/client/runtime-files.ts";
 import { services } from "./services.ts";
 
 // NOTHING a browser chunk imports may reach this module: node:net cannot be bundled

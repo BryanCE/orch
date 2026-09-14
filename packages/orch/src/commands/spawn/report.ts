@@ -1,4 +1,4 @@
-import { rpcCall } from "../../daemon/rpc/client.ts";
+import { rpcCall } from "../../daemon/client/rpc.ts";
 import { loadPresence, spawnedRecords } from "../../presence/store.ts";
 import { maySpawnFrom } from "../../policy/spawner.ts";
 import { workerRules } from "../../worker-prompt.ts";
@@ -6,7 +6,7 @@ import { resolveAdapterOrDie } from "../selection.ts";
 import { readGroupLayout } from "../../backends/tiling.ts";
 import { dispatchToAgent } from "../control.ts";
 import { errorMessage, sleep } from "../../util.ts";
-import { daemonOutage } from "../../daemon/reach.ts";
+import { daemonOutage } from "../../daemon/client/reach.ts";
 import { selfId } from "../../identity/self.ts";
 import { presenceById } from "../target.ts";
 import { isAgentId } from "../../backends/identity.ts";
@@ -19,7 +19,7 @@ import type { AgentAdapter } from "../../types/adapter.ts";
 import type { CreatedAgent } from "../../types/command.ts";
 import { pinModels } from "./models.ts";
 import type { SpawnSettings } from "./flags.ts";
-import type { ResultOf } from "../../daemon/rpc/protocol.ts";
+import type { ResultOf } from "../../daemon/client/protocol.ts";
 
 
 export function spawnLogger(logger: Logger, key?: string): Logger {

@@ -6,7 +6,7 @@ import {
   outboxMessageUnsent,
   selectPendingOutbox,
 } from "../src/store/outbox-rows.ts";
-import { drainOutbox } from "../src/daemon/outbox.ts";
+import { drainOutbox } from "../src/daemon/server/outbox.ts";
 import type { BridgeMessage } from "../src/control/bridge-message.ts";
 import type { OutboxDelivery } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";

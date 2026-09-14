@@ -2,7 +2,7 @@ import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, inArray, lte, lt } from "drizzle-orm";
 import { orm } from "./connection.ts";
 import { outbox } from "../db/schema.ts";
-import { isBridgeMessage } from "../control/bridge-message.ts";
+import { isOutboxPayload } from "../control/bridge-message.ts";
 import type { OutboxMessage, OutboxMessageInput, OutboxState } from "../types/store.ts";
 
 /** States a retry loop still owes work for. */
@@ -25,7 +25,7 @@ function toMessage(row: OutboxRow): OutboxMessage {
   } catch {
     throw new Error(`invalid outbox payload for ${row.id}`);
   }
-  if (!isBridgeMessage(payload)) throw new Error(`invalid outbox payload for ${row.id}`);
+  if (!isOutboxPayload(payload)) throw new Error(`invalid outbox payload for ${row.id}`);
   return {
     id: row.id,
     target: row.target,

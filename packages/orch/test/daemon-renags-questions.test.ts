@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { reaskQuestions } from "../src/daemon/work-loop.ts";
+import { reaskQuestions } from "../src/daemon/server/work-loop.ts";
 import type { QuestionRow } from "../src/store/question-rows.ts";
 
 function question(id = "q1", askedAt = 100): QuestionRow {

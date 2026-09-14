@@ -2,7 +2,7 @@ import { closeSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from "n
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import { errorMessage, pidAlive } from "../../util.ts";
-import { decisionLogger } from "../../daemon/decision-log.ts";
+import { decisionLogger } from "../../daemon/client/decision-log.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { environmentStamp } from "../../agent/environment.ts";
 

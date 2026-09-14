@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
-import { REPLAY_WINDOW, ReplayBuffer } from "../src/daemon/rpc/replay.ts";
+import { REPLAY_WINDOW, ReplayBuffer } from "../src/daemon/server/replay.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";

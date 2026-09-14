@@ -50,7 +50,7 @@ const callerPane = process.env.HERDR_PANE_ID;
 delete process.env.HERDR_PANE_ID;
 
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
-const { emitAndNotify } = await import("../src/daemon/events.ts");
+const { emitAndNotify } = await import("../src/daemon/server/events.ts");
 const { notificationText } = await import("../src/notify/format.ts");
 
 // Arguments that would be mangled by a shell round-trip: spaces, quotes and a

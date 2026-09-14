@@ -265,6 +265,7 @@ effective value with the source that won.
     "worktree": false
   },
   "fleet": { "max_agents_per_pack": 10, "max_depth": 1, "worker_peer_tools": false, "cross_space": false },
+  "mail": { "to_spawner": "prompt", "to_worker": "prompt" },
   "models": {
     "preferred": { "pi": ["provider/fast", "provider/deep"] },
     "allowed": { "pi": ["provider/*"] }

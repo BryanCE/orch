@@ -26,7 +26,7 @@
     "build:ext:pi": "bun build extensions/pi/index.ts --target=node --format=esm --outfile dist/extensions/pi-bridge.js",
     "build:ext:omp": "bun build extensions/omp/index.ts --target=node --format=esm --outfile dist/extensions/omp-bridge.js",
     "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun build bin/orch-ding.ts --target=node --format=esm --outfile dist/bin/orch-ding.js && bun scripts/build-bin.ts",
-    "build:daemon": "bun build src/daemon/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
+    "build:daemon": "bun build src/daemon/server/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
     "install:global": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
     "build:dev": "bun scripts/reset.ts --build && bun run install:global && ORCH=$(npm prefix -g)/bin/orch && \"$ORCH\" doctor -y && \"$ORCH\" daemon start",
     "prepublishOnly": "bun run build:cli",

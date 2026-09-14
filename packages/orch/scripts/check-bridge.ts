@@ -395,13 +395,13 @@ export function checkDispatcherCallLine(line: string, relPath: string): string |
 
 /** Rule: process composition happens at a root. Only src/services.ts reads ORCH_DIR, and
  * only the roots call createServices(): the CLI (src/commands/index.ts, src/commands/setup.ts
- * for the first-run wizard), the daemon (src/daemon/orchd.ts), the extensions
+ * for the first-run wizard), the daemon (src/daemon/server/orchd.ts), the extensions
  * (extensions/pi/index.ts, extensions/omp/index.ts), and build tooling under scripts/, where
  * every script is its own process. Everything else receives values. */
 const COMPOSITION_ROOTS = new Set([
   "src/commands/index.ts",
   "src/commands/setup.ts",
-  "src/daemon/orchd.ts",
+  "src/daemon/server/orchd.ts",
   "extensions/pi/index.ts",
   "extensions/omp/index.ts",
 ]);
@@ -474,7 +474,7 @@ export function checkLeaseProvenanceLine(line: string, relPath: string): string 
   return undefined;
 }
 
-const IDENTITY_ISSUER_MODULES = new Set(["src/backends/identity.ts", "src/daemon/rpc/registration.ts"]);
+const IDENTITY_ISSUER_MODULES = new Set(["src/backends/identity.ts", "src/daemon/client/registration.ts"]);
 const IDENTITY_TEMPLATE_CONSTRUCTION = /`[^`\r\n]*~[^`\r\n]*~[^`\r\n]*`/;
 const IDENTITY_CONCAT_CONSTRUCTION = /(?:\+\s*["']~["']\s*\+).*(?:\+\s*["']~["']\s*\+)/;
 

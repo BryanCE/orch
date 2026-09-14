@@ -1,5 +1,5 @@
-import { subscribeEvents } from "../../daemon/rpc/client.ts";
-import { ensureDaemon, rpcRegisterSession } from "../../daemon/reach.ts";
+import { subscribeEvents } from "../../daemon/client/rpc.ts";
+import { ensureDaemon, rpcRegisterSession } from "../../daemon/client/reach.ts";
 import { ensureCallerRegistered } from "../../identity/self.ts";
 import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, dim } from "../../tui/screen.ts";
 import { die, forbidNonOperatorOverride } from "../target.ts";

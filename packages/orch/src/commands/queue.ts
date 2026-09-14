@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { addTask, cancelTask, closePackIntake, editTask, listTasks, openPackIntake, packIntakes, reapTask, takeOnTask, history as queueHistory, type TaskRec, type TaskScopeSelection } from "../queue.ts";
-import { ensureDaemon, rpcRegisterSession } from "../daemon/reach.ts";
+import { ensureDaemon, rpcRegisterSession } from "../daemon/client/reach.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";

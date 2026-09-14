@@ -164,10 +164,14 @@ The mechanics that keep the cycle fast:
   the most expensive idle, and a steer aimed at one is accepted and then lost. The daemon
   re-asks on `questions.renag_ms` up to `questions.renag_limit` times, each a fresh `asking`
   event line, then gives up and says so.
-- **A worker's report arrives as an event.** A worker whose bridge has peer tools replies to
-  its spawner with `orch_send target "spawner"`, and that lands on your `orch events` stream
-  as a `message` line carrying the text. A worker with no reachable spawner ends its turn and
-  you collect with `orch result`.
+- **A worker's report is mail, and `mail.to_spawner` says where it lands.** A worker whose
+  bridge has peer tools replies to its spawner with `orch_send target "spawner"`. With
+  `mail.to_spawner` at `prompt` (the default) orchd types the text into your input as it
+  arrives. With `events` it lands on your `orch events` stream as a `message` line and your
+  input is never touched; set that when a human types at the same prompt. Mail in the other
+  direction, and between peers, follows `mail.to_worker` the same way. Change either in
+  settings.json at any time; the daemon reads them per delivery. A worker with no reachable
+  spawner ends its turn and you collect with `orch result`.
 
 ## Lifecycle
 

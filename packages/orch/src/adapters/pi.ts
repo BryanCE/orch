@@ -5,7 +5,7 @@ import { loadPresence } from "../presence/store.ts";
 import { errnoCode, isRecord, readJsonFile, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
-import { computeCodeHash } from "../daemon/lifecycle.ts";
+import { computeCodeHash } from "../daemon/client/process.ts";
 import { packageRoot } from "../util.ts";
 import { isAgentState } from "../agent-state.ts";
 import type { AgentState } from "./adapter.ts";

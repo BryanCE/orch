@@ -62,7 +62,9 @@ terminal owns none and sees the whole machine. Every flag below deviates from th
 Five event types, each one line: 'transition' (oldState->newState with dispatchId, task, cost,
 ctxPercent), 'asking' (the agent is blocked on a question; askCount counts the daemon's re-asks
 on questions.renag_ms, gaveUp marks the last), 'message' (mail a worker sent its spawner with
-orch_send; the text is on the line), 'closed' (the agent ended), 'task' (a queue task changed
+orch_send; the text is on the line; always here when the direction's mail setting is events,
+mail.to_spawner for a worker writing its spawner and mail.to_worker for every other mail,
+otherwise only when the recipient has no prompt to type into), 'closed' (the agent ended), 'task' (a queue task changed
 state). A fresh subscribe receives live events only; history comes back solely via --since-seq.
 'seq' is that agent's transition ordinal and (key, seq) identifies an event. The daemon already
 suppresses an identical repeat of one agent's transition for two minutes, so no dedupe is needed.

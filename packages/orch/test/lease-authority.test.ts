@@ -5,8 +5,8 @@ import { ensureHarness, ensureHost, getOrCreateSessionAgent, insertAgent, packMe
 import { acquireLease, adoptLease, currentLease, leaseHistory, openLeaseId, releaseLease } from "../src/store/lease-rows.ts";
 import { holderOf } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
-import { deriveLeasePayload } from "../src/daemon/state.ts";
-import { governWrite } from "../src/daemon/handlers/write.ts";
+import { deriveLeasePayload } from "../src/daemon/server/state.ts";
+import { governWrite } from "../src/daemon/server/handlers/write.ts";
 import { presenceAgentDir } from "../src/presence/history.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { adoptAgent, detachAgent, leasedAgents, renameTarget, resolveTarget } from "../src/commands/lease.ts";

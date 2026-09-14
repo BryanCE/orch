@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
-import { rpcCall } from "../src/daemon/rpc/client.ts";
+import { startRpcServer } from "../src/daemon/server/rpc.ts";
+import { rpcCall } from "../src/daemon/client/rpc.ts";
 import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";

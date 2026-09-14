@@ -8,7 +8,7 @@ import { createAgentPresence } from "../src/agent/presence.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
-import { peerView } from "../src/daemon/peer-view.ts";
+import { peerView } from "../src/daemon/server/peer-view.ts";
 import { selfIdentity } from "../src/identity/self.ts";
 import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";

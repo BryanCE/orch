@@ -7,9 +7,9 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import { mergeAgentStatus } from "../src/store/status-rows.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { seedAgent } from "./helpers/agent.ts";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
-import type { ParamsOf } from "../src/daemon/rpc/protocol.ts";
+import type { ParamsOf } from "../src/daemon/client/protocol.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 // Imported FIRST on purpose, and for its evaluation order alone: reaching

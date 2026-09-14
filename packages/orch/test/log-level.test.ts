@@ -5,7 +5,7 @@ import { logLevelFor } from "../src/settings/read.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { isLogRecord } from "../src/log.ts";
 import { testServices } from "./helpers/services.ts";
-import { decisionLogger } from "../src/daemon/decision-log.ts";
+import { decisionLogger } from "../src/daemon/client/decision-log.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";

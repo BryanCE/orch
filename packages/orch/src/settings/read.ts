@@ -136,6 +136,10 @@ const settingsValueExtractors = {
     worker_peer_tools: root.fleet?.worker_peer_tools ?? SETTINGS_DEFAULTS.fleet.worker_peer_tools,
     cross_space: root.fleet?.cross_space ?? SETTINGS_DEFAULTS.fleet.cross_space,
   }),
+  mail: (root: Partial<SettingsFile>) => ({
+    to_spawner: root.mail?.to_spawner ?? SETTINGS_DEFAULTS.mail.to_spawner,
+    to_worker: root.mail?.to_worker ?? SETTINGS_DEFAULTS.mail.to_worker,
+  }),
   models: (root: Partial<SettingsFile>) => ({ allowed: root.models?.allowed ?? {}, preferred: root.models?.preferred ?? {} }),
   workers: (root: Partial<SettingsFile>) => ({
     inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
@@ -200,6 +204,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
   return {
     defaults: settingsValueExtractors.defaults(root),
     fleet: settingsValueExtractors.fleet(root),
+    mail: settingsValueExtractors.mail(root),
     models: settingsValueExtractors.models(root),
     workers: settingsValueExtractors.workers(root),
     queue: settingsValueExtractors.queue(root),

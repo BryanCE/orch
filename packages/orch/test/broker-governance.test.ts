@@ -1,8 +1,8 @@
 import type { OrchDir } from "../src/types/core.ts";
-import type { Governance } from "../src/daemon/rpc/protocol.ts";
+import type { Governance } from "../src/daemon/client/protocol.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { governWrite as daemonGovernWrite } from "../src/daemon/handlers/write.ts";
+import { governWrite as daemonGovernWrite } from "../src/daemon/server/handlers/write.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { withTransaction, orm } from "../src/store/connection.ts";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";

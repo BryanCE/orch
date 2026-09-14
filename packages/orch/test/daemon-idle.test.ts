@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { idleShutdownDue } from "../src/daemon/state.ts";
+import { idleShutdownDue } from "../src/daemon/server/state.ts";
 
 describe("orchd idle shutdown rule", () => {
   test("a zero setting disables idle shutdown entirely", () => {

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { endpointPaths } from "../src/daemon/rpc/wire.ts";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { endpointPaths } from "../src/daemon/client/wire.ts";
+import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";

@@ -5,7 +5,7 @@ import { oneLine } from "./format.ts";
 import type { AgentState } from "../adapters/adapter.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
-import { decisionLogger } from "../daemon/decision-log.ts";
+import { decisionLogger } from "../daemon/client/decision-log.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import { eventState } from "./event.ts";
 

@@ -3,10 +3,10 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireDaemonRegistration, daemonStartRefusal, readDaemonRegistration, releaseDaemonRegistration } from "../src/daemon/lifecycle.ts";
+import { acquireDaemonRegistration, daemonStartRefusal, readDaemonRegistration, releaseDaemonRegistration } from "../src/daemon/client/process.ts";
 import { checkDaemonPresence, checkDaemonRegistration } from "../src/doctor/daemon.ts";
-import { endpointPaths } from "../src/daemon/rpc/wire.ts";
-import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
+import { endpointPaths } from "../src/daemon/client/wire.ts";
+import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files.ts";
 import { hostOs } from "../src/host.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 

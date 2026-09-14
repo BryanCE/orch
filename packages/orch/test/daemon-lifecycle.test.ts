@@ -16,7 +16,7 @@ import {
   reexecSelf,
   runForeground,
   readDaemonLock,
-} from "../src/daemon/lifecycle";
+} from "../src/daemon/client/process";
 
 interface LockData {
   pid?: number;
@@ -142,7 +142,7 @@ describe("daemon lifecycle", () => {
       // Foreground mode resolves only once the child is gone, and reports its code.
       expect(await runForeground(process.execPath, ["-e", ""])).toBe(0);
       expect(await runForeground(process.execPath, ["-e", "process.exit(3)"])).toBe(3);
-      expect(await runForeground(join(import.meta.dir, "../src/daemon/lifecycle.ts"))).toBe(0);
+      expect(await runForeground(join(import.meta.dir, "../src/daemon/client/process.ts"))).toBe(0);
     } finally {
       if (oldOrchDir === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = oldOrchDir;

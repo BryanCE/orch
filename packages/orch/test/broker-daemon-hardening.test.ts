@@ -1,10 +1,10 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { RPC_PARAMS } from "../src/daemon/rpc/protocol.ts";
+import { RPC_PARAMS } from "../src/daemon/client/protocol.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { insertOutboxMessage, markOutboxDelivered, selectPendingOutbox } from "../src/store/outbox-rows.ts";
-import { drainOutbox } from "../src/daemon/outbox.ts";
-import { ReplayBuffer } from "../src/daemon/rpc/replay.ts";
+import { drainOutbox } from "../src/daemon/server/outbox.ts";
+import { ReplayBuffer } from "../src/daemon/server/replay.ts";
 import type { BridgeMessage } from "../src/control/bridge-message.ts";
 import type { OutboxDelivery } from "../src/types/daemon.ts";
 import { mintAgentId } from "../src/backends/identity.ts";

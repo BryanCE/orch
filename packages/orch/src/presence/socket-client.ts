@@ -4,7 +4,7 @@
 // transport, not the protocol.
 import { createConnection } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
-import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
+import { daemonRuntimeFiles } from "../daemon/client/runtime-files.ts";
 import { isRecord } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
 

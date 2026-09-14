@@ -1,4 +1,4 @@
-import type { ResultOf } from "../../src/daemon/rpc/protocol.ts";
+import type { ResultOf } from "../../src/daemon/client/protocol.ts";
 import type { RpcHandlers } from "../../src/types/daemon.ts";
 
 /** Every handler present; the ones a test does not override throw. */

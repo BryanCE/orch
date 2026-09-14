@@ -1,8 +1,8 @@
 import type { OrchDir } from "../../src/types/core.ts";
-import { peerView } from "../../src/daemon/peer-view.ts";
-import type { PeerView } from "../../src/daemon/peer-view.ts";
+import { peerView } from "../../src/daemon/server/peer-view.ts";
+import type { PeerView } from "../../src/types/daemon.ts";
 import type { DaemonClient } from "../../src/types/agent.ts";
-import type { ParamsOf, ResultOf, RpcMethod } from "../../src/daemon/rpc/protocol.ts";
+import type { ParamsOf, ResultOf, RpcMethod } from "../../src/daemon/client/protocol.ts";
 
 type AskHandlers = Partial<{ [M in RpcMethod]: (params: ParamsOf<M>) => ResultOf<M> }>;
 

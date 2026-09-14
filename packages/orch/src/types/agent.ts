@@ -2,12 +2,12 @@
 // time, so these create no runtime edge out of the types layer.
 import type { createAgentPresence } from "../agent/presence.ts";
 import type { AgentNotice, BridgeDelivery } from "../control/bridge-message.ts";
-import type { subscribeEvents } from "../daemon/rpc/client.ts";
+import type { subscribeEvents } from "../daemon/client/rpc.ts";
 import type { AgentState } from "../agent-state.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { JsonRecord, OrchDir, SessionUsage } from "./core.ts";
 import type { ResultReport, StatusPatch } from "./presence.ts";
-import type { ParamsOf, ResultOf, RpcMethod } from "../daemon/rpc/protocol.ts";
+import type { ParamsOf, ResultOf, RpcMethod } from "../daemon/client/protocol.ts";
 
 /**
  * The harness surface orch's in-agent control plane runs against.

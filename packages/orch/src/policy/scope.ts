@@ -8,7 +8,7 @@
 import { launchCredential } from "../identity/launch.ts";
 import { selfId } from "../identity/self.ts";
 import { callerSession } from "../adapters/session-env.ts";
-import { rpcRegisterSession } from "../daemon/reach.ts";
+import { rpcRegisterSession } from "../daemon/client/reach.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { AgentScopeInput, CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 

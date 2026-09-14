@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { runWorkLoop, statusSpeaksForTask } from "../src/daemon/work-loop.ts";
+import { runWorkLoop, statusSpeaksForTask } from "../src/daemon/server/work-loop.ts";
 import { addTask, type TaskRec } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { seedStatus } from "./helpers/presence.ts";

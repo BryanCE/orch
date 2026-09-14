@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createEventBus } from "../src/daemon/event-bus.ts";
+import { createEventBus } from "../src/daemon/server/event-bus.ts";
 import type { Logger } from "../src/types/core.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 

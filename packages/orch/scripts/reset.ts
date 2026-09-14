@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { envOrchDir } from "../src/services.ts";
 import { EXTENSION_NAMES } from "../src/bridge-bundles/build.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
-import { provenDaemonPid, terminateDaemon } from "../src/daemon/lifecycle.ts";
+import { provenDaemonPid, terminateDaemon } from "../src/daemon/client/process.ts";
 import { loadPresence } from "../src/presence/store.ts";
 import { pidAlive } from "../src/util.ts";
 import { packagedSkillNames, resolveSkillRoot } from "../src/setup/skills.ts";

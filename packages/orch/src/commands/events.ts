@@ -4,8 +4,8 @@ import { scopeToSpace, spaceOf, withinSpaceCeiling } from "../policy/space.ts";
 import { agentInMineScope, agentInScope, resolveCallerScope } from "../policy/scope.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { isAgentId } from "../backends/identity.ts";
-import { rpcCall, subscribeEvents } from "../daemon/rpc/client.ts";
-import { ensureDaemon, rpcRegisterSession } from "../daemon/reach.ts";
+import { rpcCall, subscribeEvents } from "../daemon/client/rpc.ts";
+import { ensureDaemon, rpcRegisterSession } from "../daemon/client/reach.ts";
 import { deliver } from "../notify/router.ts";
 import { isNotifyEvent } from "../notify/event.ts";
 

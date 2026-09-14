@@ -17,7 +17,7 @@ import { isRecord, optionalString, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
 import type { AgentPresence, BridgeToolResult, DaemonClient, DriveState, HarnessApi, HarnessContext, Peer, PeerResolution, PeerSummary } from "../types/agent.ts";
-import type { PeerView } from "../daemon/peer-view.ts";
+import type { PeerView } from "../types/daemon.ts";
 
 function peerModel(status: unknown): string | undefined {
   if (!isRecord(status) || !isRecord(status.model)) return undefined;

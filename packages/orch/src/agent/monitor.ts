@@ -16,7 +16,7 @@ import type { OrchDir } from "../types/core.ts";
 // The subscription is orch's transport (src/daemon/rpc.ts) and survives daemon
 // restarts on its own. Nothing here is plexer-aware: the view is built purely
 // from the events, so no pane, tab or socket concept enters this file.
-import { subscribeEvents } from "../daemon/rpc/client.ts";
+import { subscribeEvents } from "../daemon/client/rpc.ts";
 import { isNotifyEvent } from "../notify/event.ts";
 import { callerKind } from "../policy/caller.ts";
 import { truncate } from "../util.ts";

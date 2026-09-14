@@ -8,7 +8,7 @@ import { holdsLease } from "../store/lease-rows.ts";
 import { collapse, isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
-import { rpcCall } from "../daemon/rpc/client.ts";
+import { rpcCall } from "../daemon/client/rpc.ts";
 import { assertAgentOwned, die, forbidNonOperatorOverride, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
 import { entityAdapter } from "./status/rows.ts";
 import { latestRunForKey } from "./runs.ts";

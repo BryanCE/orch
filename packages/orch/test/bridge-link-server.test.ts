@@ -1,7 +1,7 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createConnection, type Socket } from "node:net";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { attachBridge, attachedBridgeKeys, detachBridge, pushToBridge } from "../src/control/bridge-links.ts";
 import type { BridgeLink } from "../src/control/bridge-links.ts";
 import { isBridgeDelivery } from "../src/control/bridge-message.ts";

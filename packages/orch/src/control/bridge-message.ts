@@ -14,6 +14,19 @@ export type BridgeMessage =
 
 export type BridgeAction = BridgeMessage["action"];
 
+/** Mail from one agent to another, queued as an outbox row. It never reaches a bridge as
+ * itself: at delivery the daemon reads the `mail` setting for its direction (`from` against
+ * the recipient) and either steers the recipient's prompt with the text or publishes it as
+ * a `message` event on the recipient's stream. */
+export interface MailMessage {
+  readonly action: "mail";
+  readonly from: string;
+  readonly text: string;
+}
+
+/** Everything an outbox row may carry: a bridge message, or mail awaiting its route. */
+export type OutboxPayload = BridgeMessage | MailMessage;
+
 /** The one shape for an agent → daemon notice. The reverse of BridgeMessage: the agent
  * publishes over its live link instead of writing a file the daemon has to watch. */
 export interface AgentNotice {
@@ -52,6 +65,14 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
     default:
       return false;
   }
+}
+
+export function isMailMessage(value: unknown): value is MailMessage {
+  return isRecord(value) && value.action === "mail" && typeof value.from === "string" && typeof value.text === "string";
+}
+
+export function isOutboxPayload(value: unknown): value is OutboxPayload {
+  return isBridgeMessage(value) || isMailMessage(value);
 }
 
 export function isBridgeDelivery(value: unknown): value is BridgeDelivery {

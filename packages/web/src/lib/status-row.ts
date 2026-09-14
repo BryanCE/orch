@@ -1,5 +1,5 @@
 import type { DaemonStatusRow } from "@orch/types/daemon.ts";
-import { isDaemonStatusRow } from "@orch/daemon/rpc/protocol.ts";
+import { isDaemonStatusRow } from "@orch/daemon/client/protocol.ts";
 
 /** The web view never carries orch's filesystem-only status fields. */
 export type WebStatusRow = Omit<DaemonStatusRow, "presenceDir" | "presenceOnly">;

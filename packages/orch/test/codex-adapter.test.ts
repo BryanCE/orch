@@ -11,9 +11,9 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 // config.ts as its dependencies instead, in an order that resolves.
 import "../src/adapters/registry.ts";
 import { editCodexNotifyConfig } from "../src/adapters/codex-notify.ts";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
-import type { ParamsOf } from "../src/daemon/rpc/protocol.ts";
+import type { ParamsOf } from "../src/daemon/client/protocol.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import {
   CODEX_STATE_FALLBACK_MARKER,

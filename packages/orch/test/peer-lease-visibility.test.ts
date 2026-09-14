@@ -4,7 +4,7 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 
 
 import { formatPeerLines, peerSummaries } from "../src/agent/peers.ts";
-import { peerView } from "../src/daemon/peer-view.ts";
+import { peerView } from "../src/daemon/server/peer-view.ts";
 import { daemonClientForPeerView } from "./helpers/daemon-client.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { orm } from "../src/store/connection.ts";
-import { governWrite } from "../src/daemon/handlers/write.ts";
+import { governWrite } from "../src/daemon/server/handlers/write.ts";
 import { presenceAgentDir } from "../src/presence/history.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { reapAgent, adoptAgent, detachAgent, cmdReap } from "../src/commands/lease.ts";

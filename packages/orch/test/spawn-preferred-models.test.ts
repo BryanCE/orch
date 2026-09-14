@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { RPC_PARAMS } from "../src/daemon/rpc/protocol.ts";
+import { RPC_PARAMS } from "../src/daemon/client/protocol.ts";
 import { adapterCommand } from "../src/commands/spawn/models.ts";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";

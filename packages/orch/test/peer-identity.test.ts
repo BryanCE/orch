@@ -15,8 +15,8 @@ import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { askFrom, daemonClientForPeers } from "./helpers/daemon-client.ts";
-import { peerView } from "../src/daemon/peer-view.ts";
-import type { ParamsOf, ResultOf } from "../src/daemon/rpc/protocol.ts";
+import { peerView } from "../src/daemon/server/peer-view.ts";
+import type { ParamsOf, ResultOf } from "../src/daemon/client/protocol.ts";
 
 const IDENTITY_ENV = [
   "ORCH_DIR", LAUNCH_ENV, "ORCH_SESSION_KEY", "ORCH_SPAWNER", "ORCH_SPAWNER_LABEL",

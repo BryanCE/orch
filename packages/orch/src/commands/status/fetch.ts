@@ -1,6 +1,6 @@
 import { runRemoteAsync } from "../../remote.ts";
-import { rpcCall } from "../../daemon/rpc/client.ts";
-import { isDaemonStatusRow } from "../../daemon/rpc/protocol.ts";
+import { rpcCall } from "../../daemon/client/rpc.ts";
+import { isDaemonStatusRow } from "../../daemon/client/protocol.ts";
 import { fleetStatusRows, warningStatusRow } from "./rows.ts";
 import { scopeFleetRows, statusRowMatches, displayStatusState, callerScope } from "./options.ts";
 import type { CallerScope, StatusOptions } from "./options.ts";

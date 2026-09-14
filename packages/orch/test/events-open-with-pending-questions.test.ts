@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { startEventsTransport, parseEventsOptions } from "../src/commands/events.ts";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { PendingQuestionView } from "../src/types/daemon.ts";

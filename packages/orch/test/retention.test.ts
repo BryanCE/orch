@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
 
 import { join } from "node:path";
-import { runWorkLoop } from "../src/daemon/work-loop.ts";
+import { runWorkLoop } from "../src/daemon/server/work-loop.ts";
 import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA, settingsPath } from "../src/settings/schema.ts";
 import { fileSettingsManager, inMemorySettingsManager } from "../src/settings/manager.ts";
 import { appendEvent } from "../src/store/event-rows.ts";
@@ -11,13 +11,12 @@ import { insertOutboxMessage, markOutboxDelivered } from "../src/store/outbox-ro
 import { addTask, claimTask, recordTaskDone } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { selectRuns, upsertRun } from "../src/store/run-rows.ts";
-import { ORCH_LOG_MAX_BYTES, sweepExpiredRows } from "../src/daemon/retention.ts";
+import { ORCH_LOG_MAX_BYTES, sweepExpiredRows } from "../src/daemon/server/retention.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
-import { writeResult } from "../src/presence/history.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import type { RunRecord } from "../src/types/store.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
@@ -42,6 +41,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     enabled: { adapters: ["pi"], backends: [] },
     defaults: { ...SETTINGS_DEFAULTS.defaults, models: {} },
     fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
+    mail: { to_spawner: "prompt", to_worker: "prompt" },
     models: { allowed: {}, preferred: {} },
     workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
     queue: { max_retries: 1 },
@@ -62,7 +62,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
 function seedQueueTask(dir: OrchDir, text: string, state: "queued" | "claimed" | "done", ts: string): void {
   const db = orm(dir);
   db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT OR IGNORE INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('queue-agent','queue-agent','pi','/tmp','queue-agent',1)`);
+  db.run(sql`INSERT OR IGNORE INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('queue-agent','queue-agent','pi','/tmp','queue-agent',${NOW.getTime()})`);
   const task = addTask(dir, text, {}, "queue-agent");
   db.run(sql`UPDATE tasks SET created_at=${Date.parse(ts)} WHERE id=${task.id}`);
   if (state !== "queued") {
@@ -80,6 +80,22 @@ function run(dispatchId: string, startedAt: string): RunRecord {
 }
 
 const NOW = new Date("2026-02-01T00:00:00.000Z");
+const OLD = Date.parse("2026-01-20T00:00:00.000Z");
+const RECENT = Date.parse("2026-01-31T00:00:00.000Z");
+
+/** The agent's presence directory, created so the sweep has a directory to remove or keep. */
+function presenceDir(orchDir: OrchDir, key: string): string {
+  const dir = ensurePresenceAgentDir(key, orchDir);
+  if (dir === undefined) throw new Error(`presence dir for ${key} was not created`);
+  return dir;
+}
+
+/** Move every recorded instant of a seeded agent to one point in time. */
+function ageAgent(orchDir: OrchDir, key: string, at: number): void {
+  const db = orm(orchDir);
+  db.run(sql`UPDATE agents SET created_at=${at} WHERE id=${key}`);
+  db.run(sql`UPDATE agent_status SET updated_at=${at}, finished_at=NULL WHERE agent_id=${key}`);
+}
 
 afterEach(() => {
   closeAllStores();
@@ -153,6 +169,7 @@ describe("retention sweep", () => {
     db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
     db.run(sql`INSERT OR IGNORE INTO plexers(id,name) VALUES ('headless','headless')`);
     db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${holder},${holder},${"pi"},${"/tmp"},${holder},${Date.parse(old)})`);
+    seedLiveProcess(orchDir, holder);
     db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${agentId},${agentId},${"pi"},${"/tmp"},${"reserved-agent"},${Date.parse(old)})`);
     db.run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${agentId},${Date.parse(old)},NULL)`);
     db.run(sql`INSERT INTO agent_worktrees(agent_id,path,branch) VALUES (${agentId},${"/tmp/worktree"},${"orch/expired"})`);
@@ -165,63 +182,67 @@ describe("retention sweep", () => {
     expect(row(db, sql`SELECT agent_id FROM agent_plexers WHERE agent_id=${agentId}`)).toBeUndefined();
     expect(row(db, sql`SELECT id FROM agent_leases WHERE agent_id=${agentId}`)).toBeUndefined();
     expect(row(db, sql`SELECT id FROM agents WHERE name=${"reserved-agent"}`)).toBeUndefined();
-    // The holder is an agent in its own right and outlives what it held.
+    // The holder is a live agent in its own right and outlives what it held.
     expect(row(db, sql`SELECT id FROM agents WHERE id=${holder}`)).not.toBeUndefined();
   });
 
-  test("reaps dead dirs by recorded instants, not a fresh directory mtime", () => {
+  test("reaps a dead agent whose every recorded instant is past the window", () => {
     const orchDir = fixture();
     const key = "deadagent1";
-    const old = "2026-01-20T00:00:00.000Z";
-    const dir = seedStatus(orchDir, key, { pid: 999999, updatedAt: old });
-    const db = orm(orchDir);
-    db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
-    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${key},${key},${"pi"},${"/tmp"},${key},${Date.parse(old)})`);
-    db.run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${key},${Date.parse(old)},NULL)`);
+    const dir = presenceDir(orchDir, key);
+    seedStatus(orchDir, key, {});
+    ageAgent(orchDir, key, OLD);
+    orm(orchDir).run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${key},${OLD},NULL)`);
     utimesSync(dir, NOW, NOW);
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
     expect(existsSync(dir)).toBe(false);
     expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id=${key}`)).toBeUndefined();
   });
 
-  test("keeps dead dirs with a newer recorded instant despite an old mtime", () => {
+  test("keeps a dead agent whose status was updated inside the window", () => {
     const orchDir = fixture();
     const key = "deadagentn";
-    const dir = seedStatus(orchDir, key, { pid: 999999, updatedAt: "2026-01-20T00:00:00.000Z" });
-    writeResult(dir, { schema: PRESENCE_SCHEMA, text: "done", finishedAt: "2026-01-31T00:00:00.000Z" });
+    const dir = presenceDir(orchDir, key);
+    seedStatus(orchDir, key, {});
+    ageAgent(orchDir, key, OLD);
+    orm(orchDir).run(sql`UPDATE agent_status SET updated_at=${RECENT} WHERE agent_id=${key}`);
     utimesSync(dir, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
   });
 
-  test("reaps malformed dead dirs with no recorded instant", () => {
+  test("reaps a dead agent with no status row by its creation instant", () => {
     const orchDir = fixture();
     const key = "deadagentm";
-    const dir = seedStatus(orchDir, key, { pid: 999999 });
-    writeResult(dir, { schema: PRESENCE_SCHEMA, text: "done" });
+    const dir = presenceDir(orchDir, key);
+    seedAgent(key, {}, orchDir);
+    ageAgent(orchDir, key, OLD);
     utimesSync(dir, NOW, NOW);
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
     expect(existsSync(dir)).toBe(false);
   });
 
-  test("keeps result-only recorded instant despite an old mtime", () => {
+  test("keeps a dead agent whose finished instant alone is inside the window", () => {
     const orchDir = fixture();
     const key = "deadagentr";
-    const dir = seedStatus(orchDir, key, { pid: 999999 });
-    writeFileSync(join(dir, "status.json"), "not valid status");
-    writeResult(dir, { schema: PRESENCE_SCHEMA, text: "done", finishedAt: "2026-01-31T00:00:00.000Z" });
+    const dir = presenceDir(orchDir, key);
+    seedStatus(orchDir, key, {});
+    ageAgent(orchDir, key, OLD);
+    orm(orchDir).run(sql`UPDATE agent_status SET finished_at=${RECENT} WHERE agent_id=${key}`);
     utimesSync(dir, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
   });
 
-  test("never reaps a live presence dir regardless of age", () => {
+  test("never reaps a live agent regardless of age", () => {
     const orchDir = fixture();
-    seedAgent("liveagent1", {}, orchDir);
-    seedLiveProcess(orchDir, "liveagent1");
-    const dir = seedStatus(orchDir, "liveagent1", {});
-    const old = new Date(NOW.getTime() - 100 * 24 * 60 * 60 * 1000);
-    utimesSync(dir, old, old);
+    const key = "liveagent1";
+    const dir = presenceDir(orchDir, key);
+    seedAgent(key, {}, orchDir);
+    seedLiveProcess(orchDir, key);
+    seedStatus(orchDir, key, {});
+    ageAgent(orchDir, key, OLD);
+    utimesSync(dir, new Date(OLD), new Date(OLD));
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 1 }), NOW).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
   });

@@ -5,7 +5,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import { createDaemonClient } from "../src/agent/daemon-client.ts";
 import { openJsonLineLink } from "../src/presence/socket-client.ts";
-import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
+import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files.ts";
 import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { isRecord } from "../src/util.ts";

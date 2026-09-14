@@ -72,15 +72,17 @@ export function processStartToken(pid: number): string | undefined {
 
 /** True only when `pid` is alive AND provably the instance that produced `startToken`. */
 export function processInstanceMatches(pid: number, startToken: string): boolean {
-  if (!processIsAlive(pid)) return false;
-  return processStartToken(pid) === startToken;
+  return recordedInstanceIsLive(pid, startToken);
 }
 
 /** The one place that decides what an unproven recorded process means: without a
  *  token there is nothing to hold the pid to, so bare liveness is the answer. */
 export function recordedInstanceIsLive(pid: number, startToken: string | null, probe: InstanceProbe = OS_PROBE): boolean {
-  if (!probe.isAlive(pid)) return false;
-  return startToken === null || probe.startToken(pid) === startToken;
+  if (!probe.isAlive(pid)) {
+    knownStartTokens.delete(pid);
+    return false;
+  }
+  return startToken === null || knownStartToken(pid, probe) === startToken;
 }
 
 /** How the rule above reaches the OS, so an environment can substitute one. */
@@ -90,3 +92,15 @@ export interface InstanceProbe {
 }
 
 const OS_PROBE: InstanceProbe = { isAlive: processIsAlive, startToken: processStartToken };
+
+/** Start tokens of pids seen alive. A token never changes while its process lives, and on
+ *  Windows the probe is a powershell spawn that blocks the daemon for over a second. */
+const knownStartTokens = new Map<number, string>();
+
+function knownStartToken(pid: number, probe: InstanceProbe): string | undefined {
+  const known = knownStartTokens.get(pid);
+  if (known !== undefined) return known;
+  const token = probe.startToken(pid);
+  if (token !== undefined) knownStartTokens.set(pid, token);
+  return token;
+}

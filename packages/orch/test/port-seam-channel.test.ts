@@ -2,7 +2,7 @@ import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
 import { afterEach, describe, expect, test } from "bun:test";
-import { deliverWrite } from "../src/daemon/handlers/write.ts";
+import { deliverWrite } from "../src/daemon/server/handlers/write.ts";
 import { orchDirAt } from "../src/services.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
@@ -11,7 +11,7 @@ import { presenceAgentDir, writeResult } from "../src/presence/history.ts";
 import { createCaptureRole } from "../src/presence/roles.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageState } from "../src/store/outbox-rows.ts";
 import { mergeAgentStatus } from "../src/store/status-rows.ts";
-import { deliverOutboxMessage } from "../src/daemon/outbox.ts";
+import { deliverOutboxMessage } from "../src/daemon/server/outbox.ts";
 import type { OutboxDeps } from "../src/types/daemon.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
@@ -23,8 +23,8 @@ const dirs: OrchDir[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
 const saved = process.env.ORCH_DIR;
 
-function outboxDeps(orchDir: OrchDir): OutboxDeps {
-  const services = testServices({ orchDir, settings: {} });
+function outboxDeps(orchDir: OrchDir, settings: Record<string, unknown> = {}): OutboxDeps {
+  const services = testServices({ orchDir, settings });
   return {
     deliver: (target, payload, id) => deliverWrite({ services, directory: orchDir, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false }, target, payload, id),
     maxAttempts: 3,
@@ -95,6 +95,74 @@ describe("orch bridge links and capture roles", () => {
     await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir));
 
     expect(outboxMessageState(orchDir, id)).toBe("pending");
+  });
+
+  /** root0 spawned orch1, orch1 spawned w1. Both orch1 and w1 are live, spawned, bridge
+   *  detached, so a prompt landing queues for the bridge and an events landing settles. */
+  function seedMailPack(orchDir: OrchDir): void {
+    writeSettingsFixture(orchDir);
+    seedAgent("root0", {}, orchDir);
+    seedAgent("orch1", { spawnedBy: "root0" }, orchDir);
+    seedAgent("w1", { spawnedBy: "orch1" }, orchDir);
+    seedLiveProcess(orchDir, "orch1");
+    seedLiveProcess(orchDir, "w1");
+  }
+
+  test("worker mail to its spawner under mail.to_spawner prompt waits for the spawner's bridge", async () => {
+    const orchDir = tempOrchDir();
+    seedMailPack(orchDir);
+    const id = "mail-up-prompt";
+    insertOutboxMessage(orchDir, { id, target: "orch1", payload: { action: "mail", from: "w1", text: "[from w1] done" } });
+
+    await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "prompt", to_worker: "events" } }));
+
+    expect(outboxMessageState(orchDir, id)).toBe("pending");
+  });
+
+  test("worker mail to its spawner under mail.to_spawner events settles on the spawner's stream", async () => {
+    const orchDir = tempOrchDir();
+    seedMailPack(orchDir);
+    const id = "mail-up-events";
+    insertOutboxMessage(orchDir, { id, target: "orch1", payload: { action: "mail", from: "w1", text: "[from w1] done" } });
+
+    await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "events", to_worker: "prompt" } }));
+
+    expect(outboxMessageState(orchDir, id)).toBe("delivered");
+  });
+
+  test("spawner mail to its worker follows mail.to_worker, not mail.to_spawner", async () => {
+    const orchDir = tempOrchDir();
+    seedMailPack(orchDir);
+    const id = "mail-down-prompt";
+    insertOutboxMessage(orchDir, { id, target: "w1", payload: { action: "mail", from: "orch1", text: "[from orch1] look again" } });
+
+    await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "events", to_worker: "prompt" } }));
+
+    expect(outboxMessageState(orchDir, id)).toBe("pending");
+  });
+
+  test("spawner mail to its worker under mail.to_worker events settles on the worker's stream", async () => {
+    const orchDir = tempOrchDir();
+    seedMailPack(orchDir);
+    const id = "mail-down-events";
+    insertOutboxMessage(orchDir, { id, target: "w1", payload: { action: "mail", from: "orch1", text: "[from orch1] look again" } });
+
+    await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "prompt", to_worker: "events" } }));
+
+    expect(outboxMessageState(orchDir, id)).toBe("delivered");
+  });
+
+  test("events mail to a dead recipient is undeliverable", async () => {
+    const orchDir = tempOrchDir();
+    writeSettingsFixture(orchDir);
+    seedAgent("orch1", {}, orchDir);
+    seedAgent("w1", { spawnedBy: "orch1" }, orchDir);
+    const id = "mail-up-dead";
+    insertOutboxMessage(orchDir, { id, target: "orch1", payload: { action: "mail", from: "w1", text: "[from w1] done" } });
+
+    await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "events", to_worker: "events" } }));
+
+    expect(outboxMessageState(orchDir, id)).toBe("undeliverable");
   });
 
   test("dead session without a bridge or pane route is undeliverable", async () => {

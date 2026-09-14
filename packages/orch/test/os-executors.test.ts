@@ -7,7 +7,7 @@ import {
   executorFor,
   onOsSide,
   releaseDaemonRegistration,
-} from "../src/daemon/lifecycle.ts";
+} from "../src/daemon/client/process.ts";
 import { checkOsExecutors } from "../src/doctor/daemon.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { hostOs } from "../src/host.ts";

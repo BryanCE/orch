@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { emitAndNotify } from "../src/daemon/events.ts";
-import { runWorkLoop } from "../src/daemon/work-loop.ts";
+import { emitAndNotify } from "../src/daemon/server/events.ts";
+import { runWorkLoop } from "../src/daemon/server/work-loop.ts";
 import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";

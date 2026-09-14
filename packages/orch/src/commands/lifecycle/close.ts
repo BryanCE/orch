@@ -11,11 +11,11 @@ import { getBackend } from "../../backends/registry.ts";
 import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
-import { rpcCall } from "../../daemon/rpc/client.ts";
+import { rpcCall } from "../../daemon/client/rpc.ts";
 import { agentAddress, die, presenceById, resolveLifecycleTarget, splitOptionFlags } from "../target.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
-import type { ParamsOf } from "../../daemon/rpc/protocol.ts";
+import type { ParamsOf } from "../../daemon/client/protocol.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import { currentProcess } from "../../store/interval-rows.ts";
 

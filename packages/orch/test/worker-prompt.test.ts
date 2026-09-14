@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { getAdapter } from "../src/adapters/registry.ts";
 import { stripWorkerHeader, workerPrompt } from "../src/worker-prompt.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
-import { transitionEventFromRow } from "../src/daemon/status-events.ts";
+import { transitionEventFromRow } from "../src/daemon/server/status-events.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { statusRow } from "./helpers/presence.ts";

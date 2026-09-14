@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
-import { endpointPaths } from "../src/daemon/rpc/wire.ts";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { endpointPaths } from "../src/daemon/client/wire.ts";
+import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";

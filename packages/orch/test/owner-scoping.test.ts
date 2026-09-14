@@ -22,7 +22,7 @@ import { fakeAdapter } from "../test/helpers/adapter.ts";
 import { seedSpace } from "../test/helpers/space.ts";
 import { placeAgent, seedAgent, seedLiveProcess } from "../test/helpers/agent.ts";
 import { seedStatus } from "../test/helpers/presence.ts";
-import { peerView } from "../src/daemon/peer-view.ts";
+import { peerView } from "../src/daemon/server/peer-view.ts";
 import { sql } from "drizzle-orm";
 import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
 import { withExitCode } from "../test/helpers/exit-code.ts";

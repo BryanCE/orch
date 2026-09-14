@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
-import { subscribeEvents } from "../src/daemon/rpc/client.ts";
+import { startRpcServer } from "../src/daemon/server/rpc.ts";
+import { subscribeEvents } from "../src/daemon/client/rpc.ts";
 import type { EventSubscription, RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";

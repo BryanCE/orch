@@ -9,11 +9,11 @@ import {
   runForeground,
   terminateDaemon,
   unprovenLockRefusal,
-} from "../daemon/lifecycle.ts";
-import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
-import { DaemonAbsentError, DaemonUnreachableError } from "../daemon/rpc/wire.ts";
-import { rpcCall } from "../daemon/rpc/client.ts";
-import type { GovernedMethod, ParamsOf, ResultOf, Governance } from "../daemon/rpc/protocol.ts";
+} from "../daemon/client/process.ts";
+import { daemonRuntimeFiles } from "../daemon/client/runtime-files.ts";
+import { DaemonAbsentError, DaemonUnreachableError } from "../daemon/client/wire.ts";
+import { rpcCall } from "../daemon/client/rpc.ts";
+import type { GovernedMethod, ParamsOf, ResultOf, Governance } from "../daemon/client/protocol.ts";
 import {
   awaitDaemonProbe,
   BIND_GRACE_MS,
@@ -25,7 +25,7 @@ import {
   terminateWedgedDaemon,
   translateDaemonError,
   unreachableRefusal,
-} from "../daemon/reach.ts";
+} from "../daemon/client/reach.ts";
 import { errorMessage, pidAlive } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
 import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidNonOperatorOverride } from "./target.ts";

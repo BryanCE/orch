@@ -4,7 +4,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { describe, expect, test } from "bun:test";
 import { needsFirstRunSetup, readOrchVersion, runCommand } from "../src/commands/index.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { announceUnleasedAgents } from "../src/daemon/rpc/session-registry.ts";
+import { announceUnleasedAgents } from "../src/daemon/client/registration.ts";
 import type { RegisterSessionResponse } from "../src/types/daemon.ts";
 
 describe("commands/index", () => {
@@ -13,16 +13,16 @@ describe("commands/index", () => {
     expect(needsFirstRunSetup(null, "status")).toBe(false);
   });
   test("reads a package version string", () => expect(readOrchVersion()).toMatch(/^\d+\.\d+\.\d+/));
-  test("announces unleased agents once per session", () => {
+  test("prints the daemon's unleased list and stays silent on an empty one", () => {
     const output: string[] = [];
     const identity = {
-      id: `seam-${Date.now()}-${Math.random()}`,
+      id: "seam-session",
       label: "session",
       kind: "session",
       unleased: [{ id: "worker", name: "worker" }],
     } satisfies RegisterSessionResponse;
-    announceUnleasedAgents(orchDirAt("/tmp/commands-index-seam"), identity, (text) => output.push(text));
-    announceUnleasedAgents(orchDirAt("/tmp/commands-index-seam"), identity, (text) => output.push(text));
+    announceUnleasedAgents(identity, (text) => output.push(text));
+    announceUnleasedAgents({ ...identity, unleased: [] }, (text) => output.push(text));
     expect(output).toEqual(["1 unleased agent(s) exist - orch adopt worker to take one, orch status to see them.\n"]);
   });
   test("dispatches representative commands and reports unknown commands", () => {

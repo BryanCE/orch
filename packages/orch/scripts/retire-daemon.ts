@@ -4,7 +4,7 @@ import {
   readDaemonLock,
   terminateDaemon,
   unprovenLockRefusal,
-} from "../src/daemon/lifecycle.ts";
+} from "../src/daemon/client/process.ts";
 import { createServices } from "../src/services.ts";
 import { pidAlive } from "../src/util.ts";
 

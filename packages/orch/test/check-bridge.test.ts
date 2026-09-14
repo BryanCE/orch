@@ -50,8 +50,8 @@ describe("Rule 18 forbids state files and fs.watch outside their sanctioned site
   });
 
   test("fs.watch is forbidden outside src/settings/watch.ts", () => {
-    expect(checkFsWatchLine("filesystem.watch(directory);", "src/daemon/events.ts")).toContain("fs.watch is banned");
-    expect(checkFsWatchLine('import { watch } from "node:fs";', "src/daemon/events.ts")).toContain("fs.watch is banned");
+    expect(checkFsWatchLine("filesystem.watch(directory);", "src/daemon/server/events.ts")).toContain("fs.watch is banned");
+    expect(checkFsWatchLine('import { watch } from "node:fs";', "src/daemon/server/events.ts")).toContain("fs.watch is banned");
     expect(checkFsWatchLine('import { watch } from "node:fs";', "src/settings/watch.ts")).toBeUndefined();
   });
 });
@@ -82,7 +82,7 @@ describe("10.1 packages must not import concrete backends/adapters (checkPackage
       'import type { Backend } from "../../../../src/backends/backend.ts";',
       'import { loadPresence } from "../../../../src/presence/store.ts";',
       'import { loadSettingsOrNull } from "../../../../src/settings/read.ts";',
-      'import { rpcCall } from "../../../../src/daemon/rpc/client.ts";',
+      'import { rpcCall } from "../../../../src/daemon/client/rpc.ts";',
     ];
     for (const line of allowed) expect(checkPackageImportLine(line)).toBeUndefined();
   });
@@ -256,7 +256,7 @@ describe("10.5 identity construction is issuer-only (checkIdentityConstructionLi
     )).toBeUndefined();
     expect(checkIdentityConstructionLine(
       "  const key = `${backend}~${workspace}~${id}`;",
-      "src/daemon/rpc/registration.ts",
+      "src/daemon/client/registration.ts",
     )).toBeUndefined();
     expect(checkIdentityConstructionLine("  return serializeIdentity(identity);", relPath)).toBeUndefined();
   });
@@ -269,7 +269,7 @@ describe("10.5 identity construction is issuer-only (checkIdentityConstructionLi
 
   test("passes the clean tree: every identity construction is allowed or registered", () => {
     const unregistered: string[] = [];
-    for (const file of ["src/entities/target.ts", "src/entities/lookup.ts", "src/entities/space.ts", "src/entities/inventory.ts", "src/entities/resolve.ts", "src/commands/spawn/index.ts", "src/daemon/rpc/registration.ts", "src/backends/identity.ts"]) {
+    for (const file of ["src/entities/target.ts", "src/entities/lookup.ts", "src/entities/space.ts", "src/entities/inventory.ts", "src/entities/resolve.ts", "src/commands/spawn/index.ts", "src/daemon/client/registration.ts", "src/backends/identity.ts"]) {
       const allowed = IDENTITY_CONSTRUCTION_ALLOWLIST.get(file) ?? new Set<string>();
       for (const line of readRepoLines(file)) {
         if (allowed.has(line.trim())) continue;
@@ -311,7 +311,7 @@ describe("10.8 environment branches use capabilities, not plexer/harness ids (ch
     // presence checks on names E13 deleted, and they must trip.
     expect(checkEnvironmentCapabilityLine("  if (adapter.createWorkspace) return adapter.createWorkspace(name);", "src/commands/space.ts")).toContain("method-presence");
     expect(checkEnvironmentCapabilityLine("  if (backend.handleFor) return backend.handleFor(key);", "src/control/dispatch.ts")).toContain("method-presence");
-    expect(checkEnvironmentCapabilityLine("  if (backend.pruneLogs) return backend.pruneLogs(cutoff);", "src/daemon/retention.ts")).toContain("method-presence");
+    expect(checkEnvironmentCapabilityLine("  if (backend.pruneLogs) return backend.pruneLogs(cutoff);", "src/daemon/server/retention.ts")).toContain("method-presence");
   });
 
   // A hand-kept list beside the ports is a second list to forget, in both

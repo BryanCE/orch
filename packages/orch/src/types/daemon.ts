@@ -8,7 +8,9 @@ import type { SettingsManager } from "./services.ts";
 import type { ModelCatalogue } from "./adapter.ts";
 import type { PresenceEntry } from "./presence.ts";
 import type { TaskRec } from "./queue.ts";
-import type { IdentityMethod, ParamsOf, ResultOf, RpcMethod } from "../daemon/rpc/protocol.ts";
+import type { DriveState } from "./agent.ts";
+import type { AgentStatusRow } from "../store/status-rows.ts";
+import type { IdentityMethod, ParamsOf, ResultOf, RpcMethod } from "../daemon/client/protocol.ts";
 
 export interface LockRecord {
   pid: number;
@@ -163,6 +165,28 @@ export interface LeaseStatusPayload {
  * client of the `status` method reads THIS type (Rule 8: one shape).
  */
 export type DaemonStatusRow = StatusRow & LeaseStatusPayload;
+
+export type PeerStatus = Pick<AgentStatusRow, "state" | "task" | "lastText" | "modelId" | "thinking" | "contextPercent" | "sessionPath" | "project">;
+
+export interface PeerViewPeer {
+  key: string;
+  name: string;
+  harness: string;
+  spawnedBy: string | null;
+  status: PeerStatus | null;
+  result: string | null;
+}
+
+/** What one agent may see of another, as the `peer-view` RPC returns it. */
+export interface PeerView {
+  /** Live peers visible to the caller, including the status fields agents render. */
+  peers?: PeerViewPeer[];
+  /** The subset of the requested keys this caller is allowed to see. */
+  visible: string[];
+  /** Each visible peer's space, and the drive state to render beside it. */
+  spaces: Record<string, string | null>;
+  drive: Record<string, DriveState>;
+}
 
 /** One pending question as every client renders it. */
 export interface PendingQuestionView {

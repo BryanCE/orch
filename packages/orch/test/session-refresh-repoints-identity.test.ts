@@ -7,7 +7,7 @@ import { closeAllStores } from "../src/store/connection.ts";
 import { agentById, endAgent, getOrCreateSessionAgent, insertAgent } from "../src/store/agent-rows.ts";
 import { currentProcess } from "../src/store/interval-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
-import { daemonRuntimeFiles } from "../src/daemon/runtime-files.ts";
+import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 const tempDirs: OrchDir[] = [];

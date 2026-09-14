@@ -87,6 +87,7 @@ function completeSettings(): Record<string, unknown> {
       worker_peer_tools: true,
       cross_space: true,
     },
+    mail: { to_spawner: "events", to_worker: "prompt" },
     models: { allowed: { pi: ["openai/test"] }, preferred: { pi: ["openai/test"] } },
     workers: {
       inherit_extensions: false,

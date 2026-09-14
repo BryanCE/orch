@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores } from "../src/store/connection.ts";
 import { ensureHarness, getOrCreateSessionAgent, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { unleasedAgents } from "../src/daemon/rpc/session-registry.ts";
+import { unleasedAgents } from "../src/daemon/server/session-registry.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";

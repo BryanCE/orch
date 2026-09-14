@@ -135,8 +135,11 @@ feedback into the same worktree. Bare `orch review` walks it interactively.
 settings.json, default) and opens the editor on a TTY. Every number orch uses is a setting
 there; the names that bite a fleet most: `fleet.max_agents_per_tab`,
 `fleet.max_agents_per_pack`, `fleet.max_depth`, `fleet.worker_peer_tools`,
-`fleet.cross_space`, `defaults.models`, `defaults.thinking`, `models.allowed`,
-`questions.renag_ms`, `timeouts.dispatch_ack_ms`, `daemon.outbox_drain_ms`.
+`fleet.cross_space`, `mail.to_spawner` and `mail.to_worker` (per direction: `prompt` types
+the mail into the recipient's input, `events` publishes it on `orch events` and leaves the
+input alone), `defaults.models`,
+`defaults.thinking`, `models.allowed`, `questions.renag_ms`, `timeouts.dispatch_ack_ms`,
+`daemon.outbox_drain_ms`.
 
 `orch settings notify` manages the sinks orchd delivers through. `sound`, `desktop` and
 `herdr` take no fields; `webhook` needs `--url`, `command` needs `--command` and gets the

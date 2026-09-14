@@ -8,7 +8,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { peerSummaries, resolvePeer } from "../src/agent/peers.ts";
 import { daemonClientForPeerView, daemonClientForPeers } from "./helpers/daemon-client.ts";
-import { peerView } from "../src/daemon/peer-view.ts";
+import { peerView } from "../src/daemon/server/peer-view.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;

@@ -1,6 +1,6 @@
 import { computeFleetCapacity, formatCapacityLine } from "../../policy/capacity.ts";
 import { ensureCallerRegistered } from "../../identity/self.ts";
-import { ensureDaemonOrWarn, rpcRegisterSession } from "../../daemon/reach.ts";
+import { ensureDaemonOrWarn, rpcRegisterSession } from "../../daemon/client/reach.ts";
 import { forbidNonOperatorOverride, presenceById } from "../target.ts";
 import { loadPresence, spawnedRecords } from "../../presence/store.ts";
 import { callerScope, filterRowKeys, formatNoRowsMessage } from "./options.ts";

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { BridgeDetachedError } from "../src/control/bridge-links.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
-import { drainOutbox, deliverOutboxMessage, redeliverOpenRows } from "../src/daemon/outbox.ts";
+import { drainOutbox, deliverOutboxMessage, redeliverOpenRows } from "../src/daemon/server/outbox.ts";
 import { outbox } from "../src/db/schema.ts";
 import { insertOutboxMessage, markOutboxDelivered, markOutboxUndeliverable, bumpOutboxAttempt, outboxMessageState, selectOpenOutboxForTarget, selectOutboxMessage } from "../src/store/outbox-rows.ts";
 import { orm } from "../src/store/connection.ts";

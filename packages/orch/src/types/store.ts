@@ -2,7 +2,7 @@
 // creates no runtime edge out of the types layer.
 import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
 import type { HomeSubject, RecordedProcess, SpaceHomeRole } from "./backend.ts";
-import type { BridgeMessage } from "../control/bridge-message.ts";
+import type { OutboxPayload } from "../control/bridge-message.ts";
 import type { ThinkingLevel } from "./policy.ts";
 import type { OrchDir } from "./core.ts";
 import type { HostOs } from "./host.ts";
@@ -172,7 +172,7 @@ export interface TuningValues { model:string; thinking?:string|null }
 export interface OutboxMessageInput {
   id: string;
   target: string;
-  payload: BridgeMessage;
+  payload: OutboxPayload;
   createdAt?: number;
 }
 
@@ -191,7 +191,7 @@ export type OutboxState = "pending" | "awaiting" | "delivered" | "undeliverable"
 export interface OutboxMessage {
   id: string;
   target: string;
-  payload: BridgeMessage;
+  payload: OutboxPayload;
   state: OutboxState;
   attempts: number;
   createdAt: number;

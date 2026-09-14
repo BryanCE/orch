@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores } from "../../src/store/connection.ts";
-import { provenDaemonPid } from "../../src/daemon/lifecycle.ts";
+import { provenDaemonPid } from "../../src/daemon/client/process.ts";
 import { orchDirAt } from "../../src/services.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 

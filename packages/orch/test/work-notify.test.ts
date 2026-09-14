@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { isRecord } from "../src/util.ts";
-import { acceptStatusReport } from "../src/daemon/status-report.ts";
+import { acceptStatusReport } from "../src/daemon/server/status-report.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { testServices } from "./helpers/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -57,7 +57,7 @@ describe("orch presence notifications", () => {
     });
 
     try {
-      const { emitAndNotify } = await import("../src/daemon/events.ts");
+      const { emitAndNotify } = await import("../src/daemon/server/events.ts");
       const entries = fileSettingsManager(orchDir).current().notify;
       expect(entries).toEqual([{ id: "command", on: ["working"], command }]);
       const settings = testServices({ orchDir, settings: { notify: [{ id: "command", on: ["working"], command }] } }).settings;

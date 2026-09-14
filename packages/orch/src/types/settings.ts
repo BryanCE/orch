@@ -20,12 +20,19 @@ export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
 
 export type HostSettings = z.infer<typeof HostSchema>;
 
+/** Where mail lands: `prompt` types it into the recipient's input, `events` publishes it
+ *  as a `message` event on the recipient's stream and leaves the input alone. */
+export const MAIL_DELIVERIES = ["prompt", "events"] as const;
+
+export type MailDelivery = (typeof MAIL_DELIVERIES)[number];
+
 /** Settings normalized for consumers: every section present and defaults applied. */
 export interface OrchSettings {
   runtime: OrchRuntime;
   enabled: { adapters: AdapterId[]; backends: BackendId[] };
   defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking: ThinkingLevel; thinking_by_harness: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
   fleet: { max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; worker_peer_tools: boolean; cross_space: boolean };
+  mail: { to_spawner: MailDelivery; to_worker: MailDelivery };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[] };
   queue: { max_retries: number };

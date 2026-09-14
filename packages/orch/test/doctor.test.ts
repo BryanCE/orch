@@ -3,9 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { computeCodeHash } from "../src/daemon/lifecycle.ts";
+import { computeCodeHash } from "../src/daemon/client/process.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { applyFixes } from "../src/doctor/runner.ts";
 import { checkStore } from "../src/doctor/store.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
@@ -27,6 +27,9 @@ const servers: RpcServer[] = [];
 const discoveryDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-discovery-"));
 process.env.ORCH_DAEMON_DISCOVERY_DIR = discoveryDir;
 afterAll(() => { removeTempDir(discoveryDir); });
+
+/** A full doctor run probes the real machine: binaries, plexer versions, model catalogues. Seconds, not milliseconds. */
+const FULL_DOCTOR_TIMEOUT_MS = 30_000;
 
 function tempDir(): OrchDir {
   const directory = tempOrchDir("orch-doctor-");
@@ -66,7 +69,7 @@ describe("runDoctor", () => {
     for (const id of ["spawn-limits", "command-locks", "notifiers", "notify-sinks", "remote-ssh", "remote-orch-version", "remote-orch-dir"]) {
       expect(check(results, id).status).not.toBe("fail");
     }
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("checks a healthy store", async () => {
     const directory = tempDir();
@@ -74,7 +77,7 @@ describe("runDoctor", () => {
     const result = check(await runTestDoctor(directory), "store");
     expect(result).toMatchObject({ status: "ok", label: "Store" });
     expect(result.detail).toContain("applied migration");
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("warns when the store is absent", () => {
     const directory = tempDir();
@@ -111,13 +114,13 @@ describe("runDoctor", () => {
   test("reports a normal ORCH_DIR on the Linux filesystem", async () => {
     const result = check(await runTestDoctor(tempDir()), "orchdir-location");
     expect(result.status).toBe("ok");
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("reports an absent daemon as optional", async () => {
     const result = check(await runTestDoctor(tempDir()), "orchd");
     expect(result.status).toBe("ok");
     expect(result.detail).toContain("absent");
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("reports and fixes a stale daemon lock", async () => {
     const directory = tempDir();
@@ -130,13 +133,13 @@ describe("runDoctor", () => {
     expect(result.fix).toBeDefined();
     expect(applyFixes([result]).applied[0]).toContain(lockFile);
     expect(fs.existsSync(lockFile)).toBe(false);
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("accepts a live daemon and an answerable socket", async () => {
     const directory = tempDir();
     const server = await startRpcServer(directory, stubRpcHandlers({ "daemon-status": () => daemonStatusFixture() }));
     servers.push(server);
-    const entrypoint = path.join(import.meta.dir, "../src/daemon/orchd.ts");
+    const entrypoint = path.join(import.meta.dir, "../src/daemon/server/orchd.ts");
     fs.writeFileSync(path.join(directory, "orchd.lock"), JSON.stringify({
       pid: process.pid,
       codeHash: computeCodeHash(entrypoint),
@@ -145,7 +148,7 @@ describe("runDoctor", () => {
 
     expect(check(await runTestDoctor(directory), "orchd")).toMatchObject({ status: "ok" });
     expect(check(await runTestDoctor(directory), "orchd-socket")).toMatchObject({ status: "ok" });
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("warns when the live daemon code hash is stale", async () => {
     const directory = tempDir();
@@ -158,7 +161,7 @@ describe("runDoctor", () => {
     const result = check(await runTestDoctor(directory), "orchd-staleness");
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("orch daemon reload");
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("fails on an invalid lock and an unanswerable live socket", async () => {
     const invalid = tempDir();
@@ -180,7 +183,7 @@ describe("runDoctor", () => {
     const socketResult = check(await runTestDoctor(unanswerable), "orchd-socket");
     expect(socketResult.status).toBe("fail");
     expect(socketResult.detail).toContain("orch daemon start");
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("warns when the extension bundle is absent for a matching live hash", async () => {
     const directory = tempDir();
@@ -232,7 +235,7 @@ describe("runDoctor", () => {
     expect(stale.fix).toBeDefined();
     expect(applyFixes([stale])).toEqual({ applied: [stale.fix!.description] });
     expect(fs.existsSync(path.join(directory, "agents", "formeragt1"))).toBe(false);
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("bins check is driven by the enabled set and offers no fix", async () => {
     const directory = tempDir();
@@ -246,7 +249,7 @@ describe("runDoctor", () => {
       if (previousPath === undefined) delete process.env.PATH;
       else process.env.PATH = previousPath;
     }
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("applyFixes reports exactly the changes it applies", () => {
     const directory = tempDir();
@@ -308,7 +311,7 @@ describe("runDoctor", () => {
       status: "ok",
       detail: "1 configured notifier are available",
     });
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("reports invalid settings and accepts missing settings", async () => {
     const invalid = tempDir();
@@ -319,7 +322,7 @@ describe("runDoctor", () => {
     expect(settingsResult.status).toBe("fail");
     expect(settingsResult.detail).toContain("settings.json");
     expect(check(await runTestDoctor(missing), "settings")).toEqual({ id: "settings", label: "Settings validity", status: "ok", detail: "no settings.json" });
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("never throws when individual checks encounter broken inputs", async () => {
     const directory = tempDir();
@@ -329,5 +332,5 @@ describe("runDoctor", () => {
     const invalidAgents = tempDir();
     fs.writeFileSync(path.join(invalidAgents, "agents"), "not a directory");
     expect(check(await runTestDoctor(invalidAgents), "extension-staleness")).toMatchObject({ status: "fail" });
-  });
+  }, FULL_DOCTOR_TIMEOUT_MS);
 });

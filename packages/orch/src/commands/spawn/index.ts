@@ -8,7 +8,7 @@ import { nextTilePlacement, planTilePlacement, readGroupLayout } from "../../bac
 import { createAgentWorktree } from "../../worktree.ts";
 import { errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
-import { rpcRegisterSession } from "../../daemon/reach.ts";
+import { rpcRegisterSession } from "../../daemon/client/reach.ts";
 import { die } from "../target.ts";
 import { callerSpace, selfId } from "../../identity/self.ts";
 import { LAUNCH_ENV, launchCredential } from "../../identity/launch.ts";

@@ -5,7 +5,7 @@ import { HERDR_SINK_ID } from "../backends/backend.ts";
 import { BACKEND_IDS, TILE_FIRST_SPLITS } from "../types/backend.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { ORCH_RUNTIMES } from "../runtimes.ts";
-import { NOTIFY_STATES, type NotifyState } from "../types/settings.ts";
+import { MAIL_DELIVERIES, NOTIFY_STATES, type NotifyState } from "../types/settings.ts";
 import type { OrchDir } from "../types/core.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
@@ -73,6 +73,7 @@ export const NOTIFY_SIMPLE_IDS: readonly string[] = NOTIFY_IDS.filter((id) => NO
 
 export const SETTINGS_DEFAULTS = {
   fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, worker_peer_tools: false, cross_space: false },
+  mail: { to_spawner: "prompt", to_worker: "prompt" },
   queue: { max_retries: 1 },
   retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, sweep_interval_ms: 3_600_000 },
   lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
@@ -125,6 +126,15 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     max_agents_per_space: z.record(z.string(), PositiveInt).optional(),
     worker_peer_tools: z.boolean().optional(),
     cross_space: z.boolean().optional(),
+  }).optional(),
+  /** Mail is what one agent sends another. Each direction picks its own landing:
+   * `prompt` types the text into the recipient's input as it arrives; `events`
+   * publishes it as a `message` event the recipient reads from `orch events`, so a
+   * human typing at that prompt is never interrupted. `to_spawner` governs mail a
+   * worker sends the agent that spawned it; `to_worker` governs every other mail. */
+  mail: z.strictObject({
+    to_spawner: z.enum(MAIL_DELIVERIES).optional(),
+    to_worker: z.enum(MAIL_DELIVERIES).optional(),
   }).optional(),
   models: z.strictObject({
     /** The launch gate PER HARNESS: a spawn is refused unless its model matches one of

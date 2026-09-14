@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { deriveLeasePayload } from "../src/daemon/state.ts";
+import { deriveLeasePayload } from "../src/daemon/server/state.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";

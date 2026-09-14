@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { parseRpcLine } from "../src/daemon/rpc/wire.ts";
+import { parseRpcLine } from "../src/daemon/client/wire.ts";
 import { ensureHost } from "../src/store/agent-rows.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { hosts } from "../src/db/schema.ts";

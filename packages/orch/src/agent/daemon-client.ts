@@ -5,7 +5,7 @@ import type { OrchDir } from "../types/core.ts";
 // At-least-once delivery: a lost ack costs one redelivery, not a lost message.
 // The in-memory dedupe set applies each message id once.
 import * as fs from "node:fs";
-import { daemonRuntimeFiles } from "../daemon/runtime-files.ts";
+import { daemonRuntimeFiles } from "../daemon/client/runtime-files.ts";
 import { type AgentNotice, type BridgeDelivery } from "../control/bridge-message.ts";
 import {
   openJsonLineLink,
@@ -16,8 +16,8 @@ import {
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import type { ControlOutcomeReport, DaemonClient } from "../types/agent.ts";
 import type { ResultReport, StatusPatch } from "../types/presence.ts";
-import { parseRpcResult, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/rpc/protocol.ts";
-import { parseRpcLine } from "../daemon/rpc/wire.ts";
+import { parseRpcResult, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/client/protocol.ts";
+import { parseRpcLine } from "../daemon/client/wire.ts";
 import type { SettingsManager } from "../types/services.ts";
 
 export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager): DaemonClient {

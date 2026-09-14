@@ -7,7 +7,7 @@ import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPl
 import { environmentOf } from "./agent-view.ts";
 import { setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
-import { decisionLogger } from "../daemon/decision-log.ts";
+import { decisionLogger } from "../daemon/client/decision-log.ts";
 import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
 import type { HostOs } from "../types/host.ts";
 

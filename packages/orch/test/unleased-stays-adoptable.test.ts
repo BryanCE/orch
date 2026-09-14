@@ -3,7 +3,7 @@ import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { adoptLease, currentLease } from "../src/store/lease-rows.ts";
 import { agentView, liveAgentViews } from "../src/store/agent-view.ts";
-import { sweepExpiredRows } from "../src/daemon/retention.ts";
+import { sweepExpiredRows } from "../src/daemon/server/retention.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchSettings } from "../src/types/settings.ts";

@@ -1,12 +1,11 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/services.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { formatAge, cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
-import { presenceAgentDir, writeResult } from "../src/presence/history.ts";
+import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
 import { startRpcServer } from "../src/daemon/rpc/server.ts";
 import { DaemonAbsentError } from "../src/daemon/rpc/wire.ts";
@@ -21,6 +20,8 @@ import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { isRecord } from "../src/util.ts";
 import { sql } from "drizzle-orm";
+import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { selectRuns, upsertRun } from "../src/store/run-rows.ts";
 
 /** Target resolution loads settings.json (host lookup) and die()s — killing the whole
  *  test process — when it is absent, so every command-invoking test seeds one. */
@@ -168,11 +169,9 @@ describe("commands/results", () => {
     const { key, space } = testTarget("resultaa42");
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    const dir = presenceAgentDir(key, root);
-    mkdirSync(dir, { recursive: true });
     seedAgent(root, key, space);
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
-    writeFileSync(join(dir, "results.jsonl"), `${JSON.stringify({ text: "finished" })}\n`);
+    mergeAgentStatus(root, key, { state: "done" }, Date.now());
+    upsertRun(root, { dispatchId: "result-dispatch-42", agentKey: key, state: "done", startedAt: Date.now(), result: "finished" });
     const output: string[] = [];
     // eslint-disable-next-line typescript/unbound-method
     const originalWrite = process.stdout.write;
@@ -186,14 +185,13 @@ describe("commands/results", () => {
     const { key, space } = testTarget("resultaa45");
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    const dir = presenceAgentDir(key, root);
-    mkdirSync(dir, { recursive: true });
     seedAgent(root, key, space);
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
-    writeResult(dir, { text: "first dispatch" });
-    writeResult(dir, { text: "second dispatch" });
+    mergeAgentStatus(root, key, { state: "done" }, Date.now());
+    const startedAt = Date.now();
+    upsertRun(root, { dispatchId: "result-history-first", agentKey: key, state: "done", startedAt, result: "first dispatch" });
+    upsertRun(root, { dispatchId: "result-history-second", agentKey: key, state: "done", startedAt: startedAt + 1, result: "second dispatch" });
     try {
-      expect(readFileSync(join(dir, "results.jsonl"), "utf8").trimEnd().split("\n")).toHaveLength(2);
+      expect(selectRuns(root, { agentKey: key })).toHaveLength(2);
       expect(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]))).toBe("second dispatch\n");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
@@ -206,12 +204,12 @@ describe("commands/results", () => {
     const { key, space } = testTarget("resultaa43");
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    const dir = presenceAgentDir(key, root);
-    mkdirSync(dir, { recursive: true });
+    const dir = ensurePresenceAgentDir(key, root);
+    if (dir === undefined) throw new Error("failed to create presence directory");
     const session = join(dir, "session.jsonl");
     writeFileSync(session, JSON.stringify({ type: "message", message: { role: "assistant", content: "session final" } }) + "\n");
     seedAgent(root, key, space, "pi");
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "done", sessionPath: session }));
+    mergeAgentStatus(root, key, { state: "done", sessionPath: session }, Date.now());
     try {
       expect(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]))).toContain("(no results.jsonl - falling back to adapter-extracted session text)\nsession final\n");
     } finally {
@@ -225,11 +223,9 @@ describe("commands/results", () => {
     const { key, space } = testTarget("resultaa44");
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    const dir = presenceAgentDir(key, root);
-    mkdirSync(dir, { recursive: true });
     seedAgent(root, key, space);
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "done" }));
-    writeFileSync(join(dir, "results.jsonl"), `${JSON.stringify({ text: "finished without agent" })}\n`);
+    mergeAgentStatus(root, key, { state: "done" }, Date.now());
+    upsertRun(root, { dispatchId: "result-no-agent-44", agentKey: key, state: "done", startedAt: Date.now(), result: "finished without agent" });
     try {
       expect(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key]))).toBe("finished without agent\n");
     } finally {
@@ -246,11 +242,9 @@ describe("commands/results", () => {
     const targets = ["resultmny1", "resultmny2"];
     try {
       for (const [index, key] of targets.entries()) {
-        const dir = presenceAgentDir(key, root);
-        mkdirSync(dir, { recursive: true });
         seedAgent(root, key, "test");
-        writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
-        writeFileSync(join(dir, "results.jsonl"), JSON.stringify({ text: `result-${index}` }) + "\n");
+        mergeAgentStatus(root, key, { state: "done" }, Date.now());
+        upsertRun(root, { dispatchId: `result-many-${index}`, agentKey: key, state: "done", startedAt: Date.now(), result: `result-${index}` });
       }
       const output = captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), targets));
       expect(output).toBe("== resultmny1\nresult-0\n== resultmny2\nresult-1\n");
@@ -270,18 +264,16 @@ describe("commands/results", () => {
     const targets = [first, second];
     try {
       for (const [index, key] of targets.entries()) {
-        const dir = presenceAgentDir(key, root);
-        mkdirSync(dir, { recursive: true });
         seedAgent(root, key, "test");
-        writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
-        writeFileSync(join(dir, "results.jsonl"), JSON.stringify({ text: `json-${index}` }) + "\n");
+        mergeAgentStatus(root, key, { state: "done" }, Date.now());
+        upsertRun(root, { dispatchId: `result-json-${index}`, agentKey: key, state: "done", startedAt: Date.now(), result: `json-${index}` });
       }
       const parsed: unknown = JSON.parse(captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [...targets, "--json"])));
       if (!isJsonResultArray(parsed)) throw new Error("result output was not an array of result entries");
       expect(parsed).toHaveLength(2);
       expect(parsed.map((entry) => ({ target: entry.target, source: entry.source, result: entry.result }))).toEqual([
-        { target: first, source: "presence", result: { text: "json-0" } },
-        { target: second, source: "presence", result: { text: "json-1" } },
+        { target: first, source: "presence", result: "json-0" },
+        { target: second, source: "presence", result: "json-1" },
       ]);
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
@@ -296,11 +288,9 @@ describe("commands/results", () => {
     seedSettings(root);
     const known = "resultkn01";
     const missing = "resultms01";
-    const dir = presenceAgentDir(known, root);
-    mkdirSync(dir, { recursive: true });
     seedAgent(root, known, "test");
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key: known, pid: process.pid, agent: "pi", state: "done" }));
-    writeFileSync(join(dir, "results.jsonl"), JSON.stringify({ text: "known-result" }) + "\n");
+    mergeAgentStatus(root, known, { state: "done" }, Date.now());
+    upsertRun(root, { dispatchId: "result-known-01", agentKey: known, state: "done", startedAt: Date.now(), result: "known-result" });
     process.exitCode = 0;
     try {
       const output = captureStdout(() => cmdResult(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [known, missing]));
@@ -320,8 +310,8 @@ describe("commands/results", () => {
     const { key, space } = testTarget("tailaaa515");
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    const dir = presenceAgentDir(key, root);
-    mkdirSync(dir, { recursive: true });
+    const dir = ensurePresenceAgentDir(key, root);
+    if (dir === undefined) throw new Error("failed to create presence directory");
     // A claude-format transcript: pi's parseSession would not produce this text.
     const transcript = join(dir, "session.jsonl");
     writeFileSync(transcript, [
@@ -329,7 +319,7 @@ describe("commands/results", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "" }, { type: "text", text: "claude final" }] } }),
     ].join("\n") + "\n");
     seedAgent(root, key, space, "claude");
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
+    mergeAgentStatus(root, key, { state: "done", sessionPath: transcript }, Date.now());
     let joined = "";
     try { joined = captureStdout(() => cmdTail(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(joined).toContain("claude final");
@@ -342,8 +332,8 @@ describe("commands/results", () => {
     const { key, space } = testTarget("pitailaa70");
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    const dir = presenceAgentDir(key, root);
-    mkdirSync(dir, { recursive: true });
+    const dir = ensurePresenceAgentDir(key, root);
+    if (dir === undefined) throw new Error("failed to create presence directory");
     const session = join(dir, "session.jsonl");
     // pi's OWN session format: SessionEntry JSONL. A claude/codex parser would not produce these rows.
     writeFileSync(session, [
@@ -354,7 +344,7 @@ describe("commands/results", () => {
       JSON.stringify({ type: "message", timestamp: "2026-07-20T10:00:04Z", message: { role: "assistant", content: [{ type: "text", text: "final answer" }] } }),
     ].join("\n") + "\n");
     seedAgent(root, key, space);
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done", sessionPath: session }));
+    mergeAgentStatus(root, key, { state: "done", sessionPath: session }, Date.now());
     return { root, key, restore: () => { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); } };
   }
 
@@ -391,12 +381,12 @@ describe("commands/results", () => {
     const { key, space } = testTarget("sessionn80");
     process.env.ORCH_DIR = root;
     seedSettings(root);
-    const dir = presenceAgentDir(key, root);
-    mkdirSync(dir, { recursive: true });
+    const dir = ensurePresenceAgentDir(key, root);
+    if (dir === undefined) throw new Error("failed to create presence directory");
     const transcript = join(dir, "session.jsonl");
     writeFileSync(transcript, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "claude only" }] } }) + "\n");
     seedAgent(root, key, space, "claude");
-    writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "claude", state: "done", sessionPath: transcript }));
+    mergeAgentStatus(root, key, { state: "done", sessionPath: transcript }, Date.now());
     let joined = "";
     try { joined = captureStdout(() => cmdSession(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), [key])); } finally { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(joined).toContain("entries: 0");

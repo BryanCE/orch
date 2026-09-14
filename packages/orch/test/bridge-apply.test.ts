@@ -96,7 +96,7 @@ function presence(daemon: DaemonClient, harness: HarnessApi) {
   const orchDir = tempOrchDir("orch-bridge-apply-");
   process.env.ORCH_DIR = orchDir;
   directories.push(orchDir);
-  const value = createAgentPresence(orchDir, {
+  const value = createAgentPresence({
     harness,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",

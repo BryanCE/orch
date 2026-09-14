@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fleetStatusRows } from "../src/commands/status/rows.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { testServices } from "./helpers/services.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import type { AgentState } from "../src/agent-state.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
 /**
@@ -43,14 +44,10 @@ function fixture(): OrchDir {
 }
 
 /** A presence record; `alive` registers the agent with this runner as its recorded process. */
-function seedPresence(root: OrchDir, key: string, alive: boolean, state: string): void {
-  if (alive) {
-    seedAgent(key, {}, root);
-    seedLiveProcess(root, key);
-  }
-  const dir = join(root, "agents", key);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, agent: "pi", state }));
+function seedPresence(root: OrchDir, key: string, alive: boolean, state: AgentState): void {
+  seedAgent(key, {}, root);
+  if (alive) seedLiveProcess(root, key);
+  mergeAgentStatus(root, key, { state }, Date.now());
 }
 
 function noSettings(root: OrchDir): OrchSettings {
@@ -96,7 +93,7 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     // The row this test defends: a second reader would let `--offline` and plain
     // `status` disagree about the same agent. Enforced statically, because the
     // divergence would otherwise appear only on a machine with a live plexer.
-    const source = readFileSync(join(import.meta.dir, "..", "src", "commands", "status.ts"), "utf8");
+    const source = readFileSync(join(import.meta.dir, "..", "src", "commands", "status", "fetch.ts"), "utf8");
     const offlineBranch = /if\s*\(offline\)\s*\{[\s\S]*?\n\s{2}\}/.exec(source)?.[0] ?? "";
 
     expect(offlineBranch).toContain("fleetStatusRows");
@@ -107,7 +104,7 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
   });
 
   test("offline is the one path that never dials or starts the daemon", () => {
-    const source = readFileSync(join(import.meta.dir, "..", "src", "commands", "status.ts"), "utf8");
+    const source = readFileSync(join(import.meta.dir, "..", "src", "commands", "status", "index.ts"), "utf8");
 
     // This is what the flag is FOR, and the reason it stays a status flag rather
     // than moving to doctor: a person on a machine with no daemon still gets the

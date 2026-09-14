@@ -114,7 +114,7 @@ function lookupResolvedResult(services: Services, target: string, ent: Entity, f
     resultLogger(services.logger, ent.key).info("result.adapter-fallback");
     return { kind: "found", source: "session", payload: adapterResultDocument(ent, adapter, text) };
   }
-  return { kind: "missing", reason: `No result available for "${target}" (no results.jsonl and no adapter-extractable session text).` };
+  return { kind: "missing", reason: `No result available for "${target}" (no settled dispatch, no reported result, and no adapter-extractable session text).` };
 }
 
 function lookupResultBody(services: Services, target: string, force: boolean): ResultLookup {

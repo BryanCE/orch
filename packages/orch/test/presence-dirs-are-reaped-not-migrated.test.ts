@@ -5,8 +5,10 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadPresence, reapDeadPresenceDirs } from "../src/presence/store.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { seedStatus } from "./helpers/presence.ts";
 
 /**
  * Presence directory names change; existing dirs are REAPED, not migrated.
@@ -87,7 +89,9 @@ describe("a presence dir in the old shape is reaped, never migrated (J4)", () =>
 
   test("a dead dir in the CURRENT shape is still reaped the ordinary way", () => {
     const root = fixture();
-    const dead = seedDir(root, "deadagent1");
+    seedStatus(root, "deadagent1", { state: "done" });
+    const dead = ensurePresenceAgentDir("deadagent1", root);
+    if (dead === undefined) throw new Error("no history dir");
 
     const result = reapDeadPresenceDirs(root);
 

@@ -57,11 +57,14 @@ function restoreStore(copies: readonly StoreCopy[]): void {
 
 
 // One guard for every rebuild of this store, wherever it is asked from: a slave
-// never rebuilds it at all, and nobody rebuilds it under a live agent.
+// never rebuilds it at all, and nobody rebuilds it under a live worker. A live
+// driving session re-registers on its next command, so `--with-sessions` lets
+// the user rebuild under their own sessions without closing them.
+const withSessions = process.argv.includes("--with-sessions");
 const holders = livePresenceHolders(ORCH_DIR);
 if (!isDryRun) {
   try {
-    assertStoreRecreatable(ORCH_DIR);
+    assertStoreRecreatable(ORCH_DIR, { withSessions });
   } catch (error: unknown) {
     process.stderr.write(`${errorMessage(error)}\n`);
     process.exit(1);
@@ -77,7 +80,12 @@ if (isDryRun) {
   } else {
     process.stdout.write(`[dry-run] nothing to remove: ${join(ORCH_DIR, "orch.db")} does not exist\n`);
   }
-  if (holders.length) process.stdout.write(`[dry-run] WOULD REFUSE: ${holders.length} live agent(s): ${holders.join(", ")}\n`);
+  if (holders.workers.length) process.stdout.write(`[dry-run] WOULD REFUSE: ${holders.workers.length} live worker(s): ${holders.workers.join(", ")}\n`);
+  if (holders.sessions.length) {
+    process.stdout.write(withSessions
+      ? `[dry-run] would rebuild under ${holders.sessions.length} live driving session(s), which re-register on their next command: ${holders.sessions.join(", ")}\n`
+      : `[dry-run] WOULD REFUSE: ${holders.sessions.length} live driving session(s): ${holders.sessions.join(", ")} (pass --with-sessions to rebuild under them)\n`);
+  }
   process.stdout.write(`[dry-run] would rebuild it empty at the current migration.\n`);
   process.stdout.write(`[dry-run] re-run without --dry-run to do it.\n`);
   process.exit(0);

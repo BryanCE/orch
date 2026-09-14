@@ -6,6 +6,7 @@ import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { presenceEntryFixture, statusRow } from "./helpers/presence.ts";
 import type { Entity, OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 
@@ -40,9 +41,8 @@ function entity(): Entity {
     key, paneId: null, managed: true, name: "worker", tabLabel: null, agent: "pi", focused: false,
     // A detached agent is in no plexer and no space: that is a missing row, not
     // a place named "local".
-    backendStatus: null, backend: null, presence: {
-      key, dir: "/tmp", alive: true, result: null, status: { schema: 1, state: "idle" },
-    }, sessionPath: null, presenceOnly: false, ended: false, space: null,
+    backendStatus: null, backend: null, presence: presenceEntryFixture({ key, status: statusRow({ agentId: key, state: "idle" }) }),
+    sessionPath: null, presenceOnly: false, ended: false, space: null,
   };
 }
 

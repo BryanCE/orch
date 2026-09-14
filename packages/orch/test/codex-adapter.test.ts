@@ -11,7 +11,10 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 // config.ts as its dependencies instead, in an order that resolves.
 import "../src/adapters/registry.ts";
 import { editCodexNotifyConfig } from "../src/adapters/codex-notify.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
+import type { ParamsOf } from "../src/daemon/rpc/protocol.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 import {
   CODEX_STATE_FALLBACK_MARKER,
   CODEX_TURN_COMPLETE,
@@ -21,8 +24,26 @@ import { CodexAdapter, codexAdapter } from "../src/adapters/codex.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
-import { readJsonRecord } from "../test/helpers/json.ts";
 import type { OrchDir } from "../src/types/core.ts";
+
+type StatusReportParams = ParamsOf<"report-status">;
+type ResultReportParams = ParamsOf<"report-result">;
+
+interface ReportCapture {
+  readonly statuses: StatusReportParams[];
+  readonly results: ResultReportParams[];
+  readonly server: RpcServer;
+}
+
+async function startReportServer(orchDir: OrchDir): Promise<ReportCapture> {
+  const statuses: StatusReportParams[] = [];
+  const results: ResultReportParams[] = [];
+  const server = await startRpcServer(orchDir, stubRpcHandlers({
+    "report-status": (params) => { statuses.push(params); return { ok: true }; },
+    "report-result": (params) => { results.push(params); return { ok: true }; },
+  }));
+  return { statuses, results, server };
+}
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-adapter-codex-"));
 beforeEach(() => {
@@ -119,26 +140,30 @@ describe("CodexAdapter", () => {
     expect(adapter.readSessionView({})).toBeUndefined();
   });
 
-  test("notify shim writes schema-current done presence and result atomically", () => {
+  test("notify shim reports done presence and result over orchd", async () => {
     const orchDir: OrchDir = tempOrchDir("orch-codex-notify-");
+    const capture = await startReportServer(orchDir);
     try {
       // The shim parses launch env through the one identity boundary, so the fixture
       // must be what a real spawn mints: the id alone. A `<plexer>~<space>~<name>` key is
       // environment welded into identity, which Rule 11 forbids.
       const key = mintAgentId();
       const payload = JSON.stringify({ type: CODEX_TURN_COMPLETE, "last-assistant-message": "finished" });
-      const result = Bun.spawnSync([process.execPath, path.join(import.meta.dir, "..", "extensions", "codex", "index.ts"), payload], {
+      const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "..", "extensions", "codex", "index.ts"), payload], {
         cwd: path.join(import.meta.dir, ".."),
-        env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: key },
+        env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: key, ORCH_REPORT_TIMEOUT_MS: "2000" },
+        stdout: "ignore",
+        stderr: "ignore",
       });
-      expect(result.exitCode).toBe(0);
-      const dir = path.join(orchDir, "agents", key);
-      const status = readJsonRecord(path.join(dir, "status.json"));
-      const savedResult = readJsonRecord(path.join(dir, "results.jsonl"));
-      expect(status).toMatchObject({ schema: PRESENCE_SCHEMA, state: "done", lastText: "finished" });
-      expect(savedResult).toMatchObject({ schema: PRESENCE_SCHEMA, text: "finished" });
-      expect(fs.readdirSync(dir).filter((name) => name.includes(".tmp-")).length).toBe(0);
+      expect(await child.exited).toBe(0);
+      expect(capture.statuses).toHaveLength(1);
+      expect(capture.statuses[0]?.key).toBe(key);
+      expect(capture.statuses[0]?.status).toMatchObject({ state: "done", lastText: "finished" });
+      expect(capture.results).toHaveLength(1);
+      expect(capture.results[0]?.key).toBe(key);
+      expect(capture.results[0]?.result).toMatchObject({ text: "finished" });
 
+      await capture.server.close();
       removeTempDir(orchDir);
       const silent = Bun.spawnSync([process.execPath, path.join(import.meta.dir, "..", "extensions", "codex", "index.ts"), payload], {
         cwd: path.join(import.meta.dir, ".."),
@@ -147,6 +172,7 @@ describe("CodexAdapter", () => {
       expect(silent.exitCode).toBe(0);
       expect(fs.existsSync(path.join(orchDir, "agents"))).toBe(false);
     } finally {
+      await capture.server.close();
       removeTempDir(orchDir);
     }
   });

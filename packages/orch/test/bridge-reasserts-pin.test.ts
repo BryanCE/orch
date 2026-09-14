@@ -137,7 +137,7 @@ function setup(): {
   process.env[LAUNCH_ENV] = "worker0001";
   const harness = fakeHarness();
   const daemon = fakeDaemon();
-  const presence = createAgentPresence(root, {
+  const presence = createAgentPresence({
     harness,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",

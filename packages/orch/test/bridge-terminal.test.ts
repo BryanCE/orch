@@ -66,7 +66,7 @@ describe("bridge terminal turn seam", () => {
     process.env.ORCH_DIR = root;
     process.env[LAUNCH_ENV] = key;
     const harness = fakeHarness();
-    const presence = createAgentPresence(root, {
+    const presence = createAgentPresence({
       harness,
       identity: { agentId: "pi", settleEvent: "agent_settled" },
       extensionHash: "test",

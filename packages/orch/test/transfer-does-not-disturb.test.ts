@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
+import { selectAgentStatus } from "../src/store/status-rows.ts";
 import { ensureHarness, ensureHost, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { acquireLease, adoptLease, handoffLease, leaseHistory, releaseLease } from "../src/store/lease-rows.ts";
@@ -67,7 +66,7 @@ function processInterval(directory: OrchDir): unknown {
 }
 
 function statusBytes(directory: OrchDir): string {
-  return readFileSync(join(directory, "agents", "worker", "status.json"), "utf8");
+  return JSON.stringify(selectAgentStatus(directory, "worker"));
 }
 
 describe("a transfer touches the lease and nothing else", () => {

@@ -35,7 +35,7 @@ export function registerHarnessBridge(
   const environment = agentEnvironment();
   const daemon = createDaemonClient(options.orchDir, options.settings);
 
-  const presence = createAgentPresence(options.orchDir, { harness, identity, extensionHash, daemon });
+  const presence = createAgentPresence({ harness, identity, extensionHash, daemon });
 
   async function refreshLabels(): Promise<void> {
     if (!environment.labels) return;

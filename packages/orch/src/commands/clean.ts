@@ -121,7 +121,8 @@ function closeDeadAgentWrites(json = false, root: OrchDir): number {
  * second wording for one situation.
  */
 function nothingToReapMessage(root: OrchDir): string {
-  const holders = livePresenceHolders(root);
+  const live = livePresenceHolders(root);
+  const holders = [...live.workers, ...live.sessions];
   if (holders.length === 0) return "Nothing to clean - no agent dirs exist.\n";
   return `Nothing to clean - ${holders.length} agent${holders.length === 1 ? " is" : "s are"} live: ${holders.join(", ")}. `
     + `--force reaps DEAD agents only; close them first ('orch close --all'), then retry.\n`;

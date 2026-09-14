@@ -39,6 +39,7 @@ interface LiveProcessRow {
   readonly agent_id: string;
   readonly pid: number;
   readonly start_token: string | null;
+  readonly spawned_by: string | null;
 }
 
 function isLiveProcessRow(value: unknown): value is LiveProcessRow {
@@ -46,8 +47,27 @@ function isLiveProcessRow(value: unknown): value is LiveProcessRow {
   const agentId = value.agent_id;
   const pid = value.pid;
   const startToken = value.start_token;
+  const spawnedBy = value.spawned_by;
   return typeof agentId === "string" && typeof pid === "number"
-    && (typeof startToken === "string" || startToken === null);
+    && (typeof startToken === "string" || startToken === null)
+    && (typeof spawnedBy === "string" || spawnedBy === null);
+}
+
+/**
+ * Who is live in this store, split by what losing the store costs them.
+ *
+ * A worker's identity is the launch credential orch handed it; the row is the
+ * only thing that credential resolves to, so a rebuild orphans it. A driving
+ * session resolves itself through its harness session token and re-registers
+ * on its next command, so a rebuild costs it a fresh id and nothing else.
+ */
+export interface LiveHolders {
+  readonly workers: readonly string[];
+  readonly sessions: readonly string[];
+}
+
+function describeHolders(kind: string, ids: readonly string[]): string {
+  return `${ids.length} ${kind}${ids.length === 1 ? " is" : "s are"} live: ${ids.join(", ")}`;
 }
 
 function databasePath(orchDir: OrchDir): string {
@@ -63,20 +83,22 @@ function migrationsFolder(): string {
 }
 
 /** Store process rows are the liveness source; read raw because the store may be refused. */
-export function livePresenceHolders(orchDir: OrchDir): string[] {
+export function livePresenceHolders(orchDir: OrchDir): LiveHolders {
   let opened: OpenDatabase | undefined;
   try {
     opened = createDatabase(databasePath(orchDir), true);
-    const rows = opened.client.prepare("SELECT agent_id, pid, start_token FROM agent_processes WHERE until IS NULL").all();
-    const processes: LiveProcessRow[] = [];
+    const rows = opened.client.prepare(
+      "SELECT p.agent_id, p.pid, p.start_token, a.spawned_by FROM agent_processes p JOIN agents a ON a.id = p.agent_id WHERE p.until IS NULL",
+    ).all();
+    const workers: string[] = [];
+    const sessions: string[] = [];
     for (const row of rows) {
-      if (isLiveProcessRow(row)) processes.push(row);
+      if (!isLiveProcessRow(row) || !recordedInstanceIsLive(row.pid, row.start_token)) continue;
+      (row.spawned_by === null ? sessions : workers).push(row.agent_id);
     }
-    return processes
-      .filter((row) => recordedInstanceIsLive(row.pid, row.start_token))
-      .map((row) => row.agent_id);
+    return { workers, sessions };
   } catch {
-    return [];
+    return { workers: [], sessions: [] };
   } finally {
     try { opened?.client.close(); } catch {}
   }
@@ -99,22 +121,28 @@ function callerIsSpawnedAgent(): boolean {
  * Refuse destructive store maintenance that is not the caller's to perform.
  *
  * Rebuilding the store deletes the only record of who every agent is, so it is
- * the user's or the pack orch's call and never a slave's — and while any agent
- * is live it is nobody's, because a living agent's identity is never collateral.
+ * the user's or the pack orch's call and never a slave's — and while any worker
+ * is live it is nobody's, because a living worker's identity is never collateral.
+ * A live driving session is different: it re-registers on its next command, so
+ * the user may rebuild under one by saying so (`withSessions`).
  *
  * 2026-08-27: a slave running dev-tree code stamped the live store one schema
  * ahead, and the installed CLI silently reaped and recreated it under twelve
  * live agents.
  */
-export function assertStoreRecreatable(orchDir: OrchDir): void {
+export function assertStoreRecreatable(orchDir: OrchDir, options: { withSessions: boolean } = { withSessions: false }): void {
   const file = databasePath(orchDir);
   if (callerIsSpawnedAgent()) {
     throw new Error(`orch: a spawned agent never rebuilds ${file}. Report the skew to the user or the pack's orch, who rebuilds it, and change nothing.`);
   }
   const holders = livePresenceHolders(orchDir);
-  if (holders.length > 0) {
-    throw new Error(`orch: refusing to rebuild ${file} while ${holders.length} agent${holders.length === 1 ? " is" : "s are"} live: ${holders.join(", ")}. `
+  if (holders.workers.length > 0) {
+    throw new Error(`orch: refusing to rebuild ${file} while ${describeHolders("worker", holders.workers)}. `
       + `Their identity exists only in this store; close them first ('orch close --all'), then retry.`);
+  }
+  if (holders.sessions.length > 0 && !options.withSessions) {
+    throw new Error(`orch: refusing to rebuild ${file} while ${describeHolders("driving session", holders.sessions)}. `
+      + `A session re-registers on its next command, so pass --with-sessions to rebuild under them, or close them first.`);
   }
 }
 
@@ -163,7 +191,8 @@ function applyMigrations(opened: OpenDatabase, path: string, orchDir: OrchDir): 
   } catch (error) {
     opened.client.close();
     const reason = errorMessage(error);
-    const live = livePresenceHolders(orchDir).length > 0 ? " Live agents hold this store; close them first." : "";
+    const holders = livePresenceHolders(orchDir);
+    const live = holders.workers.length > 0 || holders.sessions.length > 0 ? " Live agents hold this store; close them first." : "";
     throw new Error(`orch: ${path} does not match orch's migrations (${reason}).${live} ${openRemedy(orchDir, reason)}`);
   }
 }

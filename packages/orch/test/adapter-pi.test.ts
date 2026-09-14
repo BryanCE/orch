@@ -2,6 +2,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { upsertRun } from "../src/store/run-rows.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
@@ -16,13 +17,6 @@ function storePresenceDir(): string {
   return presenceDir(orchDir);
 }
 const fixtureKeys = new Set<string>();
-
-function presencePath(key: string, file: string): string {
-  fixtureKeys.add(key);
-  const directory = path.join(storePresenceDir(), key);
-  fs.mkdirSync(directory, { recursive: true });
-  return path.join(directory, file);
-}
 
 function writeStatus(key: string, state: string): void {
   fixtureKeys.add(key);
@@ -88,10 +82,17 @@ describe("PiAdapter", () => {
     expect(adapter.detectState({ key: "missingag1" }, orchDir)).toBe("unknown");
   });
 
-  test("reads results.jsonl and falls back to the last assistant session text", () => {
-    writeStatus("piresult01", "done");
-    fs.writeFileSync(presencePath("piresult01", "results.jsonl"), `${JSON.stringify({ text: "from result" })}\n`);
-    expect(adapter.extractResult({ key: "piresult01" }, orchDir)).toBe("from result");
+  test("reads the reported result and falls back to the last assistant session text", () => {
+    const key = "piresult01";
+    writeStatus(key, "done");
+    upsertRun(orchDir, {
+      dispatchId: "d-pi-result",
+      agentKey: key,
+      state: "done",
+      startedAt: Date.now(),
+      result: "from result",
+    });
+    expect(adapter.extractResult({ key }, orchDir)).toBe("from result");
 
     const sessionPath = path.join(orchDir, "session.jsonl");
     fs.writeFileSync(sessionPath, JSON.stringify({

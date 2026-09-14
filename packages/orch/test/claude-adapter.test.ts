@@ -1,10 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/backends/identity.ts";
+import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { upsertRun } from "../src/store/run-rows.ts";
+import { seedAgent } from "./helpers/agent.ts";
+import { startRpcServer } from "../src/daemon/rpc/server.ts";
+import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
+import type { ParamsOf } from "../src/daemon/rpc/protocol.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 // Imported FIRST on purpose, and for its evaluation order alone: reaching
 // adapters/claude.ts as the ENTRY point makes it the head of the pre-existing
@@ -14,7 +20,6 @@ import type { OrchDir } from "../src/types/core.ts";
 import "../src/adapters/registry.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
-import { readJsonRecord } from "../test/helpers/json.ts";
 
 const orchDir: OrchDir = tempOrchDir("orch-claude-adapter-");
 const previousOrchDir = process.env.ORCH_DIR;
@@ -31,18 +36,36 @@ function agentDir(key: string): string {
 }
 
 /** The hook always runs under `fakeKey`; a test's own key only names its transcript file. */
-function runHook(event: string, input: Record<string, unknown> = {}): Record<string, unknown> {
-  const hookOrchDir = tempOrchDir("orch-claude-hook-");
-  try {
-    execFileSync(process.execPath, [hookScript, event], {
-      env: { ...process.env, ORCH_DIR: hookOrchDir, [LAUNCH_ENV]: fakeKey },
-      input: JSON.stringify(input),
-      encoding: "utf8",
-    });
-    return readJsonRecord(join(hookOrchDir, "agents", fakeKey, "status.json"));
-  } finally {
-    removeTempDir(hookOrchDir);
-  }
+type StatusReportParams = ParamsOf<"report-status">;
+type ResultReportParams = ParamsOf<"report-result">;
+
+interface ReportCapture {
+  readonly statuses: StatusReportParams[];
+  readonly results: ResultReportParams[];
+  readonly server: RpcServer;
+}
+
+async function startReportServer(): Promise<ReportCapture> {
+  const statuses: StatusReportParams[] = [];
+  const results: ResultReportParams[] = [];
+  const server = await startRpcServer(orchDir, stubRpcHandlers({
+    "report-status": (params) => { statuses.push(params); return { ok: true }; },
+    "report-result": (params) => { results.push(params); return { ok: true }; },
+  }));
+  return { statuses, results, server };
+}
+
+async function runHook(event: string, input: Record<string, unknown> = {}): Promise<void> {
+  const processChild = Bun.spawn([process.execPath, hookScript, event], {
+    env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: fakeKey, ORCH_REPORT_TIMEOUT_MS: "2000" },
+    stdin: "pipe",
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  await processChild.stdin.write(JSON.stringify(input));
+  await processChild.stdin.end();
+  const code = await processChild.exited;
+  if (code !== 0) throw new Error(`hook exited ${code}`);
 }
 
 function restoreEnvironment(): void {
@@ -92,19 +115,21 @@ describe("Claude adapter", () => {
 
   test("detects state from a live presence status", () => {
     const key = "claudestt1";
-    writeFileSync(join(agentDir(key), "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, agent: "claude", state: "working" }));
+    seedAgent(key, { adapter: "claude" }, orchDir);
+    mergeAgentStatus(orchDir, key, { state: "working" }, Date.now());
     expect(claudeAdapter.detectState({ key }, orchDir)).toBe("working");
   });
 
-  test("extracts results.jsonl before transcript and native output", () => {
+  test("extracts results before transcript and native output", () => {
     const key = "claudersl1";
-    const directory = agentDir(key);
-    const transcript = join(directory, "transcript.jsonl");
-    writeFileSync(join(directory, "results.jsonl"), `${JSON.stringify({ text: "result text" })}\n`);
+    seedAgent(key, { adapter: "claude" }, orchDir);
+    mergeAgentStatus(orchDir, key, { state: "working" }, Date.now());
+    upsertRun(orchDir, { dispatchId: "claude-result", agentKey: key, state: "done", startedAt: Date.now(), result: "result text" });
+    const transcript = join(agentDir(key), "transcript.jsonl");
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: [{ type: "text", text: "transcript text" }] })}\n`);
 
     expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" }, orchDir)).toBe("result text");
-    rmSync(join(directory, "results.jsonl"));
+    upsertRun(orchDir, { dispatchId: "claude-result", agentKey: key, state: "done", startedAt: Date.now(), result: null });
     expect(claudeAdapter.extractResult({ key, sessionPath: transcript, output: "native text" }, orchDir)).toBe("transcript text");
   });
 
@@ -121,7 +146,7 @@ describe("Claude adapter", () => {
     expect(claudeAdapter.readSessionView?.({ sessionPath: transcript })).toEqual({ lastText: "Final answer" });
   });
 
-  test("shim and adapter extract identical text from one transcript (empty-string parts)", () => {
+  test("shim and adapter extract identical text from one transcript (empty-string parts)", async () => {
     const key = "claudeshr1";
     const transcript = join(agentDir(key), "shared.jsonl");
     // The final assistant carries an empty-string part beside a real one — the
@@ -134,19 +159,37 @@ describe("Claude adapter", () => {
     }) + "\n");
     const adapterText = claudeAdapter.readSessionView?.({ sessionPath: transcript })?.lastText;
     expect(adapterText).toBe("shared answer");
-    const status = runHook("Stop", { pid: process.pid, transcript_path: transcript });
-    expect(status.lastText).toBe(adapterText);
+    const capture = await startReportServer();
+    try {
+      await runHook("Stop", { pid: process.pid, transcript_path: transcript });
+      expect(capture.statuses[0]?.status).toMatchObject({ state: "done", lastText: adapterText, sessionPath: transcript });
+      expect(capture.results[0]?.result).toMatchObject({ text: adapterText, sessionPath: transcript });
+    } finally {
+      await capture.server.close();
+    }
   }, 20_000);
 
-  test("maps Claude hook events to presence states and schema", () => {
+  test("maps Claude hook events to presence reports", async () => {
     const key = "claude-hooks";
-    expect(runHook("SessionStart", { pid: process.pid, session_id: "s1" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", key: fakeKey, state: "working" });
-    expect(runHook("Notification", { pid: process.pid, message: "Approval needed" })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "blocked", blockedMessage: "Approval needed" });
-    expect(runHook("Stop", { pid: process.pid })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "idle" });
-
     const transcript = join(agentDir(key), "session.jsonl");
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: "Finished" })}\n`);
-    expect(runHook("Stop", { pid: process.pid, transcript_path: transcript })).toMatchObject({ schema: PRESENCE_SCHEMA, agent: "claude", state: "done" });
+    const capture = await startReportServer();
+    try {
+      await runHook("SessionStart", { pid: process.pid, session_id: "s1", model: "sonnet" });
+      await runHook("Notification", { pid: process.pid, message: "Approval needed", model: "sonnet" });
+      await runHook("Stop", { pid: process.pid, model: "sonnet" });
+      await runHook("Stop", { pid: process.pid, transcript_path: transcript, model: "sonnet" });
+      expect(capture.statuses.map((report) => report.status.state)).toEqual(["working", "asking", "idle", "done"]);
+      expect(capture.statuses.every((report) => report.key === fakeKey)).toBe(true);
+      expect(capture.results).toHaveLength(1);
+      expect(capture.results[0]?.key).toBe(fakeKey);
+      expect(capture.statuses[0]?.status).toMatchObject({ model: { provider: "anthropic", id: "sonnet" } });
+      expect(capture.statuses[1]?.status).toMatchObject({ blockedMessage: "Approval needed", model: { provider: "anthropic", id: "sonnet" } });
+      expect(capture.statuses[3]?.status).toMatchObject({ sessionPath: transcript, model: { provider: "anthropic", id: "sonnet" } });
+      expect(capture.results[0]?.result).toMatchObject({ text: "Finished", sessionPath: transcript });
+    } finally {
+      await capture.server.close();
+    }
   }, 20_000);
 
   test("exits silently and writes no presence without launch env (a non-orch session)", () => {

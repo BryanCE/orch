@@ -6,7 +6,7 @@ import { join } from "node:path";
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
 import { presenceAgentDir, presenceRoot } from "./history.ts";
-import { agentViewIndex, agentViews } from "../store/agent-view.ts";
+import { agentView, agentViewIndex, agentViews } from "../store/agent-view.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { eq } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
@@ -151,12 +151,18 @@ export function reapDeadPresenceDirs(root: OrchDir, olderThan?: Date): DeadPrese
   for (const entry of loadPresence(root).values()) {
     if (entry.alive) continue;
     if (cutoffMs !== undefined) {
-      // Retention is based only on instants orch recorded in the status row.
+      // Retention ages by instants recorded in the store, never filesystem age.
+      // Without a status row, the agent ages by its ending or creation instant.
       const status = entry.status;
-      const recorded = status === null
-        ? null
-        : Math.max(status.updatedAt, status.finishedAt ?? status.updatedAt);
-      if (recorded !== null && recorded >= cutoffMs) continue;
+      const view = agentView(root, entry.key);
+      if (view === null) continue;
+      const recorded = Math.max(
+        status?.updatedAt ?? view.createdAt,
+        status?.finishedAt ?? view.createdAt,
+        view.endedAt ?? view.createdAt,
+        view.createdAt,
+      );
+      if (recorded >= cutoffMs) continue;
     }
     try {
       reapSpawnedRecord(entry.key, root);

@@ -1,10 +1,10 @@
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
+import { mergeAgentStatus } from "../src/store/status-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
 import { processIsAlive, processStartToken } from "../src/process-identity.ts";
@@ -55,12 +55,8 @@ function runCli(dir: OrchDir, args: string[]): { status: number | null; output: 
   return { status: result.exitCode, output: `${result.stdout.toString()}\n${result.stderr.toString()}` };
 }
 
-function writeStatus(dir: OrchDir, key: string, pid: number): void {
-  const agentDir = join(dir, "agents", key);
-  mkdirSync(agentDir, { recursive: true });
-  writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key, pid, agent: "pi", state: "working",
-  }));
+function writeStatus(dir: OrchDir, key: string): void {
+  mergeAgentStatus(dir, key, { state: "working" }, Date.now());
 }
 
 function recordProcess(dir: OrchDir, key: string, pid: number, startToken: string): void {
@@ -101,7 +97,7 @@ describe("close always works", () => {
         adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller",
         ...(name === null ? {} : { name }),
       }, dir);
-      writeStatus(dir, key, 99999999);
+      writeStatus(dir, key);
     }
     // The space is not in the key any more, so it is asserted where it now
     // lives: the environment satellite, read through the composer.
@@ -134,7 +130,7 @@ describe("close always works", () => {
     recordProcess(dir, key, pid, processStartToken(pid)!);
     seedSpace(dir, "foreign-space");
     placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" }, dir);
-    writeStatus(dir, key, pid);
+    writeStatus(dir, key);
     // The pane host is asked to close and reports success, but its inventory
     // still lists the pane afterwards: a pane that is still listed must fail
     // the close, whatever the host said.
@@ -169,7 +165,7 @@ describe("close always works", () => {
     db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
     seedSpace(dir, "foreign-space");
     placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "other" }, dir);
-    writeStatus(dir, key, pid);
+    writeStatus(dir, key);
 
     const originalKill = process.kill.bind(process);
     const originalExit = process.exit.bind(process);
@@ -203,7 +199,7 @@ describe("close always works", () => {
     const pid = child.pid!;
     seedSpace(dir, "foreign-space");
     seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" }, dir);
-    writeStatus(dir, key, pid);
+    writeStatus(dir, key);
 
     const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
     withExitCode(() => {
@@ -278,9 +274,7 @@ describe("close always works", () => {
     seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" }, dir);
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
-    writeFileSync(join(agentDir, "status.json"), JSON.stringify({
-      schema: PRESENCE_SCHEMA, key, pid: 99999999, agent: "pi", state: "done",
-    }));
+    mergeAgentStatus(dir, key, { state: "done" }, Date.now());
 
     const result = runCli(dir, ["close", key, "--json"]);
 

@@ -11,6 +11,7 @@ import { insertOutboxMessage, selectOutboxMessage } from "../src/store/outbox-ro
 import { presenceById } from "../src/commands/target.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { CommandRefusal } from "../src/refusal.ts";
+import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { loadPresence, spawnedRecords } from "../src/presence/store.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -26,9 +27,11 @@ describe("commands/clean", () => {
     const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});
+      ensurePresenceAgentDir("deadagent1", root);
       seedAgent("liveagent1", {}, root);
       seedLiveProcess(root, "liveagent1");
       seedStatus(root, "liveagent1", {});
+      ensurePresenceAgentDir("liveagent1", root);
       expect(removeDeadAgentDirs(testServices({ orchDir: root, settings: null }), true, { root })).toEqual(["deadagent1"]);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
@@ -40,10 +43,13 @@ describe("commands/clean", () => {
     const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});
+      ensurePresenceAgentDir("deadagent1", root);
       seedAgent("liveagent1", {}, root);
       seedLiveProcess(root, "liveagent1");
       seedStatus(root, "liveagent1", {});
+      ensurePresenceAgentDir("liveagent1", root);
       seedStatus(root, "herdr~wF~p9", {});
+      ensurePresenceAgentDir("herdr~wF~p9", root);
       insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
       insertOutboxMessage(root, { id: "to-reaped", target: "reapedagent", payload: { action: "dispatch", text: "x" } });
       insertOutboxMessage(root, { id: "to-live", target: "liveagent1", payload: { action: "dispatch", text: "x" } });
@@ -64,6 +70,7 @@ describe("commands/clean", () => {
     const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});
+      ensurePresenceAgentDir("deadagent1", root);
       insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
 
       cmdClean(testServices({ orchDir: root, settings: null }), ["--force", "--json"]);
@@ -124,6 +131,7 @@ describe("orch clean is destructive maintenance", () => {
       seedAgent(agentId, { adapter: "pi" }, root);
       expect(claimAgent(root, agentId, sessionId, 1)).toEqual({ kind: "stamped" });
       seedStatus(root, "deadagent1", {});
+      ensurePresenceAgentDir("deadagent1", root);
       // A refusal is a thrown value carrying its reason, not a process exit and
       // not a stderr side effect (src/refusal.ts): the CLI boundary renders it.
       // Asserting the reason on the thrown value is stronger than either.

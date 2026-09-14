@@ -238,11 +238,10 @@ class ClaudeAdapter implements AgentAdapter {
     return CLAUDE_MODELS;
   }
 
-  /** Prefer hook results.jsonl, then Claude transcript JSONL, then native output. */
+  /** Prefer the daemon-reported result, then Claude transcript JSONL, then native output. */
   extractResult(input: ClaudeResultExtractionInput, orchDir: OrchDir): string | undefined {
     const presence = presenceFor(input.key, orchDir);
-    const result = presence?.result;
-    const resultText = textValue(isRecord(result) ? result.text : undefined);
+    const resultText = textValue(presence?.result);
     if (resultText !== undefined) return resultText;
 
     const statusTranscript = presence?.status?.sessionPath ?? undefined;

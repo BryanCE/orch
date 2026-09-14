@@ -38,7 +38,7 @@ export function daemonStatusFixture(overrides: Partial<ResultOf<"daemon-status">
     uptimeSec: 0,
     codeHash: "test",
     socket: "test.sock",
-    subsystems: { workLoop: "running", presenceWatch: "running", settingsWatch: "running" },
+    subsystems: { workLoop: "running", livenessTick: "running", settingsWatch: "running" },
     ...overrides,
   };
 }

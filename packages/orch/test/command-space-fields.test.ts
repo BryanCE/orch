@@ -1,15 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { orchDirAt } from "../src/services.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { mkdirSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { join } from "node:path";
 import { buildEntities } from "../src/entities/inventory.ts";
 import { entitySpace } from "../src/entities/space.ts";
-import { presenceAgentDir } from "../src/presence/history.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
+import { mergeAgentStatus } from "../src/store/status-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import type { Entity, OrchDir } from "../src/types/core.ts";
@@ -35,18 +32,14 @@ afterEach(() => {
 /** Seed one placed agent: minted identity, plus one row per environment axis. */
 function writeAgent(orchDir: OrchDir, agent: string, space: string, handle: string): string {
   const id = mintAgentId();
-  ensureHarness(orchDir, "pi", "pi", 1);
+  ensureHarness(orchDir, agent, agent, 1);
   ensurePlexer(orchDir, "headless", "headless", 1);
   orm(orchDir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, 1)`);
-  insertAgent(orchDir, { id, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: id, createdAt: 1 });
+  insertAgent(orchDir, { id, spawnedBy: null, harnessId: agent, cwd: orchDir, name: id, createdAt: 1 });
   setAgentPlexer(orchDir, id, "headless");
   setSpace(orchDir, id, 1, space);
   setHandle(orchDir, id, 1, handle);
-  const directory = presenceAgentDir(id, orchDir);
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, "status.json"), JSON.stringify({
-    schema: PRESENCE_SCHEMA, key: id, pid: process.pid, agent, state: "idle",
-  }));
+  mergeAgentStatus(orchDir, id, { state: "idle" }, Date.now());
   return id;
 }
 

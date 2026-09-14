@@ -10,6 +10,8 @@ import { cmdClose } from "../src/commands/lifecycle/close.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { claimAgent } from "../src/store/agent-rows.ts";
+import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { upsertRun } from "../src/store/run-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { callerOwnerToken } from "../src/commands/target.ts";
 import { selfId } from "../src/identity/self.ts";
@@ -252,11 +254,10 @@ describe("fleet ownership scoping", () => {
   test("result refuses a foreign-owned agent and names its owner", () => {
     const dir = makeDir();
     const key = "kfrgnresu1";
-    mkdirSync(join(dir, "agents", key), { recursive: true });
-    writeFileSync(join(dir, "agents", key, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done" }));
-    writeFileSync(join(dir, "agents", key, "results.jsonl"), `${JSON.stringify({ text: "other session's answer" })}\n`);
     seedSpace(dir, "local");
     seedAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" }, dir);
+    mergeAgentStatus(dir, key, { state: "done" }, Date.now());
+    upsertRun(dir, { dispatchId: "d-foreign", agentKey: key, state: "done", startedAt: Date.now(), result: "other session's answer" });
 
     const refused = runCli(dir, ["result", key], "caller-orchestrator");
     expect(refused.status).not.toBe(0);

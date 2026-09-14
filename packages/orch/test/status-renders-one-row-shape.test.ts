@@ -1,11 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { join } from "node:path";
 import { renderStatusTable } from "../src/commands/status/table.ts";
 import { fleetStatusRows, statusRowFromEntity } from "../src/commands/status/rows.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { statusRow as presenceStatusRow } from "./helpers/presence.ts";
+import { seedStatus, statusRow as presenceStatusRow } from "./helpers/presence.ts";
 import type { StatusRow } from "../src/types/command.ts";
 import type { Entity, OrchDir } from "../src/types/core.ts";
 import { testServices } from "./helpers/services.ts";
@@ -73,10 +70,7 @@ describe("status rendering has one row shape and one table renderer", () => {
     tempDirs.push(root);
     process.env.ORCH_DIR = root;
     for (const key of ["fleet00001", "fleet00002", "fleet00003"]) {
-      const dir = join(root, "agents", key);
-      const file = join(dir, "status.json");
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(file, JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "working" }));
+      seedStatus(root, key, { agent: "pi", state: "idle" });
     }
     let orchCalls = 0;
     let directoryCalls = 0;

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { Database } from "bun:sqlite";
@@ -19,6 +19,11 @@ const SPAWNED_SESSION_TOKEN = "store-guard-session";
 
 /** A1: `launch env` carries a minted agent id and nothing else. */
 const SPAWNED_AGENT_KEY = "s3p4wn3d01";
+
+beforeEach(() => {
+  // Every test starts as the user; the spawned-agent tests set the credential themselves.
+  delete process.env[LAUNCH_ENV];
+});
 
 afterEach(() => {
   closeAllStores();
@@ -128,13 +133,14 @@ describe("a slave never reaps or recreates the store", () => {
     expect(existsSync(join(dir, "orch.db-wal"))).toBe(false);
   });
 
-  test("a recreate is refused while a live presence dir exists, for the user too", () => {
+  test("a recreate is refused while a live worker exists, for the user too", () => {
     const dir = fixture();
     orm(dir);
     closeAllStores();
     // Deliberately not a minted id: the refusal names whatever id it found.
     ensureHarness(dir, "pi", "pi", 1);
-    insertAgent(dir, { id: "herdr~w1~p1", harnessId: "pi", cwd: process.cwd(), name: "herdr~w1~p1", createdAt: 1 });
+    insertAgent(dir, { id: "herdr~spawner~p0", harnessId: "pi", cwd: process.cwd(), name: "herdr~spawner~p0", createdAt: 1 });
+    insertAgent(dir, { id: "herdr~w1~p1", harnessId: "pi", cwd: process.cwd(), name: "herdr~w1~p1", createdAt: 1, spawnedBy: "herdr~spawner~p0" });
     seedLiveProcess(dir, "herdr~w1~p1");
 
     // No [LAUNCH_ENV]: this is the user, and the living agent's identity is
@@ -142,7 +148,24 @@ describe("a slave never reaps or recreates the store", () => {
     const message = refusalMessage(() => assertStoreRecreatable(dir));
 
     expect(message).toMatch(/live/i);
+    expect(message).toContain("worker");
     expect(message).toContain("herdr~w1~p1");
+  });
+
+  test("a live driving session is refused without --with-sessions and allowed with it", () => {
+    const dir = fixture();
+    orm(dir);
+    closeAllStores();
+    ensureHarness(dir, "pi", "pi", 1);
+    insertAgent(dir, { id: "herdr~w1~p1", harnessId: "pi", cwd: process.cwd(), name: "herdr~w1~p1", createdAt: 1 });
+    seedLiveProcess(dir, "herdr~w1~p1");
+
+    const message = refusalMessage(() => assertStoreRecreatable(dir));
+
+    expect(message).toContain("driving session");
+    expect(message).toContain("--with-sessions");
+    expect(message).toContain("herdr~w1~p1");
+    expect(() => assertStoreRecreatable(dir, { withSessions: true })).not.toThrow();
   });
 
   test("the user may recreate once nothing is live", () => {

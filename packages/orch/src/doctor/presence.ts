@@ -1,10 +1,12 @@
 import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
+import { basename } from "node:path";
 import { loadPresence, malformedPresenceDirs, presenceDir } from "../presence/store.ts";
 import { presenceAgentDir } from "../presence/history.ts";
 import { PRESENCE_SCHEMA } from "../presence/schema.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
 import { truncate } from "../util.ts";
+import { agentView } from "../store/agent-view.ts";
 export { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { CheckResult, IgnoredPresenceRecord } from "../types/doctor.ts";
@@ -88,6 +90,15 @@ export function checkUnscopedTasks(orchDir: OrchDir): CheckResult {
 
 export async function checkStalePresence(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
+  const malformed = malformedPresenceDirs(orchDir);
+  if (malformed.length) {
+    return {
+      id: "stale-presence",
+      label: "Stale presence dirs",
+      status: "fail",
+      detail: `${malformed.length} malformed agent dir${malformed.length === 1 ? "" : "s"} (not a minted id; orch clean reaps them):\n    ${malformed.map((entry) => entry.name).join("\n    ")}`,
+    };
+  }
   const entries = loadPresence(orchDir);
   if (!entries.size) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no agent dirs" };
   const stale: PresenceEntry[] = [];
@@ -96,9 +107,15 @@ export async function checkStalePresence(orchDir: OrchDir): Promise<CheckResult>
   }
   if (!stale.length) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no dead agent dirs" };
   const descriptions = stale.map((entry) => {
+    const view = agentView(orchDir, entry.key);
+    const name = view === null ? entry.key : view.name;
+    const statusProject = entry.status?.project;
+    const project = typeof statusProject === "string"
+      ? statusProject
+      : view === null ? "unknown" : basename(view.environment.cwd);
     const updatedAt = entry.status?.updatedAt;
     const seen = updatedAt === undefined || updatedAt === null ? "unknown" : humanAge(Date.now() - updatedAt);
-    return `${entry.key} | last seen ${seen}`;
+    return `${name} (${entry.key}) | project ${project} | last seen ${seen}`;
   });
   return {
     id: "stale-presence",

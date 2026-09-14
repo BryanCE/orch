@@ -1,4 +1,3 @@
-import type { OrchDir } from "../types/core.ts";
 // pi's binding to orch's live presence record and daemon link for THIS agent.
 // Orchd pushes dispatch, steer, model, and answer deliveries down that link;
 // this module applies them, acknowledges applied work, and writes status.
@@ -90,7 +89,7 @@ interface AgentPresenceState {
   asking: { question: string; id: string; ts: string } | undefined;
 }
 
-export function createAgentPresence(orchDir: OrchDir, options: AgentPresenceOptions) {
+export function createAgentPresence(options: AgentPresenceOptions) {
   const { harness, daemon, extensionHash } = options;
 
   let lastCtx: HarnessContext | undefined;

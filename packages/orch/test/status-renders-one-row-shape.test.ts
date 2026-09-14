@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { renderStatusTable } from "../src/commands/status/table.ts";
 import { fleetStatusRows, statusRowFromEntity } from "../src/commands/status/rows.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
+import { statusRow as presenceStatusRow } from "./helpers/presence.ts";
 import type { StatusRow } from "../src/types/command.ts";
 import type { Entity, OrchDir } from "../src/types/core.ts";
 import { testServices } from "./helpers/services.ts";
@@ -38,8 +39,8 @@ function entityWithQuestion(): Entity {
     agent: "pi", focused: false, backendStatus: null, backend: null, sessionPath: null,
     presenceOnly: true, ended: false, space: null,
     presence: {
-      key: "agent00001", dir: "/tmp", alive: true, result: " finished  ",
-      status: { schema: 1, state: "asking", asking: { question: "  approve  ", id: "q1", ts: "now" }, task: "ignored" },
+      key: "agent00001", alive: true, result: " finished  ",
+      status: presenceStatusRow({ agentId: "agent00001", state: "asking", task: "Q: approve" }),
     },
   };
 }

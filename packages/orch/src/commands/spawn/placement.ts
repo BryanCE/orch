@@ -98,11 +98,7 @@ export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
 // launch credential — the name and the backend handle are recorded
 // beside it as plain fields, never folded into it. The caller owns error policy
 // (warn-and-continue vs die); this throws on backend failure.
-export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAgent {
-  assertNameFree(orchDir, spec.name, spec.space);
-  const key = spec.key ?? mintAgentId();
-  const spawner = spawnerIdentity(orchDir);
-  const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
+function resolveSpawnPlace(spec: TabSpawnSpec, env: Readonly<Record<string, string>>): BackendHandle | undefined {
   let place: BackendHandle | undefined;
   if (spec.placement) {
     if (!spec.backend.placement) throw new Error("environment cannot place an agent");
@@ -110,8 +106,10 @@ export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAg
   } else {
     place = spec.intoHandle;
   }
-  const thinking = spec.thinking;
-  if (thinking === undefined) throw new Error(`spawn requires a resolved thinking level for ${spec.name}`);
+  return place;
+}
+
+function launchSpawnBackend(orchDir: OrchDir, spec: TabSpawnSpec, key: string, env: Readonly<Record<string, string>>, place: BackendHandle | undefined, thinking: NonNullable<TabSpawnSpec["thinking"]>): BackendHandle {
   let handle: BackendHandle;
   try {
     handle = spec.backend.spawn(spec.adapter, {
@@ -127,6 +125,10 @@ export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAg
     }
     throw error;
   }
+  return handle;
+}
+
+function registerSpawnedTabAgent(orchDir: OrchDir, spec: TabSpawnSpec, key: string, handle: BackendHandle, thinking: NonNullable<TabSpawnSpec["thinking"]>): CreatedAgent {
   // ONE writer for one record (2.1). This states every axis the agent has —
   // harness, plexer, handle, space, model, worktree, holder, process — because a
   // second writer filling in the rest is how the two came to disagree about
@@ -140,6 +142,18 @@ export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAg
     process: spec.backend.process.running(handle),
   });
   return { key, handle: String(handle), name: spec.name };
+}
+
+export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAgent {
+  assertNameFree(orchDir, spec.name, spec.space);
+  const key = spec.key ?? mintAgentId();
+  const spawner = spawnerIdentity(orchDir);
+  const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
+  const thinking = spec.thinking;
+  if (thinking === undefined) throw new Error(`spawn requires a resolved thinking level for ${spec.name}`);
+  const place = resolveSpawnPlace(spec, env);
+  const handle = launchSpawnBackend(orchDir, spec, key, env, place, thinking);
+  return registerSpawnedTabAgent(orchDir, spec, key, handle, thinking);
 }
 
 /** Add one agent to a group at the spot the planner picks for it against the

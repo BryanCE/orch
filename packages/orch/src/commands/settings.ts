@@ -143,13 +143,7 @@ export async function cmdSettingsModels(services: Services, args: string[]): Pro
   }
 }
 
-/**
- * Turn skill installation on or off, and re-point the store or the harness links.
- * `--install` writes every packaged skill straight away, so the setting and what is on
- * disk never disagree; `--no-install` records the refusal and leaves whatever the user
- * has there alone, since those files are theirs to remove.
- */
-export function cmdSettingsSkills(services: Services, args: string[]): void {
+function readSkillsFlags(args: string[]): { readonly storeFlag: string | undefined; readonly install: boolean | undefined; readonly link: string[] | undefined } {
   const storeFlag = readAssignFlag(args, "--store");
   const linkFlag = readAssignFlag(args, "--link");
   const install = args.includes("--install") ? true : args.includes("--no-install") ? false : undefined;
@@ -159,18 +153,37 @@ export function cmdSettingsSkills(services: Services, args: string[]): void {
   }
   if (storeFlag !== undefined && !storeFlag.trim()) die("--store needs a directory.");
   if (linkFlag !== undefined && !link?.length) die("--link needs at least one directory.");
+  return { storeFlag, install, link };
+}
 
+function writeSkillsSettings(services: Services, install: boolean | undefined, storeFlag: string | undefined, link: string[] | undefined): { readonly wanted: boolean; readonly roots: { readonly store: string; readonly link: string[] } } {
   const current = currentSettings(services).skills;
   const wanted = install ?? current.install;
   writeRegisteredSetting(services.settings, "skills.install", wanted);
   if (storeFlag !== undefined) writeRegisteredSetting(services.settings, "skills.store", storeFlag.trim());
   if (link !== undefined) writeRegisteredSetting(services.settings, "skills.link", link);
   const roots = { store: storeFlag?.trim() ?? current.store, link: link ?? current.link };
+  return { wanted, roots };
+}
+
+function printInstalledSkills(wanted: boolean, roots: { readonly store: string; readonly link: string[] }): void {
   process.stdout.write(
     `skills.install = ${wanted}\nskills.store   = ${roots.store}\nskills.link    = ${roots.link.join(", ")}\n`,
   );
   if (!wanted) return;
   for (const placed of installSkills(roots)) process.stdout.write(`  ${describeSkillPlacement(placed)}\n`);
+}
+
+/**
+ * Turn skill installation on or off, and re-point the store or the harness links.
+ * `--install` writes every packaged skill straight away, so the setting and what is on
+ * disk never disagree; `--no-install` records the refusal and leaves whatever the user
+ * has there alone, since those files are theirs to remove.
+ */
+export function cmdSettingsSkills(services: Services, args: string[]): void {
+  const { storeFlag, install, link } = readSkillsFlags(args);
+  const { wanted, roots } = writeSkillsSettings(services, install, storeFlag, link);
+  printInstalledSkills(wanted, roots);
 }
 
 const NOTIFY_USAGE = "usage: orch settings notify [list] [--json]\n"
@@ -295,27 +308,28 @@ export async function cmdSettingsNotify(services: Services, args: string[]): Pro
   die(NOTIFY_USAGE);
 }
 
-/** Print each resolvable setting with its winning source, or switch the active default via --harness/--plexer. */
-export async function cmdSettings(services: Services, args: string[]): Promise<void> {
+async function launchSettingsEditorIfRequested(services: Services, args: string[]): Promise<boolean> {
   if (shouldLaunchSettingsEditor(args)) {
     try {
       await runSettingsEditor(services.settings, currentSettings(services));
     } catch (error: unknown) {
       die(errorMessage(error));
     }
-    return;
+    return true;
   }
-  if (setSingleSetting(services, args)) return;
-  const harness = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
-  const plexer = readAssignFlag(args, "--plexer") ?? readAssignFlag(args, "--backend");
-  const json = args.includes("--json");
+  return false;
+}
 
-  const settings = currentSettings(services);
-
+function switchSettingsDefaults(services: Pick<Services, "settings">, harness: string | undefined, plexer: string | undefined): boolean {
   if (harness !== undefined) switchDefault(services, "adapter", harness);
   if (plexer !== undefined) switchDefault(services, "backend", plexer);
-  if (harness !== undefined || plexer !== undefined) return;
+  if (harness !== undefined || plexer !== undefined) return true;
+  return false;
+}
 
+interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string; readonly display: string }
+
+function collectSettingsProvenance(services: Pick<Services, "orchDir">, settings: OrchSettings): ProvenanceRow[] {
   // One model row per installed harness: each names models in its own vocabulary,
   // so there is no single "the model" to report.
   const modelRows = settings.enabled.adapters.map((harness) => {
@@ -323,7 +337,6 @@ export async function cmdSettings(services: Services, args: string[]): Promise<v
     return { key: `model (${harness})`, ...resolved, display: formatValue(resolved.value) };
   });
 
-  interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string; readonly display: string }
   const provenance: ProvenanceRow[] = [];
   // Every declared setting, in the registry's own declaration order. The registry
   // is the single source of truth for a setting, and
@@ -341,7 +354,10 @@ export async function cmdSettings(services: Services, args: string[]): Promise<v
     provenance.push({ key: spec.key, value, source, display: value === null ? "(none)" : displaySetting(value, spec.type) });
   }
   provenance.push(...modelRows);
+  return provenance;
+}
 
+function printSettingsOutput(services: Pick<Services, "settings">, settings: OrchSettings, provenance: readonly ProvenanceRow[], json: boolean): void {
   const enabledSet = settings.enabled.adapters.length > 0 || settings.enabled.backends.length > 0;
   if (json) {
     const out: Record<string, unknown> = {};
@@ -369,6 +385,21 @@ export async function cmdSettings(services: Services, args: string[]): Promise<v
   process.stdout.write(`  hosts               ${Object.keys(settings.hosts).length}\n`);
   process.stdout.write(`  spaces              ${Object.keys(settings.spaces).length}\n`);
   process.stdout.write(`  notify              ${settings.notify.length}\n`);
+}
+
+/** Print each resolvable setting with its winning source, or switch the active default via --harness/--plexer. */
+export async function cmdSettings(services: Services, args: string[]): Promise<void> {
+  if (await launchSettingsEditorIfRequested(services, args)) return;
+  if (setSingleSetting(services, args)) return;
+  const harness = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
+  const plexer = readAssignFlag(args, "--plexer") ?? readAssignFlag(args, "--backend");
+  const json = args.includes("--json");
+
+  const settings = currentSettings(services);
+
+  if (switchSettingsDefaults(services, harness, plexer)) return;
+  const provenance = collectSettingsProvenance(services, settings);
+  printSettingsOutput(services, settings, provenance, json);
 }
 
 /**

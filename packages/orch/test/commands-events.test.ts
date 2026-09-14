@@ -191,6 +191,7 @@ describe("commands/events space wall", () => {
     const me = mintAgentId();
     const worker = mintAgentId();
     seedSpace(root, "w1");
+    registerSpawnedAgent(root, { key: me, harnessId: "claude", placed: false, cwd: root, name: "orchestrator", model: "test", space: "w1", spawner: null, process: { pid: process.pid, startToken: "commands-events-self-fixture" } });
     registerSpawnedAgent(root, { key: worker, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${worker}`, cwd: root, name: "recon", model: "test", space: "w1", spawner: me, process: { pid: process.pid, startToken: "commands-events-self-fixture" } });
     const accepts = eventAcceptor(root, { ...parseEventsOptions([]), targets: ["recon"] }, new Set([worker]), { mine: true, address: me });
     expect(accepts(worker, "transition")).toBe(true);

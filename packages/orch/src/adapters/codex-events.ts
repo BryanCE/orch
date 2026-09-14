@@ -90,6 +90,28 @@ function notifyText(record: JsonRecord): string | undefined {
   return undefined;
 }
 
+function codexRoleAssistantText(record: JsonRecord, role: unknown, message: JsonRecord | undefined, payload: JsonRecord | undefined): string | undefined {
+  if (role === "assistant" || message?.role === "assistant" || payload?.role === "assistant") {
+    return contentText(record.content ?? message?.content ?? payload?.content ?? record.text);
+  }
+  return undefined;
+}
+
+function codexItemAssistantText(record: JsonRecord, item: JsonRecord | undefined, itemType: string): string | undefined {
+  if (["agent_message", "assistant_message", "output_text", "message"].includes(itemType)) {
+    return contentText(item?.content ?? item?.text ?? record.content ?? record.text);
+  }
+  return undefined;
+}
+
+function nestedCodexAssistantText(record: JsonRecord): string | undefined {
+  for (const nested of nestedRecords(record)) {
+    const text = assistantText(nested);
+    if (text !== undefined) return text;
+  }
+  return undefined;
+}
+
 /** Extract assistant text from Codex's public JSONL stream or native transcript. */
 function assistantText(record: JsonRecord): string | undefined {
   const role = record.role;
@@ -97,17 +119,11 @@ function assistantText(record: JsonRecord): string | undefined {
   const item = isRecord(record.item) ? record.item : undefined;
   const payload = isRecord(record.payload) ? record.payload : undefined;
   const itemType = typeof item?.type === "string" ? item.type : typeof record.item_type === "string" ? record.item_type : "";
-  if (role === "assistant" || message?.role === "assistant" || payload?.role === "assistant") {
-    return contentText(record.content ?? message?.content ?? payload?.content ?? record.text);
-  }
-  if (["agent_message", "assistant_message", "output_text", "message"].includes(itemType)) {
-    return contentText(item?.content ?? item?.text ?? record.content ?? record.text);
-  }
-  for (const nested of nestedRecords(record)) {
-    const text = assistantText(nested);
-    if (text !== undefined) return text;
-  }
-  return undefined;
+  const directText = codexRoleAssistantText(record, role, message, payload);
+  if (directText !== undefined) return directText;
+  const itemText = codexItemAssistantText(record, item, itemType);
+  if (itemText !== undefined) return itemText;
+  return nestedCodexAssistantText(record);
 }
 
 function readTextFile(file: string | undefined): string | undefined {

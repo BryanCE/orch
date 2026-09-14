@@ -117,16 +117,14 @@ async function reportControlPlaneOutage(orchDir: OrchDir, logger: Logger, placem
   return outage;
 }
 
-export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
-  const { orchDir } = services;
-  const maySpawn = maySpawnFrom(orchDir, selfId(orchDir), settingsFile.fleet.max_depth);
+function printSpawnAgentLines(settings: SpawnSettings, created: readonly CreatedAgent[], backend: Backend, group: string, tabLabel: string): void {
   if (!settings.json) {
     for (const agent of created) process.stdout.write(`${agent.handle}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
     printLayout(backend, group, "\nFinal tiling:");
   }
-  reportShortfall(logger, settings.agents.length, created.length);
-  const registeredAgents = await confirmAgentsCameUp(orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settings.json);
-  const registered = registeredAgents?.length ?? null;
+}
+
+function printFleetCapacitySummary(orchDir: OrchDir, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], tabLabel: string): void {
   if (!settings.json) {
     const views = spawnedRecords(orchDir);
     const presence = presenceById(loadPresence(orchDir));
@@ -138,20 +136,26 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
     process.stdout.write(`\nSpawned ${created.length} (pack now ${packsUsed(capacity)}/${settingsFile.fleet.max_agents_per_pack}) on tab "${tabLabel}" (no focus stolen).\n`);
     process.stdout.write(`${formatCapacityLine(capacity, callerRoot)}\n`);
   }
-  if (registeredAgents) {
-    const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
-    for (const agent of created) {
-      if (!registeredKeys.has(agent.key)) {
-        spawnLogger(logger, agent.key).warn("spawn.not-registered", { name: agent.name });
-        process.stdout.write(`not pinned: ${agent.name} never registered\n`);
-      }
+}
+
+function warnUnregisteredAgents(logger: Logger, created: readonly CreatedAgent[], registeredAgents: readonly CreatedAgent[]): void {
+  const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
+  for (const agent of created) {
+    if (!registeredKeys.has(agent.key)) {
+      spawnLogger(logger, agent.key).warn("spawn.not-registered", { name: agent.name });
+      process.stdout.write(`not pinned: ${agent.name} never registered\n`);
     }
   }
-  const pinEntries = (registeredAgents ?? []).flatMap((agent) => {
+}
+
+function buildSpawnPinEntries(registeredAgents: readonly CreatedAgent[] | null, settings: SpawnSettings): Parameters<typeof pinModels>[2] {
+  return (registeredAgents ?? []).flatMap((agent) => {
     const plan = settings.agents.find((candidate) => candidate.name === agent.name);
     return plan === undefined ? [] : [{ ...agent, model: plan.model, thinking: plan.thinking }];
   });
-  const warnings = await pinModels(services, logger, pinEntries);
+}
+
+async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settings" | "logger">, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], registeredAgents: readonly CreatedAgent[] | null, maySpawn: ReturnType<typeof maySpawnFrom>): Promise<{ name: string; key: string; dispatchId: string }[]> {
   const dispatches: { name: string; key: string; dispatchId: string }[] = [];
   if (registeredAgents && settings.agents.some((agent) => agent.prompt !== null)) {
     const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
@@ -176,6 +180,21 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
       }
     }
   }
+  return dispatches;
+}
+
+export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
+  const { orchDir } = services;
+  const maySpawn = maySpawnFrom(orchDir, selfId(orchDir), settingsFile.fleet.max_depth);
+  printSpawnAgentLines(settings, created, backend, group, tabLabel);
+  reportShortfall(logger, settings.agents.length, created.length);
+  const registeredAgents = await confirmAgentsCameUp(orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settings.json);
+  const registered = registeredAgents?.length ?? null;
+  printFleetCapacitySummary(orchDir, settingsFile, settings, created, tabLabel);
+  if (registeredAgents) warnUnregisteredAgents(logger, created, registeredAgents);
+  const pinEntries = buildSpawnPinEntries(registeredAgents, settings);
+  const warnings = await pinModels(services, logger, pinEntries);
+  const dispatches = await dispatchSpawnPrompts(services, logger, settingsFile, settings, created, registeredAgents, maySpawn);
   const outage = warnings.length ? await reportControlPlaneOutage(orchDir, logger, created.length) : null;
   if (settings.json) process.stdout.write(JSON.stringify({
     backend: settings.backend,

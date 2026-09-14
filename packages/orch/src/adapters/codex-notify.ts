@@ -33,18 +33,7 @@ function isEmptyNotifyValue(value: string): boolean {
   return value === "" || value === "[]" || value === '""' || value === "''";
 }
 
-/**
- * Targeted single-line edit of the top-level `notify` key (D2a): replace an
- * orch-owned value, insert into an empty/absent key, and refuse — never
- * clobber — a foreign value. This is intentionally NOT a full TOML parser
- * (Rule 8 is deleting orch's hand-rolled one): it scans line-by-line, treats
- * anything from the first `[table]` header onward as out of the top-level
- * scope, and bails with `ambiguous` on anything it cannot confidently read
- * (a duplicate top-level `notify` key), leaving the file untouched.
- */
-export function editCodexNotifyConfig(raw: string, argv: readonly string[]): CodexNotifyEdit {
-  const desired = `notify = ${JSON.stringify(argv)}`;
-  const lines = raw.trim().length ? raw.split(/\r?\n/) : [];
+function scanCodexNotifyLines(lines: string[]): { readonly status: "ambiguous" } | { readonly status: "ok"; readonly matchIndex: number; readonly matchValue: string } {
   let inTable = false;
   let matchIndex = -1;
   let matchValue = "";
@@ -67,24 +56,44 @@ export function editCodexNotifyConfig(raw: string, argv: readonly string[]): Cod
     matchIndex = index;
     matchValue = candidate;
   }
+  return { status: "ok", matchIndex, matchValue };
+}
 
-  const withLine = (index: number, line: string): string => {
-    const next = [...lines];
-    next[index] = line;
-    return `${next.join("\n").replace(/\n+$/, "")}\n`;
-  };
+function replaceCodexNotifyLine(lines: readonly string[], index: number, line: string): string {
+  const next = [...lines];
+  next[index] = line;
+  return `${next.join("\n").replace(/\n+$/, "")}\n`;
+}
 
-  if (matchIndex === -1) {
-    const firstTable = lines.findIndex((entry) => entry.trim().startsWith("["));
-    const insertAt = firstTable === -1 ? lines.length : firstTable;
-    const next = [...lines];
-    next.splice(insertAt, 0, desired);
-    return { status: "inserted", text: `${next.join("\n").replace(/\n+$/, "")}\n` };
-  }
-  if (isEmptyNotifyValue(matchValue)) return { status: "inserted", text: withLine(matchIndex, desired) };
+function insertCodexNotifyLine(lines: readonly string[], desired: string): CodexNotifyEdit {
+  const firstTable = lines.findIndex((entry) => entry.trim().startsWith("["));
+  const insertAt = firstTable === -1 ? lines.length : firstTable;
+  const next = [...lines];
+  next.splice(insertAt, 0, desired);
+  return { status: "inserted", text: `${next.join("\n").replace(/\n+$/, "")}\n` };
+}
+
+/**
+ * Targeted single-line edit of the top-level `notify` key (D2a): replace an
+ * orch-owned value, insert into an empty/absent key, and refuse — never
+ * clobber — a foreign value. This is intentionally NOT a full TOML parser
+ * (Rule 8 is deleting orch's hand-rolled one): it scans line-by-line, treats
+ * anything from the first `[table]` header onward as out of the top-level
+ * scope, and bails with `ambiguous` on anything it cannot confidently read
+ * (a duplicate top-level `notify` key), leaving the file untouched.
+ */
+export function editCodexNotifyConfig(raw: string, argv: readonly string[]): CodexNotifyEdit {
+  const desired = `notify = ${JSON.stringify(argv)}`;
+  const lines = raw.trim().length ? raw.split(/\r?\n/) : [];
+  const scan = scanCodexNotifyLines(lines);
+  if (scan.status === "ambiguous") return scan;
+  const { matchIndex, matchValue } = scan;
+
+  if (matchIndex === -1) return insertCodexNotifyLine(lines, desired);
+  if (isEmptyNotifyValue(matchValue)) return { status: "inserted", text: replaceCodexNotifyLine(lines, matchIndex, desired) };
   if (isOrchNotifyValue(matchValue)) {
     if (matchValue === JSON.stringify(argv)) return { status: "unchanged" };
-    return { status: "replaced", text: withLine(matchIndex, desired) };
+    return { status: "replaced", text: replaceCodexNotifyLine(lines, matchIndex, desired) };
   }
   return { status: "foreign", foreignValue: matchValue };
 }

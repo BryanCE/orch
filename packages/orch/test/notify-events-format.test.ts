@@ -76,11 +76,11 @@ function event(overrides: Partial<TransitionEvent> = {}): NotifyEvent {
 }
 
 type TransitionState = Exclude<AgentState, "asking">;
-type TransitionStatus = {
+interface TransitionStatus {
   state?: TransitionState;
   task?: string;
   asking?: { question: string };
-};
+}
 
 function transition(orchDir: OrchDir, key: string, status: TransitionStatus, previous: AgentState = "working"): NotifyEvent {
   const state: TransitionState = status.asking === undefined ? status.state ?? "done" : "working";

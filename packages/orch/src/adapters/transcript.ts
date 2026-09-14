@@ -24,17 +24,16 @@ export function contentText(value: unknown): string | undefined {
   return undefined;
 }
 
-/**
- * Assistant text from a single transcript record. Handles both a role field and
- * Claude's `{type:"assistant"}` / `{type:"assistant_message"}` wrappers, and
- * recurses through the common nesting keys (`data`/`payload`/`item`).
- */
-export function assistantText(record: JsonRecord): string | undefined {
+function transcriptDirectAssistantText(record: JsonRecord): string | undefined {
   const message = isRecord(record.message) ? record.message : undefined;
   const role = record.role ?? message?.role;
   if (role === "assistant" || record.type === "assistant" || record.type === "assistant_message") {
     return contentText(record.content ?? message?.content ?? record.text ?? message?.text);
   }
+  return undefined;
+}
+
+function transcriptNestedAssistantText(record: JsonRecord): string | undefined {
   for (const key of ["data", "payload", "item"]) {
     if (isRecord(record[key])) {
       const text = assistantText(record[key]);
@@ -42,6 +41,17 @@ export function assistantText(record: JsonRecord): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Assistant text from a single transcript record. Handles both a role field and
+ * Claude's `{type:"assistant"}` / `{type:"assistant_message"}` wrappers, and
+ * recurses through the common nesting keys (`data`/`payload`/`item`).
+ */
+export function assistantText(record: JsonRecord): string | undefined {
+  const directText = transcriptDirectAssistantText(record);
+  if (directText !== undefined) return directText;
+  return transcriptNestedAssistantText(record);
 }
 
 /** The last assistant text in a claude-format JSONL transcript, or undefined when none. */

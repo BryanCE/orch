@@ -75,6 +75,7 @@ export const SETTINGS_DEFAULTS = {
   fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, worker_peer_tools: false, cross_space: false },
   queue: { max_retries: 1 },
   retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, sweep_interval_ms: 3_600_000 },
+  lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
   questions: { renag_ms: 120_000, renag_limit: 5 },
   logging: { level: "info" },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
@@ -167,6 +168,11 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     logs_days: PositiveInt.optional(),
     /** How often the daemon sweeps retained rows, in milliseconds. */
     sweep_interval_ms: PositiveInt.optional(),
+  }).optional(),
+  lock: z.strictObject({
+    retries: PositiveInt.optional(),
+    interval_ms: PositiveInt.optional(),
+    stale_ms: PositiveInt.optional(),
   }).optional(),
   questions: z.strictObject({
     /** How long an unanswered question waits before the daemon asks again, in milliseconds. */

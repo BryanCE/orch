@@ -1,2 +1,0 @@
-<PANE_ID>  -  <AGE>
-Proceed with the fixture?

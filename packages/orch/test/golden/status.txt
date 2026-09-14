@@ -1,0 +1,5 @@
+ID          ENV       NAME   TAB  AGENT  MODEL         STATE   COST    CTX  TASK                      LAST
+----------  --------  -----  ---  -----  ------------  ------  ------  ---  ------------------------  ------------------
+smoke00001  headless  smoke  -    pi     gpt-5:medium  asking  $0  42%  Q: Proceed with the f...  Fixture is healthy
+owner: no orch driving it
+pack smoke 1/10 - machine 1/unlimited

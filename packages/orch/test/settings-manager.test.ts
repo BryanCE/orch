@@ -1,6 +1,6 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 
 import { join } from "node:path";
 import { fileSettingsManager, inMemorySettingsManager } from "../src/settings/manager.ts";
@@ -60,6 +60,67 @@ describe("settings manager", () => {
     expect(manager.current().defaults.adapter).toBe("pi");
     expect(manager.reload()?.defaults.adapter).toBe("claude");
     expect(manager.current().defaults.adapter).toBe("claude");
+  });
+
+  describe("update", () => {
+    test("file manager lands text and current reflects it without reload", () => {
+      const dir = tempDir();
+      writeSettingsFixture(dir);
+      const manager = fileSettingsManager(dir);
+
+      manager.update((current) => {
+        if (current === null) throw new Error("settings file is absent");
+        return current.replace('"runtime": "node"', '"runtime": "bun"');
+      });
+
+      expect(manager.current().runtime).toBe("bun");
+    });
+
+    test("in-memory manager lands text and current reflects it", () => {
+      const manager = inMemorySettingsManager(settingsFixtureText(), settingsPath(tempDir()));
+
+      manager.update((current) => {
+        if (current === null) throw new Error("settings file is absent");
+        return current.replace('"runtime": "node"', '"runtime": "bun"');
+      });
+
+      expect(manager.current().runtime).toBe("bun");
+    });
+
+    test("removes a stale lock before updating", () => {
+      const dir = tempDir();
+      writeSettingsFixture(dir, { lock: { stale_ms: 10_000 } });
+      const manager = fileSettingsManager(dir);
+      const lockFile = `${settingsPath(dir)}.lock`;
+      writeFileSync(lockFile, "stale");
+      const staleAt = new Date(Date.now() - 60_000);
+      utimesSync(lockFile, staleAt, staleAt);
+
+      manager.update((current) => {
+        if (current === null) throw new Error("settings file is absent");
+        return current.replace('"runtime": "node"', '"runtime": "bun"');
+      });
+
+      expect(manager.current().runtime).toBe("bun");
+      expect(existsSync(lockFile)).toBe(false);
+    });
+
+    test("refuses a held lock and leaves settings and lock untouched", () => {
+      const dir = tempDir();
+      writeSettingsFixture(dir, { lock: { retries: 2, interval_ms: 1, stale_ms: 60_000 } });
+      const manager = fileSettingsManager(dir);
+      const lockFile = `${settingsPath(dir)}.lock`;
+      writeFileSync(lockFile, "held");
+      const before = readFileSync(settingsPath(dir), "utf8");
+
+      expect(() => manager.update((current) => {
+        if (current === null) throw new Error("settings file is absent");
+        return current.replace('"runtime": "node"', '"runtime": "bun"');
+      })).toThrow(/locked by another orch process/);
+
+      expect(readFileSync(settingsPath(dir), "utf8")).toBe(before);
+      expect(existsSync(lockFile)).toBe(true);
+    });
   });
 
   test("reports a legacy config.toml", () => {

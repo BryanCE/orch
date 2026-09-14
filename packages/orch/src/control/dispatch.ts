@@ -7,7 +7,7 @@ import { AgentGoneError } from "./agent-gone.ts";
 import { loadPresence } from "../presence/store.ts";
 import { pendingQuestion } from "../store/question-rows.ts";
 import { agentView } from "../store/agent-view.ts";
-import { assertModelAllowed } from "../policy/model.ts";
+import { admitModel } from "../policy/model.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { agentProcessLive, setTuning } from "../store/interval-rows.ts";
 import { awaitControlOutcome } from "./outcome.ts";
@@ -128,11 +128,13 @@ function deliverAnswer(orchDir: OrchDir, target: string, adapter: AgentAdapter, 
  * through the presence control outcome, so a model the harness could not resolve
  * surfaces as an error instead of a false "accepted".
  */
-async function deliverModel(orchDir: OrchDir, settings: OrchSettings, catalogue: ModelCatalogue, target: string, adapter: AgentAdapter, model: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
+async function deliverModel(orchDir: OrchDir, settings: OrchSettings, catalogue: ModelCatalogue, target: string, adapter: AgentAdapter, requested: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
   if (adapter.modelControl === null && !adapter.bridge?.takes.includes("model")) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot set the model on ${target}: adapter ${adapter.id} has no running-session model control` };
   }
-  assertModelAllowed(settings, adapter, catalogue, model);
+  // The daemon admits every caller's spec itself, so a short name from any RPC
+  // client expands here exactly as it does at the CLI.
+  const model = admitModel(settings, adapter, catalogue, requested);
   requireLiveAgent(orchDir, target, adapter, "set model on");
   const command = adapter.modelControl?.setModel({ key: target, model, id });
   if (command) await runAdapterCommand(command, timeoutMs);

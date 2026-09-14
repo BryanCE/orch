@@ -1,4 +1,4 @@
-import { assertModelAllowed } from "../../policy/model.ts";
+import { admitModel } from "../../policy/model.ts";
 import { modelSpec } from "../../policy/thinking.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
@@ -82,11 +82,12 @@ export async function pinModels(
 
 /** The harness this command runs: flag, then ORCH_ADAPTER, then the configured default. */
 
-/** Enforce orch's model policy at the command's side-effect gate. */
-export function assertLaunchModelAllowed(settings: OrchSettings, adapterId: AdapterId, catalogue: ModelCatalogue, model: string): void {
+/** Enforce orch's model policy at the command's side-effect gate and return the spec
+ *  the launch runs on: a short name comes back expanded, a full spec comes back as is. */
+export function admitLaunchModel(settings: OrchSettings, adapterId: AdapterId, catalogue: ModelCatalogue, model: string): string {
   const adapter = resolveAdapterOrDie(adapterId);
   try {
-    assertModelAllowed(settings, adapter, catalogue, model);
+    return admitModel(settings, adapter, catalogue, model);
   } catch (error: unknown) {
     throw new SpawnRefusalError(errorMessage(error));
   }

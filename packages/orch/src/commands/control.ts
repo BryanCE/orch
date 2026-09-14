@@ -15,7 +15,7 @@ import { entityAdapter } from "./status.ts";
 import { pickAdapter, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
 import { clearSession } from "./lifecycle/reset.ts";
-import { assertLaunchModelAllowed, pinModels } from "./spawn/models.ts";
+import { admitLaunchModel, pinModels } from "./spawn/models.ts";
 import { contextReference, readPromptFile } from "./prompt-file.ts";
 import { workerHeaderContext } from "../policy/spawner.ts";
 import { getBackend } from "../backends/registry.ts";
@@ -198,7 +198,9 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
   if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its model mechanism.`);
   const adapter = resolveAdapterOrDie(harness);
   const tuning = resolveTuningOrDie({ modelFlag: modelArg }, services.settings.current(), adapter.id, null);
-  const spec = modelSpec(tuning.model, tuning.thinking);
+  // Admitted here, before the daemon sees it, so a short name is expanded once and the
+  // spec this command reports back is the one the agent was actually pinned to.
+  const spec = modelSpec(admitLaunchModel(services.settings.current(), adapter.id, services.models, tuning.model), tuning.thinking);
   const result = await setAgentModel(services, ent.key, spec, gov);
   const recipient = recipientFor(services.orchDir, ent.key);
   const label = recipientLabel(recipient);
@@ -302,8 +304,8 @@ export async function cmdDispatch(services: Services, args: string[]) {
   // resets the session, never the tuning the orchestrator chose.
   const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
   const tuning = resolveTuningOrDie(flags, settings, adapter.id, tuningOf(services.orchDir, key));
-  const { model, thinking } = tuning;
-  assertLaunchModelAllowed(settings, adapter.id, services.models, model);
+  const { thinking } = tuning;
+  const model = admitLaunchModel(settings, adapter.id, services.models, tuning.model);
   if (!dispatchSettings.keepContext) await clearSession(services, key, gov.steal === true);
   const pinWarnings = await pinModels(services, services.logger, [{ key, handle: dispatchSettings.handle, name: dispatchSettings.ent.name ?? dispatchSettings.handle, model, thinking }]);
   if (pinWarnings.length > 0) process.exitCode = 1;

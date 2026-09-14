@@ -31,7 +31,7 @@ import { settleControlOutcome } from "../control/outcome.ts";
 import { acknowledgeDelivery, confirmDelivery } from "../control/ack.ts";
 import type { ControlOutcomeReport } from "../types/agent.ts";
 import { checkWall, operatorControls } from "../policy/space.ts";
-import { assertModelAllowed } from "../policy/model.ts";
+import { admitModel } from "../policy/model.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { resolveTuning } from "../policy/tuning.ts";
 import { deliverOutboxMessage, drainOutbox, redeliverOpenRows } from "./outbox.ts";
@@ -384,9 +384,8 @@ function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): 
   // Required AND ruled on: a launch with no model runs on whatever the harness
   // defaults to, and a shorthand one gets fuzzy-matched onto whatever registry
   // entry shares a prefix. Both end with the fleet on a model nobody asked for.
-  const model = params.model;
+  const model = admitModel(state.services.settings.current(), adapter, state.services.models, params.model);
   const thinking = params.thinking;
-  assertModelAllowed(state.services.settings.current(), adapter, state.services.models, model);
   const handle = headlessBackend.spawn(adapter, {
     key,
     env: params.env,

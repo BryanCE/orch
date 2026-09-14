@@ -1,10 +1,10 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { checkSettingsFile } from "../src/doctor/settings-file.ts";
-import { runTestDoctor } from "../test/helpers/doctor.ts";
-import { writeSettingsFixture } from "../test/helpers/settings.ts";
+import { runTestDoctor } from "./helpers/doctor.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const directories: OrchDir[] = [];

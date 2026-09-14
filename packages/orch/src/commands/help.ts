@@ -11,10 +11,22 @@ const ALIASES: Record<string, string> = {
 };
 
 const TOPICS: Record<string, string> = {
-  status: `orch status [--json] [--human] [--space-wide] [--agent=<name|id>] [--filter=<column|state,...>] [--all-panes] [--offline] [--live]
+  status: `orch status [--json] [--human] [--space-wide] [--agent=<name|id>] [--filter=<column|state,...>] [--all-panes] [--offline] [--live] [--capacity]
 Glanceable table of the fleet (the default command when none is given).
 Bare 'orch status' is the normal use: every agent this session owns, with cost and
 context. A human at a raw terminal owns none and sees the whole machine.
+The table ends with one capacity line: \`pack you 5/10 - pack <other> 2/10 - space <name> 4/6 - machine 7/unlimited\`.
+One pack per orchestrator, yours first, each against fleet.max_agents_per_pack; packs never sum.
+\`machine\` is the live total against fleet.max_agents_total; \`unlimited\` means that setting is absent.
+Read it before every spawn wave: it names the free slots and who holds the rest.
+'state' is what the agent says about itself; 'backendStatus' (--json) is what the plexer says
+about the pane and it lags. Read state for completion.
+--json is a top-level array of rows; filter with .[]. Row fields: key agentId rootAgentId
+rootAgentName paneId managed name tab agent owner ownerId spawnedBy spawnedByLabel worktree
+branch cwd focused model modelShort state stateFallback staleExtension exited alive cost
+ctxPercent task dispatchId lastText backendStatus backend capabilities sessionPath presenceDir
+presenceOnly bridgeAttached tokens turns spaceId spaceName host.
+  --capacity    Print only the capacity line (with --json, the capacity object).
   --json        Machine-readable rows instead of the table.
   --human       Render named harness and directory details for a person.
   --space-wide  Also the other orchs' agents in your space. Never past it.
@@ -47,6 +59,13 @@ terminal owns none and sees the whole machine. Every flag below deviates from th
   --since-seq <n> Resume after this durable sequence; it survives daemon restarts, but
                 history is bounded by the events retention window. A pruned range is
                 reported as a history gap before retained events are replayed.
+Five event types, each one line: 'transition' (oldState->newState with dispatchId, task, cost,
+ctxPercent), 'asking' (the agent is blocked on a question; askCount counts the daemon's re-asks
+on questions.renag_ms, gaveUp marks the last), 'message' (mail a worker sent its spawner with
+orch_send; the text is on the line), 'closed' (the agent ended), 'task' (a queue task changed
+state). A fresh subscribe receives live events only; history comes back solely via --since-seq.
+'seq' is that agent's transition ordinal and (key, seq) identifies an event. The daemon already
+suppresses an identical repeat of one agent's transition for two minutes, so no dedupe is needed.
 Notifications are delivered by orchd from settings.json sinks, not by this command.
 An attached events stream counts as daemon usage: orchd will not idle-shutdown while one is open.
 `,
@@ -54,8 +73,13 @@ An attached events stream counts as daemon usage: orchd will not idle-shutdown w
 Send a synthetic transition through each notification sink configured in settings.json.
   --state       The presence state to fake (default: done).
 `,
-  questions: `orch questions
+  questions: `orch questions [--json] [--local]
 Read each live agent's pending question from its status record. Answer one with: orch answer <target> "<text>".
+An unanswered question is re-asked by the daemon every questions.renag_ms, up to
+questions.renag_limit times; each re-ask is an 'asking' event with askCount, and the last
+sets gaveUp. A blocked agent is the most expensive idle: answer within seconds.
+  --json        Machine-readable rows.
+  --local       Skip configured remote hosts.
 `,
   runs: `orch runs [<target>] [-n <count>] [--json]
 List durable dispatch history, newest first. Without a target, lists all agents.
@@ -102,7 +126,8 @@ A queued dispatch is durable: orchd retries every \`daemon.outbox_drain_ms\` and
                 not inlined into the prompt. Must exist. Repeat once per path.
   --keep-context  Send onto the session the agent already has, without clearing it.
   --raw         Send the exact prompt, no worker header.
-  --model       Pin the model (and optional thinking effort) for this dispatch.
+  --model       Pin the model (and optional thinking effort) for this dispatch. A short name
+                (luna) expands to the one listed, allowed model that contains it.
   --agent       Route through a specific adapter instead of the recorded one.
 Governance flags (--steal, --cross-space) are operator-only; a spawned agent's are refused.
 `,
@@ -117,7 +142,8 @@ Steer the named targets (or all of the caller's agents) through orchd.
 `,
   model: `orch model <target> <model[:thinking]>
 Durably accept a model change through orchd. Model names use the target harness's own vocabulary;
-see 'orch models' for what each installed harness offers.
+a short name (luna) expands to the one listed, allowed model that contains it, and several
+matches are refused by name. See 'orch models' for what each installed harness offers.
 `,
   steer: `orch steer <target> <text...>
 Durably accept a mid-run steer through orchd; orchd pushes it down the agent's bridge link;
@@ -143,17 +169,25 @@ Live-reload code in place: touches reload.signal so panes and watchers pick up a
 Use after 'bun run build:orch:dev'. reload = same session; reset = new session; restart = new process.
 `,
   reset: `orch reset <target>... | --all [--model M]     (alias: orch new)
-Start a fresh session/context in the same pane, then pin M (else that harness's defaults.models entry).
-Always reset a target before dispatching it a new task.
+Start a fresh session/context in the same pane, then pin M (else the tuning the agent holds, else
+that harness's defaults.models entry). Dispatch already clears the session itself; reset is for
+clearing the context without sending work. A short name for M expands like spawn's --model.
 `,
   restart: `orch restart <target>... | --all [--cmd pi]
 Fully close the harness process and relaunch it.
   --cmd         The command to relaunch with (default: the recorded adapter command).
 `,
-  spawn: `orch spawn <name> [<name> ...] [--tab L] [--dir P] [--cmd C] [--model M]
-          [--agent A] [--backend B] [--prompt T ...] [--file P|-] [--with P]...
-          [--tasks FILE] [--worktree]
+  spawn: `orch spawn <name> [<name> ...] [--tab L] [--dir P] [--cmd C] [--model M ...]
+          [--agent A] [--backend B] [--space S] [--prompt T ...] [--file P|- ...] [--with P]...
+          [--tasks FILE] [--worktree] [--json]
 Fresh tab, balanced-tiled (2=side-by-side, 3=2+1, 4=2x2, ...).
+A whole fleet is one command: --prompt, --file and --model each take one value for every
+agent or exactly N values, one per agent in positional order, so each agent starts on its
+own spec and its own model.
+Five settings can refuse a spawn, and the refusal names the one that fired:
+fleet.max_agents_per_pack, fleet.max_agents_per_tab (what the tab holds plus what you asked
+for), fleet.max_agents_per_space.<space>, fleet.max_agents_total, and fleet.max_depth (how
+deep a spawner may itself have been spawned). Read 'orch status --capacity' before sizing.
 Bridge-capable adapters wait up to 60 s for each agent's bridge to attach.
   \`  ok      <handle>  <name>\`
   \`  STALLED <handle>  <name> - bridge never attached; try: orch restart <name>\`
@@ -169,6 +203,8 @@ leaves nothing behind.
   --tab         Label for the new tab; an existing tab's label fills that tab.
   --dir         Directory the agents start in. Defaults to the spawner's own.
   --model       One model for every agent, or repeat exactly N times for per-agent models.
+                A short name (luna:high) expands to the one listed, allowed model that
+                contains it; several matches are refused by name.
   --agent       Adapter id (pi, claude, codex, ...).
   --backend     Plexer id (herdr, tmux, headless). Inside a plexer the fleet lands beside you.
                 Outside every plexer the default is headless; name a plexer here to open its
@@ -180,7 +216,9 @@ leaves nothing behind.
   --with        A file or directory the agents open for context when the task needs it,
                 not inlined into the prompt. Must exist. Repeat once per path.
   --tasks       JSON file containing exactly N task strings (alternative to --prompt).
-  --worktree    Give each agent its own git worktree.
+  --space       File the fleet in a named orch space ('orch space list'). Never a plexer id.
+  --worktree    Give each agent its own git worktree. Collect with 'orch review'.
+  --json        Machine-readable spawn report.
 `,
   tile: `orch tile <tab|pane> <name> [--cmd C] [--dir P] [--model M] [--agent A] [--backend B]
 Add ONE named pane to an existing tab: splits into the tab's largest cell and pins

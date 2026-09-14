@@ -136,20 +136,20 @@ describe("settings registry", () => {
   test("fleet.max_depth round-trips through the full-tree writer", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, completeSettings());
-    writeSettingsFullTree(directory);
+    writeSettingsFullTree(fileSettingsManager(directory));
     expect(fileSettingsManager(directory).current().fleet.max_depth).toBe(2);
   });
 
   test("fleet.max_depth rejects zero through the registered writer", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, completeSettings());
-    expect(() => writeRegisteredSetting(directory, "fleet.max_depth", 0)).toThrow(/fleet[\s\S]*max_depth/);
+    expect(() => writeRegisteredSetting(fileSettingsManager(directory), "fleet.max_depth", 0)).toThrow(/fleet[\s\S]*max_depth/);
   });
 
   test("fleet.max_depth writes its value to settings.json", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, completeSettings());
-    writeRegisteredSetting(directory, "fleet.max_depth", 2);
+    writeRegisteredSetting(fileSettingsManager(directory), "fleet.max_depth", 2);
     const raw: unknown = JSON.parse(readFileSync(settingsPath(directory), "utf8"));
     expect(raw).toMatchObject({ fleet: { max_depth: 2 } });
   });

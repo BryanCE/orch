@@ -1,5 +1,5 @@
 import { allowedModelPatterns } from "../settings/read.ts";
-import { splitThinkingSuffix } from "./thinking.ts";
+import { modelSpec, splitThinkingSuffix } from "./thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import type { AdapterId, AgentAdapter, HarnessModel, ModelCatalogue } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -94,13 +94,37 @@ export function assertModelListed(harness: AdapterId, offered: readonly HarnessM
   throw new Error(`${harness} does not list model ${bare}; it offers ${near.join(", ")}. ${correctedSpecHint(harness, near)}`);
 }
 
-/** Reject a model the harness does not offer or the settings allowlist refuses. */
-export function assertModelAllowed(settings: OrchSettings, adapter: AgentAdapter, catalogue: ModelCatalogue, model: string): void {
-  assertModelOffered(adapter, catalogue, model);
-  const { bare } = splitThinkingSuffix(model);
-  if (isAllowedModel(settings, adapter.id, bare)) return;
-  const permitted = (adapter.models?.listModels(catalogue) ?? [])
-    .map((candidate) => candidate.spec)
-    .filter((spec) => isAllowedModel(settings, adapter.id, spec));
-  throw new Error(`model ${bare} is not in models.allowed.${adapter.id} (${allowedModelPatterns(settings, adapter.id).join(", ")}); ${correctedSpecHint(adapter.id, permitted)}`);
+function allowlistRefusal(settings: OrchSettings, harness: AdapterId, offered: readonly HarnessModel[], lead: string): Error {
+  const permitted = offered.map((candidate) => candidate.spec).filter((spec) => isAllowedModel(settings, harness, spec));
+  return new Error(`${lead} models.allowed.${harness} (${allowedModelPatterns(settings, harness).join(", ")}); ${correctedSpecHint(harness, permitted)}`);
+}
+
+/**
+ * Admit a model for launch or pin and return the spec the harness actually receives.
+ *
+ * The one ruling every verb shares: spawn, tile, dispatch, reset, restart, `orch model`
+ * and the daemon's own gate all call this and nothing else. A short name (`luna`)
+ * expands to the one listed, allowed spec that contains it; more than one match is
+ * refused by name, so the caller never guesses. The expanded spec is then held to
+ * harness membership and the settings allowlist exactly as a full spec is. A
+ * `:effort` suffix rides through untouched.
+ */
+export function admitModel(settings: OrchSettings, adapter: AgentAdapter, catalogue: ModelCatalogue, model: string): string {
+  const offered = adapter.models?.listModels(catalogue) ?? [];
+  const { bare, thinking } = splitThinkingSuffix(model);
+  const expansion = expandModelSpec(settings, adapter.id, offered, bare);
+  if (expansion.kind === "ambiguous") {
+    throw new Error(`model ${bare} matches several ${adapter.id} models (${expansion.candidates.join(", ")}); name one. ${correctedSpecHint(adapter.id, expansion.candidates)}`);
+  }
+  if (expansion.kind === "unlisted") {
+    // A short name whose only matches the allowlist excludes is an allowlist refusal,
+    // not a listing one: telling the caller "not listed" would send them to a model
+    // the next check refuses anyway.
+    const excluded = nearestOffered(offered, bare).filter((spec) => spec.toLowerCase().includes(bare.toLowerCase()));
+    if (excluded.length > 0) throw allowlistRefusal(settings, adapter.id, offered, `model ${bare} matches only ${excluded.join(", ")}, none in`);
+  }
+  const spec = expansion.kind === "unlisted" ? bare : expansion.spec;
+  assertModelListed(adapter.id, offered, spec);
+  if (!isAllowedModel(settings, adapter.id, spec)) throw allowlistRefusal(settings, adapter.id, offered, `model ${spec} is not in`);
+  return modelSpec(spec, thinking);
 }

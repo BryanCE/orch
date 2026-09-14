@@ -1,6 +1,6 @@
 ---
 name: orch
-description: Drive the orch CLI to run a fleet of coding agents - spawn, dispatch work, watch state transitions, and collect results. The moment you are told to use orch, use it, or spawn agents, your FIRST action is `orch spawn` - one command, no preflight, no driving the plexer yourself, no asking. Then dispatch async and watch the push stream; never babysit with a blocking wait. Use for any multi-agent dispatch, for spawn/tile/close/reset lifecycle, for the durable task queue, or when an orch command errors.
+description: Drive the orch CLI to run a fleet of coding agents - spawn, dispatch work, watch state transitions, and collect results. The moment you are told to use orch, use it, or spawn agents, your FIRST action is `orch spawn` - one command, no preflight, no driving the plexer yourself, no asking. Then watch the push stream; never babysit with a blocking wait. Use for any multi-agent dispatch, for spawn/tile/close/reset lifecycle, for the durable task queue, or when an orch command errors.
 allowed-tools: Bash, Read
 ---
 
@@ -15,23 +15,32 @@ changes arrive as a push stream instead of a poll.
 Never drive the plexer directly. `orch help <command>` is authoritative for flags. Config is
 `$ORCH_DIR/settings.json` (default `~/.orch/settings.json`), plain JSON you may edit by hand.
 
-`orch setup` must have run once. Every command except `setup`, `doctor`, `status`, `help`,
-and `version` refuses until it has, naming the fix. Broken install: `orch doctor -y`.
+`orch setup` must have run once. Every command except `setup`, `doctor`, `settings`,
+`status`, `help`, and `version` refuses until it has, naming the fix. Broken install:
+`orch doctor -y`.
 
 ## The loop
 
 Told to use orch? `orch spawn` is your first tool call. No status preflight, no asking.
 
+A fleet is one command. Every per-agent flag repeats exactly N times, or once for all:
+
 ```bash
-orch spawn api-types api-routes api-guards --tab api --prompt "<the first task>"
-orch dispatch api-types "<the full task spec>"
-orch dispatch api-routes --file slice.md --with src/api/routes.ts   # spec too long for a line
-orch events                                            # arm as a Monitor in this same message
-orch result api-types
+orch spawn api-types api-routes api-guards --tab api \
+  --file specs/types.md --file specs/routes.md --file specs/guards.md \
+  --model luna:high --model luna:low --model luna:high
+orch events                                   # arm as a Monitor in this same message
+orch result api-types api-routes api-guards   # one call collects the wave
 ```
 
-Read the diff, `orch rename <target> <next-slice>`, dispatch again. Dispatch clears the
-context itself, so there is no reset step between two tasks.
+Each agent starts on its own spec, on its own model, and gets to work before spawn returns.
+Read the diffs, `orch rename <target> <next-slice>`, then `orch dispatch` the next slice.
+Dispatch clears the context itself, so there is no reset step between two tasks.
+
+```bash
+orch dispatch api-types 'the full task spec'
+orch dispatch api-routes --file slice.md --with src/api/routes.ts   # spec too long for a line
+```
 
 ## Rules
 
@@ -42,6 +51,9 @@ context itself, so there is no reset step between two tasks.
   a mover, a code-changer, and a checker running at once. Workers may go find things for you
   (a doc, a definition, every caller of a symbol) when you name the topic and the answer
   shape. They never design a feature, pick an approach, or decide what to build.
+- **Short model names are fine.** `luna:high` expands to the one listed, allowed model that
+  contains `luna`. Two matches are refused by name so you pick one. Zero matches names what
+  the harness does list. Verify the MODEL column in `orch status` after a spawn or pin.
 - **An agent starts where you spawned it.** No flag for the normal case. `--dir <path>` when a
   slice belongs somewhere else. A repo path typed into a prompt is text, not a boundary: a
   fleet spawned from one repo has edited another's source that way.
@@ -51,9 +63,9 @@ context itself, so there is no reset step between two tasks.
   before orch exists, so orch receives whatever survived. Single quotes are literal in bash,
   zsh and PowerShell alike, so one rule covers every shell orch runs under. Use `--file` for a
   spec too long for one line, never to dodge quoting.
-- **Arm the watch in the same message as the first dispatch.** Not after it. An unwatched
-  fleet finishes and sits done while you believe it is still working, and `orch status` only
-  saves you if you already suspect something.
+- **Arm the watch in the same message as the spawn.** Not after it. An unwatched fleet
+  finishes and sits done while you believe it is still working, and `orch status` only saves
+  you if you already suspect something.
 - **Arm the watch with no flags at all.** `orch events` bare already streams every state of
   every agent you own, in lines complete enough to act on. A flag only ever drops states
   (`--filter=working,idle` hides the transitions you never act on) or widens it to the rest of
@@ -67,9 +79,9 @@ context itself, so there is no reset step between two tasks.
   completion, and the silence looks exactly like "still working".
 - **Never wrap `orch status` in a `while true` loop.** `orch events` pushes transitions the
   instant they happen. `orch status` is for one-shot inspection.
-- **`orch dispatch` already clears the context.** It clears the session, re-pins the model,
-  then sends, so a new task never stacks on a used session. Do not pair it with `orch
-  reset`. `--keep-context` opts out, only to add to work already in flight.
+- **`orch dispatch` already clears the context.** It clears the session, re-pins the model
+  the agent holds, then sends, so a new task never stacks on a used session. Do not pair it
+  with `orch reset`. `--keep-context` opts out, only to add to work already in flight.
 - **Reuse before spawn, your own panes only.** Spawn a replacement only after a
   dispatch to the idle agent actually errors, then close the zombie it replaces.
 - **Send the task and only the task.** orch composes the worker contract per adapter and
@@ -78,25 +90,32 @@ context itself, so there is no reset step between two tasks.
 - **`done` is a claim, not a verification.** Read the diff before building on it.
 - **Redispatch once on error, then escalate the model.** Not the other way around.
 - **Answer `asking` within seconds.** `orch questions`, then `orch answer`. A blocked pane is
-  the most expensive idle, and a steer aimed at one is accepted and then lost.
+  the most expensive idle, and a steer aimed at one is accepted and then lost. The daemon
+  re-asks on `questions.renag_ms` up to `questions.renag_limit` times, each a fresh `asking`
+  event line, then gives up and says so.
+- **A worker's report arrives as an event.** A worker whose bridge has peer tools replies to
+  its spawner with `orch_send target "spawner"`, and that lands on your `orch events` stream
+  as a `message` line carrying the text. A worker with no reachable spawner ends its turn and
+  you collect with `orch result`.
 
 ## Lifecycle
 
 | verb | what it does | when |
 |---|---|---|
-| `orch reset <target>` (alias `new`) | fresh session, same agent, model re-pinned | you want the context gone without sending work |
+| `orch reset <target>` (alias `new`) | fresh session, same agent, held model re-pinned | you want the context gone without sending work |
 | `orch reload <target>` | live-reload code in place after a rebuild | you rebuilt orch or an extension |
-| `orch restart <target>` | full harness process relaunch | reset and reload both failed |
+| `orch restart <target>` | full harness process relaunch, on the held model | reset and reload both failed |
 | `orch close <target>` (alias `kill`) | close the pane | that domain is finished for good |
 
 ## Collect
 
 ```bash
-orch result <target>          # results.jsonl, else the session's last assistant text
+orch result <target>...       # results.jsonl, else the session's last assistant text; N targets under == headers
+orch result a b c --json      # one JSON array
 orch tail <target> -n 40      # last N session entries, human-readable
 orch peek <target>            # what is literally on the pane screen right now
 orch questions                # every agent currently blocked on a question
-orch answer <target> "<text>" # unblock one
+orch answer <target> '<text>' # unblock one
 ```
 
 Closing does not discard the work. `orch close` ends the process and keeps the agent's row
@@ -108,6 +127,6 @@ deletes, and retention sweeps ended agents on its own schedule.
 - `reference/fleet.md` for tabs and domains, slicing, naming, fleet size, capacity, and the
   cadence that keeps panes busy.
 - `reference/commands.md` for spawn flags, models, dispatch options, the queue, watch
-  scoping and event fields, steering, worktree review, settings and notify sinks.
-- `reference/troubleshooting.md` for daemon skew, ambiguous targets, the `status --json`
-  shape, workspace walls, doctor and clean.
+  scoping and event shapes, steering, worktree review, settings and notify sinks.
+- `reference/troubleshooting.md` for daemon skew, ambiguous targets, model refusals, the
+  `status --json` shape, space walls, doctor and clean.

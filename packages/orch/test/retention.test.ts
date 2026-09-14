@@ -45,6 +45,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     models: { allowed: {}, preferred: {} },
     workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
     queue: { max_retries: 1 },
+    lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
     retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, ...days },
     timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
     notify: [],
@@ -264,6 +265,7 @@ describe("retention sweep", () => {
         },
         currentOrNull: () => settings,
         reload: () => settings,
+        update: () => { throw new Error("settings update is not supported in this mock"); },
       };
       const loop = runWorkLoop({
         orchDir,

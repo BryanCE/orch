@@ -10,11 +10,11 @@ import { applyFixes } from "../src/doctor/runner.ts";
 import { checkStore } from "../src/doctor/store.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { isDrvFsPath } from "../src/doctor/settings-file.ts";
-import { runTestDoctor } from "../test/helpers/doctor.ts";
-import { daemonStatusFixture, stubRpcHandlers } from "../test/helpers/rpc-handlers.ts";
-import { writeSettingsFixture } from "../test/helpers/settings.ts";
-import { seedStatus } from "../test/helpers/presence.ts";
-import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
+import { runTestDoctor } from "./helpers/doctor.ts";
+import { daemonStatusFixture, stubRpcHandlers } from "./helpers/rpc-handlers.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
+import { seedStatus } from "./helpers/presence.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
@@ -324,7 +324,7 @@ describe("runDoctor", () => {
   test("never throws when individual checks encounter broken inputs", async () => {
     const directory = tempDir();
     fs.mkdirSync(path.join(directory, "agents"), { recursive: true });
-    await expect(runTestDoctor(directory)).resolves.toBeArray();
+    expect(await runTestDoctor(directory)).toBeArray();
 
     const invalidAgents = tempDir();
     fs.writeFileSync(path.join(invalidAgents, "agents"), "not a directory");

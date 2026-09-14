@@ -16,6 +16,10 @@ export interface SettingsManager {
   currentOrNull(): OrchSettings | null;
   /** Drop the held value and re-read storage. Returns what `currentOrNull()` now returns. */
   reload(): OrchSettings | null;
+  /** Apply one text-level mutation under the storage lock, then drop the held value so the next
+   * current() re-reads. Lock timings come from the lock group of the settings as they are before
+   * the write; malformed files use the built-in lock policy. */
+  update(mutate: (current: string | null) => string): void;
 }
 
 /** Everything a process is composed from. Built once per root (CLI, daemon,

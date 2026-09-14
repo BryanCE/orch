@@ -60,7 +60,7 @@ async function offerSkills(
   const roots = { store, link };
   const forced = args.includes("--skills") ? true : args.includes("--no-skills") ? false : undefined;
   const install = forced ?? (interactive ? await ask(roots, recorded) : recorded);
-  writeSettingsSkills(services.orchDir, { install });
+  writeSettingsSkills(services.settings, { install });
   process.stdout.write("Skills:\n");
   if (!install) {
     process.stdout.write("  not installed - turn it back on with: orch settings skills --install\n");
@@ -112,7 +112,7 @@ async function installSetupComposition(
   options: SetupOptions,
   args: string[],
 ): Promise<string[] | null> {
-  recordComposition(services.orchDir, composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
+  recordComposition(services.settings, composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
   if (!(await installPrerequisites(services.logger, composition.adapters, composition.backends, options.interactive, options.yes, options.noInstall))) return null;
   process.stdout.write("Presence dir:\n");
   files.mkdirSync(presenceDir(services.orchDir), { recursive: true });
@@ -207,7 +207,7 @@ async function configureNotifiers(services: Pick<Services, "orchDir" | "logger" 
     process.stdout.write(`  notifier ${error.id}: missing required fields - ${error.missing.join(", ")}\n`);
   }
   if (result.entries.length) {
-    writeSettingsNotify(services.orchDir, result.entries);
+    writeSettingsNotify(services.settings, result.entries);
     process.stdout.write(`  recorded ${result.entries.length} notifier(s): ${result.entries.map((entry) => entry.id).join(", ")}\n`);
   }
 }
@@ -228,7 +228,6 @@ export function setupRequiredMessage(orchDir: OrchDir): string {
 export async function runFirstTimeSetup(services: Services, argv: string[], dispatch: (argv: string[]) => void): Promise<void> {
   process.stdout.write("First run - no harness/backend recorded yet, walking through setup.\n\n");
   await cmdSetup(services, []);
-  services.settings.reload();
   // A cancelled wizard records nothing, so the original command must not run.
   // `process.exitCode`, never `process.exit()`: exiting truncates whatever the
   // wizard already wrote (src/commands/index.ts:272 states the same rule).

@@ -5,11 +5,11 @@ import type { HostSchema, NotifyEntrySchema } from "../settings/schema.ts";
 import type { AdapterId } from "./adapter.ts";
 import { AGENT_STATES } from "../agent-state.ts";
 import type { BackendId } from "./backend.ts";
-import type { OrchDir } from "./core.ts";
+import type { LogLevel } from "./core.ts";
+import type { SettingsManager } from "./services.ts";
 import type { OrchRuntime } from "../runtimes.ts";
 import type { ThinkingLevel } from "./policy.ts";
 import type { TileFirstSplit } from "./backend.ts";
-import type { LogLevel } from "./core.ts";
 
 /** The shared agent-state vocabulary used by presence, events, and notify sinks. */
 export const NOTIFY_STATES = AGENT_STATES;
@@ -30,6 +30,7 @@ export interface OrchSettings {
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[] };
   queue: { max_retries: number };
   retention: { ended_agents_days: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };
+  lock: { retries: number; interval_ms: number; stale_ms: number };
   questions?: { renag_ms: number; renag_limit: number };
   logging?: { level: LogLevel };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
@@ -97,7 +98,7 @@ export interface SettingSpec {
   readonly type: SettingKind;
   readonly read: (config: OrchSettings) => unknown;
   /** Absent means read-only BY DECLARATION — never by omission. */
-  readonly write?: (orchDir: OrchDir, value: unknown) => void;
+  readonly write?: (settings: SettingsManager, value: unknown) => void;
   /** The env var that overrides this setting, if any. */
   readonly env?: string;
 }

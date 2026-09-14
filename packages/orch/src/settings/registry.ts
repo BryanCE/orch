@@ -6,7 +6,7 @@ import { isAdapterId } from "../adapters/adapter.ts";
 import { isBackendId } from "../backends/backend.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import type { NotifyEntry, OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
-import type { OrchDir } from "../types/core.ts";
+import type { SettingsManager } from "../types/services.ts";
 
 
 function choicesFor(key: string, node: JsonSchemaNode): readonly string[] {
@@ -57,16 +57,16 @@ function readAt(settings: OrchSettings, key: string): unknown {
   return current;
 }
 
-type SettingWriter = (orchDir: OrchDir, value: unknown) => void;
+type SettingWriter = (settings: SettingsManager, value: unknown) => void;
 
-function writeDefaultAdapter(orchDir: OrchDir, value: unknown): void {
+function writeDefaultAdapter(settings: SettingsManager, value: unknown): void {
   if (!isAdapterId(value)) throw new Error(`defaults.adapter must be a known adapter id`);
-  writeSettingsDefault(orchDir, "adapter", value);
+  writeSettingsDefault(settings, "adapter", value);
 }
 
-function writeDefaultBackend(orchDir: OrchDir, value: unknown): void {
+function writeDefaultBackend(settings: SettingsManager, value: unknown): void {
   if (!isBackendId(value)) throw new Error(`defaults.backend must be a known backend id`);
-  writeSettingsDefault(orchDir, "backend", value);
+  writeSettingsDefault(settings, "backend", value);
 }
 
 function readNotifySinks(settings: OrchSettings): NotifyEntry[] {
@@ -90,16 +90,16 @@ function notifyEntry(candidate: unknown): NotifyEntry {
   return parsed.data;
 }
 
-function writeNotifySinks(orchDir: OrchDir, value: unknown): void {
+function writeNotifySinks(settings: SettingsManager, value: unknown): void {
   if (!Array.isArray(value)) throw new Error("notify must be a list of sinks");
-  writeNotifyEntries(orchDir, value.map(notifyEntry));
+  writeNotifyEntries(settings, value.map(notifyEntry));
 }
 
 /** Persist whole notify entries - `orch settings notify add`'s writer, and this row's.
  *  A REPLACE: unchecking a sink and `notify remove` both have to be able to take one away,
  *  which setup's additive `writeSettingsNotify` cannot say. */
-export function writeNotifyEntries(orchDir: OrchDir, entries: readonly NotifyEntry[]): void {
-  writeSettingsValue(orchDir, "notify", [...entries]);
+export function writeNotifyEntries(settings: SettingsManager, entries: readonly NotifyEntry[]): void {
+  writeSettingsValue(settings, "notify", [...entries]);
 }
 
 
@@ -122,7 +122,7 @@ function setting(key: string, group: string, help: string, env?: string, writabl
     help,
     type: kindFor(key),
     read: readerFor(key) ?? ((settings) => readAt(settings, key)),
-    ...(writable ? { write: writer ?? ((orchDir: OrchDir, value: unknown) => writeSettingsValue(orchDir, key, value)) } : {}),
+    ...(writable ? { write: writer ?? ((settings: SettingsManager, value: unknown) => writeSettingsValue(settings, key, value)) } : {}),
     ...(env === undefined ? {} : { env }),
   };
 }
@@ -180,6 +180,9 @@ const HELP: Readonly<Record<string, string>> = {
   hosts: "Named remote hosts.",
   spaces: "Named space paths.",
   "daemon.tcp_port": "TCP port used by the daemon.",
+  "lock.retries": "How many times a settings write retries the lock before giving up.",
+  "lock.interval_ms": "Wait between lock retries, in milliseconds.",
+  "lock.stale_ms": "A lock file older than this is abandoned and removed. Milliseconds.",
   "daemon.idle_shutdown_minutes": "Minutes before an idle daemon shuts down.",
   "daemon.outbox_drain_ms": "How often the daemon retries queued writes whose agent has no bridge link, in milliseconds.",
   "daemon.bridge_reconnect_ms": "How long an agent's bridge waits before it redials the daemon after the link drops, in milliseconds.",
@@ -215,16 +218,16 @@ export function registeredSetting(key: string): SettingSpec {
 }
 
 /** Persist a value through the declaration that owns the setting. */
-export function writeRegisteredSetting(orchDir: OrchDir, key: string, value: unknown): void {
+export function writeRegisteredSetting(settings: SettingsManager, key: string, value: unknown): void {
   const spec = registeredSetting(key);
   if (spec.write === undefined) throw new Error(`${key} is read-only`);
-  spec.write(orchDir, value);
+  spec.write(settings, value);
 }
 
 /** Remove a setting from settings.json so its default wins again. Guarded by the same
  *  declaration as writes: a read-only setting cannot be cleared either. */
-export function clearRegisteredSetting(orchDir: OrchDir, key: string): void {
+export function clearRegisteredSetting(settings: SettingsManager, key: string): void {
   const spec = registeredSetting(key);
   if (spec.write === undefined) throw new Error(`${key} is read-only`);
-  clearSettingsValue(orchDir, key);
+  clearSettingsValue(settings, key);
 }

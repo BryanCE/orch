@@ -1,10 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { runTestDoctor } from "../test/helpers/doctor.ts";
+import { runTestDoctor } from "./helpers/doctor.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
-import { seedAgent, seedLiveProcess } from "../test/helpers/agent.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
 

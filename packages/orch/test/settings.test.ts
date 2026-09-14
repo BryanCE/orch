@@ -113,6 +113,7 @@ describe("loadSettings", () => {
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
       queue: { max_retries: 3 },
       retention: { queue_days: 1, events_days: 2, runs_days: 3, outbox_days: 4, control_outcomes_days: 5, ended_agents_days: 6, logs_days: 7, sweep_interval_ms: 3_600_000 },
+      lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
@@ -227,6 +228,7 @@ describe("loadSettings", () => {
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
       queue: { max_retries: 1 },
       retention: { queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, ended_agents_days: 90, logs_days: 7, sweep_interval_ms: 3_600_000 },
+      lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
       notify: [],
@@ -328,7 +330,7 @@ describe("allowedModelPatterns", () => {
 describe("writeSettingsRuntime", () => {
   test("records the runtime as a top-level scalar with no defaults or enabled entry", () => {
     const directory = tempDir();
-    writeSettingsRuntime(directory, "node");
+    writeSettingsRuntime(fileSettingsManager(directory), "node");
 
     const raw = readSettingsRecord(directory);
     expect(raw.runtime).toBe("node");
@@ -339,17 +341,17 @@ describe("writeSettingsRuntime", () => {
 
   test("re-recording the same runtime leaves the file unchanged", () => {
     const directory = tempDir();
-    writeSettingsRuntime(directory, "node");
+    writeSettingsRuntime(fileSettingsManager(directory), "node");
     const first = fs.readFileSync(path.join(directory, "settings.json"), "utf8");
-    writeSettingsRuntime(directory, "node");
+    writeSettingsRuntime(fileSettingsManager(directory), "node");
 
     expect(fs.readFileSync(path.join(directory, "settings.json"), "utf8")).toBe(first);
   });
 
   test("a different runtime replaces the single value in place", () => {
     const directory = tempDir();
-    writeSettingsRuntime(directory, "node");
-    writeSettingsRuntime(directory, "bun");
+    writeSettingsRuntime(fileSettingsManager(directory), "node");
+    writeSettingsRuntime(fileSettingsManager(directory), "bun");
 
     const raw = readSettingsRecord(directory);
     expect(raw.runtime).toBe("bun");
@@ -367,7 +369,7 @@ describe("reapUnreadableSettings", () => {
 
     expect(backup).toBe(`${file}.invalid`);
     expect(fs.existsSync(file)).toBe(false);
-    writeSettingsRuntime(directory, "node");
+    writeSettingsRuntime(fileSettingsManager(directory), "node");
     expect(fileSettingsManager(directory).current().runtime).toBe("node");
   });
 
@@ -382,8 +384,8 @@ describe("reapUnreadableSettings", () => {
 describe("writeSettingsEnabled", () => {
   test("round-trips both provider arrays", () => {
     const directory = tempDir();
-    writeSettingsRuntime(directory, "node");
-    writeSettingsEnabled(directory, { adapters: ["pi", "claude"], backends: ["herdr", "headless"] });
+    writeSettingsRuntime(fileSettingsManager(directory), "node");
+    writeSettingsEnabled(fileSettingsManager(directory), { adapters: ["pi", "claude"], backends: ["herdr", "headless"] });
 
     expect(fileSettingsManager(directory).current().enabled).toEqual({ adapters: ["pi", "claude"], backends: ["herdr", "headless"] });
   });
@@ -392,10 +394,10 @@ describe("writeSettingsEnabled", () => {
 describe("writeSettingsDefault", () => {
   test("creates settings.json with the schemaVersion stamp and records entries", () => {
     const directory = tempDir();
-    writeSettingsRuntime(directory, "node");
-    writeSettingsEnabled(directory, { adapters: ["pi"], backends: ["herdr"] });
-    writeSettingsDefault(directory, "adapter", "pi");
-    writeSettingsDefault(directory, "backend", "herdr");
+    writeSettingsRuntime(fileSettingsManager(directory), "node");
+    writeSettingsEnabled(fileSettingsManager(directory), { adapters: ["pi"], backends: ["herdr"] });
+    writeSettingsDefault(fileSettingsManager(directory), "adapter", "pi");
+    writeSettingsDefault(fileSettingsManager(directory), "backend", "herdr");
 
     const raw = readSettingsRecord(directory);
     expect(raw.schemaVersion).toBe(SETTINGS_SCHEMA);
@@ -407,7 +409,7 @@ describe("writeSettingsDefault", () => {
   test("replaces an existing entry without disturbing other sections", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["claude", "pi"], backends: [] }, defaults: { adapter: "claude", models: { claude: "sonnet" } }, queue: { max_retries: 3 } });
-    writeSettingsDefault(directory, "adapter", "pi");
+    writeSettingsDefault(fileSettingsManager(directory), "adapter", "pi");
 
     const settings = fileSettingsManager(directory).current();
     expect(settings.defaults.adapter).toBe("pi");
@@ -417,11 +419,11 @@ describe("writeSettingsDefault", () => {
 
   test("is idempotent when rewriting the same value", () => {
     const directory = tempDir();
-    writeSettingsRuntime(directory, "node");
-    writeSettingsEnabled(directory, { adapters: ["pi"], backends: [] });
-    writeSettingsDefault(directory, "adapter", "pi");
+    writeSettingsRuntime(fileSettingsManager(directory), "node");
+    writeSettingsEnabled(fileSettingsManager(directory), { adapters: ["pi"], backends: [] });
+    writeSettingsDefault(fileSettingsManager(directory), "adapter", "pi");
     const first = fs.readFileSync(path.join(directory, "settings.json"), "utf8");
-    writeSettingsDefault(directory, "adapter", "pi");
+    writeSettingsDefault(fileSettingsManager(directory), "adapter", "pi");
     const second = fs.readFileSync(path.join(directory, "settings.json"), "utf8");
 
     expect(second).toBe(first);
@@ -431,13 +433,13 @@ describe("writeSettingsDefault", () => {
     const directory = tempDir();
     fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: 999 }));
 
-    expect(() => writeSettingsDefault(directory, "adapter", "pi")).toThrow("schemaVersion");
+    expect(() => writeSettingsDefault(fileSettingsManager(directory), "adapter", "pi")).toThrow("schemaVersion");
   });
 
   test("switches defaults.adapter between two enabled ids and loads clean", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["claude", "pi"], backends: [] }, defaults: { adapter: "claude" } });
-    writeSettingsDefault(directory, "adapter", "pi");
+    writeSettingsDefault(fileSettingsManager(directory), "adapter", "pi");
 
     expect(fileSettingsManager(directory).current().defaults.adapter).toBe("pi");
   });
@@ -446,8 +448,8 @@ describe("writeSettingsDefault", () => {
 describe("writeSettingsFullTree", () => {
   test("round-trips defaults without inventing max_agents_total", () => {
     const directory = tempDir();
-    writeSettingsRuntime(directory, "node");
-    writeSettingsFullTree(directory);
+    writeSettingsRuntime(fileSettingsManager(directory), "node");
+    writeSettingsFullTree(fileSettingsManager(directory));
 
     const raw = readSettingsRecord(directory);
     expect(raw.fleet).toEqual({ max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false });
@@ -547,16 +549,16 @@ describe("models.preferred and models.allowed are independent", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: [] } });
 
-    writeSettingsAllowedModels(directory, { pi: ["openrouter/a"] });
-    writeSettingsPreferredModels(directory, { pi: ["openrouter/b", "openrouter/c"] });
+    writeSettingsAllowedModels(fileSettingsManager(directory), { pi: ["openrouter/a"] });
+    writeSettingsPreferredModels(fileSettingsManager(directory), { pi: ["openrouter/b", "openrouter/c"] });
     const settings = fileSettingsManager(directory).current();
     expect(settings.models.allowed.pi).toEqual(["openrouter/a"]);
     expect(settings.models.preferred.pi).toEqual(["openrouter/b", "openrouter/c"]);
 
-    writeSettingsAllowedModels(directory, { pi: ["openrouter/a", "openrouter/z"] });
+    writeSettingsAllowedModels(fileSettingsManager(directory), { pi: ["openrouter/a", "openrouter/z"] });
     expect(fileSettingsManager(directory).current().models.preferred.pi).toEqual(["openrouter/b", "openrouter/c"]);
 
-    writeSettingsPreferredModels(directory, { claude: ["sonnet"] });
+    writeSettingsPreferredModels(fileSettingsManager(directory), { claude: ["sonnet"] });
     expect(fileSettingsManager(directory).current().models.allowed.pi).toEqual(["openrouter/a", "openrouter/z"]);
   });
 
@@ -564,15 +566,15 @@ describe("models.preferred and models.allowed are independent", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: [] } });
 
-    writeSettingsPreferredModels(directory, { pi: ["openrouter/a"] });
-    writeSettingsPreferredModels(directory, { pi: [] });
+    writeSettingsPreferredModels(fileSettingsManager(directory), { pi: ["openrouter/a"] });
+    writeSettingsPreferredModels(fileSettingsManager(directory), { pi: [] });
     expect(fileSettingsManager(directory).current().models.preferred).toEqual({});
   });
 
   test("the full tree seeds both maps when absent and preserves both when present", () => {
     const seeded = tempDir();
     writeSettingsFixture(seeded, { enabled: { adapters: ["pi"], backends: [] } });
-    writeSettingsFullTree(seeded);
+    writeSettingsFullTree(fileSettingsManager(seeded));
     expect(fileSettingsManager(seeded).current().models).toEqual({ allowed: {}, preferred: {} });
 
     const filled = tempDir();
@@ -580,7 +582,7 @@ describe("models.preferred and models.allowed are independent", () => {
       enabled: { adapters: ["pi"], backends: [] },
       models: { allowed: { pi: ["openrouter/a"] }, preferred: { pi: ["openrouter/b"] } },
     });
-    writeSettingsFullTree(filled);
+    writeSettingsFullTree(fileSettingsManager(filled));
     expect(fileSettingsManager(filled).current().models).toEqual({ allowed: { pi: ["openrouter/a"] }, preferred: { pi: ["openrouter/b"] } });
   });
 

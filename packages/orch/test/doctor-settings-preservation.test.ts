@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { runTestDoctor } from "../test/helpers/doctor.ts";
-import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
+import { runTestDoctor } from "./helpers/doctor.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const dirs: OrchDir[] = [];

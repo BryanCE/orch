@@ -9,8 +9,6 @@
   ],
   "scripts": {
     "test": "bun test --parallel ./test",
-    "test:integration": "bun test --parallel ./integration",
-    "test:doctor": "bun test --parallel --timeout 30000 ./doctor",
     "check": "bun run --parallel --no-exit-on-error lint tc check:bridge",
     "check:bridge": "bun scripts/check-bridge.ts",
     "db:gen": "bun scripts/db/generate.ts",

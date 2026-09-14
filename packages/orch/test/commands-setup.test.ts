@@ -1,5 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { orchDirAt } from "../src/services.ts";
+import { createServices, orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { allAdapters } from "../src/adapters/registry.ts";
 import { cmdSetup } from "../src/commands/setup.ts";
@@ -12,7 +12,8 @@ import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 import { isRecord } from "../src/util.ts";
-import { testServices } from "./helpers/services.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const originalOrchDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 const originalHome = process.env.HOME;
@@ -68,6 +69,7 @@ describe("commands/setup", () => {
     const orchDir = tempOrchDir("orch-setup-characterization-");
     tempDirs.push(orchDir);
     process.env.ORCH_DIR = orchDir;
+    writeSettingsFixture(orchDir, {});
     // cmdSetup wires the bins for real, into $HOME/.local/bin or over whatever they already
     // resolve to on PATH. Both must be a sandbox or this rewrites the developer's own shims.
     const home = mkdtempSync(join(tmpdir(), "orch-setup-home-"));
@@ -95,7 +97,8 @@ describe("commands/setup", () => {
       shim: { value: replacements.shim, configurable: true, enumerable: true, writable: true },
     });
     try {
-      await cmdSetup(testServices({ orchDir, settings: {} }), ["--yes", "--no-install", "--no-skills", "--agent=pi", "--backend=headless", "--runtime=node"]);
+      const services = createServices({ orchDir, settings: fileSettingsManager(orchDir) });
+      await cmdSetup(services, ["--yes", "--no-install", "--no-skills", "--agent=pi", "--backend=headless", "--runtime=node"]);
     } finally {
       Object.defineProperties(adapter, {
         modelWarm: { value: original.modelWarm, configurable: true, enumerable: true, writable: true },

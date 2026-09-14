@@ -10,9 +10,9 @@ import { sql } from "drizzle-orm";
 import { checkNotifiers, checkNotifySinks } from "../src/doctor/notify.ts";
 import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
-import { writeSettingsFixture } from "../test/helpers/settings.ts";
-import { seedAgent } from "../test/helpers/agent.ts";
-import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
+import { seedAgent } from "./helpers/agent.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 

@@ -80,7 +80,7 @@ export function shouldLaunchSettingsEditor(args: readonly string[], isTTY = proc
   return isTTY && args.length === 0;
 }
 
-function setSingleSetting(services: Pick<Services, "orchDir">, args: string[]): boolean {
+function setSingleSetting(services: Pick<Services, "settings">, args: string[]): boolean {
   const [key, input, ...extra] = args;
   if (key === undefined || key.startsWith("--") || input === undefined || extra.length > 0) return false;
   const spec = SETTINGS_REGISTRY.find((setting) => setting.key === key);
@@ -91,15 +91,15 @@ function setSingleSetting(services: Pick<Services, "orchDir">, args: string[]): 
   }
   const parsed = parseSettingValue(spec, input);
   if (!parsed.ok) die(`${key}: ${parsed.reason}.`);
-  try { writeRegisteredSetting(services.orchDir, key, parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
+  try { writeRegisteredSetting(services.settings, key, parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
   process.stdout.write(`${key} = ${formatValue(parsed.value)}\n`);
   return true;
 }
 
-function switchDefault(services: Pick<Services, "orchDir">, key: "adapter" | "backend", value: string): void {
+function switchDefault(services: Pick<Services, "settings">, key: "adapter" | "backend", value: string): void {
   try {
-    if (key === "adapter") writeRegisteredSetting(services.orchDir, "defaults.adapter", validateSetupFlag(key, value, ADAPTER_IDS));
-    else writeRegisteredSetting(services.orchDir, "defaults.backend", validateSetupFlag(key, value, BACKEND_IDS));
+    if (key === "adapter") writeRegisteredSetting(services.settings, "defaults.adapter", validateSetupFlag(key, value, ADAPTER_IDS));
+    else writeRegisteredSetting(services.settings, "defaults.backend", validateSetupFlag(key, value, BACKEND_IDS));
   } catch (error: unknown) {
     die(errorMessage(error));
   }
@@ -126,9 +126,9 @@ export async function cmdSettingsModels(services: Services, args: string[]): Pro
   if (chosen === null) return;
   // Only the targeted harnesses were prompted, so each map merges over what is already
   // recorded; a harness this run never asked about keeps every list it had.
-  writeRegisteredSetting(services.orchDir, "defaults.models", { ...settings.defaults.models, ...chosen.defaults });
-  writeRegisteredSetting(services.orchDir, "models.preferred", { ...settings.models.preferred, ...chosen.preferred });
-  writeRegisteredSetting(services.orchDir, "models.allowed", { ...settings.models.allowed, ...chosen.allowed });
+  writeRegisteredSetting(services.settings, "defaults.models", { ...settings.defaults.models, ...chosen.defaults });
+  writeRegisteredSetting(services.settings, "models.preferred", { ...settings.models.preferred, ...chosen.preferred });
+  writeRegisteredSetting(services.settings, "models.allowed", { ...settings.models.allowed, ...chosen.allowed });
   for (const id of targets) {
     const recorded = chosen.defaults[id];
     if (!recorded) {
@@ -162,9 +162,9 @@ export function cmdSettingsSkills(services: Services, args: string[]): void {
 
   const current = currentSettings(services).skills;
   const wanted = install ?? current.install;
-  writeRegisteredSetting(services.orchDir, "skills.install", wanted);
-  if (storeFlag !== undefined) writeRegisteredSetting(services.orchDir, "skills.store", storeFlag.trim());
-  if (link !== undefined) writeRegisteredSetting(services.orchDir, "skills.link", link);
+  writeRegisteredSetting(services.settings, "skills.install", wanted);
+  if (storeFlag !== undefined) writeRegisteredSetting(services.settings, "skills.store", storeFlag.trim());
+  if (link !== undefined) writeRegisteredSetting(services.settings, "skills.link", link);
   const roots = { store: storeFlag?.trim() ?? current.store, link: link ?? current.link };
   process.stdout.write(
     `skills.install = ${wanted}\nskills.store   = ${roots.store}\nskills.link    = ${roots.link.join(", ")}\n`,
@@ -266,7 +266,7 @@ async function addNotifyEntry(services: Services, args: string[]): Promise<void>
   const merged = configured.some((entry) => entry.id === id)
     ? configured.map((entry) => entry.id === id ? replacement : entry)
     : [...configured, replacement];
-  writeNotifyEntries(services.orchDir, merged);
+  writeNotifyEntries(services.settings, merged);
   process.stdout.write(`notify  ${services.settings.file}\n\n`);
   for (const entry of written.entries) process.stdout.write(notifyEntryRow(entry));
   if (!choice.available) process.stdout.write(`\n  ${choice.remediation}\n`);
@@ -279,7 +279,7 @@ function removeNotifyEntry(services: Services, args: string[]): void {
   const configured = currentSettings(services).notify;
   const entry = configured.find((candidate) => candidate.id === id);
   if (!entry) die(`No "${id}" notify sink is configured. Configured: ${configured.map((candidate) => candidate.id).join(", ") || "(none)"}.`);
-  writeNotifyEntries(services.orchDir, configured.filter((candidate) => candidate.id !== entry.id));
+  writeNotifyEntries(services.settings, configured.filter((candidate) => candidate.id !== entry.id));
   process.stdout.write(`removed notify sink ${id} from ${services.settings.file}\n`);
 }
 
@@ -299,7 +299,7 @@ export async function cmdSettingsNotify(services: Services, args: string[]): Pro
 export async function cmdSettings(services: Services, args: string[]): Promise<void> {
   if (shouldLaunchSettingsEditor(args)) {
     try {
-      await runSettingsEditor(services.orchDir, currentSettings(services));
+      await runSettingsEditor(services.settings, currentSettings(services));
     } catch (error: unknown) {
       die(errorMessage(error));
     }
@@ -392,7 +392,7 @@ export function cmdSettingsThinking(services: Services, args: string[]): void {
     const current = currentSettings(services).defaults.thinking_by_harness ?? {};
     const byHarness = { ...current };
     delete byHarness[harnessFlag];
-    writeRegisteredSetting(services.orchDir, "defaults.thinking_by_harness", byHarness);
+    writeRegisteredSetting(services.settings, "defaults.thinking_by_harness", byHarness);
     process.stdout.write(`cleared the thinking override for ${harnessFlag}\n`);
     return;
   }
@@ -408,11 +408,11 @@ export function cmdSettingsThinking(services: Services, args: string[]): void {
     throw new Error(`unknown thinking level ${JSON.stringify(level)}; valid levels: ${THINKING_LEVELS.join(", ")}`);
   }
   if (harnessFlag === undefined) {
-    writeRegisteredSetting(services.orchDir, "defaults.thinking", level);
+    writeRegisteredSetting(services.settings, "defaults.thinking", level);
     process.stdout.write(`thinking  ${level}\n`);
   } else {
     const current = currentSettings(services).defaults.thinking_by_harness ?? {};
-    writeRegisteredSetting(services.orchDir, "defaults.thinking_by_harness", { ...current, [harnessFlag]: level });
+    writeRegisteredSetting(services.settings, "defaults.thinking_by_harness", { ...current, [harnessFlag]: level });
     process.stdout.write(`thinking (${harnessFlag})  ${level}\n`);
   }
 }

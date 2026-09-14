@@ -24,7 +24,7 @@ import type { OrchSettings } from "../../types/settings.ts";
 import { resolveSpawnAgentSettings, resolveSpawnSettings, parseSpawnFlags } from "./flags.ts";
 import type { SpawnSettings } from "./flags.ts";
 import { assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceGranted, assertTabCapacity, admitSpawn } from "./admission.ts";
-import { assertLaunchModelAllowed, pinModels } from "./models.ts";
+import { admitLaunchModel, pinModels } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
 import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
 import { awaitBridgeAttach, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
@@ -266,8 +266,8 @@ function seatFleet(orchDir: OrchDir, backend: Backend, groupHome: GroupHomeRole,
   return { group: seatFleetInHome(backend, groupHome, home, settings.label, prepared), workspace: home.coordinate };
 }
 
-async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "settings" | "models">, settingsFile: OrchSettings, settings: SpawnSettings): Promise<void> {
-  await admitSpawn(services.orchDir, settingsFile, settings, services.logger, services.models);
+async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "settings" | "models">, settingsFile: OrchSettings, requested: SpawnSettings): Promise<void> {
+  const settings = await admitSpawn(services.orchDir, settingsFile, requested, services.logger, services.models);
   // A spawned agent already carries its id; only a driving session registers.
   const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(services.orchDir, services.logger)).id;
   const spawner: Spawner = { id: spawnerAgentId, environment: environmentOf(services.orchDir, spawnerAgentId) };
@@ -312,7 +312,7 @@ export async function cmdTile(services: Services, args: string[]) {
   const flags = parseSpawnFlags(args);
   if (flags.modelFlags.length > 1) die("orch tile creates one agent; give --model once");
   const settingsFile = services.settings.current();
-  const { adapter, model, thinking, preferredModels } = resolveSpawnAgentSettings({ ...flags, modelFlag: flags.modelFlags[0] }, settingsFile);
+  const { adapter, model: named, thinking, preferredModels } = resolveSpawnAgentSettings({ ...flags, modelFlag: flags.modelFlags[0] }, settingsFile);
   const selectedBackend = resolveBackend({ explicit: flags.backendFlag ?? null, configured: settingsFile.defaults.backend ?? null });
   if (!selectedBackend.placementInventory) die(`orch tile requires an environment that places agents; ${selectedBackend.id} places none.`);
   if (!selectedBackend.groupHome || !selectedBackend.groupLayout) {
@@ -322,7 +322,7 @@ export async function cmdTile(services: Services, args: string[]) {
     return;
   }
   const selectedAdapter = resolveAdapterOrDie(adapter);
-  assertLaunchModelAllowed(settingsFile, adapter, services.models, model);
+  const model = admitLaunchModel(settingsFile, adapter, services.models, named);
   const target = flags.positional[0];
   const requestedName = flags.positional[1];
   // Tile CREATES an agent, so it names one too. An agent

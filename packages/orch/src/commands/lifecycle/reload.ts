@@ -10,7 +10,7 @@ import { errorMessage } from "../../util.ts";
 import { agentProcessLive } from "../../store/interval-rows.ts";
 import { atShellPrompt, sleepMs, NO_FOREGROUND } from "../../backends/shell-ready.ts";
 import { RELOAD_SIGNAL_FILE } from "../../settings/watch.ts";
-import { adapterCommand, assertLaunchModelAllowed } from "../spawn/models.ts";
+import { adapterCommand, admitLaunchModel } from "../spawn/models.ts";
 import { resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { writeRpc } from "../daemon.ts";
 import { assertAgentOwned, die, resolveLifecycleTarget } from "../target.ts";
@@ -223,8 +223,8 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
 function restartLaunchCommand(orchDir: OrchDir, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings, catalogue: Services["models"], agentKey: string): string {
   if (cmd !== null) return cmd;
   const tuning = resolveTuningOrDie({}, settings, adapter.id, tuningOf(orchDir, agentKey));
-  assertLaunchModelAllowed(settings, adapter.id, catalogue, tuning.model);
-  return adapterCommand(harnessId, settings, { model: tuning.model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] });
+  const model = admitLaunchModel(settings, adapter.id, catalogue, tuning.model);
+  return adapterCommand(harnessId, settings, { model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] });
 }
 
 /** Restart one target. A detached agent has no shell to type a quit into, so the

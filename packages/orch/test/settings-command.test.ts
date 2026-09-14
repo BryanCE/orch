@@ -183,9 +183,10 @@ describe("orch settings", () => {
     process.env.ORCH_DIR = directory;
     const writer = spyOn(registry, "writeRegisteredSetting");
     try {
-      await cmdSettings(testServices({ orchDir: directory, settings }), ["fleet.max_depth", "6"]);
+      const services = testServices({ orchDir: directory, settings });
+      await cmdSettings(services, ["fleet.max_depth", "6"]);
       expect(writer).toHaveBeenCalledTimes(1);
-      expect(writer).toHaveBeenCalledWith(directory, "fleet.max_depth", 6);
+      expect(writer).toHaveBeenCalledWith(services.settings, "fleet.max_depth", 6);
     } finally {
       writer.mockRestore();
       if (previousOrchDir === undefined) delete process.env.ORCH_DIR;

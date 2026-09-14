@@ -16,7 +16,7 @@ import type { AgentView, GrantAction } from "../../types/store.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { SpawnSettings } from "./flags.ts";
-import { assertLaunchModelAllowed } from "./models.ts";
+import { admitLaunchModel } from "./models.ts";
 import { computeFleetCapacity, liveSpawnCounts, packsUsed } from "../../policy/capacity.ts";
 
 export { liveSpawnCounts } from "../../policy/capacity.ts";
@@ -119,12 +119,15 @@ export function assertNewSpaceGranted(orchDir: OrchDir, settings: SpawnSettings,
     + ` or drop --backend and pass --prompt to launch headless with no space at all.`);
 }
 /** Everything that can refuse a spawn, run before it creates anything. A refused
- *  spawn leaves no handle, no worktree and no queue entry. */
-export async function admitSpawn(orchDir: OrchDir, settingsFile: OrchSettings, settings: SpawnSettings, logger: Logger, catalogue: ModelCatalogue): Promise<void> {
+ *  spawn leaves no handle, no worktree and no queue entry. Returns the settings the
+ *  launch runs on: every agent's model admitted, so a short name is expanded once
+ *  here and the plans downstream carry the spec the harness receives. */
+export async function admitSpawn(orchDir: OrchDir, settingsFile: OrchSettings, settings: SpawnSettings, logger: Logger, catalogue: ModelCatalogue): Promise<SpawnSettings> {
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.
   assertSpawnPolicy(orchDir, settings, settings.space ?? callerSpace(orchDir), settings.agents.length);
-  for (const model of new Set(settings.agents.map((agent) => agent.model))) assertLaunchModelAllowed(settingsFile, settings.adapter, catalogue, model);
+  const admitted = new Map<string, string>();
+  for (const model of new Set(settings.agents.map((agent) => agent.model))) admitted.set(model, admitLaunchModel(settingsFile, settings.adapter, catalogue, model));
   // Shim refresh is a launch side effect, so it happens only after policy
   // accepts, and only for the harness actually being launched.
   await refreshStaleShims(orchDir, logger, [settings.adapter], settingsFile);
@@ -134,4 +137,5 @@ export async function admitSpawn(orchDir: OrchDir, settingsFile: OrchSettings, s
   } catch (error: unknown) {
     die(errorMessage(error));
   }
+  return { ...settings, agents: settings.agents.map((agent) => ({ ...agent, model: admitted.get(agent.model) ?? agent.model })) };
 }

@@ -60,7 +60,7 @@ describe("settings shell decisions", () => {
   test("registered writes use the registry entry", () => {
     const directory = tempDir("orch-settings-shell-");
     writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
-    writeRegisteredSetting(directory, "fleet.max_depth", 4);
+    writeRegisteredSetting(fileSettingsManager(directory), "fleet.max_depth", 4);
     expect(fileSettingsManager(directory).current().fleet.max_depth).toBe(4);
     const text = readFileSync(join(directory, "settings.json"), "utf8");
     expect(text).toContain('"max_depth": 4');

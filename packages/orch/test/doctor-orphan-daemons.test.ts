@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkOrphanDaemons } from "../src/doctor/daemon.ts";
-import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
+import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const seeded: OrchDir[] = [];

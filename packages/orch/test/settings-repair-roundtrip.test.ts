@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { settingsDefects } from "../src/settings/defects.ts";
 import { createRepairState, plannedRepairs, repairReducer } from "../src/settings/repair.ts";
 import { applySettingsRepairs } from "../src/settings/write.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { readSettingsFile } from "../src/settings/read.ts";
 import type { RepairChoice, RepairState } from "../src/types/settings.ts";
 
@@ -80,7 +81,7 @@ describe("repairing a settings.json the schema rejects", () => {
     for (const path of ["fleet.spawn_cap", "fleet.pack_cap", "fleet.workspace_caps", "fleet.cross_workspace", "workspaces"]) {
       state = choose(state, path, "drop");
     }
-    applySettingsRepairs(directory, plannedRepairs(state));
+    applySettingsRepairs(fileSettingsManager(directory), plannedRepairs(state));
 
     expect(settingsDefects(file)).toEqual([]);
     const loaded = readSettingsFile(file);
@@ -100,7 +101,7 @@ describe("repairing a settings.json the schema rejects", () => {
     expect(typo?.suggestion).toBe("fleet.max_depth");
     expect(typo?.value).toBe(6);
 
-    applySettingsRepairs(directory, plannedRepairs(choose(createRepairState(defects), "fleet.max_dpeth", "rename")));
+    applySettingsRepairs(fileSettingsManager(directory), plannedRepairs(choose(createRepairState(defects), "fleet.max_dpeth", "rename")));
 
     expect(settingsDefects(file)).toEqual([]);
     // The whole point: the 6 someone typed is still a 6.
@@ -114,7 +115,7 @@ describe("repairing a settings.json the schema rejects", () => {
 
     const state = createRepairState(settingsDefects(file));
     expect(plannedRepairs(state)).toEqual([]);
-    applySettingsRepairs(directory, plannedRepairs(state));
+    applySettingsRepairs(fileSettingsManager(directory), plannedRepairs(state));
 
     expect(readFileSync(file, "utf8")).toBe(before);
   });

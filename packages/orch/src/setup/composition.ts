@@ -1,7 +1,5 @@
-import type { OrchDir } from "../types/core.ts";
 import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends } from "../backends/registry.ts";
-import { settingsPath } from "../settings/schema.ts";
 import { writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsRuntime } from "../settings/write.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { signedOutFix } from "../adapters/prerequisites.ts";
@@ -16,6 +14,7 @@ import type { AdapterId, AgentAdapter, HarnessModel, ModelCatalogue } from "../t
 import type { BackendId } from "../types/backend.ts";
 import type { HarnessModelChoices } from "../types/command.ts";
 import type { OrchSettings } from "../types/settings.ts";
+import type { SettingsManager } from "../types/services.ts";
 
 /** Resolve the setup harness set from a comma-separated flag, the multi-select wizard, or exit. Null on cancel. */
 export async function resolveProviderSet<Id extends string>(
@@ -186,7 +185,7 @@ export function modelListsNote(preferred: readonly string[] | undefined, allowed
 
 /** Persist the composition selections (runtime, installed sets, active defaults) to settings.json. */
 export function recordComposition(
-  orchDir: OrchDir,
+  settings: SettingsManager,
   runtime: OrchRuntime,
   adapters: AdapterId[],
   defaultAdapter: AdapterId,
@@ -196,22 +195,22 @@ export function recordComposition(
 ): void {
   // Record the runtime FIRST: it is a required key with no default, so no other write can
   // produce a valid file until it is present. Re-recording the same value is a no-op change.
-  writeSettingsRuntime(orchDir, runtime);
+  writeSettingsRuntime(settings, runtime);
   // Then the installed sets — writeSettingsDefault validates the default against them.
-  writeSettingsEnabled(orchDir, { adapters, backends });
-  writeSettingsDefault(orchDir, "adapter", defaultAdapter);
-  writeSettingsDefault(orchDir, "backend", defaultBackend);
+  writeSettingsEnabled(settings, { adapters, backends });
+  writeSettingsDefault(settings, "adapter", defaultAdapter);
+  writeSettingsDefault(settings, "backend", defaultBackend);
   // Every launch path resolves its harness's model from here. Recording them is not
   // optional: an install without one fails at the first spawn, including setup's own smoke.
-  writeSettingsModels(orchDir, models.defaults);
+  writeSettingsModels(settings, models.defaults);
   // Two independent lists, two writers: the quicklist a harness shows in its own picker,
   // and the gate its spawns are held to. Neither may stand in for the other.
-  writeSettingsPreferredModels(orchDir, models.preferred);
-  writeSettingsAllowedModels(orchDir, models.allowed);
+  writeSettingsPreferredModels(settings, models.preferred);
+  writeSettingsAllowedModels(settings, models.allowed);
   // Seed the complete live settings tree only after composition writes have landed.
-  writeSettingsFullTree(orchDir);
+  writeSettingsFullTree(settings);
   process.stdout.write(
-    `Selection recorded in ${settingsPath(orchDir)}:\n` +
+    `Selection recorded in ${settings.file}:\n` +
     `  runtime           = ${runtime}${runtime === "deno" ? "  (sandboxed shims)" : ""}\n` +
     `  adapters          = ${adapters.join(", ")}\n` +
     `  default adapter   = ${defaultAdapter}\n` +

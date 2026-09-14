@@ -5,7 +5,7 @@ import { reclaimAgent } from "../../store/agent-rows.ts";
 import { tuningOf } from "../../store/agent-view.ts";
 import { modelSpec } from "../../policy/thinking.ts";
 import type { Tuning } from "../../policy/tuning.ts";
-import { assertLaunchModelAllowed, pinModels } from "../spawn/models.ts";
+import { admitLaunchModel, pinModels } from "../spawn/models.ts";
 import { pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { writeRpc } from "../daemon.ts";
 import { assertAgentOwned, die, requireCallerOwnerToken, resolveLifecycleTarget } from "../target.ts";
@@ -69,8 +69,7 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   // reset clears the session, never the model the orchestrator chose.
   const plans = owned.map(({ target, key }) => {
     const tuning = resolveTuningOrDie(flags, settings, adapter.id, tuningOf(services.orchDir, key));
-    assertLaunchModelAllowed(settings, adapter.id, services.models, tuning.model);
-    return { target, tuning };
+    return { target, tuning: { ...tuning, model: admitLaunchModel(settings, adapter.id, services.models, tuning.model) } };
   });
   const cleared: (ClearedAgent & Tuning)[] = [];
   for (const plan of plans) {

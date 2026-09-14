@@ -1,7 +1,6 @@
 import { getColumns, getRows, isCancel, MultiSelectPrompt, Prompt, SelectPrompt, TextPrompt } from "@clack/core";
 import * as files from "node:fs";
-import { settingsPath } from "./schema.ts";
-import type { OrchDir } from "../types/core.ts";
+import type { SettingsManager } from "../types/services.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { createEditorState, editorReducer } from "./editor.ts";
 import { parseSettingValue } from "./parse.ts";
@@ -58,13 +57,13 @@ function sourceFor(spec: SettingSpec, raw: Record<string, unknown>): { source: S
 }
 
 /** Rebuild every row from disk so value and provenance always show what settings.json holds. */
-function loadEntries(orchDir: OrchDir, settings: OrchSettings): EditorSetting[] {
+function loadEntries(manager: SettingsManager, settings: OrchSettings): EditorSetting[] {
   let raw: Record<string, unknown> = {};
   try {
-    const parsed: unknown = JSON.parse(files.readFileSync(settingsPath(orchDir), "utf8"));
+    const parsed: unknown = JSON.parse(files.readFileSync(manager.file, "utf8"));
     if (isRecord(parsed)) raw = parsed;
   } catch (error: unknown) {
-    throw new Error(`Could not read ${settingsPath(orchDir)}: ${errorMessage(error)}`);
+    throw new Error(`Could not read ${manager.file}: ${errorMessage(error)}`);
   }
   return SETTINGS_REGISTRY.map((spec) => ({ spec, value: spec.read(settings), ...sourceFor(spec, raw) }));
 }
@@ -120,9 +119,9 @@ function refocusVisible(session: Session): void {
   session.state = moveTo(session.state, first);
 }
 
-function screenOf(session: Session, orchDir: OrchDir): SettingsScreen {
+function screenOf(session: Session, manager: SettingsManager): SettingsScreen {
   return {
-    file: settingsPath(orchDir),
+    file: manager.file,
     entries: session.state.settings,
     focusedIndex: session.state.focusedIndex,
     filter: session.filter,
@@ -131,14 +130,14 @@ function screenOf(session: Session, orchDir: OrchDir): SettingsScreen {
 }
 
 /** Rebuild rows from disk and restore focus to `focusKey`. */
-function reload(session: Session, orchDir: OrchDir, focusKey: string, settings: OrchSettings): void {
-  const state = createEditorState(loadEntries(orchDir, settings));
+function reload(session: Session, manager: SettingsManager, focusKey: string, settings: OrchSettings): void {
+  const state = createEditorState(loadEntries(manager, settings));
   const index = state.settings.findIndex((entry) => entry.spec.key === focusKey);
   session.state = index < 0 ? state : moveTo(state, index);
 }
 
 /** Clear the focused setting back to its default, or say why that is refused. */
-function resetFocused(session: Session, orchDir: OrchDir, settings: OrchSettings): void {
+function resetFocused(session: Session, manager: SettingsManager, settings: OrchSettings): void {
   const entry = session.state.settings[session.state.focusedIndex];
   if (entry === undefined) return;
   const key = entry.spec.key;
@@ -151,8 +150,8 @@ function resetFocused(session: Session, orchDir: OrchDir, settings: OrchSettings
     return;
   }
   try {
-    clearRegisteredSetting(orchDir, key);
-    reload(session, orchDir, key, settings);
+    clearRegisteredSetting(manager, key);
+    reload(session, manager, key, settings);
     session.status = `${key} reset to default`;
   } catch (error: unknown) {
     session.status = errorMessage(error);
@@ -160,7 +159,7 @@ function resetFocused(session: Session, orchDir: OrchDir, settings: OrchSettings
 }
 
 /** Commit an edited value through the reducer, persist it, and re-read the file. */
-function commitAndFlush(session: Session, orchDir: OrchDir, settings: OrchSettings, editing: EditingState, value: unknown): void {
+function commitAndFlush(session: Session, manager: SettingsManager, settings: OrchSettings, editing: EditingState, value: unknown): void {
   const key = editing.focused.spec.key;
   const committed = editorReducer(editing, { type: "commit", value });
   if (committed.mode === "editing") {
@@ -169,22 +168,22 @@ function commitAndFlush(session: Session, orchDir: OrchDir, settings: OrchSettin
     return;
   }
   try {
-    for (const pending of committed.pendingWrites) writeRegisteredSetting(orchDir, pending.key, pending.value);
+    for (const pending of committed.pendingWrites) writeRegisteredSetting(manager, pending.key, pending.value);
     session.status = `${key} saved`;
   } catch (error: unknown) {
     session.status = errorMessage(error);
   }
-  reload(session, orchDir, key, settings);
+  reload(session, manager, key, settings);
 }
 
 type BrowseOutcome = "open" | "again" | "quit";
 
 /** One browsing prompt: navigate, filter, reset — until Enter opens or Escape/ctrl+c leaves. */
-async function browseOnce(session: Session, orchDir: OrchDir, settings: OrchSettings): Promise<BrowseOutcome> {
+async function browseOnce(session: Session, manager: SettingsManager, settings: OrchSettings): Promise<BrowseOutcome> {
   process.stdout.write(CLEAR_SCREEN);
   const prompt = new Prompt<undefined>({
     render: () => settingsFrame(
-      screenOf(session, orchDir),
+      screenOf(session, manager),
       getColumns(process.stdout),
       getRows(process.stdout),
       undefined,
@@ -217,7 +216,7 @@ async function browseOnce(session: Session, orchDir: OrchDir, settings: OrchSett
       return;
     }
     if (info.ctrl === true && info.name === "d") {
-      resetFocused(session, orchDir, settings);
+      resetFocused(session, manager, settings);
       return;
     }
     if (typeof char === "string" && char.length === 1 && char >= " " && info.ctrl !== true && info.meta !== true) {
@@ -238,14 +237,14 @@ async function browseOnce(session: Session, orchDir: OrchDir, settings: OrchSett
   return "quit";
 }
 
-async function editChoice(session: Session, orchDir: OrchDir, settings: OrchSettings, editing: EditingState, choices: readonly string[]): Promise<void> {
+async function editChoice(session: Session, manager: SettingsManager, settings: OrchSettings, editing: EditingState, choices: readonly string[]): Promise<void> {
   process.stdout.write(CLEAR_SCREEN);
   const prompt = new SelectPrompt<{ value: string }>({
     options: choices.map((value) => ({ value })),
     ...(typeof editing.draft === "string" && choices.includes(editing.draft) ? { initialValue: editing.draft } : {}),
     render() {
       return settingsFrame(
-        screenOf(session, orchDir),
+        screenOf(session, manager),
         getColumns(process.stdout),
         getRows(process.stdout),
         selectOverlay(choices, this.cursor),
@@ -258,13 +257,13 @@ async function editChoice(session: Session, orchDir: OrchDir, settings: OrchSett
     session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
     return;
   }
-  commitAndFlush(session, orchDir, settings, editing, answer);
+  commitAndFlush(session, manager, settings, editing, answer);
 }
 
 /** Check any number of choices off a list. Null on cancel. */
 async function askMulti(
   session: Session,
-  orchDir: OrchDir,
+  manager: SettingsManager,
   choices: readonly string[],
   initial: readonly string[],
 ): Promise<string[] | null> {
@@ -278,7 +277,7 @@ async function askMulti(
         ? this.value.filter((value): value is string => typeof value === "string")
         : [];
       return settingsFrame(
-        screenOf(session, orchDir),
+        screenOf(session, manager),
         getColumns(process.stdout),
         getRows(process.stdout),
         multiOverlay(choices, this.cursor, selected),
@@ -291,16 +290,16 @@ async function askMulti(
   return answer.filter((value): value is string => typeof value === "string");
 }
 
-async function editMulti(session: Session, orchDir: OrchDir, settings: OrchSettings, editing: EditingState, choices: readonly string[]): Promise<void> {
+async function editMulti(session: Session, manager: SettingsManager, settings: OrchSettings, editing: EditingState, choices: readonly string[]): Promise<void> {
   const current = Array.isArray(editing.draft)
     ? editing.draft.filter((value): value is string => typeof value === "string")
     : [];
-  const answer = await askMulti(session, orchDir, choices, current);
+  const answer = await askMulti(session, manager, choices, current);
   if (answer === null) {
     session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
     return;
   }
-  commitAndFlush(session, orchDir, settings, editing, answer);
+  commitAndFlush(session, manager, settings, editing, answer);
 }
 
 /** What a text prompt was actually submitted with. @clack seeds `initialUserInput` into the
@@ -314,7 +313,7 @@ function submittedText(prompt: TextPrompt, answer: unknown): string {
  *  already recorded: a seeded line commits a value nobody typed. */
 async function askValue(
   session: Session,
-  orchDir: OrchDir,
+  manager: SettingsManager,
   label: string,
   initial: string,
   example: string | undefined,
@@ -325,7 +324,7 @@ async function askValue(
     validate: (value) => (value ?? "").trim() ? undefined : `${label} needs a value`,
     render() {
       return settingsFrame(
-        screenOf(session, orchDir),
+        screenOf(session, manager),
         getColumns(process.stdout),
         getRows(process.stdout),
         inputOverlay(label, inputCursor(this.userInput, this.cursor), this.state === "error" ? this.error : undefined, example),
@@ -417,12 +416,12 @@ type PickOutcome =
 
 /** One pass of the sink picker: move, toggle, or hand back the sink whose value to edit.
  *  A value edit ends the prompt because a nested prompt cannot share raw-mode input. */
-async function pickSinks(session: Session, orchDir: OrchDir, kind: SinksKind, pick: SinkPick): Promise<PickOutcome> {
+async function pickSinks(session: Session, manager: SettingsManager, kind: SinksKind, pick: SinkPick): Promise<PickOutcome> {
   process.stdout.write(CLEAR_SCREEN);
   let outcome: PickOutcome = { done: "save" };
   const prompt = new Prompt<undefined>({
     render: () => settingsFrame(
-      screenOf(session, orchDir),
+      screenOf(session, manager),
       getColumns(process.stdout),
       getRows(process.stdout),
       multiOverlay(kind.choices, pick.cursor, pick.checked, sinkNotes(kind, pick)),
@@ -454,14 +453,14 @@ async function pickSinks(session: Session, orchDir: OrchDir, kind: SinksKind, pi
 }
 
 /** Ask for one sink's value and record it, checking the sink. False when the ask was cancelled. */
-async function editSinkValue(session: Session, orchDir: OrchDir, kind: SinksKind, pick: SinkPick, id: string): Promise<boolean> {
+async function editSinkValue(session: Session, manager: SettingsManager, kind: SinksKind, pick: SinkPick, id: string): Promise<boolean> {
   const field = kind.fields[id];
   if (field === undefined) {
     session.status = `${id} carries no value - space turns it on`;
     return true;
   }
   const label = field.name === id ? id : `${id} ${field.name}`;
-  const value = await askValue(session, orchDir, label, pick.values.get(id) ?? "", field.suggestion);
+  const value = await askValue(session, manager, label, pick.values.get(id) ?? "", field.suggestion);
   if (value === null) return false;
   pick.values.set(id, value);
   checkSink(pick, id);
@@ -470,8 +469,8 @@ async function editSinkValue(session: Session, orchDir: OrchDir, kind: SinksKind
 
 /** Choose which states one sink fires on, checking the sink. A sink that fires on nothing
  *  delivers nothing, so an empty answer is refused rather than recorded. */
-async function editSinkStates(session: Session, orchDir: OrchDir, kind: SinksKind, pick: SinkPick, id: string): Promise<void> {
-  const chosen = await askMulti(session, orchDir, kind.states, firesOn(kind, pick, id));
+async function editSinkStates(session: Session, manager: SettingsManager, kind: SinksKind, pick: SinkPick, id: string): Promise<void> {
+  const chosen = await askMulti(session, manager, kind.states, firesOn(kind, pick, id));
   if (chosen === null) return;
   if (chosen.length === 0) {
     session.status = `${id} must fire on at least one state`;
@@ -483,11 +482,11 @@ async function editSinkStates(session: Session, orchDir: OrchDir, kind: SinksKin
 
 /** Ask for every checked sink still missing its value. One left unanswered is unchecked:
  *  a sink with nothing to deliver through is not a sink. False when any was skipped. */
-async function fillCheckedSinks(session: Session, orchDir: OrchDir, kind: SinksKind, pick: SinkPick): Promise<boolean> {
+async function fillCheckedSinks(session: Session, manager: SettingsManager, kind: SinksKind, pick: SinkPick): Promise<boolean> {
   const missing = pick.checked.filter((id) => kind.fields[id] !== undefined && carriedValue(pick, id) === "");
   let complete = true;
   for (const id of missing) {
-    if (await editSinkValue(session, orchDir, kind, pick, id)) continue;
+    if (await editSinkValue(session, manager, kind, pick, id)) continue;
     uncheckSink(pick, id);
     session.status = `${id} left off - it needs a ${kind.fields[id]?.name ?? "value"}`;
     complete = false;
@@ -497,29 +496,29 @@ async function fillCheckedSinks(session: Session, orchDir: OrchDir, kind: SinksK
 
 /** Check the sinks to deliver through, set what each one carries, and choose when each
  *  fires. `e` edits the focused sink's value, `w` its states; nothing is written until enter. */
-async function editSinks(session: Session, orchDir: OrchDir, settings: OrchSettings, editing: EditingState, kind: SinksKind): Promise<void> {
+async function editSinks(session: Session, manager: SettingsManager, settings: OrchSettings, editing: EditingState, kind: SinksKind): Promise<void> {
   const pick = initialPick(kind, editing.draft);
   for (;;) {
-    const outcome = await pickSinks(session, orchDir, kind, pick);
+    const outcome = await pickSinks(session, manager, kind, pick);
     if (outcome.done === "cancel") {
       session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
       return;
     }
     if (outcome.done === "edit") {
-      await editSinkValue(session, orchDir, kind, pick, outcome.id);
+      await editSinkValue(session, manager, kind, pick, outcome.id);
       continue;
     }
     if (outcome.done === "when") {
-      await editSinkStates(session, orchDir, kind, pick, outcome.id);
+      await editSinkStates(session, manager, kind, pick, outcome.id);
       continue;
     }
-    if (!await fillCheckedSinks(session, orchDir, kind, pick)) continue;
-    commitAndFlush(session, orchDir, settings, editing, pickedSinks(kind, pick));
+    if (!await fillCheckedSinks(session, manager, kind, pick)) continue;
+    commitAndFlush(session, manager, settings, editing, pickedSinks(kind, pick));
     return;
   }
 }
 
-async function editText(session: Session, orchDir: OrchDir, settings: OrchSettings, editing: EditingState): Promise<void> {
+async function editText(session: Session, manager: SettingsManager, settings: OrchSettings, editing: EditingState): Promise<void> {
   process.stdout.write(CLEAR_SCREEN);
   const spec = editing.focused.spec;
   const prompt = new TextPrompt({
@@ -530,7 +529,7 @@ async function editText(session: Session, orchDir: OrchDir, settings: OrchSettin
     },
     render() {
       return settingsFrame(
-        screenOf(session, orchDir),
+        screenOf(session, manager),
         getColumns(process.stdout),
         getRows(process.stdout),
         inputOverlay(spec.key, inputCursor(this.userInput, this.cursor), this.state === "error" ? this.error : undefined),
@@ -549,11 +548,11 @@ async function editText(session: Session, orchDir: OrchDir, settings: OrchSettin
     session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
     return;
   }
-  commitAndFlush(session, orchDir, settings, editing, parsed.value);
+  commitAndFlush(session, manager, settings, editing, parsed.value);
 }
 
 /** Open the focused setting and run the edit interaction its declared kind calls for. */
-async function editFocused(session: Session, orchDir: OrchDir, settings: OrchSettings): Promise<void> {
+async function editFocused(session: Session, manager: SettingsManager, settings: OrchSettings): Promise<void> {
   const opened = editorReducer(session.state, { type: "open" });
   if (opened.mode === "browsing") {
     session.status = opened.reason;
@@ -563,18 +562,18 @@ async function editFocused(session: Session, orchDir: OrchDir, settings: OrchSet
   const kind = opened.focused.spec.type;
   switch (kind.kind) {
     case "boolean":
-      commitAndFlush(session, orchDir, settings, opened, opened.focused.value !== true);
+      commitAndFlush(session, manager, settings, opened, opened.focused.value !== true);
       return;
     case "choice":
-      return editChoice(session, orchDir, settings, opened, kind.choices);
+      return editChoice(session, manager, settings, opened, kind.choices);
     case "multi":
-      return editMulti(session, orchDir, settings, opened, kind.choices);
+      return editMulti(session, manager, settings, opened, kind.choices);
     case "sinks":
-      return editSinks(session, orchDir, settings, opened, kind);
+      return editSinks(session, manager, settings, opened, kind);
     case "integer":
     case "text":
     case "list":
-      return editText(session, orchDir, settings, opened);
+      return editText(session, manager, settings, opened);
     default: {
       const exhaustive: never = kind;
       return exhaustive;
@@ -623,8 +622,8 @@ async function repairOnce(state: RepairState, file: string, status: string | und
  * letter off a real one holds a value they typed, and orch is not entitled to decide it
  * was junk.
  */
-async function repairSettingsFile(orchDir: OrchDir): Promise<boolean> {
-  const file = settingsPath(orchDir);
+async function repairSettingsFile(manager: SettingsManager): Promise<boolean> {
+  const file = manager.file;
   let status: string | undefined;
   for (;;) {
     const defects = settingsDefects(file);
@@ -637,7 +636,7 @@ async function repairSettingsFile(orchDir: OrchDir): Promise<boolean> {
       continue;
     }
     try {
-      applySettingsRepairs(orchDir, repairs);
+      applySettingsRepairs(manager, repairs);
       status = `applied ${repairs.length} ${repairs.length === 1 ? "repair" : "repairs"}`;
     } catch (error: unknown) {
       status = errorMessage(error);
@@ -646,22 +645,22 @@ async function repairSettingsFile(orchDir: OrchDir): Promise<boolean> {
 }
 
 /** Run the interactive settings editor. It owns no settings logic: all edits go through the reducer. */
-export async function runSettingsEditor(orchDir: OrchDir, settings: OrchSettings): Promise<void> {
+export async function runSettingsEditor(manager: SettingsManager, settings: OrchSettings): Promise<void> {
   process.stdout.write(ENTER_ALT_SCREEN);
   try {
-    if (!await repairSettingsFile(orchDir)) return;
+    if (!await repairSettingsFile(manager)) return;
     const session: Session = {
-      state: createEditorState(loadEntries(orchDir, settings)),
+      state: createEditorState(loadEntries(manager, settings)),
       filter: "",
       status: undefined,
       quit: false,
       escapeClearedFilter: false,
     };
     while (!session.quit) {
-      const outcome = await browseOnce(session, orchDir, settings);
+      const outcome = await browseOnce(session, manager, settings);
       if (outcome === "quit") return;
       if (outcome === "again") continue;
-      await editFocused(session, orchDir, settings);
+      await editFocused(session, manager, settings);
     }
   } finally {
     process.stdout.write(EXIT_ALT_SCREEN);

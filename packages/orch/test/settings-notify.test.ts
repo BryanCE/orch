@@ -38,7 +38,7 @@ async function captureNotify(args: string[]): Promise<string> {
   // eslint-disable-next-line typescript/unbound-method
   const originalWrite = process.stdout.write;
   process.stdout.write = ((chunk: string | Uint8Array) => { output.push(String(chunk)); return true; });
-  try { await cmdSettingsNotify(createServices({ orchDir: root }), args); } finally { process.stdout.write = originalWrite; }
+  try { await cmdSettingsNotify(createServices({ orchDir: root, settings: fileSettingsManager(root) }), args); } finally { process.stdout.write = originalWrite; }
   return output.join("");
 }
 
@@ -104,7 +104,7 @@ describe("orch settings notify", () => {
   });
 
   test("the notify row writes the picked sinks, states included, and drops the ones left off", () => {
-    writeRegisteredSetting(root, "notify", [
+    writeRegisteredSetting(fileSettingsManager(root), "notify", [
       { id: "webhook", url: "https://example.test/hook", on: ["done"] },
       { id: "sound", on: ["blocked", "asking"] },
       { id: "command", command: "sh -c 'X=1 notify-send orch'" },
@@ -116,13 +116,13 @@ describe("orch settings notify", () => {
       { id: "command", command: "sh -c 'X=1 notify-send orch'" },
     ]);
 
-    writeRegisteredSetting(root, "notify", [{ id: "sound" }]);
+    writeRegisteredSetting(fileSettingsManager(root), "notify", [{ id: "sound" }]);
     expect(fileSettingsManager(root).current().notify).toEqual([{ id: "sound" }]);
   });
 
   test("the notify row refuses an unknown sink, a carrying sink with nothing to carry, and an unknown state", () => {
-    expect(() => writeRegisteredSetting(root, "notify", [{ id: "megaphone" }])).toThrow(/unknown notify sink "megaphone"/);
-    expect(() => writeRegisteredSetting(root, "notify", [{ id: "webhook" }])).toThrow(/webhook sink needs a url/);
-    expect(() => writeRegisteredSetting(root, "notify", [{ id: "sound", on: ["whenever"] }])).toThrow(/sound:/);
+    expect(() => writeRegisteredSetting(fileSettingsManager(root), "notify", [{ id: "megaphone" }])).toThrow(/unknown notify sink "megaphone"/);
+    expect(() => writeRegisteredSetting(fileSettingsManager(root), "notify", [{ id: "webhook" }])).toThrow(/webhook sink needs a url/);
+    expect(() => writeRegisteredSetting(fileSettingsManager(root), "notify", [{ id: "sound", on: ["whenever"] }])).toThrow(/sound:/);
   });
 });

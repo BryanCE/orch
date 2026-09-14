@@ -31,7 +31,7 @@ describe("applySettingsRepairs", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { spawn_cap: 4 } });
 
-    applySettingsRepairs(directory, [{ kind: "rename", from: "fleet.spawn_cap", to: "fleet.max_agents_per_pack" }]);
+    applySettingsRepairs(fileSettingsManager(directory), [{ kind: "rename", from: "fleet.spawn_cap", to: "fleet.max_agents_per_pack" }]);
 
     expect(fileSettingsManager(directory).current().fleet.max_agents_per_pack).toBe(4);
     expect(readSettingsRecord(directory).fleet).toEqual({ max_agents_per_pack: 4 });
@@ -42,7 +42,7 @@ describe("applySettingsRepairs", () => {
     writeSettingsFixture(directory, { fleet: { max_depth: 2, max_agents_per_pack: 4 } });
     const before = fs.readFileSync(path.join(directory, "settings.json"), "utf8");
 
-    expect(() => applySettingsRepairs(directory, [{ kind: "rename", from: "fleet.max_depth", to: "fleet.max_agents_per_pack" }]))
+    expect(() => applySettingsRepairs(fileSettingsManager(directory), [{ kind: "rename", from: "fleet.max_depth", to: "fleet.max_agents_per_pack" }]))
       .toThrow(/fleet\.max_depth.*fleet\.max_agents_per_pack/);
     expect(fs.readFileSync(path.join(directory, "settings.json"), "utf8")).toBe(before);
   });
@@ -51,7 +51,7 @@ describe("applySettingsRepairs", () => {
     const directory = tempDir();
     writeSettingsFixture(directory);
 
-    applySettingsRepairs(directory, [{ kind: "set", path: "fleet.max_depth", value: 6 }]);
+    applySettingsRepairs(fileSettingsManager(directory), [{ kind: "set", path: "fleet.max_depth", value: 6 }]);
 
     expect(fileSettingsManager(directory).current().fleet.max_depth).toBe(6);
   });
@@ -60,7 +60,7 @@ describe("applySettingsRepairs", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { max_depth: 2 } });
 
-    applySettingsRepairs(directory, [{ kind: "drop", path: "fleet.max_depth" }]);
+    applySettingsRepairs(fileSettingsManager(directory), [{ kind: "drop", path: "fleet.max_depth" }]);
 
     expect(readSettingsRecord(directory).fleet).toEqual({});
     expect(fileSettingsManager(directory).current().fleet.max_depth).toBe(1);
@@ -70,7 +70,7 @@ describe("applySettingsRepairs", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { spawn_cap: 4, max_depth: 2 }, junk: true });
 
-    applySettingsRepairs(directory, [
+    applySettingsRepairs(fileSettingsManager(directory), [
       { kind: "rename", from: "fleet.spawn_cap", to: "fleet.max_agents_per_pack" },
       { kind: "set", path: "fleet.max_depth", value: 3 },
       { kind: "drop", path: "junk" },
@@ -89,7 +89,7 @@ describe("applySettingsRepairs", () => {
     }));
 
     expect(() => fileSettingsManager(directory).current()).toThrow(/schemaVersion/);
-    applySettingsRepairs(directory, [
+    applySettingsRepairs(fileSettingsManager(directory), [
       { kind: "rename", from: "fleet.spawn_cap", to: "fleet.max_agents_per_pack" },
       { kind: "set", path: "schemaVersion", value: 1 },
     ]);

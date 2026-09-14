@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import type { DaemonStatusRow } from "@orch/types/daemon.ts";
+import type { WebStatusRow } from "./status-row";
 import { projectFleet, projectHistory, partitionAgents } from "./fleet";
 
-const row = (overrides: Partial<DaemonStatusRow> = {}): DaemonStatusRow => ({
+const row = (overrides: Partial<WebStatusRow> = {}): WebStatusRow => ({
   key: "agentkey01", agentId: "agentkey01", paneId: null, managed: false, name: null,
   tab: null, agent: null, owner: null, spawnedBy: null, spawnedByLabel: null,
   worktree: null, branch: null, cwd: null, focused: false, model: "", modelShort: "",
   state: "idle", stateFallback: false, exited: false, alive: true, cost: 0,
   ctxPercent: null, task: null, dispatchId: null, lastText: null, backendStatus: null,
-  backend: null, capabilities: null, sessionPath: null, presenceDir: null,
-  presenceOnly: false, bridgeAttached: null, tokens: null, turns: null,
+  backend: null, capabilities: null, sessionPath: null,
+  bridgeAttached: null, tokens: null, turns: null,
   lease: null, leaseKnown: false, spaceId: "space-1", spaceName: "Frontend",
   rootAgentId: null, rootAgentName: null,
   ...overrides,

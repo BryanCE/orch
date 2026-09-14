@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { DaemonStatusRow } from "@orch/types/daemon.ts";
+import type { WebStatusRow } from "./status-row";
 import { projectFleet, projectHistory } from "./fleet";
 
-const row = (overrides: Partial<DaemonStatusRow> = {}): DaemonStatusRow => ({
+const row = (overrides: Partial<WebStatusRow> = {}): WebStatusRow => ({
   key: "agent-key", agentId: null, paneId: null, managed: false, name: null,
   tab: null, agent: null, owner: null, spawnedBy: null, spawnedByLabel: null,
   worktree: null, branch: null, cwd: null, focused: false, model: "", modelShort: "",

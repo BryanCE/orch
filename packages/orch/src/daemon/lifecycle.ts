@@ -82,6 +82,35 @@ export function liveDaemonRegistration(orchDir?: OrchDir): DaemonRegistration | 
   return registration;
 }
 
+/** Create `file` exclusively with `payload`, evicting a holder `mayEvict` disowns, once.
+ * Created atomically: a half-written file reads as no holder, and this code would
+ * then evict the live machine-wide one and let a second orchd start (M1/M6).
+ * See `createFileExclusively`.
+ */
+function acquireExclusiveFile(
+  label: string,
+  file: string,
+  payload: string,
+  mayEvict: () => boolean,
+): { acquired: boolean; blocked: boolean } {
+  const result = retryingSync(
+    label,
+    (): { acquired: boolean; blocked: boolean; retry: boolean } => {
+      if (createFileExclusively(file, payload)) return { acquired: true, blocked: false, retry: false };
+      if (!mayEvict()) return { acquired: false, blocked: true, retry: false };
+      try {
+        unlinkSync(file);
+      } catch (unlinkError: unknown) {
+        if (errnoCode(unlinkError) !== "ENOENT") return { acquired: false, blocked: false, retry: false };
+      }
+      return { acquired: false, blocked: false, retry: true };
+    },
+    { attempts: 2, delayMs: 0, backoff: 1 },
+    { retryOnResult: (value) => value.retry },
+  );
+  return { acquired: result.acquired, blocked: result.blocked };
+}
+
 /** Atomically claim the machine rendezvous. A recycled or dead (pid,startToken)
  *  is evicted; a live owner always refuses and exposes its socket/token paths. */
 export function acquireDaemonRegistration(orchDir: OrchDir): DaemonRegistrationResult {
@@ -99,28 +128,18 @@ export function acquireDaemonRegistration(orchDir: OrchDir): DaemonRegistrationR
   };
   const file = registrationPath();
   mkdirSync(path.dirname(file), { recursive: true });
-  const result = retryingSync(
-    "acquire daemon registration",
-    (): { acquired: boolean; registration?: DaemonRegistration; retry: boolean } => {
-      // Created atomically: a half-written registration reads as NO registration,
-      // and this code would then evict the LIVE machine-wide one and let a second
-      // orchd start (M1/M6). See `createFileExclusively`.
-      if (createFileExclusively(file, `${JSON.stringify(registration)}\n`)) return { acquired: true, registration, retry: false };
-      const existing = readDaemonRegistration();
-      if (existing && processInstanceMatches(existing.pid, existing.startToken)) {
-        return { acquired: false, registration: existing, retry: false };
-      }
-      try {
-        unlinkSync(file);
-      } catch (unlinkError: unknown) {
-        if (errnoCode(unlinkError) !== "ENOENT") return { acquired: false, retry: false };
-      }
-      return { acquired: false, retry: true };
-    },
-    { attempts: 2, delayMs: 0, backoff: 1 },
-    { retryOnResult: (value) => value.retry },
-  );
-  return { acquired: result.acquired, registration: result.registration };
+  let blockedRegistration: DaemonRegistration | undefined;
+  const result = acquireExclusiveFile("acquire daemon registration", file, `${JSON.stringify(registration)}\n`, () => {
+    const existing = readDaemonRegistration();
+    if (existing && processInstanceMatches(existing.pid, existing.startToken)) {
+      blockedRegistration = existing;
+      return false;
+    }
+    return true;
+  });
+  return result.acquired
+    ? { acquired: true, registration }
+    : { acquired: false, registration: result.blocked ? blockedRegistration : undefined };
 }
 
 /**
@@ -231,25 +250,8 @@ export function acquireDaemonLock(orchDir: OrchDir, socketProbe: SocketProbe = (
     startToken: processStartToken(process.pid),
   };
 
-  const result = retryingSync(
-    "acquire daemon lock",
-    (): { acquired: boolean; retry: boolean } => {
-      // Same atomicity requirement as the registration above: `canReclaim` reads an
-      // unparseable record as "nobody holds this", so a half-written lock file is a
-      // live daemon's lock being handed to the next starter.
-      if (createFileExclusively(file, `${JSON.stringify(record)}\n`)) return { acquired: true, retry: false };
-      if (!canReclaim(readLock(file), socketProbe, orchDir)) return { acquired: false, retry: false };
-      try {
-        unlinkSync(file);
-      } catch (unlinkError: unknown) {
-        if (errnoCode(unlinkError) !== "ENOENT") return { acquired: false, retry: false };
-      }
-      return { acquired: false, retry: true };
-    },
-    { attempts: 2, delayMs: 0, backoff: 1 },
-    { retryOnResult: (value) => value.retry },
-  );
-  return result.acquired;
+  // Same atomicity requirement as registration: use acquireExclusiveFile.
+  return acquireExclusiveFile("acquire daemon lock", file, `${JSON.stringify(record)}\n`, () => canReclaim(readLock(file), socketProbe, orchDir)).acquired;
 }
 
 /** Release the daemon lock. Missing locks are already released. */

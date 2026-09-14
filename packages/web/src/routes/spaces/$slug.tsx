@@ -299,7 +299,7 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
             </Field>
           )}
           <Field label="State source">
-            {agent.stateFallback ? "Unconfirmed — backend/session" : "Agent presence"}
+            {agent.stateFallback ? "Unconfirmed — backend/session" : "Reported over daemon"}
           </Field>
           <Field label="Bridge">
             {agent.bridgeAttached === null ? "Unknown" : agent.bridgeAttached ? "Attached" : "Not attached"}

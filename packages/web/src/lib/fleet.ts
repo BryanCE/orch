@@ -1,8 +1,9 @@
 // Fleet types shared by the god-view, sidebar, and space detail. Data comes
 // from the real daemon via getFleet (src/server/orch.ts) — NO mock source.
 //
-import type { DaemonStatusRow, LeasePayload } from "@orch/types/daemon.ts";
+import type { LeasePayload } from "@orch/types/daemon.ts";
 import { isAgentState, type AgentState } from "@orch/agent-state.ts";
+import type { WebStatusRow } from "./status-row";
 
 
 /**
@@ -79,7 +80,7 @@ function trimmed(value: string | null | undefined): string | null {
   return text.length > 0 ? text : null;
 }
 
-function environmentFor(row: DaemonStatusRow): AgentEnvironment {
+function environmentFor(row: WebStatusRow): AgentEnvironment {
   return { pane: row.paneId };
 }
 
@@ -99,7 +100,7 @@ function tokenFields(value: unknown): FleetAgent["tokens"] | undefined {
   return fields;
 }
 
-function projectAgent(row: DaemonStatusRow): FleetAgent {
+function projectAgent(row: WebStatusRow): FleetAgent {
   const tokens = tokenFields(row.tokens);
   const slash = row.model.indexOf("/");
   const model = slash === -1 ? { id: row.model } : { provider: row.model.slice(0, slash), id: row.model.slice(slash + 1) };
@@ -132,7 +133,7 @@ function projectAgent(row: DaemonStatusRow): FleetAgent {
  * under that fact — never under the plexer coordinate `spaceId` may be carrying,
  * which is exactly how `wF` once got printed as a name the user had chosen.
  */
-function liveGroup(row: DaemonStatusRow): { id: string; name: string } {
+function liveGroup(row: WebStatusRow): { id: string; name: string } {
   const name = trimmed(row.spaceName);
   if (name === null) return { id: UNSCOPED_ID, name: UNSCOPED_NAME };
   return { id: trimmed(row.spaceId) ?? name, name };
@@ -140,7 +141,7 @@ function liveGroup(row: DaemonStatusRow): { id: string; name: string } {
 
 /** A11: a pack is its provenance ROOT. Ownership never groups anything - a lease
  *  says who is driving right now, and a pack outlives every lease in it. */
-function historyGroup(row: DaemonStatusRow): { id: string; name: string } {
+function historyGroup(row: WebStatusRow): { id: string; name: string } {
   const root = trimmed(row.rootAgentId) ?? trimmed(row.spawnedBy);
   if (root === null) return { id: UNSPAWNED_ID, name: UNSPAWNED_NAME };
   return { id: root, name: trimmed(row.rootAgentName) ?? trimmed(row.spawnedByLabel) ?? UNNAMED_SPAWNER };
@@ -149,7 +150,7 @@ function historyGroup(row: DaemonStatusRow): { id: string; name: string } {
 /** C7: inside a space, live work groups by its LEASE HOLDER. An unheld agent is
  *  filed as unheld — it is adoptable, not gone, and orch never invents a holder
  *  for it (Rule 11: work survives its spawner). */
-function leaseGroup(row: DaemonStatusRow): { id: string; name: string } {
+function leaseGroup(row: WebStatusRow): { id: string; name: string } {
   const lease = row.lease;
   // A dead holder is not a holder (G9): it must not appear as an orch with a
   // fleet under it, or the view claims work is being driven when none is.
@@ -158,9 +159,9 @@ function leaseGroup(row: DaemonStatusRow): { id: string; name: string } {
 }
 
 function groupedRows(
-  rows: readonly DaemonStatusRow[],
+  rows: readonly WebStatusRow[],
   historical: boolean,
-  groupFor: (row: DaemonStatusRow) => { id: string; name: string },
+  groupFor: (row: WebStatusRow) => { id: string; name: string },
 ): AgentGroup[] {
   const groups = new Map<string, AgentGroup>();
   for (const row of rows) {
@@ -173,7 +174,7 @@ function groupedRows(
   return [...groups.values()];
 }
 
-export function projectFleet(rows: readonly DaemonStatusRow[]): Space[] {
+export function projectFleet(rows: readonly WebStatusRow[]): Space[] {
   const spaces: Space[] = [];
   for (const group of groupedRows(rows, false, liveGroup)) {
     const members = new Set(group.agents.map((agent) => agent.key));
@@ -183,7 +184,7 @@ export function projectFleet(rows: readonly DaemonStatusRow[]): Space[] {
   return spaces;
 }
 
-export function projectHistory(rows: readonly DaemonStatusRow[]): AgentGroup[] {
+export function projectHistory(rows: readonly WebStatusRow[]): AgentGroup[] {
   return groupedRows(rows, true, historyGroup);
 }
 

@@ -222,7 +222,7 @@ describe("peer identity in messaging", () => {
     const directory = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "unplaced02";
-    seedAgent(peerKey, {}, directory);
+    seedAgent(peerKey, { adapter: "pi" }, directory);
     seedLiveProcess(directory, peerKey);
     seedStatus(directory, peerKey, { agent: "pi", pid: process.pid, state: "idle", label: "unplaced" });
 
@@ -237,7 +237,7 @@ describe("peer identity in messaging", () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "sweep20002";
-    seedAgent(peerKey, { name: "sweep-2" }, orchDir);
+    seedAgent(peerKey, { adapter: "pi", name: "sweep-2" }, orchDir);
     seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
@@ -248,7 +248,7 @@ describe("peer identity in messaging", () => {
     expect(calls.find((call) => call.method === "message")?.params).toEqual({
       from: ownKey,
       target: peerKey,
-      text: `[from sweep-1 (${ownKey})] found it`,
+      text: "found it",
     });
   });
 
@@ -256,7 +256,7 @@ describe("peer identity in messaging", () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "sweep20002";
-    seedAgent(peerKey, { name: "sweep-2" }, orchDir);
+    seedAgent(peerKey, { adapter: "pi", name: "sweep-2" }, orchDir);
     seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
@@ -270,7 +270,7 @@ describe("peer identity in messaging", () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "sweep20002";
-    seedAgent(peerKey, { name: "sweep-2" }, orchDir);
+    seedAgent(peerKey, { adapter: "pi", name: "sweep-2" }, orchDir);
     seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, ownKey, { agent: "pi", label: "sweep-1", pid: process.pid, state: "working" });
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
@@ -284,7 +284,7 @@ describe("peer identity in messaging", () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
     const peerKey = "recon30003";
-    seedAgent(peerKey, { name: "recon-3" }, orchDir);
+    seedAgent(peerKey, { adapter: "pi", name: "recon-3" }, orchDir);
     seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, peerKey, { agent: "pi", label: "recon-3", pid: process.pid, state: "idle" });
 
@@ -295,7 +295,7 @@ describe("peer identity in messaging", () => {
   test("\"spawner\" reaches the stamped spawner session across fleet scoping", async () => {
     const orchDir = tempOrchDir();
     const ownKey = "worker0004";
-    seedAgent("session777", { name: "pi session" }, orchDir);
+    seedAgent("session777", { adapter: "pi", name: "pi session" }, orchDir);
     seedLiveProcess(orchDir, "session777");
     seedStatus(orchDir, "session777", { agent: "pi", pid: process.pid, state: "idle" });
     process.env.ORCH_SPAWNER = "session777";
@@ -313,7 +313,7 @@ describe("peer identity in messaging", () => {
     const orchDir = tempOrchDir();
     process.env.ORCH_SPAWNER = "operator01";
     process.env.ORCH_SPAWNER_LABEL = "claude session";
-    seedAgent("operator01", { name: "claude session" }, orchDir);
+    seedAgent("operator01", { adapter: "pi", name: "claude session" }, orchDir);
 
     const resolved = await resolvePeer(orchDir, noPeersDaemon(orchDir), "spawner", "worker0005");
     expect("error" in resolved && resolved.error).toContain("claude session");

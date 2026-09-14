@@ -61,7 +61,7 @@ function visibleKeys(orchDir: OrchDir, ownKey: string, keys: string[], allSpaces
   const presence = loadPresence(orchDir);
   return scoped.filter((key) => {
     const status = presence.get(key)?.status;
-    return status === null || status === undefined || status.project === callerProject;
+    return status === null || status === undefined || status.project === null || status.project === callerProject;
   });
 }
 
@@ -88,7 +88,8 @@ export function peerView(orchDir: OrchDir, ownKey: string, keys: string[], allSp
   const spaces: Record<string, string | null> = {};
   const drive: Record<string, DriveState> = {};
   for (const key of visible) {
-    spaces[key] = spaceOf(orchDir, key);
+    const space = spaceOf(orchDir, key);
+    spaces[key] = space === undefined ? null : space;
     drive[key] = deriveDriveState(key, { directory: orchDir, currentOrchId: ownKey });
   }
   return { peers, visible, spaces, drive };

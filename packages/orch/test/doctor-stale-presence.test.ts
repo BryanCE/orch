@@ -1,10 +1,10 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
+import { basename } from "node:path";
 import { runTestDoctor } from "./helpers/doctor.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
 
@@ -17,10 +17,9 @@ function tempDir(): OrchDir {
   return directory;
 }
 
-function writeDeadAgent(orchDir: OrchDir, key: string, status: Record<string, unknown>): void {
-  const dir = path.join(orchDir, "agents", key);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify(status));
+function seedDeadAgent(orchDir: OrchDir, key: string, facts: { name: string; cwd: string; updatedAt?: number }): void {
+  seedAgent(key, { adapter: "pi", cwd: facts.cwd, name: facts.name }, orchDir);
+  mergeAgentStatus(orchDir, key, { state: "done", project: basename(facts.cwd) }, facts.updatedAt ?? Date.now());
 }
 
 function staleResult(results: CheckResult[]): CheckResult {
@@ -40,16 +39,12 @@ const DEAD_KEY = "d3adagnt01";
 const LIVE_KEY = "l1veagnt02";
 
 describe("doctor stale presence safety", () => {
-  const DEAD_PID = 2147483646; // no process will hold this pid
-
   test("describes a dead agent by name and project, not a bare key", async () => {
     const directory = tempDir();
-    writeDeadAgent(directory, DEAD_KEY, {
-      pid: DEAD_PID,
-      label: "docs-2",
-      agent: "pi",
+    seedDeadAgent(directory, DEAD_KEY, {
+      name: "docs-2",
       cwd: "/home/bryan/Documents/orch",
-      updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
+      updatedAt: Date.now() - 3_600_000,
     });
     const result = staleResult(await runTestDoctor(directory));
     expect(result.status).toBe("warn");
@@ -60,7 +55,7 @@ describe("doctor stale presence safety", () => {
 
   test("the removal fix is marked destructive so UIs never pre-select it", async () => {
     const directory = tempDir();
-    writeDeadAgent(directory, DEAD_KEY, { pid: DEAD_PID, label: "docs-2", agent: "pi", cwd: "/x/orch" });
+    seedDeadAgent(directory, DEAD_KEY, { name: "docs-2", cwd: "/x/orch" });
     const result = staleResult(await runTestDoctor(directory));
     expect(result.fix?.destructive).toBe(true);
     expect(result.fix?.description).toContain("docs-2");
@@ -68,12 +63,20 @@ describe("doctor stale presence safety", () => {
 
   test("no dead agents leaves nothing to remove", async () => {
     const directory = tempDir();
-    // Liveness is the store's process row, never the pid a status file claims.
-    seedAgent(LIVE_KEY, { adapter: "pi", cwd: "/x/orch" }, directory);
+    // Liveness is the store's process row, never a status file claim.
+    seedDeadAgent(directory, LIVE_KEY, { name: "alive", cwd: "/x/orch" });
     seedLiveProcess(directory, LIVE_KEY);
-    writeDeadAgent(directory, LIVE_KEY, { schema: PRESENCE_SCHEMA, label: "alive", agent: "pi", cwd: "/x/orch" });
     const result = staleResult(await runTestDoctor(directory));
     expect(result.status).toBe("ok");
     expect(result.fix).toBeUndefined();
+  });
+
+  test("flags malformed presence directory names", async () => {
+    const directory = tempDir();
+    ensurePresenceAgentDir("not-a-minted-id", directory);
+    const result = staleResult(await runTestDoctor(directory));
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("1 malformed agent dir");
+    expect(result.detail).toContain("not-a-minted-id");
   });
 });

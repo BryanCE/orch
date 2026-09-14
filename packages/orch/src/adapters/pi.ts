@@ -307,7 +307,7 @@ export function installExtensionLink(
 /** results.jsonl first, then the last assistant entry of the session file. */
 export function resultFromPresenceOrSession(input: PiResultExtractionInput, orchDir: OrchDir): string | undefined {
   const result = presenceFor(input.key, orchDir)?.result;
-  if (isRecord(result) && typeof result.text === "string" && result.text.trim()) return result.text.trim();
+  if (typeof result === "string" && result.trim()) return result.trim();
   if (!input.sessionPath) return undefined;
   try {
     return parseSession(input.sessionPath).lastAssistant?.trim() ?? undefined;

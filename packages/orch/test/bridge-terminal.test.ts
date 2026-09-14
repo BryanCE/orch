@@ -1,10 +1,13 @@
 import type { OrchDir } from "../src/types/core.ts";
+import type { RunRecord } from "../src/types/store.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { selectAgentStatus } from "../src/store/status-rows.ts";
+import { mergeAgentStatus, selectAgentStatus } from "../src/store/status-rows.ts";
+import { upsertRun } from "../src/store/run-rows.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
-import type { HarnessApi, HarnessContext, HarnessEventHandler } from "../src/types/agent.ts";
+import { seedAgent } from "./helpers/agent.ts";
+import type { DaemonClient, HarnessApi, HarnessContext, HarnessEventHandler } from "../src/types/agent.ts";
 import { testServices } from "./helpers/services.ts";
 
 interface FakeHarness extends HarnessApi {
@@ -50,6 +53,42 @@ const roots: OrchDir[] = [];
 // A launch hands over one minted id and nothing else: a key with a
 // plexer and a grouping in it is not an identity, and presence would skip it.
 const key = "worker0001";
+
+function fakeDaemonClient(orchDir: OrchDir): DaemonClient {
+  const client = stubDaemonClient();
+  return {
+    ...client,
+    reportStatus: (agentKey, patch) => {
+      mergeAgentStatus(orchDir, agentKey, patch, Date.now());
+      return Promise.resolve(true);
+    },
+    reportResult: (agentKey, result) => {
+      if (result.dispatchId === undefined || result.dispatchId === null) return Promise.resolve(true);
+      const now = Date.now();
+      const run: RunRecord = {
+        dispatchId: result.dispatchId,
+        agentKey,
+        state: "done",
+        startedAt: now,
+        finishedAt: result.finishedAt,
+        result: result.text,
+      };
+      if (result.task !== undefined && result.task !== null) run.task = result.task;
+      if (result.model !== undefined && result.model !== null) run.model = result.model.id;
+      if (result.tokens !== undefined && result.tokens !== null) {
+        run.tokensIn = result.tokens.input;
+        run.tokensOut = result.tokens.output;
+        run.cacheRead = result.tokens.cacheRead;
+        run.cacheWrite = result.tokens.cacheWrite;
+      }
+      if (result.cost !== undefined && result.cost !== null) run.cost = result.cost;
+      if (result.turns !== undefined && result.turns !== null) run.turns = result.turns;
+      upsertRun(orchDir, run);
+      return Promise.resolve(true);
+    },
+  };
+}
+
 const { createAgentPresence } = await import("../src/agent/presence.ts");
 const { registerAgentTools } = await import("../src/agent/tools.ts");
 
@@ -65,16 +104,18 @@ describe("bridge terminal turn seam", () => {
     roots.push(root);
     process.env.ORCH_DIR = root;
     process.env[LAUNCH_ENV] = key;
+    seedAgent(key, {}, root);
     const harness = fakeHarness();
+    const daemon = fakeDaemonClient(root);
     const presence = createAgentPresence({
       harness,
       identity: { agentId: "pi", settleEvent: "agent_settled" },
       extensionHash: "test",
-      daemon: stubDaemonClient(),
+      daemon,
     });
     registerAgentTools(harness, {
       presence,
-      daemon: stubDaemonClient(),
+      daemon,
       identity: { agentId: "pi", settleEvent: "agent_settled" },
       notify: () => undefined,
       refreshLabels: () => Promise.resolve(),

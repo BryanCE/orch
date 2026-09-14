@@ -112,7 +112,7 @@ export async function checkStalePresence(orchDir: OrchDir): Promise<CheckResult>
     const statusProject = entry.status?.project;
     const project = typeof statusProject === "string"
       ? statusProject
-      : view === null ? "unknown" : basename(view.environment.cwd);
+      : view === null ? "unknown" : basename(view.cwd);
     const updatedAt = entry.status?.updatedAt;
     const seen = updatedAt === undefined || updatedAt === null ? "unknown" : humanAge(Date.now() - updatedAt);
     return `${name} (${entry.key}) | project ${project} | last seen ${seen}`;

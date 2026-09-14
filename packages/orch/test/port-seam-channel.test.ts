@@ -1,21 +1,20 @@
 import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
-import * as fs from "node:fs";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverWrite } from "../src/daemon/server/handlers/write.ts";
 import { orchDirAt } from "../src/services.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
-import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { presenceAgentDir, writeResult } from "../src/presence/history.ts";
 import { createCaptureRole } from "../src/presence/roles.ts";
+import { upsertRun } from "../src/store/run-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageState } from "../src/store/outbox-rows.ts";
 import { mergeAgentStatus } from "../src/store/status-rows.ts";
 import { deliverOutboxMessage } from "../src/daemon/server/outbox.ts";
 import type { OutboxDeps } from "../src/types/daemon.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { placeAgent, seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { testServices } from "./helpers/services.ts";
 
@@ -130,6 +129,19 @@ describe("orch bridge links and capture roles", () => {
     expect(outboxMessageState(orchDir, id)).toBe("delivered");
   });
 
+  test("worker mail to a spawner whose pane the human is in settles on the stream under prompt", async () => {
+    const orchDir = tempOrchDir();
+    seedMailPack(orchDir);
+    placeAgent("orch1", { backend: "headless", handle: "pane-orch1" }, orchDir);
+    const backend = new FakePanedBackend({ panes: [fakePane("pane-orch1", { focused: true })] });
+    const id = "mail-up-focused";
+    insertOutboxMessage(orchDir, { id, target: "orch1", payload: { action: "mail", from: "w1", text: "[from w1] done" } });
+
+    await withRegisteredBackend(backend, () => deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "prompt", to_worker: "events" } })));
+
+    expect(outboxMessageState(orchDir, id)).toBe("delivered");
+  });
+
   test("spawner mail to its worker follows mail.to_worker, not mail.to_spawner", async () => {
     const orchDir = tempOrchDir();
     seedMailPack(orchDir);
@@ -178,17 +190,15 @@ describe("orch bridge links and capture roles", () => {
     expect(outboxMessageState(orchDir, id)).toBe("undeliverable");
   });
 
-  test("capture reads status and result from the orch presence record", () => {
+  test("capture reads status and result from the store", () => {
     const orchDir = tempOrchDir();
     const key = "capturedg1";
-    const agentDir = presenceAgentDir(key, orchDir);
     seedAgent(key, { adapter: "codex" }, orchDir);
-    fs.mkdirSync(agentDir, { recursive: true });
     mergeAgentStatus(orchDir, key, { state: "done" }, Date.now());
-    writeResult(agentDir, { schema: PRESENCE_SCHEMA, key, text: "captured result" });
+    upsertRun(orchDir, { dispatchId: "run-1", agentKey: key, state: "done", startedAt: Date.now(), result: "captured result" });
 
     const captured = createCaptureRole(orchDir).read(key, { source: "all" });
-    expect(captured.status).toMatchObject({ key, state: "done" });
-    expect(captured.result).toEqual({ schema: PRESENCE_SCHEMA, key, text: "captured result" });
+    expect(captured.status).toMatchObject({ agentId: key, state: "done" });
+    expect(captured.result).toBe("captured result");
   });
 });

@@ -11,14 +11,16 @@ export interface FakePane {
   readonly handle: string;
   readonly space: string | null;
   readonly name: string | null;
+  /** The pane the human is in, as the plexer reports it. */
+  readonly focused: boolean;
 }
 
 /** Build a complete {@link FakePane}; every field is supplied, never partial. */
 export function fakePane(
   handle: string,
-  overrides: { readonly space?: string | null; readonly name?: string | null } = {},
+  overrides: { readonly space?: string | null; readonly name?: string | null; readonly focused?: boolean } = {},
 ): FakePane {
-  return { handle, space: overrides.space ?? null, name: overrides.name ?? null };
+  return { handle, space: overrides.space ?? null, name: overrides.name ?? null, focused: overrides.focused ?? false };
 }
 
 /** Build the COMPLETE port value a pane inventory returns for one fake pane. */
@@ -30,7 +32,7 @@ function paneTarget(pane: FakePane): BackendTarget {
     groupLabel: null,
     name: pane.name,
     agent: null,
-    focused: false,
+    focused: pane.focused,
     status: null,
     sessionPath: null,
   };

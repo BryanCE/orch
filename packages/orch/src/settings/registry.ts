@@ -152,7 +152,7 @@ const HELP: Readonly<Record<string, string>> = {
   "fleet.max_agents_total": "Most live agents on this machine across every space and pack.",
   "fleet.worker_peer_tools": "Whether workers may use peer tools.",
   "fleet.cross_space": "Whether workers may cross space boundaries.",
-  "mail.to_spawner": "Where mail a worker sends the agent that spawned it lands. prompt types it into that agent's input as it arrives; events publishes it as a message event on orch events and leaves the input alone.",
+  "mail.to_spawner": "Where mail a worker sends the agent that spawned it lands. prompt types it into that agent's input as it arrives, except while the human is in that pane, when it goes to orch events instead; events publishes it as a message event on orch events and leaves the input alone.",
   "mail.to_worker": "Where every other mail lands: an orchestrator to its worker, peer to peer, a task result to its enqueuer. prompt types it into the recipient's input; events publishes it on orch events.",
   "models.allowed": "Model allowlist patterns by harness.",
   "models.preferred": "Model quicklists by harness.",

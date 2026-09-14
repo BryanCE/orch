@@ -4,6 +4,7 @@ import { checkWall } from "../../policy/space.ts";
 import { SETTINGS_DEFAULTS } from "../../settings/schema.ts";
 import { insertOutboxMessage } from "../../store/outbox-rows.ts";
 import { agentView } from "../../store/agent-view.ts";
+import { resolveTargetRoute } from "../../control/dispatch.ts";
 import { decisionLogger } from "../client/decision-log.ts";
 import type { MailDelivery, OrchSettings } from "../../types/settings.ts";
 
@@ -13,9 +14,22 @@ function requiredMailString(value: string, name: string): string {
 }
 
 /** The landing one mail gets: a worker writing the agent that spawned it follows
- *  `to_spawner`; every other sender and recipient pair follows `to_worker`. */
+ *  `to_spawner`; every other sender and recipient pair follows `to_worker`.
+ *  A spawner whose pane the human is in gets the stream whatever `to_spawner`
+ *  says: keys typed into that pane go out with whatever the human is typing. */
 export function mailDelivery(directory: OrchDir, mail: OrchSettings["mail"], from: string, target: string): MailDelivery {
-  return agentView(directory, from)?.spawnedBy === target ? mail.to_spawner : mail.to_worker;
+  if (agentView(directory, from)?.spawnedBy !== target) return mail.to_worker;
+  if (mail.to_spawner === "events") return "events";
+  return targetPaneFocused(directory, target) ? "events" : "prompt";
+}
+
+/** Whether the human is in the target's pane now, as the plexer reports it. */
+function targetPaneFocused(directory: OrchDir, target: string): boolean {
+  const route = resolveTargetRoute(directory, target);
+  const inventory = route?.backend.placementInventory;
+  if (route === undefined || !inventory) return false;
+  const handle = String(route.handle);
+  return inventory.list().some((pane) => String(pane.handle) === handle && pane.focused);
 }
 
 /** Queue one agent's message to another. Mail is governed by the space wall only, never by

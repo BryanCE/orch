@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { runWorkLoop, statusSpeaksForTask } from "../src/daemon/server/work-loop.ts";
+import { createWakeSignal } from "../src/daemon/server/wake.ts";
 import { addTask, type TaskRec } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { seedStatus } from "./helpers/presence.ts";
@@ -59,7 +60,8 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
       const task = addTask(dir, "cross-pack result", {}, "enq");
       await runWorkLoop({
         orchDir: dir,
-        pollIntervalMs: 10,
+        wake: createWakeSignal(),
+        tickMs: 10,
         once: true,
         json: true,
         settings: testServices({ orchDir: dir, settings: {} }).settings,

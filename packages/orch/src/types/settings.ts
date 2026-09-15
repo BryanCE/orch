@@ -20,9 +20,11 @@ export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
 
 export type HostSettings = z.infer<typeof HostSchema>;
 
-/** Where mail lands: `prompt` types it into the recipient's input, `events` publishes it
- *  as a `message` event on the recipient's stream and leaves the input alone. */
-export const MAIL_DELIVERIES = ["prompt", "events"] as const;
+/** Where mail lands: `prompt` types it into the recipient's input whoever is in the pane,
+ *  `prompt-unless-focused` types it in unless the human is in that pane and then publishes
+ *  it instead, `events` publishes it as a `message` event on the recipient's stream and
+ *  leaves the input alone. */
+export const MAIL_DELIVERIES = ["prompt", "prompt-unless-focused", "events"] as const;
 
 export type MailDelivery = (typeof MAIL_DELIVERIES)[number];
 
@@ -35,17 +37,18 @@ export interface OrchSettings {
   mail: { to_spawner: MailDelivery; to_worker: MailDelivery };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[] };
-  queue: { max_retries: number };
+  queue: { max_retries: number; dispatch_concurrency: number };
   retention: { ended_agents_days: number | null; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };
   lock: { retries: number; interval_ms: number; stale_ms: number };
   questions?: { renag_ms: number; renag_limit: number };
+  monitor: { on: readonly NotifyState[] };
   logging?: { level: LogLevel };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number };
   notify: NotifyEntry[];
   locked_commands: string[];
   hosts: Record<string, HostSettings>;
   spaces: Record<string, string>;
-  daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number; liveness_poll_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number; report_timeout_ms: number };
+  daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number; work_tick_ms: number; liveness_poll_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number; report_timeout_ms: number };
   doctor: { unclaimed_after_ms: number };
   tiling: { first_split: TileFirstSplit };
   skills: { install: boolean; store: string; link: string[] };

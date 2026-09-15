@@ -249,6 +249,7 @@ export function writeSettingsFullTree(settings: SettingsManager): void {
       enabled: root.enabled ?? { adapters: [], backends: [] },
       ...values,
       fleet: { ...fleet, ...(maxAgents === undefined ? {} : { max_agents_total: maxAgents }) },
+      monitor: { on: [...values.monitor.on] },
     };
   });
 }

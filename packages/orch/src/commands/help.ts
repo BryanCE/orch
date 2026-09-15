@@ -46,11 +46,25 @@ Read structured diagnosis records; malformed JSONL lines are skipped.
   --dispatch   Filter by correlation/dispatch id.
   --json       Emit raw records.
 `,
+  monitor: `orch monitor [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=<state,...>] [--json] [--since-seq <n>]
+The ${term("orch")}'s watch. Same stream, scope, and flags as 'orch events', kept to the lines
+you act on: a transition into a state listed in monitor.on (asking, blocked, done, error,
+aborted, exited by default) and every 'message' a worker sends you. A mid-turn flip
+(working, idle, a cmd-lock block and release) never reaches it; 'closed' and 'task'
+bookkeeping stays on 'orch events'. Change the states with 'orch settings monitor.on'.
+Arm it through the Monitor tool (persistent) in the same message as the spawn. Never
+'&', 'nohup' or run_in_background: a stream that never exits never wakes the harness.
+Arm it bare. --space-wide widens to the rest of your space, --agent=<name> narrows to
+one; reach for either only when told to. Never loop 'orch status' instead.
+Before arming, check for one already armed: pgrep -fa "orch (monitor|events)".
+'orch help events' describes the flags and the line shapes.
+`,
   events: `orch events [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=<state,...>] [--json] [--since-seq <n>]
 Continuous stream of pane state transitions; requires a running daemon.
-Bare 'orch events' is the monitor: every state of every agent this session owns, one
-readable line each, enough to act on without a second command. A human at a raw
-terminal owns none and sees the whole machine. Every flag below deviates from that.
+Bare 'orch events' is every state of every agent this session owns, one readable line
+each, enough to act on without a second command. A human at a raw terminal owns none
+and sees the whole machine. Every flag below deviates from that. An ${term("orch")} arms
+'orch monitor' instead: the same stream without the mid-turn flips.
   --agent       Watch one agent by name.
   --agent-id    Watch one agent by identity key.
   --space-wide  Also the other orchs' agents in your space. Never past it.
@@ -63,8 +77,9 @@ Five event types, each one line: 'transition' (oldState->newState with dispatchI
 ctxPercent), 'asking' (the agent is blocked on a question; askCount counts the daemon's re-asks
 on questions.renag_ms, gaveUp marks the last), 'message' (mail a worker sent its spawner with
 orch_send; the text is on the line; always here when the direction's mail setting is events,
-mail.to_spawner for a worker writing its spawner and mail.to_worker for every other mail,
-otherwise only when the recipient has no prompt to type into), 'closed' (the agent ended), 'task' (a queue task changed
+mail.to_spawner for a worker writing its spawner and mail.to_worker for every other mail;
+under prompt-unless-focused only while the human is in the recipient's pane; otherwise only
+when the recipient has no prompt to type into), 'closed' (the agent ended), 'task' (a queue task changed
 state). A fresh subscribe receives live events only; history comes back solely via --since-seq.
 'seq' is that agent's transition ordinal and (key, seq) identifies an event. The daemon already
 suppresses an identical repeat of one agent's transition for two minutes, so no dedupe is needed.
@@ -123,6 +138,11 @@ then re-pins the model, then sends. Prints the dispatch id; 'orch status --json'
 echoes it as .dispatchId once the agent runs that prompt.
 Prints \`Delivered to <recipient> (dispatch <id>)\`, or \`Queued to <recipient> (dispatch <id>): no bridge ack within <timeouts.dispatch_ack_ms>ms\`.
 A queued dispatch is durable: orchd retries every \`daemon.outbox_drain_ms\` and re-pushes the moment the bridge attaches.
+Never pair dispatch with 'orch reset'. Dispatch already clears the session.
+Single-quote the prompt. The shell splits argv before orch runs; inside single quotes
+bash, zsh and PowerShell keep every character literal. A mangled prompt is a quoting error.
+orch prepends the worker contract to every dispatch. Send the task and only the task;
+a hand-written copy of the contract delivers the rule twice.
   --file        Read the prompt from a file, or from stdin with '-', instead of argv.
   --with        A file or directory the agent opens for context when the task needs it,
                 not inlined into the prompt. Must exist. Repeat once per path.
@@ -190,19 +210,21 @@ Five settings can refuse a spawn, and the refusal names the one that fired:
 fleet.max_agents_per_pack, fleet.max_agents_per_tab (what the tab holds plus what you asked
 for), fleet.max_agents_per_space.<space>, fleet.max_agents_total, and fleet.max_depth (how
 deep a spawner may itself have been spawned). Read 'orch status --capacity' before sizing.
-Bridge-capable adapters wait up to 60 s for each agent's bridge to attach.
+Spawn returns only after each agent's bridge attached to orchd. Never sleep after it.
+A dispatch sent before attach is queued, not dropped: orchd re-pushes it on attach.
   \`  ok      <handle>  <name>\`
   \`  STALLED <handle>  <name> - bridge never attached; try: orch restart <name>\`
 A stall exits 1. An adapter with no bridge prints:
   \`warning: <adapter> writes no presence record at session start - <count> agent(s) UNVERIFIED; check 'orch status' before dispatching\`
-NAMING AN AGENT IS PART OF CREATING IT: the positional arguments ARE the names,
-one per agent, and how many you give is how many panes you get. There is no
-default name, no prefix numbering, and no --name flag — name each pane for the
-SLICE it holds, so you never pay for a rename afterwards.
-  orch spawn api-types api-routes api-guards
-Every name is validated before any tab or pane is created — a refused spawn
-leaves nothing behind.
-  --tab         Label for the new tab; an existing tab's label fills that tab.
+The positional arguments are the names, one per agent, and how many you give is how
+many panes you get. There is no default name, no numbering, and no --name flag. Name
+each agent for the slice it holds.
+  orch spawn api-types api-routes api-guards --tab api
+Every name is validated before any tab or pane is created. A refused spawn leaves
+nothing behind. Outside a pane, opening a plexer home is refused until a human
+approves it with 'orch grant'.
+  --tab         Label for the new tab; an existing tab's label fills that tab. Without it
+                the tab takes the first agent's name. A tab is a domain: always pass it.
   --dir         Directory the agents start in. Defaults to the spawner's own.
   --model       One model for every agent, or repeat exactly N times for per-agent models.
                 A short name (luna:high) expands to the one listed, allowed model that
@@ -227,7 +249,15 @@ Add ONE named pane to an existing tab: splits into the tab's largest cell and pi
 the model. Tile creates an agent, so it names one too.
 `,
   rename: `orch rename <target> <name> [--pane]
-Set the agent name (the NAME column). --pane sets the pane border label instead.
+Set the agent name (the NAME column) and the pane border with it. Pane, context and
+model are untouched, and the watch keeps following the agent. Rename on every refill,
+in the same message as the dispatch, so the name says what the agent holds now.
+  --pane        Set only the pane border label and leave the agent name alone.
+`,
+  grant: `orch grant [<hash>|--list]
+Approve an action an agent was refused, such as opening a plexer home from outside a
+pane. Needs a terminal: no flag answers the prompt for you.
+  --list        Show what is waiting for approval.
 `,
   focus: `orch focus <target>
 Jump the user's view to that pane. This is the one pane command that DOES steal focus.
@@ -329,6 +359,9 @@ into that store. Change the answer later with 'orch settings skills'.
 orch settings models [--harness=<id>] [--model=<model[:thinking]>] [--refresh]
 orch settings thinking [<level>] [--harness=<id>] [--clear]
 orch settings skills [--install|--no-install] [--store=<dir>] [--link=<dir>[,<dir>...]]
+orch settings notify [list] [--json]
+orch settings notify add <sink> [--<field>=<value>...] [--on=<state,...>]
+orch settings notify remove <sink>
 Print each effective setting with its source (flag > env > settings.json > default),
 or switch the active default adapter/plexer among the enabled set.
   models        Re-pick, per enabled harness: launch model, picker quicklist

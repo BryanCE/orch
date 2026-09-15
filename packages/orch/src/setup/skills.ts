@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as files from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -81,6 +82,28 @@ export function installSkills(roots: SkillRoots, pkgRoot: string = packageRoot()
     }
   }
   return placements;
+}
+
+/** Every file under `dir`, as store-relative paths in one stable order. */
+function skillFiles(dir: string, prefix = ""): string[] {
+  const listed: string[] = [];
+  for (const entry of files.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const relative = path.posix.join(prefix, entry.name);
+    if (entry.isDirectory()) listed.push(...skillFiles(path.join(dir, entry.name), relative));
+    else listed.push(relative);
+  }
+  return listed;
+}
+
+/** One digest over a skill directory's paths and bytes. Two directories with the
+ *  same digest hold the same skill; the store is stale when its digest differs
+ *  from the packaged one. */
+export function skillDigest(dir: string): string {
+  const hash = createHash("sha256");
+  for (const relative of skillFiles(dir)) {
+    hash.update(relative).update("\0").update(files.readFileSync(path.join(dir, relative))).update("\0");
+  }
+  return hash.digest("hex").slice(0, 12);
 }
 
 /** One line per placement, for the commands that report what an install wrote. */

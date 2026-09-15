@@ -7,10 +7,10 @@ import { isAgentId } from "../backends/identity.ts";
 import { rpcCall, subscribeEvents } from "../daemon/client/rpc.ts";
 import { ensureDaemon, rpcRegisterSession } from "../daemon/client/reach.ts";
 import { deliver } from "../notify/router.ts";
-import { isNotifyEvent } from "../notify/event.ts";
+import { eventState, isNotifyEvent } from "../notify/event.ts";
 
 export { isNotifyEvent };
-import { notificationText, oneLine } from "../notify/format.ts";
+import { notificationHeading, notificationText, oneLine } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { die, forbidNonOperatorOverride } from "./target.ts";
 import type { Services } from "../types/services.ts";
@@ -19,7 +19,11 @@ import type { NotifyEntry, OrchSettings } from "../types/settings.ts";
 import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
 import type { OrchDir } from "../types/core.ts";
-import { isAgentState } from "../agent-state.ts";
+import { isAgentState, type AgentState } from "../agent-state.ts";
+
+/** The verbs that hold a stream open; `close --stream` kills any of them. */
+export const STREAM_VERBS = ["events", "monitor"] as const;
+export type StreamVerb = (typeof STREAM_VERBS)[number];
 
 export interface EventsTransport {
   /** Settles when the stream is finished: `--once` matched, or close() was called. */
@@ -82,19 +86,51 @@ export function eventAcceptor(root: OrchDir, options: EventsOptions, items: Read
   };
 }
 
+/** Whether one event survives the caller's `--filter`: a named state is hidden. */
+export function passesStateFilter(filter: ReadonlySet<string> | null): (event: NotifyEvent) => boolean {
+  return (event) => !filter?.has(event.newState);
+}
+
+/** Whether one event belongs on the monitor: an agent state in `monitor.on`, or a
+ *  worker's report. A mid-turn flip (working, idle, a cmd-lock block and release) is
+ *  the noise the monitor exists to drop. */
+export function onMonitor(on: readonly AgentState[]): (event: NotifyEvent) => boolean {
+  return (event) => {
+    if (event.type === "message") return true;
+    const state = eventState(event);
+    return state !== undefined && on.includes(state);
+  };
+}
+
+/** Both predicates must pass. */
+function both(first: (event: NotifyEvent) => boolean, second: (event: NotifyEvent) => boolean): (event: NotifyEvent) => boolean {
+  return (event) => first(event) && second(event);
+}
+
 export async function cmdEvents(services: Services, args: string[]) {
-  const options = parseEventsOptions(args);
+  const options = parseEventsOptions(args, "events");
+  await streamEvents(services, "events", options, passesStateFilter(options.filter));
+}
+
+export async function cmdMonitor(services: Services, args: string[]) {
+  const options = parseEventsOptions(args, "monitor");
+  const shows = both(onMonitor(services.settings.current().monitor.on), passesStateFilter(options.filter));
+  await streamEvents(services, "monitor", options, shows);
+}
+
+async function streamEvents(services: Services, verb: StreamVerb, options: EventsOptions, shows: (event: NotifyEvent) => boolean) {
   await ensureDaemon(services.orchDir, services.logger);
   await ensureCallerRegistered(services.orchDir, (directory) => rpcRegisterSession(directory, services.logger));
   if (options.scope === "any") forbidNonOperatorOverride(services.orchDir, "--space-wide");
   const items = eventsItems(options, services.orchDir, services.settings.current());
   const scope = await resolveCallerScope(services.logger, options.scope, services.orchDir);
   const accepts = eventAcceptor(services.orchDir, options, items, scope);
-  const context: EventsContext = { options, accepts, emit: eventWriter(options, services.orchDir) };
+  const context: EventsContext = { options, accepts, emit: eventWriter(options, services.orchDir, shows) };
   // Notification delivery is orchd's, not the client's: the daemon fans every
   // transition out to the sinks configured in settings.json whether or not
   // anyone is streaming. `orch events` only renders.
   const transport = startEventsLiveStream(options, scope, {
+    verb,
     writeNotice: (line) => process.stdout.write(line),
     startTransport: () => startEventsTransport(context, services),
     ownedAgents: () => ownedAgentCount(scope, services.orchDir),
@@ -147,6 +183,8 @@ function namedTarget(argument: string, flag: string, usage: string): string {
 }
 
 export interface EventsLiveStreamPorts {
+  /** The verb that armed the stream, named in the notice so a person knows which one is silent. */
+  verb?: StreamVerb;
   writeNotice: (line: string) => void;
   startTransport: () => EventsTransport;
   /** Whether stdout is a terminal, so the banner reaches a person rather than a parser. */
@@ -161,7 +199,7 @@ export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCal
   // misled by a stream that cannot fire, and the harness reading it is the one
   // that will sit on it for an hour.
   const owned = ports.ownedAgents?.() ?? 0;
-  if (!options.json && owned === 0) ports.writeNotice(emptyScopeNotice());
+  if (!options.json && owned === 0) ports.writeNotice(emptyScopeNotice(ports.verb ?? "events"));
   const notice = eventsScopeNotice(options, scope, ports.toTerminal);
   if (notice !== null) ports.writeNotice(`${notice}\n`);
   return ports.startTransport();
@@ -185,8 +223,8 @@ function ownedAgentCount(scope: ResolvedCallerScope, root: OrchDir): number {
 }
 
 /** What a caller owning nothing is told, in place of an empty stream. */
-function emptyScopeNotice(): string {
-  return "orch events: you own no agents, so nothing can arrive on this stream yet."
+function emptyScopeNotice(verb: StreamVerb): string {
+  return `orch ${verb}: you own no agents, so nothing can arrive on this stream yet.`
     + " It covers whatever you spawn or dispatch to from here on; --space-wide watches the rest of your space now.\n";
 }
 
@@ -205,50 +243,54 @@ export function eventsScopeNotice(
     : "watching all agents from now on";
 }
 
-const EVENTS_USAGE = "usage: orch events [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=<state,...>] [--json] [--since-seq <n>] [--once]";
+function streamUsage(verb: StreamVerb): string {
+  return `usage: orch ${verb} [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=<state,...>] [--json] [--since-seq <n>] [--once]`;
+}
 
 /** `--since-seq <n>`, or a refusal: a replay point that is not an integer names no event. */
-function readSinceSeq(value: string | undefined): number {
+function readSinceSeq(value: string | undefined, usage: string): number {
   const parsed = value === undefined ? Number.NaN : Number(value);
-  if (!Number.isSafeInteger(parsed)) die(EVENTS_USAGE);
+  if (!Number.isSafeInteger(parsed)) die(usage);
   return parsed;
 }
 
 /** `--filter=working,idle`, or a refusal: an empty list drops nothing, so the flag
  *  was a typo. Same sense as `orch status --filter`: a named state is hidden. */
-function readStateFilter(value: string): Set<string> {
+function readStateFilter(value: string, usage: string): Set<string> {
   const states = value.split(",").map((state) => state.trim()).filter((state) => state.length > 0);
-  if (states.length === 0) die(EVENTS_USAGE);
+  if (states.length === 0) die(usage);
   return new Set(states);
 }
 
 /** Read one flag into `options`, and say how many arguments it consumed after itself. */
-function readEventsFlag(options: EventsOptions, args: string[], index: number): number {
+function readEventsFlag(options: EventsOptions, args: string[], index: number, usage: string): number {
   const argument = args[index]!;
   switch (argument) {
-    case "--since-seq": options.sinceSeq = readSinceSeq(args[index + 1]); return 1;
+    case "--since-seq": options.sinceSeq = readSinceSeq(args[index + 1], usage); return 1;
     case "--json": options.json = true; return 0;
     case "--once": options.once = true; return 0;
     case "--space-wide": options.scope = "any"; return 0;
     default: break;
   }
   if (argument.startsWith("--filter=")) {
-    options.filter = readStateFilter(argument.slice("--filter=".length));
+    options.filter = readStateFilter(argument.slice("--filter=".length), usage);
     return 0;
   }
   const prefix = argument.startsWith("--agent=") ? "--agent=" : argument.startsWith("--agent-id=") ? "--agent-id=" : null;
-  options.targets.push(prefix === null ? argument : namedTarget(argument, prefix, EVENTS_USAGE));
+  options.targets.push(prefix === null ? argument : namedTarget(argument, prefix, usage));
   return 0;
 }
 
-export function parseEventsOptions(args: string[]): EventsOptions {
-  // Bare `orch events` IS the monitor: every state of every agent you own, in readable
-  // lines, self-contained enough to act on without a second command. Flags only ever
-  // drop states from it (`--filter`) or widen it to the rest of your space (`--space-wide`).
+export function parseEventsOptions(args: string[], verb: StreamVerb = "events"): EventsOptions {
+  // Bare `orch events` is every state of every agent you own, in readable lines,
+  // self-contained enough to act on without a second command. Flags only ever drop
+  // states from it (`--filter`) or widen it to the rest of your space (`--space-wide`).
+  // `orch monitor` takes the same flags over the `monitor.on` states.
+  const usage = streamUsage(verb);
   const options: EventsOptions = {
     json: false, sinceSeq: undefined, once: false, scope: "auto", filter: null, targets: [],
   };
-  for (let index = 0; index < args.length; index++) index += readEventsFlag(options, args, index);
+  for (let index = 0; index < args.length; index++) index += readEventsFlag(options, args, index, usage);
   return options;
 }
 
@@ -293,12 +335,12 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
   // What happened, and nothing about the fleet's books. Cost and pack capacity are
   // `orch status` columns; a stream that carried them made every transition read
   // like a status row and buried the one thing the line exists to say.
+  // Mail is its own summary: the heading, then the whole text once, never a 60-character
+  // preview of the text followed by the text.
+  if (event.type === "message") return `${notificationHeading(textEvent, { colorize: true })} ${oneLine(event.mail.text)}`;
   const title = notificationText(textEvent, { colorize: true }).title;
   let detail: string;
   switch (event.type) {
-    case "message":
-      detail = oneLine(event.mail.text);
-      break;
     case "asking":
       detail = `${event.oldState}->asking (asked ${event.askCount}x${event.gaveUp ? "; gave up" : ""})`;
       break;
@@ -315,9 +357,9 @@ export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number
   return `${title}  ${detail}`;
 }
 
-function eventWriter(options: EventsOptions, root: OrchDir): (event: NotifyEvent, streamSeq: number) => boolean {
+function eventWriter(options: EventsOptions, root: OrchDir, shows: (event: NotifyEvent) => boolean): (event: NotifyEvent, streamSeq: number) => boolean {
   return (event, streamSeq): boolean => {
-    if (options.filter?.has(event.newState)) return false;
+    if (!shows(event)) return false;
     const space = event.space ?? spaceOf(root, event.key);
     process.stdout.write(`${renderEvent(event, options.json, streamSeq, space)}\n`);
     return true;

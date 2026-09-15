@@ -29,6 +29,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { isRecord } from "../src/util.ts";
 import { hostOs } from "../src/host.ts";
+import { listTasks } from "../src/queue.ts";
 
 import { row } from "./helpers/rows.ts";
 const dirs: OrchDir[] = [];
@@ -254,6 +255,20 @@ describe("daemon RPC", () => {
     // An issued id is opaque; a plexer coordinate would carry `~` separators.
     expect(first.id).not.toContain("~");
   });
+
+  test("enqueue returns a queued task visible to listTasks", async () => {
+    const dir = tempOrchDir();
+    const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" } });
+    try {
+      const identity = await rpcRegisterSession(dir, testServices({ orchDir: dir }).logger);
+      const result = await rpcCall(dir, "enqueue", { enqueuedBy: identity.id, text: "queued through rpc", opts: {}, scope: {} });
+      expect(result.task.state).toBe("queued");
+      const stored = listTasks(dir).find((task) => task.id === result.task.id);
+      expect(stored?.state).toBe("queued");
+    } finally {
+      await stop();
+    }
+  }, 30_000);
 
   test("hello returns live agents whose newest lease is closed or absent", async () => {
     const dir = tempOrchDir();

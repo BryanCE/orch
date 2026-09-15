@@ -27,7 +27,8 @@ its bridge holds no link: the harness is still starting, or the bridge is redial
 `daemon.bridge_reconnect_ms`. The write is safe in the outbox and retries every
 `daemon.outbox_drain_ms`, up to `daemon.outbox_max_attempts` before the daemon closes it as
 undeliverable. `orch status --json` shows `bridgeAttached` per agent. Watch `orch events` for
-the delivery.
+the delivery: the `working` transition it starts is a mid-turn flip, so `orch monitor` does
+not carry it.
 
 ## Stalled spawn
 

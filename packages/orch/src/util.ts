@@ -96,6 +96,19 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Run `work` over every item with at most `limit` in flight; results keep item order. */
+export async function mapWithLimit<T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
+  if (limit <= 0) throw new RangeError("limit must be positive");
+  const results: R[] = [];
+  const queue = items.entries();
+  const worker = async (): Promise<void> => {
+    for (const [index, item] of queue) results[index] = await work(item);
+  };
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
 export function isUnknownArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }

@@ -3,7 +3,8 @@ import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { eventAcceptor, eventWithinSpaceWall, formatEventGap, isNotifyEvent, parseEventsOptions, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { eventAcceptor, eventWithinSpaceWall, formatEventGap, isNotifyEvent, onMonitor, parseEventsOptions, passesStateFilter, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { MONITOR_DEFAULT_ON } from "../src/settings/schema.ts";
 import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
@@ -13,6 +14,11 @@ import { helpTopic } from "../src/commands/help.ts";
 import { subscribeEvents } from "../src/daemon/client/rpc.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
+import type { AgentState } from "../src/agent-state.ts";
+
+function transition(oldState: AgentState, newState: Exclude<AgentState, "asking">): NotifyEvent {
+  return { type: "transition", key: "agent", agent: "pi", tab: null, model: null, oldState, newState, ts: "now" };
+}
 
 describe("commands/events", () => {
   test("owned renderers and tool help do not expose the retired workspace term", () => {
@@ -34,6 +40,36 @@ describe("commands/events", () => {
   test("--filter names the states to drop and is never the default", () => {
     expect(parseEventsOptions(["--filter=working,idle"]).filter).toEqual(new Set(["working", "idle"]));
     expect(parseEventsOptions([]).filter).toBeNull();
+    const shows = passesStateFilter(new Set(["working"]));
+    expect(shows(transition("idle", "working"))).toBe(false);
+    expect(shows(transition("working", "done"))).toBe(true);
+    expect(passesStateFilter(null)(transition("idle", "working"))).toBe(true);
+  });
+
+  // `orch monitor` is the orchestrator's watch: the same stream, kept to what it acts on.
+  // A mid-turn flip is what flooded the bare events stream, so it never reaches the monitor.
+  test("the monitor shows only the monitor.on states and every worker message", () => {
+    const shows = onMonitor(MONITOR_DEFAULT_ON);
+    expect(shows(transition("working", "done"))).toBe(true);
+    expect(shows(transition("working", "error"))).toBe(true);
+    expect(shows(transition("working", "blocked"))).toBe(true);
+    expect(shows(transition("done", "exited"))).toBe(true);
+    expect(shows({ type: "asking", key: "agent", agent: "pi", tab: null, model: null, oldState: "working", newState: "asking", askCount: 1, gaveUp: false, ts: "now" })).toBe(true);
+    expect(shows({ type: "message", key: "agent", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "m", text: "report" } })).toBe(true);
+    expect(shows(transition("idle", "working"))).toBe(false);
+    expect(shows(transition("working", "idle"))).toBe(false);
+    expect(shows(transition("blocked", "working"))).toBe(false);
+    expect(shows({ type: "closed", key: "agent", agent: "pi", tab: null, model: null, oldState: "done", newState: "closed", ts: "now" })).toBe(false);
+    expect(shows({ type: "task", key: "agent", agent: "pi", tab: null, model: null, oldState: "queued", newState: "claimed", task: "t", ts: "now" })).toBe(false);
+  });
+  test("the monitor's states come from settings, not from the code", () => {
+    const shows = onMonitor(["done"]);
+    expect(shows(transition("working", "done"))).toBe(true);
+    expect(shows(transition("working", "error"))).toBe(false);
+  });
+  test("the monitor parses the same flags as events under its own usage", () => {
+    expect(parseEventsOptions(["--space-wide", "--json"], "monitor")).toEqual({ json: true, sinceSeq: undefined, once: false, scope: "any", filter: null, targets: [] });
+    expect(helpTopic("monitor")).toContain("monitor.on");
   });
   test("includes an adopted agent whose open lease is mine", () => {
     expect(agentInMineScope({ mineAddress: "me", leaseOwner: "me" })).toBe(true);
@@ -99,11 +135,18 @@ describe("commands/events", () => {
 
   // Cost and pack capacity are `orch status` columns. On a stream they made every
   // transition read like a status row and buried what the line exists to say.
-  test("message events render the full delivered mail text", () => {
-    const mail = "[from worker (worker-key)] hello orchestrator";
+  test("message events render the full delivered mail text once", () => {
+    const mail = "[from worker (worker-key)] hello orchestrator, this report runs well past the sixty characters a notification title keeps";
     const line = renderEvent({ type: "message", key: "agent", space: "wF", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "dispatch-message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4);
     expect(line).toEndWith(mail);
+    expect(line.split("[from worker").length).toBe(2);
     expect(line).not.toContain("message->message");
+  });
+
+  test("an agent in no space gets no empty bracket on its line", () => {
+    const event: NotifyEvent = { type: "transition", key: "agent", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now" };
+    expect(renderEvent(event, false, 4)).not.toContain("[]");
+    expect(renderEvent({ ...event, space: "" }, false, 4)).not.toContain("[]");
   });
 
   test("an event line says what happened, never the fleet's books", () => {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { runWorkLoop } from "../src/daemon/server/work-loop.ts";
+import { createWakeSignal } from "../src/daemon/server/wake.ts";
 import { addTask, listTasks } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { attemptsOf } from "../src/store/task-rows.ts";
@@ -48,7 +49,8 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       const task = addTask(dir, "pack work", {}, "enq");
       await runWorkLoop({
         orchDir: dir,
-        pollIntervalMs: 10,
+        wake: createWakeSignal(),
+        tickMs: 10,
         once: true,
         json: true,
         settings: testServices({ orchDir: dir, settings: {} }).settings,
@@ -73,7 +75,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       const task = addTask(dir, "pack work", {}, "enq");
       const events: NotifyEvent[] = [];
       await runWorkLoop({
-        orchDir: dir, pollIntervalMs: 10, once: true, json: true,
+        orchDir: dir, wake: createWakeSignal(), tickMs: 10, once: true, json: true,
         settings: testServices({ orchDir: dir, settings: {} }).settings,
         models: testServices({ orchDir: dir }).models,
         dispatch: () => Promise.resolve(),
@@ -91,7 +93,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       const task = addTask(dir, "survives its orch", {}, "runner0000");
       expect(orm(dir).all(sql`SELECT agent_id FROM agent_leases WHERE until IS NULL`)).toEqual([]);
       await runWorkLoop({
-        orchDir: dir, pollIntervalMs: 10, once: true, json: true,
+        orchDir: dir, wake: createWakeSignal(), tickMs: 10, once: true, json: true,
         settings: testServices({ orchDir: dir, settings: {} }).settings,
         models: testServices({ orchDir: dir }).models,
         dispatch: () => {

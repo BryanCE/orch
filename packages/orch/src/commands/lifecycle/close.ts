@@ -18,6 +18,7 @@ import type { Services } from "../../types/services.ts";
 import type { ParamsOf } from "../../daemon/client/protocol.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import { currentProcess } from "../../store/interval-rows.ts";
+import { STREAM_VERBS } from "../events.ts";
 
 /** Read the launch identity from the normalized agent process interval. Presence
  * status carries liveness only and can never authorize a signal. */
@@ -251,11 +252,11 @@ function attemptClose(target: CloseTarget): CloseAttempt {
   return lingering === null ? attempt : { ...attempt, failure: lingering };
 }
 
-/** SIGTERM this session's `orch events` streams, never orch itself. */
+/** SIGTERM this session's `orch events` and `orch monitor` streams, never orch itself. */
 function killEventStreams(): number {
   let pids: number[] = [];
   try {
-    pids = execFileSync("pgrep", ["-f", "orch events"]).toString().trim().split("\n").filter(Boolean).map(Number);
+    pids = execFileSync("pgrep", ["-f", `orch (${STREAM_VERBS.join("|")})`]).toString().trim().split("\n").filter(Boolean).map(Number);
   } catch { /* no stream running */ }
   const kill = pids.filter((pid) => !isOwnProcess(pid));
   for (const pid of kill) { try { signalOtherProcess(pid, "SIGTERM"); } catch { /* already gone */ } }
@@ -303,7 +304,7 @@ function reportClose(
   if (all && !requested && !json) process.stdout.write("No fleet agents to close.\n");
   if (stream) {
     const killed = killEventStreams();
-    if (!json) process.stdout.write(killed ? `Killed ${killed} orch events process(es).\n` : "No orch events stream running.\n");
+    if (!json) process.stdout.write(killed ? `Killed ${killed} orch stream process(es).\n` : "No orch monitor or events stream running.\n");
   }
   if (json) process.stdout.write(JSON.stringify({ closed, results, requested, ok, stream }) + "\n");
   // `process.exitCode`, never `process.exit()`: the JSON above is buffered, and

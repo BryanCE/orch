@@ -13,7 +13,7 @@ import {
   settingsFrame,
   visibleEntryIndices,
 } from "../view.ts";
-import type { EditingState, OrchSettings } from "../../types/settings.ts";
+import type { EditingState } from "../../types/settings.ts";
 import { editorReducer } from "../editor.ts";
 import { askMulti, submittedText } from "./ask.ts";
 import { editSinks } from "./sinks.ts";
@@ -22,7 +22,7 @@ import { asBrowsing, commitAndFlush, refocusVisible, resetFocused, screenOf, ste
 type BrowseOutcome = "open" | "again" | "quit";
 
 /** One browsing prompt: navigate, filter, reset — until Enter opens or Escape/ctrl+c leaves. */
-export async function browseOnce(session: Session, manager: SettingsManager, settings: OrchSettings): Promise<BrowseOutcome> {
+export async function browseOnce(session: Session, manager: SettingsManager): Promise<BrowseOutcome> {
   process.stdout.write(CLEAR_SCREEN);
   const prompt = new Prompt<undefined>({
     render: () => settingsFrame(
@@ -59,7 +59,7 @@ export async function browseOnce(session: Session, manager: SettingsManager, set
       return;
     }
     if (info.ctrl === true && info.name === "d") {
-      resetFocused(session, manager, settings);
+      resetFocused(session, manager);
       return;
     }
     if (typeof char === "string" && char.length === 1 && char >= " " && info.ctrl !== true && info.meta !== true) {
@@ -80,7 +80,7 @@ export async function browseOnce(session: Session, manager: SettingsManager, set
   return "quit";
 }
 
-async function editChoice(session: Session, manager: SettingsManager, settings: OrchSettings, editing: EditingState, choices: readonly string[]): Promise<void> {
+async function editChoice(session: Session, manager: SettingsManager, editing: EditingState, choices: readonly string[]): Promise<void> {
   process.stdout.write(CLEAR_SCREEN);
   const prompt = new SelectPrompt<{ value: string }>({
     options: choices.map((value) => ({ value })),
@@ -100,10 +100,10 @@ async function editChoice(session: Session, manager: SettingsManager, settings: 
     session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
     return;
   }
-  commitAndFlush(session, manager, settings, editing, answer);
+  commitAndFlush(session, manager, editing, answer);
 }
 
-async function editMulti(session: Session, manager: SettingsManager, settings: OrchSettings, editing: EditingState, choices: readonly string[]): Promise<void> {
+async function editMulti(session: Session, manager: SettingsManager, editing: EditingState, choices: readonly string[]): Promise<void> {
   const current = Array.isArray(editing.draft)
     ? editing.draft.filter((value): value is string => typeof value === "string")
     : [];
@@ -112,10 +112,10 @@ async function editMulti(session: Session, manager: SettingsManager, settings: O
     session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
     return;
   }
-  commitAndFlush(session, manager, settings, editing, answer);
+  commitAndFlush(session, manager, editing, answer);
 }
 
-async function editText(session: Session, manager: SettingsManager, settings: OrchSettings, editing: EditingState): Promise<void> {
+async function editText(session: Session, manager: SettingsManager, editing: EditingState): Promise<void> {
   process.stdout.write(CLEAR_SCREEN);
   const spec = editing.focused.spec;
   const prompt = new TextPrompt({
@@ -145,11 +145,11 @@ async function editText(session: Session, manager: SettingsManager, settings: Or
     session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
     return;
   }
-  commitAndFlush(session, manager, settings, editing, parsed.value);
+  commitAndFlush(session, manager, editing, parsed.value);
 }
 
 /** Open the focused setting and run the edit interaction its declared kind calls for. */
-export async function editFocused(session: Session, manager: SettingsManager, settings: OrchSettings): Promise<void> {
+export async function editFocused(session: Session, manager: SettingsManager): Promise<void> {
   const opened = editorReducer(session.state, { type: "open" });
   if (opened.mode === "browsing") {
     session.status = opened.reason;
@@ -159,18 +159,18 @@ export async function editFocused(session: Session, manager: SettingsManager, se
   const kind = opened.focused.spec.type;
   switch (kind.kind) {
     case "boolean":
-      commitAndFlush(session, manager, settings, opened, opened.focused.value !== true);
+      commitAndFlush(session, manager, opened, opened.focused.value !== true);
       return;
     case "choice":
-      return editChoice(session, manager, settings, opened, kind.choices);
+      return editChoice(session, manager, opened, kind.choices);
     case "multi":
-      return editMulti(session, manager, settings, opened, kind.choices);
+      return editMulti(session, manager, opened, kind.choices);
     case "sinks":
-      return editSinks(session, manager, settings, opened, kind);
+      return editSinks(session, manager, opened, kind);
     case "integer":
     case "text":
     case "list":
-      return editText(session, manager, settings, opened);
+      return editText(session, manager, opened);
     default: {
       const exhaustive: never = kind;
       return exhaustive;

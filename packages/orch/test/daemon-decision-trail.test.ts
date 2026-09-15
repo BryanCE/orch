@@ -13,6 +13,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { LogRecord, OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
+import { idleDaemonState } from "./helpers/daemon-state.ts";
 
 const dirs: OrchDir[] = [];
 const previousLogLevel = process.env.ORCH_LOG_LEVEL;
@@ -41,8 +42,7 @@ function agent(directory: OrchDir, id: string): void {
 }
 
 function daemonState(directory: OrchDir) {
-  const services = testServices({ orchDir: directory, settings: {} });
-  return { services, directory, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, presenceWatch: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false };
+  return idleDaemonState(testServices({ orchDir: directory, settings: {} }), directory);
 }
 
 function records(directory: OrchDir): LogRecord[] {

@@ -1,7 +1,7 @@
 import type { OrchDir } from "../../types/core.ts";
 import { hostname } from "node:os";
 import { claimAgent, getOrCreateSessionAgent } from "../../store/agent-rows.ts";
-import { processStartToken } from "../../process-identity.ts";
+import { freshStartToken } from "../../process-identity.ts";
 import { versionInRange } from "../../backends/versions.ts";
 import { getBackend } from "../../backends/registry.ts";
 import { isHostOs } from "../../host.ts";
@@ -34,7 +34,7 @@ function verifiedSessionProcess(claim: SessionClaim): { pid: number; startToken:
   const harness = claim.harness.trim();
   const cwd = claim.cwd.trim();
   if (!harness || !cwd) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration requires the caller's harness and cwd");
-  const startToken = processStartToken(pid);
+  const startToken = freshStartToken(pid);
   if (!startToken) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration could not verify the caller's session process");
   return { pid, startToken, harness, cwd };
 }

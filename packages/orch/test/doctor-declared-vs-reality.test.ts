@@ -111,7 +111,7 @@ describe("doctor declared-vs-reality", () => {
     expect(result?.status).toBe("warn");
     expect(result?.detail).toContain("missing-scope");
     expect(result?.detail).toContain("no longer exists");
-  }, 30_000);
+  });
 
   test("doctor -y does not delete an unrunnable task", async () => {
     const dir = fixture();
@@ -122,5 +122,5 @@ describe("doctor declared-vs-reality", () => {
     const results = await runTestDoctor(dir, { yes: true, sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
     applyFixes(results);
     expect(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks WHERE id='missing-scope'`)).toEqual({ count: 1 });
-  }, 30_000);
+  });
 });

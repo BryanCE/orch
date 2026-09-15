@@ -28,6 +28,9 @@ export const HostSchema = z.strictObject({
  *  work needs you, work broke, work finished. A notifier silent on `done` never
  *  tells you the thing you were waiting for. */
 export const NOTIFY_DEFAULT_ON: readonly NotifyState[] = ["blocked", "error", "done"];
+/** The states `orch monitor` shows: work needs you, work broke, work finished, work
+ *  died. Every mid-turn flip (working, idle, unknown) stays on `orch events`. */
+export const MONITOR_DEFAULT_ON: readonly NotifyState[] = ["asking", "blocked", "done", "error", "aborted", "exited"];
 const NotifyOnSchema = z.array(z.enum(NOTIFY_STATES)).optional();
 export const NotifyEntrySchema = z.discriminatedUnion("id", [
   z.strictObject({ id: z.literal("desktop"), on: NotifyOnSchema }),
@@ -73,15 +76,16 @@ export const NOTIFY_SIMPLE_IDS: readonly string[] = NOTIFY_IDS.filter((id) => NO
 
 export const SETTINGS_DEFAULTS = {
   fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, worker_peer_tools: false, cross_space: false },
-  mail: { to_spawner: "prompt", to_worker: "prompt" },
-  queue: { max_retries: 1 },
+  mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt" },
+  queue: { max_retries: 1, dispatch_concurrency: 4 },
   retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, sweep_interval_ms: 3_600_000 },
   lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
   questions: { renag_ms: 120_000, renag_limit: 5 },
+  monitor: { on: MONITOR_DEFAULT_ON },
   logging: { level: "info" },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
-  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
+  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
   doctor: { unclaimed_after_ms: 120_000 },
   workers: { inherit_extensions: true, builtin_tools: true },
   tiling: { first_split: "rows" },
@@ -128,10 +132,11 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     cross_space: z.boolean().optional(),
   }).optional(),
   /** Mail is what one agent sends another. Each direction picks its own landing:
-   * `prompt` types the text into the recipient's input as it arrives; `events`
-   * publishes it as a `message` event the recipient reads from `orch events`, so a
-   * human typing at that prompt is never interrupted. `to_spawner` governs mail a
-   * worker sends the agent that spawned it; `to_worker` governs every other mail. */
+   * `prompt` types the text into the recipient's input as it arrives, whoever is in
+   * the pane; `prompt-unless-focused` does the same unless the human is in that pane,
+   * when it publishes instead; `events` always publishes it as a `message` event the
+   * recipient reads from `orch events`, so the input is never touched. `to_spawner`
+   * governs mail a worker sends the agent that spawned it; `to_worker` every other mail. */
   mail: z.strictObject({
     to_spawner: z.enum(MAIL_DELIVERIES).optional(),
     to_worker: z.enum(MAIL_DELIVERIES).optional(),
@@ -157,6 +162,7 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   }).optional(),
   queue: z.strictObject({
     max_retries: z.number().int().nonnegative().optional(),
+    dispatch_concurrency: PositiveInt.optional(),
   }).optional(),
   /** Retention windows in days for ended agents, settled queue tasks, stored events,
    * completed runs, delivered outbox messages, and logs. */
@@ -190,6 +196,10 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     /** How many asking events the daemon emits before giving up. */
     renag_limit: PositiveInt.optional(),
   }).optional(),
+  monitor: z.strictObject({
+    /** The agent states `orch monitor` shows; a worker's message always shows. */
+    on: NotifyOnSchema,
+  }).optional(),
   timeouts: z.strictObject({
     dispatch_ack_ms: PositiveInt.optional(),
     wait_ms: PositiveInt.optional(),
@@ -206,6 +216,7 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     idle_shutdown_minutes: z.number().int().min(0).optional(),
     /** How often orchd retries queued writes and consumes acknowledgements. */
     outbox_drain_ms: PositiveInt.optional(),
+    work_tick_ms: PositiveInt.optional(),
     liveness_poll_ms: PositiveInt.optional(),
     bridge_reconnect_ms: PositiveInt.optional(),
     outbox_max_attempts: PositiveInt.optional(),

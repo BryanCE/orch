@@ -15,11 +15,11 @@ function requiredMailString(value: string, name: string): string {
 
 /** The landing one mail gets: a worker writing the agent that spawned it follows
  *  `to_spawner`; every other sender and recipient pair follows `to_worker`.
- *  A spawner whose pane the human is in gets the stream whatever `to_spawner`
- *  says: keys typed into that pane go out with whatever the human is typing. */
-export function mailDelivery(directory: OrchDir, mail: OrchSettings["mail"], from: string, target: string): MailDelivery {
-  if (agentView(directory, from)?.spawnedBy !== target) return mail.to_worker;
-  if (mail.to_spawner === "events") return "events";
+ *  `prompt-unless-focused` resolves here: the stream while the human is in the
+ *  recipient's pane, because keys typed there go out with whatever the human types. */
+export function mailDelivery(directory: OrchDir, mail: OrchSettings["mail"], from: string, target: string): Exclude<MailDelivery, "prompt-unless-focused"> {
+  const direction = agentView(directory, from)?.spawnedBy === target ? mail.to_spawner : mail.to_worker;
+  if (direction !== "prompt-unless-focused") return direction;
   return targetPaneFocused(directory, target) ? "events" : "prompt";
 }
 

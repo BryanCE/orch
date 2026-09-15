@@ -5,7 +5,7 @@ import { createEditorState, editorReducer } from "../editor.ts";
 import { clearRegisteredSetting, SETTINGS_REGISTRY, writeRegisteredSetting } from "../registry.ts";
 import { visibleEntryIndices } from "../view.ts";
 import type { SettingsScreen } from "../view.ts";
-import type { BrowsingState, EditingState, EditorSetting, EditorState, OrchSettings, SettingSource, SettingSpec } from "../../types/settings.ts";
+import type { BrowsingState, EditingState, EditorSetting, EditorState, SettingSource, SettingSpec } from "../../types/settings.ts";
 
 function rawValue(root: unknown, key: string): unknown {
   let current = root;
@@ -25,8 +25,9 @@ function sourceFor(spec: SettingSpec, raw: Record<string, unknown>): { source: S
     : { source: "settings.json" };
 }
 
-/** Rebuild every row from disk so value and provenance always show what settings.json holds. */
-export function loadEntries(manager: SettingsManager, settings: OrchSettings): EditorSetting[] {
+/** Rebuild every row from disk so value and provenance always show what settings.json holds.
+ *  The manager re-parses after each write, so its current value is the file's, never a snapshot. */
+export function loadEntries(manager: SettingsManager): EditorSetting[] {
   let raw: Record<string, unknown> = {};
   try {
     const parsed: unknown = JSON.parse(files.readFileSync(manager.file, "utf8"));
@@ -34,6 +35,7 @@ export function loadEntries(manager: SettingsManager, settings: OrchSettings): E
   } catch (error: unknown) {
     throw new Error(`Could not read ${manager.file}: ${errorMessage(error)}`);
   }
+  const settings = manager.current();
   return SETTINGS_REGISTRY.map((spec) => ({ spec, value: spec.read(settings), ...sourceFor(spec, raw) }));
 }
 
@@ -99,14 +101,14 @@ export function screenOf(session: Session, manager: SettingsManager): SettingsSc
 }
 
 /** Rebuild rows from disk and restore focus to `focusKey`. */
-function reload(session: Session, manager: SettingsManager, focusKey: string, settings: OrchSettings): void {
-  const state = createEditorState(loadEntries(manager, settings));
+function reload(session: Session, manager: SettingsManager, focusKey: string): void {
+  const state = createEditorState(loadEntries(manager));
   const index = state.settings.findIndex((entry) => entry.spec.key === focusKey);
   session.state = index < 0 ? state : moveTo(state, index);
 }
 
 /** Clear the focused setting back to its default, or say why that is refused. */
-export function resetFocused(session: Session, manager: SettingsManager, settings: OrchSettings): void {
+export function resetFocused(session: Session, manager: SettingsManager): void {
   const entry = session.state.settings[session.state.focusedIndex];
   if (entry === undefined) return;
   const key = entry.spec.key;
@@ -120,7 +122,7 @@ export function resetFocused(session: Session, manager: SettingsManager, setting
   }
   try {
     clearRegisteredSetting(manager, key);
-    reload(session, manager, key, settings);
+    reload(session, manager, key);
     session.status = `${key} reset to default`;
   } catch (error: unknown) {
     session.status = errorMessage(error);
@@ -128,7 +130,7 @@ export function resetFocused(session: Session, manager: SettingsManager, setting
 }
 
 /** Commit an edited value through the reducer, persist it, and re-read the file. */
-export function commitAndFlush(session: Session, manager: SettingsManager, settings: OrchSettings, editing: EditingState, value: unknown): void {
+export function commitAndFlush(session: Session, manager: SettingsManager, editing: EditingState, value: unknown): void {
   const key = editing.focused.spec.key;
   const committed = editorReducer(editing, { type: "commit", value });
   if (committed.mode === "editing") {
@@ -142,5 +144,5 @@ export function commitAndFlush(session: Session, manager: SettingsManager, setti
   } catch (error: unknown) {
     session.status = errorMessage(error);
   }
-  reload(session, manager, key, settings);
+  reload(session, manager, key);
 }

@@ -14,7 +14,7 @@ import { cmdFocus, cmdKeys, cmdMove, cmdPanes, cmdPeek, cmdTab, cmdTabs, cmdZoom
 import { cmdSpace } from "./space.ts";
 import { cmdQuestions, cmdResult, cmdSession, cmdTail } from "./results.ts";
 import { cmdRuns } from "./runs.ts";
-import { cmdEvents, cmdNotify } from "./events.ts";
+import { cmdEvents, cmdMonitor, cmdNotify } from "./events.ts";
 import { cmdLogs } from "./logs.ts";
 import { cmdReview, cmdReviewInteractive } from "./review.ts";
 import { cmdQueue } from "./queue.ts";
@@ -37,199 +37,78 @@ import type { OrchSettings } from "../types/settings.ts";
 
 function usage() {
   process.stdout.write(
-    `orch - the single controller for agents in backend targets.
-The ${term("orch")} routes control through the backend port.
+    `orch - the single controller for coding agents, in any plexer.
+'orch help <command>' (or 'orch <command> -h') prints every flag, default and output shape.
 
 OBSERVE
-  orch status [--json] [--human] [--space-wide] [--filter=s[,s...]] [--all-panes] [--offline] [--live] [--capacity]
-                                 Glanceable table of the fleet (default command); --human renders for people; --live re-renders full-screen
-                                 from the daemon event stream (TTY only; q/esc quits; not with --json); --all-panes
-                                 also lists panes orch did not spawn; --offline reads agent files only.
-  orch questions                 Read each live agent's pending question from its status record.
-  orch runs [<target>] [-n <count>] [--json]
-                                 List durable dispatch history, newest first.
-  orch events [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=s[,s...]] [--json]
-                                 Continuous stream of pane state transitions; requires a running daemon.
-  orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]
-                                 Query structured diagnosis logs (malformed lines are skipped).
-                                 Bare: one readable line per transition, scoped to the agents THIS
-                                 session spawned. Flags widen or reshape that.
-                                 Notifications are delivered by orchd from settings.json, not by this command.
+  orch status [--json] [--capacity] [--live]     Fleet table with cost and context. The default command.
+  orch monitor                                   Push stream of the states an ${term("orch")} acts on. Arm it as a Monitor.
+  orch events                                    Every state transition, mid-turn flips included.
+  orch questions                                 Agents blocked on a question.
+  orch runs [<target>] [-n N]                    Dispatch history, newest first.
+  orch logs [--since W] [--level L] [--agent ID] Structured diagnosis records.
+
+DISPATCH
+  orch dispatch <target> "<prompt>" | --file P   Send a task onto a clean session. Durable.
+  orch run <target> "<prompt>"                   Queue a prompt with the worker header.
+  orch answer <target> "<text>"                  Answer the question the agent is asking.
+  orch steer <target> <text...>                  Mid-run instruction. The reply says if it applied.
+  orch broadcast "<text>" [target ...|--all]     Steer several.
+  orch pipe <src> <dst> ["instruction"]          Hand one agent's result to another.
+  orch model <target> <model[:thinking]>         Change the model.
+  orch wait <target> [--status S] [--timeout ms] Block until one agent reaches a state.
+
+COLLECT
+  orch result <target>... [--json]               Each target's result.
+  orch tail <target> [-n N]                      Last N session entries.
+  orch peek <target> [-n N]                      What is on the pane screen now.
+  orch session <target>                          Session path and stats.
 
 QUEUE
-  orch queue add "<task text>" [--worktree] [--json]
-                                 Add a task and print its id.
-  orch queue list [--json]       List queued, claimed, and settled tasks.
-  orch queue history [--json]    List completed, failed, and cancelled tasks.
-  orch queue cancel <id> [--json]
-                                 Cancel an unclaimed task.
-  orch work [--once]             Assign queued tasks to idle agents.
+  orch queue add|list|history|cancel             Durable task queue.
+  orch work [--once]                             Assign queued tasks to idle agents.
 
 REVIEW
-  orch review                     Interactively review done worktree agents.
-  orch review list [--json]      List done worktree agents with commits ahead.
-  orch review approve <target>    Merge and remove an approved worktree.
-  orch review reject <target> -m "feedback"
-                                 Re-dispatch feedback in the same worktree.
+  orch review [list|approve <target>|reject <target> -m "..."]
+                                                 Review done worktree agents.
 
-DISPATCH WORK
-  orch run <target> "<prompt>" [--raw]
-                                 Queue a prompt through orchd with the worker header (or exact prompt with --raw).
-  orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model <model[:thinking]>] [--agent adapter]
-                                 Durably accept a prompt through orchd, onto a CLEAN session.
-                                 --file reads the prompt from a file, or from stdin with '-'.
-                                 --with names a file or directory the agent opens for context on demand (repeatable).
-                                 --keep-context sends onto the existing session instead.
-                                 Prints 'Delivered to <recipient> (dispatch <id>)', or
-                                 'Queued to <recipient> (dispatch <id>): no bridge ack within <timeouts.dispatch_ack_ms>ms'.
-                                 A queued dispatch is durable: orchd retries every daemon.outbox_drain_ms
-                                 and re-pushes the moment the bridge attaches.
-  orch answer <target> "<text>"
-                                 Answer the question the agent is asking. Refused when it is not asking.
-  orch pipe <src> <dst> ["instruction"]
-                                 Send a completed result through orchd.
-  orch broadcast "<text>" [target ...|--all]
-                                 Steer named targets through orchd.
-  orch model <target> <model[:thinking]>
-                                 Durably accept a model change through orchd.
-  orch notify test [--state <state>]
-                                 Send a synthetic transition to each configured notification sink.
-  orch steer <target> <text...>    orchd pushes it down the agent's bridge link; the reply says whether the agent applied it.
-  orch wait <target> [--status done|idle|working|blocked] [--timeout ms]
-                                 Block until the pane reaches a status (default done, 300000ms).
-  orch result <target>... [--force] [--json]
-                                 Print each target's result (results.jsonl or session fallback); several targets print under \`== <target>\` headers, or as a JSON array with --json.
-                                 --force reads an agent another ${term("orch")} owns.
-  orch tail <target> [-n N]      Last N session entries (default 20), human-readable.
-  orch session <target>          Resolved session path + quick stats.
-  orch reload <target>... | --all   Reload panes, signal watchers via reload.signal, and report each outcome.
-  orch reset  <target>... | --all [--model M]
-                                 Start a fresh session/context, then pin M (else that harness's defaults.models entry). (alias: new)
-  orch restart <target>... | --all [--cmd pi]
-                                 Fully close the harness process and relaunch it.
+AGENTS (never steals focus except 'focus')
+  orch spawn <name>... [--tab L] [--file P]... [--model M]...
+                                                 One fleet, one command. The names are the agents.
+  orch tile <tab|pane> <name>                    Add one named agent to an existing tab.
+  orch rename <target> <name> [--pane]           Set the agent name. --pane sets the border label.
+  orch reset <target>... | --all [--model M]     Fresh session, same agent (alias: new).
+  orch reload <target>... | --all                Live-reload code after a rebuild.
+  orch restart <target>... | --all               Relaunch the harness process.
+  orch close <target>... | --all [--stream]      Close (alias: kill).
+  orch abort <target>                            Cancel the current turn.
+  orch detach <target>                           Release the lease. The agent keeps running.
+  orch adopt <target> | --all                    Take an unleased agent.
+  orch reap [<target>|--dead]                    Delete an agent record.
+  orch grant [<hash>|--list]                     Approve an action an agent was refused.
+  orch focus <target>                            Jump the user's view to that pane.
+  orch zoom <target> [--on|--off]                Zoom the pane full-tab.
+  orch move <target> --tab <tab_id|label>        Move a pane to another tab.
+  orch keys <target> <key>...                    Send raw keys.
+  orch panes                                     Raw pane list, for scripts.
 
-PANES (create / arrange / lifecycle - never steals focus except 'focus')
-  orch spawn <name> [<name>...] [--tab L] [--dir P] [--cmd C] [--model M]
-                   [--agent A] [--backend B] [--prompt T] [--file P|-] [--with P]... [--worktree]
-                                 Fresh tab, one balanced-tiled pane per name (2=side-by-side,
-                                 3=2+1, 4=2x2, ...). The names ARE the agents; there is no count.
-                                 Bridge-capable adapters wait up to 60 s for each agent's bridge to attach. Prints:
-                                 '  ok      <handle>  <name>'
-                                 '  STALLED <handle>  <name> - bridge never attached; try: orch restart <name>'
-                                 A stall exits 1. An adapter with no bridge prints:
-                                 "warning: <adapter> writes no presence record at session start - <count> agent(s) UNVERIFIED; check 'orch status' before dispatching"
-                                 Run from outside a pane, opening a space is REFUSED until a
-                                 human approves it with 'orch grant'; --space <id> uses an open one.
-                                 --backend headless needs --prompt or --file: a detached agent runs it and exits.
-  orch grant [<hash>|--list]     Approve actions an agent was refused. Needs a terminal:
-                                 there is no flag that answers the prompt for you.
-  orch tile <tab|pane> <name> [--cmd C] [--dir P] [--model M] [--agent A] [--backend B]
-                                 Add ONE pane to an existing tab, split into its largest cell and pin M.
-  orch rename <target> <name> [--pane]
-                                 Set the agent name (NAME column); --pane sets the pane
-                                 border label instead.
-  orch focus <target>            Jump the user's view to that pane (this one DOES steal focus).
-  orch zoom <target> [--on|--off]
-                                 Zoom the pane full-tab (default: toggle).
-  orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X]
-                                 Move a pane to another tab or a fresh one (no focus steal).
-  orch close <target>... | --all [--stream]
-                                 Close pane(s) ('orch kill' is an alias). --all closes only
-                                 panes orch spawned (never the user's); --stream also kills orch events.
-  orch detach <target>           Release the target's lease; it remains running and adoptable.
-  orch adopt <target> | --all    Adopt an unleased agent (or every available orphan).
-  orch reap <target>             Delete an ended agent record and its presence directory.
-  orch reap                      On a TTY, open an interactive multiselect over live agents; provably-dead rows are pre-checked.
-  orch reap --dead [--json]      Non-interactive sweep of provably-dead agents.
-  orch panes                     Raw merged pane list (tab-separated, for scripting).
-
-TABS
-  orch tabs                      List tabs: id, label, number, pane count, status.
-  orch tab new [--label X] [--workspace ID] [--dir P]
-                                 Create a tab (no focus steal); prints root pane id.
-  orch tab rename <tab_id|label> <new-label>
-  orch tab close <tab_id|label>
-  orch tab focus <tab_id|label>  Jump the user's view to that tab.
-
-SPACES
-  orch space list                List orch spaces by their names.
-  orch space create <name>       Create a named space, and its home where one can be held.
-  orch space rename <space> <name>
-                                 Rename a space, and its home where it has one.
-  orch space delete <space>      Delete an empty space, closing its home.
-  orch space focus <space>       Focus a space's home.
+TABS AND SPACES
+  orch tabs                                      List tabs.
+  orch tab new|rename|close|focus                Tab management.
+  orch space list|create|rename|delete|focus     orch's own grouping of related work.
 
 MAINTENANCE
-  orch daemon start [--fg|--foreground] | stop | status [--json] | reload
-                                 Manage the resident orch daemon.
-  orch doctor [--fix] [-y|--yes] [--json]
-                                 Check the install. On a TTY, doctor and 'doctor --fix'
-                                 open a menu to pick fixes; -y/--yes applies every fix
-                                 unattended (also how CI/non-TTY repairs run).
-  orch clean [--worktrees [--force]]
-                                 Delete dead agent dirs; clean orphaned worktrees (use --force to discard unmerged work).
-  orch setup [--agent <id[,id...]>] [--backend <id[,id...]>] [--model <model[:thinking]>]
-             [--yes] [--no-install] [--copy] [--skills|--no-skills]
-                                 Onboarding wizard: multi-select the adapters and backends
-                                 you use (--agent pi,claude / --backend herdr,headless - the
-                                 first of each is the active default), record the enabled
-                                 sets to ~/.orch/settings.json, install missing deps, and wire
-                                 every selected adapter's shim. Prompts interactively when a
-                                 selection is omitted on a TTY; --yes auto-installs deps,
-                                 --no-install just reports, --copy copies instead of symlinking.
-                                 Asks before installing orch's skills into ~/.agents/skills
-                                 and linking them into each harness that reads its own dir;
-                                 --skills / --no-skills answers that without the prompt.
-  orch settings [--json] [--harness=<id>] [--plexer=<id>]
-                                 Print each effective setting with its source (flag > env >
-                                 settings.json > default), or switch the active default
-                                 adapter/plexer among the enabled set.
-  orch settings models [--harness=<id>] [--model=<model[:thinking]>]
-                                 Re-pick, per enabled harness: the model it launches on, the
-                                 quicklist its own picker cycles (models.preferred), and the set
-                                 it may launch at all (models.allowed; none = all offered).
-                                 Every harness names models in its own vocabulary.
-  orch settings thinking [<level>] [--harness=<id>] [--clear]
-                                 Thinking effort for every launch, independent of the model:
-                                 off, minimal, low, medium, high, xhigh, max. Bare prints the
-                                 current value; --harness=<id> sets or (with --clear) removes
-                                 one harness's override.
-  orch settings notify [list] [--json]
-                                 List the sinks orchd delivers notifications through, with the
-                                 states each fires on and where it delivers.
-  orch settings notify add <sink> [--<field>=<value>...] [--on=<state,...>]
-                                 Record one sink; a sink already configured is replaced, keeping
-                                 the fields this call does not name. Each sink declares its own
-                                 fields (webhook --url, command --command; desktop and herdr take
-                                 none). --on defaults to blocked,error,done.
-                                 e.g. orch settings notify add sound  (a ding on this machine)
-                                 The sinks that need no fields (sound, desktop, herdr) are also
-                                 checkboxes on the notify row of orch settings. Verify with
-                                 orch notify test.
-  orch settings notify remove <sink>
-                                 Stop delivering through that sink.
-  orch settings skills [--install|--no-install] [--store=<dir>] [--link=<dir>[,<dir>...]]
-                                 Turn orch's skill install on or off and choose where it
-                                 writes. --install writes them right away; the real files
-                                 live in --store (~/.agents/skills, the cross-harness
-                                 standard) and each --link dir (~/.claude/skills) is
-                                 symlinked into it.
-  orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]
-                                 List every model each enabled harness reports it can run -
-                                 the quicklist never hides the rest. --preferred shows only the
-                                 quicklist, --search matches spec or label, --pick prints one
-                                 full spec for scripting. Lists only; records nothing.
-  orch help [command]            This message, or one command's detailed help.
-                                 'orch <command> -h' shows the same detail.
+  orch daemon start|stop|status|reload           The resident daemon (orchd).
+  orch doctor [--fix] [-y]                       Check the install and fix it.
+  orch clean [--force] [--worktrees]             Remove dead agent dirs and orphaned worktrees.
+  orch setup                                     Onboarding wizard.
+  orch settings [models|thinking|notify|skills]  Every effective setting and its source.
+  orch models [--agent=<id>]                     Every model each harness can run.
+  orch notify test                               Fire every notification sink.
+  orch version                                   Installed version.
+  orch help [command]                            This map, or one command's detail.
 
-RECOVER
-  orch abort <target>            Escape twice, 500ms apart, to dismiss and cancel a turn.
-  orch keys <target> <key> [key...]
-                                 Send raw keys to a pane.
-  orch peek <target> [-n N]      Read visible pane screen (default 25 lines).
-
-Target: agent name, identity key, or unique handle suffix.
-Groups resolve by id or unique label.
+Target: agent name, identity key, or unique handle suffix. Tabs resolve by id or unique label.
 `
   );
 }
@@ -311,6 +190,7 @@ function dispatchAsync(logger: Logger, task: Promise<unknown>): void {
 const commandHandlers: Record<string, Handler> = {
   status: (services, args) => dispatchAsync(services.logger, cmdStatusVerb(services, args)),
   events: (services, args) => dispatchAsync(services.logger, cmdEvents(services, args)),
+  monitor: (services, args) => dispatchAsync(services.logger, cmdMonitor(services, args)),
   logs: (services, args) => cmdLogs(services, args),
   notify: (services, args) => dispatchAsync(services.logger, cmdNotify(services, args)),
   questions: (services, args) => dispatchAsync(services.logger, cmdQuestions(services, args)),

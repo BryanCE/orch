@@ -1,7 +1,7 @@
 import type { OrchDir } from "../../types/core.ts";
 import { randomUUID } from "node:crypto";
 import { deliverControl } from "../../control/dispatch.ts";
-import { errorMessage } from "../../util.ts";
+import { errorMessage, mapWithLimit } from "../../util.ts";
 import {
   claimTask,
   listTasks,
@@ -80,15 +80,17 @@ export function statusSpeaksForTask(status: { dispatchId?: string | null } | nul
 
 /** The agent's status as the store holds it NOW. A presence entry is a snapshot
  *  taken before the dispatch; the report that answers it lands after. */
-async function waitForWorking(orchDir: OrchDir, entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string | null> {
+async function waitForWorking(options: WorkOptions, entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string | null> {
+  const orchDir = orchDirAt(options.orchDir);
   const deadline = Date.now() + timeoutMs;
   let state: string | null = null;
   do {
     const status = selectAgentStatus(orchDir, entry.key) ?? null;
     state = status?.state ?? null;
     if (state === "working" && statusSpeaksForTask(status, task)) return state;
-    if (Date.now() >= deadline) return state;
-    await abortableDelay(250);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) return state;
+    await options.wake.next(remainingMs, options.signal);
   } while (true);
 }
 
@@ -123,13 +125,13 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const dispatchAckTimeoutMs = options.settings.current().timeouts.dispatch_ack_ms;
   try {
     await sendPrompt();
-    let status = await waitForWorking(orchDir, entry, task, dispatchAckTimeoutMs);
+    let status = await waitForWorking(options, entry, task, dispatchAckTimeoutMs);
     let retried = false;
     if (status !== "working") {
       retried = true;
       log.debug("retry.attempt", { target: entry.key, attempt: 2, delay: 0 });
       await sendPrompt();
-      status = await waitForWorking(orchDir, entry, task, dispatchAckTimeoutMs);
+      status = await waitForWorking(options, entry, task, dispatchAckTimeoutMs);
     }
     if (!options.json) process.stdout.write(`Dispatched to ${entry.key} -> status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
   } catch (error) {
@@ -137,15 +139,17 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   }
 }
 
-async function waitForTaskState(orchDir: OrchDir, entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
+async function waitForTaskState(options: WorkOptions, entry: PresenceEntry, task: TaskRec, timeoutMs: number): Promise<string> {
+  const orchDir = orchDirAt(options.orchDir);
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
     const status = selectAgentStatus(orchDir, entry.key) ?? null;
     const state = status?.state;
     if ((state === "working" || state === "done" || state === "error") && statusSpeaksForTask(status, task)) return state;
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) return "timeout";
+    await options.wake.next(remainingMs, options.signal);
   }
-  return "timeout";
 }
 
 function taskEvent(orchDir: OrchDir, entry: PresenceEntry, task: TaskRec, oldState: TaskState, newState: TaskState, lastError?: string): NotifyEvent {
@@ -257,7 +261,7 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
   try {
     await (options.dispatch ?? ((entry, task) => dispatchTask(options, entry, task)))(entry, task);
     const dispatchAckTimeoutMs = options.settings.current().timeouts.dispatch_ack_ms;
-    const state = await waitForTaskState(orchDir, entry, task, dispatchAckTimeoutMs);
+    const state = await waitForTaskState(options, entry, task, dispatchAckTimeoutMs);
     const current = requireTask(orchDir, task.id);
     if (state === "timeout") {
       const failed = recordTaskFailure(orchDir, task.id, "agent did not acknowledge working");
@@ -314,37 +318,30 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
     const maxRetries = settings?.queue.max_retries ?? options.maxRetries ?? 1;
     const presence = loadPresence(orchDir);
     settleClaimedTasks(orchDir, settings, emit);
-    let assigned = 0;
     const tasks = listTasks(orchDir);
     const idle = [...presence.values()].filter(agentIdle)
       .map((entry) => runnerOf(orchDir, entry))
       .filter((runner): runner is Runner => runner !== null);
+    const claims: { entry: PresenceEntry; claimed: TaskRec }[] = [];
     for (const { entry, agentId } of idle) {
       // The facade resolves agent/pack/space eligibility from the registered
       // agent id and open pack intake. A foreign pack never sees this task.
       const task = nextQueuedTask(orchDir, agentId, maxRetries, tasks);
       const dispatchId = randomUUID();
       if (!task || !claimTask(orchDir, task.id, agentId, dispatchId)) continue;
-      assigned++;
       const claimed = requireTask(orchDir, task.id);
       emit(taskEvent(orchDir, entry, claimed, task.state, claimed.state));
-      await assignTask(options, entry, claimed, emit);
+      claims.push({ entry, claimed });
       if (options.once || options.signal?.aborted) break;
     }
+    await mapWithLimit(claims, options.settings.current().queue.dispatch_concurrency, ({ entry, claimed }) => assignTask(options, entry, claimed, emit));
+    const assigned = claims.length;
     if (options.once) {
       settleClaimedTasks(orchDir, settings, emit);
       return;
     }
     const claimed = tasks.some((task) => task.state === "claimed");
     if (assigned === 0 && !claimed && !options.continuous) return;
-    await abortableDelay(options.pollIntervalMs, options.signal);
+    await options.wake.next(options.tickMs, options.signal);
   }
-}
-
-function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
-  });
 }

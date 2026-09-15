@@ -1,5 +1,5 @@
 import { spawn as spawnProcess } from "node:child_process";
-import { processIsAlive, processStartToken, recordedInstanceIsLive } from "../process-identity.ts";
+import { freshStartToken, processIsAlive, recordedInstanceIsLive } from "../process-identity.ts";
 import type { InstanceProbe } from "../process-identity.ts";
 import type { ForegroundRole, ProcessRole, RecordedProcess, StartRequest, StartedProcess } from "../types/backend.ts";
 import type { BackendHandle, LocalProcessRoleDeps } from "../types/backend.ts";
@@ -26,7 +26,7 @@ function startLocalProcess(request: StartRequest): StartedProcess {
   });
   const pid = child.pid;
   if (!pid) throw new Error(`process ${executable} did not provide a pid`);
-  const startToken = processStartToken(pid);
+  const startToken = freshStartToken(pid);
   if (!startToken) {
     try { child.kill("SIGTERM"); } catch { /* the process is not safely addressable */ }
     throw new Error(`process ${executable} did not provide a start token`);
@@ -46,7 +46,7 @@ export class LocalProcessRole<Handle = BackendHandle> implements ProcessRole<Han
 
   constructor(private readonly pidOf: (handle: Handle) => number | null, deps: LocalProcessRoleDeps = {}) {
     this.alive = deps.isAlive ?? processIsAlive;
-    this.token = deps.startToken ?? processStartToken;
+    this.token = deps.startToken ?? freshStartToken;
     this.startProcess = deps.spawn ?? startLocalProcess;
     this.signalProcess = deps.signal ?? signalOtherProcess;
     this.probe = { isAlive: this.alive, startToken: this.token };

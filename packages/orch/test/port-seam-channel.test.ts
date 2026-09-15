@@ -17,6 +17,7 @@ import { placeAgent, seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { testServices } from "./helpers/services.ts";
+import { idleDaemonState } from "./helpers/daemon-state.ts";
 
 const dirs: OrchDir[] = [];
 const links: { readonly key: string; readonly link: BridgeLink }[] = [];
@@ -25,7 +26,7 @@ const saved = process.env.ORCH_DIR;
 function outboxDeps(orchDir: OrchDir, settings: Record<string, unknown> = {}): OutboxDeps {
   const services = testServices({ orchDir, settings });
   return {
-    deliver: (target, payload, id) => deliverWrite({ services, directory: orchDir, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false }, target, payload, id),
+    deliver: (target, payload, id) => deliverWrite(idleDaemonState(services, orchDir), target, payload, id),
     maxAttempts: 3,
     now: () => 0,
   };
@@ -129,7 +130,7 @@ describe("orch bridge links and capture roles", () => {
     expect(outboxMessageState(orchDir, id)).toBe("delivered");
   });
 
-  test("worker mail to a spawner whose pane the human is in settles on the stream under prompt", async () => {
+  test("worker mail to a spawner whose pane the human is in settles on the stream under prompt-unless-focused", async () => {
     const orchDir = tempOrchDir();
     seedMailPack(orchDir);
     placeAgent("orch1", { backend: "headless", handle: "pane-orch1" }, orchDir);
@@ -137,9 +138,35 @@ describe("orch bridge links and capture roles", () => {
     const id = "mail-up-focused";
     insertOutboxMessage(orchDir, { id, target: "orch1", payload: { action: "mail", from: "w1", text: "[from w1] done" } });
 
-    await withRegisteredBackend(backend, () => deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "prompt", to_worker: "events" } })));
+    await withRegisteredBackend(backend, () => deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "prompt-unless-focused", to_worker: "events" } })));
 
     expect(outboxMessageState(orchDir, id)).toBe("delivered");
+  });
+
+  test("worker mail to a spawner whose pane the human is in still waits for the bridge under prompt", async () => {
+    const orchDir = tempOrchDir();
+    seedMailPack(orchDir);
+    placeAgent("orch1", { backend: "headless", handle: "pane-orch1" }, orchDir);
+    const backend = new FakePanedBackend({ panes: [fakePane("pane-orch1", { focused: true })] });
+    const id = "mail-up-focused-prompt";
+    insertOutboxMessage(orchDir, { id, target: "orch1", payload: { action: "mail", from: "w1", text: "[from w1] done" } });
+
+    await withRegisteredBackend(backend, () => deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "prompt", to_worker: "events" } })));
+
+    expect(outboxMessageState(orchDir, id)).toBe("pending");
+  });
+
+  test("worker mail to a spawner whose pane is unfocused waits for the bridge under prompt-unless-focused", async () => {
+    const orchDir = tempOrchDir();
+    seedMailPack(orchDir);
+    placeAgent("orch1", { backend: "headless", handle: "pane-orch1" }, orchDir);
+    const backend = new FakePanedBackend({ panes: [fakePane("pane-orch1", { focused: false })] });
+    const id = "mail-up-unfocused";
+    insertOutboxMessage(orchDir, { id, target: "orch1", payload: { action: "mail", from: "w1", text: "[from w1] done" } });
+
+    await withRegisteredBackend(backend, () => deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "prompt-unless-focused", to_worker: "events" } })));
+
+    expect(outboxMessageState(orchDir, id)).toBe("pending");
   });
 
   test("spawner mail to its worker follows mail.to_worker, not mail.to_spawner", async () => {

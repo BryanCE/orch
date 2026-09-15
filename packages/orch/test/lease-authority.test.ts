@@ -14,6 +14,7 @@ import { resolveSpawnNames } from "../src/commands/spawn/names.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
+import { idleDaemonState } from "./helpers/daemon-state.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
 import { row } from "./helpers/rows.ts";
@@ -46,8 +47,7 @@ function live(dir: OrchDir, id: string, name = id): void {
 
 /** An agent with a recorded process that is provably NOT this process instance. */
 function daemonState(directory: OrchDir) {
-  const services = testServices({ orchDir: directory, settings: null });
-  return { services, directory, workController: new AbortController(), server: undefined, workLoop: undefined, workLoopRunning: false, outboxDrain: undefined, presenceWatch: undefined, settingsWatch: undefined, lastActivityAt: 0, logger: undefined, fatalLogged: false };
+  return idleDaemonState(testServices({ orchDir: directory, settings: null }), directory);
 }
 
 function dead(dir: OrchDir, id: string, name = id): void {

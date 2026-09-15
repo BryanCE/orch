@@ -72,31 +72,40 @@ For fan-out where you do not care which agent takes which task: `orch queue add`
 then `orch work`. Failed tasks retry up to `queue.max_retries`. Check `orch queue list` before
 reusing fleet names; a stale claimed task retries into a new agent of the same name.
 
-## Watch (`orch help events`)
+`orch queue add` enqueues through orchd, so it needs the daemon like every other write. The
+enqueue wakes the work loop at once, and so does every status report, result, answer and
+bridge attach: an idle agent takes a queued task the moment either exists, never on a poll.
+Claimed tasks dispatch in parallel, `queue.dispatch_concurrency` at a time. With nothing to
+wake it the loop ticks every `daemon.work_tick_ms` for retention and question re-asks only.
 
-Bare `orch events` is the whole of normal use: every state of every agent you own, one line
-each, complete enough to act on. Arm it through the Monitor tool in the same message as the
-spawn. Every flag deviates from that.
+## Watch (`orch help monitor`, `orch help events`)
+
+Bare `orch monitor` is the whole of normal use: the agents you own, one line each, only the
+states you act on (`monitor.on`: `asking`, `blocked`, `done`, `error`, `aborted`, `exited`)
+and every `message` a worker sends you. Arm it through the Monitor tool in the same message
+as the spawn. `orch events` is the same stream with every state on it, mid-turn flips
+included; take it only when you were told to observe one. Both take the same flags.
 
 - **Preflight before arming, every time.** It reads the OS instead of your memory, so it
   survives a context compaction:
 
   ```bash
-  pgrep -fa "orch events" | grep -v pgrep
+  pgrep -fa "orch (monitor|events)" | grep -v pgrep
   ```
 
   Non-empty means a watch is armed; do not arm another. If it names agents that no longer
   exist, `kill` that pid and arm one fresh.
-- **Smoke-test before arming.** `timeout 6 orch events --since-seq 0` replays past
+- **Smoke-test before arming.** `timeout 6 orch monitor --since-seq 0` replays past
   transitions. Silence has three causes, and orch names the first for you: you own no agents
   yet, the fleet is mid-turn with no state change, or your scope excludes the agents that did.
 - **Scope: three rings, and you are in the first.** Default is the agents this session owns,
   matched on `spawnedBy` and the open lease, and it follows agents you dispatch to later.
   `--space-wide` widens to the rest of your space, for two orchs coordinating. Past that is
   the wall, and nothing lifts it. `--agent=<name>` narrows to one; `--filter=working,idle`
-  drops those states.
+  drops those states from `orch events`.
 - **Act on the type.** `transition` is the normal line. `asking` means answer now. `message`
-  is a worker's report to you, text on the line. `closed` and `task` are bookkeeping.
+  is a worker's report to you, text on the line. `closed` and `task` are bookkeeping, and
+  stay on `orch events`.
 - **No dedupe, no timestamp floor.** The daemon suppresses repeats and `(key, seq)` identifies
   an event. A `date`-based floor only drops real events to clock skew.
 
@@ -121,7 +130,7 @@ the current turn. `orch pipe <src> <dst>` hands one agent's finished result to a
 
 Arrange without stealing focus: `orch tile`, `orch move`, `orch zoom`, `orch tab`, `orch
 space`. Only `focus` verbs jump the user's view. `orch close --all` sweeps only agents you
-spawned; `--stream` also kills your events stream.
+spawned; `--stream` also kills your `orch monitor` or `orch events` stream.
 
 ## Worktree review (`orch help review`)
 
@@ -136,10 +145,13 @@ settings.json, default) and opens the editor on a TTY. Every number orch uses is
 there; the names that bite a fleet most: `fleet.max_agents_per_tab`,
 `fleet.max_agents_per_pack`, `fleet.max_depth`, `fleet.worker_peer_tools`,
 `fleet.cross_space`, `mail.to_spawner` and `mail.to_worker` (per direction: `prompt` types
-the mail into the recipient's input, `events` publishes it on `orch events` and leaves the
-input alone), `defaults.models`,
+the mail into the recipient's input whoever is in the pane, `prompt-unless-focused` does the
+same unless the human is in that pane and then publishes instead, `events` always publishes
+it as a `message` line on `orch monitor` and `orch events` and leaves the input alone;
+defaults `prompt-unless-focused` to the spawner, `prompt` to everyone else), `monitor.on` (the states `orch
+monitor` shows), `defaults.models`,
 `defaults.thinking`, `models.allowed`, `questions.renag_ms`, `timeouts.dispatch_ack_ms`,
-`daemon.outbox_drain_ms`.
+`daemon.outbox_drain_ms`, `daemon.work_tick_ms`, `queue.dispatch_concurrency`.
 
 `orch settings notify` manages the sinks orchd delivers through. `sound`, `desktop` and
 `herdr` take no fields; `webhook` needs `--url`, `command` needs `--command` and gets the

@@ -98,7 +98,7 @@ describe("doctor settings defects", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { spawn_cap: 8 } });
 
-    const results = await runTestDoctor(directory, () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
+    const results = await runTestDoctor(directory, { sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
     const result = results.find((entry) => entry.id === "spawn-limits");
     if (result === undefined) throw new Error("missing spawn-limits result");
 
@@ -109,5 +109,5 @@ describe("doctor settings defects", () => {
       detail: "settings.json has 1 unreadable key(s); fix: orch settings",
     });
     expect(result.detail).not.toContain("Zod");
-  }, 30_000);
+  });
 });

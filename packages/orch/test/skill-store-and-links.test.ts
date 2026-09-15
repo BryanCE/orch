@@ -81,6 +81,27 @@ describe("skill store and harness links", () => {
     expect(result.detail).toContain("orch settings skills --install");
   });
 
+  test("doctor reports a stale store and its fix reinstalls the packaged skill", () => {
+    const pkgRoot = packagedSkill("orch", "current\n");
+    const store = tempDir("orch-skill-store-");
+    const harness = tempDir("orch-skill-harness-");
+    const orchDir = makeOrchDir("orch-skill-dir-");
+    writeSettingsFixture(orchDir, { skills: { install: true, store, link: [harness] } });
+    installSkills({ store, link: [harness] }, pkgRoot);
+    writeFileSync(join(pkgRoot, "skills", "orch", "SKILL.md"), "newer build\n");
+
+    const stale = checkSkillLinks(fileSettingsManager(orchDir).current(), pkgRoot);
+    expect(stale.status).toBe("warn");
+    expect(stale.detail).toContain("is stale");
+    if (!stale.fix) throw new Error("a stale store must carry a fix");
+    expect(stale.fix.destructive).toBeUndefined();
+
+    stale.fix.apply();
+
+    expect(readFileSync(join(harness, "orch", "SKILL.md"), "utf8")).toBe("newer build\n");
+    expect(checkSkillLinks(fileSettingsManager(orchDir).current(), pkgRoot).status).toBe("ok");
+  });
+
   test("doctor passes once every harness dir links into the store", () => {
     const pkgRoot = packagedSkill("orch", "current\n");
     const store = tempDir("orch-skill-store-");

@@ -13,6 +13,7 @@ import type { LifecycleVerb } from "../../types/adapter.ts";
 import type { DaemonStatusRow, PeerView, PendingQuestionView } from "../../types/daemon.ts";
 import type { BridgeNotification } from "../../types/agent.ts";
 import type { ResultReport, StatusPatch } from "../../types/presence.ts";
+import { isTaskOptions, isTaskRec, type TaskOptions, type TaskRec } from "../../types/queue.ts";
 
 const RPC_ERROR_CODES = [
   "INVALID_REQUEST", "INVALID_PARAMS", "METHOD_NOT_FOUND", "HANDLER_ERROR",
@@ -192,6 +193,12 @@ export const RPC_PARAMS = {
   notify: notifyParams,
   "report-status": z.object({ key: nonBlank, status: STATUS_PATCH }),
   "report-result": z.object({ key: nonBlank, result: RESULT_REPORT }),
+  enqueue: z.object({
+    enqueuedBy: nonBlank,
+    text: nonBlank,
+    opts: z.custom<TaskOptions>(isTaskOptions),
+    scope: z.object({ agentId: nonBlank.optional(), packId: nonBlank.optional(), spaceId: nonBlank.optional() }),
+  }),
   status: z.undefined(),
   attach: z.object({ key: nonBlank }),
   dispatch: GOVERNANCE.extend({ target: nonBlank, text: nonBlank }),
@@ -245,6 +252,7 @@ export const RPC_RESULTS = {
   notify: OK,
   "report-status": OK,
   "report-result": OK,
+  enqueue: z.object({ task: z.custom<TaskRec>(isTaskRec) }),
   status: z.object({ rows: z.array(daemonStatusRow) }),
   attach: z.object({ attached: z.literal(true), open: z.number() }),
   dispatch: ACCEPTED,

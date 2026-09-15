@@ -7,6 +7,8 @@
  * which of the two a signature means.
  */
 
+import { isRecord } from "../util.ts";
+
 /** Exactly one typed scope. The union makes two-at-once unconstructible. */
 export type TaskScope =
   | { scopeAgentId: string; scopePackId?: never; scopeSpaceId?: never }
@@ -61,6 +63,16 @@ export interface TaskOptions {
   [key: string]: unknown;
 }
 
+export function isTaskOptions(value: unknown): value is TaskOptions {
+  if (!isRecord(value)) return false;
+  if ("agent" in value && typeof value.agent !== "string") return false;
+  if ("model" in value && typeof value.model !== "string") return false;
+  if ("cwd" in value && typeof value.cwd !== "string") return false;
+  if ("worktree" in value && typeof value.worktree !== "boolean") return false;
+  if ("constraints" in value && !isRecord(value.constraints)) return false;
+  return true;
+}
+
 export interface TaskAttemptRec {
   since: number;
   until: number | null;
@@ -100,4 +112,49 @@ export interface PackIntakeRec {
   spaceId: string;
   since: number;
   until: number | null;
+}
+
+function isTaskState(value: unknown): value is TaskState {
+  return typeof value === "string" && TASK_STATES.some((state) => state === value);
+}
+
+function isTaskAttemptRec(value: unknown): value is TaskAttemptRec {
+  if (!isRecord(value)) return false;
+  if (typeof value.since !== "number") return false;
+  if (typeof value.until !== "number" && value.until !== null) return false;
+  if (typeof value.agentId !== "string") return false;
+  if (typeof value.dispatchId !== "string") return false;
+  if (value.outcome !== null && value.outcome !== "done" && value.outcome !== "failed") return false;
+  if (value.error !== null && typeof value.error !== "string") return false;
+  return true;
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return typeof value === "string" || value === null;
+}
+
+function hasTaskIdentity(value: { id?: unknown; text?: unknown; enqueuedBy?: unknown }): boolean {
+  return typeof value.id === "string" && typeof value.text === "string" && typeof value.enqueuedBy === "string";
+}
+
+function hasTaskScope(value: { scopeAgentId?: unknown; scopePackId?: unknown; scopeSpaceId?: unknown }): boolean {
+  return isNullableString(value.scopeAgentId) && isNullableString(value.scopePackId) && isNullableString(value.scopeSpaceId);
+}
+
+function hasTaskLifecycle(value: { createdAt?: unknown; updatedAt?: unknown; state?: unknown; stale?: unknown; attempts?: unknown }): boolean {
+  return typeof value.createdAt === "string"
+    && typeof value.updatedAt === "string"
+    && isTaskState(value.state)
+    && typeof value.stale === "boolean"
+    && Array.isArray(value.attempts)
+    && value.attempts.every(isTaskAttemptRec);
+}
+
+export function isTaskRec(value: unknown): value is TaskRec {
+  if (!isRecord(value)) return false;
+  return hasTaskIdentity(value)
+    && isTaskOptions(value.opts)
+    && hasTaskScope(value)
+    && hasTaskLifecycle(value)
+    && (!("error" in value) || typeof value.error === "string");
 }

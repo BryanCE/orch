@@ -8,6 +8,7 @@ import { fileSettingsManager } from "../src/settings/manager.ts";
 import { shouldLaunchSettingsEditor } from "../src/commands/settings.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { createEditorState, editorReducer } from "../src/settings/editor.ts";
+import { commitAndFlush, loadEntries, type Session } from "../src/settings/shell/state.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { EditorSetting, SettingSpec } from "../src/types/settings.ts";
 
@@ -64,6 +65,23 @@ describe("settings shell decisions", () => {
     expect(fileSettingsManager(directory).current().fleet.max_depth).toBe(4);
     const text = readFileSync(join(directory, "settings.json"), "utf8");
     expect(text).toContain('"max_depth": 4');
+  });
+
+  test("a committed choice shows its saved value on the next screen", () => {
+    const directory = tempDir("orch-settings-shell-");
+    writeSettingsFixture(directory, { mail: { to_spawner: "prompt" } });
+    const manager = fileSettingsManager(directory);
+    const session: Session = { state: createEditorState(loadEntries(manager)), filter: "", status: undefined, quit: false, escapeClearedFilter: false };
+    const index = session.state.settings.findIndex((entry) => entry.spec.key === "mail.to_spawner");
+    const opened = editorReducer({ ...session.state, focusedIndex: index }, { type: "open" });
+    expect(opened.mode).toBe("editing");
+    if (opened.mode !== "editing") return;
+
+    commitAndFlush(session, manager, opened, "prompt-unless-focused");
+
+    expect(session.status).toBe("mail.to_spawner saved");
+    expect(session.state.settings[session.state.focusedIndex]?.value).toBe("prompt-unless-focused");
+    expect(manager.current().mail.to_spawner).toBe("prompt-unless-focused");
   });
 
   test("registry exposes writable subcommand entries", () => {

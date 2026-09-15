@@ -37,6 +37,7 @@ function readProcessField(command: string, args: string[]): string | undefined {
       encoding: "utf8",
       timeout: FIELD_READ_TIMEOUT_MS,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
     return output.trim() || undefined;
   } catch {
@@ -63,6 +64,17 @@ function linuxStartTicks(pid: number): string | undefined {
  * as "matches".
  */
 export function processStartToken(pid: number): string | undefined {
+  return knownStartToken(pid, OS_PROBE);
+}
+
+/** The token of a process this one just started. Its pid is new, so nothing
+ *  remembered under that number can be it. */
+export function freshStartToken(pid: number): string | undefined {
+  knownStartTokens.delete(pid);
+  return knownStartToken(pid, OS_PROBE);
+}
+
+function probeStartToken(pid: number): string | undefined {
   if (hostOs() === "linux") return linuxStartTicks(pid);
   if (hostOs() === "windows") {
     return readProcessField("powershell", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.Ticks`]);
@@ -91,10 +103,10 @@ export interface InstanceProbe {
   readonly startToken: (pid: number) => string | undefined;
 }
 
-const OS_PROBE: InstanceProbe = { isAlive: processIsAlive, startToken: processStartToken };
+const OS_PROBE: InstanceProbe = { isAlive: processIsAlive, startToken: probeStartToken };
 
 /** Start tokens of pids seen alive. A token never changes while its process lives, and on
- *  Windows the probe is a powershell spawn that blocks the daemon for over a second. */
+ *  Windows the probe is a powershell spawn that blocks the caller for over a second. */
 const knownStartTokens = new Map<number, string>();
 
 function knownStartToken(pid: number, probe: InstanceProbe): string | undefined {

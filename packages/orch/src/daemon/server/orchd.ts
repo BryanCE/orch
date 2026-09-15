@@ -4,7 +4,7 @@ import "../../store/suppress-sqlite-warning.ts";
 import { bootCodeHash, startedAt, fleetStatus, idleShutdownDue, liveAgentCount, socketAnswers, touchOnCall } from "./state.ts";
 import type { DaemonState } from "./state.ts";
 import { answer, dispatch, message, outboxDeps, steer } from "./handlers/write.ts";
-import { applyLifecycle, listPendingQuestions, publishClosedAgent, recordAgentQuestion, setModel, spawnHeadless } from "./handlers/lifecycle.ts";
+import { applyLifecycle, enqueue, listPendingQuestions, publishClosedAgent, recordAgentQuestion, setModel, spawnHeadless } from "./handlers/lifecycle.ts";
 import { repinLiveFleet } from "./repin.ts";
 import {
   acquireDaemonLock,
@@ -46,6 +46,7 @@ import { activePaneHud } from "../../backends/hud.ts";
 import { peerView } from "./peer-view.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
 import type { PaneLabels } from "../../types/plexer.ts";
+import { createWakeSignal } from "./wake.ts";
 
 /** `level` is an explicit override (a flag); everything else resolves the same
  *  way every other logger does, through `logLevelFor`. */
@@ -86,6 +87,7 @@ export async function startDaemon(): Promise<DaemonState> {
     services,
     directory,
     workController: new AbortController(),
+    wake: createWakeSignal(),
     server: undefined,
     workLoop: undefined,
     workLoopRunning: false,
@@ -164,23 +166,40 @@ export async function startDaemon(): Promise<DaemonState> {
         activePaneHud(event.key, directory).notify(composed);
         return { ok: true };
       },
-      "report-status": (params) => acceptStatusReport(directory, params.key, params.status, (event) => emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings)),
-      "report-result": (params) => acceptResultReport(directory, params.key, params.result),
+      "report-status": (params) => {
+        const result = acceptStatusReport(directory, params.key, params.status, (event) => emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings));
+        state.wake.wake();
+        return result;
+      },
+      "report-result": (params) => {
+        const result = acceptResultReport(directory, params.key, params.result);
+        state.wake.wake();
+        return result;
+      },
       status: () => fleetStatus(state),
       attach: (params) => {
         const key = params.key;
         return { attached: true, open: selectOpenOutboxForTarget(directory, key).length };
       },
       dispatch: (params) => dispatch(state, params),
+      enqueue: (params) => enqueue(state, params),
       steer: (params) => steer(state, params),
       message: (params) => message(state, params),
       "spawn-headless": (params) => spawnHeadless(state, params),
       "set-model": (params) => setModel(state, params),
       lifecycle: (params) => applyLifecycle(state, params),
-      "agent-closed": (params) => publishClosedAgent(state, params),
+      "agent-closed": (params) => {
+        const result = publishClosedAgent(state, params);
+        state.wake.wake();
+        return result;
+      },
       question: (params) => recordAgentQuestion(directory, params),
       questions: () => listPendingQuestions(directory),
-      answer: (params) => answer(state, params),
+      answer: (params) => {
+        const result = answer(state, params);
+        state.wake.wake();
+        return result;
+      },
       ack: (params) => {
         const id = params.id;
         const row = selectOutboxMessage(directory, id);
@@ -188,6 +207,7 @@ export async function startDaemon(): Promise<DaemonState> {
         if (row === undefined) decisionLogger(directory, services.settings.currentOrNull()).forCorrelation(id).debug("dispatch.acked", { target: null });
         else decisionLogger(directory, services.settings.currentOrNull()).forCorrelation(id).info("dispatch.acked", { target: row.target });
         acknowledgeDelivery(id);
+        state.wake.wake();
         return { ok: true };
       },
       "control-outcome": (params) => {
@@ -227,6 +247,7 @@ export async function startDaemon(): Promise<DaemonState> {
         void redeliverOpenRows(directory, key, outboxDeps(state)).catch((error: unknown) => {
           state.logger?.error("outbox.redeliver-failed", { target: key, error: errorMessage(error) });
         });
+        state.wake.wake();
       },
     });
   } catch (error) {
@@ -290,12 +311,14 @@ export async function startDaemon(): Promise<DaemonState> {
       }
     }
     emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings);
+    state.wake.wake();
   };
   state.livenessTick = startLivenessTick(directory, services.settings.current().daemon.liveness_poll_ms, publishPresenceEvent);
   state.workLoopRunning = true;
   state.workLoop = runWorkLoop({
     orchDir: directory,
-    pollIntervalMs: 500,
+    wake: state.wake,
+    tickMs: services.settings.current().daemon.work_tick_ms,
     settings: services.settings,
     models: services.models,
     signal: state.workController.signal,

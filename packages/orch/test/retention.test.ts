@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
 
 import { join } from "node:path";
 import { runWorkLoop } from "../src/daemon/server/work-loop.ts";
+import { createWakeSignal } from "../src/daemon/server/wake.ts";
 import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA, settingsPath } from "../src/settings/schema.ts";
 import { fileSettingsManager, inMemorySettingsManager } from "../src/settings/manager.ts";
 import { appendEvent } from "../src/store/event-rows.ts";
@@ -45,15 +46,16 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     mail: { to_spawner: "prompt", to_worker: "prompt" },
     models: { allowed: {}, preferred: {} },
     workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
-    queue: { max_retries: 1 },
+    queue: { max_retries: 1, dispatch_concurrency: 4 },
     lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
     retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, ...days },
+    monitor: SETTINGS_DEFAULTS.monitor,
     timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000 },
     notify: [],
     locked_commands: [],
     hosts: {},
     spaces: {},
-    daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
+    daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
     doctor: { unclaimed_after_ms: 120_000 },
     tiling: { first_split: "rows" },
     skills: { install: true, store: "~/.agents/skills", link: [] },
@@ -330,7 +332,8 @@ describe("retention sweep", () => {
       };
       const loop = runWorkLoop({
         orchDir,
-        pollIntervalMs: 1,
+        wake: createWakeSignal(),
+        tickMs: 1,
         continuous: true,
         signal: controller.signal,
         settings: settingsManager,

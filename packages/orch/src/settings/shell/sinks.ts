@@ -1,7 +1,7 @@
 import { getColumns, getRows, isCancel, Prompt } from "@clack/core";
 import type { SettingsManager } from "../../types/services.ts";
 import { isRecord } from "../../util.ts";
-import type { EditingState, OrchSettings, SettingKind } from "../../types/settings.ts";
+import type { EditingState, SettingKind } from "../../types/settings.ts";
 import { CLEAR_SCREEN } from "../../tui/screen.ts";
 import { displayValue } from "../display.ts";
 import { multiOverlay, settingsFrame, SINKS_KEYBAR } from "../view.ts";
@@ -168,7 +168,7 @@ async function fillCheckedSinks(session: Session, manager: SettingsManager, kind
 
 /** Check the sinks to deliver through, set what each one carries, and choose when each
  *  fires. `e` edits the focused sink's value, `w` its states; nothing is written until enter. */
-export async function editSinks(session: Session, manager: SettingsManager, settings: OrchSettings, editing: EditingState, kind: SinksKind): Promise<void> {
+export async function editSinks(session: Session, manager: SettingsManager, editing: EditingState, kind: SinksKind): Promise<void> {
   const pick = initialPick(kind, editing.draft);
   for (;;) {
     const outcome = await pickSinks(session, manager, kind, pick);
@@ -185,7 +185,7 @@ export async function editSinks(session: Session, manager: SettingsManager, sett
       continue;
     }
     if (!await fillCheckedSinks(session, manager, kind, pick)) continue;
-    commitAndFlush(session, manager, settings, editing, pickedSinks(kind, pick));
+    commitAndFlush(session, manager, editing, pickedSinks(kind, pick));
     return;
   }
 }

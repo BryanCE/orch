@@ -13,6 +13,8 @@ import type { DaemonState } from "../state.ts";
 import type { ParamsOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
 import type { PendingQuestionView } from "../../../types/daemon.ts";
+import { addTask } from "../../../queue.ts";
+import type { TaskRec } from "../../../types/queue.ts";
 
 /**
  * Launch one headless agent from INSIDE the daemon.
@@ -22,6 +24,12 @@ import type { PendingQuestionView } from "../../../types/daemon.ts";
  * to do registers, finds no work, and dies before anything can be sent to it.
  * orchd owns the launch because it already owns delivery and outlives the CLI.
  */
+export function enqueue(state: DaemonState, params: ParamsOf<"enqueue">): { task: TaskRec } {
+  const task = addTask(state.directory, params.text, params.opts, params.enqueuedBy, params.scope);
+  state.wake.wake();
+  return { task };
+}
+
 export function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): { key: string; pid: number } {
   const directory = state.directory;
   const key = params.key;

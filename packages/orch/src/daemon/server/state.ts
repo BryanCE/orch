@@ -11,6 +11,7 @@ import { fleetStatusRows } from "../../commands/status/rows.ts";
 import type { DaemonStatusRow, LeaseStatusPayload, RpcHandler, RpcHandlers, RpcServer } from "../../types/daemon.ts";
 import type { SettingsWatch } from "../../types/settings.ts";
 import type { Services } from "../../types/services.ts";
+import type { WakeSignal } from "./wake.ts";
 
 /** The one spelling of "is this lease's holder still running". A start token
  *  proves the pid is the SAME process instance, not a recycled number. */
@@ -46,6 +47,7 @@ export interface DaemonState {
   readonly services: Services;
   readonly directory: OrchDir;
   readonly workController: AbortController;
+  readonly wake: WakeSignal;
   server: RpcServer | undefined;
   workLoop: Promise<void> | undefined;
   workLoopRunning: boolean;
@@ -84,6 +86,7 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     notify: touchHandler(state, handlers.notify),
     "report-status": touchHandler(state, handlers["report-status"]),
     "report-result": touchHandler(state, handlers["report-result"]),
+    enqueue: touchHandler(state, handlers.enqueue),
     status: touchHandler(state, handlers.status),
     attach: touchHandler(state, handlers.attach),
     dispatch: touchHandler(state, handlers.dispatch),

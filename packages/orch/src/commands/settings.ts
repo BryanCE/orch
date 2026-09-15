@@ -311,7 +311,7 @@ export async function cmdSettingsNotify(services: Services, args: string[]): Pro
 async function launchSettingsEditorIfRequested(services: Services, args: string[]): Promise<boolean> {
   if (shouldLaunchSettingsEditor(args)) {
     try {
-      await runSettingsEditor(services.settings, currentSettings(services));
+      await runSettingsEditor(services.settings);
     } catch (error: unknown) {
       die(errorMessage(error));
     }

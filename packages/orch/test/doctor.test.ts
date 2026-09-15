@@ -60,7 +60,7 @@ describe("runDoctor", () => {
     // doctor is the command you run WHEN orch is broken, so an install that has never been set up
     // must still get a full report: absence of settings is the answer for a check whose
     // subject is a settings section, never a defect.
-    const results = await runTestDoctor(tempDir(), () => ({ ok: true, stdout: "", stderr: "", code: 0 }));
+    const results = await runTestDoctor(tempDir(), { sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
 
     for (const entry of results.filter((row) => row.status === "fail")) {
       expect(entry.detail).not.toContain("settings.json");

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { addTask, cancelTask, closePackIntake, editTask, listTasks, openPackIntake, packIntakes, reapTask, takeOnTask, history as queueHistory, type TaskRec, type TaskScopeSelection } from "../queue.ts";
+import { cancelTask, closePackIntake, editTask, listTasks, openPackIntake, packIntakes, reapTask, takeOnTask, history as queueHistory, type TaskRec, type TaskScopeSelection } from "../queue.ts";
 import { ensureDaemon, rpcRegisterSession } from "../daemon/client/reach.ts";
+import { rpcCall } from "../daemon/client/rpc.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
@@ -148,7 +149,7 @@ async function queueAdd(services: Pick<Services, "orchDir" | "settings" | "logge
     options = { worktree: true, cwd: worktreePath, branch: `orch/${name}` };
   }
   const scope: TaskScopeSelection = scopeFromFlags(directory, invocation);
-  const task = addTask(directory, text, options, callerId, scope);
+  const { task } = await rpcCall(directory, "enqueue", { enqueuedBy: callerId, text, opts: options, scope });
   writeQueueTask(task, invocation.json, task.id);
 }
 

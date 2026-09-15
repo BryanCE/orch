@@ -22,6 +22,7 @@ import { sql } from "drizzle-orm";
 import { row } from "./helpers/rows.ts";
 import { withExitCode } from "./helpers/exit-code.ts";
 import { testServices } from "./helpers/services.ts";
+import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 const dirs: OrchDir[] = [];
 beforeEach(() => isolateOrchEnv());
@@ -35,21 +36,7 @@ function services(dir: OrchDir) {
 }
 
 function daemonState(dir: OrchDir) {
-  const serviceSet = services(dir);
-  return {
-    services: serviceSet,
-    directory: dir,
-    workController: new AbortController(),
-    server: undefined,
-    workLoop: undefined,
-    workLoopRunning: false,
-    outboxDrain: undefined,
-    presenceWatch: undefined,
-    settingsWatch: undefined,
-    lastActivityAt: 0,
-    logger: undefined,
-    fatalLogged: false,
-  };
+  return idleDaemonState(services(dir), dir);
 }
 
 function fixture(): OrchDir {

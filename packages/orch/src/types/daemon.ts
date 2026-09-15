@@ -11,6 +11,7 @@ import type { TaskRec } from "./queue.ts";
 import type { DriveState } from "./agent.ts";
 import type { AgentStatusRow } from "../store/status-rows.ts";
 import type { IdentityMethod, ParamsOf, ResultOf, RpcMethod } from "../daemon/client/protocol.ts";
+import type { WakeSignal } from "../daemon/server/wake.ts";
 
 export interface LockRecord {
   pid: number;
@@ -248,7 +249,9 @@ export interface SweepCounts {
 
 export interface WorkOptions {
   orchDir: OrchDir;
-  pollIntervalMs: number;
+  wake: WakeSignal;
+  /** How long the loop waits with nothing to wake it before it sweeps and re-asks. */
+  tickMs: number;
   signal?: AbortSignal;
   once?: boolean;
   continuous?: boolean;

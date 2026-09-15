@@ -75,6 +75,18 @@ describe("events scope notice", () => {
     expect(lines[0]).toContain("--space-wide");
   });
 
+  test("the empty notice names the verb that armed the stream", () => {
+    const lines: string[] = [];
+    startEventsLiveStream(parseEventsOptions([], "monitor"), MINE, {
+      verb: "monitor",
+      ownedAgents: () => 0,
+      writeNotice: (line: string) => lines.push(line),
+      startTransport: () => ({ done: Promise.resolve(), close: () => undefined }),
+    });
+
+    expect(lines[0]).toStartWith("orch monitor:");
+  });
+
   test("stays out of a --json stream, which a parser is reading", () => {
     const lines: string[] = [];
     startEventsLiveStream(parseEventsOptions(["--json"]), MINE, {

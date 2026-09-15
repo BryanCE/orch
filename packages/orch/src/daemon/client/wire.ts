@@ -170,6 +170,7 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "ack": return parseOne(method, RPC_PARAMS[method], id, value);
     case "report-status": return parseOne(method, RPC_PARAMS[method], id, value);
     case "report-result": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "enqueue": return parseOne(method, RPC_PARAMS[method], id, value);
     case "control-outcome": return parseOne(method, RPC_PARAMS[method], id, value);
     case "reload": return parseOne(method, RPC_PARAMS[method], id, value);
     case "register-session": return parseOne(method, RPC_PARAMS[method], id, value);

@@ -93,7 +93,8 @@ describe("a presence dir in the old shape is reaped, never migrated (J4)", () =>
     const dead = ensurePresenceAgentDir("deadagent1", root);
     if (dead === undefined) throw new Error("no history dir");
 
-    const removed = reapExpiredPresenceDirs(root, new Date());
+    // The dir was written this millisecond; "older than" needs the next one.
+    const removed = reapExpiredPresenceDirs(root, new Date(Date.now() + 1));
 
     expect(existsSync(dead)).toBe(false);
     expect(removed).toEqual(["deadagent1"]);

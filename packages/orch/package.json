@@ -48,6 +48,7 @@
     "drizzle/",
     "scripts/wsl-toast.ps1",
     "dist/",
+    "help/",
     "skills/",
     "README.md"
   ],

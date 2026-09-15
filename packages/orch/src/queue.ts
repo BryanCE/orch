@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { agentById } from "./store/agent-rows.ts";
 import { currentSpace } from "./store/interval-rows.ts";
 import { currentLease, holdsLease, leasesByOrch } from "./store/lease-rows.ts";
-import { errorMessage, isRecord } from "./util.ts";
+import { errorMessage } from "./util.ts";
 import {
   agentsInTaskScope,
   allTasks,
@@ -26,7 +26,7 @@ import {
 } from "./store/task-rows.ts";
 
 import type { AgentRow } from "./types/store.ts";
-import type { PackIntakeRec, TaskAttemptRec, TaskOptions, TaskRec, TaskScopeSelection, TaskState } from "./types/queue.ts";
+import { isTaskOptions, type PackIntakeRec, type TaskAttemptRec, type TaskOptions, type TaskRec, type TaskScopeSelection, type TaskState } from "./types/queue.ts";
 export type { PackIntakeRec, TaskOptions, TaskRec, TaskScopeSelection };
 export const STALE_TASK_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -40,16 +40,6 @@ function mapAttempt(row: AttemptRow): TaskAttemptRec {
     result: row.result,
     error: row.error,
   };
-}
-
-function isTaskOptions(value: unknown): value is TaskOptions {
-  if (!isRecord(value)) return false;
-  if ("agent" in value && typeof value.agent !== "string") return false;
-  if ("model" in value && typeof value.model !== "string") return false;
-  if ("cwd" in value && typeof value.cwd !== "string") return false;
-  if ("worktree" in value && typeof value.worktree !== "boolean") return false;
-  if ("constraints" in value && !isRecord(value.constraints)) return false;
-  return true;
 }
 
 function mapTask(orchDir: OrchDir, row: TaskRow, knownState?: TaskState): TaskRec {

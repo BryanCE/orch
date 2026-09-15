@@ -11,6 +11,7 @@ import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
+import { idleDaemonState } from "./helpers/daemon-state.ts";
 
 const dirs: OrchDir[] = [];
 function freshDir(): OrchDir {
@@ -25,19 +26,7 @@ type TestGovernance = Governance & { target?: string; text?: string };
 
 function governWrite(directory: OrchDir, target: string, params: TestGovernance): void {
   const services = testServices({ orchDir: directory, settings: null });
-  daemonGovernWrite({
-    services,
-    directory,
-    workController: new AbortController(),
-    server: undefined,
-    workLoop: undefined,
-    workLoopRunning: false,
-    outboxDrain: undefined,
-    settingsWatch: undefined,
-    lastActivityAt: 0,
-    logger: undefined,
-    fatalLogged: false,
-  }, target, params);
+  daemonGovernWrite(idleDaemonState(services, directory), target, params);
 }
 
 /** Identity and nothing else: a minted id, with no environment welded into it. */

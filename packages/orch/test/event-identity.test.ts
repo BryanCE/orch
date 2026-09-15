@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { emitAndNotify } from "../src/daemon/server/events.ts";
 import { runWorkLoop } from "../src/daemon/server/work-loop.ts";
+import { createWakeSignal } from "../src/daemon/server/wake.ts";
 import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
@@ -58,7 +59,8 @@ describe("the work loop is not a second presence-transition source", () => {
     try {
       const loop = runWorkLoop({
         orchDir,
-        pollIntervalMs: 10,
+        wake: createWakeSignal(),
+        tickMs: 10,
         continuous: true,
         settings: testServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings,
         models: testServices({ orchDir }).models,

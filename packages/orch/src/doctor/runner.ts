@@ -14,6 +14,7 @@ import { checkDeclaredVsReality } from "./declared-vs-reality.ts";
 import { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
 import { checkExtensionStaleness } from "./extensions.ts";
 import { checkSkillLinks } from "./skills.ts";
+import { checkHelpDocs } from "./help-docs.ts";
 import { checkProvenanceDepth } from "./provenance-depth.ts";
 import { checkUnclaimedAgents } from "./unclaimed-agents.ts";
 import { checkHarnessModels } from "./models.ts";
@@ -131,6 +132,7 @@ export async function runDoctor(services: Pick<Services, "orchDir" | "logger" | 
     isolated("unscoped-tasks", "Unscoped queue tasks", () => checkUnscopedTasks(orchDir)),
     isolated("unrunnable-tasks", "Unrunnable queue tasks", () => checkUnrunnableTasks(orchDir)),
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
+    isolated("help-docs", "Help docs", checkHelpDocs),
     isolated("settings", "Settings validity", () => checkSettingsFile(orchDir)),
     isolated("runtime", "Declared runtime", () => settings
       ? checkRuntime(settings)

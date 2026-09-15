@@ -12,7 +12,8 @@ import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
 import { rpcCall } from "../../daemon/client/rpc.ts";
-import { agentAddress, die, presenceById, resolveLifecycleTarget, splitOptionFlags } from "../target.ts";
+import { agentAddress, die, presenceById, resolveLifecycleTarget } from "../target.ts";
+import { parseCommand } from "../registry.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
 import type { ParamsOf } from "../../daemon/client/protocol.ts";
@@ -314,14 +315,11 @@ function reportClose(
 }
 
 export function cmdClose(services: Services, args: string[]) {
-  const usage = "usage: orch close <target>... | --all [--stream] [--json]";
-  const { enabled, positional } = splitOptionFlags(args, ["--all", "--stream", "--json"]);
-  const all = enabled.has("--all");
-  const stream = enabled.has("--stream");
-  const json = enabled.has("--json");
-  // Reject unknown flags before resolving or closing any preceding target.
-  if (positional.some((argument) => argument.startsWith("--"))) die(usage);
-  if (!all && !positional.length) die(usage);
+  const { flags, positional } = parseCommand("close", args);
+  const all = flags.has("--all");
+  const stream = flags.has("--stream");
+  const json = flags.has("--json");
+  if (!all && !positional.length) die("usage: orch close <target>... | --all [--stream] [--json]");
 
   const authority = callerAuthority(selfIdentity(services.orchDir));
   const named = namedTargets(services, positional);
@@ -334,8 +332,9 @@ export function cmdClose(services: Services, args: string[]) {
 }
 
 export function cmdAbort(services: Services, args: string[]) {
-  const json = args.includes("--json");
-  const target = args.find((arg) => arg !== "--json" && arg !== "--force");
+  const { flags, positional } = parseCommand("abort", args);
+  const json = flags.has("--json");
+  const target = positional[0];
   if (!target) die("usage: orch abort <target> [--force] [--json]");
   // Abort itself has no close-authority gate. Lifecycle resolution still scopes a
   // driving session by its open lease; the operator remains unscoped.

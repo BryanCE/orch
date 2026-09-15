@@ -3,6 +3,8 @@ import { renderTable } from "../table.ts";
 import { collapse, errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
 import { agentAddress, die, presenceById } from "./target.ts";
+import { parseCommand } from "./registry.ts";
+import type { Invocation } from "../cli/spec.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
 import { repositoryBranch, repositoryCommonRoot, worktreeReviewSummary, mergeReviewBranch, removeMergedWorktree } from "../worktree.ts";
@@ -25,57 +27,63 @@ interface ReviewItem {
 
 
 export async function cmdReview(services: Services, args: string[]): Promise<void> {
-  const subcommand = args[0];
-  if (!subcommand || !["list", "approve", "reject"].includes(subcommand)) {
-    die('usage: orch review list [--json] | approve <target> | reject <target> -m "feedback"');
+  const invocation = parseCommand("review", args);
+  switch (invocation.command.name) {
+    case "list": return reviewList(services.orchDir, invocation);
+    case "approve": return reviewApprove(services.orchDir, invocation);
+    case "reject": return reviewReject(services, invocation);
+    default:
+      if (invocation.positional.length) die('usage: orch review list [--json] | approve <target> | reject <target> -m "feedback"');
+      return reviewInteractive(services);
   }
-  if (subcommand === "list") {
-    const json = args.slice(1).includes("--json");
-    if (args.slice(1).some((arg) => arg !== "--json")) die("usage: orch review list [--json]");
-    const items = reviewItems(services.orchDir);
-    if (json) {
-      process.stdout.write(JSON.stringify(items.map(({ repoRoot: _repoRoot, ...item }) => item), null, 2) + "\n");
-      return;
-    }
-    if (!items.length) {
-      process.stdout.write("No worktree reviews pending.\n");
-      return;
-    }
-    const rows = items.map((item) => [item.target, item.branch, String(item.commitsAhead), item.task, item.summary]);
-    process.stdout.write(renderTable(["TARGET", "BRANCH", "AHEAD", "TASK", "SUMMARY"], rows, [20, 24, 5, 40, 60]) + "\n");
-    return;
-  }
-  const json = args.includes("--json");
-  const target = args.find((arg, index) => index > 0 && arg !== "--json");
-  if (!target) die(`usage: orch review ${subcommand === "approve" ? "approve <target> [--json]" : 'reject <target> -m "feedback" [--json]'}`);
-  const item = findReviewItem(services.orchDir, target);
-  if (subcommand === "approve") {
-    if (args.some((arg) => arg !== "approve" && arg !== target && arg !== "--json")) die("usage: orch review approve <target> [--json]");
-    try {
-      const strategy = mergeReviewBranch(item.repoRoot, item.branch);
-      removeMergedWorktree(item.repoRoot, item.worktree, item.branch);
-      if (json) process.stdout.write(JSON.stringify({ target: item.target, approved: true, strategy }) + "\n");
-      else process.stdout.write(`Approved ${item.target}: merged (${strategy}) and removed worktree.\n`);
-    } catch (error: unknown) {
-      die(errorMessage(error));
-    }
-    return;
-  }
-  if (subcommand === "reject") {
-    const messageIndex = args.indexOf("-m");
-    const feedback = messageIndex >= 0 ? args[messageIndex + 1] : undefined;
-    const allowedReject = new Set(["reject", target, "-m", feedback, "--json"]);
-    if (messageIndex < 0 || !feedback || args.some((arg) => !allowedReject.has(arg))) die('usage: orch review reject <target> -m "feedback" [--json]');
-    if (!loadPresence(services.orchDir).get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
-    await writeRpc(services, "steer", { target: item.key, text: feedback });
-    if (json) process.stdout.write(JSON.stringify({ target: item.target, rejected: true }) + "\n");
-    else process.stdout.write(`Rejected ${item.target}; feedback re-dispatched in the same worktree.\n`);
-    return;
-  }
-  die('usage: orch review list [--json] | approve <target> | reject <target> -m "feedback"');
 }
 
-export async function cmdReviewInteractive(services: Services): Promise<void> {
+function reviewList(orchDir: OrchDir, { flags, positional }: Invocation): void {
+  if (positional.length) die("usage: orch review list [--json]");
+  const items = reviewItems(orchDir);
+  if (flags.has("--json")) {
+    process.stdout.write(JSON.stringify(items.map(({ repoRoot: _repoRoot, ...item }) => item), null, 2) + "\n");
+    return;
+  }
+  if (!items.length) {
+    process.stdout.write("No worktree reviews pending.\n");
+    return;
+  }
+  const rows = items.map((item) => [item.target, item.branch, String(item.commitsAhead), item.task, item.summary]);
+  process.stdout.write(renderTable(["TARGET", "BRANCH", "AHEAD", "TASK", "SUMMARY"], rows, [20, 24, 5, 40, 60]) + "\n");
+}
+
+/** The one review target a subcommand names, or its usage line. */
+function reviewedItem(orchDir: OrchDir, positional: readonly string[], usage: string): ReviewItem {
+  const target = positional[0];
+  if (!target || positional.length !== 1) die(usage);
+  return findReviewItem(orchDir, target);
+}
+
+function reviewApprove(orchDir: OrchDir, { flags, positional }: Invocation): void {
+  const item = reviewedItem(orchDir, positional, "usage: orch review approve <target> [--json]");
+  try {
+    const strategy = mergeReviewBranch(item.repoRoot, item.branch);
+    removeMergedWorktree(item.repoRoot, item.worktree, item.branch);
+    if (flags.has("--json")) process.stdout.write(JSON.stringify({ target: item.target, approved: true, strategy }) + "\n");
+    else process.stdout.write(`Approved ${item.target}: merged (${strategy}) and removed worktree.\n`);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+}
+
+async function reviewReject(services: Services, { flags, positional }: Invocation): Promise<void> {
+  const usage = 'usage: orch review reject <target> -m "feedback" [--json]';
+  const item = reviewedItem(services.orchDir, positional, usage);
+  const feedback = flags.value("-m");
+  if (!feedback) die(usage);
+  if (!loadPresence(services.orchDir).get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
+  await writeRpc(services, "steer", { target: item.key, text: feedback });
+  if (flags.has("--json")) process.stdout.write(JSON.stringify({ target: item.target, rejected: true }) + "\n");
+  else process.stdout.write(`Rejected ${item.target}; feedback re-dispatched in the same worktree.\n`);
+}
+
+async function reviewInteractive(services: Services): Promise<void> {
   const items = reviewItems(services.orchDir);
   if (!items.length) {
     process.stdout.write("No worktree reviews pending.\n");

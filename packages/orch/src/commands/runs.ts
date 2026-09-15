@@ -6,6 +6,7 @@ import { collapse, truncate } from "../util.ts";
 import { formatTimestamp } from "../format.ts";
 import { callerKind } from "../policy/caller.ts";
 import { die } from "./target.ts";
+import { parseCommand } from "./registry.ts";
 import type { RunRecord } from "../types/store.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -50,35 +51,20 @@ export function renderRuns(runs: readonly RunRecord[]): string {
   return renderTable(["STARTED", "DURATION", "AGENT", "MODEL", "STATE", "COST", "TOKENS", "TASK"], rows, [19, 10, 30, 28, 12, 10, 14, 60]);
 }
 
-function readArgs(args: string[]): { target?: string; limit?: number; json: boolean } {
-  let target: string | undefined;
-  let limit: number | undefined;
-  const positional: string[] = [];
-  let json = false;
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
-    if (arg === "--json") {
-      json = true;
-      continue;
-    }
-    if (arg === "-n") {
-      const value = args[++index];
-      if (value === undefined || !/^\d+$/.test(value)) die(USAGE);
-      limit = Number(value);
-      if (!Number.isSafeInteger(limit)) die(USAGE);
-      continue;
-    }
-    if (arg.startsWith("-")) die(USAGE);
-    positional.push(arg);
-  }
-  if (positional.length > 1) die(USAGE);
-  target = positional[0];
-  return { target, limit, json };
+/** The `-n` row cap, or undefined when absent. Anything but a safe whole number dies with usage. */
+function readLimit(count: string | undefined): number | undefined {
+  if (count === undefined) return undefined;
+  if (!/^\d+$/.test(count) || !Number.isSafeInteger(Number(count))) die(USAGE);
+  return Number(count);
 }
 
 /** List durable dispatch history, optionally narrowed to one resolved agent. */
 export function cmdRuns(services: Services, args: string[]): void {
-  const { target, limit, json } = readArgs(args);
+  const { flags, positional } = parseCommand("runs", args);
+  if (positional.length > 1) die(USAGE);
+  const target = positional[0];
+  const limit = readLimit(flags.value("-n"));
+  const json = flags.has("--json");
   let agentKey: string | undefined;
   if (target !== undefined) {
     // Operators may still query a reaped exact key from durable history. Driving

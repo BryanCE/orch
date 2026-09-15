@@ -11,9 +11,11 @@ edit by hand. Every number orch uses is a setting there. The names that bite a f
 `daemon.outbox_drain_ms`, `daemon.work_tick_ms`, `queue.dispatch_concurrency`.
 
 `mail.to_spawner` and `mail.to_worker` say where mail lands, per direction. `prompt` types
-the mail into the recipient's input as it arrives. `events` publishes it as a `message`
-line on `orch monitor` and `orch events` and leaves the input alone; set that when a human
-types at the same prompt. The daemon reads them per delivery, so a change applies at once.
+the mail into the recipient's input as it arrives, whoever is in the pane.
+`prompt-unless-focused` does the same unless the human is in that pane, and then publishes
+instead. `events` always publishes it as a `message` line on `orch monitor` and `orch
+events` and leaves the input alone. Defaults: `prompt-unless-focused` to the spawner,
+`prompt` to everyone else. The daemon reads them per delivery, so a change applies at once.
 
 Subcommands:
 

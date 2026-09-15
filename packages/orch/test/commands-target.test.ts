@@ -1,16 +1,12 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/services.ts";
 import { describe, expect, test } from "bun:test";
-import { parseTargetPrompt, resultText, splitOptionFlags, remoteCommandArgs, livePanePresenceEntries } from "../src/commands/target.ts";
+import { resultText, remoteCommandArgs, livePanePresenceEntries } from "../src/commands/target.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 describe("commands/target", () => {
-  test("splits known flags and preserves positional args", () => {
-    expect(splitOptionFlags(["--json", "agent", "--all"], ["--json", "--all"])).toEqual({ enabled: new Set(["--json", "--all"]), positional: ["agent"] });
-  });
-  test("extracts target and joined prompt", () => expect(parseTargetPrompt(["agent", "do", "the", "thing"], "--raw", "usage")).toEqual({ target: "agent", prompt: "do the thing" }));
   test("reads only structured result text", () => {
     expect(resultText({ text: "done" })).toBe("done");
     expect(resultText({ text: 1 })).toBeUndefined();

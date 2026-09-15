@@ -28,6 +28,8 @@ import {
 } from "../daemon/client/reach.ts";
 import { errorMessage, pidAlive } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
+import { parseCommand } from "./registry.ts";
+import type { ParsedFlags } from "../cli/spec.ts";
 import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidNonOperatorOverride } from "./target.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -57,20 +59,16 @@ async function waitForDaemon(orchDir: OrchDir, previousStartedAt?: string): Prom
   ).catch(() => { throw new Error("timed out waiting for orchd"); });
 }
 
-/** Extract governance flags and strip them from the positional args. */
-export function parseGovernance(services: OrchDirService, args: string[]): { gov: WriteGovernance; rest: string[] } {
+/** The governance a command's parsed flags carry. */
+export function governanceFlags(services: OrchDirService, flags: ParsedFlags): WriteGovernance {
   const gov: WriteGovernance = {};
-  const rest: string[] = [];
-  for (const arg of args) {
-    if (arg === "--steal") gov.steal = true;
-    else if (arg === "--cross-space") gov.crossSpace = true;
-    else rest.push(arg);
-  }
+  if (flags.has("--steal")) gov.steal = true;
+  if (flags.has("--cross-space")) gov.crossSpace = true;
   // Refused at parse time so the message names the flag, before any wall or
   // resolution failure can obscure it. callDaemon re-checks for programmatic gov.
   if (gov.steal) forbidNonOperatorOverride(services.orchDir, "--steal");
   if (gov.crossSpace) forbidNonOperatorOverride(services.orchDir, "--cross-space");
-  return { gov, rest };
+  return gov;
 }
 
 /** One write to orchd, stamped with the caller's actor and governance. Throws the
@@ -195,41 +193,24 @@ async function reloadDaemon(orchDir: OrchDir, json = false): Promise<void> {
   else process.stdout.write(`reloaded (pid ${after.pid}, hash ${after.codeHash})\n`);
 }
 
-const FOREGROUND_FLAGS = ["--fg", "--foreground"];
-
-/** Refuse a flag orch does not define, so a typo never silently changes what runs —
- *  `--foreground` used to daemonize instead of attaching, with no complaint. */
-function rejectUnknownFlags(action: string, args: string[], allowed: readonly string[]): void {
-  const unknown = args.filter((arg) => !allowed.includes(arg));
-  if (unknown.length > 0) die(`orch daemon ${action}: unknown ${unknown.length === 1 ? "flag" : "flags"} ${unknown.join(" ")}`);
-}
-
 export async function cmdDaemon(services: Services, args: string[]): Promise<void> {
-  const [action, ...flags] = args;
-  const json = flags.includes("--json");
-  if (action === "start") {
-    rejectUnknownFlags(action, flags, [...FOREGROUND_FLAGS, "--json"]);
-    return startDaemon(services.orchDir, services.logger, flags.some((flag) => FOREGROUND_FLAGS.includes(flag)), json);
+  const { command, flags, positional } = parseCommand("daemon", args);
+  const json = flags.has("--json");
+  if (positional.length > 0) die(`usage: ${command.usage}`);
+  switch (command.name) {
+    case "start": return startDaemon(services.orchDir, services.logger, flags.has("--fg"), json);
+    case "stop": return stopDaemon(services.orchDir, json);
+    case "status": return statusDaemon(services.orchDir, json);
+    case "reload": return reloadDaemon(services.orchDir, json);
+    default: die(`usage: ${command.usage}`);
   }
-  if (action === "stop") {
-    rejectUnknownFlags(action, flags, ["--json"]);
-    return stopDaemon(services.orchDir, json);
-  }
-  if (action === "status") {
-    rejectUnknownFlags(action, flags, ["--json"]);
-    return statusDaemon(services.orchDir, json);
-  }
-  if (action === "reload") {
-    rejectUnknownFlags(action, flags, ["--json"]);
-    return reloadDaemon(services.orchDir, json);
-  }
-  die("usage: orch daemon start [--fg|--foreground] | stop | status [--json] | reload [--json]");
 }
 
 export async function cmdWork(services: Services, args: string[]) {
-  const json = args.includes("--json");
-  const once = args.includes("--once");
-  if (args.some((arg) => arg !== "--once" && arg !== "--json")) die("usage: orch work [--once] [--json]");
+  const { flags, positional } = parseCommand("work", args);
+  const json = flags.has("--json");
+  const once = flags.has("--once");
+  if (positional.length > 0) die("usage: orch work [--once] [--json]");
   await ensureDaemon(services.orchDir, services.logger);
   if (json) process.stdout.write(JSON.stringify({ once, accepted: true, daemon: "orchd" }) + "\n");
   else process.stdout.write("orchd is processing the queue.\n");

@@ -3,7 +3,8 @@ import { createServices, orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { allAdapters } from "../src/adapters/registry.ts";
 import { cmdSetup } from "../src/commands/setup.ts";
-import { readAssignFlag, readValueFlag } from "../src/setup/flags.ts";
+import { parseSetupOptions } from "../src/setup/flags.ts";
+import { parseCommand } from "../src/commands/registry.ts";
 import { resolveActiveDefault, resolveProviderSet, resolveRuntime } from "../src/setup/composition.ts";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -56,10 +57,14 @@ afterEach(() => {
 });
 
 describe("commands/setup", () => {
-  test("reads value and assignment flags", () => {
-    expect(readValueFlag(["--agent", "pi"], "--agent")).toBe("pi");
-    expect(readAssignFlag(["--agent=claude"], "--agent")).toBe("claude");
-    expect(readValueFlag([], "--agent")).toBeUndefined();
+  test("reads the setup flags in either spelling, with every --model kept in order", () => {
+    const options = parseSetupOptions(parseCommand("setup", ["--agent", "pi", "--plexer=headless", "--model", "pi=a", "--model=claude=b", "-y", "--no-skills"]).flags);
+    expect(options.adapterFlag).toBe("pi");
+    expect(options.backendFlag).toBe("headless");
+    expect(options.modelFlags).toEqual(["pi=a", "claude=b"]);
+    expect(options.yes).toBe(true);
+    expect(options.skills).toBe(false);
+    expect(parseSetupOptions(parseCommand("setup", []).flags).adapterFlag).toBeUndefined();
   });
   test("resolves noninteractive provider sets and defaults", async () => {
     expect(await resolveProviderSet("adapter", "--agent", "pi,claude", ["pi", "claude"], false, () => Promise.resolve(null))).toEqual(["pi", "claude"]);

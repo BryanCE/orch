@@ -39,26 +39,29 @@ Paths below are inside `packages/orch/`.
   from the spec. The registry test fails when a command has no doc.
 - `package.json` `files` has `"help/"`.
 
-### 3. Help renders from the spec. First change to existing code.
+### 3. Help renders from the spec. Done.
 
-- `src/cli/help.ts`: `renderMap(registry)`, `renderTopic(spec, doc)`.
-- `src/cli/doc.ts`: `readHelpDoc(name)`.
-- `src/commands/index.ts`: `orch help`, `orch help <cmd>`, `orch <cmd> -h` route through them.
-  `help.ts` and the `usage()` string are deleted.
-- `src/doctor/`: one check, every registered command has its doc file.
-- `test/cli-help.test.ts`: every handler has a spec, every spec has a summary, every flag has
-  a help line, every spec has a doc file. `test/golden/help.txt` re-rendered.
+- `src/cli/help.ts`: `renderMap(commands)`, `renderTopic(spec, doc, globals)`, `HELP_HEADER`.
+- `src/cli/doc.ts`: `helpDocPath(name)`, `readHelpDoc(name)`.
+- `src/commands/index.ts`: `usage()` prints the map; `helpTopic(word)` is exported and
+  renders the topic. `commandHandlers` is exported. `src/commands/help.ts` is deleted.
+- `src/doctor/help-docs.ts`: `checkHelpDocs()`, wired in `runner.ts` as `help-docs`.
+- `test/cli-help.test.ts`: handlers and specs match one to one; the map equals
+  `test/golden/help.txt`; a missing doc never throws. Golden re-rendered.
 
-### 4. Commands read the parser. 22 files, file-disjoint, sliced into waves.
+### 4. Commands read the parser. Done.
 
-- `cmdX(services, args)` becomes `cmdX(services, invocation)`.
-- `args.includes("--json")` becomes `invocation.flags.json`.
-- The six hand routers drop their `args[0] === "..."` chains; the parser routes to the child.
-- `spawn/flags.ts` drops `readSpawnFlag` and `parseSpawnFlags`, keeps per-agent resolution.
-- `dispatch --then <target> <note...>`: the parser takes the target as the flag's value; the
-  note is every positional after the prompt. `control.ts` reads it from there.
+- Every `cmdX(services, args)` opens with `parseCommand("<name>", args)` from
+  `src/commands/registry.ts` and reads `flags`, `positional`, and `command.name`.
+- Subcommand routers (`tab`, `space`, `queue`, `review`, `daemon`, `settings`, `notify`)
+  switch on the matched child spec. `src/commands/index.ts` has no hand router.
+- `splitOptionFlags`, `parseTargetPrompt`, `readAssignFlag`, `readValueFlag`,
+  `readModelFlags`, `readSpawnFlag`, and `parseQueueInvocation` are deleted.
+- Dead flags removed with their code: dispatch `--wait`/`--then`, restart `--hard`,
+  close and abort `--force`, queue add `--close`.
 
-### 5. Skill reference.
+### 5. Skill reference. Done.
 
-- `skills/orch/reference/commands.md` shrinks to what `help/<cmd>.md` does not say. Where
-  the doc carries the text, the reference points at `orch help <cmd>`.
+- `skills/orch/reference/commands.md` is a situation-to-`orch help <cmd>` table plus the
+  rules that span commands (targets, reuse before spawn, steer once, arrange without
+  focus). Per-command text lives only in `help/<cmd>.md`.

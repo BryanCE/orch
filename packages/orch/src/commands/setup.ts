@@ -17,6 +17,8 @@ import type { Services } from "../types/services.ts";
 import { compositionUnrecorded, resolveSetupComposition, recordComposition } from "../setup/composition.ts";
 import type { SetupComposition } from "../setup/composition.ts";
 import { parseSetupOptions } from "../setup/flags.ts";
+import { parseCommand } from "./registry.ts";
+import { die } from "./target.ts";
 import type { SetupOptions } from "../setup/flags.ts";
 import { installPrerequisites, installAdapterShims, wireBinaries, alignEntrypointToRuntime } from "../setup/install.ts";
 import { runSetupSmoke, smokeBlocker } from "../setup/smoke.ts";
@@ -49,7 +51,7 @@ async function askSkillsConsent(roots: SkillRoots, recorded: boolean): Promise<b
  *  recorded, then write the store and its harness links when allowed. */
 async function offerSkills(
   services: Pick<Services, "orchDir" | "settings">,
-  args: string[],
+  forced: boolean | undefined,
   interactive: boolean,
   ask: (roots: SkillRoots, recorded: boolean) => Promise<boolean> = askSkillsConsent,
 ): Promise<void> {
@@ -58,7 +60,6 @@ async function offerSkills(
   if (!packagedSkillNames().length) return;
   const { install: recorded, store, link } = services.settings.current().skills;
   const roots = { store, link };
-  const forced = args.includes("--skills") ? true : args.includes("--no-skills") ? false : undefined;
   const install = forced ?? (interactive ? await ask(roots, recorded) : recorded);
   writeSettingsSkills(services.settings, { install });
   process.stdout.write("Skills:\n");
@@ -110,7 +111,6 @@ async function installSetupComposition(
   services: Pick<Services, "orchDir" | "settings" | "logger">,
   composition: SetupComposition,
   options: SetupOptions,
-  args: string[],
 ): Promise<string[] | null> {
   recordComposition(services.settings, composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
   if (!(await installPrerequisites(services.logger, composition.adapters, composition.backends, options.interactive, options.yes, options.noInstall))) return null;
@@ -118,7 +118,7 @@ async function installSetupComposition(
   files.mkdirSync(presenceDir(services.orchDir), { recursive: true });
   process.stdout.write(`  ${presenceDir(services.orchDir)}\n`);
   const gaps = await installAdapterShims(services.orchDir, services.settings.current(), services.logger, composition.adapters, options.copy);
-  await offerSkills(services, args, options.interactive);
+  await offerSkills(services, options.skills, options.interactive);
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
   if (options.interactive) await configureNotifiers(services);
   wireBinaries(options.copy);
@@ -169,12 +169,14 @@ async function finishSetup(services: Services, options: SetupOptions, gaps: read
 /** Onboarding wizard: record the composition, install prerequisites and adapter shims, wire bins,
  * then run a closing doctor pass. Each step is a single-purpose helper; this orchestrates them. */
 export async function cmdSetup(services: Services, args: string[]) {
-  const options = parseSetupOptions(args);
+  const { flags, positional } = parseCommand("setup", args);
+  if (positional.length) die(`orch setup takes no arguments, got ${positional.join(" ")}`);
+  const options = parseSetupOptions(flags);
   await initializeSetup(options, services);
 
   const composition = await resolveSetupComposition(services.settings.current(), services.models, options);
   if (composition === null) return;
-  const gaps = await installSetupComposition(services, composition, options, args);
+  const gaps = await installSetupComposition(services, composition, options);
   if (gaps === null) return;
 
   await runDoctorPass(services, options.interactive);

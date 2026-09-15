@@ -54,7 +54,7 @@ describe("spawn names every agent positionally, at creation", () => {
   });
 
   test("--name is gone: naming is positional, so the flag is an unknown flag", () => {
-    expect(parseSpawnFlags(["--name", "api"]).unknownFlags).toContain("--name");
+    expect(() => parseSpawnFlags(["--name", "api"])).toThrow("unknown flag --name");
   });
 
   test("claimSpawnNames takes the resolved names and asserts each is free", () => {

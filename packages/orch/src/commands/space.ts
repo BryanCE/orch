@@ -5,7 +5,8 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { orm } from "../store/connection.ts";
 import { agentSpaces, agents, spaces } from "../db/schema.ts";
 import { clearHome, homeHandle, homeLabel, openHome } from "../store/home-rows.ts";
-import { die, splitOptionFlags } from "./target.ts";
+import { die } from "./target.ts";
+import { parseCommand } from "./registry.ts";
 import { errorMessage } from "../util.ts";
 import type { SpaceEnvironment } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
@@ -173,15 +174,18 @@ const USAGE = "usage: orch space list|create <name>|rename <space> <name>|delete
 /** Run one `orch space` subcommand against a resolved environment. Refusals throw;
  *  the CLI entry point below is the single place that turns one into an exit code. */
 export function runSpace(env: SpaceEnvironment, args: string[]): void {
-  const { enabled, positional } = splitOptionFlags(args, ["--json"]);
-  const json = enabled.has("--json");
-  const sub = positional[0] ?? "list";
-  if (sub === "list") listSpaces(env, json);
-  else if (sub === "create") createSpace(env, positional[1] ?? "", json);
-  else if (sub === "rename") renameSpace(env, positional[1], positional[2], json);
-  else if (sub === "delete") deleteSpace(env, positional[1], json);
-  else if (sub === "focus") focusSpace(env, positional[1], json);
-  else throw new Error(USAGE);
+  const { command, flags, positional } = parseCommand("space", args);
+  const json = flags.has("--json");
+  switch (command.name) {
+    case "create": return createSpace(env, positional[0] ?? "", json);
+    case "rename": return renameSpace(env, positional[0], positional[1], json);
+    case "delete": return deleteSpace(env, positional[0], json);
+    case "focus": return focusSpace(env, positional[0], json);
+    case "list": return listSpaces(env, json);
+    default:
+      if (positional.length) throw new Error(USAGE);
+      return listSpaces(env, json);
+  }
 }
 
 export function cmdSpace(services: Services, args: string[]): void {

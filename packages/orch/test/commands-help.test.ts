@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { helpTopic } from "../src/commands/help.ts";
+import { helpTopic } from "../src/commands/index.ts";
 
 describe("per-command help topics", () => {
   test("daemon help names every subcommand and the idle shutdown setting", () => {

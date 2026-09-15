@@ -25,7 +25,6 @@ const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 function ompExtension(harness: HarnessApi): void {
   const services = createServices();
   const bridge = registerHarnessBridge(harness, OMP_IDENTITY, EXTENSION_HASH, {
-    fleet: false,
     orchDir: services.orchDir,
     settings: services.settings,
   });

@@ -4,6 +4,7 @@ import { countStates, formatSeatStatus, hasTheme } from "../src/seat/index.ts";
 import { reconcileDashboardSelection } from "../src/seat/ui/takeover.ts";
 import { errorMessage } from "../src/util.ts";
 import type { PackSnapshot } from "../src/types/seat.ts";
+import { transitionEvent } from "./helpers/events.ts";
 
 function snapshot(state: string, key = state): PackSnapshot {
   return {
@@ -14,6 +15,7 @@ function snapshot(state: string, key = state): PackSnapshot {
     task: "",
     createdAt: 0,
     lastTransitionAt: 0,
+    lastEvent: transitionEvent({ key, name: key, newState: "working" }),
     info: {},
   };
 }

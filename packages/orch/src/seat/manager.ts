@@ -10,7 +10,7 @@
  * scope owns only the subscription and fibers, never a pane.
  */
 import { Context, Effect, Fiber, Layer, Runtime, Stream } from "effect";
-import { SETTLED_STATES } from "./domain.ts";
+import { SETTLED_STATES, transitionName } from "./domain.ts";
 import { PackSource } from "./source.ts";
 import type { PackEnrichment, PackManagerShape, PackReadView, PackSnapshot, PackSourceShape } from "../types/seat.ts";
 import type { NotifyEvent } from "../types/notify.ts";
@@ -32,6 +32,7 @@ interface MutableSnapshot {
   dispatchId?: string;
   createdAt: number;
   lastTransitionAt: number;
+  lastEvent: NotifyEvent;
   info: PackEnrichment;
 }
 
@@ -44,6 +45,44 @@ interface Entry {
 const ENRICH_TTL_MS = 1_000;
 
 // --- Read model ----------------------------------------------------------------
+
+function transitionInstant(transition: NotifyEvent): number {
+  return Date.parse(transition.ts) || Date.now();
+}
+
+/** A new row for an agent the board first sees on this transition. */
+function snapshotFrom(transition: NotifyEvent): MutableSnapshot {
+  const at = transitionInstant(transition);
+  return {
+    key: transition.key,
+    name: transitionName(transition),
+    state: transition.newState,
+    model: transition.model,
+    task: ("task" in transition ? transition.task ?? "" : "").slice(0, TASK_MAX_LENGTH),
+    lastError: "lastError" in transition ? transition.lastError : undefined,
+    cost: "cost" in transition ? transition.cost : undefined,
+    dispatchId: "dispatchId" in transition ? transition.dispatchId : undefined,
+    createdAt: at,
+    lastTransitionAt: at,
+    lastEvent: transition,
+    info: {},
+  };
+}
+
+/** Fold one transition into a known row; a fact the event omits keeps its last value. */
+function applyTransition(snapshot: MutableSnapshot, transition: NotifyEvent): void {
+  const task = "task" in transition ? transition.task : undefined;
+  const lastError = "lastError" in transition ? transition.lastError : undefined;
+  snapshot.name = transitionName(transition);
+  snapshot.state = transition.newState;
+  snapshot.model = transition.model ?? snapshot.model;
+  snapshot.task = (task ?? snapshot.task).slice(0, TASK_MAX_LENGTH);
+  snapshot.lastError = lastError ?? (transition.newState === "error" ? snapshot.lastError : undefined);
+  snapshot.cost = ("cost" in transition ? transition.cost : undefined) ?? snapshot.cost;
+  snapshot.dispatchId = ("dispatchId" in transition ? transition.dispatchId : undefined) ?? snapshot.dispatchId;
+  snapshot.lastTransitionAt = transitionInstant(transition);
+  snapshot.lastEvent = transition;
+}
 
 // --- Service --------------------------------------------------------------------
 
@@ -113,40 +152,11 @@ const makeManager = Effect.gen(function* () {
       return;
     }
     const existing = entries.get(transition.key);
-    const task = "task" in transition ? transition.task : undefined;
-    const lastError = "lastError" in transition ? transition.lastError : undefined;
-    const cost = "cost" in transition ? transition.cost : undefined;
-    const dispatchId = "dispatchId" in transition ? transition.dispatchId : undefined;
-    const at = Date.parse(transition.ts) || Date.now();
-    const name = transition.name ?? transition.agent ?? transition.key;
     if (existing) {
-      const s = existing.snapshot;
-      s.name = name;
-      s.state = transition.newState;
-      s.model = transition.model ?? s.model;
-      s.task = (task ?? s.task).slice(0, TASK_MAX_LENGTH);
-      s.lastError = lastError ?? (transition.newState === "error" ? s.lastError : undefined);
-      s.cost = cost ?? s.cost;
-      s.dispatchId = dispatchId ?? s.dispatchId;
-      s.lastTransitionAt = at;
+      applyTransition(existing.snapshot, transition);
       enrich(existing);
     } else {
-      const entry: Entry = {
-        snapshot: {
-          key: transition.key,
-          name,
-          state: transition.newState,
-          model: transition.model,
-          task: (task ?? "").slice(0, TASK_MAX_LENGTH),
-          lastError,
-          cost,
-          dispatchId,
-          createdAt: at,
-          lastTransitionAt: at,
-          info: {},
-        },
-        enrichedAt: 0,
-      };
+      const entry: Entry = { snapshot: snapshotFrom(transition), enrichedAt: 0 };
       entries.set(transition.key, entry);
       enrich(entry);
     }

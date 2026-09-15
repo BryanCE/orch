@@ -11,6 +11,7 @@
  */
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { createDaemonClient } from "../agent/daemon-client.ts";
+import { notificationText } from "../notify/format.ts";
 import { ALERT_STATES } from "./domain.ts";
 import { createPackRuntime } from "./runtime.ts";
 import { openPackDashboard } from "./ui/takeover.ts";
@@ -113,8 +114,7 @@ export function registerOrchSeat(pi: SeatRegistrationApi, settings: SettingsMana
         const previous = lastStates.get(agent.key);
         lastStates.set(agent.key, agent.state);
         if (ALERT_STATES.has(agent.state) && previous !== undefined && !ALERT_STATES.has(previous)) {
-          const detail = agent.info.asking?.question ?? agent.lastError ?? agent.task ?? agent.state;
-          if (hasNotify(ui)) ui.notify(`${agent.name}: ${detail.slice(0, 120)}`, agent.state === "error" ? "error" : "warning");
+          if (hasNotify(ui)) ui.notify(notificationText(agent.lastEvent).title, agent.state === "error" ? "error" : "warning");
         }
       }
       // An empty pack renders as NOTHING; this seat stays invisible until it spawns.

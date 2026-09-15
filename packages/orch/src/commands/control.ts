@@ -9,10 +9,12 @@ import { collapse, errorMessage, isRecord, truncate } from "../util.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { spawnerIdentity } from "../policy/spawner.ts";
 import { modelSpec } from "../policy/thinking.ts";
-import { callDaemon, parseGovernance, writeRpc } from "./daemon.ts";
+import { callDaemon, governanceFlags, writeRpc } from "./daemon.ts";
+import { parseCommand } from "./registry.ts";
+import type { Invocation } from "../cli/spec.ts";
 import { assertAgentOwned, callerOwnerToken, die, livePanePresenceEntries, ownerTokenOrDie, remoteWrite, requireCallerOwnerToken, requirePresenceTarget, resultText, targetHost, ownsAgent } from "./target.ts";
 import { entityAdapter } from "./status/rows.ts";
-import { pickAdapter, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
+import { agentFlags, pickAdapter, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
 import { clearSession } from "./lifecycle/reset.ts";
 import { admitLaunchModel, pinModels } from "./spawn/models.ts";
@@ -31,16 +33,13 @@ import type { Entity, OrchDir } from "../types/core.ts";
 type DispatchFlags = AgentFlags & {
   raw: boolean;
   json: boolean;
-  doWait: boolean;
-  thenTarget: string | null;
-  thenNote: string;
   /** Path the prompt body is read from, or "-" for stdin. Unset means the positionals are the prompt. */
   promptFile?: string;
   /** Where the agent's context lives; each `--with` adds one. Orch checks each exists and never reads it. */
-  withPaths: string[];
+  withPaths: readonly string[];
   /** Send the work onto the session the agent already has, instead of a clean one. */
   keepContext: boolean;
-  positional: string[];
+  positional: readonly string[];
 };
 
 interface DispatchSettings {
@@ -49,21 +48,19 @@ interface DispatchSettings {
   model: string | null;
   raw: boolean;
   json: boolean;
-  doWait: boolean;
-  thenNote: string;
   ent: Entity;
   /** What the caller called the agent back to itself: its handle, else its key. */
   handle: string;
   prompt: string;
   keepContext: boolean;
-  destination: Entity | null;
 }
 
 export async function cmdSteer(services: Services, args: string[]): Promise<void> {
-  const json = args.includes("--json");
-  const { gov, rest: cleanArgs } = parseGovernance(services, args.filter((arg) => arg !== "--json"));
-  const target = cleanArgs[0];
-  const text = cleanArgs.slice(1).join(" ");
+  const { flags, positional } = parseCommand("steer", args);
+  const json = flags.has("--json");
+  const gov = governanceFlags(services, flags);
+  const target = positional[0];
+  const text = positional.slice(1).join(" ");
   if (!target || !text) die('usage: orch steer <target> <text...> [--steal] [--cross-space] [--json]');
   const remote = targetHost(services.settings.current().hosts, target);
   if (remote) {
@@ -97,15 +94,10 @@ function reportControlDelivery(orchDir: OrchDir, action: "steered" | "answered" 
 }
 
 export async function cmdBroadcast(services: Services, args: string[]) {
-  let all = false;
-  const json = args.includes("--json");
-  const force = args.includes("--force");
-  const positional: string[] = [];
-  for (const arg of args) {
-    if (arg === "--all") all = true;
-    else if (arg === "--json" || arg === "--force") continue;
-    else positional.push(arg);
-  }
+  const { flags, positional } = parseCommand("broadcast", args);
+  let all = flags.has("--all");
+  const json = flags.has("--json");
+  const force = flags.has("--force");
   const text = positional[0];
   const targets = positional.slice(1);
   if (!text) die('usage: orch broadcast "<text>" [target ...|--all]');
@@ -149,11 +141,11 @@ export async function cmdBroadcast(services: Services, args: string[]) {
 }
 
 export async function cmdPipe(services: Services, args: string[]) {
-  const json = args.includes("--json");
-  const cleanArgs = args.filter((arg) => arg !== "--json");
-  const src = cleanArgs[0];
-  const dst = cleanArgs[1];
-  const instruction = cleanArgs.slice(2).join(" ");
+  const { flags, positional } = parseCommand("pipe", args);
+  const json = flags.has("--json");
+  const src = positional[0];
+  const dst = positional[1];
+  const instruction = positional.slice(2).join(" ");
   if (!src || !dst) die('usage: orch pipe <src> <dst> ["instruction"] [--json]');
   const source = requirePresenceTarget(services.orchDir, services.settings.current(), src);
   const extractInput = { key: source.presence!.key, sessionPath: source.sessionPath ?? undefined };
@@ -167,10 +159,11 @@ export async function cmdPipe(services: Services, args: string[]) {
 }
 
 export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
-  const json = args.includes("--json");
-  const { gov, rest } = parseGovernance(services, args.filter((arg) => arg !== "--json"));
-  const target = rest[0];
-  const text = rest.slice(1).join(" ");
+  const { flags, positional } = parseCommand("answer", args);
+  const json = flags.has("--json");
+  const gov = governanceFlags(services, flags);
+  const target = positional[0];
+  const text = positional.slice(1).join(" ");
   if (!target || !text) die('usage: orch answer <target> "<text>" [--steal] [--cross-space] [--json]');
   const remote = targetHost(services.settings.current().hosts, target);
   if (remote) {
@@ -186,10 +179,11 @@ export async function cmdAnswer(services: Services, args: string[]): Promise<voi
 }
 
 export async function cmdModel(services: Services, args: string[]): Promise<void> {
-  const json = args.includes("--json");
-  const { gov, rest } = parseGovernance(services, args.filter((arg) => arg !== "--no-wait" && arg !== "--json"));
-  const target = rest[0];
-  const modelArg = rest[1];
+  const { flags, positional } = parseCommand("model", args);
+  const json = flags.has("--json");
+  const gov = governanceFlags(services, flags);
+  const target = positional[0];
+  const modelArg = positional[1];
   if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-space] [--no-wait]");
   const ent = resolveTarget(services.orchDir, services.settings.current(), target, { crossSpace: gov.crossSpace });
   assertAgentOwned(services.orchDir, target, ent, gov.steal);
@@ -288,9 +282,9 @@ function adoptedProcess(ent: Entity): RecordedProcess {
 }
 
 export async function cmdDispatch(services: Services, args: string[]) {
-  const { gov, rest } = parseGovernance(services, args);
-  const flags = parseDispatchFlags(rest);
-  if (flags.doWait || flags.thenTarget) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--thinking <level>] [--agent adapter] [--steal] [--cross-space]');
+  const invocation = parseCommand("dispatch", args);
+  const gov = governanceFlags(services, invocation.flags);
+  const flags = dispatchFlags(invocation);
   const settings = services.settings.current();
   if (forwardedToTargetHost(settings.hosts, args, flags.positional[0])) return;
   const dispatchSettings = resolveDispatchSettings(services.orchDir, flags, settings, gov);
@@ -317,24 +311,19 @@ export async function cmdDispatch(services: Services, args: string[]) {
   reportControlDelivery(services.orchDir, "dispatched", key, result, dispatchSettings.json, "", settings.timeouts.dispatch_ack_ms);
 }
 
-export function parseDispatchFlags(args: string[]): DispatchFlags {
-  const commandArgs = args.filter((argument) => argument !== "--raw" && argument !== "--json" && argument !== "--keep-context");
-  const flags: DispatchFlags = { raw: args.includes("--raw"), json: args.includes("--json"), doWait: false, thenTarget: null, thenNote: "", withPaths: [], keepContext: args.includes("--keep-context"), positional: [] };
-  for (let i = 0; i < commandArgs.length; i++) {
-    const argument = commandArgs[i];
-    if (argument === "--model") flags.modelFlag = commandArgs[++i];
-    else if (argument === "--thinking") flags.thinkingFlag = commandArgs[++i];
-    else if (argument === "--file") flags.promptFile = commandArgs[++i];
-    else if (argument === "--with") flags.withPaths.push(commandArgs[++i]!);
-    else if (argument === "--agent" || argument === "--adapter") flags.adapterFlag = commandArgs[++i];
-    else if (argument === "--wait") flags.doWait = true;
-    else if (argument === "--then") {
-      flags.thenTarget = commandArgs[++i] ?? null;
-      flags.thenNote = commandArgs.slice(i + 1).join(" ");
-      break;
-    } else flags.positional.push(argument!);
-  }
-  return flags;
+/** The dispatch spec's flags as the resolvers read them. Exported for tests. */
+export function dispatchFlags({ flags, positional }: Invocation): DispatchFlags {
+  const read: DispatchFlags = {
+    ...agentFlags(flags),
+    raw: flags.has("--raw"),
+    json: flags.has("--json"),
+    withPaths: flags.values("--with"),
+    keepContext: flags.has("--keep-context"),
+    positional,
+  };
+  const promptFile = flags.value("--file");
+  if (promptFile !== undefined) read.promptFile = promptFile;
+  return read;
 }
 
 /** The prompt body a control verb sends: typed after the target, or read from `--file`. */
@@ -352,8 +341,6 @@ function resolveDispatchSettings(orchDir: OrchDir, flags: DispatchFlags, setting
   const ent = resolveTarget(orchDir, settings, target, { crossSpace: gov.crossSpace });
   assertAgentOwned(orchDir, target, ent, gov.steal);
   const handle = ent.paneId ?? ent.key;
-  const destination = flags.thenTarget ? requirePresenceTarget(orchDir, settings, flags.thenTarget) : null;
-  if (flags.thenTarget && !ent.presence) die(`Target "${target}" has no agent dir for --then.`);
-  return { adapter: pickAdapter(flags, settings), model: requestedModel(flags), raw: flags.raw, json: flags.json, doWait: flags.doWait, thenNote: flags.thenNote, ent, handle, prompt: taskWithReferences(prompt, flags.withPaths.map(contextReference)), keepContext: flags.keepContext, destination };
+  return { adapter: pickAdapter(flags, settings), model: requestedModel(flags), raw: flags.raw, json: flags.json, ent, handle, prompt: taskWithReferences(prompt, flags.withPaths.map(contextReference)), keepContext: flags.keepContext };
 }
 

@@ -2,38 +2,36 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isLogLevel, isLogRecord } from "../log.ts";
 import { die } from "./target.ts";
+import { parseCommand } from "./registry.ts";
 import type { LogOptions } from "../types/command.ts";
-import type { LogRecord, OrchDir } from "../types/core.ts";
+import type { LogLevel, LogRecord, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
 
-/** Exported so the filter contract is testable without a process exit: every
- *  invalid flag ends in `die`, and `die` cannot be observed from in-process. */
+/** Epoch milliseconds as typed, else a parsed date/time. */
+function sinceInstant(value: string): number {
+  const millis = Number(value);
+  const when = Number.isFinite(millis) ? millis : Date.parse(value);
+  if (!Number.isFinite(when)) die("invalid --since value");
+  return when;
+}
+
+function logLevel(value: string): LogLevel {
+  if (!isLogLevel(value)) die("invalid --level value");
+  return value;
+}
+
 export function parseLogOptions(args: string[]): LogOptions {
-  const out: LogOptions = { json: false };
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
-    if (arg === "--json") out.json = true;
-    else if (arg === "--since" || arg === "--level" || arg === "--agent" || arg === "--dispatch") {
-      const value = args[++i];
-      if (value === undefined) die("usage: orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]");
-      if (arg === "--since") {
-        const parsed = Number(value);
-        const when = Number.isFinite(parsed) ? parsed : Date.parse(value);
-        if (!Number.isFinite(when)) die("invalid --since value");
-        out.since = when;
-      } else if (arg === "--level") {
-        if (!isLogLevel(value)) die("invalid --level value");
-        out.level = value;
-      } else if (arg === "--agent") out.agent = value;
-      else out.dispatch = value;
-    } else if (arg.startsWith("--since=")) {
-      const value = arg.slice(8); const parsed = Number(value); const when = Number.isFinite(parsed) ? parsed : Date.parse(value);
-      if (!Number.isFinite(when)) die("invalid --since value"); out.since = when;
-    } else if (arg.startsWith("--level=")) { const value = arg.slice(8); if (!isLogLevel(value)) die("invalid --level value"); out.level = value; }
-    else if (arg.startsWith("--agent=")) out.agent = arg.slice(8);
-    else if (arg.startsWith("--dispatch=")) out.dispatch = arg.slice(11);
-    else die("usage: orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]");
-  }
+  const { flags, positional } = parseCommand("logs", args);
+  if (positional.length > 0) die("usage: orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]");
+  const since = flags.value("--since");
+  const level = flags.value("--level");
+  const out: LogOptions = { json: flags.has("--json") };
+  if (since !== undefined) out.since = sinceInstant(since);
+  if (level !== undefined) out.level = logLevel(level);
+  const agent = flags.value("--agent");
+  if (agent !== undefined) out.agent = agent;
+  const dispatch = flags.value("--dispatch");
+  if (dispatch !== undefined) out.dispatch = dispatch;
   return out;
 }
 

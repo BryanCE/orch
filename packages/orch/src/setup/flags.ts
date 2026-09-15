@@ -1,38 +1,6 @@
 import { die } from "../commands/target.ts";
+import type { ParsedFlags } from "../cli/spec.ts";
 
-/** Read the value following `name` in `args`, or undefined when the flag is absent. */
-export function readValueFlag(args: string[], name: string): string | undefined {
-  const index = args.indexOf(name);
-  return index !== -1 && index + 1 < args.length ? args[index + 1] : undefined;
-}
-
-/** Read a flag written as `--name value` or `--name=value`. */
-export function readAssignFlag(args: string[], name: string): string | undefined {
-  const assigned = args.find((arg) => arg.startsWith(`${name}=`));
-  if (assigned !== undefined) return assigned.slice(name.length + 1);
-  return readValueFlag(args, name);
-}
-
-/** Read every repeatable --model value, accepting both `--model value` and `--model=value`. */
-function readModelFlags(args: string[]): string[] {
-  const values: string[] = [];
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === undefined) continue;
-    if (arg === "--model") {
-      const value = args[index + 1];
-      if (value !== undefined) {
-        values.push(value);
-        index += 1;
-      }
-    } else if (arg.startsWith("--model=")) {
-      values.push(arg.slice("--model=".length));
-    }
-  }
-  return values;
-}
-
-/** Validate a provided setup flag value against the supported ids, or exit. */
 /** Narrow one flag value to the closed provider set, or exit naming every supported id. */
 export function validateSetupFlag<Id extends string>(kind: string, value: string, supported: readonly Id[]): Id {
   const known = supported.find((id) => id === value);
@@ -57,22 +25,25 @@ export interface SetupOptions {
   backendFlag: string | undefined;
   modelFlags: string[];
   refresh: boolean;
+  /** `--skills` is true, `--no-skills` is false, neither leaves it to the prompt or the record. */
+  skills: boolean | undefined;
   /** Opt-in: the smoke spawns a real agent and spends real tokens. */
   smoke: boolean;
 }
 
-export function parseSetupOptions(args: string[]): SetupOptions {
-  const yes = args.includes("--yes") || args.includes("-y");
+export function parseSetupOptions(flags: ParsedFlags): SetupOptions {
+  const yes = flags.has("--yes");
   return {
-    copy: args.includes("--copy"),
+    copy: flags.has("--copy"),
     yes,
-    noInstall: args.includes("--no-install"),
+    noInstall: flags.has("--no-install"),
     interactive: process.stdin.isTTY && !yes,
-    runtimeFlag: readAssignFlag(args, "--runtime"),
-    adapterFlag: readAssignFlag(args, "--agent") ?? readAssignFlag(args, "--adapter") ?? readAssignFlag(args, "--harness"),
-    backendFlag: readAssignFlag(args, "--backend") ?? readAssignFlag(args, "--plexer"),
-    modelFlags: readModelFlags(args),
-    refresh: args.includes("--refresh"),
-    smoke: args.includes("--smoke"),
+    runtimeFlag: flags.value("--runtime"),
+    adapterFlag: flags.value("--agent"),
+    backendFlag: flags.value("--backend"),
+    modelFlags: [...flags.values("--model")],
+    refresh: flags.has("--refresh"),
+    skills: flags.has("--skills") ? true : flags.has("--no-skills") ? false : undefined,
+    smoke: flags.has("--smoke"),
   };
 }

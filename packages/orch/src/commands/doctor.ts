@@ -1,4 +1,5 @@
 import { applyFixes, runDoctor } from "../doctor/runner.ts";
+import { parseCommand } from "./registry.ts";
 import { renderDoctorResults, pickFixes } from "../setup/doctor-wizard.ts";
 import { withSpinner } from "../setup/io.ts";
 import type { Services } from "../types/services.ts";
@@ -33,9 +34,10 @@ async function runInteractiveDoctor(initial: CheckResult[], services: Pick<Servi
 }
 
 export async function cmdDoctor(services: Services, args: string[]) {
-  const json = args.includes("--json");
-  const yes = args.includes("-y") || args.includes("--yes");
-  const fix = args.includes("--fix") || yes;
+  const { flags } = parseCommand("doctor", args);
+  const json = flags.has("--json");
+  const yes = flags.has("--yes");
+  const fix = flags.has("--fix") || yes;
   let results = await runDoctor(services, {});
   // A TTY session that did not demand json or an unattended -y apply gets the
   // interactive fix menu (bare `doctor` and `doctor --fix` both land here).

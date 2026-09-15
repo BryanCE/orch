@@ -99,8 +99,7 @@ describe("commands/spawn", () => {
 
   test("rejects removed spawn cap flag as unknown", () => {
     const removedFlag = "--spawn-" + "cap";
-    const flags = parseSpawnFlags(["worker", removedFlag, "2"]);
-    expect(flags.unknownFlags).toContain(removedFlag);
+    expect(() => parseSpawnFlags(["worker", removedFlag, "2"])).toThrow(`unknown flag ${removedFlag}`);
   });
 
   test("rejects --detached as an unknown spawn flag", async () => {
@@ -133,7 +132,7 @@ describe("commands/spawn", () => {
 
   // The positional arguments ARE the agent names, and how many you give is how
   // many panes you get. There is no --name flag to preserve.
-  test("the positionals are the agent names", () => expect(parseSpawnFlags(["worker", "checker", "--agent", "claude", "--backend", "headless", "--json"])).toMatchObject({ positional: ["worker", "checker"], adapterFlag: "claude", backendFlag: "headless", json: true, unknownFlags: [] }));
+  test("the positionals are the agent names", () => expect(parseSpawnFlags(["worker", "checker", "--agent", "claude", "--backend", "headless", "--json"])).toMatchObject({ positional: ["worker", "checker"], adapterFlag: "claude", backendFlag: "headless", json: true }));
   test("collects repeated prompts in agent order", () => expect(parseSpawnFlags(["a", "b", "c", "--prompt", "one", "--prompt", "two", "--prompt", "three"]).promptFlags).toEqual(["one", "two", "three"]));
   test("collects repeated files and models in order", () => expect(parseSpawnFlags(["a", "b", "--file", "one", "--file", "two", "--model", "m1", "--model", "m2"]).promptFiles).toEqual(["one", "two"]));
   test("collects repeated models in order", () => expect(parseSpawnFlags(["a", "b", "--model", "m1", "--model", "m2"]).modelFlags).toEqual(["m1", "m2"]));

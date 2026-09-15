@@ -6,7 +6,9 @@ import { NOTIFY_STATES } from "../types/settings.ts";
 import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
 import { describeSkillPlacement, installSkills } from "../setup/skills.ts";
 import { errorMessage, isRecord } from "../util.ts";
-import { readAssignFlag, validateSetupFlag } from "../setup/flags.ts";
+import { validateSetupFlag } from "../setup/flags.ts";
+import { parseCommand } from "./registry.ts";
+import type { Invocation, ParsedFlags } from "../cli/spec.ts";
 import { resolveHarnessModels } from "../setup/composition.ts";
 import { refreshAdapterCatalogues } from "../adapters/registry.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
@@ -80,9 +82,7 @@ export function shouldLaunchSettingsEditor(args: readonly string[], isTTY = proc
   return isTTY && args.length === 0;
 }
 
-function setSingleSetting(services: Pick<Services, "settings">, args: string[]): boolean {
-  const [key, input, ...extra] = args;
-  if (key === undefined || key.startsWith("--") || input === undefined || extra.length > 0) return false;
+function setSingleSetting(services: Pick<Services, "settings">, key: string, input: string): void {
   const spec = SETTINGS_REGISTRY.find((setting) => setting.key === key);
   if (spec === undefined) die(`Unknown setting ${JSON.stringify(key)}. Nearest valid keys: ${nearestSettingKeys(key)}.`);
   if (spec.write === undefined) die(`${key} is read-only; edit it with orch setup.`);
@@ -93,7 +93,6 @@ function setSingleSetting(services: Pick<Services, "settings">, args: string[]):
   if (!parsed.ok) die(`${key}: ${parsed.reason}.`);
   try { writeRegisteredSetting(services.settings, key, parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
   process.stdout.write(`${key} = ${formatValue(parsed.value)}\n`);
-  return true;
 }
 
 function switchDefault(services: Pick<Services, "settings">, key: "adapter" | "backend", value: string): void {
@@ -112,17 +111,17 @@ function switchDefault(services: Pick<Services, "settings">, key: "adapter" | "b
  * default it launches on, then the one list that is both what it may launch and what its
  * own picker cycles.
  */
-export async function cmdSettingsModels(services: Services, args: string[]): Promise<void> {
+async function settingsModels(services: Services, { flags }: Invocation): Promise<void> {
   const settings = currentSettings(services);
   const enabled = settings.enabled.adapters;
   if (!enabled.length) die("no harnesses are installed - run: orch setup");
-  const only = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
+  const only = flags.value("--harness");
   const targets = only === undefined ? enabled : [validateSetupFlag("harness", only, enabled)];
 
   // Catalogues are stored and refreshed on a cycle, so an operator who just installed a model
   // needs a way to say "ask again now" rather than picking from yesterday's list.
-  if (args.includes("--refresh")) await refreshAdapterCatalogues(services.models);
-  const chosen = await resolveHarnessModels(settings, services.models, readAssignFlag(args, "--model"), targets, process.stdout.isTTY === true);
+  if (flags.has("--refresh")) await refreshAdapterCatalogues(services.models);
+  const chosen = await resolveHarnessModels(settings, services.models, flags.value("--model"), targets, process.stdout.isTTY === true);
   if (chosen === null) return;
   // Only the targeted harnesses were prompted, so each map merges over what is already
   // recorded; a harness this run never asked about keeps every list it had.
@@ -143,10 +142,10 @@ export async function cmdSettingsModels(services: Services, args: string[]): Pro
   }
 }
 
-function readSkillsFlags(args: string[]): { readonly storeFlag: string | undefined; readonly install: boolean | undefined; readonly link: string[] | undefined } {
-  const storeFlag = readAssignFlag(args, "--store");
-  const linkFlag = readAssignFlag(args, "--link");
-  const install = args.includes("--install") ? true : args.includes("--no-install") ? false : undefined;
+function readSkillsFlags(flags: ParsedFlags): { readonly storeFlag: string | undefined; readonly install: boolean | undefined; readonly link: string[] | undefined } {
+  const storeFlag = flags.value("--store");
+  const linkFlag = flags.value("--link");
+  const install = flags.has("--install") ? true : flags.has("--no-install") ? false : undefined;
   const link = linkFlag?.split(",").map((root) => root.trim()).filter(Boolean);
   if (install === undefined && storeFlag === undefined && link === undefined) {
     die("usage: orch settings skills [--install|--no-install] [--store=<dir>] [--link=<dir>[,<dir>...]]");
@@ -180,8 +179,8 @@ function printInstalledSkills(wanted: boolean, roots: { readonly store: string; 
  * disk never disagree; `--no-install` records the refusal and leaves whatever the user
  * has there alone, since those files are theirs to remove.
  */
-export function cmdSettingsSkills(services: Services, args: string[]): void {
-  const { storeFlag, install, link } = readSkillsFlags(args);
+function settingsSkills(services: Services, { flags }: Invocation): void {
+  const { storeFlag, install, link } = readSkillsFlags(flags);
   const { wanted, roots } = writeSkillsSettings(services, install, storeFlag, link);
   printInstalledSkills(wanted, roots);
 }
@@ -204,18 +203,20 @@ function pickDeclaredFields(
 }
 
 /** Exit on a flag this sink never declared, rather than silently recording nothing for it. */
-function rejectUndeclaredFlags(args: string[], fields: NotifierChoice["requiredFields"]): void {
-  const declared = ["--on", ...fields.map((field) => `--${field.name}`)];
-  const undeclared = args.filter((arg, index) =>
-    arg.startsWith("--")
-    && !declared.includes(arg.split("=")[0] ?? arg)
-    && !declared.includes(args[index - 1] ?? ""));
-  if (undeclared.length) die(`Unknown flag ${undeclared.join(", ")}. This sink takes: ${declared.join(" ")}.`);
+function rejectUndeclaredFlags(given: ReadonlyMap<string, string | true>, fields: NotifierChoice["requiredFields"]): void {
+  const declared = fields.map((field) => `--${field.name}`);
+  const undeclared = [...given.keys()].filter((name) => !declared.includes(name));
+  if (undeclared.length) die(`Unknown flag ${undeclared.join(", ")}. This sink takes: ${["--on", ...declared].join(" ")}.`);
+}
+
+/** The value of one sink field flag, or undefined when it was not given. A bare flag is no value. */
+function sinkFieldValue(given: ReadonlyMap<string, string | true>, name: string): string | undefined {
+  const held = given.get(`--${name}`);
+  return held === true ? undefined : held;
 }
 
 /** Read `--on=<state,...>` as the states this sink fires on, or exit naming the supported set. */
-function readNotifyStates(args: string[]): NotifyState[] | undefined {
-  const flag = readAssignFlag(args, "--on");
+function readNotifyStates(flag: string | undefined): NotifyState[] | undefined {
   if (flag === undefined) return undefined;
   const states = flag.split(",").map((state) => state.trim()).filter(Boolean);
   const isNotifyState = (state: string): state is NotifyState => NOTIFY_STATES.some((known) => known === state);
@@ -250,13 +251,13 @@ function printNotifyEntries(services: Services, json: boolean): void {
 }
 
 /** Record one sink over whatever it already had, so a re-add changes only what the flags name. */
-async function addNotifyEntry(services: Services, args: string[]): Promise<void> {
-  const [id, ...flags] = args;
-  if (id === undefined || id.startsWith("--")) die(NOTIFY_USAGE);
+async function addNotifyEntry(services: Services, { flags, positional, undeclared }: Invocation): Promise<void> {
+  const id = positional[0];
+  if (id === undefined || positional.length !== 1) die(NOTIFY_USAGE);
   const choices = await probeNotifiers(currentSettings(services));
   const choice = choices.find((notifier) => notifier.id === id);
   if (!choice) die(`Unknown notify sink "${id}". Supported: ${choices.map((notifier) => notifier.id).join(", ")}.`);
-  rejectUndeclaredFlags(flags, choice.requiredFields);
+  rejectUndeclaredFlags(undeclared, choice.requiredFields);
 
   const recorded = currentSettings(services).notify.find((entry) => entry.id === id);
   const recordedFields: Record<string, unknown> = {};
@@ -265,8 +266,8 @@ async function addNotifyEntry(services: Services, args: string[]): Promise<void>
   }
   const config = {
     ...pickDeclaredFields(choice.requiredFields, (name) => recordedFields[name]),
-    ...pickDeclaredFields(choice.requiredFields, (name) => readAssignFlag(flags, `--${name}`)),
-    on: readNotifyStates(flags) ?? recorded?.on,
+    ...pickDeclaredFields(choice.requiredFields, (name) => sinkFieldValue(undeclared, name)),
+    on: readNotifyStates(flags.value("--on")) ?? recorded?.on,
   };
 
   const written = await buildSelectedNotifyEntries([{ id, config }]);
@@ -286,9 +287,9 @@ async function addNotifyEntry(services: Services, args: string[]): Promise<void>
   process.stdout.write("\nverify delivery with: orch doctor\n");
 }
 
-function removeNotifyEntry(services: Services, args: string[]): void {
-  const [id] = args;
-  if (id === undefined) die(NOTIFY_USAGE);
+function removeNotifyEntry(services: Services, { positional }: Invocation): void {
+  const id = positional[0];
+  if (id === undefined || positional.length !== 1) die(NOTIFY_USAGE);
   const configured = currentSettings(services).notify;
   const entry = configured.find((candidate) => candidate.id === id);
   if (!entry) die(`No "${id}" notify sink is configured. Configured: ${configured.map((candidate) => candidate.id).join(", ") || "(none)"}.`);
@@ -297,27 +298,22 @@ function removeNotifyEntry(services: Services, args: string[]): void {
 }
 
 /** List, add, or remove the settings.json `notify` sinks the daemon delivers through. */
-export async function cmdSettingsNotify(services: Services, args: string[]): Promise<void> {
-  const [verb, ...rest] = args;
-  if (verb === undefined || verb === "list" || verb.startsWith("--")) {
-    printNotifyEntries(services, args.includes("--json"));
-    return;
+async function settingsNotify(services: Services, invocation: Invocation): Promise<void> {
+  switch (invocation.command.name) {
+    case "add": return addNotifyEntry(services, invocation);
+    case "remove": return removeNotifyEntry(services, invocation);
+    default:
+      if (invocation.positional.length) die(NOTIFY_USAGE);
+      printNotifyEntries(services, invocation.flags.has("--json"));
   }
-  if (verb === "add") return addNotifyEntry(services, rest);
-  if (verb === "remove") return removeNotifyEntry(services, rest);
-  die(NOTIFY_USAGE);
 }
 
-async function launchSettingsEditorIfRequested(services: Services, args: string[]): Promise<boolean> {
-  if (shouldLaunchSettingsEditor(args)) {
-    try {
-      await runSettingsEditor(services.settings);
-    } catch (error: unknown) {
-      die(errorMessage(error));
-    }
-    return true;
+async function launchSettingsEditor(services: Services): Promise<void> {
+  try {
+    await runSettingsEditor(services.settings);
+  } catch (error: unknown) {
+    die(errorMessage(error));
   }
-  return false;
 }
 
 function switchSettingsDefaults(services: Pick<Services, "settings">, harness: string | undefined, plexer: string | undefined): boolean {
@@ -387,19 +383,28 @@ function printSettingsOutput(services: Pick<Services, "settings">, settings: Orc
   process.stdout.write(`  notify              ${settings.notify.length}\n`);
 }
 
-/** Print each resolvable setting with its winning source, or switch the active default via --harness/--plexer. */
-export async function cmdSettings(services: Services, args: string[]): Promise<void> {
-  if (await launchSettingsEditorIfRequested(services, args)) return;
-  if (setSingleSetting(services, args)) return;
-  const harness = readAssignFlag(args, "--harness") ?? readAssignFlag(args, "--agent");
-  const plexer = readAssignFlag(args, "--plexer") ?? readAssignFlag(args, "--backend");
-  const json = args.includes("--json");
-
+/** Print each resolvable setting with its winning source, set one, or switch the active default via --harness/--plexer. */
+function settingsRoot(services: Services, { flags, positional }: Invocation): void {
+  const [key, input] = positional;
+  if (key !== undefined && input !== undefined && positional.length === 2) return setSingleSetting(services, key, input);
+  if (positional.length) die("usage: orch settings [<key> <value>] [--json] [--harness <id>] [--plexer <id>]");
   const settings = currentSettings(services);
-
-  if (switchSettingsDefaults(services, harness, plexer)) return;
+  if (switchSettingsDefaults(services, flags.value("--harness"), flags.value("--plexer"))) return;
   const provenance = collectSettingsProvenance(services, settings);
-  printSettingsOutput(services, settings, provenance, json);
+  printSettingsOutput(services, settings, provenance, flags.has("--json"));
+}
+
+/** `orch settings` and every subcommand under it. A bare call on a TTY opens the editor. */
+export async function cmdSettings(services: Services, args: string[]): Promise<void> {
+  if (shouldLaunchSettingsEditor(args)) return launchSettingsEditor(services);
+  const invocation = parseCommand("settings", args);
+  switch (invocation.path[1]) {
+    case "models": return settingsModels(services, invocation);
+    case "thinking": return settingsThinking(services, invocation);
+    case "skills": return settingsSkills(services, invocation);
+    case "notify": return settingsNotify(services, invocation);
+    default: return settingsRoot(services, invocation);
+  }
 }
 
 /**
@@ -410,10 +415,11 @@ export async function cmdSettings(services: Services, args: string[]): Promise<v
  * A bare level sets the global default; `--harness=<id>` sets that harness's override,
  * and `--clear` with `--harness` removes it.
  */
-export function cmdSettingsThinking(services: Services, args: string[]): void {
-  const harnessFlag = args.find((argument) => argument.startsWith("--harness="))?.slice("--harness=".length);
-  const clear = args.includes("--clear");
-  const level = args.find((argument) => !argument.startsWith("--"));
+function settingsThinking(services: Services, { flags, positional }: Invocation): void {
+  const harnessFlag = flags.value("--harness");
+  const clear = flags.has("--clear");
+  const level = positional[0];
+  if (positional.length > 1) die("usage: orch settings thinking [<level>] [--harness <id>] [--clear]");
 
   if (harnessFlag !== undefined && !isAdapterId(harnessFlag)) {
     throw new Error(`unknown harness ${JSON.stringify(harnessFlag)}; known harnesses: ${ADAPTER_IDS.join(", ")}`);

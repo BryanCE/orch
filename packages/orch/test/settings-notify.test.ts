@@ -2,7 +2,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 
-import { cmdSettingsNotify } from "../src/commands/settings.ts";
+import { cmdSettings } from "../src/commands/settings.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, NOTIFY_SIMPLE_IDS } from "../src/settings/schema.ts";
 import { NOTIFY_STATES } from "../src/types/settings.ts";
@@ -38,7 +38,7 @@ async function captureNotify(args: string[]): Promise<string> {
   // eslint-disable-next-line typescript/unbound-method
   const originalWrite = process.stdout.write;
   process.stdout.write = ((chunk: string | Uint8Array) => { output.push(String(chunk)); return true; });
-  try { await cmdSettingsNotify(createServices({ orchDir: root, settings: fileSettingsManager(root) }), args); } finally { process.stdout.write = originalWrite; }
+  try { await cmdSettings(createServices({ orchDir: root, settings: fileSettingsManager(root) }), ["notify", ...args]); } finally { process.stdout.write = originalWrite; }
   return output.join("");
 }
 

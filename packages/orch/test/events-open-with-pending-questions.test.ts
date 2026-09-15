@@ -31,17 +31,21 @@ describe("events pending-question snapshot", () => {
     };
     const server = await startRpcServer(root, stubRpcHandlers({ questions: () => ({ questions: [question] }) }));
     const received: { event: NotifyEvent; seq: number }[] = [];
+    const { promise: firstEvent, resolve: arrived } = Promise.withResolvers<void>();
     const context: EventsContext = {
       options: parseEventsOptions([]),
       accepts: () => true,
       emit: (event, seq) => {
         received.push({ event, seq });
+        arrived();
         return true;
       },
     };
     const transport = startEventsTransport(context, testServices({ orchDir: root, settings: null }));
     try {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // The snapshot crosses the socket; wait on the event, not on a clock.
+      await Promise.race([firstEvent, new Promise<void>((_resolve, reject) => setTimeout(() => reject(new Error("no snapshot within 2s")), 2000))]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
       expect(received).toHaveLength(1);
       const first = received[0];
       expect(first?.event.type).toBe("asking");

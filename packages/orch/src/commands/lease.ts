@@ -12,6 +12,7 @@ import { adoptLease, currentLease, expireLease, leasesByOrch, releaseLease } fro
 import { promptMultiselect } from "../setup/io.ts";
 import { assertValidAgentName } from "../policy/name.ts";
 import type { AgentRow } from "../types/store.ts";
+import { parseCommand } from "./registry.ts";
 import type { LeaseCommandResult, LeaseOptions } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -168,26 +169,27 @@ export function reapAgent(directory: OrchDir, target: string, now = Date.now()):
   return { id: agent.id, name: displayName(agent), reaped: true };
 }
 
-function parseTarget(args: string[], usage: string): { target: string; json: boolean; steal: boolean } {
-  const json = args.includes("--json");
-  const steal = args.includes("--steal");
-  const positional = args.filter((arg) => arg !== "--json" && arg !== "--steal");
-  if (positional.length !== 1) throw new Error(usage);
-  return { target: positional[0]!, json, steal };
+/** The one target a lease verb names. */
+function oneTarget(positional: readonly string[], usage: string): string {
+  const target = positional[0];
+  if (target === undefined || positional.length !== 1) throw new Error(usage);
+  return target;
 }
 
 export async function cmdDetach(services: Services, args: string[]): Promise<void> {
-  const { target, json, steal } = parseTarget(args, "usage: orch detach <target> [--steal] [--json]");
-  const result = detachAgent(services.orchDir, target, await resolveSelfOrchId(services.orchDir, services.logger), { steal });
+  const { flags, positional } = parseCommand("detach", args);
+  const target = oneTarget(positional, "usage: orch detach <target> [--steal] [--json]");
+  const json = flags.has("--json");
+  const result = detachAgent(services.orchDir, target, await resolveSelfOrchId(services.orchDir, services.logger), { steal: flags.has("--steal") });
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, released: result.released }) + "\n");
   else process.stdout.write(result.released ? `Detached ${result.name}.\n` : `${result.name}: no lease (already detached).\n`);
 }
 
 export async function cmdAdopt(services: Services, args: string[]): Promise<void> {
-  const json = args.includes("--json");
-  const all = args.includes("--all");
-  const steal = args.includes("--steal");
-  const positional = args.filter((arg) => arg !== "--json" && arg !== "--all" && arg !== "--steal");
+  const { flags, positional } = parseCommand("adopt", args);
+  const json = flags.has("--json");
+  const all = flags.has("--all");
+  const steal = flags.has("--steal");
   if ((!all && positional.length !== 1) || (all && positional.length)) throw new Error("usage: orch adopt <target> | --all [--steal] [--json]");
   // C4: --steal takes ONE agent from ONE live orch, deliberately. A sweep that
   // silently took every live orch's fleet would be the opposite of deliberate.
@@ -319,23 +321,22 @@ function reapDead(directory: OrchDir, callerId: string, json: boolean): void {
 }
 
 export async function cmdReap(services: Services, args: string[]): Promise<void> {
-  const json = args.includes("--json");
-  if (args.includes("--dead")) {
-    const positional = args.filter((arg) => arg !== "--dead" && arg !== "--json");
+  const { flags, positional } = parseCommand("reap", args);
+  const json = flags.has("--json");
+  if (flags.has("--dead")) {
     if (positional.length) throw new Error("usage: orch reap <target> | --dead [--json]");
     const directory = services.orchDir;
     reapDead(directory, await resolveSelfOrchId(directory, services.logger), json);
     return;
   }
 
-  const positional = args.filter((arg) => arg !== "--json");
   if (positional.length === 0) {
     if (process.stdin.isTTY !== true) throw new Error("usage: orch reap <target> | --dead [--json]");
     await reapInteractive(services.orchDir, await resolveSelfOrchId(services.orchDir, services.logger));
     return;
   }
 
-  const { target } = parseTarget(args, "usage: orch reap <target> [--json]");
+  const target = oneTarget(positional, "usage: orch reap <target> [--json]");
   const result = reapAgent(services.orchDir, target);
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, reaped: true }) + "\n");
   else process.stdout.write(`Reaped ${result.name}.\n`);

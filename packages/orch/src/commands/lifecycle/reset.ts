@@ -4,31 +4,16 @@ import { tuningOf } from "../../store/agent-view.ts";
 import { modelSpec } from "../../policy/thinking.ts";
 import type { Tuning } from "../../policy/tuning.ts";
 import { admitLaunchModel, pinModels } from "../spawn/models.ts";
-import { pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
+import { agentFlags, pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { writeRpc } from "../daemon.ts";
-import { assertAgentOwned, die, requireCallerOwnerToken, resolveLifecycleTarget } from "../target.ts";
-import { ownedAgentKeys, awaitIdleAfter } from "./index.ts";
+import { parseCommand } from "../registry.ts";
+import { assertAgentOwned, die, resolveLifecycleTarget } from "../target.ts";
+import { lifecycleTargets, awaitIdleAfter } from "./index.ts";
 import { describeHandle } from "./close.ts";
 
-import type { AgentFlags } from "../../types/command.ts";
 import type { Services } from "../../types/services.ts";
 
 interface ClearedAgent { key: string; handle: string; name: string }
-
-function parseResetArgs(services: Pick<Services, "orchDir" | "settings">, args: string[]): { targets: string[]; flags: AgentFlags } {
-  const targets: string[] = [];
-  const flags: AgentFlags = {};
-  if (args.includes("--all")) requireCallerOwnerToken(services.orchDir);
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
-    if (arg === "--json" || arg === "--force") continue;
-    if (arg === "--model") { flags.modelFlag = args[++index]; continue; }
-    if (arg === "--thinking") { flags.thinkingFlag = args[++index]; continue; }
-    if (arg === "--all") targets.push(...ownedAgentKeys(services));
-    else targets.push(arg);
-  }
-  return { targets, flags };
-}
 
 /** Clear one agent's session and wait for it to come back ready. */
 export async function clearSession(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string, force: boolean): Promise<ClearedAgent> {
@@ -48,9 +33,11 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
 }
 
 export async function cmdNew(services: Services, args: string[]): Promise<void> {
-  const json = args.includes("--json");
-  const force = args.includes("--force");
-  const { targets, flags } = parseResetArgs(services, args);
+  const invocation = parseCommand("reset", args);
+  const json = invocation.flags.has("--json");
+  const force = invocation.flags.has("--force");
+  const flags = agentFlags(invocation.flags);
+  const { targets } = lifecycleTargets(services, invocation);
   if (!targets.length) die("usage: orch reset <target>... | --all [--model <model>] [--thinking <level>] [--json]");
   const settings = services.settings.current();
   // Check ownership before resolving model configuration: a driving verb must

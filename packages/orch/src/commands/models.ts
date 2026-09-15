@@ -2,8 +2,9 @@ import { resolveAdapter } from "../adapters/registry.ts";
 import { resolveTuning } from "../policy/tuning.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
-import { readAssignFlag, validateSetupFlag } from "../setup/flags.ts";
+import { validateSetupFlag } from "../setup/flags.ts";
 import { die } from "./target.ts";
+import { parseCommand } from "./registry.ts";
 import type { Services } from "../types/services.ts";
 import type { AdapterId, HarnessModel } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -17,30 +18,11 @@ import type { CatalogueReader, HarnessSection, ModelFilters, ModelRow } from "..
  * the picker quicklist stays findable and stays launchable.
  */
 
-const VALUE_FLAGS = ["--agent", "--harness", "--search", "--pick"];
-const BOOLEAN_FLAGS = ["--preferred", "--json"];
 const USAGE = "usage: orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]";
 
-/** Refuse an argument orch models does not define, so a typo never silently lists everything. */
-function rejectUnsupportedArgs(args: string[]): void {
-  const unsupported: string[] = [];
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
-    const valueFlag = VALUE_FLAGS.find((flag) => arg === flag || arg.startsWith(`${flag}=`));
-    if (valueFlag) {
-      if (arg === valueFlag) index++;
-      continue;
-    }
-    if (BOOLEAN_FLAGS.includes(arg)) continue;
-    unsupported.push(arg);
-  }
-  if (unsupported.length) die(`orch models: unknown ${unsupported.length === 1 ? "argument" : "arguments"} ${unsupported.join(" ")}\n${USAGE}`);
-}
-
-/** The harnesses to list: the one named by --agent/--harness, else every installed one in order. */
-function readTargets(args: string[], enabled: readonly AdapterId[]): AdapterId[] {
+/** The harnesses to list: the one named by --agent, else every installed one in order. */
+function readTargets(only: string | undefined, enabled: readonly AdapterId[]): AdapterId[] {
   if (!enabled.length) die("no harnesses are installed - run: orch setup");
-  const only = readAssignFlag(args, "--agent") ?? readAssignFlag(args, "--harness");
   return only === undefined ? [...enabled] : [validateSetupFlag("harness", only, enabled)];
 }
 
@@ -143,9 +125,10 @@ function writePickedSpec(sections: readonly HarnessSection[], pick: string): voi
  * `--pick` nor a filter ever changes a recorded default, quicklist, or allowlist.
  */
 export function cmdModels(services: Services, args: string[]): void {
-  rejectUnsupportedArgs(args);
-  const json = args.includes("--json");
-  const pick = readAssignFlag(args, "--pick");
+  const { flags, positional } = parseCommand("models", args);
+  if (positional.length) die(`orch models: unknown ${positional.length === 1 ? "argument" : "arguments"} ${positional.join(" ")}\n${USAGE}`);
+  const json = flags.has("--json");
+  const pick = flags.value("--pick");
   if (pick !== undefined && json) die("--pick prints one model spec and --json prints the catalogue; pass one or the other");
 
   let settings: OrchSettings;
@@ -154,9 +137,9 @@ export function cmdModels(services: Services, args: string[]): void {
   } catch (error: unknown) {
     die(errorMessage(error));
   }
-  const search = readAssignFlag(args, "--search");
-  const sections = buildSections(readTargets(args, settings.enabled.adapters), settings, {
-    quicklistOnly: args.includes("--preferred"),
+  const search = flags.value("--search");
+  const sections = buildSections(readTargets(flags.value("--agent"), settings.enabled.adapters), settings, {
+    quicklistOnly: flags.has("--preferred"),
     ...(search === undefined ? {} : { search }),
   }, (id) => readAdapterCatalogue(id, services));
 

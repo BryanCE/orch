@@ -39,8 +39,8 @@ Inside a plexer pane the fleet lands as a new tab in your space, with no grant. 
 every plexer the default is headless, and headless needs `--prompt` or `--file`: a detached
 agent runs the task and exits with nowhere to steer it. `--backend <plexer>` opens that
 plexer's own home, which a human approves with `orch grant`. `--space <name>` files the
-fleet in an orch space the user created (`orch space list`); a space is never a plexer
-workspace id.
+fleet in an orch space the user created (`orch space list`); a space is never a plexer's
+own grouping id.
 
 `--worktree` only when parallel agents would otherwise edit the same files. Collect with
 `orch review`.

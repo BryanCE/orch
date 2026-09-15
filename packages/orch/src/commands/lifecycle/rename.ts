@@ -6,6 +6,7 @@ import { errorMessage } from "../../util.ts";
 import { lifecycleLogger } from "./index.ts";
 import { describeHandle } from "./close.ts";
 import { assertAgentOwned, backendTarget, die } from "../target.ts";
+import { parseCommand } from "../registry.ts";
 import { viewForKey } from "../../entities/lookup.ts";
 import type { Backend, BackendHandle } from "../../types/backend.ts";
 import type { AgentView } from "../../types/store.ts";
@@ -64,10 +65,10 @@ function renameAgent(
 }
 
 export function cmdRename(services: Services, args: string[]) {
-  const paneLabel = args.includes("--pane");
-  const json = args.includes("--json");
-  const force = args.includes("--force");
-  const positional = args.filter((arg) => arg !== "--pane" && arg !== "--json" && arg !== "--force");
+  const { flags, positional } = parseCommand("rename", args);
+  const paneLabel = flags.has("--pane");
+  const json = flags.has("--json");
+  const force = flags.has("--force");
   const target = positional[0];
   const name = positional[1];
   if (!target || !name) die("usage: orch rename <target> <name> [--pane] [--force]");

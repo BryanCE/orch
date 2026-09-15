@@ -18,9 +18,9 @@ Five event types, each one line:
 - `closed`: the agent ended.
 - `task`: a queue task changed state.
 
-A fresh subscribe receives live events only. History comes back only via `--since-seq`,
-bounded by the events retention window; a pruned range is reported as a gap before retained
-events replay. `seq` is that agent's transition ordinal and `(key, seq)` identifies an
+A fresh subscribe receives live events only. History comes back only via `--since-seq`. The
+sequence survives daemon restarts, but history is bounded by the events retention window; a
+pruned range is reported as a gap before retained events replay. `seq` is that agent's transition ordinal and `(key, seq)` identifies an
 event. The daemon suppresses an identical repeat of one agent's transition for two minutes,
 so no dedupe is needed. Never add a `date`-based floor: it drops real events to clock skew.
 

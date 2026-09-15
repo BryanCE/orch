@@ -3,6 +3,7 @@ import { orchDirAt } from "../src/services.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { describe, expect, test } from "bun:test";
 import { needsFirstRunSetup, readOrchVersion, runCommand } from "../src/commands/index.ts";
+import { HELP_HEADER } from "../src/cli/help.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { announceUnleasedAgents } from "../src/daemon/client/registration.ts";
 import type { RegisterSessionResponse } from "../src/types/daemon.ts";
@@ -46,7 +47,7 @@ describe("commands/index", () => {
       expect(process.exitCode).toBe(1);
       process.exitCode = previousCode;
       expect(stdout).toContain("orch ");
-      expect(stdout).toContain("orch - the single controller");
+      expect(stdout).toContain(HELP_HEADER);
       expect(stdout).toContain("Unknown command: not-a-command");
     } finally {
       process.stdout.write = oldStdout;

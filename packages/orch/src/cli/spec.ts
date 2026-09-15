@@ -1,5 +1,7 @@
 /** The one table a command declares its flags in. The parser and `orch help` both read it. */
 
+import { CommandRefusal } from "../refusal.ts";
+
 /** How many values a flag takes: none (`--json`), one (`--tab api`), or many (`--file a --file b`). */
 export type FlagArity = "none" | "one" | "many";
 
@@ -52,8 +54,8 @@ export interface Invocation {
   readonly undeclared: ReadonlyMap<string, string | true>;
 }
 
-/** An argv the spec refuses. The message names the fix. */
-export class UsageError extends Error {
+/** An argv the spec refuses. A refusal like any other, so the CLI boundary turns it into an exit code. */
+export class UsageError extends CommandRefusal {
   constructor(message: string) {
     super(message);
     this.name = "UsageError";

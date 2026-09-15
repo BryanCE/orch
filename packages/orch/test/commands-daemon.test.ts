@@ -2,7 +2,8 @@ import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseGovernance } from "../src/commands/daemon.ts";
+import { governanceFlags } from "../src/commands/daemon.ts";
+import { parseCommand } from "../src/commands/registry.ts";
 import { RPC_RESULTS } from "../src/daemon/client/protocol.ts";
 import { daemonLockPid } from "../src/daemon/client/reach.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -21,7 +22,9 @@ describe("commands/daemon", () => {
     delete process.env[marker];
     delete process.env[sessionId];
     try {
-      expect(parseGovernance(testServices({ orchDir: directory }), ["--steal", "x", "--cross-space"])).toEqual({ gov: { steal: true, crossSpace: true }, rest: ["x"] });
+      const { flags, positional } = parseCommand("steer", ["--steal", "x", "--cross-space"]);
+      expect(governanceFlags(testServices({ orchDir: directory }), flags)).toEqual({ steal: true, crossSpace: true });
+      expect(positional).toEqual(["x"]);
       expect(RPC_RESULTS["daemon-status"].safeParse({
         pid: 1,
         startedAt: "now",

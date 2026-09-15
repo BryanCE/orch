@@ -5,6 +5,7 @@ import { ensureHost } from "../store/agent-rows.ts";
 import { hostOs } from "../host.ts";
 import { approveGrantRequest, denyGrantRequest, pendingGrantRequest, pendingGrantRequests, renderGrantRequest } from "../store/grant-rows.ts";
 import { die } from "./target.ts";
+import { parseCommand } from "./registry.ts";
 import type { GrantRequest } from "../types/store.ts";
 import type { OrchDir } from "../types/core.ts";
 
@@ -50,13 +51,14 @@ async function reviewRequest(directory: OrchDir, request: GrantRequest): Promise
 
 export async function cmdGrant(services: Services, args: string[]): Promise<void> {
   const directory = services.orchDir;
-  const requested = args.find((argument) => !argument.startsWith("--"));
+  const { flags, positional } = parseCommand("grant", args);
+  const requested = positional[0];
   const requests = pendingGrantRequests(directory);
   if (requests.length === 0) {
     writeLine("No requests are awaiting approval.");
     return;
   }
-  if (args.includes("--list")) {
+  if (flags.has("--list")) {
     listRequests(requests);
     return;
   }

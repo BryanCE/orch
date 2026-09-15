@@ -2,7 +2,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/services.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { cmdSpace, runSpace } from "../src/commands/space.ts";
-import { helpTopic } from "../src/commands/help.ts";
+import { helpTopic } from "../src/commands/index.ts";
 import { orm } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";

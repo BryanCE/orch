@@ -13,6 +13,7 @@ export { isNotifyEvent };
 import { notificationHeading, notificationText, oneLine } from "../notify/format.ts";
 import { currentLease } from "../store/lease-rows.ts";
 import { die, forbidNonOperatorOverride } from "./target.ts";
+import { parseCommand } from "./registry.ts";
 import type { Services } from "../types/services.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry, OrchSettings } from "../types/settings.ts";
@@ -141,15 +142,12 @@ async function streamEvents(services: Services, verb: StreamVerb, options: Event
 }
 
 export async function cmdNotify(services: Services, args: string[]) {
-  const json = args.includes("--json");
-  const cleanArgs = args.filter((arg) => arg !== "--json");
-  if (cleanArgs[0] !== "test") die("usage: orch notify test [--state <state>] [--json]");
-  let state = "blocked";
-  for (let i = 1; i < cleanArgs.length; i++) {
-    if (cleanArgs[i] === "--state") state = cleanArgs[++i] ?? "";
-    else die("usage: orch notify test [--state <state>] [--json]");
-  }
-  if (!state || !isAgentState(state) || state === "asking") die("usage: orch notify test [--state <state>] [--json]");
+  const { command, flags, positional } = parseCommand("notify", args);
+  const usage = "usage: orch notify test [--state <state>] [--json]";
+  if (command.name !== "test" || positional.length) die(usage);
+  const json = flags.has("--json");
+  const state = flags.value("--state") ?? "blocked";
+  if (!isAgentState(state) || state === "asking") die(usage);
   const event: NotifyEvent = {
     type: "transition",
     key: "test:notify",
@@ -173,13 +171,6 @@ export async function cmdNotify(services: Services, args: string[]) {
   if (json) process.stdout.write(JSON.stringify(results.map(({ sink, ok }) => ({ sink: sinkLabel(sink), ok }))) + "\n");
   else for (const { sink, ok } of results) process.stdout.write(`notify ${sinkLabel(sink)}: ${ok ? "ok" : "fail"}\n`);
   if (results.some((result) => !result.ok)) process.exitCode = 1;
-}
-
-/** The value of a `--flag=value` target, refused when empty so it cannot widen the stream. */
-function namedTarget(argument: string, flag: string, usage: string): string {
-  const value = argument.slice(flag.length).trim();
-  if (!value) die(usage);
-  return value;
 }
 
 export interface EventsLiveStreamPorts {
@@ -243,42 +234,28 @@ export function eventsScopeNotice(
     : "watching all agents from now on";
 }
 
-function streamUsage(verb: StreamVerb): string {
-  return `usage: orch ${verb} [--agent=<name>] [--agent-id=<id>] [--space-wide] [--filter=<state,...>] [--json] [--since-seq <n>] [--once]`;
-}
-
 /** `--since-seq <n>`, or a refusal: a replay point that is not an integer names no event. */
-function readSinceSeq(value: string | undefined, usage: string): number {
-  const parsed = value === undefined ? Number.NaN : Number(value);
+function readSinceSeq(value: string | undefined, usage: string): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
   if (!Number.isSafeInteger(parsed)) die(usage);
   return parsed;
 }
 
 /** `--filter=working,idle`, or a refusal: an empty list drops nothing, so the flag
  *  was a typo. Same sense as `orch status --filter`: a named state is hidden. */
-function readStateFilter(value: string, usage: string): Set<string> {
+function readStateFilter(value: string | undefined, usage: string): Set<string> | null {
+  if (value === undefined) return null;
   const states = value.split(",").map((state) => state.trim()).filter((state) => state.length > 0);
   if (states.length === 0) die(usage);
   return new Set(states);
 }
 
-/** Read one flag into `options`, and say how many arguments it consumed after itself. */
-function readEventsFlag(options: EventsOptions, args: string[], index: number, usage: string): number {
-  const argument = args[index]!;
-  switch (argument) {
-    case "--since-seq": options.sinceSeq = readSinceSeq(args[index + 1], usage); return 1;
-    case "--json": options.json = true; return 0;
-    case "--once": options.once = true; return 0;
-    case "--space-wide": options.scope = "any"; return 0;
-    default: break;
-  }
-  if (argument.startsWith("--filter=")) {
-    options.filter = readStateFilter(argument.slice("--filter=".length), usage);
-    return 0;
-  }
-  const prefix = argument.startsWith("--agent=") ? "--agent=" : argument.startsWith("--agent-id=") ? "--agent-id=" : null;
-  options.targets.push(prefix === null ? argument : namedTarget(argument, prefix, usage));
-  return 0;
+/** A named target, refused when blank so it cannot widen the stream. */
+function namedTarget(value: string, usage: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) die(usage);
+  return trimmed;
 }
 
 export function parseEventsOptions(args: string[], verb: StreamVerb = "events"): EventsOptions {
@@ -286,12 +263,17 @@ export function parseEventsOptions(args: string[], verb: StreamVerb = "events"):
   // self-contained enough to act on without a second command. Flags only ever drop
   // states from it (`--filter`) or widen it to the rest of your space (`--space-wide`).
   // `orch monitor` takes the same flags over the `monitor.on` states.
-  const usage = streamUsage(verb);
-  const options: EventsOptions = {
-    json: false, sinceSeq: undefined, once: false, scope: "auto", filter: null, targets: [],
+  const { command, flags, positional } = parseCommand(verb, args);
+  const usage = `usage: ${command.usage}`;
+  const named = [...flags.values("--agent"), ...flags.values("--agent-id")].map((value) => namedTarget(value, usage));
+  return {
+    json: flags.has("--json"),
+    sinceSeq: readSinceSeq(flags.value("--since-seq"), usage),
+    once: flags.has("--once"),
+    scope: flags.has("--space-wide") ? "any" : "auto",
+    filter: readStateFilter(flags.value("--filter"), usage),
+    targets: [...positional, ...named],
   };
-  for (let index = 0; index < args.length; index++) index += readEventsFlag(options, args, index, usage);
-  return options;
 }
 
 /** The presence keys a `--agent` narrowed stream accepts; every live scoped key when unnarrowed. */
@@ -322,39 +304,41 @@ export function formatEventGap(oldestSeq: number): string {
 
 export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number, space = event.space ?? null): string {
   const coordinate = space !== null && space !== undefined && space.length > 0 ? space : null;
-  if (json) {
-    const { space: _space, ...withoutSpace } = event;
-    const payload = coordinate === null
-      ? { ...withoutSpace, streamSeq }
-      : { ...withoutSpace, space: coordinate, streamSeq };
-    return JSON.stringify(payload);
-  }
+  return json ? renderEventJson(event, coordinate, streamSeq) : renderEventLine(event, coordinate);
+}
+
+function renderEventJson(event: NotifyEvent, coordinate: string | null, streamSeq: number): string {
+  const { space: _space, ...withoutSpace } = event;
+  const payload = coordinate === null
+    ? { ...withoutSpace, streamSeq }
+    : { ...withoutSpace, space: coordinate, streamSeq };
+  return JSON.stringify(payload);
+}
+
+/** One readable line: what happened, and nothing about the fleet's books. Cost and pack
+ *  capacity are `orch status` columns; on a stream they buried the one thing the line says. */
+function renderEventLine(event: NotifyEvent, coordinate: string | null): string {
   // The plexer coordinate is opaque: echo it verbatim and never resolve it to a
   // configured label that could make the coordinate look like an orch-chosen name.
   const textEvent: NotifyEvent = { ...event, space: coordinate ?? "" };
-  // What happened, and nothing about the fleet's books. Cost and pack capacity are
-  // `orch status` columns; a stream that carried them made every transition read
-  // like a status row and buried the one thing the line exists to say.
-  // Mail is its own summary: the heading, then the whole text once, never a 60-character
-  // preview of the text followed by the text.
+  // Mail is its own summary: the heading, then the whole text once.
   if (event.type === "message") return `${notificationHeading(textEvent, { colorize: true })} ${oneLine(event.mail.text)}`;
-  const title = notificationText(textEvent, { colorize: true }).title;
-  let detail: string;
+  return `${notificationText(textEvent, { colorize: true }).title}  ${eventStateChange(event)}`;
+}
+
+function eventStateChange(event: Exclude<NotifyEvent, { type: "message" }>): string {
   switch (event.type) {
     case "asking":
-      detail = `${event.oldState}->asking (asked ${event.askCount}x${event.gaveUp ? "; gave up" : ""})`;
-      break;
+      return `${event.oldState}->asking (asked ${event.askCount}x${event.gaveUp ? "; gave up" : ""})`;
     case "transition":
     case "closed":
     case "task":
-      detail = `${event.oldState}->${event.newState}`;
-      break;
+      return `${event.oldState}->${event.newState}`;
     default: {
       const exhaustive: never = event;
       return exhaustive;
     }
   }
-  return `${title}  ${detail}`;
 }
 
 function eventWriter(options: EventsOptions, root: OrchDir, shows: (event: NotifyEvent) => boolean): (event: NotifyEvent, streamSeq: number) => boolean {

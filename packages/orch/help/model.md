@@ -9,6 +9,11 @@ lists what each installed harness offers.
 Where the harness cannot switch a live session (Claude Code, for one), pin at spawn or use
 `orch reset --model`.
 
+The launch model comes from `defaults.models.<harness>`. Pass `--model` for a deliberate
+choice, then confirm the MODEL column in `orch status`. An agent keeps the tuning it holds:
+dispatch, reset, restart, and settings reloads re-pin what the agent was last given unless
+the command names another model.
+
 Escalate one rung at a time, only when the task failed at the current rung, then
 re-dispatch. A capable model with a complete prompt beats a stronger model with a vague one.
 

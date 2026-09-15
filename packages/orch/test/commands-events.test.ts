@@ -10,7 +10,7 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir.ts";
-import { helpTopic } from "../src/commands/help.ts";
+import { helpTopic } from "../src/commands/index.ts";
 import { subscribeEvents } from "../src/daemon/client/rpc.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";

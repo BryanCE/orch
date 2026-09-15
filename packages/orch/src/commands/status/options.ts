@@ -1,7 +1,8 @@
 import { spaceName as resolveSpaceName, withinSpaceCeiling } from "../../policy/space.ts";
 import { selfId, spaceOfAgent } from "../../identity/self.ts";
 import { callerKind } from "../../policy/caller.ts";
-import { die, splitOptionFlags } from "../target.ts";
+import { die } from "../target.ts";
+import { parseCommand } from "../registry.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { OrchDir } from "../../types/core.ts";
@@ -66,12 +67,10 @@ export function displayStatusState(row: Pick<StatusRow, "state" | "alive" | "exi
   return row.exited || !row.alive ? "exited" : row.state;
 }
 
-/** `--flag=a,b`: the trimmed names after the flag, or null when the caller named none. */
-function parseNameList(args: readonly string[], flag: string): Set<string> | null {
-  const argument = args.find((candidate) => candidate.startsWith(flag));
-  if (argument === undefined) return null;
-  const names = argument.slice(flag.length).split(",").map((name) => name.trim()).filter((name) => name.length > 0);
-  return names.length === 0 ? null : new Set(names);
+/** `--filter=a,b`: the trimmed names in the list, lower-cased. Empty when the caller named none. */
+function parseNameList(list: string | undefined): string[] {
+  if (list === undefined) return [];
+  return list.split(",").map((name) => name.trim().toLowerCase()).filter((name) => name.length > 0);
 }
 
 /** Every table column by its lower-cased header, with the JSON row keys that carry the same fact. */
@@ -103,8 +102,8 @@ export interface StatusFilter {
 export const NO_STATUS_FILTER: StatusFilter = { columns: new Set(), states: new Set() };
 
 /** `--filter=owner,env,done`: a column name drops that column; any other name drops rows in that state. */
-function parseStatusFilter(args: readonly string[]): StatusFilter {
-  const names = [...(parseNameList(args, "--filter=") ?? [])].map((name) => name.toLowerCase());
+function parseStatusFilter(list: string | undefined): StatusFilter {
+  const names = parseNameList(list);
   return {
     columns: new Set(names.filter((name) => name in STATUS_COLUMN_KEYS)),
     states: new Set(names.filter((name) => !(name in STATUS_COLUMN_KEYS))),
@@ -119,23 +118,9 @@ export function filterRowKeys(row: StatusRow, columns: ReadonlySet<string>): Par
   return visible;
 }
 
-/** `--flag value` or `--flag=value`: the value, or undefined when the caller gave neither. */
-function parseValueFlag(args: readonly string[], flag: string): string | undefined {
-  for (let index = 0; index < args.length; index++) {
-    const argument = args[index] ?? "";
-    if (argument === flag) return args[index + 1];
-    if (argument.startsWith(`${flag}=`)) return argument.slice(flag.length + 1);
-  }
-  return undefined;
-}
-
-function parseSpace(args: readonly string[]): string | undefined {
-  return parseValueFlag(args, "--space");
-}
-
 /** `--agent=<name|id>`: one agent to show, whatever its state. */
-function parseAgentTarget(args: readonly string[]): string | undefined {
-  const target = parseValueFlag(args, "--agent")?.trim();
+function parseAgentTarget(given: string | undefined): string | undefined {
+  const target = given?.trim();
   if (target === undefined) return undefined;
   if (target.length === 0) die("--agent needs a name or id, e.g. --agent=ctx-edges");
   return target;
@@ -158,18 +143,21 @@ export interface StatusOptions {
 }
 
 export function parseStatusOptions(args: readonly string[]): StatusOptions {
-  const { enabled } = splitOptionFlags([...args], ["--json", "--human", "--space-wide", "--local", "--all-panes", "--offline", "--live", "--capacity"]);
+  const { command, flags, positional } = parseCommand("status", args);
+  if (positional.length) die(`usage: ${command.usage}`);
+  const agent = parseAgentTarget(flags.value("--agent"));
+  const space = flags.value("--space");
   return {
-    json: enabled.has("--json"),
-    human: enabled.has("--human"),
-    spaceWide: enabled.has("--space-wide"),
-    allPanes: enabled.has("--all-panes"),
-    filter: parseStatusFilter(args),
-    agent: parseAgentTarget(args),
-    local: enabled.has("--local"),
-    offline: enabled.has("--offline"),
-    live: enabled.has("--live"),
-    capacity: enabled.has("--capacity"),
-    space: parseSpace(args),
+    json: flags.has("--json"),
+    human: flags.has("--human"),
+    spaceWide: flags.has("--space-wide"),
+    allPanes: flags.has("--all-panes"),
+    filter: parseStatusFilter(flags.value("--filter")),
+    ...(agent === undefined ? {} : { agent }),
+    local: flags.has("--local"),
+    offline: flags.has("--offline"),
+    live: flags.has("--live"),
+    capacity: flags.has("--capacity"),
+    ...(space === undefined ? {} : { space }),
   };
 }

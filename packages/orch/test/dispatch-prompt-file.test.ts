@@ -2,7 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { parseDispatchFlags, promptBody } from "../src/commands/control.ts";
+import { dispatchFlags, promptBody } from "../src/commands/control.ts";
+import { parseCommand } from "../src/commands/registry.ts";
+
+const parseDispatchFlags = (args: string[]) => dispatchFlags(parseCommand("dispatch", args));
 import { contextReference } from "../src/commands/prompt-file.ts";
 import { taskWithReferences } from "../src/worker-prompt.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";

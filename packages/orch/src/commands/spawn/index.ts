@@ -1,7 +1,8 @@
 import { agentIdentityEnv, maySpawnFrom, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { workerPrompt, workerRules } from "../../worker-prompt.ts";
-import { resolveAdapterOrDie } from "../selection.ts";
+import { agentFlags, resolveAdapterOrDie } from "../selection.ts";
+import { parseCommand } from "../registry.ts";
 import { mintAgentId } from "../../backends/identity.ts";
 import { resolveBackend } from "../../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout } from "../../backends/tiling.ts";
@@ -310,22 +311,23 @@ export async function cmdSpawn(services: Services, args: string[]) {
 }
 
 export async function cmdTile(services: Services, args: string[]) {
-  const flags = parseSpawnFlags(args);
-  if (flags.modelFlags.length > 1) die("orch tile creates one agent; give --model once");
+  const { flags, positional } = parseCommand("tile", args);
+  const json = flags.has("--json");
+  const launch = agentFlags(flags);
   const settingsFile = services.settings.current();
-  const { adapter, model: named, thinking, preferredModels } = resolveSpawnAgentSettings({ ...flags, modelFlag: flags.modelFlags[0] }, settingsFile);
-  const selectedBackend = resolveBackend({ explicit: flags.backendFlag ?? null, configured: settingsFile.defaults.backend ?? null });
+  const { adapter, model: named, thinking, preferredModels } = resolveSpawnAgentSettings(launch, settingsFile);
+  const selectedBackend = resolveBackend({ explicit: launch.backendFlag ?? null, configured: settingsFile.defaults.backend ?? null });
   if (!selectedBackend.placementInventory) die(`orch tile requires an environment that places agents; ${selectedBackend.id} places none.`);
   if (!selectedBackend.groupHome || !selectedBackend.groupLayout) {
     const answer = { outcome: "answer", reason: "no-environment-role", text: "this environment does not provide groups" };
-    if (flags.json) process.stdout.write(JSON.stringify(answer) + "\n");
+    if (json) process.stdout.write(JSON.stringify(answer) + "\n");
     else process.stdout.write(`${answer.text}\n`);
     return;
   }
   const selectedAdapter = resolveAdapterOrDie(adapter);
   const model = admitLaunchModel(settingsFile, adapter, services.models, named);
-  const target = flags.positional[0];
-  const requestedName = flags.positional[1];
+  const target = positional[0];
+  const requestedName = positional[1];
   // Tile CREATES an agent, so it names one too. An agent
   // called `tile-3` says nothing about the slice it holds.
   if (!target || !requestedName) die("usage: orch tile <target> <name> [--cmd <command>] [--dir <path>] [--model <model[:thinking]>]");
@@ -352,13 +354,13 @@ export async function cmdTile(services: Services, args: string[]) {
       adapter: selectedAdapter,
       adapterId: adapter,
       name: autoName,
-      cwd: flags.cwd,
+      cwd: flags.value("--dir") ?? process.cwd(),
       space,
       workspace,
       group: tab.id,
       // Same planner `spawn` uses, off the same tab-wide geometry.
       placement: planTilePlacement(layout, settingsFile.tiling.first_split),
-      cmd: flags.commandFlag ? flags.cmd : undefined,
+      cmd: flags.value("--cmd"),
       // A tiled worker loads exactly what a spawned one does; dropping these is
       // how tiled agents lost the user's own harness extensions.
       tools: workerTools(settingsFile),
@@ -372,7 +374,7 @@ export async function cmdTile(services: Services, args: string[]) {
   } catch (e: unknown) {
     die(`tile failed: ${errorMessage(e)}`);
   }
-  if (flags.json) process.stdout.write(JSON.stringify({ handle: agent.handle, key: agent.key, name: autoName, tab: layout.group, added: true }) + "\n");
+  if (json) process.stdout.write(JSON.stringify({ handle: agent.handle, key: agent.key, name: autoName, tab: layout.group, added: true }) + "\n");
   else {
     process.stdout.write(`Added ${agent.handle} (${autoName}) to group ${layout.group} running ${adapter}.\n`);
     printLayout(selectedBackend, tab.id, "\nFinal tiling:");

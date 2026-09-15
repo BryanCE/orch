@@ -13,6 +13,7 @@ import {
   worktreeHasCommitsAheadOf,
 } from "../worktree.ts";
 import { callerIsSpawnedAgent, die, presenceById } from "./target.ts";
+import { parseCommand } from "./registry.ts";
 import type { AgentView } from "../types/store.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
@@ -79,14 +80,6 @@ function cleanWorktrees(root: OrchDir, logger: Logger, force: boolean, json = fa
   return worktrees.length;
 }
 
-function validateCleanArgs(args: string[]): { worktrees: boolean; force: boolean } {
-  const worktrees = args.includes("--worktrees");
-  const force = args.includes("--force");
-  if (args.some((arg) => arg !== "--worktrees" && arg !== "--force"))
-    die("usage: orch clean [--force] [--worktrees]");
-  return { worktrees, force };
-}
-
 /** Remove the presence directories that name no agent; the store owns the removal,
  *  this command adds output. */
 function removeMalformedAgentDirs(json = false, root: OrchDir): string[] {
@@ -145,12 +138,14 @@ export function cmdClean(services: Services, args: string[]) {
   // destructive maintenance: the user's or the pack orch's call, never a
   // slave's. It refuses before reading anything, so nothing is mutated.
   if (callerIsSpawnedAgent(services.orchDir)) die("orch clean is operator-only: a spawned agent never reaps records it does not own. Ask the user or your orch to run it.");
-  const json = args.includes("--json");
-  const options = validateCleanArgs(args.filter((arg) => arg !== "--json"));
+  const { flags, positional } = parseCommand("clean", args);
+  if (positional.length > 0) die("usage: orch clean [--force] [--worktrees] [--json]");
+  const json = flags.has("--json");
+  const force = flags.has("--force");
   const malformed = removeMalformedAgentDirs(json, services.orchDir);
   const closed = closeDeadAgentWrites(json, services.orchDir);
-  const removed = options.force ? removeDeadAgentDirs(json, services.orchDir) : [];
-  const worktrees = options.worktrees ? cleanWorktrees(services.orchDir, services.logger, options.force, json) : 0;
+  const removed = force ? removeDeadAgentDirs(json, services.orchDir) : [];
+  const worktrees = flags.has("--worktrees") ? cleanWorktrees(services.orchDir, services.logger, force, json) : 0;
   if (json) process.stdout.write(JSON.stringify({ malformed, closed, removed, worktrees }) + "\n");
 }
 

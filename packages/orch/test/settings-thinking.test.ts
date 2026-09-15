@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsThinking } from "../src/settings/write.ts";
-import { cmdSettingsThinking } from "../src/commands/settings.ts";
+import { cmdSettings } from "../src/commands/settings.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createServices } from "../src/services.ts";
@@ -44,22 +44,22 @@ describe("orch settings thinking", () => {
     expect(settings.defaults.thinking_by_harness?.codex).toBe("medium");
   });
 
-  test("the command sets the level a user names", () => {
+  test("the command sets the level a user names", async () => {
     const dir = fixture();
-    cmdSettingsThinking(createServices({ orchDir: dir, settings: fileSettingsManager(dir) }), ["xhigh"]);
+    await cmdSettings(createServices({ orchDir: dir, settings: fileSettingsManager(dir) }), ["thinking", "xhigh"]);
     expect(fileSettingsManager(dir).current().defaults.thinking).toBe("xhigh");
   });
 
-  test("the command sets a per-harness level with --harness", () => {
+  test("the command sets a per-harness level with --harness", async () => {
     const dir = fixture();
-    cmdSettingsThinking(createServices({ orchDir: dir, settings: fileSettingsManager(dir) }), ["low", "--harness=pi"]);
+    await cmdSettings(createServices({ orchDir: dir, settings: fileSettingsManager(dir) }), ["thinking", "low", "--harness=pi"]);
     const settings = fileSettingsManager(dir).current();
     expect(settings.defaults.thinking_by_harness?.pi).toBe("low");
   });
 
   test("a level orch does not know is refused, naming the valid levels", () => {
     const dir = fixture();
-    expect(() => cmdSettingsThinking(createServices({ orchDir: dir, settings: fileSettingsManager(dir) }), ["ludicrous"])).toThrow(/off.*minimal.*low.*medium.*high.*xhigh.*max/s);
+    expect(cmdSettings(createServices({ orchDir: dir, settings: fileSettingsManager(dir) }), ["thinking", "ludicrous"])).rejects.toThrow(/off.*minimal.*low.*medium.*high.*xhigh.*max/s);
   });
 
   test("clearing a per-harness override falls back to the global default", () => {

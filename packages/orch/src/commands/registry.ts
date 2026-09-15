@@ -1,6 +1,7 @@
 /** Every orch command, declared once. The parser reads the flags; `orch help` reads all of it. */
 
-import type { CommandSpec, FlagSpec } from "../cli/spec.ts";
+import { parseInvocation } from "../cli/parse.ts";
+import type { CommandSpec, FlagSpec, Invocation } from "../cli/spec.ts";
 
 const JSON_FLAG: FlagSpec = { name: "--json", arity: "none", help: "Machine-readable output." };
 const FORCE: FlagSpec = { name: "--force", arity: "none", help: "Act on an agent another orch holds." };
@@ -20,8 +21,8 @@ const SPACE_WIDE: FlagSpec = { name: "--space-wide", arity: "none", help: "Also 
 const LOCAL: FlagSpec = { name: "--local", arity: "none", help: "Skip configured remote hosts." };
 
 const STREAM_FLAGS: readonly FlagSpec[] = [
-  { name: "--agent", arity: "one", placeholder: "<name>", help: "Watch one agent by name." },
-  { name: "--agent-id", arity: "one", placeholder: "<id>", help: "Watch one agent by identity key." },
+  { name: "--agent", arity: "many", placeholder: "<name>", help: "Watch one agent by name. Repeatable." },
+  { name: "--agent-id", arity: "many", placeholder: "<id>", help: "Watch one agent by identity key. Repeatable." },
   SPACE_WIDE,
   { name: "--filter", arity: "one", placeholder: "<state,...>", help: "Drop these states, e.g. --filter=working,idle." },
   { name: "--since-seq", arity: "one", placeholder: "<n>", help: "Resume after this durable sequence. A pruned range is reported as a gap." },
@@ -105,8 +106,6 @@ const DISPATCH: readonly CommandSpec[] = [
       MODEL,
       THINKING,
       { ...ADAPTER, help: "Route through this adapter instead of the recorded one." },
-      { name: "--wait", arity: "none", help: "Block until the agent reaches done." },
-      { name: "--then", arity: "one", placeholder: "<target>", help: "When done, pipe the result to this agent. Words after it are the instruction." },
       JSON_FLAG,
       ...GOVERNANCE,
     ],
@@ -206,7 +205,6 @@ const QUEUE: readonly CommandSpec[] = [
           ...QUEUE_SCOPE,
           { name: "--host", arity: "one", placeholder: "<host>", help: "Enqueue on a configured remote host." },
           { name: "--worktree", arity: "none", help: "Run it in a fresh git worktree." },
-          { name: "--close", arity: "none", help: "Close the agent when the task settles." },
           JSON_FLAG,
         ],
       },
@@ -306,7 +304,7 @@ const AGENTS: readonly CommandSpec[] = [
     name: "restart", section: "agents",
     usage: "orch restart <target>... | --all [--cmd <command>]",
     summary: "Relaunch the harness process.",
-    flags: [ALL, { ...CMD, help: "The command to relaunch with. Default: the recorded adapter command." }, { name: "--hard", arity: "none", help: "Kill the process instead of asking it to exit." }, FORCE, JSON_FLAG],
+    flags: [ALL, { ...CMD, help: "The command to relaunch with. Default: the recorded adapter command." }, FORCE, JSON_FLAG],
   },
   {
     name: "close", aliases: ["kill"], section: "agents",
@@ -315,11 +313,10 @@ const AGENTS: readonly CommandSpec[] = [
     flags: [
       { ...ALL, help: "Every agent orch spawned that the caller may close. Never a pane orch did not spawn." },
       { name: "--stream", arity: "none", help: "Also kill the caller's 'orch monitor' or 'orch events' stream." },
-      { ...FORCE, aliases: ["-f"] },
       JSON_FLAG,
     ],
   },
-  { name: "abort", section: "agents", usage: "orch abort <target>", summary: "Cancel the current turn.", flags: [FORCE, JSON_FLAG] },
+  { name: "abort", section: "agents", usage: "orch abort <target>", summary: "Cancel the current turn.", flags: [JSON_FLAG] },
   { name: "detach", section: "agents", usage: "orch detach <target>", summary: "Release the lease. The agent keeps running.", flags: [STEAL, JSON_FLAG] },
   {
     name: "adopt", section: "agents",
@@ -394,7 +391,7 @@ const TABS: readonly CommandSpec[] = [
         summary: "Create a tab. Prints the root pane id. Never steals focus.",
         flags: [
           { name: "--label", arity: "one", placeholder: "<label>", help: "The tab label." },
-          { name: "--workspace", arity: "one", placeholder: "<id>", help: "The plexer workspace to create it in." },
+          { name: "--workspace", arity: "one", placeholder: "<id>", help: "The plexer's own grouping to create it in." },
           { ...DIR, help: "Directory the root pane starts in." },
           ...TAB_TARGET_FLAGS,
         ],
@@ -548,7 +545,7 @@ const MAINTENANCE: readonly CommandSpec[] = [
       {
         name: "test", usage: "orch notify test [--state <state>] [--json]",
         summary: "Send a synthetic transition through each configured sink.",
-        flags: [{ name: "--state", arity: "one", placeholder: "<state>", help: "The state to fake. Default done." }, JSON_FLAG],
+        flags: [{ name: "--state", arity: "one", placeholder: "<state>", help: "The state to fake. Default blocked." }, JSON_FLAG],
       },
     ],
   },
@@ -561,4 +558,11 @@ export const COMMANDS: readonly CommandSpec[] = [...OBSERVE, ...DISPATCH, ...COL
 /** The top-level spec a command word names, by name or alias. */
 export function commandSpec(word: string): CommandSpec | undefined {
   return COMMANDS.find((spec) => spec.name === word || spec.aliases?.includes(word));
+}
+
+/** A command's own argv, parsed against its spec. The one parse every `cmd*` does first. */
+export function parseCommand(name: string, args: readonly string[]): Invocation {
+  const spec = commandSpec(name);
+  if (spec === undefined) throw new Error(`no command spec named ${name}`);
+  return parseInvocation(spec, args, GLOBAL_FLAGS);
 }

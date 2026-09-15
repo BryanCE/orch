@@ -30,25 +30,6 @@ export function resultText(value: unknown): string | undefined {
   return isRecord(value) && typeof value.text === "string" ? value.text : undefined;
 }
 
-export function splitOptionFlags(args: string[], names: readonly string[]): { enabled: Set<string>; positional: string[] } {
-  const known = new Set(names);
-  const enabled = new Set<string>();
-  const positional: string[] = [];
-  for (const argument of args) {
-    if (known.has(argument)) enabled.add(argument);
-    else positional.push(argument);
-  }
-  return { enabled, positional };
-}
-
-export function parseTargetPrompt(args: string[], ignoredFlag: string, usage: string): { target: string; prompt: string } {
-  const positional = args.filter((argument) => argument !== ignoredFlag);
-  const target = positional[0];
-  const prompt = positional.slice(1).join(" ");
-  if (!target || !prompt) die(usage);
-  return { target, prompt };
-}
-
 export function requirePresenceTarget(root: OrchDir, settings: OrchSettings, target: string): Entity {
   const ent = resolveTarget(root, settings, target);
   if (!ent.presence) die(`Target "${target}" has no agent dir.`);

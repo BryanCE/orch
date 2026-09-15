@@ -9,6 +9,13 @@
  */
 import { Data } from "effect";
 import type { PackSnapshot } from "../types/seat.ts";
+import type { NotifyEvent } from "../types/notify.ts";
+
+/** The name an event's agent goes by on the board: its label, else its harness, else its key. */
+export function transitionName(event: NotifyEvent): string {
+  const name = event.name ?? event.agent;
+  return typeof name === "string" && name !== "" ? name : event.key;
+}
 
 /** States that should pull the operator's attention the moment they are entered. */
 export const ALERT_STATES: ReadonlySet<string> = new Set(["blocked", "asking", "error", "aborted"]);

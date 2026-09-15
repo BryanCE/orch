@@ -83,7 +83,7 @@ that makes it do any of those was under-specced. Fix the task, not the agent.
 - `orch help <command>` for flags, defaults, output shapes and what each command refuses.
 - `reference/fleet.md` for tabs and domains, fleet size, capacity, the task list shape, and
   the cadence that keeps panes busy.
-- `reference/commands.md` for when to reach for a command and what goes wrong when you
-  do not: models, dispatch quoting, the queue, watch scope, settings.
+- `reference/commands.md` for which `orch help <command>` to read in which situation, and
+  the few rules that span commands: targets, reuse before spawn, steer once.
 - `reference/troubleshooting.md` for daemon skew, model refusals, queued dispatches,
   stalled spawns, ambiguous targets, and repair.

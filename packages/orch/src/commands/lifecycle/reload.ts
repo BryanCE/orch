@@ -14,6 +14,7 @@ import { resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { writeRpc } from "../daemon.ts";
 import { assertAgentOwned, die, resolveLifecycleTarget } from "../target.ts";
 import { lifecycleLogger, lifecycleTargets } from "./index.ts";
+import { parseCommand } from "../registry.ts";
 import { describeHandle } from "./close.ts";
 import type { Backend, ForegroundProcesses } from "../../types/backend.ts";
 import type { AgentAdapter, LifecycleVerb } from "../../types/adapter.ts";
@@ -191,14 +192,15 @@ function reportReloads(results: readonly ReloadResult[], json: boolean): void {
 }
 
 export async function cmdReload(services: Services, args: string[]): Promise<void> {
-  const json = args.includes("--json");
-  const { targets, all } = lifecycleTargets(services, args, ["--json", "--force"]);
+  const invocation = parseCommand("reload", args);
+  const json = invocation.flags.has("--json");
+  const { targets, all } = lifecycleTargets(services, invocation);
   // `--all` is a valid invocation even with zero live agents: it still touches
   // reload.signal (SIGNALED) for settings/extension watchers. Only a bare call
   // with neither --all nor a target is a usage error.
   if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
   const results: ReloadResult[] = [];
-  const planned = planReloads(services.orchDir, services.settings.current(), targets, args.includes("--force"), results);
+  const planned = planReloads(services.orchDir, services.settings.current(), targets, invocation.flags.has("--force"), results);
   // A reload exists to pick up new code, so stale deployments redeploy first —
   // but only for the harnesses being reloaded. `orch reload <pi agent>` has no
   // business rewriting another harness's integration.
@@ -254,11 +256,12 @@ async function restartOneTarget(services: LifecycleServices, target: string, cmd
   return true;
 }
 export async function cmdRestart(services: Services, args: string[]): Promise<void> {
-  const json = args.includes("--json");
-  const flags = { json, force: args.includes("--force") };
-  const { targets, values } = lifecycleTargets(services, args, ["--hard", "--json", "--force"], ["--cmd"]);
+  const invocation = parseCommand("restart", args);
+  const json = invocation.flags.has("--json");
+  const flags = { json, force: invocation.flags.has("--force") };
+  const { targets } = lifecycleTargets(services, invocation);
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
-  const cmd = values.get("--cmd") ?? null;
+  const cmd = invocation.flags.value("--cmd") ?? null;
   const results: ReloadResult[] = [];
   let ok = 0;
   for (const target of targets) {

@@ -2,9 +2,8 @@
 // time, so these create no runtime edge out of the types layer.
 import type { createAgentPresence } from "../agent/presence.ts";
 import type { AgentNotice, BridgeDelivery } from "../control/bridge-message.ts";
-import type { subscribeEvents } from "../daemon/client/rpc.ts";
 import type { AgentState } from "../agent-state.ts";
-import type { CallerKind, ThinkingLevel } from "./policy.ts";
+import type { ThinkingLevel } from "./policy.ts";
 import type { JsonRecord, OrchDir, SessionUsage } from "./core.ts";
 import type { ResultReport, StatusPatch } from "./presence.ts";
 import type { ParamsOf, ResultOf, RpcMethod } from "../daemon/client/protocol.ts";
@@ -121,12 +120,10 @@ export interface HarnessIdentity {
   readonly settleEvent: string;
 }
 
-/** What a composition root gets back: the live fleet model (when the generic
- * monitor is wired), and this session's own orch identity for richer seats. */
+/** What a composition root gets back: this session's own orch identity for its seat. */
 export interface HarnessBridge {
-  fleet: FleetReadModel | undefined;
-  /** This session's presence key, once minted; a harness-specific orchestrator
-   *  seat (extensions/pi/fleet) keys its identity wall on this. */
+  /** This session's presence key, once minted; the orchestrator seat keys its
+   *  identity wall on this. */
   ownKey: () => string | undefined;
 }
 
@@ -180,49 +177,6 @@ export type PeerResolution = PeerResolutionError | PeerResolutionPeer;
 export interface BridgeToolResult {
   content: [{ type: "text"; text: string }];
   details: undefined;
-}
-
-/** One agent as the orchestrator currently understands it, from events alone. */
-export interface FleetAgentRow {
-  key: string;
-  name: string;
-  state: string;
-  model: string | null;
-  task: string;
-  cost?: number;
-  ts: string;
-}
-
-/** Live, read-only view of this session's own fleet, for a harness UI to render. */
-export interface FleetReadModel {
-  list(): readonly FleetAgentRow[];
-  size(): number;
-  /** Fires on every accepted transition; returns an unsubscribe. */
-  subscribe(listener: () => void): () => void;
-}
-
-/** How the status line spells the fleet; a harness with a themed UI substitutes its own. */
-export type FleetStatusRenderer = (context: HarnessContext, agents: readonly FleetAgentRow[]) => string;
-
-export interface FleetMonitor {
-  /** Bind the monitor to a live session's UI and start rendering. */
-  attach(context: HarnessContext): void;
-  stop(): void;
-  readonly model: FleetReadModel;
-}
-
-export interface FleetMonitorOptions {
-  /** This session's own identity, once a context can compute it. */
-  ownKey(context: HarnessContext): string | undefined;
-  /** Themed spelling of the status line; plain text by default. */
-  renderStatus?: FleetStatusRenderer;
-  /** Where transitions arrive from; the daemon's event stream by default. A test
-   *  pushes its own so the monitor's seam can be driven without a daemon. */
-  subscribe?: typeof subscribeEvents;
-  /** Who is asking; orch's own answer by default. A test states the caller here
-   *  rather than mocking the policy module — a module mock outlives the file that
-   *  installed it and answers for every later test in the process. */
-  callerKind?: () => CallerKind;
 }
 
 export interface AssistantMessageLike {

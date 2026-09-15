@@ -16,16 +16,11 @@ import { presenceAgentDir } from "../presence/history.ts";
 import { sendPeerMessage } from "../agent/peers.ts";
 import { isNotifyEvent } from "../notify/event.ts";
 import { selectAgentStatus } from "../store/status-rows.ts";
-import { PackAbortError, PackSendError } from "./domain.ts";
+import { PackAbortError, PackSendError, transitionName } from "./domain.ts";
 import type { PackEnrichment, PackSourceConfig, PackSourceShape } from "../types/seat.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 
 export class PackSource extends Context.Tag("orch/seat/PackSource")<PackSource, PackSourceShape>() {}
-
-function transitionName(value: NotifyEvent): string {
-  const name = value.name ?? value.agent;
-  return typeof name === "string" && name !== "" ? name : value.key;
-}
 
 function makePackSource(config: PackSourceConfig): PackSourceShape {
   const transitions = Stream.async<NotifyEvent>((emit) => {

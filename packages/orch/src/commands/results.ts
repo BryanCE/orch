@@ -9,7 +9,8 @@ import { collapse, isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
 import { rpcCall } from "../daemon/client/rpc.ts";
-import { assertAgentOwned, die, forbidNonOperatorOverride, remoteCommandArgs, resultText, splitOptionFlags, targetHost } from "./target.ts";
+import { assertAgentOwned, die, forbidNonOperatorOverride, remoteCommandArgs, resultText, targetHost } from "./target.ts";
+import { parseCommand } from "./registry.ts";
 import { entityAdapter } from "./status/rows.ts";
 import { latestRunForKey } from "./runs.ts";
 import { selectRun } from "../store/run-rows.ts";
@@ -30,13 +31,6 @@ type ResultSource = "presence" | "dispatch" | "history" | "session";
 type ResultLookup =
   | { readonly kind: "found"; readonly source: ResultSource; readonly payload: unknown }
   | { readonly kind: "missing"; readonly reason: string };
-
-interface ResultOptions { json: boolean; force: boolean; targets: string[] }
-
-function parseResultArgs(args: string[]): ResultOptions {
-  const { enabled, positional } = splitOptionFlags(args, ["--json", "--force"]);
-  return { json: enabled.has("--json"), force: enabled.has("--force"), targets: positional };
-}
 
 function adapterResultText(orchDir: OrchDir, ent: Entity, adapter: AgentAdapter): string | undefined {
   return adapter.extractResult({ sessionPath: ent.sessionPath ?? undefined }, orchDir);
@@ -171,23 +165,25 @@ function printResults(entries: readonly { target: string; lookup: ResultLookup }
 }
 
 export function cmdResult(services: Services, args: string[]): void {
-  const options = parseResultArgs(args);
-  if (options.targets.length === 0) die("usage: orch result <target>... [--force] [--json]");
-  const entries = options.targets.map((target) => ({ target, lookup: lookupResult(services, target, options.force) }));
-  printResults(entries, options.json);
+  const { flags, positional } = parseCommand("result", args);
+  if (positional.length === 0) die("usage: orch result <target>... [--force] [--json]");
+  const force = flags.has("--force");
+  const entries = positional.map((target) => ({ target, lookup: lookupResult(services, target, force) }));
+  printResults(entries, flags.has("--json"));
 }
 
+interface QuestionOptions { readonly all: boolean; readonly json: boolean }
+
 export async function cmdQuestions(services: Services, args: string[]): Promise<void> {
-  const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
-  if (enabled.has("--all")) forbidNonOperatorOverride(services.orchDir, "--all");
-  const json = enabled.has("--json");
-  const localOnly = enabled.has("--local");
+  const { flags } = parseCommand("questions", args);
+  const options: QuestionOptions = { all: flags.has("--all"), json: flags.has("--json") };
+  if (options.all) forbidNonOperatorOverride(services.orchDir, "--all");
   const hosts = services.settings.current().hosts;
-  if (localOnly || callerKind(services.orchDir) !== "operator" || Object.keys(hosts).length === 0) {
-    await cmdQuestionsLocal(services.orchDir, args);
+  if (flags.has("--local") || callerKind(services.orchDir) !== "operator" || Object.keys(hosts).length === 0) {
+    await cmdQuestionsLocal(services.orchDir, options);
     return;
   }
-  const rows: QuestionRow[] = [...await localQuestionRows(services.orchDir, args)];
+  const rows: QuestionRow[] = [...await localQuestionRows(services.orchDir, options)];
   const remoteResults = await Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
     name,
     result: await runRemoteAsync(name, host, ["questions"], { timeoutMs: host.timeout_ms }),
@@ -203,7 +199,7 @@ export async function cmdQuestions(services: Services, args: string[]): Promise<
     }
     for (const value of result.value) if (isQuestionRow(value)) rows.push({ ...value, host: name });
   }
-  if (json) {
+  if (options.json) {
     process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
     return;
   }
@@ -229,9 +225,8 @@ function callerMaySeeQuestion(orchDir: OrchDir, agentId: string): boolean {
 }
 
 /** Read pending questions from orchd; the daemon owns their answerable state. */
-async function collectPendingQuestions(orchDir: OrchDir, args: string[]): Promise<{ pending: PendingQuestion[] }> {
-  const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
-  const answer = await rpcCall(orchDir, "questions", { all: enabled.has("--all") });
+async function collectPendingQuestions(orchDir: OrchDir, all: boolean): Promise<{ pending: PendingQuestion[] }> {
+  const answer = await rpcCall(orchDir, "questions", { all });
   return {
     pending: answer.questions
       .filter((view) => callerMaySeeQuestion(orchDir, view.agentId))
@@ -239,16 +234,14 @@ async function collectPendingQuestions(orchDir: OrchDir, args: string[]): Promis
   };
 }
 
-async function cmdQuestionsLocal(orchDir: OrchDir, args: string[]): Promise<void> {
-  const { enabled } = splitOptionFlags(args, ["--all", "--json", "--local"]);
-  const all = enabled.has("--all");
-  const { pending } = await collectPendingQuestions(orchDir, args);
+async function cmdQuestionsLocal(orchDir: OrchDir, { all, json }: QuestionOptions): Promise<void> {
+  const { pending } = await collectPendingQuestions(orchDir, all);
   if (!pending.length) {
-    if (enabled.has("--json")) process.stdout.write("[]\n");
+    if (json) process.stdout.write("[]\n");
     else process.stdout.write("No pending questions.\n");
     return;
   }
-  if (enabled.has("--json")) {
+  if (json) {
     process.stdout.write(JSON.stringify(pending.map(({ view }) => ({
       key: view.key,
       name: view.name,
@@ -286,8 +279,8 @@ export function formatAge(ts: unknown): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-async function localQuestionRows(orchDir: OrchDir, args: string[]): Promise<QuestionRow[]> {
-  const { pending } = await collectPendingQuestions(orchDir, args);
+async function localQuestionRows(orchDir: OrchDir, { all }: QuestionOptions): Promise<QuestionRow[]> {
+  const { pending } = await collectPendingQuestions(orchDir, all);
   return pending.map(({ view }) => ({
     key: view.key, name: view.name, age: formatAge(view.askedAt),
     question: view.question, id: view.questionId, ts: new Date(view.askedAt).toISOString(),
@@ -369,24 +362,6 @@ function tailEntries(entries: readonly SessionViewEntry[], count: number): strin
   return rows.length ? rows.join("\n") : "(no entries)";
 }
 
-interface TailOptions { target?: string; lines: number; json: boolean }
-
-function parseTailArgs(args: string[]): TailOptions {
-  let lines = 20;
-  let json = false;
-  const rest: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === undefined) continue;
-    if (arg === "-n") {
-      const value = args[++i];
-      lines = parseInt(value ?? "", 10) || 20;
-    } else if (arg === "--json") json = true;
-    else rest.push(arg);
-  }
-  return { target: rest[0], lines, json };
-}
-
 function viewEntriesTail(view: SessionView, lines: number): SessionViewEntry[] | null {
   return view.entries ? view.entries.slice(-lines) : null;
 }
@@ -407,21 +382,16 @@ function writeTailText(ent: Entity, view: SessionView, lines: number): void {
 }
 
 export function cmdTail(services: Services, args: string[]) {
-  const options = parseTailArgs(args);
-  const target = options.target;
+  const { flags, positional } = parseCommand("tail", args);
+  const target = positional[0];
   if (!target) die("usage: orch tail <target> [-n N] [--json]");
+  const lines = parseInt(flags.value("-n") ?? "", 10) || 20;
   const ent = resolveTarget(services.orchDir, services.settings.current(), target);
   const adapter = resolveSessionTailAdapter(spawnedRecords(services.orchDir), target, ent);
   const view = adapter.sessionView?.readSessionView({ sessionPath: ent.sessionPath ?? undefined });
   if (!view) die(`No session data for "${target}" (${ent.sessionPath ?? "unknown path"}).`);
-  if (options.json) writeTailJson(target, ent, view, options.lines);
-  else writeTailText(ent, view, options.lines);
-}
-
-interface SessionOptions { target?: string; json: boolean }
-
-function parseSessionArgs(args: string[]): SessionOptions {
-  return { json: args.includes("--json"), target: args.find((arg) => arg !== "--json") };
+  if (flags.has("--json")) writeTailJson(target, ent, view, lines);
+  else writeTailText(ent, view, lines);
 }
 
 function writeSessionJson(ent: Entity, view: SessionView | undefined): void {
@@ -447,14 +417,14 @@ function writeSessionText(ent: Entity, view: SessionView | undefined): void {
 }
 
 export function cmdSession(services: Services, args: string[]) {
-  const options = parseSessionArgs(args);
-  const target = options.target;
+  const { flags, positional } = parseCommand("session", args);
+  const target = positional[0];
   if (!target) die("usage: orch session <target> [--json]");
   const ent = resolveTarget(services.orchDir, services.settings.current(), target);
   if (!ent.sessionPath) die(`No session path known for "${target}".`);
   const adapter = resolveSessionTailAdapter(spawnedRecords(services.orchDir), target, ent);
   const view = adapter.sessionView?.readSessionView({ sessionPath: ent.sessionPath });
-  if (options.json) writeSessionJson(ent, view);
+  if (flags.has("--json")) writeSessionJson(ent, view);
   else writeSessionText(ent, view);
 }
 

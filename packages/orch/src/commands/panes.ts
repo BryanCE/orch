@@ -5,7 +5,9 @@ import type { Services, SettingsService } from "../types/services.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
-import { agentAddress, assertAgentOwned, splitOptionFlags, die, backendTarget, ownsAgent, presenceById } from "./target.ts";
+import { agentAddress, assertAgentOwned, die, backendTarget, ownsAgent, presenceById } from "./target.ts";
+import { parseCommand } from "./registry.ts";
+import type { ParsedFlags } from "../cli/spec.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { viewForKey } from "../entities/lookup.ts";
 import { openingPlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
@@ -33,9 +35,9 @@ function renderBoundaryAnswer<T>(plan: BoundaryPlan<T>, json: boolean): boolean 
   return false;
 }
 export function cmdPanes(services: Services, args: string[]) {
-  const { enabled } = splitOptionFlags(args, ["--all", "--json"]);
-  const all = enabled.has("--all");
-  const json = enabled.has("--json");
+  const { flags } = parseCommand("panes", args);
+  const all = flags.has("--all");
+  const json = flags.has("--json");
   const settings = services.settings.current();
   const entities = scopeEntitiesToSpace(services.orchDir, sortEntities(buildEntities(services.orchDir, settings)), { all });
   const spaces = settings.spaces;
@@ -72,11 +74,11 @@ function requireOwnedPaneTarget(services: Pick<Services, "orchDir" | "settings">
 }
 
 export function cmdKeys(services: Services, args: string[]) {
-  const json = args.includes("--json");
-  const force = args.includes("--force");
-  const cleanArgs = args.filter((arg) => arg !== "--json" && arg !== "--force");
-  const target = cleanArgs[0];
-  const keys = cleanArgs.slice(1);
+  const { flags, positional } = parseCommand("keys", args);
+  const json = flags.has("--json");
+  const force = flags.has("--force");
+  const target = positional[0];
+  const keys = positional.slice(1);
   if (!target || !keys.length) die("usage: orch keys <target> <key> [key...] [--force]");
   const { backend, handle } = requireOwnedPaneTarget(services, target, "keys", force);
   const entity = resolveTarget(services.orchDir, services.settings.current(), target);
@@ -88,14 +90,9 @@ export function cmdKeys(services: Services, args: string[]) {
 }
 
 export function cmdPeek(services: Services, args: string[]) {
-  let n = 25;
-  let json = false;
-  const positional: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-n") n = parseInt(args[++i]!, 10) || 25;
-    else if (args[i] === "--json") json = true;
-    else positional.push(args[i]!);
-  }
+  const { flags, positional } = parseCommand("peek", args);
+  const n = parseInt(flags.value("-n") ?? "", 10) || 25;
+  const json = flags.has("--json");
   const target = positional[0];
   if (!target) die("usage: orch peek <target> [-n N] [--json]");
   const { backend, handle } = requirePaneTarget(services, target, "peek");
@@ -144,11 +141,10 @@ export function resolveTab(services: Pick<Services, "orchDir" | "settings" | "lo
 }
 
 export function cmdTabs(services: Services, args: string[]) {
-  const unknown = args.filter((arg) => !arg.startsWith("--"));
-  if (unknown.length) die(`orch tabs lists tabs and has no "${unknown[0]}" subcommand. Create tabs through the backend (e.g. herdr tab create) or orch spawn/tile.`);
-  const { enabled } = splitOptionFlags(args, ["--all", "--json"]);
-  const all = enabled.has("--all");
-  const json = enabled.has("--json");
+  const { flags, positional } = parseCommand("tabs", args);
+  if (positional.length) die(`orch tabs lists tabs and has no "${positional[0]}" subcommand. Create tabs through the backend (e.g. herdr tab create) or orch spawn/tile.`);
+  const all = flags.has("--all");
+  const json = flags.has("--json");
   const { backend, groups } = selectedGroups(services);
   // A tab is the PLEXER's grouping, so the grouping to filter by is the plexer's
   // own answer for the calling pane — never read off an identity, which carries
@@ -196,22 +192,10 @@ function assertGroupAgentsOwned(services: Pick<Services, "orchDir">, backend: Ba
   }
 }
 
-function parseTabNewArgs(args: string[]): { label: string | null; workspace: string | null; cwd: string } {
-  let label: string | null = null;
-  let workspace: string | null = null;
-  let cwd = process.cwd();
-  for (let index = 0; index < args.length; index++) {
-    if (args[index] === "--label") label = args[++index] ?? null;
-    else if (args[index] === "--workspace") workspace = args[++index] ?? null;
-    else if (args[index] === "--dir") cwd = args[++index] ?? cwd;
-  }
-  return { label, workspace, cwd };
-}
-
-function cmdTabNew(rest: string[], json: boolean, backend: Backend): void {
-  const parsed = parseTabNewArgs(rest);
-  const { label, cwd } = parsed;
-  const workspace = parsed.workspace ?? backend.placementInventory?.current()?.workspace ?? null;
+function cmdTabNew(flags: ParsedFlags, json: boolean, backend: Backend): void {
+  const label = flags.value("--label") ?? null;
+  const cwd = flags.value("--dir") ?? process.cwd();
+  const workspace = flags.value("--workspace") ?? backend.placementInventory?.current()?.workspace ?? null;
   if (!workspace) die("Could not determine workspace id. Pass --workspace <id>.");
   const created = backend.groupHome!.create({ workspace, cwd, label });
   if (json) process.stdout.write(JSON.stringify(created) + "\n");
@@ -245,25 +229,25 @@ function cmdTabFocus(services: Pick<Services, "orchDir" | "settings" | "logger">
 }
 
 export function cmdTab(services: Services, args: string[]) {
-  const json = args.includes("--json");
-  const force = args.includes("--force");
-  const cleanArgs = args.filter((arg) => arg !== "--json" && arg !== "--force");
-  const sub = cleanArgs[0];
-  const rest = cleanArgs.slice(1);
+  const { command, flags, positional } = parseCommand("tab", args);
+  const json = flags.has("--json");
   const { backend } = selectedGroups(services);
   const role = backend.groupHome;
   if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide groups" }, json); return; }
-  if (sub === "new") cmdTabNew(rest, json, backend);
-  else if (sub === "rename") cmdTabRename(services, rest[0], rest[1], json, backend);
-  else if (sub === "close") cmdTabClose(services, rest[0], force, json, backend);
-  else if (sub === "focus") cmdTabFocus(services, rest[0], json, backend);
-  else die("usage: orch tab new|rename|close|focus ...  (orch tabs to list)");
+  switch (command.name) {
+    case "new": return cmdTabNew(flags, json, backend);
+    case "rename": return cmdTabRename(services, positional[0], positional[1], json, backend);
+    case "close": return cmdTabClose(services, positional[0], flags.has("--force"), json, backend);
+    case "focus": return cmdTabFocus(services, positional[0], json, backend);
+    default: die("usage: orch tab new|rename|close|focus ...  (orch tabs to list)");
+  }
 }
 
 export function cmdFocus(services: Services, args: string[]) {
-  const json = args.includes("--json");
-  const force = args.includes("--force");
-  const target = args.find((arg) => arg !== "--json" && arg !== "--force");
+  const { flags, positional } = parseCommand("focus", args);
+  const json = flags.has("--json");
+  const force = flags.has("--force");
+  const target = positional[0];
   if (!target) die("usage: orch focus <target> [--force] [--json]");
   const { backend, handle } = requireOwnedPaneTarget(services, target, "focus", force);
   const entity = resolveTarget(services.orchDir, services.settings.current(), target);
@@ -275,23 +259,16 @@ export function cmdFocus(services: Services, args: string[]) {
 }
 
 export function cmdZoom(services: Services, args: string[]) {
-  let mode = "--toggle";
-  const json = args.includes("--json");
-  const force = args.includes("--force");
-  const positional: string[] = [];
-  for (const a of args) {
-    if (a === "--off") mode = "--off";
-    else if (a === "--on") mode = "--on";
-    else if (a === "--json" || a === "--force") continue;
-    else positional.push(a);
-  }
+  const { flags, positional } = parseCommand("zoom", args);
+  const json = flags.has("--json");
+  const force = flags.has("--force");
   const target = positional[0];
   if (!target) die("usage: orch zoom <target> [--on|--off] [--force]  (default: toggle)");
   const { backend, handle } = requireOwnedPaneTarget(services, target, "zoom", force);
   const entity = resolveTarget(services.orchDir, services.settings.current(), target);
   const plan = paneBoundary(target, "zoom", backend.zooming, !!entity.paneId);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
-  const zoomMode = mode === "--on" ? "on" : mode === "--off" ? "off" : "toggle";
+  const zoomMode = flags.has("--on") ? "on" : flags.has("--off") ? "off" : "toggle";
   plan.role.setZoom(handle, zoomMode);
   if (json) process.stdout.write(JSON.stringify({ target: handle, mode: zoomMode, zoomed: true }) + "\n");
   else process.stdout.write(`Zoom ${zoomMode} on ${handle}.\n`);
@@ -312,24 +289,15 @@ function isBackendSplit(value: string): value is BackendSplit {
 }
 
 export function cmdMove(services: Services, args: string[]) {
-  let tab: string | null = null;
-  let split = "right";
-  let splitExplicit = false;
-  const json = args.includes("--json");
-  const force = args.includes("--force");
-  let newTab = false;
-  let label: string | null = null;
-  const positional: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--tab") tab = args[++i]!;
-    else if (args[i] === "--split") { split = args[++i]!; splitExplicit = true; }
-    else if (args[i] === "--new-tab") newTab = true;
-    else if (args[i] === "--label") label = args[++i]!;
-    else if (args[i] === "--json" || args[i] === "--force") continue;
-    else positional.push(args[i]!);
-  }
+  const { flags, positional } = parseCommand("move", args);
+  const json = flags.has("--json");
+  const force = flags.has("--force");
+  const tab = flags.value("--tab");
+  const newTab = flags.has("--new-tab");
+  const label = flags.value("--label") ?? null;
+  let split = flags.value("--split") ?? "right";
   const target = positional[0];
-  if (!target || (!tab && !newTab))
+  if (!target || (tab === undefined && !newTab))
     die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X] [--force]");
   const { backend, handle, key } = requireOwnedPaneTarget(services, target, "move", force);
   const role = backend.groupHome;
@@ -337,15 +305,15 @@ export function cmdMove(services: Services, args: string[]) {
   try {
     // Default: land on the destination tab's biggest pane so it stays balanced
     // instead of stacking off one edge. An explicit --split still wins.
-    const groupId = newTab ? null : resolveTab(services, tab!).id;
+    const groupId = newTab || tab === undefined ? null : resolveTab(services, tab).id;
     let against: BackendHandle | undefined;
-    if (!newTab && !splitExplicit && groupId !== null) {
+    if (!flags.has("--split") && groupId !== null) {
       const placement = tilePlacementBesides(services, backend, groupId, handle);
       split = placement.split;
       against = placement.targetHandle;
     }
     if (!isBackendSplit(split)) die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X] [--force]");
-    role.move({ handle, group: newTab ? null : groupId!, split, against, label });
+    role.move({ handle, group: groupId, split, against, label });
     // The pane moved; the agent did not become a different agent. A14: the
     // handle is an interval on its own axis, so the old one closes and a new
     // one opens — identity is untouched.

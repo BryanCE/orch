@@ -11,8 +11,10 @@ import { workerPrompt } from "../../worker-prompt.ts";
 import { workerHeaderContext } from "../../policy/spawner.ts";
 import { entityAdapter } from "../status/rows.ts";
 import { spawnedRecords } from "../../presence/store.ts";
-import { parseGovernance, writeRpc } from "../daemon.ts";
-import { backendTarget, die, ownsAgent, parseTargetPrompt, requireCallerOwnerToken } from "../target.ts";
+import { governanceFlags, writeRpc } from "../daemon.ts";
+import { parseCommand } from "../registry.ts";
+import { backendTarget, die, ownsAgent, requireCallerOwnerToken } from "../target.ts";
+import type { Invocation } from "../../cli/spec.ts";
 import type { Services } from "../../types/services.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 
@@ -22,10 +24,13 @@ export function lifecycleLogger(logger: Logger, key: string) {
 
 /** Dispatch a prompt and retry once when the pane never enters working state. */
 export async function cmdRun(services: Services, args: string[]): Promise<void> {
-  const raw = args.includes("--raw");
-  const json = args.includes("--json");
-  const { gov, rest } = parseGovernance(services, args.filter((arg) => arg !== "--json"));
-  const { target, prompt } = parseTargetPrompt(rest, "--raw", 'usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
+  const { flags, positional } = parseCommand("run", args);
+  const raw = flags.has("--raw");
+  const json = flags.has("--json");
+  const gov = governanceFlags(services, flags);
+  const target = positional[0];
+  const prompt = positional.slice(1).join(" ");
+  if (!target || !prompt) die('usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
   const settings = services.settings.current();
   const { ent, pane } = resolvePane(services.orchDir, settings, target, { crossSpace: gov.crossSpace });
   const headerContext = workerHeaderContext(services.orchDir, settings);
@@ -36,17 +41,11 @@ export async function cmdRun(services: Services, args: string[]): Promise<void> 
 }
 
 export function cmdWait(services: Services, args: string[]) {
-  let status = "done";
+  const { flags, positional } = parseCommand("wait", args);
+  const status = flags.value("--status") ?? "done";
   const defaultTimeout = services.settings.current().timeouts.wait_ms;
-  let timeout = defaultTimeout;
-  const json = args.includes("--json");
-  const positional: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--status") status = args[++i]!;
-    else if (args[i] === "--timeout") timeout = parseInt(args[++i]!, 10) || defaultTimeout;
-    else if (args[i] === "--json") continue;
-    else positional.push(args[i]!);
-  }
+  const timeout = parseInt(flags.value("--timeout") ?? "", 10) || defaultTimeout;
+  const json = flags.has("--json");
   const target = positional[0];
   if (!target) die("usage: orch wait <target> [--status done|idle|working|blocked] [--timeout ms]");
   const settings = services.settings.current();
@@ -99,35 +98,15 @@ export function ownedAgentKeys(services: Pick<Services, "orchDir" | "settings">)
     .map((ent) => ent.key);
 }
 
-/** The targets a lifecycle command was given.
- *
- *  `reload` and `restart` collected these with two hand-written loops that
- *  differed only in whether a flag took a value, so `--all` meant "every agent
- *  this caller owns" in two places. One place now. */
-export function lifecycleTargets(
-  services: Pick<Services, "orchDir" | "settings">,
-  args: readonly string[],
-  booleans: readonly string[],
-  valueFlags: readonly string[] = [],
-): { targets: string[]; values: Map<string, string>; all: boolean } {
-  const known = new Set(booleans);
-  const takesValue = new Set(valueFlags);
-  const values = new Map<string, string>();
-  const targets: string[] = [];
-  let all = false;
-  for (let index = 0; index < args.length; index++) {
-    const argument = args[index]!;
-    if (takesValue.has(argument)) { values.set(argument, args[++index] ?? ""); continue; }
-    if (argument === "--all") { all = true; continue; }
-    if (known.has(argument)) continue;
-    targets.push(argument);
-  }
-  // `--all` is every agent this caller OWNS, which is a right the caller has to
-  // hold before the list is even built.
+/** The targets a lifecycle command was given: the positionals, plus every agent
+ *  this caller owns under `--all`, a right the caller must hold before the list is built. */
+export function lifecycleTargets(services: Pick<Services, "orchDir" | "settings">, { flags, positional }: Invocation): { targets: string[]; all: boolean } {
+  const all = flags.has("--all");
+  const targets = [...positional];
   if (all) {
     requireCallerOwnerToken(services.orchDir);
     targets.push(...ownedAgentKeys(services));
   }
-  return { targets, values, all };
+  return { targets, all };
 }
 

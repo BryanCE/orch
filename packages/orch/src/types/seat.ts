@@ -30,6 +30,8 @@ export interface PackSnapshot {
   readonly dispatchId?: string;
   readonly createdAt: number;
   readonly lastTransitionAt: number;
+  /** The event that put the agent in its current state; an alert is spelled from it. */
+  readonly lastEvent: NotifyEvent;
   /** Presence facts, refreshed lazily; may lag the event stream. */
   readonly info: PackEnrichment;
 }

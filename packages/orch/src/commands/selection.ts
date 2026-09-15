@@ -16,9 +16,24 @@ import { SpawnRefusalError } from "../refusal.ts";
 import { errorMessage } from "../util.ts";
 import { die } from "./target.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
+import type { ParsedFlags } from "../cli/spec.ts";
 import type { AgentFlags } from "../types/command.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { AgentTuning } from "../types/store.ts";
+
+/** The harness, plexer, model, and thinking a command's parsed flags named. Absent flags stay absent. */
+export function agentFlags(flags: ParsedFlags): AgentFlags {
+  const selected: AgentFlags = {};
+  const adapter = flags.value("--agent");
+  if (adapter !== undefined) selected.adapterFlag = adapter;
+  const backend = flags.value("--backend");
+  if (backend !== undefined) selected.backendFlag = backend;
+  const model = flags.value("--model");
+  if (model !== undefined) selected.modelFlag = model;
+  const thinking = flags.value("--thinking");
+  if (thinking !== undefined) selected.thinkingFlag = thinking;
+  return selected;
+}
 
 export function resolveAdapterOrDie(id: string): AgentAdapter {
   try {

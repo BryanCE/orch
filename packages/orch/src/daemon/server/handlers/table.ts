@@ -5,6 +5,7 @@ import type { DaemonState } from "../state.ts";
 import { answer, dispatch, message, steer } from "./write.ts";
 import { applyLifecycle, closeAgent, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, setHandle, setModel, spawnHeadless } from "./lifecycle.ts";
 import { adopt, detach, reap, reapCandidateList, rename } from "./lease.ts";
+import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
 import { reexecSelf } from "../../client/process.ts";
 import { emitAndNotify } from "../events.ts";
 import { acceptResultReport, acceptStatusReport } from "../status-report.ts";
@@ -98,6 +99,14 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "reap-candidates": (params) => reapCandidateList(state, params),
     reclaim: (params) => reclaim(directory, params),
     "set-handle": (params) => setHandle(directory, params),
+    spaces: (params) => spaceListings(directory, params),
+    space: (params) => spaceListing(directory, params),
+    "space-create": (params) => createSpace(directory, params),
+    "space-rename": (params) => renameSpace(directory, params),
+    "space-delete": (params) => deleteSpace(directory, params),
+    home: (params) => subjectHome(directory, params),
+    "record-home": (params) => recordSubjectHome(directory, params),
+    "clear-home": (params) => clearSubjectHome(directory, params),
     question: (params) => recordAgentQuestion(directory, params),
     questions: () => listPendingQuestions(directory),
     answer: (params) => {

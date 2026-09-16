@@ -19,7 +19,7 @@ import type { AgentAdapter } from "../../types/adapter.ts";
 import { agentById } from "../../store/agent-rows.ts";
 import { environmentOf } from "../../store/agent-view.ts";
 import type { CreatedAgent, PreparedAgent, SpawnPlacement, Spawner } from "../../types/command.ts";
-import type { Services } from "../../types/services.ts";
+import type { DaemonClient, Services } from "../../types/services.ts";
 import type { OrchDir } from "../../types/core.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import { resolveSpawnAgentSettings, resolveSpawnSettings, parseSpawnFlags } from "./flags.ts";
@@ -27,7 +27,7 @@ import type { SpawnSettings } from "./flags.ts";
 import { assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceGranted, assertTabCapacity, admitSpawn } from "./admission.ts";
 import { admitLaunchModel, pinModels } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
-import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab, type SpawnServices } from "./placement.ts";
+import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
 import { awaitBridgeAttach, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
 
 
@@ -194,7 +194,7 @@ function placeRemainingAgents(
 /** Launch an agent into every place that opened. A launch failure costs that
  *  agent; the caller rules on what an empty result means. */
 async function launchPrepared(
-  services: SpawnServices,
+  services: DaemonClient,
   prepared: readonly PreparedAgent[],
   context: { settings: SpawnSettings; settingsFile: OrchSettings; backend: Backend; adapter: AgentAdapter; space: string | null; workspace: string | undefined; groupId: string; spawnerAgentId: string | null },
 ): Promise<CreatedAgent[]> {
@@ -227,14 +227,15 @@ async function launchPrepared(
  *  orch's own grouping and the plexer's coordinate are used for different
  *  things and are never interchanged: capacity, names and the agent record are
  *  orch's; the group and placement requests take the coordinate. */
-function placeSpawn(
-  orchDir: OrchDir,
+async function placeSpawn(
+  services: DaemonClient,
   settings: SpawnSettings,
   backend: Backend,
   spawner: Spawner,
-): SpawnPlacement {
-  const placement = resolveSpawnPlacement({
-    directory: orchDir, backend, space: settings.space ?? spawner.environment.space,
+): Promise<SpawnPlacement> {
+  const orchDir = services.orchDir;
+  const placement = await resolveSpawnPlacement({
+    services, backend, space: settings.space ?? spawner.environment.space,
     packRootId: agentById(orchDir, spawner.id)?.rootAgentId ?? null,
     callerPlexer: spawner.environment.plexer,
     callerHandle: spawner.environment.handle,
@@ -260,11 +261,11 @@ function seatFleetInHome(backend: Backend, groupHome: GroupHomeRole, home: Creat
 /** The group this fleet fills and the coordinate it sits at. A fleet owed a
  *  home opens one and takes its root group; any other fleet opens a group where
  *  placement put it. */
-function seatFleet(orchDir: OrchDir, backend: Backend, groupHome: GroupHomeRole, placement: SpawnPlacement, settings: SpawnSettings, prepared: readonly PreparedAgent[]): { group: BackendGroup; workspace: string | undefined } {
+async function seatFleet(services: DaemonClient, backend: Backend, groupHome: GroupHomeRole, placement: SpawnPlacement, settings: SpawnSettings, prepared: readonly PreparedAgent[]): Promise<{ group: BackendGroup; workspace: string | undefined }> {
   if (placement.homeToOpen === null) {
     return { group: createSpawnGroup(groupHome, placement.workspace, settings.label, prepared), workspace: placement.workspace };
   }
-  const home = openFleetHome({ directory: orchDir, backend, subject: placement.homeToOpen, cwd: settings.cwd, env: prepared[0]!.env });
+  const home = await openFleetHome({ services, backend, subject: placement.homeToOpen, cwd: settings.cwd, env: prepared[0]!.env });
   return { group: seatFleetInHome(backend, groupHome, home, settings.label, prepared), workspace: home.coordinate };
 }
 
@@ -278,7 +279,7 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
   if (!backend.groupHome) return executeHeadlessSpawn(services, settingsFile, settings, backend, spawnerAgentId);
   const groupLayout = backend.groupLayout;
   if (!groupLayout) return answerNoGroupLayout(settings.json);
-  const placement = placeSpawn(services.orchDir, settings, backend, spawner);
+  const placement = await placeSpawn(services, settings, backend, spawner);
   const { space } = placement;
   const adapter = resolveAdapterOrDie(settings.adapter);
   const names = claimSpawnNames(services.orchDir, settings.agents.map((agent) => agent.name), space);
@@ -295,7 +296,7 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
   assertTabCapacity(settings, settings.label, 0, names.length);
   const groupHome = backend.groupHome;
   const prepared = prepareAgents(services.orchDir, settings, adapter, names);
-  const { group, workspace } = seatFleet(services.orchDir, backend, groupHome, placement, settings, prepared);
+  const { group, workspace } = await seatFleet(services, backend, groupHome, placement, settings, prepared);
   placeRemainingAgents(services.logger, backend, prepared, group.id, workspace, settings.tiling.first_split);
   const created = await launchPrepared(services, prepared, { settings, settingsFile, backend, adapter, space, workspace, groupId: group.id, spawnerAgentId });
   if (created.length === 0) {

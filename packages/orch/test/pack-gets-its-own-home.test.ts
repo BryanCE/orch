@@ -1,14 +1,15 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { afterEach, describe, expect, test } from "bun:test";
-
-
-
-import { clearHome, homeHandle, openHome, ORCH_HOME_LABEL } from "../src/store/home-rows.ts";
-import { orm } from "../src/store/connection.ts";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { openHome, ORCH_HOME_LABEL } from "../src/commands/home.ts";
+import { clearHome, homeHandle } from "../src/store/home-rows.ts";
 import { insertAgent, ensureHarness } from "../src/store/agent-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import type { CreateHomeRequest, CreatedHome, HomeSubject, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+import type { Services } from "../src/types/services.ts";
 
 /**
  *
@@ -26,8 +27,14 @@ import type { CreateHomeRequest, CreatedHome, HomeSubject, PlexerHome, SpaceHome
  */
 
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 
-afterEach(() => { while (dirs.length) removeTempDir(dirs.pop()!); });
+beforeEach(() => isolateOrchEnv());
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
+  while (dirs.length) removeTempDir(dirs.pop()!);
+  restoreOrchEnv();
+});
 
 /** A home role that records every request, so a test can assert what orch ASKED
  *  for rather than what a plexer happened to answer. */
@@ -49,11 +56,12 @@ class RecordingHomeRole implements SpaceHomeRole<string> {
   focus(coordinate: string): void { this.focused.push(coordinate); }
 }
 
-function fixture(): OrchDir {
+/** A fresh store with the real orchd handler table served on its socket. */
+async function fixture(): Promise<Services> {
   const dir = tempOrchDir("orch-pack-home-");
   dirs.push(dir);
-  orm(dir);
-  return dir;
+  process.env.ORCH_DIR = dir;
+  return servedServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
 }
 
 /** A pack is identified by the agent at its root (`pack_plexers.pack_id`
@@ -65,13 +73,14 @@ function seedOrch(dir: OrchDir, id: string): string {
 }
 
 describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
-  test("the coordinate is STORED against the pack and is never orch's own id", () => {
-    const dir = fixture();
+  test("the coordinate is STORED against the pack and is never orch's own id", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     const orch = seedOrch(dir, "packroot01");
     const role = new RecordingHomeRole();
 
-    const home = openHome({
-      directory: dir, subject: { kind: "pack", id: orch }, plexerId: "herdr",
+    const home = await openHome({
+      services, subject: { kind: "pack", id: orch }, plexerId: "herdr",
       home: role, cwd: "/work", label: "api",
     });
 
@@ -85,13 +94,13 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     expect(home.coordinate).not.toBe(orch);
   });
 
-  test("the home orch opens is MARKED as orch's, never a bare directory name", () => {
-    const dir = fixture();
-    const orch = seedOrch(dir, "packroot02");
+  test("the home orch opens is MARKED as orch's, never a bare directory name", async () => {
+    const services = await fixture();
+    const orch = seedOrch(services.orchDir, "packroot02");
     const role = new RecordingHomeRole();
 
-    openHome({
-      directory: dir, subject: { kind: "pack", id: orch }, plexerId: "herdr",
+    await openHome({
+      services, subject: { kind: "pack", id: orch }, plexerId: "herdr",
       home: role, cwd: "/home/bryan/work", label: "api",
     });
 
@@ -104,20 +113,21 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     expect(label).not.toBe("work");
   });
 
-  test("a space's home and a pack's home use the SAME role and different tables", () => {
-    const dir = fixture();
+  test("a space's home and a pack's home use the SAME role and different tables", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     const orch = seedOrch(dir, "packroot03");
     seedSpace(dir, "space00001");
     const role = new RecordingHomeRole();
 
-    const packCoordinate = openHome({
-      directory: dir, subject: { kind: "pack", id: orch }, plexerId: "herdr",
+    const packCoordinate = (await openHome({
+      services, subject: { kind: "pack", id: orch }, plexerId: "herdr",
       home: role, cwd: "/work", label: "api",
-    }).coordinate;
-    const spaceCoordinate = openHome({
-      directory: dir, subject: { kind: "space", id: "space00001" }, plexerId: "herdr",
+    })).coordinate;
+    const spaceCoordinate = (await openHome({
+      services, subject: { kind: "space", id: "space00001" }, plexerId: "herdr",
       home: role, cwd: "/work", label: "research",
-    }).coordinate;
+    })).coordinate;
 
     // E11/E10: one role, one create/rename/close, two subjects - no third code
     // path and no noun minted for the plexer's own grouping.
@@ -127,30 +137,32 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     expect(packCoordinate).not.toBe(spaceCoordinate);
   });
 
-  test("a home recorded in another plexer is not this one's to drive", () => {
-    const dir = fixture();
+  test("a home recorded in another plexer is not this one's to drive", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     const orch = seedOrch(dir, "packroot05");
-    openHome({
-      directory: dir, subject: { kind: "pack", id: orch }, plexerId: "herdr",
+    await openHome({
+      services, subject: { kind: "pack", id: orch }, plexerId: "herdr",
       home: new RecordingHomeRole(), cwd: "/work", label: "api",
     });
 
     expect(homeHandle(dir, { kind: "pack", id: orch }, "tmux")).toBeNull();
   });
 
-  test("closing a pack's home clears the row, so the next open is a fresh one", () => {
-    const dir = fixture();
+  test("closing a pack's home clears the row, so the next open is a fresh one", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     const orch = seedOrch(dir, "packroot06");
     const role = new RecordingHomeRole();
     const subject: HomeSubject = { kind: "pack", id: orch };
-    openHome({ directory: dir, subject, plexerId: "herdr", home: role, cwd: "/work", label: "api" });
+    await openHome({ services, subject, plexerId: "herdr", home: role, cwd: "/work", label: "api" });
 
     clearHome(dir, subject);
 
     // `one_pack_home` is a partial unique index on (pack_id) where until IS NULL:
     // leaving the old row open would refuse the reopen outright.
     expect(homeHandle(dir, subject, "herdr")).toBeNull();
-    const reopened = openHome({ directory: dir, subject, plexerId: "herdr", home: role, cwd: "/work", label: "api" });
+    const reopened = await openHome({ services, subject, plexerId: "herdr", home: role, cwd: "/work", label: "api" });
     expect(reopened.coordinate).toBe("w2");
     expect(homeHandle(dir, subject, "herdr")).toBe("w2");
   });

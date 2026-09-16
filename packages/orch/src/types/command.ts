@@ -2,7 +2,8 @@ import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentEnvironment, AgentView } from "./store.ts";
-import type { Entity, LogLevel, OrchDir, WorkerHeaderContext } from "./core.ts";
+import type { Entity, LogLevel, WorkerHeaderContext } from "./core.ts";
+import type { DaemonClient } from "./services.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 export interface DispatchToAgentOptions {
   raw?: boolean;
@@ -96,14 +97,27 @@ export interface SmokeSteps {
   timeoutMs: number;
 }
 
-/** Where this command runs: orch's store, the plexer it is in, and that plexer's
- *  space-home role when it composes one. */
+/** Where this command runs: the orchd it writes through, the plexer it is in,
+ *  and that plexer's space-home role when it composes one. */
 export interface SpaceEnvironment {
-  readonly directory: OrchDir;
+  readonly services: DaemonClient;
   readonly plexerId: string;
   readonly spaceHome: SpaceHomeRole | null;
-  /** The agent asking, recorded as `spaces.created_by`. It grants nothing. */
-  readonly actorId: string | null;
+}
+
+/** What opening one plexer home for a space or a pack needs. */
+export interface OpenHomeRequest {
+  readonly services: DaemonClient;
+  readonly subject: HomeSubject;
+  readonly plexerId: string;
+  /** The caller gates on the environment holding a home at all (E13); an
+   *  environment that holds none never reaches here. */
+  readonly home: SpaceHomeRole;
+  readonly cwd: string;
+  /** orch's own name for the thing being grouped. It is MARKED before it reaches
+   *  the plexer; the plexer never sees a bare directory basename. */
+  readonly label: string;
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface AgentFlags {
@@ -289,7 +303,7 @@ export interface Spawner {
 
 /** What deciding a {@link SpawnPlacement} needs. */
 export interface SpawnPlacementRequest {
-  readonly directory: OrchDir;
+  readonly services: DaemonClient;
   readonly backend: Backend;
   /** The space the caller named, or null. Never invented here. */
   readonly space: string | null;
@@ -311,7 +325,7 @@ export interface SpawnPlacementRequest {
 
 /** What opening the home a {@link SpawnPlacement} owes needs. */
 export interface OpenFleetHomeRequest {
-  readonly directory: OrchDir;
+  readonly services: DaemonClient;
   readonly backend: Backend;
   readonly subject: HomeSubject;
   /** Where the fleet works, and the name its home is opened under: a workspace

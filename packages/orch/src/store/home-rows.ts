@@ -1,12 +1,9 @@
 import type { OrchDir } from "../types/core.ts";
-import { orchDirAt } from "../services.ts";
 import { and, eq, isNull } from "drizzle-orm";
 import { orm } from "./connection.ts";
 import { packPlexers, spacePlexers } from "../db/schema.ts";
 import { ensurePlexer } from "./agent-rows.ts";
-import type { CreatedHome, HomeSubject } from "../types/backend.ts";
-import type { OpenHomeRequest } from "../types/store.ts";
-export type { OpenHomeRequest };
+import type { HomeSubject } from "../types/backend.ts";
 
 /**
  * The one reader and writer of a plexer HOME for orch's own structure.
@@ -25,11 +22,6 @@ export type { OpenHomeRequest };
  * which is a branch on an ORCH noun (the subject's kind), never on a plexer.
  */
 
-/** The mark every home orch opens carries: allowable, but never unmarked.
- *  Without it a fleet's home is indistinguishable from the human's own panes and
- *  its agents read as random agents with no discoverable origin. */
-export const ORCH_HOME_LABEL = "orch";
-
 /** Which interval table holds this subject's home, and which column keys it.
  *  The branch is on orch's own noun — the two subjects orch has — never on which
  *  plexer is answering. Returning the drizzle table keeps the two spellings of
@@ -38,11 +30,6 @@ function tableFor(subject: HomeSubject) {
   return subject.kind === "space"
     ? { table: spacePlexers, key: spacePlexers.spaceId }
     : { table: packPlexers, key: packPlexers.packId };
-}
-
-/** The label orch asks a plexer to put on a home it opens for itself. */
-export function homeLabel(name: string): string {
-  return `${ORCH_HOME_LABEL}/${name}`;
 }
 
 /** This plexer's live home coordinate for a subject, or null when it has none
@@ -55,7 +42,7 @@ export function homeHandle(directory: OrchDir, subject: HomeSubject, plexerId: s
 }
 
 /** Record a coordinate a plexer just handed back. */
-function recordHome(
+export function recordHome(
   directory: OrchDir,
   subject: HomeSubject,
   plexerId: string,
@@ -76,16 +63,3 @@ export function clearHome(directory: OrchDir, subject: HomeSubject): void {
   orm(directory).delete(table).where(eq(key, subject.id)).run();
 }
 
-/**
- * Open a plexer home for one space or pack and record its coordinate.
- *
- * Returns the home as the plexer created it — coordinate, root group and root
- * place. The coordinate is for orch to STORE and to hand back to the plexer —
- * never to display and never to use as an orch id.
- */
-export function openHome(request: OpenHomeRequest): CreatedHome {
-  const { directory, subject, plexerId, home, cwd, label, env } = request;
-  const created = home.create(subject, { cwd, label: homeLabel(label), env });
-  recordHome(orchDirAt(directory), subject, plexerId, created.coordinate);
-  return created;
-}

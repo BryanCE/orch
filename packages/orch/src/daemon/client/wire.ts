@@ -173,6 +173,14 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "reap-candidates": return parseOne(method, RPC_PARAMS[method], id, value);
     case "reclaim": return parseOne(method, RPC_PARAMS[method], id, value);
     case "set-handle": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "spaces": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "space": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "space-create": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "space-rename": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "space-delete": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "home": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "record-home": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "clear-home": return parseOne(method, RPC_PARAMS[method], id, value);
     case "question": return parseOne(method, RPC_PARAMS[method], id, value);
     case "questions": return parseOne(method, RPC_PARAMS[method], id, value);
     case "ack": return parseOne(method, RPC_PARAMS[method], id, value);

@@ -13,7 +13,8 @@ import type { LifecycleVerb } from "../../types/adapter.ts";
 import type { DaemonStatusRow, PeerView, PendingQuestionView } from "../../types/daemon.ts";
 import type { BridgeNotification } from "../../types/agent.ts";
 import type { ResultReport, StatusPatch } from "../../types/presence.ts";
-import type { SpawnRegistration } from "../../types/store.ts";
+import type { SpaceListing, SpaceRow, SpawnRegistration } from "../../types/store.ts";
+import type { HomeSubject } from "../../types/backend.ts";
 import type { ReapCandidate } from "../../types/command.ts";
 import { isTaskOptions, isTaskRec, type TaskOptions, type TaskRec } from "../../types/queue.ts";
 
@@ -146,6 +147,10 @@ const REAP_CANDIDATE = z.object({
   classification: z.enum(["dead", "held", "idle"]),
 }) satisfies z.ZodType<ReapCandidate>;
 
+const HOME_SUBJECT = z.object({ kind: z.enum(["space", "pack"]), id: nonBlank }) satisfies z.ZodType<HomeSubject>;
+const SPACE_ROW = z.object({ id: z.string(), name: z.string() }) satisfies z.ZodType<SpaceRow>;
+const SPACE_LISTING = SPACE_ROW.extend({ home: z.string().nullable() }) satisfies z.ZodType<SpaceListing>;
+
 const OK = z.object({ ok: z.literal(true) });
 const ACCEPTED = z.object({
   accepted: z.literal(true),
@@ -263,6 +268,14 @@ export const RPC_PARAMS = {
   "reap-candidates": GOVERNANCE,
   reclaim: GOVERNANCE.extend({ target: nonBlank }),
   "set-handle": GOVERNANCE.extend({ target: nonBlank, handle: nonBlank }),
+  spaces: z.object({ plexerId: nonBlank }),
+  space: z.object({ target: nonBlank, plexerId: nonBlank }),
+  "space-create": GOVERNANCE.extend({ name: nonBlank }),
+  "space-rename": GOVERNANCE.extend({ target: nonBlank, name: nonBlank, plexerId: nonBlank }),
+  "space-delete": GOVERNANCE.extend({ target: nonBlank, plexerId: nonBlank }),
+  home: z.object({ subject: HOME_SUBJECT, plexerId: nonBlank }),
+  "record-home": GOVERNANCE.extend({ subject: HOME_SUBJECT, plexerId: nonBlank, handle: nonBlank }),
+  "clear-home": GOVERNANCE.extend({ subject: HOME_SUBJECT }),
   question: z.custom<AgentNotice>(isAgentNotice),
   questions: z.object({ all: z.boolean().optional() }).optional(),
   ack: z.object({ id: nonBlank }),
@@ -314,6 +327,14 @@ export const RPC_RESULTS = {
   "reap-candidates": z.object({ candidates: z.array(REAP_CANDIDATE) }),
   reclaim: OK,
   "set-handle": OK,
+  spaces: z.object({ spaces: z.array(SPACE_LISTING) }),
+  space: SPACE_LISTING,
+  "space-create": SPACE_ROW,
+  "space-rename": SPACE_LISTING.extend({ previousName: z.string() }),
+  "space-delete": SPACE_LISTING,
+  home: z.object({ handle: z.string().nullable() }),
+  "record-home": OK,
+  "clear-home": OK,
   question: OK,
   ack: OK,
   "control-outcome": OK,
@@ -349,7 +370,8 @@ export function isRpcMethod(value: unknown): value is RpcMethod {
 
 export type GovernedMethod =
   | "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "spawn-headless"
-  | "agent-closed" | "register-agent" | "detach" | "adopt" | "rename" | "reap" | "reap-candidates" | "reclaim" | "set-handle";
+  | "agent-closed" | "register-agent" | "detach" | "adopt" | "rename" | "reap" | "reap-candidates" | "reclaim" | "set-handle"
+  | "space-create" | "space-rename" | "space-delete" | "record-home" | "clear-home";
 export type IdentityMethod = "register-session" | "claim-identity";
 
 function isPendingQuestionView(value: unknown): value is PendingQuestionView {

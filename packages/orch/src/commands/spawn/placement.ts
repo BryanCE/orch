@@ -12,8 +12,8 @@ import { callerOwnerToken, die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
 import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
-import type { Services } from "../../types/services.ts";
-import { clearHome, homeHandle, openHome } from "../../store/home-rows.ts";
+import type { DaemonClient } from "../../types/services.ts";
+import { listedHomeHandle, openHome } from "../home.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../types/command.ts";
 import type { HomeSubject } from "../../types/backend.ts";
 import type { SpawnAgentPlan, SpawnSettings } from "./flags.ts";
@@ -44,13 +44,14 @@ function homeName(cwd: string, subject: HomeSubject): string {
  * A7 — a space is user-created and OPTIONAL. Nothing here mints one; with none
  * set the reachability boundary is the repo root.
  */
-export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlacement {
-  const { directory, backend, space, packRootId, callerPlexer, callerHandle, grantNewHome } = request;
+export async function resolveSpawnPlacement(request: SpawnPlacementRequest): Promise<SpawnPlacement> {
+  const { services, backend, space, packRootId, callerPlexer, callerHandle, grantNewHome } = request;
   // A space the user named is where the agents are FILED, whether or not this
   // plexer holds a home for it. A home recorded in another plexer is not this
   // one's to drive, so its absence here is simply no coordinate.
   if (space !== null) {
-    return { space, workspace: listedHomeHandle(directory, { kind: "space", id: space }, backend) ?? undefined, homeToOpen: null };
+    const listed = await listedHomeHandle(services, { kind: "space", id: space }, backend.id, backend.spaceHome);
+    return { space, workspace: listed ?? undefined, homeToOpen: null };
   }
   // Already inside this plexer: the fleet lands beside the caller, so there is no
   // window to open and nothing to ask the human for. WHERE the caller sits is an
@@ -65,22 +66,10 @@ export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlac
   // answer, not a failure (E14): the plexer places the fleet on its own default.
   if (backend.spaceHome === null || packRootId === null) return { space: null, workspace: undefined, homeToOpen: null };
   const subject: HomeSubject = { kind: "pack", id: packRootId };
-  const existing = listedHomeHandle(directory, subject, backend);
+  const existing = await listedHomeHandle(services, subject, backend.id, backend.spaceHome);
   if (existing !== null) return { space: null, workspace: existing, homeToOpen: null };
   grantNewHome();
   return { space: null, workspace: undefined, homeToOpen: subject };
-}
-
-/** The recorded home coordinate the plexer still lists. A home the human closed
- *  from the plexer side leaves its row open; that row is dropped here so the
- *  subject is owed a fresh home instead of a spawn into a coordinate that is gone. */
-function listedHomeHandle(directory: OrchDir, subject: HomeSubject, backend: Backend): string | null {
-  const recorded = homeHandle(directory, subject, backend.id);
-  if (recorded === null) return null;
-  const role = backend.spaceHome;
-  if (role === null || role.list().some((home) => home.coordinate === recorded)) return recorded;
-  clearHome(directory, subject);
-  return null;
 }
 
 /** The plexer coordinate holding the caller's recorded place. A caller with no
@@ -95,12 +84,12 @@ function callerCoordinate(backend: Backend, callerHandle: string | null): string
  *  home's root place is opened under the first agent's environment, because
  *  that agent launches in it: a second group beside an empty root is the tab
  *  nobody asked for. */
-export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
-  const { directory, backend, subject, cwd, env } = request;
+export async function openFleetHome(request: OpenFleetHomeRequest): Promise<CreatedHome> {
+  const { services, backend, subject, cwd, env } = request;
   const role = backend.spaceHome;
   if (role === null) die(`${backend.id} cannot open a home for this fleet`);
   try {
-    return openHome({ directory, subject, plexerId: backend.id, home: role, cwd, label: homeName(cwd, subject), env });
+    return await openHome({ services, subject, plexerId: backend.id, home: role, cwd, label: homeName(cwd, subject), env });
   } catch (error: unknown) {
     die(`could not open a home for this fleet: ${errorMessage(error)}`);
   }
@@ -141,10 +130,7 @@ function launchSpawnBackend(orchDir: OrchDir, spec: TabSpawnSpec, key: string, e
   return handle;
 }
 
-/** What a placed spawn needs from the CLI: the store root, and the daemon that writes it. */
-export type SpawnServices = Pick<Services, "orchDir" | "settings" | "logger">;
-
-async function registerSpawnedTabAgent(services: SpawnServices, spec: TabSpawnSpec, key: string, handle: BackendHandle, thinking: NonNullable<TabSpawnSpec["thinking"]>): Promise<CreatedAgent> {
+async function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpec, key: string, handle: BackendHandle, thinking: NonNullable<TabSpawnSpec["thinking"]>): Promise<CreatedAgent> {
   const orchDir = services.orchDir;
   // ONE writer for one record (2.1). This states every axis the agent has —
   // harness, plexer, handle, space, model, worktree, holder, process — because a
@@ -161,7 +147,7 @@ async function registerSpawnedTabAgent(services: SpawnServices, spec: TabSpawnSp
   return { key, handle: String(handle), name: spec.name };
 }
 
-export async function spawnOneIntoTab(services: SpawnServices, spec: TabSpawnSpec): Promise<CreatedAgent> {
+export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec): Promise<CreatedAgent> {
   const orchDir = services.orchDir;
   assertNameFree(orchDir, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
@@ -178,12 +164,12 @@ export async function spawnOneIntoTab(services: SpawnServices, spec: TabSpawnSpe
  *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
  *  is tiling one agent at a time — the balance only holds while every agent is
  *  placed by the same planner reading the same layout. */
-function tileAgentIntoGroup(services: SpawnServices, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): Promise<CreatedAgent> {
+function tileAgentIntoGroup(services: DaemonClient, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): Promise<CreatedAgent> {
   return spawnOneIntoTab(services, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(services: SpawnServices, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): Promise<CreatedAgent> {
+function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): Promise<CreatedAgent> {
   const name = plan.name;
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
   return tileAgentIntoGroup(services, {
@@ -209,7 +195,7 @@ function placeAgent(services: SpawnServices, settings: SpawnSettings, plan: Spaw
 
 /** Fill a group with named agents. An agent that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-export async function growFleetIntoGroup(services: SpawnServices, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): Promise<CreatedAgent[]> {
+export async function growFleetIntoGroup(services: DaemonClient, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): Promise<CreatedAgent[]> {
   const logger = services.logger;
   const created: CreatedAgent[] = [];
   for (const name of names) {

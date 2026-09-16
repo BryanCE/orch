@@ -67,6 +67,24 @@ daemon time; 32 concurrent callers queue behind each other on one thread, so the
 32 × 7.7 ms. Of the 7.7 ms, two thirds is two full fleet rebuilds: every write bumps the
 store version, so the memo misses on the existence check and again on the event build.
 
+### 2026-09-16, every CLI read via orchd (working tree after 5ffc133, store handover 100%)
+
+No command under `src/commands/` opens the store except `status/offline.ts`. The bench
+drives orchd directly, so this run is the baseline for the held-fleet steps, not a gain.
+
+| phase | ms/500 | req/s | p50 | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| daemon-status (connect per call) | 137 | 3637 | 4.7 | 36.1 | 38.0 | 38.2 |
+| status (fleet rows) | 783 | 638 | 44.0 | 93.3 | 110.9 | 115.5 |
+| peer-view | 199 | 2508 | 11.4 | 20.2 | 22.9 | 28.2 |
+| report-status (transition + fan-out) | 3667 | 136 | 218 | 335 | 358 | 374 |
+| pipelined daemon-status (one socket) | 6 | 78616 | 0.35 | 0.7 | 0.76 | 0.81 |
+| fan-out | 4680/5000 events | | 213 | | 358 | 374 |
+
+Same shape as the previous run within noise: status p99 89 → 111 ms, report-status
+344 → 358 ms, peer-view 24 → 23 ms. Pipelined p99 1.1 → 0.76 ms. The daemon still
+rebuilds the fleet on every write; step 1 of the held fleet is next.
+
 ## Next
 
 1. The daemon holds the fleet in memory: reads are a map lookup, writes update the map and

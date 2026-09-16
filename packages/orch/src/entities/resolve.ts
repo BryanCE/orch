@@ -2,7 +2,6 @@ import type { CallerCredential, OrchDir, Entity } from "../types/core.ts";
 import { checkWall } from "../policy/space.ts";
 import { selfIdentityOf } from "../identity/self.ts";
 import { callerKindOf } from "../policy/caller.ts";
-import { callerCredential } from "../identity/credential.ts";
 import { holdsLease } from "../store/lease-rows.ts";
 import { ambiguousTargetRefusal, die } from "../refusal.ts";
 import { errorMessage } from "../util.ts";
@@ -41,10 +40,6 @@ export function callerMayResolveFor(root: OrchDir, credential: CallerCredential,
   } catch {
     return false;
   }
-}
-
-export function callerMayResolve(root: OrchDir, entity: Pick<Entity, "key">): boolean {
-  return callerMayResolveFor(root, callerCredential(), entity);
 }
 
 export function refuseForeignTarget(target: string): never {
@@ -129,12 +124,3 @@ export function resolveTargetFor(
   die(`No target matches "${target}". Run 'orch panes' to list.`);
 }
 
-export function resolveTarget(root: OrchDir, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): Entity {
-  return resolveTargetFor(root, settings, callerCredential(), target, opts);
-}
-
-export function resolvePane(root: OrchDir, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): { ent: Entity; pane: string } {
-  const ent = resolveTarget(root, settings, target, opts);
-  if (!ent.paneId) die(`Target "${target}" has no pane.`);
-  return { ent, pane: ent.paneId };
-}

@@ -43,10 +43,12 @@ export function loadEntries(manager: SettingsManager): EditorSetting[] {
 export interface Session {
   state: BrowsingState;
   filter: string;
+  /** `/` opened search: typed characters narrow the list until Enter keeps it or Escape clears it. */
+  searching: boolean;
   status: string | undefined;
   quit: boolean;
-  /** Escape was spent clearing the filter, so the cancel it triggered must not quit. */
-  escapeClearedFilter: boolean;
+  /** Enter or Escape was spent on the filter, so the submit or cancel it triggered opens nothing and quits nothing. */
+  filterKeySpent: boolean;
 }
 
 export function asBrowsing(state: EditorState): BrowsingState {
@@ -96,6 +98,7 @@ export function screenOf(session: Session, manager: SettingsManager): SettingsSc
     entries: session.state.settings,
     focusedIndex: session.state.focusedIndex,
     filter: session.filter,
+    searching: session.searching,
     status: session.status,
   };
 }

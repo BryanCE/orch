@@ -1,6 +1,6 @@
 // The fleet as orchd holds it, served whole: a command reads views, presence
 // and entities from one answer instead of opening the store.
-import { buildEntities } from "../../../entities/inventory.ts";
+import { buildEntities, sortEntities } from "../../../entities/inventory.ts";
 import { resolveTargetFor } from "../../../entities/resolve.ts";
 import { loadPresence } from "../../../presence/store.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
@@ -18,7 +18,7 @@ export function fleetSnapshot(state: DaemonState, params: ParamsOf<"fleet">): Re
   return {
     views: agentViews(directory),
     presence: [...loadPresence(directory).values()],
-    entities: buildEntities(directory, settings, { skipBackends: params?.skipBackends === true }),
+    entities: sortEntities(buildEntities(directory, settings, { skipBackends: params?.skipBackends === true })),
   };
 }
 

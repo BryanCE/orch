@@ -32,12 +32,15 @@ export interface SettingsScreen {
   readonly entries: readonly EditorSetting[];
   readonly focusedIndex: number;
   readonly filter: string;
+  /** Typed characters go to the filter, not to the list. */
+  readonly searching: boolean;
   readonly status: string | undefined;
 }
 
 // ASCII only, here and in every glyph below: a terminal that is not decoding UTF-8 renders
 // arrows and boxes as mojibake, and a settings editor nobody can read is not a fallback.
-export const BROWSE_KEYBAR = "up/down move | enter edit | ctrl+d use default | type to filter | esc quit";
+export const BROWSE_KEYBAR = "up/down move | enter edit | ctrl+d use default | / search | esc quit";
+export const SEARCH_KEYBAR = "type to narrow | up/down move | enter keep matches | esc clear";
 export const SELECT_KEYBAR = "up/down choose | enter save | esc cancel";
 export const MULTI_KEYBAR = "up/down move | space toggle | enter save | esc cancel";
 export const SINKS_KEYBAR = "up/down move | space toggle | e edit value | w when it fires | enter save | esc cancel";
@@ -45,10 +48,12 @@ export const INPUT_KEYBAR = "enter save | ctrl+u clear | esc cancel";
 
 function matchesFilter(entry: EditorSetting, filter: string): boolean {
   const needle = filter.toLowerCase();
-  // Help too: nobody looking for a notification sound guesses the key is called `notify`.
+  // Help and value too: nobody looking for a notification sound guesses the key is called
+  // `notify`, and "which setting holds 3716" is a question about the value.
   return entry.spec.key.toLowerCase().includes(needle)
     || entry.spec.group.toLowerCase().includes(needle)
-    || entry.spec.help.toLowerCase().includes(needle);
+    || entry.spec.help.toLowerCase().includes(needle)
+    || displaySetting(entry.value, entry.spec.type).toLowerCase().includes(needle);
 }
 
 /** Indices into `entries` that survive the filter, in display order. */
@@ -249,6 +254,13 @@ export function repairFrame(screen: RepairScreen, columns: number, rows: number)
   ].join("\n");
 }
 
+/** The search line while typing, the kept filter after Enter, nothing when there is neither. */
+function filterLineOf(screen: SettingsScreen): string[] {
+  if (screen.searching) return [cyan(` search: ${screen.filter}_`)];
+  if (screen.filter === "") return [];
+  return [cyan(` filter: ${screen.filter}`) + dim("  / edit | esc clear")];
+}
+
 /**
  * Assemble the complete frame: header, filter line, windowed list, focused help,
  * optional edit overlay, keybar, status. Always the same line structure so the
@@ -265,7 +277,7 @@ export function settingsFrame(
   const { lines, focusLine } = listLines(screen, visible, columns);
   const focused = screen.entries[screen.focusedIndex];
 
-  const filterLine = screen.filter === "" ? [] : [cyan(` filter: ${screen.filter}_`)];
+  const filterLine = filterLineOf(screen);
   const overlayLines = overlay ?? [];
   const chrome = 1 + filterLine.length + 1 + 1 + 1 + overlayLines.length + 1 + 1;
   const budget = Math.max(3, rows - chrome);

@@ -10,7 +10,7 @@ import { parseStatusOptions, scopeFleetRows } from "../src/commands/status/optio
 import { cmdNew } from "../src/commands/lifecycle/reset.ts";
 import { cmdRuns } from "../src/commands/runs.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
-import { resolveTarget } from "../src/entities/resolve.ts";
+import { resolveTargetFor } from "../src/entities/resolve.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { orm } from "../src/store/connection.ts";
@@ -21,6 +21,7 @@ import type { CallerScope } from "../src/commands/status/options.ts";
 import { testServices } from "./helpers/services.ts";
 import { servedServices } from "./helpers/daemon-state.ts";
 import { errorMessage } from "../src/util.ts";
+import { callerCredential } from "../src/identity/credential.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
 const servers: RpcServer[] = [];
@@ -71,11 +72,13 @@ describe("session agent visibility", () => {
     insertAgent(root, { id: "holderaaa", name: "holder", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 3 });
     orm(root).update(agents).set({ sessionToken: "session-token" }).where(eq(agents.id, "sessionaaa")).run();
     acquireLease(root, "foreignaaa", "holderaaa", 4);
+    const served = await servedServices({ orchDir: root, settings: SETTINGS }, servers);
     try {
       let failure: unknown;
-      try { await cmdNew(services(root), ["foreign"]); } catch (error: unknown) { failure = error; }
+      try { await cmdNew(served, ["foreign"]); } catch (error: unknown) { failure = error; }
       expect(failure instanceof Error ? failure.message : String(failure)).toBe("No target matches \"foreign\". Run 'orch panes' to list.");
     } finally {
+      while (servers.length) await servers.pop()!.close();
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
       if (oldMarker === undefined) delete process.env.PI_CODING_AGENT; else process.env.PI_CODING_AGENT = oldMarker;
       if (oldSession === undefined) delete process.env.PI_SESSION_ID; else process.env.PI_SESSION_ID = oldSession;
@@ -153,8 +156,9 @@ describe("session agent visibility", () => {
     acquireLease(root, "heldagent1", "sesshold1a", 4);
     acquireLease(root, "foreigntag1", "otherhold1a", 5);
     try {
-      expect(resolveTarget(root, services(root).settings.current(), "held-one").key).toBe("heldagent1");
-      expect(() => resolveTarget(root, services(root).settings.current(), "foreign")).toThrow("No target matches \"foreign\". Run 'orch panes' to list.");
+      const credential = callerCredential();
+      expect(resolveTargetFor(root, services(root).settings.current(), credential, "held-one").key).toBe("heldagent1");
+      expect(() => resolveTargetFor(root, services(root).settings.current(), credential, "foreign")).toThrow("No target matches \"foreign\". Run 'orch panes' to list.");
     } finally {
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
       if (oldMarker === undefined) delete process.env.PI_CODING_AGENT; else process.env.PI_CODING_AGENT = oldMarker;

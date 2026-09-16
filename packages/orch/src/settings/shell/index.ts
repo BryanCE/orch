@@ -13,9 +13,10 @@ export async function runSettingsEditor(manager: SettingsManager): Promise<void>
     const session: Session = {
       state: createEditorState(loadEntries(manager)),
       filter: "",
+      searching: false,
       status: undefined,
       quit: false,
-      escapeClearedFilter: false,
+      filterKeySpent: false,
     };
     while (!session.quit) {
       const outcome = await browseOnce(session, manager);

@@ -1,11 +1,9 @@
 import { spaceName as resolveSpaceName, withinSpaceCeiling } from "../../policy/space.ts";
-import { selfId, spaceOfAgent } from "../../identity/self.ts";
-import { callerKind } from "../../policy/caller.ts";
+import type { CallerSelf } from "../self.ts";
 import { die } from "../target.ts";
 import { parseCommand } from "../registry.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { StatusRow } from "../../types/command.ts";
-import type { OrchDir } from "../../types/core.ts";
 import type { CallerKind } from "../../types/policy.ts";
 
 export const isTTY = process.stdout.isTTY;
@@ -27,10 +25,8 @@ export interface CallerScope {
   kind: CallerKind;
 }
 
-export function callerScope(orchDir: OrchDir): CallerScope {
-  const kind = callerKind(orchDir);
-  const id = selfId(orchDir) ?? null;
-  return { id, ceiling: kind === "operator" || id === null ? null : spaceOfAgent(orchDir, id), kind };
+export function callerScope(self: CallerSelf): CallerScope {
+  return { id: self.id, ceiling: self.kind === "operator" || self.id === null ? null : self.space, kind: self.kind };
 }
 
 export function scopeFleetRows(

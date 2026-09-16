@@ -1,10 +1,9 @@
-import { ensureCallerRegistered } from "../identity/self.ts";
 import { scopeToSpace, spaceOfIn, withinSpaceCeiling } from "../policy/space.ts";
 import { agentInMineScope, agentInScope, resolveCallerScopeOf } from "../policy/scope.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { rpcCall, subscribeEvents } from "../daemon/client/rpc.ts";
 import { callerCredential } from "../identity/credential.ts";
-import { ensureDaemon, rpcRegisterSession } from "../daemon/client/reach.ts";
+import { ensureDaemon } from "../daemon/client/reach.ts";
 import { deliver } from "../notify/router.ts";
 import { eventState, isNotifyEvent } from "../notify/event.ts";
 
@@ -12,7 +11,7 @@ export { isNotifyEvent };
 import { notificationHeading, notificationText, oneLine } from "../notify/format.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
-import { whoAmI, refuseNonOperatorOverride } from "./self.ts";
+import { registerCallerSession, whoAmI, refuseNonOperatorOverride } from "./self.ts";
 import { readFleet } from "./fleet.ts";
 import { resolveEntity } from "./resolve.ts";
 import type { Services } from "../types/services.ts";
@@ -112,7 +111,7 @@ export async function cmdMonitor(services: Services, args: string[]) {
 
 async function streamEvents(services: Services, verb: StreamVerb, options: EventsOptions, shows: (event: NotifyEvent) => boolean) {
   await ensureDaemon(services.orchDir, services.logger);
-  await ensureCallerRegistered(services.orchDir, (directory) => rpcRegisterSession(directory, services.logger));
+  await registerCallerSession(services);
   const self = await whoAmI(services);
   if (options.scope === "any") refuseNonOperatorOverride(self, "--space-wide");
   const fleet = await readFleet(services, true);

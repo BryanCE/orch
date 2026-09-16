@@ -1,6 +1,5 @@
 import { agentIdByProcess, agentIdBySessionToken } from "../store/agent-rows.ts";
 import { environmentOf } from "../store/agent-view.ts";
-import { callerKindOf } from "../policy/caller.ts";
 import { callerCredential } from "./credential.ts";
 import type { CallerCredential, OrchDir, SelfIdentity } from "../types/core.ts";
 
@@ -33,17 +32,6 @@ export function selfIdentity(orchDir: OrchDir): SelfIdentity | null {
 /** The id to stamp as owner/actor on a write, or undefined when unregistered. */
 export function selfId(orchDir: OrchDir): string | undefined {
   return selfIdentity(orchDir)?.id;
-}
-
-/** Register an unregistered driving harness before commands read its identity. */
-export async function ensureCallerRegistered(
-  orchDir: OrchDir,
-  registerSession: (directory: OrchDir) => Promise<unknown>,
-): Promise<void> {
-  const credential = callerCredential();
-  if (credential.session === null || callerKindOf(orchDir, credential) !== "session") return;
-  if (selfIdentityOf(orchDir, credential) !== null) return;
-  await registerSession(orchDir);
 }
 
 /** The space one agent is composed into. A missing row is a real ANSWER: an

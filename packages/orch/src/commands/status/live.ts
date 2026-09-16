@@ -1,10 +1,11 @@
 import { subscribeEvents } from "../../daemon/client/rpc.ts";
-import { ensureDaemon, rpcRegisterSession } from "../../daemon/client/reach.ts";
-import { ensureCallerRegistered } from "../../identity/self.ts";
+import { ensureDaemon } from "../../daemon/client/reach.ts";
+import { registerCallerSession, whoAmI, refuseNonOperatorOverride } from "../self.ts";
 import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, dim } from "../../tui/screen.ts";
-import { die, forbidNonOperatorOverride } from "../target.ts";
+import { die } from "../target.ts";
 import { formatStatusTable } from "./table.ts";
 import { readStatusResult } from "./fetch.ts";
+import { callerScope } from "./options.ts";
 import type { StatusOptions } from "./options.ts";
 import type { StatusTableOptions } from "./table.ts";
 import type { StatusRow } from "../../types/command.ts";
@@ -91,9 +92,11 @@ export async function cmdStatusLive(services: Services, options: StatusOptions):
   if (options.json) die("--live renders a terminal table; drop --json");
   if (process.stdout.isTTY !== true || process.stdin.isTTY !== true) die("--live needs a terminal");
   await ensureDaemon(services.orchDir, services.logger);
-  await ensureCallerRegistered(services.orchDir, (directory) => rpcRegisterSession(directory, services.logger));
-  if (options.spaceWide) forbidNonOperatorOverride(services.orchDir, "--space-wide");
-  if (options.allPanes) forbidNonOperatorOverride(services.orchDir, "--all-panes");
+  await registerCallerSession(services);
+  const self = await whoAmI(services);
+  const caller = callerScope(self);
+  if (options.spaceWide) refuseNonOperatorOverride(caller, "--space-wide");
+  if (options.allPanes) refuseNonOperatorOverride(caller, "--all-panes");
 
   let stopped = false;
   let resolveDone: (() => void) | undefined;
@@ -104,7 +107,7 @@ export async function cmdStatusLive(services: Services, options: StatusOptions):
   const refreshController = createRefreshController(async () => {
     if (stopped) return;
     try {
-      const result = await readStatusResult(services, options);
+      const result = await readStatusResult(services, options, caller);
       if (stopped) return;
       rows = result.rows;
       host = result.host;

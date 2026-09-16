@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fleetStatusRows } from "../src/commands/status/rows.ts";
+import { fleetStatusRows } from "../src/commands/status/offline.ts";
 import { testServices } from "./helpers/services.ts";
 import { tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";

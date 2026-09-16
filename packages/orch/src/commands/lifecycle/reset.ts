@@ -1,12 +1,13 @@
-import { selectAgentStatus } from "../../store/status-rows.ts";
-import { tuningOf } from "../../store/agent-view.ts";
 import { modelSpec } from "../../policy/thinking.ts";
+import { NO_TUNING } from "../../policy/tuning.ts";
 import type { Tuning } from "../../policy/tuning.ts";
 import { admitLaunchModel, pinModels } from "../spawn/models.ts";
 import { agentFlags, pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
-import { writeRpc } from "../daemon.ts";
+import { readRpc, writeRpc } from "../daemon.ts";
 import { parseCommand } from "../registry.ts";
-import { assertAgentOwned, die, resolveLifecycleTarget } from "../target.ts";
+import { die } from "../target.ts";
+import { resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
+import { whoAmI } from "../self.ts";
 import { lifecycleTargets, awaitIdleAfter } from "./index.ts";
 import { describeHandle } from "./close.ts";
 
@@ -16,18 +17,19 @@ interface ClearedAgent { key: string; handle: string; name: string }
 
 /** Clear one agent's session and wait for it to come back ready. */
 export async function clearSession(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string, force: boolean): Promise<ClearedAgent> {
-  // Resolved through the lifecycle resolver, which answers for an agent placed
-  // nowhere; the placement resolver rejects the whole headless fleet outright.
-  const { entity: ent, handle } = resolveLifecycleTarget(services.orchDir, services.settings.current(), target);
-  const label = describeHandle(handle);
-  assertAgentOwned(services.orchDir, target, ent, force);
-  const beforeUpdated = selectAgentStatus(services.orchDir, ent.key)?.updatedAt;
+  const self = await whoAmI(services);
+  const resolved = await resolveLifecycle(services, target);
+  refuseForeignHolder(self, target, resolved, force);
+  const label = describeHandle(resolved.handle);
+  const ent = resolved.entity;
+  const { status } = await readRpc(services, "agent-status", { target: ent.key });
+  const beforeUpdated = status?.updatedAt;
   const sentAt = Date.now();
   // The daemon owns every lifecycle mechanism: a console gets the adapter's
   // text, an agent with none is refused. Neither is the CLI's to choose.
   await writeRpc(services, "reclaim", { target: ent.key });
   await writeRpc(services, "lifecycle", { target: ent.key, verb: "reset" });
-  if (!awaitIdleAfter(services.orchDir, ent.key, beforeUpdated, sentAt)) die(`${label}: reset did not become ready within 75s.`);
+  if (!await awaitIdleAfter(services, ent.key, beforeUpdated, sentAt)) die(`${label}: reset did not become ready within 75s.`);
   return { key: ent.key, handle: label, name: ent.name ?? label };
 }
 
@@ -36,21 +38,22 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   const json = invocation.flags.has("--json");
   const force = invocation.flags.has("--force");
   const flags = agentFlags(invocation.flags);
-  const { targets } = await lifecycleTargets(services, invocation);
+  const self = await whoAmI(services);
+  const { targets } = await lifecycleTargets(services, self, invocation);
   if (!targets.length) die("usage: orch reset <target>... | --all [--model <model>] [--thinking <level>] [--json]");
   const settings = services.settings.current();
   // Check ownership before resolving model configuration: a driving verb must
   // name a live foreign holder even when this caller has no model selected.
-  const owned = targets.map((target) => {
-    const { entity: ent } = resolveLifecycleTarget(services.orchDir, settings, target);
-    assertAgentOwned(services.orchDir, target, ent, force);
-    return { target, key: ent.key };
-  });
+  const owned = await Promise.all(targets.map(async (target) => {
+    const resolved = await resolveLifecycle(services, target);
+    refuseForeignHolder(self, target, resolved, force);
+    return { target, key: resolved.key, tuning: resolved.view?.tuning ?? NO_TUNING };
+  }));
   const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
   // Each agent keeps the tuning it holds unless this reset names another: a
   // reset clears the session, never the model the orchestrator chose.
-  const plans = owned.map(({ target, key }) => {
-    const tuning = resolveTuningOrDie(flags, settings, adapter.id, tuningOf(services.orchDir, key));
+  const plans = owned.map(({ target, tuning: pinned }) => {
+    const tuning = resolveTuningOrDie(flags, settings, adapter.id, pinned);
     return { target, tuning: { ...tuning, model: admitLaunchModel(settings, adapter.id, services.models, tuning.model) } };
   });
   const cleared: (ClearedAgent & Tuning)[] = [];

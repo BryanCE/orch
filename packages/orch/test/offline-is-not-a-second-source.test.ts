@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fleetStatusRows } from "../src/commands/status/rows.ts";
+import { fleetStatusRows } from "../src/commands/status/offline.ts";
 import { testServices } from "./helpers/services.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";

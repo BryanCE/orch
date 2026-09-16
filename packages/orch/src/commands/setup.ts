@@ -12,7 +12,7 @@ import { promptText } from "../setup/io.ts";
 import { probeNotifiers, buildSelectedNotifyEntries } from "../setup/notifiers.ts";
 import { describeSkillPlacement, installSkills, packagedSkillNames, type SkillRoots } from "../setup/skills.ts";
 import { setupIntro, setupOutro, selectNotifiers } from "../setup/wizard.ts";
-import { presenceDir } from "../presence/store.ts";
+import { presenceRoot } from "../presence/history.ts";
 import type { Services } from "../types/services.ts";
 import { compositionUnrecorded, resolveSetupComposition, recordComposition } from "../setup/composition.ts";
 import type { SetupComposition } from "../setup/composition.ts";
@@ -115,8 +115,8 @@ async function installSetupComposition(
   recordComposition(services.settings, composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
   if (!(await installPrerequisites(services.logger, composition.adapters, composition.backends, options.interactive, options.yes, options.noInstall))) return null;
   process.stdout.write("Presence dir:\n");
-  files.mkdirSync(presenceDir(services.orchDir), { recursive: true });
-  process.stdout.write(`  ${presenceDir(services.orchDir)}\n`);
+  files.mkdirSync(presenceRoot(services.orchDir), { recursive: true });
+  process.stdout.write(`  ${presenceRoot(services.orchDir)}\n`);
   const gaps = await installAdapterShims(services.orchDir, services.settings.current(), services.logger, composition.adapters, options.copy);
   await offerSkills(services, options.skills, options.interactive);
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.

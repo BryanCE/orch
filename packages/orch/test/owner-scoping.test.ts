@@ -13,7 +13,6 @@ import { claimAgent } from "../src/store/agent-rows.ts";
 import { mergeAgentStatus } from "../src/store/status-rows.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { orm } from "../src/store/connection.ts";
-import { callerOwnerToken } from "../src/commands/target.ts";
 import { selfId } from "../src/identity/self.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
@@ -171,11 +170,10 @@ describe("fleet ownership scoping", () => {
 
   test("owner token is this process's own registered id, and nothing before it registers", () => {
     const dir = makeDir();
-    expect(callerOwnerToken(dir)).toBeUndefined();
+    expect(selfId(dir)).toBeUndefined();
     // The stamped owner must equal the daemon write actor, or an orchestrator
     // cannot control the agents it spawned. It is never the raw backend pane id.
     const orchId = seedOperator(dir);
-    expect(callerOwnerToken(dir)).toBe(orchId);
     expect(selfId(dir)).toBe(orchId);
   });
 

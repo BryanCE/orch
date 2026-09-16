@@ -1,10 +1,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { entitySpace, scopeEntitiesToSpace } from "../src/entities/space.ts";
+import { entitySpace, scopeEntitiesToSpaceFor } from "../src/entities/space.ts";
 import { checkWall, spaceOf } from "../src/policy/space.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { Entity, OrchDir } from "../src/types/core.ts";
 import { placeAgent, seedAgent } from "./helpers/agent.ts";
+import { callerCredential } from "../src/identity/credential.ts";
 
 const orchDir: OrchDir = tempOrchDir("orch-space-walls-");
 process.env.ORCH_DIR = orchDir;
@@ -62,7 +63,7 @@ describe("space helpers", () => {
 
   test("returns the same entities when all spaces are requested", () => {
     const entities = [fakeEntity(AGENTS.w6first.id, "pane-1")];
-    expect(scopeEntitiesToSpace(orchDir, entities, { all: true })).toBe(entities);
+    expect(scopeEntitiesToSpaceFor(orchDir, callerCredential(), entities, { all: true })).toBe(entities);
   });
 });
 

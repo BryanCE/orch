@@ -1,3 +1,4 @@
+import type { Key } from "node:readline";
 import { getColumns, getRows, isCancel, Prompt, SelectPrompt, TextPrompt } from "@clack/core";
 import type { SettingsManager } from "../../types/services.ts";
 import { CLEAR_SCREEN, CTRL_C } from "../../tui/screen.ts";
@@ -8,6 +9,7 @@ import {
   inputCursor,
   INPUT_KEYBAR,
   inputOverlay,
+  SEARCH_KEYBAR,
   SELECT_KEYBAR,
   selectOverlay,
   settingsFrame,
@@ -21,7 +23,65 @@ import { asBrowsing, commitAndFlush, refocusVisible, resetFocused, screenOf, ste
 
 type BrowseOutcome = "open" | "again" | "quit";
 
-/** One browsing prompt: navigate, filter, reset — until Enter opens or Escape/ctrl+c leaves. */
+const SEARCH_KEY = "/";
+
+function isPrintable(char: string | undefined, info: Key): char is string {
+  return typeof char === "string" && char.length === 1 && char >= " " && info.ctrl !== true && info.meta !== true;
+}
+
+function clearFilter(session: Session): void {
+  session.filter = "";
+  session.searching = false;
+  session.filterKeySpent = true;
+  refocusVisible(session);
+}
+
+/** A key while searching: Enter keeps the matches, Escape clears them, everything else types. */
+function searchKey(session: Session, char: string | undefined, info: Key): void {
+  if (info.name === "return") {
+    session.searching = false;
+    session.filterKeySpent = true;
+    return;
+  }
+  if (info.name === "escape") {
+    clearFilter(session);
+    return;
+  }
+  if (info.name === "up" || info.name === "down") {
+    session.state = stepFocus(session.state, session.filter, info.name);
+    return;
+  }
+  if (info.name === "backspace") {
+    session.filter = session.filter.slice(0, -1);
+    refocusVisible(session);
+    return;
+  }
+  if (isPrintable(char, info)) {
+    session.filter += char;
+    refocusVisible(session);
+  }
+}
+
+/** A key while browsing: move, open search, reset, or leave. Enter falls through to the prompt submit. */
+function browseKey(session: Session, manager: SettingsManager, char: string | undefined, info: Key): void {
+  if (info.name === "return") return;
+  if (info.name === "escape") {
+    if (session.filter === "") session.quit = true;
+    else clearFilter(session);
+    return;
+  }
+  if (info.name === "up" || info.name === "down") {
+    session.state = stepFocus(session.state, session.filter, info.name);
+    return;
+  }
+  if (info.ctrl === true && info.name === "d") {
+    resetFocused(session, manager);
+    return;
+  }
+  if (char === SEARCH_KEY) session.searching = true;
+}
+
+/** One browsing prompt: navigate, search, reset — until Enter opens or Escape/ctrl+c leaves. */
 export async function browseOnce(session: Session, manager: SettingsManager): Promise<BrowseOutcome> {
   process.stdout.write(CLEAR_SCREEN);
   const prompt = new Prompt<undefined>({
@@ -30,54 +90,28 @@ export async function browseOnce(session: Session, manager: SettingsManager): Pr
       getColumns(process.stdout),
       getRows(process.stdout),
       undefined,
-      BROWSE_KEYBAR,
+      session.searching ? SEARCH_KEYBAR : BROWSE_KEYBAR,
     ),
   }, false);
   prompt.on("key", (char, info) => {
-    if (info.name === "return") return;
-    session.status = undefined;
+    if (info.name !== "return") session.status = undefined;
     if (char === CTRL_C) {
       session.quit = true;
       return;
     }
-    if (info.name === "escape") {
-      if (session.filter === "") session.quit = true;
-      else {
-        session.filter = "";
-        session.escapeClearedFilter = true;
-        refocusVisible(session);
-      }
-      return;
-    }
-    if (info.name === "up" || info.name === "down") {
-      session.state = stepFocus(session.state, session.filter, info.name);
-      return;
-    }
-    if (info.name === "backspace") {
-      session.filter = session.filter.slice(0, -1);
-      refocusVisible(session);
-      return;
-    }
-    if (info.ctrl === true && info.name === "d") {
-      resetFocused(session, manager);
-      return;
-    }
-    if (typeof char === "string" && char.length === 1 && char >= " " && info.ctrl !== true && info.meta !== true) {
-      session.filter += char;
-      refocusVisible(session);
-    }
+    if (session.searching) searchKey(session, char, info);
+    else browseKey(session, manager, char, info);
   });
   const answer = await prompt.prompt();
-  if (!isCancel(answer)) {
-    if (visibleEntryIndices(session.state.settings, session.filter).includes(session.state.focusedIndex)) return "open";
-    session.status = `no settings match ${JSON.stringify(session.filter)}`;
+  if (session.quit) return "quit";
+  if (session.filterKeySpent) {
+    session.filterKeySpent = false;
     return "again";
   }
-  if (session.escapeClearedFilter && !session.quit) {
-    session.escapeClearedFilter = false;
-    return "again";
-  }
-  return "quit";
+  if (isCancel(answer)) return "quit";
+  if (visibleEntryIndices(session.state.settings, session.filter).includes(session.state.focusedIndex)) return "open";
+  session.status = `no settings match ${JSON.stringify(session.filter)}`;
+  return "again";
 }
 
 async function editChoice(session: Session, manager: SettingsManager, editing: EditingState, choices: readonly string[]): Promise<void> {

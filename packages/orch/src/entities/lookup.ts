@@ -1,7 +1,5 @@
-import type { OrchDir, Recipient } from "../types/core.ts";
-import { spaceOf } from "../policy/space.ts";
+import type { Recipient } from "../types/core.ts";
 import { abstractAgentLabel } from "../notify/format.ts";
-import { agentViewIndex } from "../store/agent-view.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 
@@ -40,9 +38,4 @@ export function recipientOf(view: AgentView | undefined, space: string, key: str
     // own link is addressed by the key either way.
     transportId: view?.environment.handle ?? key,
   };
-}
-
-export function recipientFor(root: OrchDir, key: string, views = agentViewIndex(root)): Recipient {
-  const view = viewForKey(views, key);
-  return recipientOf(view, view?.environment.space ?? spaceOf(root, key) ?? "space", key);
 }

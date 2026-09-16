@@ -4,6 +4,7 @@ import {
   BROWSE_KEYBAR,
   inputOverlay,
   multiOverlay,
+  SEARCH_KEYBAR,
   selectOverlay,
   settingsFrame,
   stripAnsi,
@@ -41,6 +42,7 @@ function screen(entries: readonly EditorSetting[], overrides?: Partial<SettingsS
     entries,
     focusedIndex: 0,
     filter: "",
+    searching: false,
     status: undefined,
     ...overrides,
   };
@@ -53,6 +55,12 @@ describe("settings view", () => {
     expect(visibleEntryIndices(entries, "FLEET")).toEqual([1]);
     expect(visibleEntryIndices(entries, "ms")).toEqual([2]);
     expect(visibleEntryIndices(entries, "nothing-matches")).toEqual([]);
+  });
+
+  test("visibleEntryIndices matches the shown value, so a search finds a setting by what it holds", () => {
+    const entries = [entry("daemon.tcp_port", 3716), entry("defaults.adapter", "claude"), entry("fleet.max_depth", 2)];
+    expect(visibleEntryIndices(entries, "3716")).toEqual([0]);
+    expect(visibleEntryIndices(entries, "CLAUDE")).toEqual([1]);
   });
 
   test("windowBounds keeps the focus inside the budget and clamps at both ends", () => {
@@ -99,7 +107,25 @@ describe("settings view", () => {
       BROWSE_KEYBAR,
     ));
     expect(frame).toContain("filter: fleet");
+    expect(frame).toContain("/ edit | esc clear");
     expect(frame).toContain("fleet.max_depth");
+    expect(frame).not.toContain("daemon.tcp_port");
+  });
+
+  test("frame in search mode draws the search line with a cursor and the search keybar", () => {
+    const frame = stripAnsi(settingsFrame(
+      screen(
+        [entry("daemon.tcp_port", 3716), entry("fleet.max_depth", 1)],
+        { filter: "fle", searching: true, focusedIndex: 1 },
+      ),
+      100,
+      40,
+      undefined,
+      SEARCH_KEYBAR,
+    ));
+    expect(frame).toContain("search: fle_");
+    expect(frame).not.toContain("filter:");
+    expect(frame).toContain(SEARCH_KEYBAR);
     expect(frame).not.toContain("daemon.tcp_port");
   });
 

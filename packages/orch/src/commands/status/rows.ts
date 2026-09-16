@@ -1,12 +1,8 @@
-import { spawnerIdentity } from "../../policy/spawner.ts";
 import { modelSpec } from "../../policy/thinking.ts";
-import { fleetDriveStates, NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
+import { NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
 import { getAdapter } from "../../adapters/registry.ts";
-import { buildEntities, sortEntities } from "../../entities/inventory.ts";
 import { getBackend } from "../../backends/registry.ts";
 import { spaceName as resolveSpaceName } from "../../policy/space.ts";
-import { agentViewIndex, liveViews } from "../../store/agent-view.ts";
-import { pendingQuestion } from "../../store/question-rows.ts";
 import { firstNonEmptyText } from "../target.ts";
 import { viewForKey } from "../../entities/lookup.ts";
 import { collapse } from "../../util.ts";
@@ -18,7 +14,7 @@ import type { AgentView } from "../../types/store.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { EnvironmentCapabilityView, StatusRow } from "../../types/command.ts";
-import type { Entity, OrchDir } from "../../types/core.ts";
+import type { Entity } from "../../types/core.ts";
 
 interface Provenance {
   spawnedBy: string | null;
@@ -26,15 +22,6 @@ interface Provenance {
   worktree: string | null;
   branch: string | null;
   cwd: string | null;
-}
-
-/** Resolve the adapter recorded for one entity (spawn registry, then presence, then backend report). */
-export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView>): AgentAdapter | undefined {
-  return getAdapter(viewForKey(views, ent.key)?.harnessId ?? ent.agent ?? "");
-}
-
-export function currentOrchId(orchDir: OrchDir): string | null {
-  return spawnerIdentity(orchDir).key;
 }
 
 export function formatOwnerCell(row: Pick<StatusRow, "owner">): string {
@@ -102,11 +89,14 @@ function sessionViewFor(ent: Entity, adapter: AgentAdapter | undefined): Session
   return adapter.sessionView.readSessionView({ sessionPath: ent.sessionPath }) ?? null;
 }
 
-function deriveViewTask(pres: PresenceEntry | null, sview: SessionView | null, directory: OrchDir, agentId: string): string {
+function deriveViewTask(
+  pres: PresenceEntry | null,
+  sview: SessionView | null,
+  questionOf: (agentId: string) => string | undefined,
+  agentId: string,
+): string {
   const status = pres?.status;
-  const question = status?.state === "asking"
-    ? pendingQuestion(directory, agentId)?.question ?? status.blockedMessage
-    : undefined;
+  const question = status?.state === "asking" ? questionOf(agentId) ?? status.blockedMessage : undefined;
   return firstNonEmptyText(question ? `Q: ${question}` : undefined, status?.task, sview?.task);
 }
 
@@ -164,10 +154,10 @@ export function statusRowFromEntity(
   views: ReadonlyMap<string, AgentView>,
   spaces: OrchSettings["spaces"] = {},
   driveState: (agentId: string) => DriveState,
-  directory: OrchDir,
+  questionOf: (agentId: string) => string | undefined,
 ): StatusRow {
   const pres = entity.presence;
-  const adapter = entityAdapter(entity, views);
+  const adapter = getAdapter(viewForKey(views, entity.key)?.harnessId ?? entity.agent ?? "");
   const sview = sessionViewFor(entity, adapter);
   const agentView = viewForKey(views, entity.key);
   const modelFull = deriveModelString(pres, sview, adapter);
@@ -202,7 +192,7 @@ export function statusRowFromEntity(
     alive,
     cost: deriveCost(pres, sview),
     ctxPercent: deriveContextPercent(pres),
-    task: collapse(deriveViewTask(pres, sview, directory, entity.key)),
+    task: collapse(deriveViewTask(pres, sview, questionOf, entity.key)),
     dispatchId: pres?.status?.dispatchId ?? null,
     lastText: collapse(deriveViewLast(pres, sview)),
     backendStatus: entity.backendStatus,
@@ -215,23 +205,6 @@ export function statusRowFromEntity(
     spaceId,
     spaceName: spaceNames.spaceName ?? resolveSpaceName(spaceId, spaces),
   };
-}
-
-interface FleetStatusOptions {
-  offline?: boolean;
-  orchId?: () => string | null;
-  /** Resolve the store root once per fleet build (injectable for cost tests). */
-  directory: OrchDir;
-}
-
-export function fleetStatusRows(settings: OrchSettings, spaces: OrchSettings["spaces"], options: FleetStatusOptions): StatusRow[] {
-  const directory = options.directory;
-  const fleet = agentViewIndex(directory);
-  const views = liveViews(fleet);
-  const orchId = options.orchId?.() ?? currentOrchId(directory);
-  const driveState = fleetDriveStates(directory, fleet, orchId);
-  return sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }))
-    .map((entity) => statusRowFromEntity(entity, views, spaces, driveState, directory));
 }
 
 export function warningStatusRow(host: string, warning: string): StatusRow {

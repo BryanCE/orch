@@ -71,7 +71,7 @@ describe("settings shell decisions", () => {
     const directory = tempDir("orch-settings-shell-");
     writeSettingsFixture(directory, { mail: { to_spawner: "prompt" } });
     const manager = fileSettingsManager(directory);
-    const session: Session = { state: createEditorState(loadEntries(manager)), filter: "", status: undefined, quit: false, escapeClearedFilter: false };
+    const session: Session = { state: createEditorState(loadEntries(manager)), filter: "", searching: false, status: undefined, quit: false, filterKeySpent: false };
     const index = session.state.settings.findIndex((entry) => entry.spec.key === "mail.to_spawner");
     const opened = editorReducer({ ...session.state, focusedIndex: index }, { type: "open" });
     expect(opened.mode).toBe("editing");

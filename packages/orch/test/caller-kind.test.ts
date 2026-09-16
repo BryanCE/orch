@@ -4,15 +4,17 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
-import { claimAgent } from "../src/store/agent-rows.ts";
+import { agentIdBySessionToken, claimAgent } from "../src/store/agent-rows.ts";
 import { callerKind as daemonCallerKind } from "../src/policy/caller.ts";
-import { forbidNonOperatorOverride } from "../src/commands/target.ts";
-import { ensureCallerRegistered } from "../src/identity/self.ts";
+import { registerCallerSession, refuseNonOperatorOverride, whoAmI } from "../src/commands/self.ts";
 import { isolateHarnessSession, isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 
 const directories: OrchDir[] = [];
+const servers: RpcServer[] = [];
 
 function currentOrchDir(): OrchDir {
   const directory = process.env.ORCH_DIR;
@@ -30,7 +32,8 @@ const savedSessionEnv = {
 };
 let restoreHarnessSession: (() => void) | undefined;
 
-afterEach(() => {
+afterEach(async () => {
+  while (servers.length > 0) await servers.pop()!.close();
   restoreOrchEnv();
   if (savedSessionEnv.marker === undefined) delete process.env[sessionEnv.marker];
   else process.env[sessionEnv.marker] = savedSessionEnv.marker;
@@ -95,23 +98,22 @@ describe("caller kind", () => {
     process.env.ORCH_DIR = directory;
     process.env[sessionEnv.marker] = "1";
     process.env[sessionEnv.sessionId] = "fresh-session";
-    let registeredDirectory: OrchDir | undefined;
-    await ensureCallerRegistered(directory, (registered) => {
-      registeredDirectory = registered;
-      return Promise.resolve({ id: "registered-agent" });
-    });
-    expect(registeredDirectory).toBe(directory);
+    const services = await servedServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
+    await registerCallerSession(services);
+    const self = await whoAmI(services);
+    expect(self.kind).toBe("session");
+    expect(self.id).toBe(agentIdBySessionToken(directory, "fresh-session"));
   });
 
   test("override flags are allowed only for the operator", () => {
     setupOperator();
-    expect(() => forbidNonOperatorOverride(currentOrchDir(), "--force")).not.toThrow();
+    expect(() => refuseNonOperatorOverride({ kind: "operator" }, "--force")).not.toThrow();
   });
 
   test("override flags refuse a driving session", () => {
     setupClaimedAgent("session-a");
     delete process.env[LAUNCH_ENV];
-    expect(() => forbidNonOperatorOverride(currentOrchDir(), "--force")).toThrow(
+    expect(() => refuseNonOperatorOverride({ kind: "session" }, "--force")).toThrow(
       "--force is operator-only: a driving session may only touch agents it holds.",
     );
   });
@@ -120,7 +122,7 @@ describe("caller kind", () => {
     const id = setupClaimedAgent("session-a");
     process.env[LAUNCH_ENV] = id;
     process.env[sessionEnv.sessionId] = "session-a";
-    expect(() => forbidNonOperatorOverride(currentOrchDir(), "--steal")).toThrow(
+    expect(() => refuseNonOperatorOverride({ kind: "agent" }, "--steal")).toThrow(
       "--steal is operator-only: a driving session may only touch agents it holds.",
     );
   });

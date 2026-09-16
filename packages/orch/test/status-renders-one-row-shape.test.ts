@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { renderStatusTable } from "../src/commands/status/table.ts";
-import { fleetStatusRows, statusRowFromEntity } from "../src/commands/status/rows.ts";
+import { statusRowFromEntity } from "../src/commands/status/rows.ts";
+import { fleetStatusRows } from "../src/commands/status/offline.ts";
 import { fleetDriveStates } from "../src/agent/drive-state.ts";
 import { seedStatus, statusRow as presenceStatusRow } from "./helpers/presence.ts";
 import type { StatusRow } from "../src/types/command.ts";
@@ -47,7 +48,7 @@ describe("status rendering has one row shape and one table renderer", () => {
   test("task and last text use the same spelling in the row and table cell", () => {
     const directory = tempOrchDir("orch-status-row-shape-");
     tempDirs.push(directory);
-    const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), {}, fleetDriveStates(directory, new Map(), null), directory);
+    const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), {}, fleetDriveStates(directory, new Map(), null), () => undefined);
     const table = renderStatusTable([statusRow], { showSpace: false, showOwner: false, showBranch: false }, { host: false, columns: new Set() });
     expect(statusRow.task).toBe("Q: approve");
     expect(table).toContain("Q: approve");

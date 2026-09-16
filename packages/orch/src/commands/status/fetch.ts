@@ -1,8 +1,9 @@
 import { runRemoteAsync } from "../../remote.ts";
 import { readRpc } from "../daemon.ts";
 import { isDaemonStatusRow } from "../../daemon/client/protocol.ts";
-import { fleetStatusRows, warningStatusRow } from "./rows.ts";
-import { scopeFleetRows, statusRowMatches, displayStatusState, callerScope } from "./options.ts";
+import { warningStatusRow } from "./rows.ts";
+import { fleetStatusRows } from "./offline.ts";
+import { scopeFleetRows, statusRowMatches, displayStatusState } from "./options.ts";
 import type { CallerScope, StatusOptions } from "./options.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { StatusRow } from "../../types/command.ts";
@@ -91,7 +92,7 @@ function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[])
 export async function readStatusResult(
   services: DaemonClient,
   options: StatusOptions,
-  caller: CallerScope = callerScope(services.orchDir),
+  caller: CallerScope,
 ): Promise<StatusResult> {
   const settings = services.settings.currentOrNull();
   const hosts = settings === null ? {} : settings.hosts;

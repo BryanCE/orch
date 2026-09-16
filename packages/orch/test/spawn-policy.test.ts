@@ -12,7 +12,7 @@ import { agentViews } from "../src/store/agent-view.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { orm } from "../src/store/connection.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { maySpawnFrom } from "../src/policy/spawner.ts";
+import { maySpawnBelow } from "../src/policy/spawner.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { modelSpec } from "../src/policy/thinking.ts";
 import { resolveTuningOrDie } from "../src/commands/selection.ts";
@@ -27,6 +27,7 @@ import type { RpcServer } from "../src/types/daemon.ts";
 
 import { numberField, row } from "./helpers/rows.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import type { ResultOf } from "../src/daemon/client/protocol.ts";
 const tempDirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
@@ -117,10 +118,9 @@ describe("spawn policy caps", () => {
   });
   describe("worker prompt depth", () => {
     test("root worker maySpawn follows max_depth", () => {
-      const dir = tempOrchDir("orch-worker-depth-");
-      tempDirs.push(dir);
-      expect(maySpawnFrom(dir, "root", 1)).toBe(false);
-      expect(maySpawnFrom(dir, "root", 2)).toBe(true);
+      const self: ResultOf<"self"> = { id: "root", kind: "agent", space: null, view: null, depth: 0 };
+      expect(maySpawnBelow(self, 1)).toBe(false);
+      expect(maySpawnBelow(self, 2)).toBe(true);
     });
   });
 

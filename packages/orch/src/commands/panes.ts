@@ -1,23 +1,23 @@
-import { buildEntities, sortEntities } from "../entities/inventory.ts";
-import { entitySpace, scopeEntitiesToSpace } from "../entities/space.ts";
-import { resolveTarget } from "../entities/resolve.ts";
+import type { Entity } from "../types/core.ts";
 import type { Services, SettingsService } from "../types/services.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
-import { assertAgentOwned, die, backendTarget, ownsAgent } from "./target.ts";
+import { die } from "./target.ts";
 import { addressOf, indexPresenceById } from "../entities/lookup.ts";
 import { parseCommand } from "./registry.ts";
 import type { ParsedFlags } from "../cli/spec.ts";
 import { isAgentId } from "../backends/identity.ts";
-import { viewForKey } from "../entities/lookup.ts";
 import { openingPlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
 import { displaySpace } from "./status/options.ts";
-import { spaceName } from "../policy/space.ts";
 import { writeRpc } from "./daemon.ts";
 import { ambiguousTargetRefusal } from "../refusal.ts";
-import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSplit, TilePlacement } from "../types/backend.ts";
+import { readFleet } from "./fleet.ts";
+import { resolveLifecycle, refuseForeignHolder } from "./resolve.ts";
+import { refuseNonOperatorOverride, whoAmI, type CallerSelf } from "./self.ts";
+import { sameSpace, spaceName } from "../policy/space.ts";
+import { describeHandle } from "./lifecycle/close.ts";
 
 type BoundaryPlan<T> =
   | { readonly outcome: "invoke"; readonly role: T }
@@ -35,25 +35,29 @@ function renderBoundaryAnswer<T>(plan: BoundaryPlan<T>, json: boolean): boolean 
   else process.stdout.write(plan.text + "\n");
   return false;
 }
-export function cmdPanes(services: Services, args: string[]) {
+export async function cmdPanes(services: Services, args: string[]): Promise<void> {
   const { flags } = parseCommand("panes", args);
   const all = flags.has("--all");
   const json = flags.has("--json");
-  const settings = services.settings.current();
-  const entities = scopeEntitiesToSpace(services.orchDir, sortEntities(buildEntities(services.orchDir, settings)), { all });
-  const spaces = settings.spaces;
+  const self = await whoAmI(services);
+  if (all) refuseNonOperatorOverride(self, "--all");
+  const fleet = await readFleet(services, true);
+  const entities = all || self.space === null
+    ? fleet.entities
+    : fleet.entities.filter((entity) => sameSpace(entity.space, self.space));
+  const spaces = services.settings.current().spaces;
   if (json) {
     process.stdout.write(JSON.stringify(entities.map((e) => ({ key: e.key, paneId: e.paneId, name: e.name,
       tab: e.tabLabel, agent: e.agent, focused: e.focused, state: e.backendStatus ?? e.presence?.status?.state ?? null,
       backendStatus: e.backendStatus, sessionPath: e.sessionPath, presenceOnly: e.presenceOnly,
-      space: entitySpace(services.orchDir, e), spaceName: spaceName(entitySpace(services.orchDir, e), spaces) })), null, 2) + "\n");
+      space: e.space, spaceName: spaceName(e.space, spaces) })), null, 2) + "\n");
     return;
   }
-  const showSpace = all && new Set(entities.map((e) => entitySpace(services.orchDir, e) ?? "-")).size > 1;
+  const showSpace = all && new Set(entities.map((e) => e.space ?? "-")).size > 1;
   for (const e of entities) {
     const parts = [
       e.paneId ?? e.key,
-      showSpace ? `${displaySpace(entitySpace(services.orchDir, e), spaces)} / ${e.name ?? "-"}` : (e.name ?? "-"),
+      showSpace ? `${displaySpace(e.space, spaces)} / ${e.name ?? "-"}` : (e.name ?? "-"),
       e.tabLabel ?? "-",
       e.agent ?? "-",
       e.backendStatus ?? (e.presence?.status?.state ?? "-"),
@@ -63,41 +67,46 @@ export function cmdPanes(services: Services, args: string[]) {
   }
 }
 
-function requirePaneTarget(services: Pick<Services, "orchDir" | "settings">, target: string, command: string): { backend: Backend; handle: string; key: string } {
-  return backendTarget(services.orchDir, services.settings.current(), target, command);
+async function requirePaneTarget(services: Services, target: string): Promise<{ backend: Backend; handle: BackendHandle; key: string; entity: Entity }> {
+  const resolved = await resolveLifecycle(services, target);
+  return {
+    backend: resolved.backend,
+    handle: resolved.handle,
+    key: resolved.key,
+    entity: resolved.entity,
+  };
 }
 
 /** Resolve a pane a command is about to mutate: a foreign-owned agent refuses without --force. */
-function requireOwnedPaneTarget(services: Pick<Services, "orchDir" | "settings">, target: string, command: string, force: boolean): { backend: Backend; handle: string; key: string } {
-  const resolved = backendTarget(services.orchDir, services.settings.current(), target, command);
-  assertAgentOwned(services.orchDir, target, { key: resolved.key }, force);
-  return resolved;
+async function requireOwnedPaneTarget(services: Services, self: CallerSelf, target: string, force: boolean): Promise<{ backend: Backend; handle: BackendHandle; key: string; entity: Entity }> {
+  const resolved = await resolveLifecycle(services, target);
+  refuseForeignHolder(self, target, resolved, force);
+  return { backend: resolved.backend, handle: resolved.handle, key: resolved.key, entity: resolved.entity };
 }
 
-export function cmdKeys(services: Services, args: string[]) {
+export async function cmdKeys(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("keys", args);
   const json = flags.has("--json");
   const force = flags.has("--force");
   const target = positional[0];
   const keys = positional.slice(1);
   if (!target || !keys.length) die("usage: orch keys <target> <key> [key...] [--force]");
-  const { backend, handle } = requireOwnedPaneTarget(services, target, "keys", force);
-  const entity = resolveTarget(services.orchDir, services.settings.current(), target);
+  const self = await whoAmI(services);
+  const { backend, handle, entity } = await requireOwnedPaneTarget(services, self, target, force);
   const plan = paneBoundary(target, "keys", backend.agentInput, !!entity.paneId);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.sendKeys(handle, keys);
-  if (json) process.stdout.write(JSON.stringify({ target: handle, keys, sent: true }) + "\n");
-  else process.stdout.write(`Sent keys to ${handle}: ${keys.join(" ")}\n`);
+  if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), keys, sent: true }) + "\n");
+  else process.stdout.write(`Sent keys to ${describeHandle(handle)}: ${keys.join(" ")}\n`);
 }
 
-export function cmdPeek(services: Services, args: string[]) {
+export async function cmdPeek(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("peek", args);
   const n = parseInt(flags.value("-n") ?? "", 10) || 25;
   const json = flags.has("--json");
   const target = positional[0];
   if (!target) die("usage: orch peek <target> [-n N] [--json]");
-  const { backend, handle } = requirePaneTarget(services, target, "peek");
-  const entity = resolveTarget(services.orchDir, services.settings.current(), target);
+  const { backend, handle, entity } = await requirePaneTarget(services, target);
   const plan = paneBoundary(target, "peek", backend.screen, !!entity.paneId);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   const screen = plan.role.read(handle, n);
@@ -114,7 +123,7 @@ function selectedGroups(services: SettingsService): { backend: Backend; groups: 
   return { backend, groups: [...(backend.groupHome?.list() ?? [])] };
 }
 
-export function resolveTab(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string): BackendGroup {
+export async function resolveTab(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string): Promise<BackendGroup> {
   const { backend, groups } = selectedGroups(services);
   if (!groups.length) die("No groups available.");
   const exact = groups.filter((group) => group.id === target || group.label === target);
@@ -128,20 +137,18 @@ export function resolveTab(services: Pick<Services, "orchDir" | "settings" | "lo
     // the caller nothing to recover from and truncates what it already wrote.
     throw ambiguousTargetRefusal(target, candidates.map((group) => ({ key: group.id, detail: group.label ?? null })));
   }
-  const ent = resolveTarget(services.orchDir, services.settings.current(), target);
-  // Which plexer an agent is in is an ENVIRONMENT axis composed onto it, not a
-  // segment of its identity: an agent that moves keeps the id it was minted with.
-  const plexer = viewForKey(spawnedRecords(services.orchDir), ent.key)?.environment.plexer ?? ent.backend;
+  const resolved = await resolveLifecycle(services, target);
+  const plexer = resolved.view?.environment.plexer ?? resolved.entity.backend;
   if (plexer !== null && plexer !== backend.id) die(`Target "${target}" belongs to backend ${plexer}.`);
   // The identity id names the agent and carries no pane; the resolved entity's
   // paneId is the only backend handle for it.
-  const pane = backend.placementInventory?.list().find((item) => String(item.handle) === ent.paneId);
+  const pane = backend.placementInventory?.list().find((item) => String(item.handle) === resolved.entity.paneId);
   const found = groups.find((group) => group.id === (pane?.group ?? null));
   if (!found) die(`No group found for target "${target}".`);
   return found;
 }
 
-export function cmdTabs(services: Services, args: string[]) {
+export function cmdTabs(services: Services, args: string[]): void {
   const { flags, positional } = parseCommand("tabs", args);
   if (positional.length) die(`orch tabs lists tabs and has no "${positional[0]}" subcommand. Create tabs through the backend (e.g. herdr tab create) or orch spawn/tile.`);
   const all = flags.has("--all");
@@ -177,17 +184,23 @@ export function cmdTabs(services: Services, args: string[]) {
 }
 
 /** Refuse a group-wide mutation while any pane in the group belongs to another orchestrator. */
-function assertGroupAgentsOwned(services: Pick<Services, "orchDir">, backend: Backend, group: string, force: boolean): void {
-  if (force) return;
+async function assertGroupAgentsOwned(services: Services, self: CallerSelf, backend: Backend, group: string, force: boolean): Promise<void> {
+  if (force) {
+    refuseNonOperatorOverride(self, "--force");
+    return;
+  }
   const handles = new Set((backend.placementInventory?.list() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
-  const presence = indexPresenceById(loadPresence(services.orchDir).values());
-  for (const view of spawnedRecords(services.orchDir).values()) {
+  const fleet = await readFleet(services, true);
+  const presence = indexPresenceById(fleet.presence);
+  for (const view of fleet.views) {
+    if (view.endedAt !== null) continue;
     // Ownership is the open lease; the pane handle is environment. A group is a
     // set of PLACES, so it is matched on the handle and refused on the lease.
     const holder = view.heldBy?.orchId;
     const handle = view.environment.handle;
-    if (holder === undefined || handle === null || !handles.has(handle)) continue;
-    if (!ownsAgent(services.orchDir, view)) {
+    if (holder === null || holder === undefined || handle === null || !handles.has(handle)) continue;
+    const owns = holder === self.id || (self.kind === "operator" && sameSpace(view.environment.space, self.space));
+    if (!owns) {
       die(`Group ${group} holds agent ${addressOf(view, presence)} owned by ${holder}. Use --force to override.`);
     }
   }
@@ -204,75 +217,76 @@ function cmdTabNew(flags: ParsedFlags, json: boolean, backend: Backend): void {
   if (backend.placement) backend.placement.close(created.rootHandle);
 }
 
-function cmdTabRename(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string | undefined, label: string | undefined, json: boolean, backend: Backend): void {
+async function cmdTabRename(services: Services, target: string | undefined, label: string | undefined, json: boolean, backend: Backend): Promise<void> {
   if (!target || !label) die("usage: orch tab rename <tab_id|label> <new-label>");
-  const tab = resolveTab(services, target);
+  const tab = await resolveTab(services, target);
   backend.groupHome!.rename(tab.id, label);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, label, renamed: true }) + "\n");
   else process.stdout.write(`${tab.id}: "${tab.label}" -> "${label}"\n`);
 }
 
-function cmdTabClose(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string | undefined, force: boolean, json: boolean, backend: Backend): void {
+async function cmdTabClose(services: Services, target: string | undefined, force: boolean, json: boolean, backend: Backend): Promise<void> {
   if (!target) die("usage: orch tab close <tab_id|label> [--force]");
-  const tab = resolveTab(services, target);
-  assertGroupAgentsOwned(services, backend, tab.id, force);
+  const self = await whoAmI(services);
+  const tab = await resolveTab(services, target);
+  await assertGroupAgentsOwned(services, self, backend, tab.id, force);
   backend.groupHome!.close(tab.id);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, closed: true }) + "\n");
   else process.stdout.write(`Closed group ${tab.id} "${tab.label}".\n`);
 }
 
-function cmdTabFocus(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string | undefined, json: boolean, backend: Backend): void {
+async function cmdTabFocus(services: Services, target: string | undefined, json: boolean, backend: Backend): Promise<void> {
   if (!target) die("usage: orch tab focus <tab_id|label>");
-  const tab = resolveTab(services, target);
+  const tab = await resolveTab(services, target);
   backend.groupHome!.focus(tab.id);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, focused: true }) + "\n");
   else process.stdout.write(`Focused group ${tab.id} "${tab.label}".\n`);
 }
 
-export function cmdTab(services: Services, args: string[]) {
+export async function cmdTab(services: Services, args: string[]): Promise<void> {
   const { command, flags, positional } = parseCommand("tab", args);
   const json = flags.has("--json");
   const { backend } = selectedGroups(services);
   const role = backend.groupHome;
   if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide groups" }, json); return; }
   switch (command.name) {
-    case "new": return cmdTabNew(flags, json, backend);
-    case "rename": return cmdTabRename(services, positional[0], positional[1], json, backend);
-    case "close": return cmdTabClose(services, positional[0], flags.has("--force"), json, backend);
-    case "focus": return cmdTabFocus(services, positional[0], json, backend);
+    case "new": cmdTabNew(flags, json, backend); return;
+    case "rename": await cmdTabRename(services, positional[0], positional[1], json, backend); return;
+    case "close": await cmdTabClose(services, positional[0], flags.has("--force"), json, backend); return;
+    case "focus": await cmdTabFocus(services, positional[0], json, backend); return;
     default: die("usage: orch tab new|rename|close|focus ...  (orch tabs to list)");
   }
 }
 
-export function cmdFocus(services: Services, args: string[]) {
+export async function cmdFocus(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("focus", args);
   const json = flags.has("--json");
   const force = flags.has("--force");
   const target = positional[0];
   if (!target) die("usage: orch focus <target> [--force] [--json]");
-  const { backend, handle } = requireOwnedPaneTarget(services, target, "focus", force);
-  const entity = resolveTarget(services.orchDir, services.settings.current(), target);
+  const self = await whoAmI(services);
+  const { backend, handle, entity } = await requireOwnedPaneTarget(services, self, target, force);
   const plan = paneBoundary(target, "focus", backend.agentInput, !!entity.paneId);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.focus(handle);
-  if (json) process.stdout.write(JSON.stringify({ target: handle, focused: true }) + "\n");
-  else process.stdout.write(`Focused ${handle}.\n`);
+  if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), focused: true }) + "\n");
+  else process.stdout.write(`Focused ${describeHandle(handle)}.\n`);
 }
 
-export function cmdZoom(services: Services, args: string[]) {
+export async function cmdZoom(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("zoom", args);
   const json = flags.has("--json");
   const force = flags.has("--force");
   const target = positional[0];
   if (!target) die("usage: orch zoom <target> [--on|--off] [--force]  (default: toggle)");
-  const { backend, handle } = requireOwnedPaneTarget(services, target, "zoom", force);
-  const entity = resolveTarget(services.orchDir, services.settings.current(), target);
+  const self = await whoAmI(services);
+  const { backend, handle, entity } = await requireOwnedPaneTarget(services, self, target, force);
   const plan = paneBoundary(target, "zoom", backend.zooming, !!entity.paneId);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   const zoomMode = flags.has("--on") ? "on" : flags.has("--off") ? "off" : "toggle";
   plan.role.setZoom(handle, zoomMode);
-  if (json) process.stdout.write(JSON.stringify({ target: handle, mode: zoomMode, zoomed: true }) + "\n");
-  else process.stdout.write(`Zoom ${zoomMode} on ${handle}.\n`);
+  if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), mode: zoomMode, zoomed: true }) + "\n");
+  else process.stdout.write(`Zoom ${zoomMode} on ${describeHandle(handle)}.\n`);
 }
 
 /** Where a pane should land in a group, ignoring the pane itself — a pane
@@ -300,16 +314,17 @@ export async function cmdMove(services: Services, args: string[]): Promise<void>
   const target = positional[0];
   if (!target || (tab === undefined && !newTab))
     die("usage: orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label X] [--force]");
-  const { backend, handle, key } = requireOwnedPaneTarget(services, target, "move", force);
+  const self = await whoAmI(services);
+  const { backend, handle, key } = await requireOwnedPaneTarget(services, self, target, force);
   const role = backend.groupHome;
   if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide group move" }, json); return; }
   try {
     // Default: land on the destination tab's biggest pane so it stays balanced
     // instead of stacking off one edge. An explicit --split still wins.
-    const groupId = newTab || tab === undefined ? null : resolveTab(services, tab).id;
+    const groupId = newTab || tab === undefined ? null : (await resolveTab(services, tab)).id;
     let against: BackendHandle | undefined;
     if (!flags.has("--split") && groupId !== null) {
-      const placement = tilePlacementBesides(services, backend, groupId, handle);
+      const placement = tilePlacementBesides(services, backend, groupId, String(handle));
       split = placement.split;
       against = placement.targetHandle;
     }

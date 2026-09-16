@@ -351,7 +351,7 @@ export async function cmdTile(services: Services, args: string[]) {
   const self = await whoAmI(services);
   const fleet = await readFleet(services, true);
   const { views, presence } = admissionFleet(fleet);
-  const tab = resolveTab(services, target);
+  const tab = await resolveTab(services, target);
   const role = selectedBackend.groupLayout;
   if (!role) return;
   const layout = readGroupLayout(role, tab.id);

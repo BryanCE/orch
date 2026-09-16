@@ -56,9 +56,9 @@ const syntheticOrchDir: OrchDir = orchDirAt("/tmp");
 function statusRowFromEntity(
   entity: Entity,
   views: Parameters<typeof composeStatusRow>[1],
-  directory: OrchDir = syntheticOrchDir,
+  questionOf: (agentId: string) => string | undefined = () => undefined,
 ): ReturnType<typeof composeStatusRow> {
-  return composeStatusRow(entity, views, {}, fleetDriveStates(directory, views, null), directory);
+  return composeStatusRow(entity, views, {}, fleetDriveStates(syntheticOrchDir, views, null), questionOf);
 }
 
 describe("commands/status", () => {
@@ -67,7 +67,7 @@ describe("commands/status", () => {
     const servers: RpcServer[] = [];
     try {
       const services = await servedServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
-      const result = await readStatusResult(services, parseStatusOptions([]));
+      const result = await readStatusResult(services, parseStatusOptions([]), { id: null, ceiling: null, kind: "operator" });
       expect(result.rows).toEqual([]);
       expect(result.backendAnswered).toBe(false);
     } finally {
@@ -160,13 +160,8 @@ describe("commands/status", () => {
         status: statusRow({ agentId: "appagent01", state: "asking", blockedMessage: "Need approval", task: "ignored task" }),
       }),
     });
-    const directory = tempOrchDir("orch-status-question-");
-    try {
-      const row = statusRowFromEntity(entity, new Map(), directory);
-      expect(row).toMatchObject({ state: "asking", exited: false, task: "Q: Need approval", alive: true });
-    } finally {
-      removeTempDir(directory);
-    }
+    const row = statusRowFromEntity(entity, new Map(), () => undefined);
+    expect(row).toMatchObject({ state: "asking", exited: false, task: "Q: Need approval", alive: true });
   });
   test("shared status row carries presence-derived fields", () => {
     const row = statusRowFromEntity(seededEntity, new Map());

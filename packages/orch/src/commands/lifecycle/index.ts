@@ -1,22 +1,21 @@
-import { recipientFor } from "../../entities/lookup.ts";
-import { resolvePane, resolveTarget } from "../../entities/resolve.ts";
+import { recipientOf } from "../../entities/lookup.ts";
 import { recipientLabel } from "../../recipient.ts";
 import { isAgentId } from "../../backends/identity.ts";
-import { selectAgentStatus } from "../../store/status-rows.ts";
-import { retryingSync } from "../../retry.ts";
-import { isRecord } from "../../util.ts";
-import { sleepMs } from "../../backends/shell-ready.ts";
+import { retryingAsync } from "../../retry.ts";
 import { workerPrompt } from "../../worker-prompt.ts";
-import { workerHeaderContext } from "../../policy/spawner.ts";
-import { entityAdapter } from "../status/rows.ts";
-import { spawnedRecords } from "../../presence/store.ts";
+import { isRecord } from "../../util.ts";
+import { workerHeaderContextOf } from "../../policy/spawner.ts";
+import { getAdapter } from "../../adapters/registry.ts";
 import { governanceFlags, readRpc, writeRpc } from "../daemon.ts";
 import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
-import { backendTarget, die, requireCallerOwnerToken } from "../target.ts";
+import { die } from "../target.ts";
+import { resolveEntity, resolveLifecycle } from "../resolve.ts";
+import { whoAmI, refuseNonOperatorOverride, type CallerSelf } from "../self.ts";
 import type { Invocation } from "../../cli/spec.ts";
 import type { DaemonClient, Services } from "../../types/services.ts";
-import type { Logger, OrchDir } from "../../types/core.ts";
+import type { Logger } from "../../types/core.ts";
+import { describeHandle } from "./close.ts";
 
 export function lifecycleLogger(logger: Logger, key: string) {
   return isAgentId(key) ? logger.forAgent(key) : logger;
@@ -31,16 +30,19 @@ export async function cmdRun(services: Services, args: string[]): Promise<void> 
   const target = positional[0];
   const prompt = positional.slice(1).join(" ");
   if (!target || !prompt) die('usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
+  const self = await whoAmI(services);
+  const resolved = await resolveEntity(services, target, { crossSpace: gov.crossSpace });
+  if (!resolved.entity.paneId) die(`Target "${target}" has no pane.`);
   const settings = services.settings.current();
-  const { ent, pane } = resolvePane(services.orchDir, settings, target, { crossSpace: gov.crossSpace });
-  const headerContext = workerHeaderContext(services.orchDir, settings);
-  const result = await writeRpc(services, "dispatch", { target: ent.key, text: workerPrompt(prompt, raw, entityAdapter(ent, spawnedRecords(services.orchDir)), headerContext) }, gov);
-  const recipient = recipientFor(services.orchDir, ent.key);
-  if (json) process.stdout.write(JSON.stringify({ target: pane, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
+  const headerContext = workerHeaderContextOf(self, settings);
+  const adapter = getAdapter(resolved.view?.harnessId ?? resolved.entity.agent ?? "");
+  const result = await writeRpc(services, "dispatch", { target: resolved.entity.key, text: workerPrompt(prompt, raw, adapter, headerContext) }, gov);
+  const recipient = recipientOf(resolved.view ?? undefined, resolved.entity.space ?? "space", resolved.entity.key);
+  if (json) process.stdout.write(JSON.stringify({ target: resolved.entity.paneId, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
   else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}.\n`);
 }
 
-export function cmdWait(services: Services, args: string[]) {
+export async function cmdWait(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("wait", args);
   const status = flags.value("--status") ?? "done";
   const defaultTimeout = services.settings.current().timeouts.wait_ms;
@@ -48,9 +50,7 @@ export function cmdWait(services: Services, args: string[]) {
   const json = flags.has("--json");
   const target = positional[0];
   if (!target) die("usage: orch wait <target> [--status done|idle|working|blocked] [--timeout ms]");
-  const settings = services.settings.current();
-  const { backend, handle } = backendTarget(services.orchDir, settings, target, "wait");
-  const entity = resolveTarget(services.orchDir, settings, target);
+  const { backend, handle, entity } = await resolveLifecycle(services, target);
   if (!entity.paneId) {
     if (json) process.stdout.write(JSON.stringify({ outcome: "answer", reason: "no-pane", text: `${target} has no pane; wait does not apply.` }) + "\n");
     else process.stdout.write(`${target} has no pane; wait does not apply.\n`);
@@ -63,24 +63,24 @@ export function cmdWait(services: Services, args: string[]) {
     return;
   }
   role.wait(handle, status, timeout);
-  if (json) process.stdout.write(JSON.stringify({ target: handle, status, reached: true }) + "\n");
-  else process.stdout.write(`${handle} reached "${status}".\n`);
+  if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), status, reached: true }) + "\n");
+  else process.stdout.write(`${describeHandle(handle)} reached "${status}".\n`);
 }
 
 /** Block until the agent's own presence status reports idle from a write newer than
  *  the one we replaced. A stale idle is the pre-reset session answering for the new one. */
-export function awaitIdleAfter(orchDir: OrchDir, presenceKey: string, beforeUpdated: number | undefined, sentAt: number): boolean {
-  return retryingSync(
+export async function awaitIdleAfter(services: DaemonClient, presenceKey: string, beforeUpdated: number | undefined, sentAt: number): Promise<boolean> {
+  return retryingAsync(
     "await idle presence",
-    () => {
-      const status = selectAgentStatus(orchDir, presenceKey);
-      const advanced = status !== undefined
+    async () => {
+      const { status } = await readRpc(services, "agent-status", { target: presenceKey });
+      const advanced = status !== null
         && (beforeUpdated === undefined || status.updatedAt > beforeUpdated)
         && status.updatedAt >= sentAt - 1000;
       return advanced && status.state === "idle";
     },
     { attempts: 300, delayMs: 250, backoff: 1 },
-    { sleepSync: sleepMs, retryOnResult: (value) => !value },
+    { retryOnResult: (value) => !value },
   );
 }
 
@@ -95,11 +95,12 @@ export async function ownedAgentKeys(services: DaemonClient): Promise<string[]> 
 
 /** The targets a lifecycle command was given: the positionals, plus every agent
  *  this caller owns under `--all`, a right the caller must hold before the list is built. */
-export async function lifecycleTargets(services: DaemonClient, { flags, positional }: Invocation): Promise<{ targets: string[]; all: boolean }> {
+export async function lifecycleTargets(services: DaemonClient, self: CallerSelf, { flags, positional }: Invocation): Promise<{ targets: string[]; all: boolean }> {
   const all = flags.has("--all");
   const targets = [...positional];
   if (all) {
-    requireCallerOwnerToken(services.orchDir);
+    refuseNonOperatorOverride(self, "--all");
+    if (self.id === null) die("Bulk operation refused: this orch is not registered; spawn or adopt an agent first, or name the targets.");
     targets.push(...await ownedAgentKeys(services));
   }
   return { targets, all };

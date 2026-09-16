@@ -5,7 +5,8 @@ import { isRecord } from "../src/util.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { testServices } from "./helpers/services.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
 /**
@@ -24,11 +25,13 @@ import type { OrchDir } from "../src/types/core.ts";
  */
 
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 const oldDir = process.env.ORCH_DIR;
 const originalWrite = process.stdout.write.bind(process.stdout);
 
-afterEach(() => {
+afterEach(async () => {
   process.stdout.write = originalWrite;
+  while (servers.length) await servers.pop()!.close();
   closeAllStores();
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
   while (dirs.length) removeTempDir(dirs.pop()!);
@@ -60,7 +63,8 @@ async function capture(action: () => Promise<void>): Promise<{ out: string; exit
   } finally {
     process.stdout.write = originalWrite;
     exitCode = process.exitCode;
-    process.exitCode = undefined;
+    // Bun ignores a reset to undefined; 0 is the only value that clears it.
+    process.exitCode = 0;
   }
   return { out, exitCode };
 }
@@ -69,7 +73,8 @@ describe("a partial reload or restart is reported, not exited", () => {
   test("reload --json writes the whole payload and sets exitCode, never exits", async () => {
     const dir = fixture();
 
-    const { out, exitCode } = await capture(async () => { await cmdReload(testServices({ orchDir: dir, settings: fixtureSettings }), ["no-such-agent", "--json"]); });
+    const services = await servedServices({ orchDir: dir, settings: fixtureSettings }, servers);
+    const { out, exitCode } = await capture(async () => { await cmdReload(services, ["no-such-agent", "--json"]); });
 
     // The payload is the point: a caller parsing it must be able to see WHICH
     // target failed and why. `process.exit` truncated it.
@@ -84,7 +89,8 @@ describe("a partial reload or restart is reported, not exited", () => {
     const dir = fixture();
 
     const { out, exitCode } = await capture(async () => {
-      try { await cmdRestart(testServices({ orchDir: dir, settings: fixtureSettings }), ["no-such-agent", "--json"]); } catch { /* the refusal is the caller's */ }
+      const services = await servedServices({ orchDir: dir, settings: fixtureSettings }, servers);
+      try { await cmdRestart(services, ["no-such-agent", "--json"]); } catch { /* the refusal is the caller's */ }
     });
 
     // Reaching this assertion at all is half the test: an exit here would have

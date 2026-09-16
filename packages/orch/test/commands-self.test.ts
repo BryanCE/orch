@@ -54,7 +54,7 @@ describe("commands/self", () => {
   });
 
   test("refuses non-operator overrides", () => {
-    expect(() => refuseNonOperatorOverride({ id: null, kind: "session", space: null, view: null, depth: 0 }, "--all"))
+    expect(() => refuseNonOperatorOverride({ kind: "session" }, "--all"))
       .toThrow(/operator-only/);
   });
 });

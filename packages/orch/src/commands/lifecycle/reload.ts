@@ -1,22 +1,23 @@
 import * as files from "node:fs";
 import * as path from "node:path";
 import { refreshStaleShims } from "../../doctor/runner.ts";
-import { selectAgentStatus } from "../../store/status-rows.ts";
-import { agentView, tuningOf } from "../../store/agent-view.ts";
-import { retryingSync } from "../../retry.ts";
-import { errorMessage } from "../../util.ts";
-import { agentProcessLive } from "../../store/interval-rows.ts";
-import { atShellPrompt, sleepMs, NO_FOREGROUND } from "../../backends/shell-ready.ts";
+import { retryingAsync } from "../../retry.ts";
+import { errorMessage, sleep } from "../../util.ts";
+import { atShellPrompt, NO_FOREGROUND } from "../../backends/shell-ready.ts";
 import { RELOAD_SIGNAL_FILE } from "../../settings/watch.ts";
 import { adapterCommand, admitLaunchModel } from "../spawn/models.ts";
 import { resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
-import { writeRpc } from "../daemon.ts";
-import { assertAgentOwned, die, resolveLifecycleTarget } from "../target.ts";
+import { readRpc, writeRpc } from "../daemon.ts";
+import { die } from "../target.ts";
+import { resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
+import { NO_TUNING } from "../../policy/tuning.ts";
+import { whoAmI, type CallerSelf } from "../self.ts";
 import { lifecycleLogger, lifecycleTargets } from "./index.ts";
 import { parseCommand } from "../registry.ts";
 import { describeHandle } from "./close.ts";
 import type { Backend, ForegroundProcesses } from "../../types/backend.ts";
 import type { AgentAdapter, LifecycleVerb } from "../../types/adapter.ts";
+import type { LifecycleResolution } from "../resolve.ts";
 import type { LifecycleTarget } from "../../types/command.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { Services } from "../../types/services.ts";
@@ -34,17 +35,18 @@ export interface ReloadResult {
 
 /** Block until the agent's bridge republishes status.json while its recorded
  *  process is live, proving the harness came back. */
-function awaitBridgeRefresh(orchDir: OrchDir, presenceKey: string, wasUpdatedAt: number | undefined, tries: number): boolean {
-  return retryingSync(
+async function awaitBridgeRefresh(services: LifecycleServices, presenceKey: string, wasUpdatedAt: number | undefined, tries: number): Promise<boolean> {
+  return retryingAsync(
     "await bridge refresh",
-    () => {
-      const status = selectAgentStatus(orchDir, presenceKey);
-      return status !== undefined
-        && agentProcessLive(orchDir, presenceKey)
+    async () => {
+      const status = (await readRpc(services, "agent-status", { target: presenceKey })).status;
+      const live = (await readRpc(services, "process-live", { target: presenceKey })).live;
+      return status !== null
+        && live
         && (wasUpdatedAt === undefined || status.updatedAt > wasUpdatedAt);
     },
     { attempts: tries, delayMs: 500, backoff: 1 },
-    { sleepSync: sleepMs, retryOnResult: (value) => !value },
+    { retryOnResult: (value) => !value },
   );
 }
 
@@ -53,36 +55,26 @@ function awaitBridgeRefresh(orchDir: OrchDir, presenceKey: string, wasUpdatedAt:
 type LifecycleServices = Pick<Services, "orchDir" | "settings" | "logger" | "models">;
 
 async function lifecycleThroughDaemon(services: LifecycleServices, verb: LifecycleVerb, key: string, handle: string): Promise<ReloadResult> {
-  const wasUpdatedAt = selectAgentStatus(services.orchDir, key)?.updatedAt;
+  const wasUpdatedAt = (await readRpc(services, "agent-status", { target: key })).status?.updatedAt;
   if (wasUpdatedAt === undefined) return { handle, ok: false, reason: "no bridge status.json to verify against" };
   try {
     await writeRpc(services, "lifecycle", { target: key, verb });
   } catch (error: unknown) {
     return { handle, ok: false, reason: errorMessage(error) };
   }
-  return awaitBridgeRefresh(services.orchDir, key, wasUpdatedAt, 60)
+  return (await awaitBridgeRefresh(services, key, wasUpdatedAt, 60))
     ? { handle, ok: true }
     : { handle, ok: false, reason: `bridge status.json did not refresh within 30s after ${verb}` };
 }
 
-export function reloadAgentAndAwaitBridge(orchDir: OrchDir, backend: Backend, handle: string, presenceKey: string, reloadText: string): ReloadResult {
+export async function reloadAgentAndAwaitBridge(services: LifecycleServices, backend: Backend, handle: string, presenceKey: string, reloadText: string): Promise<ReloadResult> {
   try {
-    const oldUpdatedAt = selectAgentStatus(orchDir, presenceKey)?.updatedAt;
+    const oldUpdatedAt = (await readRpc(services, "agent-status", { target: presenceKey })).status?.updatedAt;
     backend.agentInput?.sendKeys(handle, ["Escape"]);
-    sleepMs(500);
+    await sleep(500);
     if (!backend.agentInput) throw new Error("target environment cannot take input");
     backend.agentInput.submit(handle, reloadText);
-    const refreshed = retryingSync(
-      "await bridge refresh",
-      () => {
-        const st = selectAgentStatus(orchDir, presenceKey);
-        return st !== undefined
-          && agentProcessLive(orchDir, presenceKey)
-          && (oldUpdatedAt === undefined || st.updatedAt > oldUpdatedAt);
-      },
-      { attempts: 60, delayMs: 500, backoff: 1 },
-      { sleepSync: sleepMs, retryOnResult: (value) => !value },
-    );
+    const refreshed = await awaitBridgeRefresh(services, presenceKey, oldUpdatedAt, 60);
     if (refreshed) return { handle, ok: true };
     return { handle, ok: false, reason: errorMessage(`bridge status.json did not refresh within 30s after ${reloadText}`) };
   } catch (error: unknown) {
@@ -96,16 +88,16 @@ function touchReloadSignal(orchDir: OrchDir): void {
   files.closeSync(fd);
 }
 
-function restartAgentAndAwaitBridge(orchDir: OrchDir, logger: Logger, backend: Backend, handle: string, cmd: string, presenceKey: string, quitText: string): boolean {
+async function restartAgentAndAwaitBridge(services: LifecycleServices, logger: Logger, backend: Backend, handle: string, cmd: string, presenceKey: string, quitText: string): Promise<boolean> {
   backend.agentInput?.sendKeys(handle, ["Escape"]);
-  sleepMs(500);
+  await sleep(500);
   if (!backend.agentInput) throw new Error("target environment cannot take input");
   backend.agentInput.submit(handle, quitText);
-  const shellSeen = retryingSync(
+  const shellSeen = await retryingAsync(
     "await shell prompt",
     () => atShellPrompt(foregroundOf(backend, handle)),
     { attempts: 16, delayMs: 500, backoff: 1 },
-    { sleepSync: sleepMs, retryOnResult: (value) => !value },
+    { retryOnResult: (value) => !value },
   );
   if (!shellSeen) {
     lifecycleLogger(logger, presenceKey).warn("lifecycle.restart-exit-timeout", { handle, command: quitText });
@@ -113,14 +105,15 @@ function restartAgentAndAwaitBridge(orchDir: OrchDir, logger: Logger, backend: B
     return false;
   }
   backend.agentInput.submit(handle, cmd);
-  const refreshed = retryingSync(
+  const refreshed = await retryingAsync(
     "await relaunched bridge",
-    () => {
-      const st = selectAgentStatus(orchDir, presenceKey);
-      return st !== undefined && agentProcessLive(orchDir, presenceKey);
+    async () => {
+      const status = (await readRpc(services, "agent-status", { target: presenceKey })).status;
+      const live = (await readRpc(services, "process-live", { target: presenceKey })).live;
+      return status !== null && live;
     },
     { attempts: 40, delayMs: 500, backoff: 1 },
-    { sleepSync: sleepMs, retryOnResult: (value) => !value },
+    { retryOnResult: (value) => !value },
   );
   if (refreshed) return true;
   lifecycleLogger(logger, presenceKey).warn("lifecycle.restart-bridge-timeout", { handle });
@@ -139,13 +132,13 @@ interface PlannedReload {
 /** Resolve every target BEFORE touching a shim: an unresolvable target must not
  *  leave a redeployed integration behind, and the refresh can only be scoped to
  *  the harnesses in play once they are known. */
-function planReloads(orchDir: OrchDir, settings: OrchSettings, targets: readonly string[], force: boolean, results: ReloadResult[]): PlannedReload[] {
+async function planReloads(services: LifecycleServices, self: CallerSelf, targets: readonly string[], force: boolean, results: ReloadResult[]): Promise<PlannedReload[]> {
   const planned: PlannedReload[] = [];
   for (const target of targets) {
     try {
-      const resolved = resolveLifecycleTarget(orchDir, settings, target);
-      assertAgentOwned(orchDir, target, resolved.entity, force);
-      const harness = agentView(orchDir, resolved.entity.key)?.harnessId;
+      const resolved = await resolveLifecycle(services, target);
+      refuseForeignHolder(self, target, resolved, force);
+      const harness = resolved.view?.harnessId;
       if (!harness) throw new Error(`Target "${target}" has no recorded harness - cannot determine its reload mechanism`);
       const adapter = resolveAdapterOrDie(harness);
       const reloadCmd = adapter.lifecycleControl?.lifecycleCmd("reload");
@@ -165,7 +158,7 @@ async function performReloads(services: LifecycleServices, planned: readonly Pla
       // No console to type `/reload` into leaves only the daemon, which owns
       // every lifecycle mechanism a backend does or does not have.
       results.push(backend.agentInput
-        ? reloadAgentAndAwaitBridge(services.orchDir, backend, describeHandle(handle), ent.key, reloadText)
+        ? await reloadAgentAndAwaitBridge(services, backend, describeHandle(handle), ent.key, reloadText)
         : await lifecycleThroughDaemon(services, "reload", ent.key, describeHandle(handle)));
     } catch (error: unknown) {
       results.push({ handle: target, ok: false, reason: errorMessage(error) });
@@ -192,13 +185,14 @@ function reportReloads(results: readonly ReloadResult[], json: boolean): void {
 export async function cmdReload(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("reload", args);
   const json = invocation.flags.has("--json");
-  const { targets, all } = await lifecycleTargets(services, invocation);
+  const self = await whoAmI(services);
+  const { targets, all } = await lifecycleTargets(services, self, invocation);
   // `--all` is a valid invocation even with zero live agents: it still touches
   // reload.signal (SIGNALED) for settings/extension watchers. Only a bare call
   // with neither --all nor a target is a usage error.
   if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
   const results: ReloadResult[] = [];
-  const planned = planReloads(services.orchDir, services.settings.current(), targets, invocation.flags.has("--force"), results);
+  const planned = await planReloads(services, self, targets, invocation.flags.has("--force"), results);
   // A reload exists to pick up new code, so stale deployments redeploy first —
   // but only for the harnesses being reloaded. `orch reload <pi agent>` has no
   // business rewriting another harness's integration.
@@ -216,21 +210,22 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
  *  an EXISTING agent, so it relaunches on the tuning the agent holds, resolved
  *  exactly like dispatch and reset rather than letting the harness fall back to
  *  its own default. */
-function restartLaunchCommand(orchDir: OrchDir, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings, catalogue: Services["models"], agentKey: string): string {
+function restartLaunchCommand(resolved: LifecycleResolution, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings, catalogue: Services["models"]): string {
   if (cmd !== null) return cmd;
-  const tuning = resolveTuningOrDie({}, settings, adapter.id, tuningOf(orchDir, agentKey));
+  const tuning = resolveTuningOrDie({}, settings, adapter.id, resolved.view?.tuning ?? NO_TUNING);
   const model = admitLaunchModel(settings, adapter.id, catalogue, tuning.model);
   return adapterCommand(harnessId, settings, { model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] });
 }
 
 /** Restart one target. A detached agent has no shell to type a quit into, so the
  *  daemon rules on what restart means for it. */
-async function restartOneTarget(services: LifecycleServices, target: string, cmd: string | null, flags: { json: boolean; force: boolean }): Promise<boolean> {
-  const { orchDir, logger } = services;
+async function restartOneTarget(services: LifecycleServices, self: CallerSelf, target: string, cmd: string | null, flags: { json: boolean; force: boolean }): Promise<boolean> {
+  const { logger } = services;
   const settings = services.settings.current();
-  const { entity: ent, backend, handle } = resolveLifecycleTarget(orchDir, settings, target);
-  assertAgentOwned(orchDir, target, ent, flags.force);
-  const harness = agentView(orchDir, ent.key)?.harnessId;
+  const resolved = await resolveLifecycle(services, target);
+  refuseForeignHolder(self, target, resolved, flags.force);
+  const { entity: ent, backend, handle } = resolved;
+  const harness = resolved.view?.harnessId;
   if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
   const adapter = resolveAdapterOrDie(harness);
   const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
@@ -248,9 +243,9 @@ async function restartOneTarget(services: LifecycleServices, target: string, cmd
     process.stdout.write(`${restarted.handle}: ${reason}\n`);
     return false;
   }
-  const launch = restartLaunchCommand(services.orchDir, cmd, harness, adapter, settings, services.models, ent.key);
+  const launch = restartLaunchCommand(resolved, cmd, harness, adapter, settings, services.models);
   if (!flags.json) process.stdout.write(`Restarting ${describeHandle(handle)} (${launch})...\n`);
-  if (!restartAgentAndAwaitBridge(orchDir, logger, backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
+  if (!await restartAgentAndAwaitBridge(services, logger, backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
   if (!flags.json) process.stdout.write(`${describeHandle(handle)}: bridge live.\n`);
   return true;
 }
@@ -258,14 +253,15 @@ export async function cmdRestart(services: Services, args: string[]): Promise<vo
   const invocation = parseCommand("restart", args);
   const json = invocation.flags.has("--json");
   const flags = { json, force: invocation.flags.has("--force") };
-  const { targets } = await lifecycleTargets(services, invocation);
+  const self = await whoAmI(services);
+  const { targets } = await lifecycleTargets(services, self, invocation);
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
   const cmd = invocation.flags.value("--cmd") ?? null;
   const results: ReloadResult[] = [];
   let ok = 0;
   for (const target of targets) {
     try {
-      const restarted = await restartOneTarget(services, target, cmd, flags);
+      const restarted = await restartOneTarget(services, self, target, cmd, flags);
       if (restarted) {
         ok++;
         results.push({ handle: target, ok: true });

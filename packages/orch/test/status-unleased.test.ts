@@ -50,7 +50,7 @@ function entity(): Entity {
 /** The row as `fleetStatusRows` composes it: the lease is read off the composed fleet, never a second store read. */
 function composedRow(dir: OrchDir): ReturnType<typeof statusRowFromEntity> {
   const views = agentViewIndex(dir);
-  return statusRowFromEntity(entity(), views, {}, fleetDriveStates(dir, views, "caller"), dir);
+  return statusRowFromEntity(entity(), views, {}, fleetDriveStates(dir, views, "caller"), () => undefined);
 }
 
 describe("status owner rendering", () => {

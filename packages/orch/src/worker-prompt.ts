@@ -1,7 +1,7 @@
 // Leaf module: the bundled harness artifacts (extensions/claude/index.ts and
 // friends) import `prepareWorkerTask` from here, so nothing in this file may
 // reach the store's sqlite graph (Rule 6). The two helpers that answer from the
-// store — `maySpawnFrom` and `spawnerIsRepliable` — live in policy/spawner.ts.
+// store — `maySpawnBelow` and `workerHeaderContextOf` — live in policy/spawner.ts.
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
 import type { AgentAdapter } from "./types/adapter.ts";

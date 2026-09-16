@@ -16,7 +16,6 @@ import { loadPresence } from "../src/presence/store.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { isolateHarnessSession } from "./helpers/env.ts";
-import { testServices } from "./helpers/services.ts";
 import { servedServices } from "./helpers/daemon-state.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
@@ -125,7 +124,7 @@ describe("orch clean is destructive maintenance", () => {
       // A refusal is a thrown value carrying its reason, not a process exit and
       // not a stderr side effect (src/refusal.ts): the CLI boundary renders it.
       // Asserting the reason on the thrown value is stronger than either.
-      const refusal = await cmdClean(testServices({ orchDir: root, settings: null }), []).then(() => null, (error: unknown) => error);
+      const refusal = await cmdClean(await servedServices({ orchDir: root, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers), []).then(() => null, (error: unknown) => error);
       expect(refusal).toBeInstanceOf(CommandRefusal);
       expect(String(refusal)).toMatch(/operator-only/i);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(true);

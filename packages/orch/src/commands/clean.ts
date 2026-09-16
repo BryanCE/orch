@@ -11,7 +11,8 @@ import {
   worktreeHasChanges,
   worktreeHasCommitsAheadOf,
 } from "../worktree.ts";
-import { callerIsSpawnedAgent, die } from "./target.ts";
+import { die } from "./target.ts";
+import { whoAmI } from "./self.ts";
 import { parseCommand } from "./registry.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { Logger } from "../types/core.ts";
@@ -103,7 +104,8 @@ export async function cmdClean(services: Services, args: string[]): Promise<void
   // A sweep reaps records and worktrees the caller does not own, which is
   // destructive maintenance: the user's or the pack orch's call, never a
   // slave's. It refuses before reading anything, so nothing is mutated.
-  if (callerIsSpawnedAgent(services.orchDir)) die("orch clean is operator-only: a spawned agent never reaps records it does not own. Ask the user or your orch to run it.");
+  const self = await whoAmI(services);
+  if (self.kind === "agent") die("orch clean is operator-only: a spawned agent never reaps records it does not own. Ask the user or your orch to run it.");
   const { flags, positional } = parseCommand("clean", args);
   if (positional.length > 0) die("usage: orch clean [--force] [--worktrees] [--json]");
   const json = flags.has("--json");

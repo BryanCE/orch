@@ -1,14 +1,12 @@
 import { LAUNCH_ENV } from "../identity/launch.ts";
 import { ENVIRONMENT_ENV } from "../agent/environment.ts";
-import { selfId, selfIdentity } from "../identity/self.ts";
+import { selfIdentity } from "../identity/self.ts";
 import { callerSession } from "../adapters/session-env.ts";
 import { agentById } from "../store/agent-rows.ts";
 import { projectRoot } from "../util.ts";
 import type { BackendSpawnOpts } from "../types/backend.ts";
 import type { SpawnerIdentity } from "../types/policy.ts";
 import { workerRules } from "../worker-prompt.ts";
-import { agentView } from "../store/agent-view.ts";
-import { depthOf } from "./provenance.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { OrchDir, WorkerHeaderContext } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -116,27 +114,5 @@ export function agentLaunchEnv(
   return Object.fromEntries(
     Object.entries(candidates).filter((entry): entry is [string, string] => Boolean(entry[1])),
   );
-}
-
-/** Whether a child launched by this spawner may itself spawn under the depth limit. */
-export function maySpawnFrom(orchDir: OrchDir, spawnerId: string | undefined, maxDepth: number): boolean {
-  const depth = spawnerId === undefined ? 0 : depthOf((id) => agentView(orchDir, id), spawnerId);
-  return depth + 1 < maxDepth;
-}
-
-/** This session's own reply address, live only when it writes presence of its own.
- *  A worker is told to `orch_send target "spawner"` on the strength of this and
- *  nothing else — never on its own harness's steer capability. */
-export function spawnerIsRepliable(orchDir: OrchDir): boolean {
-  return spawnerIdentity(orchDir).key !== null;
-}
-
-/** The header context for a worker THIS session dispatches to. */
-export function workerHeaderContext(orchDir: OrchDir, settings: OrchSettings): WorkerHeaderContext {
-  return {
-    maySpawn: maySpawnFrom(orchDir, selfId(orchDir), settings.fleet.max_depth),
-    spawnerRepliable: spawnerIsRepliable(orchDir),
-    ...workerRules(settings),
-  };
 }
 

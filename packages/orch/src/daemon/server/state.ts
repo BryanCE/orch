@@ -7,7 +7,7 @@ import { agentViewIndex } from "../../store/agent-view.ts";
 import { recordedProcessIsLive } from "../../store/interval-rows.ts";
 import { fleetLeaseFacts, storeLeaseFacts, type LeaseFacts } from "../../agent/drive-state.ts";
 import { bridgeAttached } from "../../control/bridge-links.ts";
-import { fleetStatusRows } from "../../commands/status/rows.ts";
+import { fleetStatusRows } from "../../commands/status/offline.ts";
 import type { DaemonStatusRow, LeaseStatusPayload, RpcHandler, RpcHandlers, RpcServer } from "../../types/daemon.ts";
 import type { SettingsWatch } from "../../types/settings.ts";
 import type { Services } from "../../types/services.ts";

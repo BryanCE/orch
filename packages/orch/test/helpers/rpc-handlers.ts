@@ -55,6 +55,7 @@ export function stubRpcHandlers(overrides: Partial<RpcHandlers> = {}): RpcHandle
     "resolve-target": notStubbed,
     self: notStubbed,
     "resolve-lifecycle": notStubbed,
+    "close-targets": notStubbed,
     "owned-agents": notStubbed,
     question: notStubbed,
     questions: notStubbed,

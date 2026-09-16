@@ -27,7 +27,8 @@ import type { ThinkingLevel } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
 import type { Entity, Recipient } from "../types/core.ts";
-import type { AgentView, AgentTuning } from "../types/store.ts";
+import type { AgentView } from "../types/store.ts";
+import { NO_TUNING } from "../policy/tuning.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;
@@ -55,16 +56,15 @@ interface DispatchSettings {
   keepContext: boolean;
 }
 
-const NO_TUNING: AgentTuning = { model: null, thinking: null };
 
 export async function cmdSteer(services: Services, args: string[]): Promise<void> {
+  const self = await whoAmI(services);
   const { flags, positional } = parseCommand("steer", args);
   const json = flags.has("--json");
   const gov = governanceFlags(flags);
   const target = positional[0];
   const text = positional.slice(1).join(" ");
   if (!target || !text) die('usage: orch steer <target> <text...> [--steal] [--cross-space] [--json]');
-  const self = await whoAmI(services);
   const remote = targetHost(services.settings.current().hosts, target);
   if (remote) {
     remoteWrite(services.settings.current().hosts, remote.host, "steer", [remote.target, text, ...(json ? ["--json"] : [])]);
@@ -96,8 +96,8 @@ function reportControlDelivery(recipient: Recipient, action: "steered" | "answer
 }
 
 export async function cmdBroadcast(services: Services, args: string[]) {
-  const { flags, positional } = parseCommand("broadcast", args);
   const self = await whoAmI(services);
+  const { flags, positional } = parseCommand("broadcast", args);
   let all = flags.has("--all");
   const json = flags.has("--json");
   const force = flags.has("--force");
@@ -153,13 +153,13 @@ export async function cmdBroadcast(services: Services, args: string[]) {
 }
 
 export async function cmdPipe(services: Services, args: string[]) {
+  const self = await whoAmI(services);
   const { flags, positional } = parseCommand("pipe", args);
   const json = flags.has("--json");
   const src = positional[0];
   const dst = positional[1];
   const instruction = positional.slice(2).join(" ");
   if (!src || !dst) die('usage: orch pipe <src> <dst> ["instruction"] [--json]');
-  const self = await whoAmI(services);
   void self;
   const resolvedSource = await resolveEntity(services, src);
   const source = resolvedSource.entity;
@@ -178,13 +178,13 @@ export async function cmdPipe(services: Services, args: string[]) {
 }
 
 export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
+  const self = await whoAmI(services);
   const { flags, positional } = parseCommand("answer", args);
   const json = flags.has("--json");
   const gov = governanceFlags(flags);
   const target = positional[0];
   const text = positional.slice(1).join(" ");
   if (!target || !text) die('usage: orch answer <target> "<text>" [--steal] [--cross-space] [--json]');
-  const self = await whoAmI(services);
   const remote = targetHost(services.settings.current().hosts, target);
   if (remote) {
     remoteWrite(services.settings.current().hosts, remote.host, "answer", [remote.target, text, ...(gov.steal ? ["--steal"] : []), ...(gov.crossSpace ? ["--cross-space"] : []), ...(json ? ["--json"] : [])]);
@@ -200,13 +200,13 @@ export async function cmdAnswer(services: Services, args: string[]): Promise<voi
 }
 
 export async function cmdModel(services: Services, args: string[]): Promise<void> {
+  const self = await whoAmI(services);
   const { flags, positional } = parseCommand("model", args);
   const json = flags.has("--json");
   const gov = governanceFlags(flags);
   const target = positional[0];
   const modelArg = positional[1];
   if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-space] [--no-wait]");
-  const self = await whoAmI(services);
   const resolved = await resolveOwnedTarget(services, self, target, { crossSpace: gov.crossSpace, override: gov.steal, overrideFlag: "--steal" });
   const ent = resolved.entity;
   const handle = ent.paneId ?? ent.key;
@@ -269,7 +269,6 @@ function forwardedToTargetHost(hosts: OrchSettings["hosts"], args: string[], tar
  * the dispatcher's owner token or it stays open to every other orchestrator.
  */
 async function recordAdoptedAgent(services: Services, self: CallerSelf, key: string, dispatchSettings: DispatchSettings, tuning: { model: string; thinking: ThinkingLevel }): Promise<void> {
-  const orchDir = services.orchDir;
   await callDaemon(services, "register-agent", {
     key,
     harnessId: dispatchSettings.adapter,
@@ -305,11 +304,11 @@ function adoptedProcess(ent: Entity): RecordedProcess {
 }
 
 export async function cmdDispatch(services: Services, args: string[]) {
+  const self = await whoAmI(services);
   const invocation = parseCommand("dispatch", args);
   const gov = governanceFlags(invocation.flags);
   const flags = dispatchFlags(invocation);
   const settings = services.settings.current();
-  const self = await whoAmI(services);
   if (forwardedToTargetHost(settings.hosts, args, flags.positional[0])) return;
   const dispatchSettings = await resolveDispatchSettings(services, self, flags, settings, gov);
   // Address the daemon by the one canonical identity, never the handle: a second

@@ -17,6 +17,7 @@ import type { BridgeNotification } from "../../types/agent.ts";
 import type { ResultReport, StatusPatch } from "../../types/presence.ts";
 import type { GrantAction, GrantRequest, SpaceListing, SpaceRow, SpawnRegistration } from "../../types/store.ts";
 import type { HomeSubject } from "../../types/backend.ts";
+import type { CloseTargetWire } from "../../entities/close-targets.ts";
 import type { ReapCandidate } from "../../types/command.ts";
 import { isPackIntakeRec, isTaskOptions, isTaskRec, type PackIntakeRec, type TaskOptions, type TaskRec } from "../../types/queue.ts";
 
@@ -144,6 +145,14 @@ const SPAWN_REGISTRATION = z.object({
 }) satisfies z.ZodType<SpawnRegistration>;
 
 const LEASE_RESULT = z.object({ id: z.string(), name: z.string() });
+
+const CLOSE_TARGET = z.object({
+  key: z.string(),
+  backendId: z.string().nullable(),
+  handle: z.string().nullable(),
+  recorded: z.object({ pid: z.number().int(), startToken: z.string().nullable() }).nullable(),
+  placeKnown: z.boolean(),
+}) satisfies z.ZodType<CloseTargetWire>;
 
 const REAP_CANDIDATE = z.object({
   id: z.string(),
@@ -310,9 +319,10 @@ export const RPC_PARAMS = {
   "resolve-target": z.object({ caller: CALLER, target: nonBlank, all: z.boolean().optional(), crossSpace: z.boolean().optional() }),
   self: z.object({ caller: CALLER }),
   "resolve-lifecycle": z.object({ caller: CALLER, target: nonBlank }),
+  "close-targets": z.object({ caller: CALLER, targets: z.array(nonBlank), all: z.boolean() }),
   "owned-agents": z.object({ caller: CALLER }),
   question: z.custom<AgentNotice>(isAgentNotice),
-  questions: z.object({ all: z.boolean().optional() }).optional(),
+  questions: z.object({ caller: CALLER, all: z.boolean().optional() }),
   ack: z.object({ id: nonBlank }),
   "control-outcome": z.object({
     id: nonBlank,
@@ -389,6 +399,7 @@ export const RPC_RESULTS = {
   "resolve-target": z.object({ entity: ENTITY, view: AGENT_VIEW.nullable(), holder: z.string().nullable(), callerOwns: z.boolean() }),
   self: z.object({ id: z.string().nullable(), kind: z.enum(["operator", "session", "agent"]), space: z.string().nullable(), view: AGENT_VIEW.nullable(), depth: z.number().int().nonnegative() }),
   "resolve-lifecycle": z.object({ entity: ENTITY, key: z.string(), view: AGENT_VIEW.nullable(), backendId: z.string().nullable(), handle: z.string(), holder: z.string().nullable(), callerOwns: z.boolean() }),
+  "close-targets": z.object({ targets: z.array(CLOSE_TARGET), refusal: z.string().nullable() }),
   "owned-agents": z.object({ keys: z.array(z.string()) }),
   question: OK,
   ack: OK,

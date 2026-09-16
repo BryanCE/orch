@@ -1,6 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { asc, eq, isNull } from "drizzle-orm";
 import { ormForRead, storeMemo } from "./connection.ts";
+import { NO_TUNING } from "../policy/tuning.ts";
 import type { AgentEnvironment, AgentHolder, AgentTuning, AgentView, EnvironmentAxisKey } from "../types/store.ts";
 import {
   agentEndings,
@@ -120,8 +121,6 @@ function currentTunings(orchDir: OrchDir): ByAgent<AgentTuning> {
     .from(agentTunings).where(isNull(agentTunings.until)).all() ?? [];
   return new Map(rows.map((row) => [row.agentId, { model: row.model, thinking: row.thinking }]));
 }
-
-const NO_TUNING: AgentTuning = { model: null, thinking: null };
 
 export function tuningOf(orchDir: OrchDir, agentId: string): AgentTuning {
   return readFleetFacts(orchDir).tunings.get(agentId) ?? NO_TUNING;

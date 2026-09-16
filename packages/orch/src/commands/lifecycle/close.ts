@@ -1,34 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { loadPresence } from "../../presence/store.ts";
-import { liveAgentViews } from "../../store/agent-view.ts";
-import { selfIdentity } from "../../identity/self.ts";
-import { callerAuthority, refuseClose } from "../../policy/close-authority.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
 import { getBackend } from "../../backends/registry.ts";
+import type { CloseTargetWire } from "../../entities/close-targets.ts";
 import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
-import { callDaemon } from "../daemon.ts";
-import { die, resolveLifecycleTarget } from "../target.ts";
-import { addressOf, indexPresenceById } from "../../entities/lookup.ts";
+import { callDaemon, readRpc } from "../daemon.ts";
+import { die } from "../target.ts";
+import { resolveLifecycle } from "../resolve.ts";
+import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
-import type { OrchDir } from "../../types/core.ts";
-import { currentProcess } from "../../store/interval-rows.ts";
 import { STREAM_VERBS } from "../events.ts";
-
-/** Read the launch identity from the normalized agent process interval. Presence
- * status carries liveness only and can never authorize a signal. */
-function recordedProcess(orchDir: OrchDir, key: string): RecordedProcess | null {
-  try {
-    const row = currentProcess(orchDir, key);
-    return row === undefined ? null : { pid: row.pid, startToken: row.startToken };
-  } catch {
-    return null;
-  }
-}
 
 /** Whether the recorded process instance is still present after a close attempt.
  *  The environment that runs the process is the one asked whether it is gone. */
@@ -68,18 +53,6 @@ export function describeHandle(handle: BackendHandle): string {
   return typeof handle === "string" ? handle : handle.toString();
 }
 
-/** Whether the environment still lists this handle (U1). An environment that
- *  cannot answer says nothing either way, so the recorded handle stands. */
-function plexerStillHasPane(backend: Backend | null, handle: BackendHandle): boolean | null {
-  const inventory = backend?.placementInventory;
-  if (!inventory) return null;
-  try {
-    return inventory.list().some((entry) => describeHandle(entry.handle) === describeHandle(handle));
-  } catch {
-    return null;
-  }
-}
-
 /** One agent a close was asked to end, with everything needed to end it. */
 interface CloseTarget {
   readonly backend: Backend | null;
@@ -90,58 +63,6 @@ interface CloseTarget {
   /** Whether a pane operation is meaningful here — false when the plexer no
    *  longer lists the handle (U1), so orch never asks it to close a lost pane. */
   readonly placeKnown: boolean;
-}
-
-/**
- * Every orch-managed record on this machine, before cmdClose filters it by close authority.
- *
- * Each row is read DIRECTLY, never resolved through a target string: resolution
- * is what makes a stale row ambiguous, and one unresolvable row must not abort
- * the sweep. A bulk close that closes nothing leaves every name reserved, which
- * is exactly when respawning is the only way out.
- */
-function sweepTargets(services: Pick<Services, "orchDir" | "logger">): CloseTarget[] {
-  const presence = indexPresenceById(loadPresence(services.orchDir).values());
-  const targets: CloseTarget[] = [];
-  for (const view of liveAgentViews(services.orchDir)) {
-    const address = addressOf(view, presence);
-    const backend = getBackend(view.environment.plexer ?? "") ?? null;
-    if (!backend) {
-      lifecycleLogger(services.logger, address).warn("close.unknown-backend", { backend: view.environment.plexer, handle: address });
-      process.stdout.write(`skipping ${address}: unknown backend ${JSON.stringify(view.environment.plexer)} (reaping the record)\n`);
-    }
-    const handle = view.environment.handle;
-    const paneState = handle === null ? false : plexerStillHasPane(backend, handle);
-    targets.push({
-      backend, handle, key: address, recorded: recordedProcess(services.orchDir, address),
-      // Unknown inventory still permits a real recorded handle to be handed to
-      // the plexer; a null handle is never replaced with the agent id.
-      placeKnown: handle !== null && paneState !== false,
-    });
-  }
-  return targets;
-}
-
-/** Resolve the targets named on the command line. */
-function namedTargets(services: Services, positional: readonly string[]): CloseTarget[] {
-  const settings = services.settings.current();
-  return positional.map((target) => {
-    const resolved = resolveLifecycleTarget(services.orchDir, settings, target);
-    // Driving sessions must resolve through their open lease; the operator remains
-    // unscoped. Close authority is the additional provenance check in cmdClose.
-    // `resolveLifecycleTarget` also supplies process-oriented fallbacks (pid/key).
-    // Close may hand only the environment's actual pane handle to placer.
-    const handle = resolved.view !== null ? resolved.view.environment.handle : resolved.entity.paneId;
-    return {
-      backend: resolved.backend,
-      handle,
-      key: resolved.key,
-      recorded: recordedProcess(services.orchDir, resolved.key),
-      // A pane-capable backend's stale registry row may outlive its pane. Do
-      // not invoke a provider with an opaque identity handle in that case.
-      placeKnown: handle !== null && (resolved.backend.placementInventory === null || resolved.entity.paneId !== null),
-    };
-  });
 }
 
 /** How one target was ended, or why it could not be. `failure` is the REAL
@@ -299,6 +220,14 @@ function reportClose(
   if (requested && ok !== requested) process.exitCode = 1;
 }
 
+function closeTargetOf(wire: CloseTargetWire): CloseTarget {
+  return {
+    ...wire,
+    backend: wire.backendId === null ? null : getBackend(wire.backendId) ?? null,
+    handle: wire.handle,
+  };
+}
+
 export async function cmdClose(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("close", args);
   const all = flags.has("--all");
@@ -306,24 +235,19 @@ export async function cmdClose(services: Services, args: string[]): Promise<void
   const json = flags.has("--json");
   if (!all && !positional.length) die("usage: orch close <target>... | --all [--stream] [--json]");
 
-  const authority = callerAuthority(selfIdentity(services.orchDir));
-  const named = namedTargets(services, positional);
-  const refusal = named.map((target) => refuseClose(services.orchDir, authority, target.key)).find((reason) => reason !== null);
-  if (refusal !== undefined && refusal !== null) die(refusal);
-  // A sweep skips what is not the caller's; a named target is refused.
-  const swept = all ? sweepTargets(services).filter((target) => refuseClose(services.orchDir, authority, target.key) === null) : [];
-
-  reportClose(await closeEachTarget(services, [...swept, ...named], json), { all, stream, json });
+  const answer = await readRpc(services, "close-targets", { caller: callerCredential(), targets: [...positional], all });
+  if (answer.refusal !== null) die(answer.refusal);
+  reportClose(await closeEachTarget(services, answer.targets.map(closeTargetOf), json), { all, stream, json });
 }
 
-export function cmdAbort(services: Services, args: string[]) {
+export async function cmdAbort(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("abort", args);
   const json = flags.has("--json");
   const target = positional[0];
   if (!target) die("usage: orch abort <target> [--force] [--json]");
   // Abort itself has no close-authority gate. Lifecycle resolution still scopes a
   // driving session by its open lease; the operator remains unscoped.
-  const { backend, handle, entity } = resolveLifecycleTarget(services.orchDir, services.settings.current(), target);
+  const { backend, handle, entity } = await resolveLifecycle(services, target);
   const input = backend.agentInput;
   if (!entity.paneId || !input) {
     const reason = !entity.paneId ? "no-pane" : "no-environment-role";

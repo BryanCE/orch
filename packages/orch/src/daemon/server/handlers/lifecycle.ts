@@ -1,4 +1,7 @@
-import type { OrchDir } from "../../../types/core.ts";
+import type { CallerCredential, OrchDir } from "../../../types/core.ts";
+import { selfIdentityOf } from "../../../identity/self.ts";
+import { callerKindOf } from "../../../policy/caller.ts";
+import { holdsLease } from "../../../store/lease-rows.ts";
 import { randomUUID } from "node:crypto";
 import { admitModel } from "../../../policy/model.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
@@ -148,8 +151,17 @@ export function recordAgentQuestion(directory: OrchDir, params: ParamsOf<"questi
   return { ok: true };
 }
 
-export function listPendingQuestions(directory: OrchDir): { questions: PendingQuestionView[] } {
+/** An operator sees every question; anyone else sees only the agents it holds. */
+function questionVisibleTo(directory: OrchDir, credential: CallerCredential): (row: { agentId: string }) => boolean {
+  if (callerKindOf(directory, credential) === "operator") return () => true;
+  const caller = selfIdentityOf(directory, credential)?.id;
+  if (caller === undefined) return () => false;
+  return (row) => holdsLease(directory, row.agentId, caller);
+}
+
+export function listPendingQuestions(directory: OrchDir, params: ParamsOf<"questions">): { questions: PendingQuestionView[] } {
   const questions = pendingQuestions(directory)
+    .filter(questionVisibleTo(directory, params.caller))
     .sort((left, right) => right.askedAt - left.askedAt)
     .map((row): PendingQuestionView => {
       const agent = agentById(directory, row.agentId);

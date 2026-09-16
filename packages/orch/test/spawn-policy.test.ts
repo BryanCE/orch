@@ -19,17 +19,20 @@ import { resolveTuningOrDie } from "../src/commands/selection.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedOperator } from "./helpers/agent.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import { sql } from "drizzle-orm";
-import { createServices } from "../src/services.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 
 import { numberField, row } from "./helpers/rows.ts";
 import type { OrchDir } from "../src/types/core.ts";
 const tempDirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 const oldAgentKey = process.env[LAUNCH_ENV];
-afterEach(() => {
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   while (tempDirs.length) removeTempDir(tempDirs.pop()!);
   if (oldOrchDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldOrchDir;
   if (oldAgentKey === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldAgentKey;
@@ -198,16 +201,18 @@ describe("spawn policy caps", () => {
     const dir = tempOrchDir("orch-spawn-policy-refused-");
     tempDirs.push(dir);
     process.env.ORCH_DIR = dir;
-    writeSettingsFixture(dir, {
+    const cappedSettings = {
       enabled: { adapters: ["pi"], backends: ["headless"] },
       defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } },
       fleet: { max_agents_per_pack: 1 },
-    });
+    };
+    writeSettingsFixture(dir, cappedSettings);
     const key = "liveagent1";
+    const owner = seedOperator(dir);
     // A space is USER-created and never minted (A7), so the fixture creates the
     // one the claimant sits in before placing an agent in it.
     orm(dir).run(sql`INSERT INTO spaces (id, name, created_by, created_at) VALUES (${"space"}, ${"space"}, NULL, ${1})`);
-    seedAgent(key, { adapter: "pi", backend: "headless", space: "space", handle: key }, dir);
+    seedAgent(key, { adapter: "pi", backend: "headless", space: "space", handle: key, spawnedBy: owner, owner }, dir);
     const statusDir = presenceAgentDir(key, dir);
     mkdirSync(statusDir, { recursive: true });
     writeFileSync(join(statusDir, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, pid: process.pid, state: "idle" }));
@@ -234,7 +239,7 @@ describe("spawn policy caps", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(createServices({ orchDir: dir }), ["capped", "--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree", "--json"]);
+      await cmdSpawn(await servedServices({ orchDir: dir, settings: cappedSettings }, servers), ["capped", "--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree", "--json"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {

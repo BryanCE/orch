@@ -39,9 +39,9 @@ function tempOrchDir(): OrchDir {
   return dir;
 }
 
-/** The spawn writes through orchd: serve the real handler table on this dir. */
+/** The spawn reads the fleet and writes through orchd: serve the real handler table on this dir. */
 function spawningServices(dir: OrchDir): Promise<Services> {
-  return servedServices({ orchDir: dir, settings: null }, servers);
+  return servedServices({ orchDir: dir, settings: {} }, servers);
 }
 
 afterEach(async () => {
@@ -88,6 +88,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       model: "openai/gpt-5.6",
       thinking: "medium",
       preferredModels: [],
+      spawner: { key: owner, label: "operator" }, owner,
     });
 
     const view = agentView(dir, agent.key);
@@ -118,6 +119,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       model: "openai/gpt-5.6",
       preferredModels: [],
       placement: { split: "right", targetHandle: "fake-pane-0" },
+      spawner: { key: null, label: "operator" }, owner: undefined,
     });
 
     const view = agentView(dir, agent.key);

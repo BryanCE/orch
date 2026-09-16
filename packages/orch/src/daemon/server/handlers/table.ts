@@ -11,6 +11,7 @@ import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, resolve
 import { cleanStore } from "./clean.ts";
 import { agentStatusOf, fleetSnapshot, processLive, runOf, runsOf } from "./fleet.ts";
 import { resolveLifecycleEntity, resolveTargetEntity } from "./resolve.ts";
+import { closeTargets } from "./close.ts";
 import { callerSelf } from "./self.ts";
 import { ownedAgents } from "./owned.ts";
 import { reexecSelf } from "../../client/process.ts";
@@ -134,9 +135,10 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "resolve-target": (params) => resolveTargetEntity(state, params),
     self: (params) => callerSelf(directory, params),
     "resolve-lifecycle": (params) => resolveLifecycleEntity(state, params),
+    "close-targets": (params) => closeTargets(state, params),
     "owned-agents": (params) => ownedAgents(state, params),
     question: (params) => recordAgentQuestion(directory, params),
-    questions: () => listPendingQuestions(directory),
+    questions: (params) => listPendingQuestions(directory, params),
     answer: governed(state, (params) => {
       const result = answer(state, params);
       state.wake.wake();

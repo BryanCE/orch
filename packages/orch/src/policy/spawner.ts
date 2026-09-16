@@ -3,12 +3,12 @@ import { ENVIRONMENT_ENV } from "../agent/environment.ts";
 import { selfId, selfIdentity } from "../identity/self.ts";
 import { callerSession } from "../adapters/session-env.ts";
 import { agentById } from "../store/agent-rows.ts";
-import { agentView } from "../store/agent-view.ts";
-import { depthOf } from "./provenance.ts";
 import { projectRoot } from "../util.ts";
 import type { BackendSpawnOpts } from "../types/backend.ts";
 import type { SpawnerIdentity } from "../types/policy.ts";
 import { workerRules } from "../worker-prompt.ts";
+import { agentView } from "../store/agent-view.ts";
+import { depthOf } from "./provenance.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { OrchDir, WorkerHeaderContext } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -139,3 +139,4 @@ export function workerHeaderContext(orchDir: OrchDir, settings: OrchSettings): W
     ...workerRules(settings),
   };
 }
+

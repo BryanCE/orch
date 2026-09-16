@@ -22,6 +22,7 @@ const workerSettings = (maxDepth: number): OrchSettings => ({
   fleet: { ...SETTINGS_DEFAULTS.fleet, max_agents_per_space: {}, max_depth: maxDepth },
   models: { allowed: {}, preferred: {} },
   workers: { ...SETTINGS_DEFAULTS.workers, exclude_extensions: [], allow_tools: [], verify_commands: [] },
+  skills: { ...SETTINGS_DEFAULTS.skills, link: [] },
   notify: [],
   hosts: {},
   spaces: {},

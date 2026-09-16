@@ -3,6 +3,7 @@ import { scopeToSpace, spaceOfIn, withinSpaceCeiling } from "../policy/space.ts"
 import { agentInMineScope, agentInScope, resolveCallerScopeOf } from "../policy/scope.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { rpcCall, subscribeEvents } from "../daemon/client/rpc.ts";
+import { callerCredential } from "../identity/credential.ts";
 import { ensureDaemon, rpcRegisterSession } from "../daemon/client/reach.ts";
 import { deliver } from "../notify/router.ts";
 import { eventState, isNotifyEvent } from "../notify/event.ts";
@@ -383,7 +384,7 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
       resolveDone?.();
     },
   };
-  const pending = rpcCall(services.orchDir, "questions", undefined);
+  const pending = rpcCall(services.orchDir, "questions", { caller: callerCredential() });
   subscription = subscribeEvents(
     services.orchDir,
     context.options.sinceSeq === undefined ? {} : { since: context.options.sinceSeq },

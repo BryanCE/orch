@@ -40,9 +40,9 @@ function makeTempOrchDir(): OrchDir {
   return dir;
 }
 
-/** The spawn writes through orchd: serve the real handler table on this dir. */
+/** The spawn reads the fleet and writes through orchd: serve the real handler table on this dir. */
 function spawningServices(dir: OrchDir): Promise<Services> {
-  return servedServices({ orchDir: dir, settings: null }, servers);
+  return servedServices({ orchDir: dir, settings: {} }, servers);
 }
 
 afterEach(async () => {
@@ -91,6 +91,7 @@ describe("one key per pane spawn (12.1)", () => {
       adapter: piAdapter,
       adapterId: "pi",
       name: "audit-1",
+      spawner: { key: null, label: "operator" }, owner: undefined,
       cwd: "/tmp",
       space: "wsA",
       group: "tab1",
@@ -128,6 +129,7 @@ describe("one key per pane spawn (12.1)", () => {
       adapter: piAdapter,
       adapterId: "pi",
       name: "audit-1",
+      spawner: { key: null, label: "operator" }, owner: undefined,
       cwd: "/tmp",
       space: "wsC",
       group: "tab1",
@@ -158,6 +160,7 @@ describe("one key per pane spawn (12.1)", () => {
       adapter: piAdapter,
       adapterId: "pi",
       name: "audit-2",
+      spawner: { key: null, label: "operator" }, owner: undefined,
       cwd: "/tmp",
       space: "wsB",
       group: "tab1",

@@ -1,6 +1,6 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
-import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
+import type { SpawnerIdentity, ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentEnvironment, AgentView } from "./store.ts";
 import type { Entity, LogLevel, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
@@ -175,8 +175,10 @@ export interface TabSpawnSpec {
   cmd?: string;
   worktree?: string;
   branch?: string;
-  /** Hello-registered id of the session performing this launch. */
-  spawnerAgentId?: string | null;
+  /** Identity of the session performing this launch. */
+  spawner: SpawnerIdentity;
+  /** Owner lease for the launched agent. */
+  owner: string | undefined;
 }
 
 /** A rendered snapshot of which roles an environment composes. Data for display,
@@ -305,6 +307,8 @@ export interface Spawner {
 export interface SpawnPlacementRequest {
   readonly services: DaemonClient;
   readonly backend: Backend;
+  /** Identity of the session performing this placement. */
+  readonly spawner?: SpawnerIdentity;
   /** The space the caller named, or null. Never invented here. */
   readonly space: string | null;
   /** The agent at the root of this fleet's provenance tree — what

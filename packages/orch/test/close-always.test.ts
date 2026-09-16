@@ -15,7 +15,6 @@ import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { placeAgent, seedAgent } from "../test/helpers/agent.ts";
 import { withExitCodeAsync } from "../test/helpers/exit-code.ts";
-import { testServices } from "../test/helpers/services.ts";
 import { servedServices } from "../test/helpers/daemon-state.ts";
 import { sql } from "drizzle-orm";
 
@@ -238,7 +237,7 @@ describe("close always works", () => {
     expect(spawnedRecords(dir).has(key)).toBe(false);
   });
 
-  test("abort ignores owner gate", () => {
+  test("abort ignores owner gate", async () => {
     const dir = makeDir();
     const key = "abort00001";
     const handle = "pane-abort";
@@ -248,7 +247,8 @@ describe("close always works", () => {
       owner: "other", spawnedBy: "other-session",
     }, dir);
     expect(agentView(dir, key)?.heldBy?.orchId).toBe("other");
-    cmdAbort(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]);
+    const services = await servedServices({ orchDir: dir, settings: testSettings }, servers);
+    await cmdAbort(services, [key, "--json"]);
     expect(spawnedRecords(dir).has(key)).toBe(true);
   });
 

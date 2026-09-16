@@ -31,18 +31,18 @@ export function resolveEntity(services: DaemonClient, target: string, options: R
   });
 }
 
-/** Resolve, then refuse a target a live foreign holder owns unless the caller overrides. The override itself is operator-only. */
+/** Resolve, then refuse a target a live foreign holder owns unless the caller overrides.
+ *  An override or a space crossing is operator-only, refused before resolution so the message names the flag. */
 export async function resolveOwnedTarget(
   services: DaemonClient,
   self: CallerSelf,
   target: string,
   options: ResolveOptions & { readonly override?: boolean; readonly overrideFlag?: string } = {},
 ): Promise<ResolvedTarget> {
+  if (options.crossSpace === true) refuseNonOperatorOverride(self, "--cross-space");
+  if (options.override === true) refuseNonOperatorOverride(self, options.overrideFlag ?? "--force");
   const resolved = await resolveEntity(services, target, options);
-  if (options.override === true) {
-    refuseNonOperatorOverride(self, options.overrideFlag ?? "--force");
-    return resolved;
-  }
+  if (options.override === true) return resolved;
   if (resolved.holder !== null && !resolved.callerOwns) die(`Target "${target}" is owned by ${resolved.holder}. Use --force to override.`);
   return resolved;
 }

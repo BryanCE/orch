@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { assertNameFree } from "../../policy/name.ts";
-import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
+import { agentIdentityEnv, spawnerIdentityOf, worktreeEnv } from "../../policy/spawner.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { mintAgentId } from "../../backends/identity.ts";
 import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
@@ -8,13 +8,16 @@ import { nextTilePlacement } from "../../backends/tiling.ts";
 import { createAgentWorktree } from "../../worktree.ts";
 import { errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
-import { callerOwnerToken, die } from "../target.ts";
+import { die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
 import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { DaemonClient } from "../../types/services.ts";
 import { listedHomeHandle, openHome } from "../home.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../types/command.ts";
+import type { CallerSelf } from "../self.ts";
+import { readFleet, type FleetSnapshot } from "../fleet.ts";
+import { admissionFleet } from "./admission.ts";
 import type { HomeSubject } from "../../types/backend.ts";
 import type { SpawnAgentPlan, SpawnSettings } from "./flags.ts";
 
@@ -131,7 +134,6 @@ function launchSpawnBackend(orchDir: OrchDir, spec: TabSpawnSpec, key: string, e
 }
 
 async function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpec, key: string, handle: BackendHandle, thinking: NonNullable<TabSpawnSpec["thinking"]>): Promise<CreatedAgent> {
-  const orchDir = services.orchDir;
   // ONE writer for one record (2.1). This states every axis the agent has —
   // harness, plexer, handle, space, model, worktree, holder, process — because a
   // second writer filling in the rest is how the two came to disagree about
@@ -139,19 +141,21 @@ async function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpe
   await callDaemon(services, "register-agent", {
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
-    spawner: spec.spawnerAgentId ?? null,
-    owner: callerOwnerToken(orchDir),
+    spawner: spec.spawner.key,
+    owner: spec.owner,
     worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
     process: spec.backend.process.running(handle),
   });
   return { key, handle: String(handle), name: spec.name };
 }
 
-export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec): Promise<CreatedAgent> {
+export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec, fleet?: FleetSnapshot): Promise<CreatedAgent> {
   const orchDir = services.orchDir;
-  assertNameFree(orchDir, spec.name, spec.space);
+  const snapshot = fleet ?? await readFleet(services, true);
+  const { views, presence } = admissionFleet(snapshot);
+  assertNameFree(views, presence, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
-  const spawner = spawnerIdentity(orchDir);
+  const spawner = spec.spawner;
   const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
   const thinking = spec.thinking;
   if (thinking === undefined) throw new Error(`spawn requires a resolved thinking level for ${spec.name}`);
@@ -164,12 +168,12 @@ export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec
  *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
  *  is tiling one agent at a time — the balance only holds while every agent is
  *  placed by the same planner reading the same layout. */
-function tileAgentIntoGroup(services: DaemonClient, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): Promise<CreatedAgent> {
-  return spawnOneIntoTab(services, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
+function tileAgentIntoGroup(services: DaemonClient, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole, fleet: FleetSnapshot): Promise<CreatedAgent> {
+  return spawnOneIntoTab(services, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) }, fleet);
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): Promise<CreatedAgent> {
+function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, fleet: FleetSnapshot, role: GroupLayoutRole): Promise<CreatedAgent> {
   const name = plan.name;
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
   return tileAgentIntoGroup(services, {
@@ -189,13 +193,14 @@ function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: Spawn
     cmd: settings.commandFlag ? settings.cmd : undefined,
     worktree: settings.worktree ? cwd : undefined,
     branch: settings.worktree ? `orch/${name}` : undefined,
-    spawnerAgentId,
-  }, settings.tiling.first_split, role);
+    spawner: spawnerIdentityOf(self),
+    owner: self.id ?? undefined,
+  }, settings.tiling.first_split, role, fleet);
 }
 
 /** Fill a group with named agents. An agent that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-export async function growFleetIntoGroup(services: DaemonClient, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): Promise<CreatedAgent[]> {
+export async function growFleetIntoGroup(services: DaemonClient, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], self: CallerSelf, fleet: FleetSnapshot, role: GroupLayoutRole): Promise<CreatedAgent[]> {
   const logger = services.logger;
   const created: CreatedAgent[] = [];
   for (const name of names) {
@@ -205,7 +210,7 @@ export async function growFleetIntoGroup(services: DaemonClient, settings: Spawn
       continue;
     }
     try {
-      created.push(await placeAgent(services, settings, plan, space, workspace, group, backend, spawnerAgentId, role));
+      created.push(await placeAgent(services, settings, plan, space, workspace, group, backend, self, fleet, role));
     } catch (error: unknown) {
       const message = errorMessage(error);
       logger.warn("spawn.place-failed", { backend: backend.id, name, error: message });

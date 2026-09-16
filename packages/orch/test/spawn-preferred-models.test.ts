@@ -33,9 +33,9 @@ function makeTempOrchDir(): OrchDir {
   return dir;
 }
 
-/** The spawn writes through orchd: serve the real handler table on this dir. */
+/** The spawn reads the fleet and writes through orchd: serve the real handler table on this dir. */
 function spawningServices(dir: OrchDir): Promise<Services> {
-  return servedServices({ orchDir: dir, settings: null }, servers);
+  return servedServices({ orchDir: dir, settings: {} }, servers);
 }
 
 afterEach(async () => {
@@ -106,6 +106,7 @@ describe("the preferred quicklist reaches every launch route", () => {
       adapter: piAdapter,
       adapterId: "pi",
       name: "quick-1",
+      spawner: { key: null, label: "operator" }, owner: undefined,
       cwd: "/tmp",
       space: "wsA",
       group: "tab1",
@@ -130,6 +131,7 @@ describe("the preferred quicklist reaches every launch route", () => {
         adapter: piAdapter,
         adapterId: "pi",
         name,
+        spawner: { key: null, label: "operator" }, owner: undefined,
         cwd: "/tmp",
         space: "wsA",
         group: "tab1",
@@ -155,6 +157,7 @@ describe("the preferred quicklist reaches every launch route", () => {
       adapter: piAdapter,
       adapterId: "pi",
       name: "quick-2",
+      spawner: { key: null, label: "operator" }, owner: undefined,
       cwd: "/tmp",
       space: "wsA",
       group: "tab1",

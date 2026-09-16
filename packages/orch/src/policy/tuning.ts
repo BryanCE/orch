@@ -15,6 +15,9 @@ import type { AgentTuning } from "../types/store.ts";
 // settings reload that names nothing keeps that. The default is for an agent
 // nobody has tuned yet. Nothing else may reach for the default.
 
+/** An agent nobody has tuned yet: no model, no thinking. */
+export const NO_TUNING: AgentTuning = { model: null, thinking: null };
+
 /** What a caller may say about the tuning it wants; every field is optional
  *  because the configured defaults are a complete answer on their own. */
 export interface TuningRequest {

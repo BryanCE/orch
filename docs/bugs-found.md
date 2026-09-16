@@ -81,3 +81,18 @@ time, the cost and the tokens are gone.
 Fix: a run with a `result` is settled; a status report never touches a settled run. In
 `acceptStatusReport`, skip the `upsertRun` when `selectRun(dispatchId)?.result` exists. A
 run's state is never `idle`: `runFromRow` returns nothing for an `idle` row.
+
+## 6. A refused spawn test writes a worktree into the checkout
+
+Seen: `test/spawn-policy.test.ts` "a refused cmdSpawn makes no name, worktree, registry,
+or queue mutation" left `.orch-worktrees/capped` and the branch `orch/capped` in the real
+repo (`git worktree list` shows it as prunable).
+
+Cause: the test runs `cmdSpawn --worktree` with the test process's cwd, which is the
+checkout. When the pack cap is not the one the served daemon reads (the test wrote one
+settings body to disk and served another), the refusal comes after
+`createAgentWorktree`, which runs `git worktree add` in the checkout.
+
+Fix in this tree: one settings body for the file and the served daemon. Still open: the
+test should run in a temp git repository so a late refusal can never touch the checkout.
+Clean-up after the run above: `git worktree prune; git branch -D orch/capped`.

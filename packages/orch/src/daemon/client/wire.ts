@@ -200,6 +200,7 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "resolve-target": return parseOne(method, RPC_PARAMS[method], id, value);
     case "self": return parseOne(method, RPC_PARAMS[method], id, value);
     case "resolve-lifecycle": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "close-targets": return parseOne(method, RPC_PARAMS[method], id, value);
     case "owned-agents": return parseOne(method, RPC_PARAMS[method], id, value);
     case "question": return parseOne(method, RPC_PARAMS[method], id, value);
     case "questions": return parseOne(method, RPC_PARAMS[method], id, value);

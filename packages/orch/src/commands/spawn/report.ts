@@ -8,7 +8,7 @@ import { dispatchToAgent } from "../control.ts";
 import { errorMessage, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/client/reach.ts";
 import { selfId } from "../../identity/self.ts";
-import { presenceById } from "../target.ts";
+import { indexPresenceById } from "../../entities/lookup.ts";
 import { isAgentId } from "../../backends/identity.ts";
 import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../../policy/capacity.ts";
 import type { Backend } from "../../types/backend.ts";
@@ -32,18 +32,17 @@ function attachedBridgeKeys(answer: ResultOf<"status"> | null): ReadonlySet<stri
 }
 
 /** Wait for every agent's bridge to attach; returns only the ones that attached. */
-export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, created: { key: string; handle: string; name: string }[], json = false): Promise<CreatedAgent[]> {
+export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, created: { key: string; handle: string; name: string }[], timeouts: OrchSettings["timeouts"], json = false): Promise<CreatedAgent[]> {
   const pending = new Map(created.map((c) => [c.key, c]));
   const attached = new Map<string, CreatedAgent>();
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + timeouts.spawn_attach_ms;
   if (!json) process.stdout.write("\nWaiting for agents to attach:\n");
   while (pending.size && Date.now() < deadline) {
     let answer: ResultOf<"status"> | null = null;
     try {
       answer = await rpcCall(orchDir, "status", undefined);
     } catch {
-      // The daemon may be briefly unavailable while a bridge starts; keep polling
-      // until the same spawn deadline used by the old registration wait.
+      // The daemon may be briefly unavailable while a bridge starts; keep polling until the deadline.
     }
     const keys = attachedBridgeKeys(answer);
     for (const [key, agent] of [...pending]) {
@@ -53,7 +52,7 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
         if (!json) process.stdout.write(`  ok      ${agent.handle}  ${agent.name}\n`);
       }
     }
-    if (pending.size) await sleep(500);
+    if (pending.size) await sleep(timeouts.spawn_attach_poll_ms);
   }
   // A stalled agent is a failed spawn: it holds its name and answers no control
   // traffic. Reporting it on stdout while exiting 0 is what let a scripted fleet
@@ -78,9 +77,9 @@ export function reportShortfall(logger: Logger, requested: number, placed: numbe
 /** How many agents actually came up, or `null` when the harness cannot say.
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
-async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<CreatedAgent[] | null> {
+async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: CreatedAgent[], timeouts: OrchSettings["timeouts"], json: boolean): Promise<CreatedAgent[] | null> {
   if (adapter.bridge) {
-    return await awaitBridgeAttach(orchDir, logger, created, json);
+    return await awaitBridgeAttach(orchDir, logger, created, timeouts, json);
   }
   logger.warn("spawn.unverified", { adapter: adapter.id, count: created.length });
   process.stdout.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
@@ -127,7 +126,7 @@ function printSpawnAgentLines(settings: SpawnSettings, created: readonly Created
 function printFleetCapacitySummary(orchDir: OrchDir, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], tabLabel: string): void {
   if (!settings.json) {
     const views = spawnedRecords(orchDir);
-    const presence = presenceById(loadPresence(orchDir));
+    const presence = indexPresenceById(loadPresence(orchDir).values());
     const caller = selfId(orchDir);
     const callerRoot = caller === undefined
       ? created.map((agent) => views.get(agent.key)?.rootAgentId).find((root): root is string => root !== undefined)
@@ -188,7 +187,7 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
   const maySpawn = maySpawnFrom(orchDir, selfId(orchDir), settingsFile.fleet.max_depth);
   printSpawnAgentLines(settings, created, backend, group, tabLabel);
   reportShortfall(logger, settings.agents.length, created.length);
-  const registeredAgents = await confirmAgentsCameUp(orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settings.json);
+  const registeredAgents = await confirmAgentsCameUp(orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settingsFile.timeouts, settings.json);
   const registered = registeredAgents?.length ?? null;
   printFleetCapacitySummary(orchDir, settingsFile, settings, created, tabLabel);
   if (registeredAgents) warnUnregisteredAgents(logger, created, registeredAgents);

@@ -97,7 +97,7 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
   // its bridge has come up (P2-3 makes "up" mean attached), so returning before that
   // hands the caller a key it cannot dispatch to yet.
   reportShortfall(services.logger, settings.agents.length, created.length);
-  const registered = adapter.bridge ? await awaitBridgeAttach(services.orchDir, services.logger, created, settings.json) : [];
+  const registered = adapter.bridge ? await awaitBridgeAttach(services.orchDir, services.logger, created, settingsFile.timeouts, settings.json) : [];
   const stalled = created.filter((agent) => !registered.some((candidate) => candidate.key === agent.key));
   if (stalled.length > 0) process.exitCode = 1;
   if (settings.json) process.stdout.write(JSON.stringify({
@@ -239,7 +239,7 @@ async function placeSpawn(
     packRootId: agentById(orchDir, spawner.id)?.rootAgentId ?? null,
     callerPlexer: spawner.environment.plexer,
     callerHandle: spawner.environment.handle,
-    grantNewHome: () => { assertNewSpaceGranted(orchDir, settings, backend, spawner.id); },
+    grantNewHome: () => assertNewSpaceGranted(services, settings, backend),
   });
   // A7/Rule 11: no space is NULL, never "" — a sentinel string is a space name
   // nobody created, and registration rightly refuses it.

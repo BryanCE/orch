@@ -28,12 +28,13 @@ import {
 } from "../daemon/client/reach.ts";
 import { errorMessage, pidAlive } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
+import { callerCredential } from "../identity/credential.ts";
 import { parseCommand } from "./registry.ts";
 import type { ParsedFlags } from "../cli/spec.ts";
-import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidNonOperatorOverride } from "./target.ts";
+import { die } from "./target.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
 import type { OrchDir } from "../types/core.ts";
-import type { DaemonClient, OrchDirService, Services } from "../types/services.ts";
+import type { DaemonClient, Services } from "../types/services.ts";
 
 async function fetchDaemonStatus(orchDir: OrchDir, timeoutMs = 5000): Promise<DaemonStatus> {
   return rpcCall(orchDir, "daemon-status", undefined, timeoutMs);
@@ -60,38 +61,22 @@ async function waitForDaemon(orchDir: OrchDir, previousStartedAt?: string): Prom
 }
 
 /** The governance a command's parsed flags carry. */
-export function governanceFlags(services: OrchDirService, flags: ParsedFlags): WriteGovernance {
+export function governanceFlags(flags: ParsedFlags): WriteGovernance {
   const gov: WriteGovernance = {};
   if (flags.has("--steal")) gov.steal = true;
   if (flags.has("--cross-space")) gov.crossSpace = true;
-  // Refused at parse time so the message names the flag, before any wall or
-  // resolution failure can obscure it. callDaemon re-checks for programmatic gov.
-  if (gov.steal) forbidNonOperatorOverride(services.orchDir, "--steal");
-  if (gov.crossSpace) forbidNonOperatorOverride(services.orchDir, "--cross-space");
   return gov;
 }
 
-/** One write to orchd, stamped with the caller's actor and governance. Throws the
- *  refusal text a human should read; the caller owns what an unreachable daemon costs.
- *  Use {@link writeRpc} when that cost is the whole command. */
+/** One write to orchd, carrying the caller's credential; orchd stamps the actor from it. Throws the refusal text a human should read; the caller owns what an unreachable daemon costs. Use {@link writeRpc} when that cost is the whole command. */
 export async function callDaemon<M extends GovernedMethod>(services: DaemonClient, method: M, params: ParamsOf<M>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<ResultOf<M>> {
   const directory = services.orchDir;
   if (timeoutMs === undefined && (method === "steer" || method === "answer")) {
     const { timeouts } = services.settings.current();
     timeoutMs = timeouts.adapter_command_ms + timeouts.dispatch_ack_ms;
   }
-  if (gov.steal) forbidNonOperatorOverride(directory, "--steal");
-  if (gov.crossSpace) forbidNonOperatorOverride(directory, "--cross-space");
-  // The write actor is the id orch issued this process, the same one spawn
-  // stamps as owner; anything else and an orchestrator cannot steer its own fleet.
-  const actor = callerOwnerToken(directory) ?? null;
-  const actorLocation = actor === null ? null : actorSpace(directory, actor);
   const governance: Governance = {
-    ...(actor === null ? {} : {
-      actor,
-      ...(actorLocation === null ? {} : { actorSpace: actorLocation }),
-      actorIsOperator: !callerIsSpawnedAgent(directory),
-    }),
+    caller: callerCredential(),
     ...(gov.steal ? { steal: true } : {}),
     ...(gov.crossSpace ? { crossSpace: true } : {}),
   };

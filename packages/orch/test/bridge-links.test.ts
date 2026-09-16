@@ -52,7 +52,7 @@ function detachBridge(key: string, link: BridgeLink): void {
 }
 
 function bridgeAttached(key: string): boolean {
-  return daemonBridgeAttached(directory, key);
+  return daemonBridgeAttached(key);
 }
 
 function pushToBridge(key: string, value: BridgeDelivery): void {

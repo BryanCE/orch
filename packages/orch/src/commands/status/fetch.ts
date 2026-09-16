@@ -1,13 +1,12 @@
 import { runRemoteAsync } from "../../remote.ts";
-import { rpcCall } from "../../daemon/client/rpc.ts";
+import { readRpc } from "../daemon.ts";
 import { isDaemonStatusRow } from "../../daemon/client/protocol.ts";
 import { fleetStatusRows, warningStatusRow } from "./rows.ts";
 import { scopeFleetRows, statusRowMatches, displayStatusState, callerScope } from "./options.ts";
 import type { CallerScope, StatusOptions } from "./options.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { StatusRow } from "../../types/command.ts";
-import type { OrchDir } from "../../types/core.ts";
-import type { OrchDirService, SettingsService } from "../../types/services.ts";
+import type { DaemonClient } from "../../types/services.ts";
 
 interface FleetSnapshot {
   rows: StatusRow[];
@@ -36,25 +35,18 @@ function snapshot(rows: StatusRow[], backendAnswered: boolean): FleetSnapshot {
   };
 }
 
-async function readFleetRows(settings: OrchSettings | null, orchDir: OrchDir, spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
+async function readFleetRows(settings: OrchSettings | null, services: DaemonClient, spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
   if (settings === null) return snapshot([], false);
   if (offline) {
-    const rows = fleetStatusRows(settings, spaces, { offline: true, directory: orchDir });
+    const rows = fleetStatusRows(settings, spaces, { offline: true, directory: services.orchDir });
     return snapshot(rows, rows.some((row) => row.backend != null));
   }
-  try {
-    const answer = await rpcCall(orchDir, "status", undefined);
-    const rows = answer.rows;
-    return snapshot(rows, rows.some((row) => row.backend != null));
-  } catch {
-    // Daemon absent or refusing: fall through to the file protocol.
-  }
-  const rows = fleetStatusRows(settings, spaces, { directory: orchDir });
-  return snapshot(rows, rows.some((row) => row.backend != null));
+  const answer = await readRpc(services, "status", undefined);
+  return snapshot(answer.rows, answer.rows.some((row) => row.backend != null));
 }
 
-async function localStatusRows(settings: OrchSettings | null, orchDir: OrchDir, options: StatusOptions, spaces: OrchSettings["spaces"], caller?: CallerScope): Promise<FleetSnapshot> {
-  const snapshot = await readFleetRows(settings, orchDir, spaces, options.offline);
+async function localStatusRows(settings: OrchSettings | null, services: DaemonClient, options: StatusOptions, spaces: OrchSettings["spaces"], caller?: CallerScope): Promise<FleetSnapshot> {
+  const snapshot = await readFleetRows(settings, services, spaces, options.offline);
   const scoped = scopeFleetRows(snapshot.rows, { ...options, states: options.filter.states, caller });
   return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
@@ -97,7 +89,7 @@ function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[])
 }
 
 export async function readStatusResult(
-  services: OrchDirService & SettingsService,
+  services: DaemonClient,
   options: StatusOptions,
   caller: CallerScope = callerScope(services.orchDir),
 ): Promise<StatusResult> {
@@ -105,10 +97,10 @@ export async function readStatusResult(
   const hosts = settings === null ? {} : settings.hosts;
   const spaces = settings === null ? {} : settings.spaces;
   if (options.local || caller.kind !== "operator" || Object.keys(hosts).length === 0) {
-    const local = await localStatusRows(settings, services.orchDir, options, spaces, caller);
+    const local = await localStatusRows(settings, services, options, spaces, caller);
     return { ...local, host: false };
   }
-  const localSnapshot = await localStatusRows(settings, services.orchDir, options, spaces, caller);
+  const localSnapshot = await localStatusRows(settings, services, options, spaces, caller);
   const remoteResults = await remoteStatusResults(hosts, options.offline);
   const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, { space: options.space, agent: options.agent });
   const remote = remoteSummary(remoteResults);

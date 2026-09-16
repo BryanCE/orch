@@ -28,6 +28,7 @@ import { pendingQuestion, settleQuestion } from "../../../store/question-rows.ts
 /** Build the event carrying mail for a live session with no bridge route. */
 function sessionMessageEvent(directory: OrchDir, key: string, id: string, text: string): NotifyEvent {
   const view = agentView(directory, key);
+  const holder = currentLease(directory, key)?.orchId;
   return {
     type: "message",
     key,
@@ -36,6 +37,7 @@ function sessionMessageEvent(directory: OrchDir, key: string, id: string, text: 
     name: view?.name ?? null,
     tab: null,
     model: null,
+    ...(holder === undefined ? {} : { holder }),
     newState: "message",
     dispatchId: id,
     ts: new Date().toISOString(),
@@ -76,7 +78,7 @@ export async function deliverWrite(state: DaemonState, target: string, payload: 
   const route = resolveTargetRoute(directory, canonicalTarget);
   // Nobody spawned a raw session, so nothing composes a bridge for it: its event stream is its channel.
   const rawSession = agentView(directory, canonicalTarget)?.spawnedBy === null;
-  if (rawSession && !bridgeAttached(directory, canonicalTarget) && !route?.backend.agentInput) {
+  if (rawSession && !bridgeAttached(canonicalTarget) && !route?.backend.agentInput) {
     return deliverToSessionStream(state, canonicalTarget, payload.action, id, text, log);
   }
   if (!resolveTargetAdapter(directory, canonicalTarget)) {

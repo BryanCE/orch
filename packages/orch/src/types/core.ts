@@ -263,6 +263,15 @@ export interface SelfIdentity {
   readonly id: string;
 }
 
+/** What a calling process can say about itself with no store: the id it was
+ *  launched with, the harness session it sits in, and the process it is. orchd
+ *  resolves these to an agent; the CLI never does. */
+export interface CallerCredential {
+  readonly launch: string | null;
+  readonly session: CallerSession | null;
+  readonly process: { readonly pid: number; readonly startToken: string | null };
+}
+
 /** One candidate an ambiguous target matched, and what distinguishes it. */
 export interface AmbiguousCandidate {
   readonly key: string;

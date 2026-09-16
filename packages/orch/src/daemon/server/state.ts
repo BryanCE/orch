@@ -118,6 +118,26 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     home: touchHandler(state, handlers.home),
     "record-home": touchHandler(state, handlers["record-home"]),
     "clear-home": touchHandler(state, handlers["clear-home"]),
+    grants: touchHandler(state, handlers.grants),
+    grant: touchHandler(state, handlers.grant),
+    "admit-home": touchHandler(state, handlers["admit-home"]),
+    "resolve-agent": touchHandler(state, handlers["resolve-agent"]),
+    "queue-list": touchHandler(state, handlers["queue-list"]),
+    "queue-cancel": touchHandler(state, handlers["queue-cancel"]),
+    "queue-edit": touchHandler(state, handlers["queue-edit"]),
+    "queue-take-on": touchHandler(state, handlers["queue-take-on"]),
+    "queue-reap": touchHandler(state, handlers["queue-reap"]),
+    "queue-intake": touchHandler(state, handlers["queue-intake"]),
+    clean: touchHandler(state, handlers.clean),
+    fleet: touchHandler(state, handlers.fleet),
+    runs: touchHandler(state, handlers.runs),
+    run: touchHandler(state, handlers.run),
+    "agent-status": touchHandler(state, handlers["agent-status"]),
+    "process-live": touchHandler(state, handlers["process-live"]),
+    "resolve-target": touchHandler(state, handlers["resolve-target"]),
+    self: touchHandler(state, handlers.self),
+    "resolve-lifecycle": touchHandler(state, handlers["resolve-lifecycle"]),
+    "owned-agents": touchHandler(state, handlers["owned-agents"]),
     question: touchHandler(state, handlers.question),
     questions: touchHandler(state, handlers.questions),
     ack: touchHandler(state, handlers.ack),
@@ -134,7 +154,7 @@ export function fleetStatus(state: DaemonState): { rows: DaemonStatusRow[] } {
   const rows = fleetStatusRows(current, current.spaces, { directory });
   const facts = fleetLeaseFacts(directory, agentViewIndex(directory));
   return {
-    rows: rows.map((row) => ({ ...row, ...leasePayloadFrom(row.key, facts), bridgeAttached: bridgeAttached(directory, row.key) })),
+    rows: rows.map((row) => ({ ...row, ...leasePayloadFrom(row.key, facts), bridgeAttached: bridgeAttached(row.key) })),
   };
 }
 

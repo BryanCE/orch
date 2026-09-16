@@ -12,8 +12,7 @@ import { rpcCall } from "../daemon/client/rpc.ts";
 import { assertAgentOwned, die, forbidNonOperatorOverride, remoteCommandArgs, resultText, targetHost } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import { entityAdapter } from "./status/rows.ts";
-import { latestRunForKey } from "./runs.ts";
-import { selectRun } from "../store/run-rows.ts";
+import { selectRun, selectRuns } from "../store/run-rows.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
 import type { AgentView } from "../types/store.ts";
 import type { Entity, Logger, OrchDir } from "../types/core.ts";
@@ -74,7 +73,7 @@ function resolveResultTarget(services: Services, settings: ReturnType<Services["
   } catch (error: unknown) {
     if (!(error instanceof CommandRefusal)) throw error;
     if (callerKind(services.orchDir) === "operator" && !loadPresence(services.orchDir).has(target)) {
-      const historical = latestRunForKey(services.orchDir, target);
+      const historical = selectRuns(services.orchDir, { agentKey: target, limit: 1 })[0];
       if (historical?.result !== undefined) {
         resultLogger(services.logger, target).info("result.history-fallback");
         return { kind: "found", source: "history", payload: historical.result };
@@ -97,7 +96,7 @@ function lookupResolvedResult(services: Services, target: string, ent: Entity, f
     return { kind: "found", source: "dispatch", payload: run.result };
   }
   if (ent.presence?.result) return { kind: "found", source: "presence", payload: ent.presence.result };
-  const historical = latestRunForKey(services.orchDir, ent.key);
+  const historical = selectRuns(services.orchDir, { agentKey: ent.key, limit: 1 })[0];
   if (historical?.result !== undefined) {
     resultLogger(services.logger, ent.key).info("result.history-fallback");
     return { kind: "found", source: "history", payload: historical.result };

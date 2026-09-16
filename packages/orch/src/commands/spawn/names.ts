@@ -1,7 +1,8 @@
 import { assertNameFree, assertValidAgentName } from "../../policy/name.ts";
 import { SpawnRefusalError } from "../../refusal.ts";
 import { errorMessage } from "../../util.ts";
-import type { OrchDir } from "../../types/core.ts";
+import type { AgentView } from "../../types/store.ts";
+import type { PresenceEntry } from "../../types/presence.ts";
 
 
 /**
@@ -40,10 +41,15 @@ export function resolveSpawnNames(positional: readonly string[]): string[] {
 
 /** Assert every already-resolved name is free in this space, before anything
  *  is created. Separate from resolution because freeness reads live state. */
-export function claimSpawnNames(orchDir: OrchDir, requested: readonly string[], space: string | null): string[] {
+export function claimSpawnNames(
+  views: ReadonlyMap<string, AgentView>,
+  presence: ReadonlyMap<string, PresenceEntry>,
+  requested: readonly string[],
+  space: string | null,
+): string[] {
   const names = resolveSpawnNames(requested);
   try {
-    for (const name of names) assertNameFree(orchDir, name, space);
+    for (const name of names) assertNameFree(views, presence, name, space);
   } catch (error: unknown) {
     throw new SpawnRefusalError(errorMessage(error));
   }

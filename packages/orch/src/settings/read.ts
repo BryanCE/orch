@@ -180,6 +180,8 @@ const settingsValueExtractors = {
     wait_ms: root.timeouts?.wait_ms ?? SETTINGS_DEFAULTS.timeouts.wait_ms,
     adapter_command_ms: root.timeouts?.adapter_command_ms ?? SETTINGS_DEFAULTS.timeouts.adapter_command_ms,
     notify_ms: root.timeouts?.notify_ms ?? SETTINGS_DEFAULTS.timeouts.notify_ms,
+    spawn_attach_ms: root.timeouts?.spawn_attach_ms ?? SETTINGS_DEFAULTS.timeouts.spawn_attach_ms,
+    spawn_attach_poll_ms: root.timeouts?.spawn_attach_poll_ms ?? SETTINGS_DEFAULTS.timeouts.spawn_attach_poll_ms,
   }),
   notify: (root: Partial<SettingsFile>) => root.notify ?? [],
   locked_commands: (root: Partial<SettingsFile>) => root.locked_commands ?? [],

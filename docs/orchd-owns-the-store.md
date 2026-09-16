@@ -13,37 +13,33 @@ Why: a held fleet inside orchd is only correct if orchd sees every write. While 
 process writes the store, orchd must re-read it on every call, and that re-read is the
 whole cost measured in `docs/orchd-performance.md`.
 
-## Where it stands (commit b518fd8)
+## Where it stands (working tree after ae6ce23)
 
 Done, through RPCs: `register-agent`, `agent-closed`, `detach`, `adopt`, `rename`, `reap`,
 `reap-candidates`, `reclaim`, `set-handle`, `lifecycle`, `steer`, `dispatch`, `answer`,
 `enqueue`, `register-session`, `report-status`, `report-result`, `control-outcome`.
 
+Writes done since: `space-create`, `space-rename`, `space-delete`, `record-home`,
+`clear-home`, `admit-home`, `grant`, `clean`, `queue-cancel`, `queue-edit`,
+`queue-take-on`, `queue-reap`, `queue-intake`. Reads done since: `spaces`, `space`, `home`,
+`grants`, `queue-list`, `resolve-agent`, `fleet`, `runs`, `run`, `agent-status`,
+`process-live` (the last five are served; their CLI callers are not yet converted).
+
+Headless spawn needs no change: `HeadlessBackend.spawn` runs inside orchd (the
+`spawn-headless` handler), so `registerSpawnedAgent` is already a daemon-side write.
+
 Not done. Every direct store access left under `src/commands/` and the CLI-side modules it
 calls, and the RPC each one becomes:
-
-### Writes still made by the CLI process
-
-| command | store call | RPC |
-|---|---|---|
-| `space create/rename/delete/focus` | `openHome`, `clearHome`, `orm` on `spaces` | `space` {verb, name, ...} |
-| `spawn` fleet home | `openHome`, `clearHome` (`spawn/placement.ts`) | `open-home`, `clear-home` |
-| `spawn` admission | `recordGrantRequest`, `spendGrant` (`spawn/admission.ts`) | `admit-spawn` |
-| `grant` | `approveGrantRequest`, `denyGrantRequest`, `ensureHost` | `grant` {hash, decision} |
-| `clean` | `reapDeadAgentRecords`, `reapExpiredPresenceDirs`, `reapMalformedPresenceDirs`, `closeOutboxForDeadTargets` | `clean` {worktrees} |
-| `queue cancel/edit/take-on/reap/intake` | `cancelTask`, `editTask`, `takeOnTask`, `reapTask`, `openPackIntake`, `closePackIntake` | `queue-cancel`, `queue-edit`, `queue-take-on`, `queue-reap`, `queue-intake` |
-| headless spawn from the CLI | `registerSpawnedAgent` inside `backends/headless/index.ts` | the backend registers nothing; `register-agent` is the one writer |
 
 ### Reads still made by the CLI process
 
 | command | store call | RPC |
 |---|---|---|
 | every target | `resolveTarget`, `resolvePane`, `viewForKey`, `parseTarget` (`entities/`) | `resolve-target` {target, crossSpace} → entity |
-| caller identity | `selfIdentity`, `callerOwnerToken`, `actorSpace` (`identity/self.ts`, `policy/caller.ts`) | `self` → {id, space, operator} |
-| `status`, `panes`, `tabs`, lifecycle `--all` | `buildEntities`, `agentViewIndex`, `liveViews`, `loadPresence`, `spawnedRecords`, `pendingQuestion` | `entities` → views + presence + questions in one reply |
-| `results`, `runs`, `tail` | `selectRun`, `selectRuns`, `holdsLease` | `runs` {target, limit}, `result` {target} |
-| `queue list/history` | `listTasks`, `queueHistory` | `queue-list`, `queue-history` |
-| `grant --list` | `pendingGrantRequests` | `grants` |
+| caller identity | `selfIdentity`, `callerOwnerToken`, `actorSpace` (`identity/self.ts`, `policy/caller.ts`) | `caller` on every governed write (`CallerCredential`, no store); `self` → {id, space, operator} for the commands that print it |
+| `status`, `panes`, `tabs`, lifecycle `--all` | `buildEntities`, `agentViewIndex`, `liveViews`, `loadPresence`, `spawnedRecords`, `pendingQuestion` | `fleet` → views + presence + entities in one reply (`commands/fleet.ts` `readFleet`) |
+| `results`, `runs`, `tail` | `selectRun`, `selectRuns`, `holdsLease` | `runs` {agentKey, limit}, `run` {dispatchId} |
+| `queue history` | `queueHistory` | `queue-list` {history: true} |
 | `events`, `monitor` | `currentLease`, `agentViewIndex` for labels | labels ride on the event; no lookup |
 | `spawn` | `agentById`, `environmentOf`, `assertNameFree`, `assertTabCapacity` | `spawn-plan` {names, space, tab} → refusals before any pane opens |
 | `control`, `reload`, `reset` | `selectAgentStatus`, `tuningOf`, `agentProcessLive` | fields on the `resolve-target` entity |
@@ -61,8 +57,10 @@ store read.
 grep -rln "store/\|presence/store\|entities/" packages/orch/src/commands
 ```
 
-prints `status/offline.ts` and the doctor files, and nothing else. `bun check` and the
-touched tests are the rest of the gate.
+prints `status/offline.ts` and the doctor files, and nothing else. A module under
+`entities/` that imports no `store/` module (`entities/target.ts` parses text) may stay
+imported; the grep is then narrowed to the modules that open the store. `bun check` and
+the touched tests are the rest of the gate.
 
 ## Then: the held fleet
 

@@ -68,7 +68,7 @@ export async function resolveSpawnPlacement(request: SpawnPlacementRequest): Pro
   const subject: HomeSubject = { kind: "pack", id: packRootId };
   const existing = await listedHomeHandle(services, subject, backend.id, backend.spaceHome);
   if (existing !== null) return { space: null, workspace: existing, homeToOpen: null };
-  grantNewHome();
+  await grantNewHome();
   return { space: null, workspace: undefined, homeToOpen: subject };
 }
 

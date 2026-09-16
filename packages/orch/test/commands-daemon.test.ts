@@ -1,4 +1,3 @@
-import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -7,23 +6,13 @@ import { parseCommand } from "../src/commands/registry.ts";
 import { RPC_RESULTS } from "../src/daemon/client/protocol.ts";
 import { daemonLockPid } from "../src/daemon/client/reach.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { testServices } from "./helpers/services.ts";
-import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
-import { isolateHarnessSession } from "./helpers/env.ts";
 
 describe("commands/daemon", () => {
   test("parses governance and validates daemon status", () => {
-    const directory: OrchDir = tempOrchDir("orch-command-daemon-");
-    const restoreHarness = isolateHarnessSession("pi");
-    const marker = HARNESS_SESSION_ENV.pi.marker;
-    const sessionId = HARNESS_SESSION_ENV.pi.sessionId;
-    const savedMarker = process.env[marker];
-    const savedSessionId = process.env[sessionId];
-    delete process.env[marker];
-    delete process.env[sessionId];
+    const directory = tempOrchDir("orch-command-daemon-");
     try {
       const { flags, positional } = parseCommand("steer", ["--steal", "x", "--cross-space"]);
-      expect(governanceFlags(testServices({ orchDir: directory }), flags)).toEqual({ steal: true, crossSpace: true });
+      expect(governanceFlags(flags)).toEqual({ steal: true, crossSpace: true });
       expect(positional).toEqual(["x"]);
       expect(RPC_RESULTS["daemon-status"].safeParse({
         pid: 1,
@@ -36,11 +25,6 @@ describe("commands/daemon", () => {
       expect(RPC_RESULTS["daemon-status"].safeParse({ pid: "1" }).success).toBe(false);
     } finally {
       removeTempDir(directory);
-      restoreHarness();
-      if (savedMarker === undefined) delete process.env[marker];
-      else process.env[marker] = savedMarker;
-      if (savedSessionId === undefined) delete process.env[sessionId];
-      else process.env[sessionId] = savedSessionId;
     }
   });
   test("reads a lock pid only from a complete lock record", () => {

@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { readFileSync } from "node:fs";
 import { callerSession } from "../../adapters/session-env.ts";
 import { OPERATOR_HARNESS_ID } from "../../policy/caller.ts";
-import { sessionProcessPid } from "../../identity/self.ts";
+import { sessionProcessPid } from "../../identity/credential.ts";
 import { allBackends } from "../../backends/registry.ts";
 import { endpointPaths } from "./wire.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";

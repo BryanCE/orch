@@ -15,6 +15,8 @@ export interface EventIdentity {
   readonly model: string | null;
   readonly host?: string;
   readonly spawnedBy?: string;
+  /** The orch id holding the open lease when the event was published; absent when nothing holds the agent. */
+  readonly holder?: string;
   readonly spawnedByLabel?: string;
 }
 

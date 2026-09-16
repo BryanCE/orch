@@ -5,7 +5,8 @@ import type { Services, SettingsService } from "../types/services.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
-import { agentAddress, assertAgentOwned, die, backendTarget, ownsAgent, presenceById } from "./target.ts";
+import { assertAgentOwned, die, backendTarget, ownsAgent } from "./target.ts";
+import { addressOf, indexPresenceById } from "../entities/lookup.ts";
 import { parseCommand } from "./registry.ts";
 import type { ParsedFlags } from "../cli/spec.ts";
 import { isAgentId } from "../backends/identity.ts";
@@ -179,7 +180,7 @@ export function cmdTabs(services: Services, args: string[]) {
 function assertGroupAgentsOwned(services: Pick<Services, "orchDir">, backend: Backend, group: string, force: boolean): void {
   if (force) return;
   const handles = new Set((backend.placementInventory?.list() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
-  const presence = presenceById(loadPresence(services.orchDir));
+  const presence = indexPresenceById(loadPresence(services.orchDir).values());
   for (const view of spawnedRecords(services.orchDir).values()) {
     // Ownership is the open lease; the pane handle is environment. A group is a
     // set of PLACES, so it is matched on the handle and refused on the lease.
@@ -187,7 +188,7 @@ function assertGroupAgentsOwned(services: Pick<Services, "orchDir">, backend: Ba
     const handle = view.environment.handle;
     if (holder === undefined || handle === null || !handles.has(handle)) continue;
     if (!ownsAgent(services.orchDir, view)) {
-      die(`Group ${group} holds agent ${agentAddress(view, presence)} owned by ${holder}. Use --force to override.`);
+      die(`Group ${group} holds agent ${addressOf(view, presence)} owned by ${holder}. Use --force to override.`);
     }
   }
 }

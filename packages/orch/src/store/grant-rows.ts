@@ -3,7 +3,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, gt, type SQL } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
 import { grantApprovals, grantDenials, grantRequestParams, grantRequests, grantSpends, grantStates } from "../db/schema.ts";
-import type { GrantAction, GrantKind, GrantRequest } from "../types/store.ts";
+import type { GrantAction, GrantRequest } from "../types/store.ts";
+import { isGrantKind } from "../policy/grant-sentence.ts";
 
 /**
  * Human consent for actions an agent may not take on its own.
@@ -30,15 +31,6 @@ const GRANT_TTL_MS = 10 * 60 * 1000;
 /** Characters in a request id: unambiguous to read aloud and to retype. */
 const ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
 const ID_LENGTH = 8;
-
-/** What a human is shown for each action, in orch's words and never a caller's. */
-const ACTION_SENTENCE: Record<GrantKind, string> = {
-  "spawn.new-space": "open a NEW space on your screen and spawn agents into it",
-};
-
-function isGrantKind(value: string): value is GrantKind {
-  return value in ACTION_SENTENCE;
-}
 
 /** Sorted `name=value` lines under the kind: the exact bytes the hash covers
  *  and, at the next attestation tier, the exact bytes a hardware key signs. */
@@ -157,16 +149,3 @@ export function spendGrant(orchDir: OrchDir, action: GrantAction, spentBy: strin
   });
 }
 
-/** What a human reads before approving: orch's own sentence for the action, then
- *  the params that will execute, verbatim. The requester names itself on its own
- *  line and never gets to describe the action. */
-export function renderGrantRequest(request: GrantRequest): string {
-  const fields = Object.keys(request.params).sort()
-    .map((name) => `    ${name.padEnd(10)} ${request.params[name]}`);
-  return [
-    `  ${request.id}  ${request.kind}`,
-    `    action     ${ACTION_SENTENCE[request.kind]}`,
-    ...fields,
-    `    requested  by ${request.requestedBy ?? "an unregistered caller"}`,
-  ].join("\n");
-}

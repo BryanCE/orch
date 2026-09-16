@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { orchDirAt } from "../src/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { displayStatusState, formatNoRowsMessage, formatSpace, scopeFleetRows } from "../src/commands/status/options.ts";
-import { normalizeStatusRow } from "../src/commands/status/fetch.ts";
+import { displayStatusState, formatNoRowsMessage, formatSpace, parseStatusOptions, scopeFleetRows } from "../src/commands/status/options.ts";
+import { normalizeStatusRow, readStatusResult } from "../src/commands/status/fetch.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
 import { statusRowFromEntity as composeStatusRow, warningStatusRow } from "../src/commands/status/rows.ts";
 import { deriveDriveState, fleetDriveStates } from "../src/agent/drive-state.ts";
@@ -18,6 +18,8 @@ import type { CallerScope } from "../src/commands/status/options.ts";
 import { presenceEntryFixture, statusRow } from "./helpers/presence.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import { sql } from "drizzle-orm";
+import { servedServices } from "./helpers/daemon-state.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 
 /** A complete Entity, so a fixture never has to lie to the compiler. */
 function entityFixture(overrides: Partial<Entity> = {}): Entity {
@@ -60,6 +62,20 @@ function statusRowFromEntity(
 }
 
 describe("commands/status", () => {
+  test("reads fleet rows from the served daemon", async () => {
+    const directory = tempOrchDir("orch-status-daemon-");
+    const servers: RpcServer[] = [];
+    try {
+      const services = await servedServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
+      const result = await readStatusResult(services, parseStatusOptions([]));
+      expect(result.rows).toEqual([]);
+      expect(result.backendAnswered).toBe(false);
+    } finally {
+      while (servers.length) await servers.pop()!.close();
+      removeTempDir(directory);
+    }
+  });
+
   test("zero-row message reports gathered counts and backend response", () => {
     expect(formatNoRowsMessage({ agentsSeen: 3, alive: 1, backendAnswered: true })).toBe(
       "No agents found (agent records seen: 3; alive: 1; backend answered: yes).\n",

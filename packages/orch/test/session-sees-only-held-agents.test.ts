@@ -19,6 +19,11 @@ import { eq } from "drizzle-orm";
 import type { StatusRow } from "../src/types/command.ts";
 import type { CallerScope } from "../src/commands/status/options.ts";
 import { testServices } from "./helpers/services.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
+import { errorMessage } from "../src/util.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+
+const servers: RpcServer[] = [];
 
 function row(key: string, ownerId: string | null, spaceId = "space"): StatusRow {
   return {
@@ -78,7 +83,7 @@ describe("session agent visibility", () => {
     }
   });
 
-  test.serial("a session cannot read runs by the exact key of a foreign-held agent", () => {
+  test.serial("a session cannot read runs by the exact key of a foreign-held agent", async () => {
     const root = tempOrchDir("orch-session-runs-");
     const oldDir = process.env.ORCH_DIR;
     const oldMarker = process.env.PI_CODING_AGENT;
@@ -95,8 +100,11 @@ describe("session agent visibility", () => {
     acquireLease(root, "foreignaaa", "holderaaa", 4);
     upsertRun(root, { dispatchId: "foreign-run", agentKey: "foreignaaa", state: "done", startedAt: 5 });
     try {
-      expect(() => cmdRuns(services(root), ["foreignaaa", "--json"])).toThrow("No target matches \"foreignaaa\". Run 'orch panes' to list.");
+      const served = await servedServices({ orchDir: root, settings: SETTINGS }, servers);
+      const refusal = await cmdRuns(served, ["foreignaaa", "--json"]).then(() => null, (error: unknown) => errorMessage(error));
+      expect(refusal).toBe("No target matches \"foreignaaa\". Run 'orch panes' to list.");
     } finally {
+      while (servers.length) await servers.pop()!.close();
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
       if (oldMarker === undefined) delete process.env.PI_CODING_AGENT; else process.env.PI_CODING_AGENT = oldMarker;
       if (oldSession === undefined) delete process.env.PI_SESSION_ID; else process.env.PI_SESSION_ID = oldSession;

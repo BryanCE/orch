@@ -192,7 +192,7 @@ function reportReloads(results: readonly ReloadResult[], json: boolean): void {
 export async function cmdReload(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("reload", args);
   const json = invocation.flags.has("--json");
-  const { targets, all } = lifecycleTargets(services, invocation);
+  const { targets, all } = await lifecycleTargets(services, invocation);
   // `--all` is a valid invocation even with zero live agents: it still touches
   // reload.signal (SIGNALED) for settings/extension watchers. Only a bare call
   // with neither --all nor a target is a usage error.
@@ -258,7 +258,7 @@ export async function cmdRestart(services: Services, args: string[]): Promise<vo
   const invocation = parseCommand("restart", args);
   const json = invocation.flags.has("--json");
   const flags = { json, force: invocation.flags.has("--force") };
-  const { targets } = lifecycleTargets(services, invocation);
+  const { targets } = await lifecycleTargets(services, invocation);
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
   const cmd = invocation.flags.value("--cmd") ?? null;
   const results: ReloadResult[] = [];

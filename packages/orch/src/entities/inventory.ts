@@ -179,7 +179,7 @@ function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
 export function buildEntities(root: OrchDir, settings: OrchSettings, options: { skipBackends?: boolean } = {}): Entity[] {
   const views = agentViewIndex(root);
   const presence = loadPresence(root);
-  const fleet: Fleet = { views, presence, presenceById: indexPresenceById(presence), census: paneCensus(settings) };
+  const fleet: Fleet = { views, presence, presenceById: indexPresenceById(presence.values()), census: paneCensus(settings) };
   const usedPresence = new Set<string>();
   const backendEntities = options.skipBackends
     ? []

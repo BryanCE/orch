@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { agentTargetMatches, resolveAgentView } from "../src/commands/target.ts";
+import { agentTargetMatches, resolveAgentView } from "../src/entities/lifecycle.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 

@@ -14,6 +14,7 @@ const identity = {
   model: z.string().nullable(),
   host: z.string().optional(),
   spawnedBy: z.string().optional(),
+  holder: z.string().optional(),
   spawnedByLabel: z.string().optional(),
 };
 

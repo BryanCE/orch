@@ -320,7 +320,7 @@ export interface SpawnPlacementRequest {
   /** Opening a home puts a window on the human's screen, so it is asked for.
    *  Passed in rather than called here so the decision stays one function and
    *  the gate stays testable. Throws or exits when not granted. */
-  readonly grantNewHome: () => void;
+  readonly grantNewHome: () => Promise<void>;
 }
 
 /** What opening the home a {@link SpawnPlacement} owes needs. */

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ambiguousTargetRefusal, CommandRefusal } from "../src/refusal.ts";
-import { resolveAgentView } from "../src/commands/target.ts";
+import { resolveAgentView } from "../src/entities/lifecycle.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 

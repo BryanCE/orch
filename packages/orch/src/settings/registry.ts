@@ -180,6 +180,8 @@ const HELP: Readonly<Record<string, string>> = {
   "timeouts.wait_ms": "Wait timeout in milliseconds.",
   "timeouts.adapter_command_ms": "Adapter command timeout in milliseconds.",
   "timeouts.notify_ms": "Notification timeout in milliseconds.",
+  "timeouts.spawn_attach_ms": "How long spawn waits for every agent's bridge to attach, in milliseconds.",
+  "timeouts.spawn_attach_poll_ms": "How often spawn asks orchd which bridges attached, in milliseconds.",
   notify: "Where agent state changes are delivered. enter picks the sinks - sound (a ding on this machine), desktop, herdr, webhook (a URL), command (any command line you want) - space turns one on, e sets what it carries, w picks which states it fires on.",
   locked_commands: "Commands workers must run through the lock.",
   hosts: "Named remote hosts.",

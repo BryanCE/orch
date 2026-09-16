@@ -6,6 +6,13 @@ import { answer, dispatch, message, steer } from "./write.ts";
 import { applyLifecycle, closeAgent, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, setHandle, setModel, spawnHeadless } from "./lifecycle.ts";
 import { adopt, detach, reap, reapCandidateList, rename } from "./lease.ts";
 import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
+import { admitHome, decideGrant, listGrants } from "./grant.ts";
+import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, resolveAgentTarget, takeOnQueued } from "./queue.ts";
+import { cleanStore } from "./clean.ts";
+import { agentStatusOf, fleetSnapshot, processLive, runOf, runsOf } from "./fleet.ts";
+import { resolveLifecycleEntity, resolveTargetEntity } from "./resolve.ts";
+import { callerSelf } from "./self.ts";
+import { ownedAgents } from "./owned.ts";
 import { reexecSelf } from "../../client/process.ts";
 import { emitAndNotify } from "../events.ts";
 import { acceptResultReport, acceptStatusReport } from "../status-report.ts";
@@ -21,6 +28,7 @@ import type { NotifyEvent } from "../../../types/notify.ts";
 import { selectOpenOutboxForTarget, selectOutboxMessage, markOutboxDelivered } from "../../../store/outbox-rows.ts";
 import { activePaneHud } from "../../../backends/hud.ts";
 import { peerView } from "../peer-view.ts";
+import { governed } from "../governance.ts";
 import type { PaneLabels } from "../../../types/plexer.ts";
 
 export function rpcHandlers(state: DaemonState): RpcHandlers {
@@ -79,41 +87,61 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       const key = params.key;
       return { attached: true, open: selectOpenOutboxForTarget(directory, key).length };
     },
-    dispatch: (params) => dispatch(state, params),
+    dispatch: governed(state, (params) => dispatch(state, params)),
     enqueue: (params) => enqueue(state, params),
-    steer: (params) => steer(state, params),
-    message: (params) => message(state, params),
-    "spawn-headless": (params) => spawnHeadless(state, params),
-    "set-model": (params) => setModel(state, params),
-    lifecycle: (params) => applyLifecycle(state, params),
-    "agent-closed": (params) => {
+    steer: governed(state, (params) => steer(state, params)),
+    message: governed(state, (params) => message(state, params)),
+    "spawn-headless": governed(state, (params) => spawnHeadless(state, params)),
+    "set-model": governed(state, (params) => setModel(state, params)),
+    lifecycle: governed(state, (params) => applyLifecycle(state, params)),
+    "agent-closed": governed(state, (params) => {
       const result = closeAgent(state, params);
       state.wake.wake();
       return result;
-    },
-    "register-agent": (params) => registerAgent(directory, params),
-    detach: (params) => detach(state, params),
-    adopt: (params) => adopt(state, params),
-    rename: (params) => rename(state, params),
-    reap: (params) => reap(state, params),
-    "reap-candidates": (params) => reapCandidateList(state, params),
-    reclaim: (params) => reclaim(directory, params),
-    "set-handle": (params) => setHandle(directory, params),
+    }),
+    "register-agent": governed(state, (params) => registerAgent(directory, params)),
+    detach: governed(state, (params) => detach(state, params)),
+    adopt: governed(state, (params) => adopt(state, params)),
+    rename: governed(state, (params) => rename(state, params)),
+    reap: governed(state, (params) => reap(state, params)),
+    "reap-candidates": governed(state, (params) => reapCandidateList(state, params)),
+    reclaim: governed(state, (params) => reclaim(directory, params)),
+    "set-handle": governed(state, (params) => setHandle(directory, params)),
     spaces: (params) => spaceListings(directory, params),
     space: (params) => spaceListing(directory, params),
-    "space-create": (params) => createSpace(directory, params),
-    "space-rename": (params) => renameSpace(directory, params),
-    "space-delete": (params) => deleteSpace(directory, params),
+    "space-create": governed(state, (params) => createSpace(directory, params)),
+    "space-rename": governed(state, (params) => renameSpace(directory, params)),
+    "space-delete": governed(state, (params) => deleteSpace(directory, params)),
     home: (params) => subjectHome(directory, params),
-    "record-home": (params) => recordSubjectHome(directory, params),
-    "clear-home": (params) => clearSubjectHome(directory, params),
+    "record-home": governed(state, (params) => recordSubjectHome(directory, params)),
+    "clear-home": governed(state, (params) => clearSubjectHome(directory, params)),
+    grants: () => listGrants(directory),
+    grant: governed(state, (params) => decideGrant(directory, params)),
+    "admit-home": governed(state, (params) => admitHome(directory, params)),
+    "resolve-agent": (params) => resolveAgentTarget(directory, params),
+    "queue-list": (params) => listQueued(directory, params),
+    "queue-cancel": governed(state, (params) => cancelQueued(directory, params)),
+    "queue-edit": governed(state, (params) => editQueued(directory, params)),
+    "queue-take-on": governed(state, (params) => takeOnQueued(directory, params)),
+    "queue-reap": governed(state, (params) => reapQueued(directory, params)),
+    "queue-intake": governed(state, (params) => intakeQueued(directory, params)),
+    clean: governed(state, (params) => cleanStore(directory, params)),
+    fleet: (params) => fleetSnapshot(state, params),
+    runs: (params) => runsOf(state, params),
+    run: (params) => runOf(directory, params),
+    "agent-status": (params) => agentStatusOf(directory, params),
+    "process-live": (params) => processLive(directory, params),
+    "resolve-target": (params) => resolveTargetEntity(state, params),
+    self: (params) => callerSelf(directory, params),
+    "resolve-lifecycle": (params) => resolveLifecycleEntity(state, params),
+    "owned-agents": (params) => ownedAgents(state, params),
     question: (params) => recordAgentQuestion(directory, params),
     questions: () => listPendingQuestions(directory),
-    answer: (params) => {
+    answer: governed(state, (params) => {
       const result = answer(state, params);
       state.wake.wake();
       return result;
-    },
+    }),
     ack: (params) => {
       const id = params.id;
       const row = selectOutboxMessage(directory, id);

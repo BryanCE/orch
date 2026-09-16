@@ -10,7 +10,8 @@ import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
 import { callDaemon } from "../daemon.ts";
-import { agentAddress, die, presenceById, resolveLifecycleTarget } from "../target.ts";
+import { die, resolveLifecycleTarget } from "../target.ts";
+import { addressOf, indexPresenceById } from "../../entities/lookup.ts";
 import { parseCommand } from "../registry.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
@@ -100,10 +101,10 @@ interface CloseTarget {
  * is exactly when respawning is the only way out.
  */
 function sweepTargets(services: Pick<Services, "orchDir" | "logger">): CloseTarget[] {
-  const presence = presenceById(loadPresence(services.orchDir));
+  const presence = indexPresenceById(loadPresence(services.orchDir).values());
   const targets: CloseTarget[] = [];
   for (const view of liveAgentViews(services.orchDir)) {
-    const address = agentAddress(view, presence);
+    const address = addressOf(view, presence);
     const backend = getBackend(view.environment.plexer ?? "") ?? null;
     if (!backend) {
       lifecycleLogger(services.logger, address).warn("close.unknown-backend", { backend: view.environment.plexer, handle: address });

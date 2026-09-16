@@ -36,7 +36,7 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   const json = invocation.flags.has("--json");
   const force = invocation.flags.has("--force");
   const flags = agentFlags(invocation.flags);
-  const { targets } = lifecycleTargets(services, invocation);
+  const { targets } = await lifecycleTargets(services, invocation);
   if (!targets.length) die("usage: orch reset <target>... | --all [--model <model>] [--thinking <level>] [--json]");
   const settings = services.settings.current();
   // Check ownership before resolving model configuration: a driving verb must

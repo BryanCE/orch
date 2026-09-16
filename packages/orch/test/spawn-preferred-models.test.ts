@@ -9,10 +9,13 @@ import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
 import type { Backend, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../src/types/adapter.ts";
 import type { ThinkingLevel } from "../src/types/policy.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+import type { Services } from "../src/types/services.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 // Every launch route must hand the SAME per-harness quicklist to the adapter that builds the
@@ -21,6 +24,7 @@ import type { OrchDir } from "../src/types/core.ts";
 
 const oldOrchDir = process.env.ORCH_DIR;
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 
 function makeTempOrchDir(): OrchDir {
   const dir = tempOrchDir("orch-preferred-models-");
@@ -29,7 +33,13 @@ function makeTempOrchDir(): OrchDir {
   return dir;
 }
 
-afterEach(() => {
+/** The spawn writes through orchd: serve the real handler table on this dir. */
+function spawningServices(dir: OrchDir): Promise<Services> {
+  return servedServices({ orchDir: dir, settings: null }, servers);
+}
+
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   while (dirs.length) removeTempDir(dirs.pop()!);
   if (oldOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = oldOrchDir;
@@ -85,13 +95,13 @@ function capturingPaneBackend(): { backend: Backend; seen: () => BackendSpawnOpt
 }
 
 describe("the preferred quicklist reaches every launch route", () => {
-  test("a pane spawn hands the exact array to the backend", () => {
+  test("a pane spawn hands the exact array to the backend", async () => {
     // A space is user-created and never minted by a spawn (TASKS A7).
     const directory = makeTempOrchDir();
     seedSpace(directory, "wsA");
     const { backend, seen } = capturingPaneBackend();
 
-    spawnOneIntoTab(directory, {
+    await spawnOneIntoTab(await spawningServices(directory), {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -107,14 +117,15 @@ describe("the preferred quicklist reaches every launch route", () => {
     expect(seen()?.preferredModels).toEqual(QUICKLIST);
   });
 
-  test("two created agents retain their own model tuning", () => {
+  test("two created agents retain their own model tuning", async () => {
     const directory = makeTempOrchDir();
     seedSpace(directory, "wsA");
     const { backend, allSeen } = capturingPaneBackend();
+    const services = await spawningServices(directory);
 
     const agents = [["quick-a", "openai/gpt-5.6", "medium"], ["quick-b", "anthropic/claude-sonnet-4.5", "high"]] satisfies readonly (readonly [string, string, ThinkingLevel])[];
     for (const [name, model, thinking] of agents) {
-      spawnOneIntoTab(directory, {
+      await spawnOneIntoTab(services, {
         backend,
         adapter: piAdapter,
         adapterId: "pi",
@@ -134,12 +145,12 @@ describe("the preferred quicklist reaches every launch route", () => {
     ]);
   });
 
-  test("an unconfigured quicklist stays empty rather than becoming a default one", () => {
+  test("an unconfigured quicklist stays empty rather than becoming a default one", async () => {
     const directory = makeTempOrchDir();
     seedSpace(directory, "wsA");
     const { backend, seen } = capturingPaneBackend();
 
-    spawnOneIntoTab(directory, {
+    await spawnOneIntoTab(await spawningServices(directory), {
       backend,
       adapter: piAdapter,
       adapterId: "pi",

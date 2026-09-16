@@ -9,14 +9,15 @@ import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
-import { isRecord } from "../src/util.ts";
-import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackendAsync } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { AgentNamingRole, LabelRole } from "../src/types/backend.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 import { seedAgent } from "./helpers/agent.ts";
-import { testServices } from "./helpers/services.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
+import { captureCommand } from "./helpers/stdout.ts";
 
 /**
  * `orch rename` set the NAME and left the pane
@@ -39,18 +40,18 @@ import { testServices } from "./helpers/services.ts";
  */
 
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 const oldDir = process.env.ORCH_DIR;
 const oldAgentId = process.env[LAUNCH_ENV];
 const harnessMarkers = Object.values(HARNESS_SESSION_ENV).map((entry) => entry.marker);
 const oldHarnessMarkers = new Map(harnessMarkers.map((marker) => [marker, process.env[marker]]));
-const originalWrite = process.stdout.write.bind(process.stdout);
 const SETTINGS = {
   enabled: { adapters: ["pi"], backends: ["headless"] },
   defaults: { adapter: "pi", backend: "headless" },
 };
 
-afterEach(() => {
-  process.stdout.write = originalWrite;
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   // Restore to UNTOUCHED, not 0: other suites assert `process.exitCode` is
   // undefined to prove they never set one, and 0 is a value.
   process.exitCode = undefined;
@@ -82,8 +83,12 @@ function fixture(): OrchDir {
   return dir;
 }
 
-function services(dir: OrchDir) {
-  return testServices({ orchDir: dir, settings: SETTINGS });
+/** `orch rename` in-process against `backend`, its writes served by orchd on `dir`. */
+async function rename(dir: OrchDir, backend: FakePanedBackend, args: string[]): Promise<Record<string, unknown>> {
+  const services = await servedServices({ orchDir: dir, settings: SETTINGS }, servers);
+  const { text, payload } = await captureCommand(() => withRegisteredBackendAsync(backend, () => cmdRename(services, [KEY, ...args, "--json"])));
+  if (Object.keys(payload).length === 0) throw new Error(`expected a JSON object, got ${text}`);
+  return payload;
 }
 
 /** A plexer that records what it was asked to relabel, agent and pane apart. */
@@ -105,21 +110,12 @@ class NamingBackend extends FakePanedBackend {
   }
 }
 
-function capture(action: () => void): Record<string, unknown> {
-  let output = "";
-  process.stdout.write = (chunk: string | Uint8Array) => { output += chunk.toString(); return true; };
-  try { action(); } finally { process.stdout.write = originalWrite; }
-  const parsed: unknown = JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
-  if (!isRecord(parsed)) throw new Error(`expected a JSON object, got ${output}`);
-  return parsed;
-}
-
 describe("orch rename syncs the pane border in one command (U5)", () => {
-  test("one rename sets orch's name AND the plexer chrome", () => {
+  test("one rename sets orch's name AND the plexer chrome", async () => {
     const dir = fixture();
     const backend = new NamingBackend();
 
-    withRegisteredBackend(backend, () => { capture(() => { cmdRename(services(dir), [KEY, "thinking-axis", "--json"]); }); });
+    await rename(dir, backend, ["thinking-axis"]);
 
     expect(agentView(dir, KEY)?.name).toBe("thinking-axis");
     expect(backend.agentNames).toEqual(["thinking-axis"]);
@@ -127,24 +123,22 @@ describe("orch rename syncs the pane border in one command (U5)", () => {
     expect(backend.paneNames).toEqual(["thinking-axis"]);
   });
 
-  test("the response states the two outcomes SEPARATELY", () => {
+  test("the response states the two outcomes SEPARATELY", async () => {
     const dir = fixture();
     const backend = new NamingBackend();
 
-    const payload = withRegisteredBackend(backend, () =>
-      capture(() => { cmdRename(services(dir), [KEY, "thinking-axis", "--json"]); }));
+    const payload = await rename(dir, backend, ["thinking-axis"]);
 
     // 07-port-seam: orch's own write and the plexer chrome are different
     // outcomes, and a caller must be able to tell which one happened.
     expect(payload).toMatchObject({ key: KEY, name: "thinking-axis", renamed: true, chrome: "renamed" });
   });
 
-  test("a plexer that refuses the chrome never unwrites orch's own name", () => {
+  test("a plexer that refuses the chrome never unwrites orch's own name", async () => {
     const dir = fixture();
     const backend = new NamingBackend(true);
 
-    const payload = withRegisteredBackend(backend, () =>
-      capture(() => { cmdRename(services(dir), [KEY, "thinking-axis", "--json"]); }));
+    const payload = await rename(dir, backend, ["thinking-axis"]);
 
     // orch's registry owns the name. The chrome is a separate action whose
     // failure is REPORTED and never rewrites whether the rename happened.
@@ -153,11 +147,11 @@ describe("orch rename syncs the pane border in one command (U5)", () => {
     expect(String(payload.chromeError)).toContain("herdr refused");
   });
 
-  test("--pane still gives the border something DIFFERENT, and leaves the name alone", () => {
+  test("--pane still gives the border something DIFFERENT, and leaves the name alone", async () => {
     const dir = fixture();
     const backend = new NamingBackend();
 
-    withRegisteredBackend(backend, () => { capture(() => { cmdRename(services(dir), [KEY, "just-the-border", "--pane", "--json"]); }); });
+    await rename(dir, backend, ["just-the-border", "--pane"]);
 
     expect(backend.paneNames).toEqual(["just-the-border"]);
     expect(agentView(dir, KEY)?.name).toBe("wave2-1");

@@ -9,7 +9,7 @@ import { deriveLeasePayload } from "../src/daemon/server/state.ts";
 import { governWrite } from "../src/daemon/server/handlers/write.ts";
 import { presenceAgentDir } from "../src/presence/history.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { adoptAgent, detachAgent, leasedAgents, renameTarget, resolveTarget } from "../src/commands/lease.ts";
+import { adoptAgent, detachAgent, leasedAgents, renameTarget, resolveTarget } from "../src/daemon/server/handlers/lease.ts";
 import { resolveSpawnNames } from "../src/commands/spawn/names.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";

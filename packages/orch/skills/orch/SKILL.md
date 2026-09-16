@@ -18,7 +18,7 @@ Broken install: `orch doctor -y`.
 
 ```bash
 orch spawn api-types api-routes api-guards --tab api \
-  --file specs/types.md --file specs/routes.md --file specs/guards.md \
+  --file tasks/T1-types.md --file tasks/T2-routes.md --file tasks/T3-guards.md \
   --model luna:high --model luna:low --model luna:high
 orch monitor                                  # arm as a Monitor in this same message
 orch result api-types api-routes api-guards   # one call collects the wave
@@ -31,10 +31,23 @@ domain. Spawn returns after every agent is attached, so never sleep after it.
 Refill the moment an agent lands:
 
 ```bash
-orch rename api-types api-auth && orch dispatch api-auth --file specs/auth.md --with recon/api.md
+orch rename api-types api-auth && orch dispatch api-auth --file tasks/T4-auth.md --with recon/api.md
 ```
 
 Dispatch clears the context itself. There is no reset step between two tasks.
+
+## A task is written once. `--file` sends that file.
+
+- `--file <path>` sends a file's contents as the prompt. The file is one you ALREADY have: a
+  task you wrote in the task list, a spec the user wrote. Write each task straight into the
+  file `--file` will send, one file per task, at the moment you write the task list.
+- `--with <path>` hands the agent a path it opens for context: a recon report, a directory.
+  Orch checks it exists and never reads it.
+- A short task with no file is typed: `--prompt` on spawn, the quoted argument on dispatch.
+
+Never write a second file to send a task that exists. Never rewrite, restate or copy a task
+out of the task list into a temp file for `--file`. That is the same task paid for twice,
+plus a file to name, create and clean up. The task list IS the files you send.
 
 ## Waves
 
@@ -46,8 +59,8 @@ Every job runs as waves of 3 to 4 agents. Nobody idles, not you and not an agent
    dispatch. Every task names exact files, exact edits, the tests to run, and the report
    shape. A task is 1 to 3 minutes of mechanical work. Group tasks into waves by file
    ownership. The shape is in `reference/fleet.md`.
-3. Dispatch the whole wave in one message, each `--file` on its task, `--with` on the
-   report it cites, and `orch monitor` armed.
+3. Dispatch the whole wave in one message, `--file` on each task's own file as you wrote
+   it, `--with` on the report it cites, and `orch monitor` armed.
 4. Write the next wave's specs while this one runs. When an agent lands, read its diff and
    run the scoped checks. A finding is a task for the next wave, not an edit you make.
 5. Refill the instant an agent lands. Rename, then dispatch. Close an agent only when the

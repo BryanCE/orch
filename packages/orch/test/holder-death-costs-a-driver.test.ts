@@ -3,7 +3,7 @@ import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease, leaseHistory, leasesByOrch } from "../src/store/lease-rows.ts";
 import { agentView, liveAgentViews } from "../src/store/agent-view.ts";
-import { detachAgent } from "../src/commands/lease.ts";
+import { detachAgent } from "../src/daemon/server/handlers/lease.ts";
 import { insertAttempt, enqueueTask, settleAttempt, taskState } from "../src/store/task-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";

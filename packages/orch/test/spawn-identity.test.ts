@@ -8,6 +8,7 @@ import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
+import { errorMessage } from "../src/util.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { runnerProcess } from "./helpers/agent.ts";
@@ -18,9 +19,13 @@ import type { BackendHandle, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter } from "../src/types/adapter.ts";
 import { sql } from "drizzle-orm";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+import type { Services } from "../src/types/services.ts";
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 
 beforeEach(() => {
   isolateOrchEnv();
@@ -35,7 +40,13 @@ function makeTempOrchDir(): OrchDir {
   return dir;
 }
 
-afterEach(() => {
+/** The spawn writes through orchd: serve the real handler table on this dir. */
+function spawningServices(dir: OrchDir): Promise<Services> {
+  return servedServices({ orchDir: dir, settings: null }, servers);
+}
+
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   closeAllStores();
   while (dirs.length) removeTempDir(dirs.pop()!);
   restoreOrchEnv();
@@ -70,12 +81,12 @@ function fakePaneBackend(paneHandle: string): { backend: KeyRecordingBackend; en
 }
 
 describe("one key per pane spawn (12.1)", () => {
-  test("identity is an opaque minted id — never the name, never the pane handle", () => {
+  test("identity is an opaque minted id — never the name, never the pane handle", async () => {
     const dir = makeTempOrchDir();
     seedSpace(dir, "wsA");
     const { backend, envKey } = fakePaneBackend("%5");
 
-    const agent = spawnOneIntoTab(dir, {
+    const agent = await spawnOneIntoTab(await spawningServices(dir), {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -108,10 +119,11 @@ describe("one key per pane spawn (12.1)", () => {
     expect(agentById(dir, agent.key)?.name).toBe("audit-1");
   });
 
-  test("a name freed by a dead agent is reusable, and the two agents differ in identity", () => {
+  test("a name freed by a dead agent is reusable, and the two agents differ in identity", async () => {
     const dir = makeTempOrchDir();
     seedSpace(dir, "wsC");
-    const spawnAudit = () => spawnOneIntoTab(dir, {
+    const services = await spawningServices(dir);
+    const spawnAudit = () => spawnOneIntoTab(services, {
       backend: fakePaneBackend("%9").backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -126,21 +138,22 @@ describe("one key per pane spawn (12.1)", () => {
 
     // The fake pane reports the runner's own pid, so the first agent is alive
     // until it ENDS; ending frees the name. Under name-as-identity this collided forever.
-    const first = spawnAudit();
-    expect(spawnAudit).toThrow(/already live/);
+    const first = await spawnAudit();
+    const collision = await spawnAudit().then(() => null, (error: unknown) => errorMessage(error));
+    expect(collision).toMatch(/already live/);
     endAgent(dir, first.key, Date.now(), null);
-    const second = spawnAudit();
+    const second = await spawnAudit();
 
     expect(second.key).not.toBe(first.key);
     expect(agentById(dir, second.key)?.name).toBe("audit-1");
   });
 
-  test("a spawned agent resolves to exactly one control-target candidate", () => {
+  test("a spawned agent resolves to exactly one control-target candidate", async () => {
     const dir = makeTempOrchDir();
     seedSpace(dir, "wsB");
     const { backend } = fakePaneBackend("%7");
 
-    const agent = spawnOneIntoTab(dir, {
+    const agent = await spawnOneIntoTab(await spawningServices(dir), {
       backend,
       adapter: piAdapter,
       adapterId: "pi",

@@ -136,12 +136,29 @@ export class FakePanedBackend implements Backend {
  * shipped provider instance is never mutated.
  */
 export function withRegisteredBackend<T>(backend: Backend, body: () => T): T {
-  const previous = getBackend(backend.id);
-  if (!previous) throw new Error(`no provider is registered as ${backend.id}; nothing to restore`);
+  const previous = registeredOrDie(backend);
   registerBackend(backend);
   try {
     return body();
   } finally {
     registerBackend(previous);
   }
+}
+
+/** {@link withRegisteredBackend} for a command that answers a promise: the
+ *  registration holds until the promise settles, not until it is created. */
+export async function withRegisteredBackendAsync<T>(backend: Backend, body: () => Promise<T>): Promise<T> {
+  const previous = registeredOrDie(backend);
+  registerBackend(backend);
+  try {
+    return await body();
+  } finally {
+    registerBackend(previous);
+  }
+}
+
+function registeredOrDie(backend: Backend): Backend {
+  const previous = getBackend(backend.id);
+  if (!previous) throw new Error(`no provider is registered as ${backend.id}; nothing to restore`);
+  return previous;
 }

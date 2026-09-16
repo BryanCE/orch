@@ -9,9 +9,9 @@ import { presenceAgentDir } from "../src/presence/history.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
-import { agentView } from "../src/store/agent-view.ts";
+import { agentView, agentViewIndex } from "../src/store/agent-view.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { checkWall, sameSpace, scopeToSpace, spaceName, spaceOf } from "../src/policy/space.ts";
+import { checkWall, sameSpace, scopeToSpace, spaceName, spaceOf, spaceOfIn } from "../src/policy/space.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
@@ -241,7 +241,7 @@ describe("space policy", () => {
     const w1 = placeAgent(dir, { plexer: "herdr", space: "w1", handle: "p1" });
     const w2 = placeAgent(dir, { plexer: "tmux", space: "w2", handle: "%5" });
     const items = [w1, w2, "session-123"];
-    expect(scopeToSpace(dir, items, (item) => item, "w1", { all: false })).toEqual([w1]);
+    expect(scopeToSpace(spaceOfIn(agentViewIndex(dir)), items, (item) => item, "w1", { all: false })).toEqual([w1]);
   });
 
   test("a null current space leaves items unscoped", () => {
@@ -249,7 +249,7 @@ describe("space policy", () => {
     // A1: the items are minted agent ids. With no current space there is
     // nothing to scope against, so they come back untouched.
     const items = ["p1agent0001", "p2agent0002", "session-123"];
-    expect(scopeToSpace(dir, items, (item) => item, null, { all: false })).toBe(items);
+    expect(scopeToSpace(spaceOfIn(agentViewIndex(dir)), items, (item) => item, null, { all: false })).toBe(items);
   });
 
   test("2.7 status displays the composed space, not text sliced from a key", () => {

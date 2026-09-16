@@ -22,7 +22,6 @@ const fixture: StatusRow = {
   modelShort: "test/model",
   state: "working",
   stateFallback: false,
-  staleExtension: false,
   exited: false,
   alive: true,
   cost: 0,

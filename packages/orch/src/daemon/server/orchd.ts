@@ -26,6 +26,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { insertControlOutcome } from "../../store/control-outcome-rows.ts";
 import { appendOutcome, ensurePresenceAgentDir } from "../../presence/history.ts";
+import { holdPresenceFor } from "../../presence/store.ts";
 import { settleControlOutcome } from "../../control/outcome.ts";
 import { acknowledgeDelivery } from "../../control/ack.ts";
 import { drainOutbox, redeliverOpenRows } from "./outbox.ts";
@@ -313,7 +314,9 @@ export async function startDaemon(): Promise<DaemonState> {
     emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings);
     state.wake.wake();
   };
-  state.livenessTick = startLivenessTick(directory, services.settings.current().daemon.liveness_poll_ms, publishPresenceEvent);
+  const livenessPollMs = services.settings.current().daemon.liveness_poll_ms;
+  holdPresenceFor(livenessPollMs);
+  state.livenessTick = startLivenessTick(directory, livenessPollMs, publishPresenceEvent);
   state.workLoopRunning = true;
   state.workLoop = runWorkLoop({
     orchDir: directory,

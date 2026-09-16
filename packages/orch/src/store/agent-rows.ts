@@ -5,7 +5,7 @@ import { isRecord } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf } from "./agent-view.ts";
-import { setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
+import { currentProcess, recordProcess, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
 import { decisionLogger } from "../daemon/client/decision-log.ts";
 import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
@@ -246,27 +246,12 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
       } else {
         db.update(agents).set({ label: input.label }).where(eq(agents.id, existing)).run();
       }
-      // The session outlives any one process instance. An agent may hold only ONE
-      // open process interval (the `one_live_process` unique index), so a
-      // superseded one is CLOSED before the current instance opens its own -
-      // inserting beside it aborts the whole registration.
-      const open = db.select({ since: agentProcesses.since, pid: agentProcesses.pid, startToken: agentProcesses.startToken })
-        .from(agentProcesses).where(and(eq(agentProcesses.agentId, existing), isNull(agentProcesses.until))).get();
+      // The session outlives any one process instance. A superseded instance
+      // closes as the current one opens; the same instance registered again
+      // keeps its open interval.
+      const open = currentProcess(orchDir, existing);
       if (open?.pid !== input.pid || open.startToken !== input.startToken) {
-        // An agent holds ONE open process interval, and `[since, until)` are
-        // half-open so they must MEET exactly: the superseded interval closes at
-        // the instant the new one opens. `until > since` also forbids closing an
-        // interval at its own start, which two registrations inside one
-        // millisecond would otherwise do.
-        let opensAt = input.now;
-        if (open) {
-          opensAt = Math.max(input.now, open.since + 1);
-          db.update(agentProcesses).set({ until: opensAt })
-            .where(and(eq(agentProcesses.agentId, existing), isNull(agentProcesses.until))).run();
-        }
-        db.insert(agentProcesses).values({
-          agentId: existing, since: opensAt, until: null, hostId: input.hostId, pid: input.pid, startToken: input.startToken,
-        }).run();
+        recordProcess(orchDir, existing, input.now, { hostId: input.hostId, pid: input.pid, startToken: input.startToken });
       }
       return { id: existing, label: input.label, kind: "session" };
     }

@@ -1,6 +1,7 @@
 import { resolveTarget } from "../entities/resolve.ts";
 import { callerSpace, ensureCallerRegistered } from "../identity/self.ts";
-import { scopeToSpace, spaceOf, withinSpaceCeiling } from "../policy/space.ts";
+import { scopeToSpace, spaceOf, spaceOfIn, withinSpaceCeiling } from "../policy/space.ts";
+import { agentViewIndex } from "../store/agent-view.ts";
 import { agentInMineScope, agentInScope, resolveCallerScope } from "../policy/scope.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { isAgentId } from "../backends/identity.ts";
@@ -281,7 +282,7 @@ function eventsItems(options: EventsOptions, root: OrchDir, settings: OrchSettin
   const items = new Set<string>();
   if (!options.targets.length) {
     const presences = scopeToSpace(
-      root,
+      spaceOfIn(agentViewIndex(root)),
       [...loadPresence(root).values()].filter((presence) => presence.alive && looksLikePaneKey(presence.key)),
       (presence) => presence.key,
       callerSpace(root),

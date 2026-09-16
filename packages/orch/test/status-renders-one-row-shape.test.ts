@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { renderStatusTable } from "../src/commands/status/table.ts";
 import { fleetStatusRows, statusRowFromEntity } from "../src/commands/status/rows.ts";
+import { fleetDriveStates } from "../src/agent/drive-state.ts";
 import { seedStatus, statusRow as presenceStatusRow } from "./helpers/presence.ts";
 import type { StatusRow } from "../src/types/command.ts";
 import type { Entity, OrchDir } from "../src/types/core.ts";
@@ -12,7 +13,7 @@ function row(overrides: Partial<StatusRow> = {}): StatusRow {
     name: "worker", tab: "tab", agent: "pi", owner: null, spawnedBy: null,
     spawnedByLabel: null, worktree: null, branch: null, cwd: null, focused: false,
     model: "pi/model", modelShort: "model", state: "working", stateFallback: false,
-    staleExtension: false, exited: false, alive: true, cost: 0, ctxPercent: null,
+    exited: false, alive: true, cost: 0, ctxPercent: null,
     task: "Q: approve", dispatchId: null, lastText: "finished", backendStatus: null,
     backend: null, capabilities: null, sessionPath: null,
     bridgeAttached: null, tokens: null, turns: null, spaceId: null, spaceName: null,
@@ -46,7 +47,7 @@ describe("status rendering has one row shape and one table renderer", () => {
   test("task and last text use the same spelling in the row and table cell", () => {
     const directory = tempOrchDir("orch-status-row-shape-");
     tempDirs.push(directory);
-    const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), undefined, {}, null, directory);
+    const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), {}, fleetDriveStates(directory, new Map(), null), directory);
     const table = renderStatusTable([statusRow], { showSpace: false, showOwner: false, showBranch: false }, { host: false, columns: new Set() });
     expect(statusRow.task).toBe("Q: approve");
     expect(table).toContain("Q: approve");
@@ -77,7 +78,6 @@ describe("status rendering has one row shape and one table renderer", () => {
     const settings = testServices({ orchDir: root, settings: {} }).settings.current();
     directoryCalls += 1;
     const rows = fleetStatusRows(settings, settings.spaces, {
-      bundleHashes: () => new Set<string>(),
       orchId: () => { orchCalls += 1; return null; },
       directory: root,
     });

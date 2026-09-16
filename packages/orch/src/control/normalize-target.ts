@@ -1,6 +1,6 @@
 import type { OrchDir } from "../types/core.ts";
 import { loadPresence } from "../presence/store.ts";
-import { agentViews } from "../store/agent-view.ts";
+import { agentView, agentViews } from "../store/agent-view.ts";
 
 /**
  * Resolve any spelling of a target to the one canonical identity key.
@@ -24,12 +24,13 @@ export function normalizeControlTarget(orchDir: OrchDir, target: string): string
     throw new Error(`control target must be a non-empty string: ${JSON.stringify(target)}`);
   }
 
-  const presence = loadPresence(orchDir);
-  if (presence.has(target)) return target;
+  // The id itself is the common spelling and is one lookup in the held fleet.
+  if (agentView(orchDir, target) !== null) return target;
 
   const matches = agentViews(orchDir).filter((view) =>
-    view.id === target || view.name === target || view.environment.handle === target);
+    view.name === target || view.environment.handle === target);
 
+  const presence = loadPresence(orchDir);
   const live = matches.filter((view) => presence.get(view.id)?.alive);
   const resolved = live.length > 0 ? live : matches;
   const keys = new Set(resolved.map((view) => view.id));

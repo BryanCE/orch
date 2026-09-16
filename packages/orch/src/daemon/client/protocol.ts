@@ -146,7 +146,6 @@ const daemonStatusRow = z.object({
   modelShort: z.string(),
   state: z.string(),
   stateFallback: z.boolean(),
-  staleExtension: z.boolean().optional(),
   exited: z.boolean(),
   alive: z.boolean(),
   cost: z.number(),

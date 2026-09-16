@@ -1,13 +1,12 @@
 import type { OrchDir, Entity } from "../types/core.ts";
 import { allBackends } from "../backends/registry.ts";
 import { loadPresence } from "../presence/store.ts";
-import { spaceOf } from "../policy/space.ts";
 import { agentViewIndex } from "../store/agent-view.ts";
 import type { Backend, BackendTarget } from "../types/backend.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchSettings } from "../types/settings.ts";
-import { viewForKey, addressOf, indexPresenceById, normalizedAgentName } from "./lookup.ts";
+import { viewForKey, addressOf, indexPresenceById } from "./lookup.ts";
 
 /** The fleet as one read: every agent by id, the presence that names it, and
  *  what each reachable plexer says it still holds. */
@@ -52,7 +51,6 @@ function handlesByKey(fleet: Fleet, backend: Backend): Map<string, string> {
 }
 
 function entityFromBackendTarget(
-  root: OrchDir,
   backend: Backend,
   target: BackendTarget,
   keyByHandle: Map<string, string>,
@@ -71,7 +69,7 @@ function entityFromBackendTarget(
     ended: view?.endedAt != null,
     // Orch's registry owns the name; the backend's own pane label is only a
     // fallback for panes orch never spawned.
-    name: normalizedAgentName(root, key) ?? target.name,
+    name: view?.name ?? target.name,
     tabLabel: target.groupLabel,
     agent: target.agent,
     focused: target.focused,
@@ -89,16 +87,16 @@ function entityFromBackendTarget(
     // a tmux session. It is environment, never orch's space, and preferring it
     // here is exactly how `wF` got shown as a name the user had chosen. orch's
     // space is read from orch's own record or it is absent.
-    space: spaceOf(root, key),
+    space: view?.environment.space ?? null,
   };
 }
 
-function entitiesFromBackend(root: OrchDir, backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
+function entitiesFromBackend(backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
   const listed = fleet.census.get(backend.id);
   if (listed === undefined) return [];
   const keyByHandle = handlesByKey(fleet, backend);
   return [...listed.values()]
-    .map((target) => entityFromBackendTarget(root, backend, target, keyByHandle, fleet, usedPresence));
+    .map((target) => entityFromBackendTarget(backend, target, keyByHandle, fleet, usedPresence));
 }
 
 function presenceStatusFields(entry: PresenceEntry, view: AgentView | undefined): Pick<Entity, "agent" | "sessionPath"> {
@@ -109,7 +107,7 @@ function presenceStatusFields(entry: PresenceEntry, view: AgentView | undefined)
   };
 }
 
-function presenceOnlyEntity(root: OrchDir, entry: PresenceEntry, fleet: Fleet): Entity {
+function presenceOnlyEntity(entry: PresenceEntry, fleet: Fleet): Entity {
   const view = viewForKey(fleet.views, entry.key);
   const statusFields = presenceStatusFields(entry, view);
   // U1: a pane is environment, so orch's own record answers for it. The agent's
@@ -121,21 +119,21 @@ function presenceOnlyEntity(root: OrchDir, entry: PresenceEntry, fleet: Fleet): 
     paneId: confirmedHandle(fleet.census, plexer, view?.environment.handle ?? null),
     managed: view !== undefined,
     ended: view?.endedAt != null,
-    name: normalizedAgentName(root, entry.key) ?? null,
+    name: view?.name ?? null,
     tabLabel: null,
     focused: false,
     backendStatus: null,
     backend: plexer,
     presence: entry,
     presenceOnly: true,
-    space: view?.environment.space ?? spaceOf(root, entry.key),
+    space: view?.environment.space ?? null,
   };
 }
 
-function entitiesFromPresence(root: OrchDir, fleet: Fleet, usedPresence: Set<string>): Entity[] {
+function entitiesFromPresence(fleet: Fleet, usedPresence: Set<string>): Entity[] {
   return [...fleet.presence.values()]
     .filter((entry) => !usedPresence.has(entry.key))
-    .map((entry) => presenceOnlyEntity(root, entry, fleet));
+    .map((entry) => presenceOnlyEntity(entry, fleet));
 }
 
 /** The handle the environment confirms it still has, else null. Only an
@@ -177,14 +175,16 @@ function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
   return found;
 }
 
+/** The fleet as entities. The views and the presence are the store's held reads. */
 export function buildEntities(root: OrchDir, settings: OrchSettings, options: { skipBackends?: boolean } = {}): Entity[] {
+  const views = agentViewIndex(root);
   const presence = loadPresence(root);
-  const fleet: Fleet = { views: agentViewIndex(root), presence, presenceById: indexPresenceById(presence), census: paneCensus(settings) };
+  const fleet: Fleet = { views, presence, presenceById: indexPresenceById(presence), census: paneCensus(settings) };
   const usedPresence = new Set<string>();
   const backendEntities = options.skipBackends
     ? []
-    : enabledBackends(settings).flatMap((backend) => entitiesFromBackend(root, backend, fleet, usedPresence));
-  const entities = [...backendEntities, ...entitiesFromPresence(root, fleet, usedPresence)];
+    : enabledBackends(settings).flatMap((backend) => entitiesFromBackend(backend, fleet, usedPresence));
+  const entities = [...backendEntities, ...entitiesFromPresence(fleet, usedPresence)];
   return [...entities, ...entitiesFromStore(fleet, entities)];
 }
 

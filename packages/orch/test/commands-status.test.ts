@@ -6,7 +6,7 @@ import { displayStatusState, formatNoRowsMessage, formatSpace, scopeFleetRows } 
 import { normalizeStatusRow } from "../src/commands/status/fetch.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
 import { statusRowFromEntity as composeStatusRow, warningStatusRow } from "../src/commands/status/rows.ts";
-import { deriveDriveState } from "../src/agent/drive-state.ts";
+import { deriveDriveState, fleetDriveStates } from "../src/agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../src/policy/capacity.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -56,7 +56,7 @@ function statusRowFromEntity(
   views: Parameters<typeof composeStatusRow>[1],
   directory: OrchDir = syntheticOrchDir,
 ): ReturnType<typeof composeStatusRow> {
-  return composeStatusRow(entity, views, undefined, {}, null, directory);
+  return composeStatusRow(entity, views, {}, fleetDriveStates(directory, views, null), directory);
 }
 
 describe("commands/status", () => {
@@ -183,8 +183,8 @@ describe("commands/status", () => {
   test("status owner ignores spawning provenance when no lease exists", () => {
     // Keyed by the MINTED ID, never by the pane-bearing presence key: the key
     // welds environment onto identity, and the store is keyed by the id alone.
-    const owned = new Map([["appagent01", agentViewFixture("appagent01", { heldBy: { orchId: "orch-a", since: 5 } })]]);
-    expect(statusRowFromEntity(seededEntity, owned).owner).toBe("no orch driving it");
+    const spawned = new Map([["appagent01", agentViewFixture("appagent01", { spawnedBy: "orch-a", spawnedByName: "orch-a", heldBy: null })]]);
+    expect(statusRowFromEntity(seededEntity, spawned).owner).toBe("no orch driving it");
     expect(statusRowFromEntity(seededEntity, new Map()).owner).toBe("no orch driving it");
   });
   test("lease-backed status attribution distinguishes my lease, another lease, and unleased rows", () => {

@@ -60,8 +60,8 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     seedPresence(root, "liveagent1", true, "working");
     seedPresence(root, "deadagent1", false, "done");
 
-    const offline = fleetStatusRows(noSettings(root), noSettings(root).spaces, { offline: true, bundleHashes: () => new Set(), orchId: () => null, directory: root });
-    const online = fleetStatusRows(noSettings(root), noSettings(root).spaces, { bundleHashes: () => new Set(), orchId: () => null, directory: root });
+    const offline = fleetStatusRows(noSettings(root), noSettings(root).spaces, { offline: true, orchId: () => null, directory: root });
+    const online = fleetStatusRows(noSettings(root), noSettings(root).spaces, { orchId: () => null, directory: root });
 
     // Every agent orch itself recorded appears in BOTH: offline drops no agent
     // of orch's, it only stops asking a plexer about panes.
@@ -78,7 +78,7 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     const root = fixture();
     seedPresence(root, "liveagent1", true, "working");
 
-    const [row] = fleetStatusRows(noSettings(root), noSettings(root).spaces, { offline: true, bundleHashes: () => new Set(), orchId: () => null, directory: root });
+    const [row] = fleetStatusRows(noSettings(root), noSettings(root).spaces, { offline: true, orchId: () => null, directory: root });
 
     // `state` is what the AGENT says about itself and is the only field that
     // answers "is the work finished". Offline reads that same field; it does not

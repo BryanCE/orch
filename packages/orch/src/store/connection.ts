@@ -204,6 +204,40 @@ export function orm(orchDir: OrchDir): Orm {
   return openDatabase(orchDir).orm;
 }
 
+/** What sqlite says has changed: `data_version` moves on every commit by another
+ *  connection, `total_changes()` on every row this connection wrote. Together they
+ *  name the store's contents, so a read keyed on them can never serve a write. */
+function storeVersion(opened: OpenDatabase): string {
+  const foreign = opened.client.prepare("PRAGMA data_version").get();
+  const own = opened.client.prepare("SELECT total_changes() AS n").get();
+  return `${isRecord(foreign) ? String(foreign.data_version) : "?"}:${isRecord(own) ? String(own.n) : "?"}`;
+}
+
+interface MemoEntry<T> { readonly version: string; readonly builtAt: number; readonly value: T }
+
+const memoResets = new Set<() => void>();
+
+/**
+ * A read of the store that is built once per store version. `build` runs again
+ * only after a write lands, from this process or another, or once `maxAgeMs`
+ * has passed for a read whose inputs are not all in the store (a process probe).
+ * Without a store there is nothing to key on and `build` runs every time.
+ */
+export function storeMemo<T>(build: (orchDir: OrchDir) => T, maxAgeMs: () => number = () => Number.POSITIVE_INFINITY): (orchDir: OrchDir) => T {
+  const entries = new Map<string, MemoEntry<T>>();
+  memoResets.add(() => entries.clear());
+  return (orchDir) => {
+    if (!storeExists(orchDir)) return build(orchDir);
+    const version = storeVersion(openDatabase(orchDir));
+    const now = Date.now();
+    const held = entries.get(orchDir);
+    if (held?.version === version && now - held.builtAt < maxAgeMs()) return held.value;
+    const value = build(orchDir);
+    entries.set(orchDir, { version, builtAt: now, value });
+    return value;
+  };
+}
+
 /**
  * Whether this orch dir has a store yet.
  *
@@ -236,6 +270,10 @@ function openDatabase(orchDir: OrchDir): OpenDatabase {
   // must leave the store byte-identical.
   applyMigrations(opened, path, orchDir);
   db.exec("PRAGMA journal_mode = WAL;");
+  // Under WAL, NORMAL syncs the log at checkpoint instead of at every commit. A
+  // crash of orch loses nothing; only power loss can drop the last commits. FULL
+  // was an fsync per status report.
+  db.exec("PRAGMA synchronous = NORMAL;");
   connections.set(path, opened);
   return opened;
 }
@@ -256,6 +294,7 @@ export function closeAllStores(): void {
     connections.delete(path);
   }
   openTransactions.clear();
+  for (const reset of memoResets) reset();
 }
 
 /** How many transactions are open on each connection, so a nested call becomes a

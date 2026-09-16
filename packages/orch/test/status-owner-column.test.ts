@@ -24,7 +24,6 @@ function statusRow(overrides: Partial<StatusRow>): StatusRow {
     modelShort: "luna",
     state: "idle",
     stateFallback: false,
-    staleExtension: false,
     exited: false,
     alive: true,
     cost: 0,

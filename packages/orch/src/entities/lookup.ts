@@ -1,5 +1,4 @@
 import type { OrchDir, Recipient } from "../types/core.ts";
-import { agentById } from "../store/agent-rows.ts";
 import { spaceOf } from "../policy/space.ts";
 import { abstractAgentLabel } from "../notify/format.ts";
 import { agentViewIndex } from "../store/agent-view.ts";
@@ -25,11 +24,6 @@ export function indexPresenceById(presence: ReadonlyMap<string, PresenceEntry>):
     byId.set(entry.key, entry);
   }
   return byId;
-}
-
-/** Resolve an identity key to the agent an operator knows. */
-export function normalizedAgentName(root: OrchDir, key: string): string | null {
-  try { return agentById(root, key)?.name ?? null; } catch { return null; }
 }
 
 function recipientName(view: AgentView | undefined, space: string, key: string): string {

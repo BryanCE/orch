@@ -322,20 +322,30 @@ export interface OpenFleetHomeRequest {
   readonly env: Readonly<Record<string, string>>;
 }
 
-export interface LeaseCommandResult {
-  readonly id: string;
-  readonly name: string;
-  readonly released?: boolean;
-  readonly adopted?: boolean;
-  readonly reaped?: boolean;
-  readonly renamed?: boolean;
-}
-
 /** Every lease operation takes the same two options: when it happened, and
  *  whether the caller is deliberately taking the agent from a LIVE orch (C4). */
 export interface LeaseOptions {
   readonly now?: number;
   readonly steal?: boolean;
+}
+
+export type ReapClassification = "dead" | "held" | "idle";
+
+export type ReapOwnership =
+  | { readonly kind: "leased"; readonly holder: string }
+  | { readonly kind: "unleased"; readonly reason: "none" | "holder-gone" };
+
+export interface ReapCandidateInput {
+  readonly id: string;
+  readonly name: string;
+  readonly harnessId: string;
+  readonly createdAt: number;
+  readonly ownership: ReapOwnership;
+  readonly processLive: boolean;
+}
+
+export interface ReapCandidate extends ReapCandidateInput {
+  readonly classification: ReapClassification;
 }
 
 /**

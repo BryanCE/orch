@@ -13,7 +13,7 @@ import { viewForKey } from "../entities/lookup.ts";
 import { openingPlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
 import { displaySpace } from "./status/options.ts";
 import { spaceName } from "../policy/space.ts";
-import { setHandle } from "../store/interval-rows.ts";
+import { writeRpc } from "./daemon.ts";
 import { ambiguousTargetRefusal } from "../refusal.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSplit, TilePlacement } from "../types/backend.ts";
@@ -288,7 +288,7 @@ function isBackendSplit(value: string): value is BackendSplit {
   return value === "down" || value === "right";
 }
 
-export function cmdMove(services: Services, args: string[]) {
+export async function cmdMove(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("move", args);
   const json = flags.has("--json");
   const force = flags.has("--force");
@@ -317,7 +317,7 @@ export function cmdMove(services: Services, args: string[]) {
     // The pane moved; the agent did not become a different agent. A14: the
     // handle is an interval on its own axis, so the old one closes and a new
     // one opens — identity is untouched.
-    if (isAgentId(key)) setHandle(services.orchDir, key, Date.now(), String(handle));
+    if (isAgentId(key)) await writeRpc(services, "set-handle", { target: key, handle: String(handle) });
     if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: groupId }) + "\n");
     else process.stdout.write(`Moved ${String(handle)} ${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
   } catch (e: unknown) {

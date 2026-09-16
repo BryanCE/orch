@@ -1,9 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { loadPresence } from "../../presence/store.ts";
-import { isAgentState } from "../../agent-state.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
-import { agentById, endAgent } from "../../store/agent-rows.ts";
-import { selfId, selfIdentity } from "../../identity/self.ts";
+import { selfIdentity } from "../../identity/self.ts";
 import { callerAuthority, refuseClose } from "../../policy/close-authority.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
@@ -11,13 +9,12 @@ import { getBackend } from "../../backends/registry.ts";
 import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
-import { rpcCall } from "../../daemon/client/rpc.ts";
+import { callDaemon } from "../daemon.ts";
 import { agentAddress, die, presenceById, resolveLifecycleTarget } from "../target.ts";
 import { parseCommand } from "../registry.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
-import type { ParamsOf } from "../../daemon/client/protocol.ts";
-import type { Logger, OrchDir } from "../../types/core.ts";
+import type { OrchDir } from "../../types/core.ts";
 import { currentProcess } from "../../store/interval-rows.ts";
 import { STREAM_VERBS } from "../events.ts";
 
@@ -44,31 +41,16 @@ function processRemains(role: ProcessRole, recorded: RecordedProcess): boolean {
   return !exited;
 }
 
-/** Close is the SECOND ending verb. Close ends the process; an `agent_endings` row
- *  is written, row and history stay, and
- *  only `reap` deletes. Deleting the hub row here cascaded away the agent's
- *  lease and its whole lease history — so a live orch's holding vanished the
- *  moment anyone closed the agent it drove, and retention (which sweeps ended
- *  rows) had nothing left to sweep. */
-type ClosedAgent = ParamsOf<"agent-closed">;
-
-function endClosedAgent(orchDir: OrchDir, key: string): ClosedAgent | null {
-  const root = orchDir;
-  const agentId = key;
-  const row = agentById(root, agentId);
-  if (row && !row.ending) {
-    const by = selfId(root);
-    endAgent(root, agentId, Date.now(), by !== undefined && agentById(root, by) ? by : null);
-    // The presence file is the boundary: a state it does not carry, or one orch
-    // does not know, means the agent had already left.
-    const reported = loadPresence(root).get(key)?.status?.state;
-    return { key, oldState: isAgentState(reported) ? reported : "exited" };
+/** Close is the SECOND ending verb. The process is gone here; orchd writes the
+ *  ending and publishes it. A refused write is this target's failure, not the
+ *  sweep's. */
+async function endClosedAgent(services: CloseServices, key: string): Promise<string | null> {
+  try {
+    await callDaemon(services, "agent-closed", { key });
+    return null;
+  } catch (error: unknown) {
+    return errorMessage(error);
   }
-  return null;
-}
-
-function publishClosedAgent(orchDir: OrchDir, closed: ClosedAgent): void {
-  void rpcCall(orchDir, "agent-closed", closed).catch(() => { /* the daemon may not be running */ });
 }
 
 /** One target's result from a multi-target close, with the reason it failed. */
@@ -270,7 +252,10 @@ function killEventStreams(): number {
  *  Prose on stderr is not something a caller
  *  can act on, and a payload carrying only the successes cannot tell a full
  *  sweep from a half one. A target named twice is closed once. */
-function closeEachTarget(logger: Logger, orchDir: OrchDir, targets: readonly CloseTarget[], json: boolean): { results: CloseOutcome[]; closed: string[]; ok: number } {
+type CloseServices = Pick<Services, "orchDir" | "settings" | "logger">;
+
+async function closeEachTarget(services: CloseServices, targets: readonly CloseTarget[], json: boolean): Promise<{ results: CloseOutcome[]; closed: string[]; ok: number }> {
+  const logger = services.logger;
   const results: CloseOutcome[] = [];
   const closed: string[] = [];
   const seen = new Set<string>();
@@ -278,15 +263,14 @@ function closeEachTarget(logger: Logger, orchDir: OrchDir, targets: readonly Clo
     if (seen.has(target.key)) continue;
     seen.add(target.key);
     const handle = target.handle === null ? null : describeHandle(target.handle);
-    const { failure, signalled, closedByBackend } = attemptClose(target);
+    const { failure: processFailure, signalled, closedByBackend } = attemptClose(target);
+    const failure = processFailure ?? await endClosedAgent(services, target.key);
     if (failure !== null) {
       lifecycleLogger(logger, target.key).error("close.failed", { handle, error: failure });
       results.push({ target: target.key, handle, outcome: "error", error: failure });
       process.stdout.write(`Could not close ${target.key}: ${failure}\n`);
       continue;
     }
-    const ended = endClosedAgent(orchDir, target.key);
-    if (ended) publishClosedAgent(orchDir, ended);
     closed.push(target.key);
     results.push({ target: target.key, handle, outcome: "done", error: null });
     if (!json) process.stdout.write(`Closed ${target.key}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
@@ -314,7 +298,7 @@ function reportClose(
   if (requested && ok !== requested) process.exitCode = 1;
 }
 
-export function cmdClose(services: Services, args: string[]) {
+export async function cmdClose(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("close", args);
   const all = flags.has("--all");
   const stream = flags.has("--stream");
@@ -328,7 +312,7 @@ export function cmdClose(services: Services, args: string[]) {
   // A sweep skips what is not the caller's; a named target is refused.
   const swept = all ? sweepTargets(services).filter((target) => refuseClose(services.orchDir, authority, target.key) === null) : [];
 
-  reportClose(closeEachTarget(services.logger, services.orchDir, [...swept, ...named], json), { all, stream, json });
+  reportClose(await closeEachTarget(services, [...swept, ...named], json), { all, stream, json });
 }
 
 export function cmdAbort(services: Services, args: string[]) {

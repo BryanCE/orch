@@ -1,14 +1,13 @@
 import type { OrchDir } from "../../types/core.ts";
 import type { LogLevel, Logger } from "../../types/core.ts";
 import "../../store/suppress-sqlite-warning.ts";
-import { bootCodeHash, startedAt, fleetStatus, idleShutdownDue, liveAgentCount, socketAnswers, touchOnCall } from "./state.ts";
+import { bootCodeHash, idleShutdownDue, liveAgentCount, socketAnswers, touchOnCall } from "./state.ts";
 import type { DaemonState } from "./state.ts";
-import { answer, dispatch, message, outboxDeps, steer } from "./handlers/write.ts";
-import { applyLifecycle, enqueue, listPendingQuestions, publishClosedAgent, recordAgentQuestion, setModel, spawnHeadless } from "./handlers/lifecycle.ts";
+import { outboxDeps } from "./handlers/write.ts";
+import { rpcHandlers } from "./handlers/table.ts";
 import { repinLiveFleet } from "./repin.ts";
 import {
   acquireDaemonLock,
-  reexecSelf,
   releaseDaemonLock,
   acquireDaemonRegistration,
   daemonStartRefusal,
@@ -20,15 +19,11 @@ import { createServices } from "../../services.ts";
 import { watchSettings } from "../../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify } from "./events.ts";
-import { acceptResultReport, acceptStatusReport, startLivenessTick } from "./status-report.ts";
+import { startLivenessTick } from "./status-report.ts";
 import { errorMessage, errorTrace } from "../../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { insertControlOutcome } from "../../store/control-outcome-rows.ts";
-import { appendOutcome, ensurePresenceAgentDir } from "../../presence/history.ts";
 import { holdPresenceFor } from "../../presence/store.ts";
-import { settleControlOutcome } from "../../control/outcome.ts";
-import { acknowledgeDelivery } from "../../control/ack.ts";
 import { drainOutbox, redeliverOpenRows } from "./outbox.ts";
 import { isAgentId } from "../../backends/identity.ts";
 import { LAUNCH_ENV, readLaunchCredential } from "../../identity/launch.ts";
@@ -36,17 +31,9 @@ import { deliverControl, resolveTargetAdapter } from "../../control/dispatch.ts"
 import { warmAdapterCatalogues } from "../../adapters/registry.ts";
 import { createLogger } from "../../log.ts";
 import { daemonRuntimeFiles } from "../client/runtime-files.ts";
-import { decisionLogger } from "../client/decision-log.ts";
-import type { ControlOutcomeReport } from "../../types/agent.ts";
-import type { RpcHandlers } from "../../types/daemon.ts";
-import type { ParamsOf } from "../client/protocol.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
-import { selectOpenOutboxForTarget, selectOutboxMessage, markOutboxDelivered } from "../../store/outbox-rows.ts";
 import { createPanePainter } from "./pane-painter.ts";
-import { activePaneHud } from "../../backends/hud.ts";
-import { peerView } from "./peer-view.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
-import type { PaneLabels } from "../../types/plexer.ts";
 import { createWakeSignal } from "./wake.ts";
 
 /** `level` is an explicit override (a flag); everything else resolves the same
@@ -129,118 +116,7 @@ export async function startDaemon(): Promise<DaemonState> {
     const settings = services.settings.current();
     state.logger = loggerFor(directory, services.settings.current().logging?.level);
     const tcpPort = settings.daemon.tcp_port;
-    const handlers: RpcHandlers = {
-      "daemon-status": () => ({
-        pid: process.pid,
-        startedAt: startedAt.toISOString(),
-        uptimeSec: Math.floor((Date.now() - startedAt.getTime()) / 1000),
-        codeHash: bootCodeHash,
-        socket: state.server?.transport ?? "unknown",
-        tcpEndpoint: state.server?.tcpEndpoint,
-        subsystems: {
-          workLoop: state.workLoopRunning ? "running" : "stopped",
-          livenessTick: state.livenessTick ? "running" : "stopped",
-          settingsWatch: state.settingsWatch ? "running" : "stopped",
-        },
-      }),
-      "subscribe-events": () => ({ subscribed: true }),
-      // A bundled harness links no plexer, so the two things it used to ask its
-      // pane directly it now asks orchd, the only process that talks to one.
-      "environment-labels": async (params) => {
-        const id = params.id;
-        let reported: PaneLabels | null = null;
-        await activePaneHud(id, directory).readLabels((labels) => { reported = labels; });
-        return reported;
-      },
-      "peer-view": (params) => {
-        const keys = params.keys ?? [];
-        return peerView(directory, params.ownKey, keys, params.allSpaces === true, params.projectRoot);
-      },
-      notify: (event: ParamsOf<"notify">) => {
-        const { newState } = event;
-        if (newState === "asking") {
-          const composed: NotifyEvent = { ...event, type: "asking", newState: "asking", askCount: 1, gaveUp: false };
-          activePaneHud(event.key, directory).notify(composed);
-          return { ok: true };
-        }
-        const composed: NotifyEvent = { ...event, type: "transition", newState };
-        activePaneHud(event.key, directory).notify(composed);
-        return { ok: true };
-      },
-      "report-status": (params) => {
-        const result = acceptStatusReport(directory, params.key, params.status, (event) => emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings));
-        state.wake.wake();
-        return result;
-      },
-      "report-result": (params) => {
-        const result = acceptResultReport(directory, params.key, params.result);
-        state.wake.wake();
-        return result;
-      },
-      status: () => fleetStatus(state),
-      attach: (params) => {
-        const key = params.key;
-        return { attached: true, open: selectOpenOutboxForTarget(directory, key).length };
-      },
-      dispatch: (params) => dispatch(state, params),
-      enqueue: (params) => enqueue(state, params),
-      steer: (params) => steer(state, params),
-      message: (params) => message(state, params),
-      "spawn-headless": (params) => spawnHeadless(state, params),
-      "set-model": (params) => setModel(state, params),
-      lifecycle: (params) => applyLifecycle(state, params),
-      "agent-closed": (params) => {
-        const result = publishClosedAgent(state, params);
-        state.wake.wake();
-        return result;
-      },
-      question: (params) => recordAgentQuestion(directory, params),
-      questions: () => listPendingQuestions(directory),
-      answer: (params) => {
-        const result = answer(state, params);
-        state.wake.wake();
-        return result;
-      },
-      ack: (params) => {
-        const id = params.id;
-        const row = selectOutboxMessage(directory, id);
-        markOutboxDelivered(directory, id);
-        if (row === undefined) decisionLogger(directory, services.settings.currentOrNull()).forCorrelation(id).debug("dispatch.acked", { target: null });
-        else decisionLogger(directory, services.settings.currentOrNull()).forCorrelation(id).info("dispatch.acked", { target: row.target });
-        acknowledgeDelivery(id);
-        state.wake.wake();
-        return { ok: true };
-      },
-      "control-outcome": (params) => {
-        const report: ControlOutcomeReport = {
-          id: params.id,
-          key: params.key,
-          command: params.command,
-          requested: params.requested ?? {},
-          ...(params.applied === undefined ? {} : { applied: params.applied }),
-          ...(params.error === undefined ? {} : { error: params.error }),
-        };
-        insertControlOutcome(directory, {
-          id: report.id,
-          agentId: report.key,
-          command: report.command,
-          requested: report.requested,
-          settledAt: Date.now(),
-          ...(params.error === undefined ? {} : { error: params.error }),
-        });
-        const presenceDirectory = ensurePresenceAgentDir(report.key, directory);
-        if (presenceDirectory !== undefined) appendOutcome(presenceDirectory, { ts: Date.now(), ...report });
-        settleControlOutcome(report);
-        return { ok: true };
-      },
-      reload: () => {
-        setTimeout(() => {
-          void state.server?.close().then(() => reexecSelf(directory));
-        }, 10);
-        return { ok: true };
-      },
-    };
-    state.server = await startRpcServer(directory, touchOnCall(state, handlers), {
+    state.server = await startRpcServer(directory, touchOnCall(state, rpcHandlers(state)), {
       holdsDaemonLock: true,
       tcpPort,
       onTcpError: (error, port) => state.logger?.error("daemon.tcp-listener-failed", { port, error: errorMessage(error) }),

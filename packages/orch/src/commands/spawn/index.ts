@@ -27,7 +27,7 @@ import type { SpawnSettings } from "./flags.ts";
 import { assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceGranted, assertTabCapacity, admitSpawn } from "./admission.ts";
 import { admitLaunchModel, pinModels } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
-import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
+import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab, type SpawnServices } from "./placement.ts";
 import { awaitBridgeAttach, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
 
 
@@ -115,7 +115,7 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
 
 /** Spawn every requested agent into an already-open tab, balancing as it fills. */
 async function spawnIntoExistingTab(services: Pick<Services, "orchDir" | "logger" | "settings">, settingsFile: OrchSettings, settings: SpawnSettings, group: BackendGroup, space: string | null, workspace: string | undefined, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): Promise<void> {
-  const created = growFleetIntoGroup(services.orchDir, services.logger, settings, space, workspace, group.id, backend, names, spawnerAgentId, role);
+  const created = await growFleetIntoGroup(services, settings, space, workspace, group.id, backend, names, spawnerAgentId, role);
   await reportSpawnResults(services, services.logger, settingsFile, settings, group.id, group.label ?? group.id, created, backend);
 }
 
@@ -193,11 +193,11 @@ function placeRemainingAgents(
 
 /** Launch an agent into every place that opened. A launch failure costs that
  *  agent; the caller rules on what an empty result means. */
-function launchPrepared(
-  services: Pick<Services, "orchDir" | "logger">,
+async function launchPrepared(
+  services: SpawnServices,
   prepared: readonly PreparedAgent[],
   context: { settings: SpawnSettings; settingsFile: OrchSettings; backend: Backend; adapter: AgentAdapter; space: string | null; workspace: string | undefined; groupId: string; spawnerAgentId: string | null },
-): CreatedAgent[] {
+): Promise<CreatedAgent[]> {
   const { settings, settingsFile, backend, adapter, space, workspace, groupId, spawnerAgentId } = context;
   const created: CreatedAgent[] = [];
   for (const [index, item] of prepared.entries()) {
@@ -205,7 +205,7 @@ function launchPrepared(
     const plan = settings.agents[index];
     if (plan === undefined) throw new Error(`missing spawn plan for ${item.name}`);
     try {
-      created.push(spawnOneIntoTab(services.orchDir, {
+      created.push(await spawnOneIntoTab(services, {
         backend, adapter, adapterId: settings.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         model: plan.model, thinking: plan.thinking, preferredModels: settings.preferredModels,
         reportTimeoutMs: settingsFile.daemon.report_timeout_ms,
@@ -297,7 +297,7 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
   const prepared = prepareAgents(services.orchDir, settings, adapter, names);
   const { group, workspace } = seatFleet(services.orchDir, backend, groupHome, placement, settings, prepared);
   placeRemainingAgents(services.logger, backend, prepared, group.id, workspace, settings.tiling.first_split);
-  const created = launchPrepared(services, prepared, { settings, settingsFile, backend, adapter, space, workspace, groupId: group.id, spawnerAgentId });
+  const created = await launchPrepared(services, prepared, { settings, settingsFile, backend, adapter, space, workspace, groupId: group.id, spawnerAgentId });
   if (created.length === 0) {
     try { groupHome.close(group.id); } catch { /* best effort */ }
     die("all spawns failed");
@@ -349,7 +349,7 @@ export async function cmdTile(services: Services, args: string[]) {
   const spawnerAgentId = launchCredential() ?? (await rpcRegisterSession(services.orchDir, services.logger)).id;
   let agent: CreatedAgent;
   try {
-    agent = spawnOneIntoTab(services.orchDir, {
+    agent = await spawnOneIntoTab(services, {
       backend: selectedBackend,
       adapter: selectedAdapter,
       adapterId: adapter,

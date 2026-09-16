@@ -1,172 +1,17 @@
-import { deriveDriveState, DEAD_HOLDER_DRIVER } from "../agent/drive-state.ts";
 import { formatTimestamp } from "../format.ts";
-import { reapAgentRecord } from "../presence/store.ts";
 import { rpcRegisterSession } from "../daemon/client/reach.ts";
 import { launchCredential } from "../identity/launch.ts";
-import { asc, eq } from "drizzle-orm";
-import { orm } from "../store/connection.ts";
-import { agents } from "../db/schema.ts";
-import { recordedProcessIsLive } from "../store/interval-rows.ts";
-import { agentById, childrenOf, liveAgents, renameAgent } from "../store/agent-rows.ts";
-import { adoptLease, currentLease, expireLease, leasesByOrch, releaseLease } from "../store/lease-rows.ts";
 import { promptMultiselect } from "../setup/io.ts";
-import { assertValidAgentName } from "../policy/name.ts";
-import type { AgentRow } from "../types/store.ts";
 import { parseCommand } from "./registry.ts";
-import type { LeaseCommandResult, LeaseOptions } from "../types/command.ts";
+import { writeRpc } from "./daemon.ts";
+import type { ReapCandidate } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
-export type { LeaseCommandResult, LeaseOptions };
+import type { ResultOf } from "../daemon/client/protocol.ts";
 
 /** Resolve the caller's orch identity in one seam for every lease command. */
 async function resolveSelfOrchId(directory: OrchDir, logger: Services["logger"]): Promise<string> {
   return launchCredential() ?? (await rpcRegisterSession(directory, logger)).id;
-}
-
-
-
-/** C4d - resolving a target to an id is ONE operation at the boundary, never a
- *  lookup re-spelled per command. C4c - names carry no uniqueness: an id always
- *  wins, a unique name resolves, and several matches is a lookup that found more
- *  than one agent and asks which id was meant. */
-export function resolveTarget(directory: OrchDir, target: string): AgentRow {
-  const exact = agentById(directory, target);
-  if (exact) return exact;
-  const rows = orm(directory).select({ id: agents.id }).from(agents)
-    .where(eq(agents.name, target)).orderBy(asc(agents.id)).all();
-  if (rows.length > 1) {
-    const ids = rows.map((row) => row.id).join(", ");
-    throw new Error(`Ambiguous target "${target}": ${rows.length} agents share that name (${ids}). Which id did you mean?`);
-  }
-  const only = rows[0];
-  if (only) {
-    const row = agentById(directory, only.id);
-    if (row) return row;
-  }
-  throw new Error(`No agent matches "${target}".`);
-}
-
-function displayName(agent: AgentRow): string {
-  return agent.name || agent.id;
-}
-
-function liveDescendants(directory: OrchDir, parentId: string, result: AgentRow[] = []): AgentRow[] {
-  for (const child of childrenOf(directory, parentId)) {
-    if (!child.ending) result.push(child);
-    liveDescendants(directory, child.id, result);
-  }
-  return result;
-}
-
-function allDescendants(directory: OrchDir, parentId: string, result: AgentRow[] = []): AgentRow[] {
-  for (const child of childrenOf(directory, parentId)) {
-    result.push(child);
-    allDescendants(directory, child.id, result);
-  }
-  return result;
-}
-
-/** Release the caller's lease, or expire a stale one. An already-unleased agent
- *  is a friendly no-op.
- *
- *  Rule 11: a lease is mutual exclusion, and only a LIVE holder excludes anyone.
- *  A dead holder's lease is a stale row, and refusing to release it strands the
- *  agent permanently - every driving verb is gated on that same lease, so detach
- *  is the only way out and must never be blocked by the thing it exists to clear.
- *  C4: taking it from a LIVE orch is deliberate, and that is what --steal is. */
-export function detachAgent(directory: OrchDir, target: string, orchId: string, opts: LeaseOptions = {}): LeaseCommandResult {
-  const now = opts.now ?? Date.now();
-  const agent = resolveTarget(directory, target);
-  const lease = currentLease(directory, agent.id);
-  if (!lease) return { id: agent.id, name: displayName(agent), released: false };
-  if (lease.orchId !== orchId) {
-    assertNotHeldByLiveForeignOrch(directory, agent, lease.orchId, orchId, opts);
-    // Closed as "expired", not "released": no caller held it to release.
-    expireLease(directory, agent.id, now);
-    return { id: agent.id, name: displayName(agent), released: true };
-  }
-  releaseLease(directory, agent.id, orchId, now);
-  return { id: agent.id, name: displayName(agent), released: true };
-}
-
-function holderStillAlive(directory: OrchDir, orchId: string): boolean {
-  return recordedProcessIsLive(directory, orchId);
-}
-
-/** C3 - the one place that answers "may this orch drive that agent?". Mutual
- *  exclusion, never authorization: only a LIVE foreign holder excludes, and only
- *  a deliberate --steal takes an agent from one. */
-function assertNotHeldByLiveForeignOrch(
-  directory: OrchDir,
-  agent: AgentRow,
-  holderId: string,
-  orchId: string,
-  opts: LeaseOptions = {},
-): void {
-  if (holderId === orchId) return;
-  if (opts.steal) return;
-  if (!holderStillAlive(directory, holderId)) return;
-  throw new Error(`${displayName(agent)} is leased by live orch ${holderId}.`);
-}
-
-/** Adopt an unleased agent, one whose holder is no longer alive, or - with
- *  --steal - one a live orch still holds. C5: this writes lease rows and nothing
- *  else, so the agent is not reset, not re-attached, and loses no context. */
-export function adoptAgent(directory: OrchDir, target: string, orchId: string, opts: LeaseOptions = {}): LeaseCommandResult {
-  const now = opts.now ?? Date.now();
-  const agent = resolveTarget(directory, target);
-  if (agent.ending) throw new Error(`${displayName(agent)} has ended and cannot be adopted.`);
-  if (agent.id === orchId) throw new Error(`Cannot adopt the calling orch agent ${displayName(agent)}.`);
-  const lease = currentLease(directory, agent.id);
-  if (lease?.orchId === orchId) return { id: agent.id, name: displayName(agent), adopted: false };
-  if (lease) assertNotHeldByLiveForeignOrch(directory, agent, lease.orchId, orchId, opts);
-  adoptLease(directory, agent.id, orchId, now);
-  return { id: agent.id, name: displayName(agent), adopted: true };
-}
-
-/** C4f - an agent may rename ITSELF with no lease in force, because acting on
- *  itself is not driving. Renaming ANOTHER agent is driving, so it meets the
- *  same live-foreign-holder gate as dispatch/steer/model/reset. */
-export function renameTarget(directory: OrchDir, target: string, callerId: string, name: string): LeaseCommandResult {
-  assertValidAgentName(name);
-  const agent = resolveTarget(directory, target);
-  if (agent.id !== callerId) {
-    const lease = currentLease(directory, agent.id);
-    if (lease) assertNotHeldByLiveForeignOrch(directory, agent, lease.orchId, callerId);
-  }
-  if (!renameAgent(directory, agent.id, name)) throw new Error(`No agent matches "${target}".`);
-  return { id: agent.id, name, renamed: true };
-}
-
-/** C7 - the LIVE view groups by lease. History groups by provenance, which is
- *  `packMembers`/`childrenOf` and never this. */
-export function leasedAgents(directory: OrchDir, orchId: string): AgentRow[] {
-  const rows: AgentRow[] = [];
-  for (const lease of leasesByOrch(directory, orchId)) {
-    const agent = agentById(directory, lease.agentId);
-    if (agent) rows.push(agent);
-  }
-  return rows;
-}
-
-/** Delete an agent subtree after proving no live descendant or process remains. */
-export function reapAgent(directory: OrchDir, target: string, now = Date.now()): LeaseCommandResult {
-  void now;
-  const agent = resolveTarget(directory, target);
-  const descendants = allDescendants(directory, agent.id);
-  const live = liveDescendants(directory, agent.id);
-  if (live.length) {
-    const names = live.map((child) => `${displayName(child)} (${child.id})`).join(", ");
-    throw new Error(`Cannot reap ${displayName(agent)}: live descendants: ${names}.`);
-  }
-  if (recordedProcessIsLive(directory, agent.id)) {
-    throw new Error(`Cannot reap ${displayName(agent)}: process is still running; close first.`);
-  }
-  // Foreign leases never gate ending/reaping. Delete descendants first because
-  // agents.spawned_by intentionally has no ON DELETE CASCADE. JSONL history stays.
-  for (const child of [...descendants].reverse()) reapAgentRecord(child.id, directory);
-  reapAgentRecord(agent.id, directory);
-  return { id: agent.id, name: displayName(agent), reaped: true };
 }
 
 /** The one target a lease verb names. */
@@ -180,7 +25,8 @@ export async function cmdDetach(services: Services, args: string[]): Promise<voi
   const { flags, positional } = parseCommand("detach", args);
   const target = oneTarget(positional, "usage: orch detach <target> [--steal] [--json]");
   const json = flags.has("--json");
-  const result = detachAgent(services.orchDir, target, await resolveSelfOrchId(services.orchDir, services.logger), { steal: flags.has("--steal") });
+  const actor = await resolveSelfOrchId(services.orchDir, services.logger);
+  const result = await writeRpc(services, "detach", { target, actor }, { steal: flags.has("--steal") });
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, released: result.released }) + "\n");
   else process.stdout.write(result.released ? `Detached ${result.name}.\n` : `${result.name}: no lease (already detached).\n`);
 }
@@ -194,90 +40,12 @@ export async function cmdAdopt(services: Services, args: string[]): Promise<void
   // C4: --steal takes ONE agent from ONE live orch, deliberately. A sweep that
   // silently took every live orch's fleet would be the opposite of deliberate.
   if (all && steal) throw new Error("orch adopt --all never steals; name the agent to take it from a live orch.");
-  const orchId = await resolveSelfOrchId(services.orchDir, services.logger);
-  const results: LeaseCommandResult[] = [];
-  if (all) {
-    for (const agent of liveAgents(services.orchDir)) {
-      if (agent.id === orchId) continue;
-      try { results.push(adoptAgent(services.orchDir, agent.id, orchId)); } catch (error: unknown) {
-        if (error instanceof Error && error.message.toLowerCase().includes("leased by live orch")) continue;
-        throw error;
-      }
-    }
-  } else {
-    results.push(adoptAgent(services.orchDir, positional[0]!, orchId, { steal }));
-  }
+  const actor = await resolveSelfOrchId(services.orchDir, services.logger);
+  const { results } = await writeRpc(services, "adopt", all ? { all: true, actor } : { target: positional[0]!, actor }, { steal });
   const adopted = results.filter((result) => result.adopted);
   if (json) process.stdout.write(JSON.stringify({ adopted: adopted.map((result) => ({ target: result.id, name: result.name })) }) + "\n");
   else if (!adopted.length) process.stdout.write("No orphan agents to adopt.\n");
   else for (const result of adopted) process.stdout.write(`Adopted ${result.name}.\n`);
-}
-
-export type ReapClassification = "dead" | "held" | "idle";
-
-export type ReapOwnership =
-  | { readonly kind: "leased"; readonly holder: string }
-  | { readonly kind: "unleased"; readonly reason: "none" | "holder-gone" };
-
-export interface ReapCandidateInput {
-  readonly id: string;
-  readonly name: string;
-  readonly harnessId: string;
-  readonly createdAt: number;
-  readonly ownership: ReapOwnership;
-  readonly processLive: boolean;
-}
-
-export interface ReapCandidate extends ReapCandidateInput {
-  readonly classification: ReapClassification;
-}
-
-/** Classify a candidate without reading the store or inspecting processes. */
-export function reapCandidates(rows: readonly ReapCandidateInput[]): ReapCandidate[] {
-  return rows.map((row) => {
-    let classification: ReapClassification;
-    switch (row.ownership.kind) {
-      case "leased":
-        classification = "held";
-        break;
-      case "unleased":
-        classification = row.processLive ? "idle" : "dead";
-        break;
-      default: {
-        const exhaustive: never = row.ownership;
-        return exhaustive;
-      }
-    }
-    return { ...row, classification };
-  });
-}
-
-function reapOwnership(directory: OrchDir, agentId: string, callerId: string): ReapOwnership {
-  const drive = deriveDriveState(agentId, { directory, currentOrchId: callerId });
-  switch (drive.kind) {
-    case "leased":
-      return { kind: "leased", holder: drive.owner };
-    case "unleased":
-      return { kind: "unleased", reason: drive.owner === DEAD_HOLDER_DRIVER ? "holder-gone" : "none" };
-    default: {
-      const exhaustive: never = drive.kind;
-      return exhaustive;
-    }
-  }
-}
-
-function classifiedReapCandidates(directory: OrchDir, callerId: string): ReapCandidate[] {
-  const inputs = liveAgents(directory)
-    .filter((agent) => agent.id !== callerId && agent.sessionToken === null)
-    .map((agent): ReapCandidateInput => ({
-      id: agent.id,
-      name: displayName(agent),
-      harnessId: agent.harnessId,
-      createdAt: agent.createdAt,
-      ownership: reapOwnership(directory, agent.id, callerId),
-      processLive: recordedProcessIsLive(directory, agent.id),
-    }));
-  return reapCandidates(inputs);
 }
 
 function reapHint(candidate: ReapCandidate): string {
@@ -289,17 +57,13 @@ function reapHint(candidate: ReapCandidate): string {
   return `${ownership} - ${process} - ${created}`;
 }
 
-function reapResults(directory: OrchDir, candidates: readonly ReapCandidate[]): LeaseCommandResult[] {
-  return candidates.map((candidate) => reapAgent(directory, candidate.id));
+function printReaped(reaped: ResultOf<"reap">["reaped"]): void {
+  if (!reaped.length) process.stdout.write("Nothing reaped.\n");
+  else for (const result of reaped) process.stdout.write(`Reaped ${result.name}.\n`);
 }
 
-function printReaped(results: readonly LeaseCommandResult[]): void {
-  if (!results.length) process.stdout.write("Nothing reaped.\n");
-  else for (const result of results) process.stdout.write(`Reaped ${result.name}.\n`);
-}
-
-async function reapInteractive(directory: OrchDir, callerId: string): Promise<void> {
-  const candidates = classifiedReapCandidates(directory, callerId);
+async function reapInteractive(services: Services, actor: string): Promise<void> {
+  const { candidates } = await writeRpc(services, "reap-candidates", { actor });
   const selected = await promptMultiselect("Select agents to reap", candidates.map((candidate) => ({
     value: candidate.id,
     label: `${candidate.name} (${candidate.harnessId})`,
@@ -307,17 +71,9 @@ async function reapInteractive(directory: OrchDir, callerId: string): Promise<vo
     checked: candidate.classification === "dead",
   })));
   if (selected === null) return;
-  const selectedSet = new Set(selected);
-  const chosen = candidates.filter((candidate) => selectedSet.has(candidate.id));
-  printReaped(reapResults(directory, chosen));
-}
-
-function reapDead(directory: OrchDir, callerId: string, json: boolean): void {
-  const candidates = classifiedReapCandidates(directory, callerId);
-  const dead = candidates.filter((candidate) => candidate.classification === "dead");
-  const results = reapResults(directory, dead);
-  if (json) process.stdout.write(JSON.stringify(results.map((result) => ({ target: result.id, name: result.name }))) + "\n");
-  else printReaped(results);
+  const reaped: ResultOf<"reap">["reaped"] = [];
+  for (const target of selected) reaped.push(...(await writeRpc(services, "reap", { target, actor })).reaped);
+  printReaped(reaped);
 }
 
 export async function cmdReap(services: Services, args: string[]): Promise<void> {
@@ -325,20 +81,22 @@ export async function cmdReap(services: Services, args: string[]): Promise<void>
   const json = flags.has("--json");
   if (flags.has("--dead")) {
     if (positional.length) throw new Error("usage: orch reap <target> | --dead [--json]");
-    const directory = services.orchDir;
-    reapDead(directory, await resolveSelfOrchId(directory, services.logger), json);
+    const actor = await resolveSelfOrchId(services.orchDir, services.logger);
+    const { reaped } = await writeRpc(services, "reap", { dead: true, actor });
+    if (json) process.stdout.write(JSON.stringify(reaped.map((result) => ({ target: result.id, name: result.name }))) + "\n");
+    else printReaped(reaped);
     return;
   }
 
   if (positional.length === 0) {
     if (process.stdin.isTTY !== true) throw new Error("usage: orch reap <target> | --dead [--json]");
-    await reapInteractive(services.orchDir, await resolveSelfOrchId(services.orchDir, services.logger));
+    await reapInteractive(services, await resolveSelfOrchId(services.orchDir, services.logger));
     return;
   }
 
   const target = oneTarget(positional, "usage: orch reap <target> [--json]");
-  const result = reapAgent(services.orchDir, target);
+  const { reaped } = await writeRpc(services, "reap", { target });
+  const result = reaped[0]!;
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, reaped: true }) + "\n");
   else process.stdout.write(`Reaped ${result.name}.\n`);
-  await Promise.resolve();
 }

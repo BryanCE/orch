@@ -165,6 +165,14 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "lifecycle": return parseOne(method, RPC_PARAMS[method], id, value);
     case "spawn-headless": return parseOne(method, RPC_PARAMS[method], id, value);
     case "agent-closed": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "register-agent": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "detach": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "adopt": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "rename": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "reap": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "reap-candidates": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "reclaim": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "set-handle": return parseOne(method, RPC_PARAMS[method], id, value);
     case "question": return parseOne(method, RPC_PARAMS[method], id, value);
     case "questions": return parseOne(method, RPC_PARAMS[method], id, value);
     case "ack": return parseOne(method, RPC_PARAMS[method], id, value);

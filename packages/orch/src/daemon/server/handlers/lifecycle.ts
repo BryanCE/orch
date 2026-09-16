@@ -6,7 +6,11 @@ import { headlessBackend } from "../../../backends/registry.ts";
 import { deliverControl } from "../../../control/dispatch.ts";
 import { emitAndNotify } from "../events.ts";
 import { agentView } from "../../../store/agent-view.ts";
-import { agentById } from "../../../store/agent-rows.ts";
+import { agentById, endAgent, reclaimAgent } from "../../../store/agent-rows.ts";
+import { setHandle as setAgentHandle } from "../../../store/interval-rows.ts";
+import { registerSpawnedAgent } from "../../../store/spawn-registration.ts";
+import { loadPresence } from "../../../presence/store.ts";
+import { isAgentState } from "../../../agent-state.ts";
 import { pendingQuestions, recordQuestion } from "../../../store/question-rows.ts";
 import { governWrite } from "./write.ts";
 import type { DaemonState } from "../state.ts";
@@ -75,14 +79,22 @@ export async function setModel(state: DaemonState, params: ParamsOf<"set-model">
 /** Apply a lifecycle verb from inside the daemon. A console-less agent is relaunched
  *  to satisfy the verb, and a relaunch must happen here: the spawner holds the new
  *  process's stdin, and only orchd outlives the agent it starts. */
-export function publishClosedAgent(state: DaemonState, params: ParamsOf<"agent-closed">): { ok: true } {
+/** Close is the SECOND ending verb. The process is gone; an `agent_endings` row
+ *  is written, row and history stay, and only `reap` deletes. An agent that had
+ *  already ended is left as it is and nothing is published twice. */
+export function closeAgent(state: DaemonState, params: ParamsOf<"agent-closed">): { ok: true } {
   const directory = state.directory;
   const settings = state.services.settings;
   const key = params.key;
-  const oldState = params.oldState;
   const view = agentView(directory, key);
   if (!view) throw new Error(`agent ${key} does not exist`);
-  if (view.endedAt === null) throw new Error(`agent ${key} has not ended`);
+  if (view.endedAt !== null) return { ok: true };
+  // The status row is the boundary: a state it does not carry, or one orch
+  // does not know, means the agent had already left.
+  const reported = loadPresence(directory).get(key)?.status?.state;
+  const oldState = isAgentState(reported) ? reported : "exited";
+  const closedBy = params.actor !== undefined && agentView(directory, params.actor) !== null ? params.actor : null;
+  endAgent(directory, key, Date.now(), closedBy);
   const event: NotifyEvent = {
     type: "closed",
     key,
@@ -107,6 +119,26 @@ export async function applyLifecycle(state: DaemonState, params: ParamsOf<"lifec
   governWrite(state, target, params);
   await deliverControl(directory, settings.current(), state.services.models, target, { kind: "lifecycle", verb });
   return { ok: true, verb };
+}
+
+/** ONE writer for one record: a placed spawn launched the process from the CLI
+ *  and states every axis here; orchd writes the row. */
+export function registerAgent(directory: OrchDir, params: ParamsOf<"register-agent">): { ok: true } {
+  registerSpawnedAgent(directory, params);
+  return { ok: true };
+}
+
+export function reclaim(directory: OrchDir, params: ParamsOf<"reclaim">): { ok: true } {
+  reclaimAgent(directory, params.target);
+  return { ok: true };
+}
+
+/** The pane moved; the agent did not become a different agent. The handle is an
+ *  interval on its own axis, so the old one closes and a new one opens. */
+export function setHandle(directory: OrchDir, params: ParamsOf<"set-handle">): { ok: true } {
+  if (agentView(directory, params.target) === null) throw new Error(`agent ${params.target} does not exist`);
+  setAgentHandle(directory, params.target, Date.now(), params.handle);
+  return { ok: true };
 }
 
 export function recordAgentQuestion(directory: OrchDir, params: ParamsOf<"question">): { ok: true } {

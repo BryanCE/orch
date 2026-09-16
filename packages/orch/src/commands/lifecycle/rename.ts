@@ -1,8 +1,8 @@
 import { isAgentId } from "../../backends/identity.ts";
 import { assertNameFree } from "../../policy/name.ts";
 import { spawnedRecords } from "../../presence/store.ts";
-import { renameAgent as renameNormalizedAgent } from "../../store/agent-rows.ts";
 import { errorMessage } from "../../util.ts";
+import { callDaemon } from "../daemon.ts";
 import { lifecycleLogger } from "./index.ts";
 import { describeHandle } from "./close.ts";
 import { assertAgentOwned, backendTarget, die } from "../target.ts";
@@ -30,14 +30,14 @@ interface ChromeOutcome {
  * whose failure is reported and never rewrites whether the rename happened
  * The response states the two outcomes separately.
  */
-function renameAgent(
-  services: Pick<Services, "orchDir" | "logger">,
+async function renameAgent(
+  services: Pick<Services, "orchDir" | "settings" | "logger">,
   backend: Backend,
   handle: BackendHandle,
   key: string,
   name: string,
   views: ReadonlyMap<string, AgentView>,
-): ChromeOutcome | null {
+): Promise<ChromeOutcome | null> {
   const view = viewForKey(views, key);
   if (!view) {
     lifecycleLogger(services.logger, key).error("rename.unmanaged-agent", { target: key });
@@ -45,7 +45,8 @@ function renameAgent(
     return null;
   }
   assertNameFree(services.orchDir, name, view.environment.space ?? "");
-  if (!isAgentId(key) || !renameNormalizedAgent(services.orchDir, key, name)) return null;
+  if (!isAgentId(key)) return null;
+  await callDaemon(services, "rename", { target: key, name });
   const role = backend.agentNaming;
   if (!role) throw new Error("target environment has no agent naming role");
   role.renameAgent(handle, name);
@@ -64,7 +65,7 @@ function renameAgent(
   }
 }
 
-export function cmdRename(services: Services, args: string[]) {
+export async function cmdRename(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("rename", args);
   const paneLabel = flags.has("--pane");
   const json = flags.has("--json");
@@ -86,7 +87,7 @@ export function cmdRename(services: Services, args: string[]) {
       if (!backend.labeling) throw new Error("target environment has no pane naming role");
       backend.labeling.setLabel(handle, name);
       outcome = { chrome: "renamed", chromeError: null };
-    } else outcome = renameAgent(services, backend, handle, key, name, views);
+    } else outcome = await renameAgent(services, backend, handle, key, name, views);
   } catch (error: unknown) {
     die(`orch rename: ${errorMessage(error)}`);
   }

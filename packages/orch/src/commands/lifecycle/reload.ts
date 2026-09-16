@@ -2,7 +2,6 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { refreshStaleShims } from "../../doctor/runner.ts";
 import { selectAgentStatus } from "../../store/status-rows.ts";
-import { reclaimAgent } from "../../store/agent-rows.ts";
 import { agentView, tuningOf } from "../../store/agent-view.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
@@ -113,7 +112,6 @@ function restartAgentAndAwaitBridge(orchDir: OrchDir, logger: Logger, backend: B
     process.stdout.write(`${handle}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
-  reclaimAgent(orchDir, presenceKey);
   backend.agentInput.submit(handle, cmd);
   const refreshed = retryingSync(
     "await relaunched bridge",
@@ -237,8 +235,9 @@ async function restartOneTarget(services: LifecycleServices, target: string, cmd
   const adapter = resolveAdapterOrDie(harness);
   const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
   if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
+  // The relaunched harness claims the row afresh, so the old claim goes first.
+  await writeRpc(services, "reclaim", { target: ent.key });
   if (!backend.agentInput) {
-    reclaimAgent(orchDir, ent.key);
     const restarted = await lifecycleThroughDaemon(services, "restart", ent.key, describeHandle(handle));
     if (restarted.ok) {
       if (!flags.json) process.stdout.write(`${restarted.handle}: bridge live.\n`);

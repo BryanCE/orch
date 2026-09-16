@@ -1,5 +1,4 @@
 import { selectAgentStatus } from "../../store/status-rows.ts";
-import { reclaimAgent } from "../../store/agent-rows.ts";
 import { tuningOf } from "../../store/agent-view.ts";
 import { modelSpec } from "../../policy/thinking.ts";
 import type { Tuning } from "../../policy/tuning.ts";
@@ -26,7 +25,7 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
   const sentAt = Date.now();
   // The daemon owns every lifecycle mechanism: a console gets the adapter's
   // text, an agent with none is refused. Neither is the CLI's to choose.
-  reclaimAgent(services.orchDir, ent.key);
+  await writeRpc(services, "reclaim", { target: ent.key });
   await writeRpc(services, "lifecycle", { target: ent.key, verb: "reset" });
   if (!awaitIdleAfter(services.orchDir, ent.key, beforeUpdated, sentAt)) die(`${label}: reset did not become ready within 75s.`);
   return { key: ent.key, handle: label, name: ent.name ?? label };

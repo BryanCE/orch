@@ -13,6 +13,8 @@ import type { LifecycleVerb } from "../../types/adapter.ts";
 import type { DaemonStatusRow, PeerView, PendingQuestionView } from "../../types/daemon.ts";
 import type { BridgeNotification } from "../../types/agent.ts";
 import type { ResultReport, StatusPatch } from "../../types/presence.ts";
+import type { SpawnRegistration } from "../../types/store.ts";
+import type { ReapCandidate } from "../../types/command.ts";
 import { isTaskOptions, isTaskRec, type TaskOptions, type TaskRec } from "../../types/queue.ts";
 
 const RPC_ERROR_CODES = [
@@ -109,6 +111,40 @@ const SESSION_CLAIM = z.object({
   hostOs: z.enum(HOST_OS_VALUES),
 });
 export type SessionClaim = z.infer<typeof SESSION_CLAIM>;
+
+/** The one record a placed spawn states, over the wire: the same shape as
+ *  {@link SpawnRegistration}, checked field by field at the daemon. */
+const SPAWN_REGISTRATION = z.object({
+  key: nonBlank,
+  harnessId: nonBlank,
+  backendId: nonBlank.optional(),
+  placed: z.boolean(),
+  handle: z.string().optional(),
+  cwd: z.string(),
+  name: nonBlank,
+  space: z.string().optional(),
+  model: z.string(),
+  thinking: z.custom<ThinkingLevel>(isThinkingLevel).optional(),
+  spawner: z.string().nullable(),
+  owner: z.string().optional(),
+  worktree: z.object({ path: z.string(), branch: z.string() }).optional(),
+  process: z.object({ pid: z.number().int(), startToken: z.string().nullable() }),
+}) satisfies z.ZodType<SpawnRegistration>;
+
+const LEASE_RESULT = z.object({ id: z.string(), name: z.string() });
+
+const REAP_CANDIDATE = z.object({
+  id: z.string(),
+  name: z.string(),
+  harnessId: z.string(),
+  createdAt: z.number(),
+  ownership: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("leased"), holder: z.string() }),
+    z.object({ kind: z.literal("unleased"), reason: z.enum(["none", "holder-gone"]) }),
+  ]),
+  processLive: z.boolean(),
+  classification: z.enum(["dead", "held", "idle"]),
+}) satisfies z.ZodType<ReapCandidate>;
 
 const OK = z.object({ ok: z.literal(true) });
 const ACCEPTED = z.object({
@@ -218,7 +254,15 @@ export const RPC_PARAMS = {
     tools: optionalText,
     workers: workerPolicy.optional(),
   }),
-  "agent-closed": z.object({ key: nonBlank, oldState: z.enum(AGENT_STATES) }),
+  "agent-closed": GOVERNANCE.extend({ key: nonBlank }),
+  "register-agent": SPAWN_REGISTRATION.extend(GOVERNANCE.shape),
+  detach: GOVERNANCE.extend({ target: nonBlank }),
+  adopt: GOVERNANCE.extend({ target: nonBlank.optional(), all: z.boolean().optional() }),
+  rename: GOVERNANCE.extend({ target: nonBlank, name: nonBlank }),
+  reap: GOVERNANCE.extend({ target: nonBlank.optional(), dead: z.boolean().optional() }),
+  "reap-candidates": GOVERNANCE,
+  reclaim: GOVERNANCE.extend({ target: nonBlank }),
+  "set-handle": GOVERNANCE.extend({ target: nonBlank, handle: nonBlank }),
   question: z.custom<AgentNotice>(isAgentNotice),
   questions: z.object({ all: z.boolean().optional() }).optional(),
   ack: z.object({ id: nonBlank }),
@@ -262,6 +306,14 @@ export const RPC_RESULTS = {
   "set-model": z.object({ ok: z.literal(true), applied: z.string() }),
   lifecycle: z.object({ ok: z.literal(true), verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
   "agent-closed": OK,
+  "register-agent": OK,
+  detach: LEASE_RESULT.extend({ released: z.boolean() }),
+  adopt: z.object({ results: z.array(LEASE_RESULT.extend({ adopted: z.boolean() })) }),
+  rename: LEASE_RESULT,
+  reap: z.object({ reaped: z.array(LEASE_RESULT) }),
+  "reap-candidates": z.object({ candidates: z.array(REAP_CANDIDATE) }),
+  reclaim: OK,
+  "set-handle": OK,
   question: OK,
   ack: OK,
   "control-outcome": OK,
@@ -295,7 +347,9 @@ export function isRpcMethod(value: unknown): value is RpcMethod {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(RPC_PARAMS, value);
 }
 
-export type GovernedMethod = "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "spawn-headless";
+export type GovernedMethod =
+  | "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "spawn-headless"
+  | "agent-closed" | "register-agent" | "detach" | "adopt" | "rename" | "reap" | "reap-candidates" | "reclaim" | "set-handle";
 export type IdentityMethod = "register-session" | "claim-identity";
 
 function isPendingQuestionView(value: unknown): value is PendingQuestionView {

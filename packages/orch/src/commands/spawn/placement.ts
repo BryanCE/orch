@@ -7,11 +7,12 @@ import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
 import { nextTilePlacement } from "../../backends/tiling.ts";
 import { createAgentWorktree } from "../../worktree.ts";
 import { errorMessage } from "../../util.ts";
-import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
+import { callDaemon } from "../daemon.ts";
 import { callerOwnerToken, die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
 import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
+import type { Services } from "../../types/services.ts";
 import { clearHome, homeHandle, openHome } from "../../store/home-rows.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../types/command.ts";
 import type { HomeSubject } from "../../types/backend.ts";
@@ -140,12 +141,16 @@ function launchSpawnBackend(orchDir: OrchDir, spec: TabSpawnSpec, key: string, e
   return handle;
 }
 
-function registerSpawnedTabAgent(orchDir: OrchDir, spec: TabSpawnSpec, key: string, handle: BackendHandle, thinking: NonNullable<TabSpawnSpec["thinking"]>): CreatedAgent {
+/** What a placed spawn needs from the CLI: the store root, and the daemon that writes it. */
+export type SpawnServices = Pick<Services, "orchDir" | "settings" | "logger">;
+
+async function registerSpawnedTabAgent(services: SpawnServices, spec: TabSpawnSpec, key: string, handle: BackendHandle, thinking: NonNullable<TabSpawnSpec["thinking"]>): Promise<CreatedAgent> {
+  const orchDir = services.orchDir;
   // ONE writer for one record (2.1). This states every axis the agent has —
   // harness, plexer, handle, space, model, worktree, holder, process — because a
   // second writer filling in the rest is how the two came to disagree about
   // which record was authoritative.
-  registerSpawnedAgent(orchDir, {
+  await callDaemon(services, "register-agent", {
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
     spawner: spec.spawnerAgentId ?? null,
@@ -156,7 +161,8 @@ function registerSpawnedTabAgent(orchDir: OrchDir, spec: TabSpawnSpec, key: stri
   return { key, handle: String(handle), name: spec.name };
 }
 
-export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAgent {
+export async function spawnOneIntoTab(services: SpawnServices, spec: TabSpawnSpec): Promise<CreatedAgent> {
+  const orchDir = services.orchDir;
   assertNameFree(orchDir, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
   const spawner = spawnerIdentity(orchDir);
@@ -165,22 +171,22 @@ export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAg
   if (thinking === undefined) throw new Error(`spawn requires a resolved thinking level for ${spec.name}`);
   const place = resolveSpawnPlace(spec, env);
   const handle = launchSpawnBackend(orchDir, spec, key, env, place, thinking);
-  return registerSpawnedTabAgent(orchDir, spec, key, handle, thinking);
+  return registerSpawnedTabAgent(services, spec, key, handle, thinking);
 }
 
 /** Add one agent to a group at the spot the planner picks for it against the
  *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
  *  is tiling one agent at a time — the balance only holds while every agent is
  *  placed by the same planner reading the same layout. */
-function tileAgentIntoGroup(orchDir: OrchDir, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): CreatedAgent {
-  return spawnOneIntoTab(orchDir, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
+function tileAgentIntoGroup(services: SpawnServices, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): Promise<CreatedAgent> {
+  return spawnOneIntoTab(services, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(orchDir: OrchDir, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
+function placeAgent(services: SpawnServices, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): Promise<CreatedAgent> {
   const name = plan.name;
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-  return tileAgentIntoGroup(orchDir, {
+  return tileAgentIntoGroup(services, {
     backend,
     adapter: resolveAdapterOrDie(settings.adapter),
     adapterId: settings.adapter,
@@ -203,7 +209,8 @@ function placeAgent(orchDir: OrchDir, settings: SpawnSettings, plan: SpawnAgentP
 
 /** Fill a group with named agents. An agent that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-export function growFleetIntoGroup(orchDir: OrchDir, logger: Logger, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent[] {
+export async function growFleetIntoGroup(services: SpawnServices, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): Promise<CreatedAgent[]> {
+  const logger = services.logger;
   const created: CreatedAgent[] = [];
   for (const name of names) {
     const plan = settings.agents.find((agent) => agent.name === name);
@@ -212,7 +219,7 @@ export function growFleetIntoGroup(orchDir: OrchDir, logger: Logger, settings: S
       continue;
     }
     try {
-      created.push(placeAgent(orchDir, settings, plan, space, workspace, group, backend, spawnerAgentId, role));
+      created.push(await placeAgent(services, settings, plan, space, workspace, group, backend, spawnerAgentId, role));
     } catch (error: unknown) {
       const message = errorMessage(error);
       logger.warn("spawn.place-failed", { backend: backend.id, name, error: message });

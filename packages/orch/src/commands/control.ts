@@ -3,7 +3,6 @@ import { resolveTarget } from "../entities/resolve.ts";
 import { recipientLabel } from "../recipient.ts";
 import { spawnedRecords } from "../presence/store.ts";
 import { selectAgentStatus } from "../store/status-rows.ts";
-import { registerSpawnedAgent } from "../store/spawn-registration.ts";
 import { agentView, tuningOf } from "../store/agent-view.ts";
 import { collapse, errorMessage, isRecord, truncate } from "../util.ts";
 import { isAgentId } from "../backends/identity.ts";
@@ -246,8 +245,9 @@ function forwardedToTargetHost(hosts: OrchSettings["hosts"], args: string[], tar
  * has one; an adopted agent needs it under the SAME key we dispatched to, carrying
  * the dispatcher's owner token or it stays open to every other orchestrator.
  */
-function recordAdoptedAgent(orchDir: OrchDir, key: string, dispatchSettings: DispatchSettings, tuning: { model: string; thinking: ThinkingLevel }): void {
-  registerSpawnedAgent(orchDir, {
+async function recordAdoptedAgent(services: Services, key: string, dispatchSettings: DispatchSettings, tuning: { model: string; thinking: ThinkingLevel }): Promise<void> {
+  const orchDir = services.orchDir;
+  await callDaemon(services, "register-agent", {
     key,
     harnessId: dispatchSettings.adapter,
     // An entity that names no plexer is in no plexer, and that is the answer —
@@ -305,7 +305,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   if (pinWarnings.length > 0) process.exitCode = 1;
   const headerContext = workerHeaderContext(services.orchDir, settings);
   const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: entityAdapter(dispatchSettings.ent, spawnedRecords(services.orchDir)), context: headerContext, gov });
-  if (!spawnedRecords(services.orchDir).has(key)) recordAdoptedAgent(services.orchDir, key, dispatchSettings, { model, thinking });
+  if (!spawnedRecords(services.orchDir).has(key)) await recordAdoptedAgent(services, key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the agent runs the prompt this command sent, not some other delivery.
   reportControlDelivery(services.orchDir, "dispatched", key, result, dispatchSettings.json, "", settings.timeouts.dispatch_ack_ms);

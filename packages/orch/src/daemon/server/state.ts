@@ -3,9 +3,9 @@ import { computeCodeHash } from "../client/process.ts";
 import { fileURLToPath } from "node:url";
 import { rpcCall } from "../client/rpc.ts";
 import { loadPresence } from "../../presence/store.ts";
-import { currentLease } from "../../store/lease-rows.ts";
-import { agentById } from "../../store/agent-rows.ts";
+import { agentViewIndex } from "../../store/agent-view.ts";
 import { recordedProcessIsLive } from "../../store/interval-rows.ts";
+import { fleetLeaseFacts, storeLeaseFacts, type LeaseFacts } from "../../agent/drive-state.ts";
 import { bridgeAttached } from "../../control/bridge-links.ts";
 import { fleetStatusRows } from "../../commands/status/rows.ts";
 import type { DaemonStatusRow, LeaseStatusPayload, RpcHandler, RpcHandlers, RpcServer } from "../../types/daemon.ts";
@@ -21,23 +21,28 @@ export function leaseHolderIsAlive(directory: OrchDir, holderId: string): boolea
   return recordedProcessIsLive(directory, holderId);
 }
 
-/** Derive lease facts from the normalized agent/lease rows, never from presence or ownership files. */
-export function deriveLeasePayload(directory: OrchDir, key: string): LeaseStatusPayload {
+/** Lease facts from the composed view, never from presence or ownership files. */
+function leasePayloadFrom(key: string, facts: LeaseFacts): LeaseStatusPayload {
   // An agent key IS its minted id (A1); a key that is not one names no agent and
   // stays unknown rather than being guessed at.
-  const agentId = key;
-  if (!agentById(directory, agentId)) return { lease: null, leaseKnown: false };
-  const lease = currentLease(directory, agentId);
-  if (!lease) return { lease: null, leaseKnown: true };
-  const holderName = agentById(directory, lease.orchId)?.name;
+  const view = facts.viewOf(key);
+  if (view === null) return { lease: null, leaseKnown: false };
+  const lease = view.heldBy;
+  if (lease === null) return { lease: null, leaseKnown: true };
+  const holderName = facts.viewOf(lease.orchId)?.name;
   return {
     lease: {
       holderId: lease.orchId,
       holderName: holderName === undefined || holderName === "" ? lease.orchId : holderName,
-      holderAlive: recordedProcessIsLive(directory, lease.orchId),
+      holderAlive: facts.holderAlive(lease.orchId),
     },
     leaseKnown: true,
   };
+}
+
+/** One agent's lease payload, read from the store on demand. */
+export function deriveLeasePayload(directory: OrchDir, key: string): LeaseStatusPayload {
+  return leasePayloadFrom(key, storeLeaseFacts(directory));
 }
 
 export const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url);
@@ -111,8 +116,9 @@ export function fleetStatus(state: DaemonState): { rows: DaemonStatusRow[] } {
   const directory = state.directory;
   const current = state.services.settings.current();
   const rows = fleetStatusRows(current, current.spaces, { directory });
+  const facts = fleetLeaseFacts(directory, agentViewIndex(directory));
   return {
-    rows: rows.map((row) => ({ ...row, ...deriveLeasePayload(directory, row.key), bridgeAttached: bridgeAttached(directory, row.key) })),
+    rows: rows.map((row) => ({ ...row, ...leasePayloadFrom(row.key, facts), bridgeAttached: bridgeAttached(directory, row.key) })),
   };
 }
 

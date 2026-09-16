@@ -11,12 +11,6 @@ function testSettings(): OrchSettings {
 }
 
 describe("status performance seams", () => {
-  test("resolves bundle hashes once per status call", () => {
-    let calls = 0;
-    fleetStatusRows(testSettings(), testSettings().spaces, { directory: testDir, bundleHashes: () => { calls += 1; return new Set<string>(); } });
-    expect(calls).toBe(1);
-  });
-
   test("resolves orchestrator id once per status call", () => {
     let calls = 0;
     fleetStatusRows(testSettings(), testSettings().spaces, { directory: testDir, orchId: () => { calls += 1; return null; } });

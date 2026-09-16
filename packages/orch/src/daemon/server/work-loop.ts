@@ -21,7 +21,6 @@ import { workerHeaderFor, workerRules } from "../../worker-prompt.ts";
 import { abstractAgentLabel } from "../../notify/format.ts";
 import { getAdapter } from "../../adapters/registry.ts";
 import { isAgentId } from "../../backends/identity.ts";
-import { agentById } from "../../store/agent-rows.ts";
 import { agentProcessLive } from "../../store/interval-rows.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { sweepExpiredRows } from "./retention.ts";
@@ -50,13 +49,12 @@ interface Runner {
 function runnerOf(orchDir: OrchDir, entry: PresenceEntry): Runner | null {
   const agentId = isAgentId(entry.key) ? entry.key : undefined;
   if (agentId === undefined) return null;
-  const agent = agentById(orchDir, agentId);
-  if (!agent || agent.ending != null) return null;
+  if (agentView(orchDir, agentId)?.endedAt !== null) return null;
   return { entry, agentId };
 }
 
 /** Every live process orch has a row for, addressable by the id its attempts carry. */
-function runnersByAgent(orchDir: OrchDir, presence: Map<string, PresenceEntry>): Map<string, Runner> {
+function runnersByAgent(orchDir: OrchDir, presence: ReadonlyMap<string, PresenceEntry>): Map<string, Runner> {
   const runners = new Map<string, Runner>();
   for (const entry of presence.values()) {
     const runner = runnerOf(orchDir, entry);

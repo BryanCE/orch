@@ -6,15 +6,16 @@ import { join } from "node:path";
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
 import { presenceRoot } from "./history.ts";
-import { agentViewIndex, agentViews } from "../store/agent-view.ts";
+import { agentViewIndex, agentViews, liveViews } from "../store/agent-view.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { eq, isNotNull } from "drizzle-orm";
-import { orm } from "../store/connection.ts";
+import { orm, storeMemo } from "../store/connection.ts";
 import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-rows.ts";
-import { agentProcessLive } from "../store/interval-rows.ts";
+import { currentProcesses } from "../store/interval-rows.ts";
+import { recordedInstanceIsLive } from "../process-identity.ts";
 import { agents } from "../db/schema.ts";
-import { selectAgentStatus } from "../store/status-rows.ts";
-import { selectRuns } from "../store/run-rows.ts";
+import { selectAgentStatuses } from "../store/status-rows.ts";
+import { latestResultTexts } from "../store/run-rows.ts";
 import type { AgentView } from "../types/store.ts";
 import type { OrchDir } from "../types/core.ts";
 import type { PresenceEntry } from "../types/presence.ts";
@@ -63,11 +64,7 @@ function isErrorCode(error: unknown, code: string): boolean {
  * history is `agentViews`/`agentView`, which still see everything.
  */
 export function spawnedRecords(root: OrchDir): Map<string, AgentView> {
-  const index = agentViewIndex(root);
-  for (const [id, view] of index) {
-    if (view.endedAt !== null) index.delete(id);
-  }
-  return index;
+  return liveViews(agentViewIndex(root));
 }
 
 /** Delete one agent's hub row, which cascades every satellite, lease and
@@ -199,16 +196,28 @@ export function reapExpiredPresenceDirs(root: OrchDir, olderThan: Date): string[
   return removed;
 }
 
-export function loadPresence(root: OrchDir): Map<string, PresenceEntry> {
+let presenceHoldMs = 0;
+
+/** How long a presence read stands before the processes are probed again. The
+ *  daemon sets this to its liveness poll: that tick already bounds how late an
+ *  exit is noticed, and it writes the exit, which retires the held read. */
+export function holdPresenceFor(ms: number): void {
+  presenceHoldMs = ms;
+}
+
+/** The fleet's presence in one read per table: status, newest result, and
+ *  whether the recorded process still runs. Read again after any store write,
+ *  and after {@link holdPresenceFor} elapses. */
+export const loadPresence = storeMemo((root: OrchDir): ReadonlyMap<string, PresenceEntry> => {
   const presence = new Map<string, PresenceEntry>();
+  const statuses = new Map(selectAgentStatuses(root).map((row) => [row.agentId, row]));
+  const results = latestResultTexts(root);
+  const processes = currentProcesses(root);
   for (const view of agentViews(root)) {
-    const status = selectAgentStatus(root, view.id) ?? null;
-    const result = selectRuns(root, { agentKey: view.id, limit: 5 })
-      .find((run) => run.result !== undefined && run.result !== null)?.result;
-    const textResult = typeof result === "string" ? result : null;
-    const alive = view.endedAt === null && agentProcessLive(root, view.id);
-    presence.set(view.id, { key: view.id, status, result: textResult, alive });
+    const recorded = processes.get(view.id);
+    const alive = view.endedAt === null && recorded !== undefined && recordedInstanceIsLive(recorded.pid, recorded.startToken);
+    presence.set(view.id, { key: view.id, status: statuses.get(view.id) ?? null, result: results.get(view.id) ?? null, alive });
   }
   return presence;
-}
+}, () => presenceHoldMs);
 

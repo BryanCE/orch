@@ -1,5 +1,5 @@
 import type { OrchDir } from "../types/core.ts";
-import { desc, eq, lt } from "drizzle-orm";
+import { desc, eq, isNotNull, lt, max } from "drizzle-orm";
 import { orm } from "./connection.ts";
 import { runs } from "../db/schema.ts";
 import { nullableJsonText, setNonNullField } from "./row-values.ts";
@@ -67,6 +67,21 @@ export function selectRuns(directory: OrchDir, filter: { agentKey?: string; limi
     .orderBy(desc(runs.startedAt));
   const rows = filter.limit === undefined ? query.all() : query.limit(filter.limit).all();
   return rows.map(rowToRun);
+}
+
+/** The newest recorded result text per agent, in one read. A result that is
+ *  not text (a run recorded a structured value) is not a presence result. */
+export function latestResultTexts(directory: OrchDir): Map<string, string> {
+  // sqlite pairs a bare column with the row MAX() picked, so `result` is the newest one.
+  const rows = orm(directory).select({ agentKey: runs.agentKey, result: runs.result, startedAt: max(runs.startedAt) })
+    .from(runs).where(isNotNull(runs.result)).groupBy(runs.agentKey).all();
+  const texts = new Map<string, string>();
+  for (const row of rows) {
+    if (row.result === null) continue;
+    const result: unknown = JSON.parse(row.result);
+    if (typeof result === "string") texts.set(row.agentKey, result);
+  }
+  return texts;
 }
 
 /** The one run a dispatch id names. */

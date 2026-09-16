@@ -1,13 +1,11 @@
-import { isBridgeExtensionStale, shippedBundleHashes } from "../../doctor/extensions.ts";
 import { spawnerIdentity } from "../../policy/spawner.ts";
 import { modelSpec } from "../../policy/thinking.ts";
-import { deriveDriveState, NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
+import { fleetDriveStates, NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
 import { getAdapter } from "../../adapters/registry.ts";
 import { buildEntities, sortEntities } from "../../entities/inventory.ts";
 import { getBackend } from "../../backends/registry.ts";
 import { spaceName as resolveSpaceName } from "../../policy/space.ts";
-import { currentLease } from "../../store/lease-rows.ts";
-import { spawnedRecords } from "../../presence/store.ts";
+import { agentViewIndex, liveViews } from "../../store/agent-view.ts";
 import { pendingQuestion } from "../../store/question-rows.ts";
 import { firstNonEmptyText } from "../target.ts";
 import { viewForKey } from "../../entities/lookup.ts";
@@ -15,6 +13,7 @@ import { collapse } from "../../util.ts";
 import { displayStatusState, isTTY } from "./options.ts";
 import { dim } from "../../tui/screen.ts";
 import type { AgentAdapter, SessionView } from "../../types/adapter.ts";
+import type { DriveState } from "../../types/agent.ts";
 import type { AgentView } from "../../types/store.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
@@ -36,14 +35,6 @@ export function entityAdapter(ent: Entity, views: ReadonlyMap<string, AgentView>
 
 export function currentOrchId(orchDir: OrchDir): string | null {
   return spawnerIdentity(orchDir).key;
-}
-
-function currentLeaseOwner(directory: OrchDir, agentId: string): string | null {
-  try {
-    return currentLease(directory, agentId)?.orchId ?? null;
-  } catch {
-    return null;
-  }
 }
 
 export function formatOwnerCell(row: Pick<StatusRow, "owner">): string {
@@ -171,9 +162,8 @@ function backendCapabilities(entity: Entity): EnvironmentCapabilityView | null {
 export function statusRowFromEntity(
   entity: Entity,
   views: ReadonlyMap<string, AgentView>,
-  staleHashes: ReadonlySet<string> | undefined = new Set(shippedBundleHashes()),
   spaces: OrchSettings["spaces"] = {},
-  orchId: string | null,
+  driveState: (agentId: string) => DriveState,
   directory: OrchDir,
 ): StatusRow {
   const pres = entity.presence;
@@ -187,8 +177,8 @@ export function statusRowFromEntity(
   const spaceNames = orchNames(entity.key, views);
   const spaceId = spaceNames.spaceId ?? entity.space;
   const ownership = {
-    owner: deriveDriveState(entity.key, { currentOrchId: orchId, directory }).owner,
-    ownerId: currentLeaseOwner(directory, entity.key),
+    owner: driveState(entity.key).owner,
+    ownerId: agentView?.heldBy?.orchId ?? null,
   };
   return {
     key: entity.key,
@@ -208,7 +198,6 @@ export function statusRowFromEntity(
     modelShort: modelFull.replace(/^openai-codex\//, ""),
     state: displayStatusState({ state, alive, exited }),
     stateFallback,
-    staleExtension: isBridgeExtensionStale(pres?.status?.extensionHash ?? undefined, undefined, staleHashes),
     exited,
     alive,
     cost: deriveCost(pres, sview),
@@ -230,7 +219,6 @@ export function statusRowFromEntity(
 
 interface FleetStatusOptions {
   offline?: boolean;
-  bundleHashes?: () => ReadonlySet<string>;
   orchId?: () => string | null;
   /** Resolve the store root once per fleet build (injectable for cost tests). */
   directory: OrchDir;
@@ -238,18 +226,19 @@ interface FleetStatusOptions {
 
 export function fleetStatusRows(settings: OrchSettings, spaces: OrchSettings["spaces"], options: FleetStatusOptions): StatusRow[] {
   const directory = options.directory;
-  const views = spawnedRecords(directory);
-  const staleHashes = options.bundleHashes?.() ?? new Set(shippedBundleHashes());
+  const fleet = agentViewIndex(directory);
+  const views = liveViews(fleet);
   const orchId = options.orchId?.() ?? currentOrchId(directory);
+  const driveState = fleetDriveStates(directory, fleet, orchId);
   return sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }))
-    .map((entity) => statusRowFromEntity(entity, views, staleHashes, spaces, orchId, directory));
+    .map((entity) => statusRowFromEntity(entity, views, spaces, driveState, directory));
 }
 
 export function warningStatusRow(host: string, warning: string): StatusRow {
   return {
     key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", owner: null, ownerId: null,
     spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
-    focused: false, model: "", modelShort: "", state: "warning", stateFallback: false, staleExtension: false,
+    focused: false, model: "", modelShort: "", state: "warning", stateFallback: false,
     exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,
     backendStatus: null, backend: null, capabilities: null, sessionPath: null,
     bridgeAttached: null, tokens: null, turns: null, host, warning,

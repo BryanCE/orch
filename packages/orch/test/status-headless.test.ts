@@ -7,7 +7,7 @@ function statusRow(overrides: Partial<StatusRow> = {}): StatusRow {
     key: "agent00001", paneId: null, managed: true, name: "worker", tab: null, agent: "pi",
     owner: null, spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null,
     focused: false, model: "pi/model", modelShort: "model", state: "working", stateFallback: false,
-    staleExtension: false, exited: false, alive: true, cost: 0, ctxPercent: null, task: null,
+    exited: false, alive: true, cost: 0, ctxPercent: null, task: null,
     dispatchId: null, lastText: null, backendStatus: null, backend: null, capabilities: null,
     sessionPath: null, bridgeAttached: null, tokens: null, turns: null,
     ...overrides,

@@ -56,7 +56,7 @@ function localNameCell(row: StatusRow, flags: TableFlags): string {
 }
 
 function tableStateCell(row: StatusRow, includeFallback: boolean): string {
-  return displayStatusState(row) + (includeFallback && row.stateFallback ? "?" : "") + (row.staleExtension ? " (stale)" : "");
+  return displayStatusState(row) + (includeFallback && row.stateFallback ? "?" : "");
 }
 
 function tableCostCell(row: StatusRow): string {

@@ -3,10 +3,19 @@ import { dirname, join, resolve } from "node:path";
 import { agentView } from "../store/agent-view.ts";
 import type { SpaceResolver, WallDecision } from "../types/policy.ts";
 import type { OrchDir } from "../types/core.ts";
+import type { AgentView } from "../types/store.ts";
 
 export function spaceOf(orchDir: OrchDir, id: string | null | undefined): string | null {
   if (id === null || id === undefined) return null;
   return agentView(orchDir, id)?.environment.space ?? null;
+}
+
+/** The space of an agent id, answered from a fleet already in hand. */
+export type SpaceLookup = (id: string | null | undefined) => string | null;
+
+/** {@link spaceOf} over the composed fleet: no store read per id. */
+export function spaceOfIn(views: ReadonlyMap<string, AgentView>): SpaceLookup {
+  return (id) => (id === null || id === undefined ? null : views.get(id)?.environment.space ?? null);
 }
 
 /** Resolve a raw space id without coupling policy to config or a plexer. */
@@ -112,12 +121,12 @@ export function checkWall(
 
 /** Scope items to the caller's space unless explicitly unscoped. */
 export function scopeToSpace<T>(
-  orchDir: OrchDir,
+  spaceOfKey: SpaceLookup,
   items: T[],
   keyOf: (item: T) => string | null,
   currentSpace: string | null,
   opts: { all: boolean },
 ): T[] {
   if (opts.all || currentSpace === null) return items;
-  return items.filter((item) => sameSpace(spaceOf(orchDir, keyOf(item)), currentSpace));
+  return items.filter((item) => sameSpace(spaceOfKey(keyOf(item)), currentSpace));
 }

@@ -18,16 +18,26 @@ export type HandleRow = typeof agentHandles.$inferSelect;
 export type SpaceRow = typeof agentSpaces.$inferSelect;
 export type TuningRow = typeof agentTunings.$inferSelect;
 
-function closeOpen(orchDir: OrchDir, table: typeof agentProcesses | typeof agentHandles | typeof agentSpaces | typeof agentTunings, agentId: string, now: number): void {
-  orm(orchDir).update(table).set({ until: now })
+type IntervalTable = typeof agentProcesses | typeof agentHandles | typeof agentSpaces | typeof agentTunings;
+
+/** Close the open row and answer the instant it closed at, which is where the
+ *  next row opens. `until > since` forbids closing a row at its own start, so
+ *  a row opened this same millisecond closes one later. */
+function closeOpen(orchDir: OrchDir, table: IntervalTable, agentId: string, now: number): number {
+  const open = orm(orchDir).select({ since: table.since }).from(table)
+    .where(and(eq(table.agentId, agentId), isNull(table.until))).get();
+  if (open === undefined) return now;
+  const closesAt = Math.max(now, open.since + 1);
+  orm(orchDir).update(table).set({ until: closesAt })
     .where(and(eq(table.agentId, agentId), isNull(table.until))).run();
+  return closesAt;
 }
 
 export function recordProcess(orchDir: OrchDir, agentId: string, now: number, values: ProcessValues): void {
   withTransaction(orchDir, () => {
-    closeOpen(orchDir, agentProcesses, agentId, now);
+    const since = closeOpen(orchDir, agentProcesses, agentId, now);
     orm(orchDir).insert(agentProcesses).values({
-      agentId, since: now, until: null, hostId: values.hostId, pid: values.pid, startToken: values.startToken,
+      agentId, since, until: null, hostId: values.hostId, pid: values.pid, startToken: values.startToken,
     }).run();
   });
 }
@@ -38,15 +48,15 @@ export function endProcess(orchDir: OrchDir, agentId: string, now: number): void
 
 export function setHandle(orchDir: OrchDir, agentId: string, now: number, handle: string): void {
   withTransaction(orchDir, () => {
-    closeOpen(orchDir, agentHandles, agentId, now);
-    orm(orchDir).insert(agentHandles).values({ agentId, since: now, until: null, handle }).run();
+    const since = closeOpen(orchDir, agentHandles, agentId, now);
+    orm(orchDir).insert(agentHandles).values({ agentId, since, until: null, handle }).run();
   });
 }
 
 export function setSpace(orchDir: OrchDir, agentId: string, now: number, spaceId: string): void {
   withTransaction(orchDir, () => {
-    closeOpen(orchDir, agentSpaces, agentId, now);
-    orm(orchDir).insert(agentSpaces).values({ agentId, since: now, until: null, spaceId }).run();
+    const since = closeOpen(orchDir, agentSpaces, agentId, now);
+    orm(orchDir).insert(agentSpaces).values({ agentId, since, until: null, spaceId }).run();
   });
 }
 
@@ -56,9 +66,9 @@ export function clearSpace(orchDir: OrchDir, agentId: string, now: number): void
 
 export function setTuning(orchDir: OrchDir, agentId: string, now: number, values: TuningValues): void {
   withTransaction(orchDir, () => {
-    closeOpen(orchDir, agentTunings, agentId, now);
+    const since = closeOpen(orchDir, agentTunings, agentId, now);
     orm(orchDir).insert(agentTunings).values({
-      agentId, since: now, until: null, model: values.model, thinking: values.thinking ?? null,
+      agentId, since, until: null, model: values.model, thinking: values.thinking ?? null,
     }).run();
   });
 }
@@ -72,6 +82,12 @@ export function setAgentPlexer(orchDir: OrchDir, agentId: string, plexerId: stri
 export function currentProcess(orchDir: OrchDir, agentId: string): ProcessRow | undefined {
   return orm(orchDir).select().from(agentProcesses)
     .where(and(eq(agentProcesses.agentId, agentId), isNull(agentProcesses.until))).get();
+}
+
+/** Every agent's open process, by agent id, in one read. */
+export function currentProcesses(orchDir: OrchDir): Map<string, ProcessRow> {
+  const rows = orm(orchDir).select().from(agentProcesses).where(isNull(agentProcesses.until)).all();
+  return new Map(rows.map((row) => [row.agentId, row]));
 }
 
 export function currentHandle(orchDir: OrchDir, agentId: string): HandleRow | undefined {

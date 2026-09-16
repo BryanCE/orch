@@ -203,7 +203,6 @@ export interface StatusRow {
   state: string;
   /** True when no live bridge answered and `state` came from the backend or session. */
   stateFallback: boolean;
-  staleExtension?: boolean;
   exited: boolean;
   /** False once the agent's pid is gone; the visibility filter's only liveness input. */
   alive: boolean;

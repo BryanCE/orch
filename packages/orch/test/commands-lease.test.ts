@@ -132,7 +132,7 @@ describe("lease commands", () => {
     expect(row(orm(dir), sql`SELECT id FROM agents WHERE id = ${"worker"}`)).toBeUndefined();
   });
 
-  test("abort proceeds with a foreign live-holder lease", () => {
+  test("abort proceeds with a foreign live-holder lease", async () => {
     const dir = fixture();
     process.env.ORCH_DIR = dir;
     const key = mintAgentId();
@@ -152,7 +152,9 @@ describe("lease commands", () => {
     // and no pane roles, so this asserts the refusal is absent,
     // not that any keystroke was sent.
     expect(headlessBackend.agentInput).toBeNull();
-    expect(() => { cmdAbort(services(dir), [key, "--json"]); }).not.toThrow();
+    const served = await servedServices({ orchDir: dir, settings: SETTINGS }, servers);
+    const refusal = await cmdAbort(served, [key, "--json"]).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeNull();
     expect(currentLease(dir, key)?.orchId).toBe("foreign-orch");
   });
 

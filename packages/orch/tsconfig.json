@@ -24,6 +24,7 @@
     "drizzle.config.ts",
     "src/**/*.ts",
     "test/**/*.ts",
+    "test-git/**/*.ts",
     "extensions/**/*.ts",
     "scripts/**/*.ts"
   ],

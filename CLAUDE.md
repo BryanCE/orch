@@ -20,9 +20,11 @@ When a change needs one of these, stop, hand Bryan the command, and wait until h
 Whoever edits a file runs `bun check` on it and pastes the clean output. Whoever commits runs `bun check` once over the whole tree first. That run is the gate. `bun test` is scoped to touched files, always. Nothing commits on a dirty gate or a red test.
 
 # RULE 0.1. TESTS: ONLY THE FILES YOU TOUCHED, ON THE SIDE THAT OWNS THE DISK, ONCE. SOME ARE BRYAN-ONLY.
-Every test lives in `packages/orch/test/` and runs under the plain `bun test` runner. There is no second test directory and no second test script.
+Every test lives in `packages/orch/test/` and runs under the plain `bun test` runner. The one exception is `packages/orch/test-git/*.gittest.ts`: tests that run git for real. `bun test` never discovers them (the name matches no test pattern, the directory is outside `./test`); `bun run test:git` runs them, and only Bryan runs it.
 
-Bryan-only, never run by anyone else, no exceptions: `test/smoke.sh`, and any test that opens a pane, a window, or a terminal, or drives a real plexer. They open terminals on Bryan's screen while he works. Running one without his say-so is a firing offence. Bryan runs them and pastes the output. You fix what is in it.
+A test under `test/` never runs a git command and never passes `--worktree`. A test that must run git goes in `test-git/`, runs every git command inside a repository it made under the temp dir (`tempGitRepo` in `test/helpers/tempdir.ts`), and removes it after. A worktree or a branch in the checkout is never a test's to make; the checkout is Bryan's.
+
+Bryan-only, never run by anyone else, no exceptions: `test/smoke.sh`, `bun run test:git`, and any test that opens a pane, a window, or a terminal, or drives a real plexer. They open terminals on Bryan's screen while he works. Running one without his say-so is a firing offence. Bryan runs them and pastes the output. You fix what is in it.
 
 Everything else: run the test files your change touched, once, after the edits are complete. Not before, not again, not five times in a row. Pick them by what imports the changed module directly, not by a grep over the test tree, because a broad grep pulls in Bryan-only files. The full suite is Bryan's. He runs it and pastes it to you.
 

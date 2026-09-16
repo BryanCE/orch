@@ -93,6 +93,7 @@ checkout. When the pack cap is not the one the served daemon reads (the test wro
 settings body to disk and served another), the refusal comes after
 `createAgentWorktree`, which runs `git worktree add` in the checkout.
 
-Fix in this tree: one settings body for the file and the served daemon. Still open: the
-test should run in a temp git repository so a late refusal can never touch the checkout.
-Clean-up after the run above: `git worktree prune; git branch -D orch/capped`.
+Fix: no test under `test/` passes `--worktree` or runs git. The worktree module and the
+refused `--worktree` spawn are covered in `test-git/worktree.gittest.ts`, which runs only
+under `bun run test:git` (Bryan-only) and only inside a throwaway repository under the
+temp dir. `.orch-worktrees/` is ignored. Ruling in CLAUDE.md rule 0.1.

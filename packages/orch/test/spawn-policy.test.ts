@@ -197,7 +197,7 @@ describe("spawn policy caps", () => {
     expect(SETTINGS_DEFAULTS.fleet.max_agents_per_tab).toBe(4);
   });
 
-  test("a refused cmdSpawn makes no name, worktree, registry, or queue mutation", async () => {
+  test("a refused cmdSpawn makes no name, registry, or queue mutation", async () => {
     const dir = tempOrchDir("orch-spawn-policy-refused-");
     tempDirs.push(dir);
     process.env.ORCH_DIR = dir;
@@ -239,7 +239,7 @@ describe("spawn policy caps", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(await servedServices({ orchDir: dir, settings: cappedSettings }, servers), ["capped", "--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree", "--json"]);
+      await cmdSpawn(await servedServices({ orchDir: dir, settings: cappedSettings }, servers), ["capped", "--agent", "pi", "--backend", "headless", "--prompt", "work", "--json"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -259,6 +259,5 @@ describe("spawn policy caps", () => {
     expect(agentViews(dir).map((view) => view.id)).toEqual(beforeRegistry);
     expect(numberField(row(orm(dir), sql`SELECT COUNT(*) AS count FROM tasks`), "count")).toBe(beforeTasks);
     expect(existsSync(join(dir, "agents", key))).toBe(true);
-    expect(existsSync(join(dir, ".orch-worktrees"))).toBe(false);
   });
 });

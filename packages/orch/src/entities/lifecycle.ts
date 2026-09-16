@@ -9,7 +9,7 @@ import { errorMessage } from "../util.ts";
 import type { Entity, OrchDir, CallerCredential } from "../types/core.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
-import type { Backend, BackendHandle } from "../types/backend.ts";
+import type { Backend } from "../types/backend.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { LifecycleTarget } from "../types/command.ts";
 

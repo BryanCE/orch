@@ -2,7 +2,6 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { refreshStaleShims } from "../../doctor/runner.ts";
 import { selectAgentStatus } from "../../store/status-rows.ts";
-import { reclaimAgent } from "../../store/agent-rows.ts";
 import { agentView, tuningOf } from "../../store/agent-view.ts";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
@@ -113,7 +112,6 @@ function restartAgentAndAwaitBridge(orchDir: OrchDir, logger: Logger, backend: B
     process.stdout.write(`${handle}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
-  reclaimAgent(orchDir, presenceKey);
   backend.agentInput.submit(handle, cmd);
   const refreshed = retryingSync(
     "await relaunched bridge",
@@ -194,7 +192,7 @@ function reportReloads(results: readonly ReloadResult[], json: boolean): void {
 export async function cmdReload(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("reload", args);
   const json = invocation.flags.has("--json");
-  const { targets, all } = lifecycleTargets(services, invocation);
+  const { targets, all } = await lifecycleTargets(services, invocation);
   // `--all` is a valid invocation even with zero live agents: it still touches
   // reload.signal (SIGNALED) for settings/extension watchers. Only a bare call
   // with neither --all nor a target is a usage error.
@@ -237,8 +235,9 @@ async function restartOneTarget(services: LifecycleServices, target: string, cmd
   const adapter = resolveAdapterOrDie(harness);
   const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
   if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
+  // The relaunched harness claims the row afresh, so the old claim goes first.
+  await writeRpc(services, "reclaim", { target: ent.key });
   if (!backend.agentInput) {
-    reclaimAgent(orchDir, ent.key);
     const restarted = await lifecycleThroughDaemon(services, "restart", ent.key, describeHandle(handle));
     if (restarted.ok) {
       if (!flags.json) process.stdout.write(`${restarted.handle}: bridge live.\n`);
@@ -259,7 +258,7 @@ export async function cmdRestart(services: Services, args: string[]): Promise<vo
   const invocation = parseCommand("restart", args);
   const json = invocation.flags.has("--json");
   const flags = { json, force: invocation.flags.has("--force") };
-  const { targets } = lifecycleTargets(services, invocation);
+  const { targets } = await lifecycleTargets(services, invocation);
   if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
   const cmd = invocation.flags.value("--cmd") ?? null;
   const results: ReloadResult[] = [];

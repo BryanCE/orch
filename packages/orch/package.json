@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "test": "bun test --parallel ./test",
+    "test:git": "bun test ./test-git/worktree.gittest.ts",
     "check": "bun run --parallel --no-exit-on-error lint tc check:bridge",
     "check:bridge": "bun scripts/check-bridge.ts",
     "db:gen": "bun scripts/db/generate.ts",

@@ -1,14 +1,14 @@
 import { rpcCall } from "../../daemon/client/rpc.ts";
-import { loadPresence, spawnedRecords } from "../../presence/store.ts";
-import { maySpawnFrom } from "../../policy/spawner.ts";
+import { maySpawnBelow } from "../../policy/spawner.ts";
 import { workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { readGroupLayout } from "../../backends/tiling.ts";
 import { dispatchToAgent } from "../control.ts";
 import { errorMessage, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/client/reach.ts";
-import { selfId } from "../../identity/self.ts";
-import { presenceById } from "../target.ts";
+import { readFleet, type FleetSnapshot } from "../fleet.ts";
+import { admissionFleet } from "./admission.ts";
+import type { CallerSelf } from "../self.ts";
 import { isAgentId } from "../../backends/identity.ts";
 import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../../policy/capacity.ts";
 import type { Backend } from "../../types/backend.ts";
@@ -32,18 +32,17 @@ function attachedBridgeKeys(answer: ResultOf<"status"> | null): ReadonlySet<stri
 }
 
 /** Wait for every agent's bridge to attach; returns only the ones that attached. */
-export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, created: { key: string; handle: string; name: string }[], json = false): Promise<CreatedAgent[]> {
+export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, created: { key: string; handle: string; name: string }[], timeouts: OrchSettings["timeouts"], json = false): Promise<CreatedAgent[]> {
   const pending = new Map(created.map((c) => [c.key, c]));
   const attached = new Map<string, CreatedAgent>();
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + timeouts.spawn_attach_ms;
   if (!json) process.stdout.write("\nWaiting for agents to attach:\n");
   while (pending.size && Date.now() < deadline) {
     let answer: ResultOf<"status"> | null = null;
     try {
       answer = await rpcCall(orchDir, "status", undefined);
     } catch {
-      // The daemon may be briefly unavailable while a bridge starts; keep polling
-      // until the same spawn deadline used by the old registration wait.
+      // The daemon may be briefly unavailable while a bridge starts; keep polling until the deadline.
     }
     const keys = attachedBridgeKeys(answer);
     for (const [key, agent] of [...pending]) {
@@ -53,7 +52,7 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
         if (!json) process.stdout.write(`  ok      ${agent.handle}  ${agent.name}\n`);
       }
     }
-    if (pending.size) await sleep(500);
+    if (pending.size) await sleep(timeouts.spawn_attach_poll_ms);
   }
   // A stalled agent is a failed spawn: it holds its name and answers no control
   // traffic. Reporting it on stdout while exiting 0 is what let a scripted fleet
@@ -78,9 +77,9 @@ export function reportShortfall(logger: Logger, requested: number, placed: numbe
 /** How many agents actually came up, or `null` when the harness cannot say.
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
-async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: CreatedAgent[], json: boolean): Promise<CreatedAgent[] | null> {
+async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: CreatedAgent[], timeouts: OrchSettings["timeouts"], json: boolean): Promise<CreatedAgent[] | null> {
   if (adapter.bridge) {
-    return await awaitBridgeAttach(orchDir, logger, created, json);
+    return await awaitBridgeAttach(orchDir, logger, created, timeouts, json);
   }
   logger.warn("spawn.unverified", { adapter: adapter.id, count: created.length });
   process.stdout.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
@@ -124,11 +123,11 @@ function printSpawnAgentLines(settings: SpawnSettings, created: readonly Created
   }
 }
 
-function printFleetCapacitySummary(orchDir: OrchDir, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], tabLabel: string): void {
+async function printFleetCapacitySummary(services: Pick<Services, "settings" | "orchDir" | "logger">, self: CallerSelf, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], tabLabel: string): Promise<void> {
+  const fleet: FleetSnapshot = await readFleet(services, true);
+  const { views, presence } = admissionFleet(fleet);
   if (!settings.json) {
-    const views = spawnedRecords(orchDir);
-    const presence = presenceById(loadPresence(orchDir));
-    const caller = selfId(orchDir);
+    const caller = self.id ?? undefined;
     const callerRoot = caller === undefined
       ? created.map((agent) => views.get(agent.key)?.rootAgentId).find((root): root is string => root !== undefined)
       : views.get(caller)?.rootAgentId;
@@ -155,8 +154,9 @@ function buildSpawnPinEntries(registeredAgents: readonly CreatedAgent[] | null, 
   });
 }
 
-async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settings" | "logger">, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], registeredAgents: readonly CreatedAgent[] | null, maySpawn: ReturnType<typeof maySpawnFrom>): Promise<{ name: string; key: string; dispatchId: string }[]> {
+async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], registeredAgents: readonly CreatedAgent[] | null): Promise<{ name: string; key: string; dispatchId: string }[]> {
   const dispatches: { name: string; key: string; dispatchId: string }[] = [];
+  const maySpawn = maySpawnBelow(self, settingsFile.fleet.max_depth);
   if (registeredAgents && settings.agents.some((agent) => agent.prompt !== null)) {
     const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
     for (const [index, agent] of created.entries()) {
@@ -169,7 +169,7 @@ async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settin
       try {
         const { id: dispatchId } = await dispatchToAgent(services, logger, agent.key, text, {
           adapter: resolveAdapterOrDie(settings.adapter),
-          context: { maySpawn, spawnerRepliable: true, ...workerRules(settingsFile) },
+          context: { maySpawn, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
         });
         dispatches.push({ name: agent.name, key: agent.key, dispatchId });
         if (!settings.json) process.stdout.write(`dispatched ${agent.name} ${dispatchId}\n`);
@@ -183,19 +183,17 @@ async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settin
   return dispatches;
 }
 
-export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
-  const { orchDir } = services;
-  const maySpawn = maySpawnFrom(orchDir, selfId(orchDir), settingsFile.fleet.max_depth);
+export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
   printSpawnAgentLines(settings, created, backend, group, tabLabel);
   reportShortfall(logger, settings.agents.length, created.length);
-  const registeredAgents = await confirmAgentsCameUp(orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settings.json);
+  const registeredAgents = await confirmAgentsCameUp(services.orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settingsFile.timeouts, settings.json);
   const registered = registeredAgents?.length ?? null;
-  printFleetCapacitySummary(orchDir, settingsFile, settings, created, tabLabel);
+  await printFleetCapacitySummary(services, self, settingsFile, settings, created, tabLabel);
   if (registeredAgents) warnUnregisteredAgents(logger, created, registeredAgents);
   const pinEntries = buildSpawnPinEntries(registeredAgents, settings);
   const warnings = await pinModels(services, logger, pinEntries);
-  const dispatches = await dispatchSpawnPrompts(services, logger, settingsFile, settings, created, registeredAgents, maySpawn);
-  const outage = warnings.length ? await reportControlPlaneOutage(orchDir, logger, created.length) : null;
+  const dispatches = await dispatchSpawnPrompts(services, self, logger, settingsFile, settings, created, registeredAgents);
+  const outage = warnings.length ? await reportControlPlaneOutage(services.orchDir, logger, created.length) : null;
   if (settings.json) process.stdout.write(JSON.stringify({
     backend: settings.backend,
     tab: tabLabel,

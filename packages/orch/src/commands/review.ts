@@ -1,12 +1,13 @@
-import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { renderTable } from "../table.ts";
 import { collapse, errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
-import { agentAddress, die, presenceById } from "./target.ts";
+import { readFleet } from "./fleet.ts";
+import { addressOf, indexPresenceById } from "../entities/lookup.ts";
+import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import type { Invocation } from "../cli/spec.ts";
+import type { FleetSnapshot } from "./fleet.ts";
 import type { Services } from "../types/services.ts";
-import type { OrchDir } from "../types/core.ts";
 import { repositoryBranch, repositoryCommonRoot, worktreeReviewSummary, mergeReviewBranch, removeMergedWorktree } from "../worktree.ts";
 
 interface ReviewItem {
@@ -29,18 +30,19 @@ interface ReviewItem {
 export async function cmdReview(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("review", args);
   switch (invocation.command.name) {
-    case "list": return reviewList(services.orchDir, invocation);
-    case "approve": return reviewApprove(services.orchDir, invocation);
-    case "reject": return reviewReject(services, invocation);
+    case "list": return await reviewList(services, invocation);
+    case "approve": return await reviewApprove(services, invocation);
+    case "reject": return await reviewReject(services, invocation);
     default:
       if (invocation.positional.length) die('usage: orch review list [--json] | approve <target> | reject <target> -m "feedback"');
-      return reviewInteractive(services);
+      return await reviewInteractive(services);
   }
 }
 
-function reviewList(orchDir: OrchDir, { flags, positional }: Invocation): void {
+async function reviewList(services: Services, { flags, positional }: Invocation): Promise<void> {
+  const fleet = await readFleet(services);
   if (positional.length) die("usage: orch review list [--json]");
-  const items = reviewItems(orchDir);
+  const items = reviewItems(fleet);
   if (flags.has("--json")) {
     process.stdout.write(JSON.stringify(items.map(({ repoRoot: _repoRoot, ...item }) => item), null, 2) + "\n");
     return;
@@ -54,14 +56,15 @@ function reviewList(orchDir: OrchDir, { flags, positional }: Invocation): void {
 }
 
 /** The one review target a subcommand names, or its usage line. */
-function reviewedItem(orchDir: OrchDir, positional: readonly string[], usage: string): ReviewItem {
+async function reviewedItem(services: Services, positional: readonly string[], usage: string): Promise<ReviewItem> {
+  const fleet = await readFleet(services);
   const target = positional[0];
   if (!target || positional.length !== 1) die(usage);
-  return findReviewItem(orchDir, target);
+  return findReviewItem(fleet, target);
 }
 
-function reviewApprove(orchDir: OrchDir, { flags, positional }: Invocation): void {
-  const item = reviewedItem(orchDir, positional, "usage: orch review approve <target> [--json]");
+async function reviewApprove(services: Services, { flags, positional }: Invocation): Promise<void> {
+  const item = await reviewedItem(services, positional, "usage: orch review approve <target> [--json]");
   try {
     const strategy = mergeReviewBranch(item.repoRoot, item.branch);
     removeMergedWorktree(item.repoRoot, item.worktree, item.branch);
@@ -73,18 +76,20 @@ function reviewApprove(orchDir: OrchDir, { flags, positional }: Invocation): voi
 }
 
 async function reviewReject(services: Services, { flags, positional }: Invocation): Promise<void> {
+  const fleet = await readFleet(services);
   const usage = 'usage: orch review reject <target> -m "feedback" [--json]';
-  const item = reviewedItem(services.orchDir, positional, usage);
+  const item = await reviewedItem(services, positional, usage);
   const feedback = flags.value("-m");
   if (!feedback) die(usage);
-  if (!loadPresence(services.orchDir).get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
+  if (!indexPresenceById(fleet.presence).get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
   await writeRpc(services, "steer", { target: item.key, text: feedback });
   if (flags.has("--json")) process.stdout.write(JSON.stringify({ target: item.target, rejected: true }) + "\n");
   else process.stdout.write(`Rejected ${item.target}; feedback re-dispatched in the same worktree.\n`);
 }
 
 async function reviewInteractive(services: Services): Promise<void> {
-  const items = reviewItems(services.orchDir);
+  const fleet = await readFleet(services);
+  const items = reviewItems(fleet);
   if (!items.length) {
     process.stdout.write("No worktree reviews pending.\n");
     return;
@@ -118,12 +123,12 @@ async function reviewInteractive(services: Services): Promise<void> {
   }
 }
 
-function reviewItems(orchDir: OrchDir): ReviewItem[] {
+function reviewItems(fleet: FleetSnapshot): ReviewItem[] {
   // A1: worktree and branch are ENVIRONMENT axes composed onto an agent, and
   // presence joins to that agent by its minted id — not by a pane key.
-  const presence = presenceById(loadPresence(orchDir));
+  const presence = indexPresenceById(fleet.presence);
   const items: ReviewItem[] = [];
-  for (const view of spawnedRecords(orchDir).values()) {
+  for (const view of fleet.views.filter((view) => view.endedAt === null)) {
     const { worktree, branch } = view.environment;
     if (worktree === null || branch === null) continue;
     const entry = presence.get(view.id);
@@ -136,7 +141,7 @@ function reviewItems(orchDir: OrchDir): ReviewItem[] {
       const status = entry.status;
       const adapter = view.harnessId;
       if (!adapter) continue;
-      const key = agentAddress(view, presence);
+      const key = addressOf(view, presence);
       const resultSummary = entry.result ? collapse(entry.result) : "";
       items.push({
         target: reviewTarget({ key, branch }),
@@ -159,8 +164,8 @@ function reviewItems(orchDir: OrchDir): ReviewItem[] {
   return items;
 }
 
-function findReviewItem(orchDir: OrchDir, target: string): ReviewItem {
-  const item = reviewItems(orchDir).find((candidate) => [candidate.target, candidate.key, candidate.branch, candidate.worktree].includes(target));
+function findReviewItem(fleet: FleetSnapshot, target: string): ReviewItem {
+  const item = reviewItems(fleet).find((candidate) => [candidate.target, candidate.key, candidate.branch, candidate.worktree].includes(target));
   if (!item) die(`No reviewable worktree matches "${target}". Run 'orch review list'.`);
   return item;
 }

@@ -6,16 +6,16 @@ import { isAgentState } from "../../agent-state.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { agentProcessLive } from "../../store/interval-rows.ts";
 import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../../store/status-rows.ts";
-import { upsertRun } from "../../store/run-rows.ts";
+import { selectRun, upsertRun } from "../../store/run-rows.ts";
 import { appendStatusHistory, ensurePresenceAgentDir, writeResult } from "../../presence/history.ts";
 import { reapDeadAgentRecords } from "../../presence/store.ts";
 import { decisionLogger } from "../client/decision-log.ts";
 import { askingEventFromRow, transitionEventFromRow } from "./status-events.ts";
 
-const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited", "idle"]);
+const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited"]);
 
 function runFromRow(orchDir: OrchDir, row: AgentStatusRow, now: number): RunRecord | undefined {
-  if (row.dispatchId === null) return undefined;
+  if (row.dispatchId === null || row.state === "idle") return undefined;
   const run: RunRecord = {
     dispatchId: row.dispatchId,
     agentKey: row.agentId,
@@ -37,6 +37,11 @@ function runFromRow(orchDir: OrchDir, row: AgentStatusRow, now: number): RunReco
   return run;
 }
 
+/** A run that already carries its result is settled; a later status report never rewrites it. */
+function runSettled(orchDir: OrchDir, dispatchId: string): boolean {
+  return selectRun(orchDir, dispatchId)?.result !== undefined;
+}
+
 export function acceptStatusReport(
   orchDir: OrchDir,
   key: string,
@@ -54,7 +59,7 @@ export function acceptStatusReport(
   }
   try {
     const run = runFromRow(orchDir, current, now);
-    if (run !== undefined) upsertRun(orchDir, run);
+    if (run !== undefined && !runSettled(orchDir, run.dispatchId)) upsertRun(orchDir, run);
   } catch {
     // History is a bystander: a failed run write cannot reject a report.
   }

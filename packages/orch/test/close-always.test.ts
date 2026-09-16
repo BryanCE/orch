@@ -9,16 +9,17 @@ import { agentView } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
 import { processIsAlive, processStartToken } from "../src/process-identity.ts";
 import { checkWall } from "../src/policy/space.ts";
-import { FakePanedBackend, fakePane, withRegisteredBackend } from "../test/helpers/backend.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackendAsync } from "../test/helpers/backend.ts";
 import { seedSpace } from "../test/helpers/space.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { placeAgent, seedAgent } from "../test/helpers/agent.ts";
-import { withExitCode } from "../test/helpers/exit-code.ts";
-import { testServices } from "../test/helpers/services.ts";
+import { withExitCodeAsync } from "../test/helpers/exit-code.ts";
+import { servedServices } from "../test/helpers/daemon-state.ts";
 import { sql } from "drizzle-orm";
 
 import type { OrchDir } from "../src/types/core.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 /**
  * Identity is a minted id and NOTHING else, so
  * every fixture below addresses its agent by a minted-shaped id. The plexer,
@@ -28,6 +29,7 @@ import type { OrchDir } from "../src/types/core.ts";
  */
 const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 const children: ChildProcess[] = [];
 const oldDir = process.env.ORCH_DIR;
 const testSettings = {
@@ -43,14 +45,22 @@ function makeDir(): OrchDir {
   return dir;
 }
 
-function runCli(dir: OrchDir, args: string[]): { status: number | null; output: string } {
-  const result = Bun.spawnSync([process.execPath, binPath, ...args], {
-    env: { ...process.env, ORCH_DIR: dir },
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: 15_000,
-  });
-  return { status: result.exitCode, output: `${result.stdout.toString()}\n${result.stderr.toString()}` };
+/** `orch close` in-process, its writes served by orchd on `dir`; `backend` is
+ *  the paned environment registered for the call. */
+async function closeInProcess(dir: OrchDir, args: string[], backend?: FakePanedBackend): Promise<void> {
+  const services = await servedServices({ orchDir: dir, settings: testSettings }, servers);
+  if (backend) await withRegisteredBackendAsync(backend, () => cmdClose(services, args));
+  else await cmdClose(services, args);
+}
+
+/** One real CLI run against orchd served in-process on `dir`, so the child never
+ *  starts a daemon of its own. Async, never spawnSync: the served daemon answers
+ *  the child from this event loop. */
+async function runCli(dir: OrchDir, args: string[]): Promise<{ status: number | null; output: string }> {
+  await servedServices({ orchDir: dir, settings: testSettings }, servers);
+  const child = Bun.spawn([process.execPath, binPath, ...args], { env: { ...process.env, ORCH_DIR: dir }, stdout: "pipe", stderr: "pipe", timeout: 15_000 });
+  const [stdout, stderr, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  return { status, output: `${stdout}\n${stderr}` };
 }
 
 /** A working agent as orchd records one: the status row, plus the history
@@ -69,6 +79,7 @@ function recordProcess(dir: OrchDir, key: string, pid: number, startToken: strin
 }
 
 afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   const spawned = children.splice(0);
   for (const child of spawned) {
     if (child.pid) { try { process.kill(child.pid, "SIGTERM"); } catch {} }
@@ -84,7 +95,7 @@ afterEach(async () => {
 });
 
 describe("close always works", () => {
-  test("closes a foreign-space target by name, key, or pane id", () => {
+  test("closes a foreign-space target by name, key, or pane id", async () => {
     const dir = makeDir();
     const records = [
       ["panename01", "pane-name", "worker-name"],
@@ -109,9 +120,7 @@ describe("close always works", () => {
     const backend = new FakePanedBackend({
       panes: records.map(([, handle, name]) => fakePane(handle, { space: "foreign-space", name })),
     });
-    withExitCode(() => withRegisteredBackend(backend, () => {
-      cmdClose(testServices({ orchDir: dir, settings: testSettings }), ["worker-name", "panekey001", "pane-id", "--json"]);
-    }));
+    await withExitCodeAsync(() => closeInProcess(dir, ["worker-name", "panekey001", "pane-id", "--json"], backend));
 
     expect(backend.closed).toEqual(["pane-name", "pane-key", "pane-id"]);
     for (const [key] of records) {
@@ -120,7 +129,7 @@ describe("close always works", () => {
     }
   });
 
-  test("a successful backend close retains a pane that is still listed", () => {
+  test("a successful backend close retains a pane that is still listed", async () => {
     const dir = makeDir();
     const key = "survives01";
     const handle = "pane-survives";
@@ -141,8 +150,8 @@ describe("close always works", () => {
     };
     Object.defineProperty(process, "exit", { value: replacementExit });
     try {
-      withExitCode(() => {
-        withRegisteredBackend(backend, () => { cmdClose(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]); });
+      await withExitCodeAsync(async () => {
+        await closeInProcess(dir, [key, "--json"], backend);
         expect(process.exitCode).toBe(1);
         expect(spawnedRecords(dir).has(key)).toBe(true);
         expect(existsSync(join(dir, "agents", key))).toBe(true);
@@ -152,7 +161,7 @@ describe("close always works", () => {
     }
   });
 
-  test("a failed signal retains the registry and presence and reports failure", () => {
+  test("a failed signal retains the registry and presence and reports failure", async () => {
     const dir = makeDir();
     const key = "signalfai1";
     const handle = "pane-signal-failed";
@@ -178,8 +187,8 @@ describe("close always works", () => {
     };
     Object.defineProperty(process, "exit", { value: replacementExit });
     try {
-      withExitCode(() => {
-        cmdClose(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]);
+      await withExitCodeAsync(async () => {
+        await closeInProcess(dir, [key, "--json"]);
         expect(process.exitCode).toBe(1);
         expect(spawnedRecords(dir).has(key)).toBe(true);
         expect(existsSync(join(dir, "agents", key))).toBe(true);
@@ -190,7 +199,7 @@ describe("close always works", () => {
     }
   });
 
-  test("presence pid without a recorded process closes the pane without signalling and ends the row", () => {
+  test("presence pid without a recorded process closes the pane without signalling and ends the row", async () => {
     const dir = makeDir();
     const key = "presence01";
     const handle = "pane-presence-only";
@@ -202,9 +211,7 @@ describe("close always works", () => {
     writeStatus(dir, key);
 
     const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
-    withExitCode(() => {
-      withRegisteredBackend(backend, () => { cmdClose(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]); });
-    });
+    await withExitCodeAsync(() => closeInProcess(dir, [key, "--json"], backend));
 
     expect(backend.closed).toEqual([handle]);
     expect(processIsAlive(pid)).toBe(true);
@@ -212,7 +219,7 @@ describe("close always works", () => {
     expect(existsSync(join(dir, "agents", key))).toBe(true);
   });
 
-  test("close ignores owner and spawnedBy gates", () => {
+  test("close ignores owner and spawnedBy gates", async () => {
     const dir = makeDir();
     const key = "owned00001";
     const handle = "pane-owned";
@@ -225,12 +232,12 @@ describe("close always works", () => {
     expect(agentView(dir, key)?.environment.space).toBe("foreign-space");
     expect(agentView(dir, key)?.heldBy?.orchId).toBe("other");
     const backend = new FakePanedBackend({ panes: [fakePane(handle, { space: "foreign-space" })] });
-    withExitCode(() => withRegisteredBackend(backend, () => { cmdClose(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]); }));
+    await withExitCodeAsync(() => closeInProcess(dir, [key, "--json"], backend));
     expect(backend.closed).toEqual([handle]);
     expect(spawnedRecords(dir).has(key)).toBe(false);
   });
 
-  test("abort ignores owner gate", () => {
+  test("abort ignores owner gate", async () => {
     const dir = makeDir();
     const key = "abort00001";
     const handle = "pane-abort";
@@ -240,11 +247,12 @@ describe("close always works", () => {
       owner: "other", spawnedBy: "other-session",
     }, dir);
     expect(agentView(dir, key)?.heldBy?.orchId).toBe("other");
-    cmdAbort(testServices({ orchDir: dir, settings: testSettings }), [key, "--json"]);
+    const services = await servedServices({ orchDir: dir, settings: testSettings }, servers);
+    await cmdAbort(services, [key, "--json"]);
     expect(spawnedRecords(dir).has(key)).toBe(true);
   });
 
-  test("duplicate close targets count once", () => {
+  test("duplicate close targets count once", async () => {
     const dir = makeDir();
     const key = "duplicate1";
     seedSpace(dir, "foreign-space");
@@ -256,8 +264,8 @@ describe("close always works", () => {
     };
     Object.defineProperty(process, "exit", { value: replacementExit });
     try {
-      withExitCode(() => {
-        cmdClose(testServices({ orchDir: dir, settings: testSettings }), [key, key, "--json"]);
+      await withExitCodeAsync(async () => {
+        await closeInProcess(dir, [key, key, "--json"]);
         expect(process.exitCode).toBe(oldExitCode);
         expect(spawnedRecords(dir).has(key)).toBe(false);
       });
@@ -266,7 +274,7 @@ describe("close always works", () => {
     }
   });
 
-  test("dead pane-less close is a successful no-op that ends the row and leaves presence to reap", () => {
+  test("dead pane-less close is a successful no-op that ends the row and leaves presence to reap", async () => {
     const dir = makeDir();
     const key = "deadpane01";
     const handle = "99999999";
@@ -276,7 +284,7 @@ describe("close always works", () => {
     mkdirSync(agentDir, { recursive: true });
     mergeAgentStatus(dir, key, { state: "done" }, Date.now());
 
-    const result = runCli(dir, ["close", key, "--json"]);
+    const result = await runCli(dir, ["close", key, "--json"]);
 
     expect(result.status).toBe(0);
     expect(spawnedRecords(dir).has(key)).toBe(false);

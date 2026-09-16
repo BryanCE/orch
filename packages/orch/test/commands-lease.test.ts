@@ -8,7 +8,8 @@ import { orm } from "../src/store/connection.ts";
 import { governWrite } from "../src/daemon/server/handlers/write.ts";
 import { presenceAgentDir } from "../src/presence/history.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { reapAgent, adoptAgent, detachAgent, cmdReap } from "../src/commands/lease.ts";
+import { reapAgent, adoptAgent, detachAgent } from "../src/daemon/server/handlers/lease.ts";
+import { cmdReap } from "../src/commands/lease.ts";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
@@ -20,19 +21,23 @@ import { placeAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
-import { withExitCode } from "./helpers/exit-code.ts";
+import { withExitCodeAsync } from "./helpers/exit-code.ts";
 import { testServices } from "./helpers/services.ts";
-import { idleDaemonState } from "./helpers/daemon-state.ts";
+import { idleDaemonState, servedServices } from "./helpers/daemon-state.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
+const SETTINGS = { defaults: { adapter: "pi", backend: "headless" } };
 beforeEach(() => isolateOrchEnv());
-afterEach(() => {
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   while (dirs.length) removeTempDir(dirs.pop()!);
   restoreOrchEnv();
 });
 
 function services(dir: OrchDir) {
-  return testServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } });
+  return testServices({ orchDir: dir, settings: SETTINGS });
 }
 
 function daemonState(dir: OrchDir) {
@@ -106,14 +111,14 @@ describe("lease commands", () => {
     const dir = fixture();
     agent(dir, "root"); agent(dir, "root-holder"); agent(dir, "child", "live-child", "root");
     acquireLease(dir, "root", "root-holder", 2);
-    expect(() => reapAgent(dir, "root", 3)).toThrow(/live-child/);
+    expect(() => reapAgent(dir, "root")).toThrow(/live-child/);
   });
 
   test("reap refuses while the recorded process is alive", () => {
     const dir = fixture();
     agent(dir, "worker", "worker");
     orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"worker"},${2},${"host"},${process.pid},${processStartToken(process.pid)})`);
-    expect(() => reapAgent(dir, "worker", 3)).toThrow(/close first/);
+    expect(() => reapAgent(dir, "worker")).toThrow(/close first/);
   });
 
   test("reap is never lease-gated and removes the record and presence", () => {
@@ -123,11 +128,11 @@ describe("lease commands", () => {
     const dirPath = presenceAgentDir("worker", dir);
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), "{}\n");
-    expect(reapAgent(dir, "worker", 3)).toMatchObject({ reaped: true, name: "worker" });
+    expect(reapAgent(dir, "worker")).toMatchObject({ name: "worker" });
     expect(row(orm(dir), sql`SELECT id FROM agents WHERE id = ${"worker"}`)).toBeUndefined();
   });
 
-  test("abort proceeds with a foreign live-holder lease", () => {
+  test("abort proceeds with a foreign live-holder lease", async () => {
     const dir = fixture();
     process.env.ORCH_DIR = dir;
     const key = mintAgentId();
@@ -147,11 +152,13 @@ describe("lease commands", () => {
     // and no pane roles, so this asserts the refusal is absent,
     // not that any keystroke was sent.
     expect(headlessBackend.agentInput).toBeNull();
-    expect(() => { cmdAbort(services(dir), [key, "--json"]); }).not.toThrow();
+    const served = await servedServices({ orchDir: dir, settings: SETTINGS }, servers);
+    const refusal = await cmdAbort(served, [key, "--json"]).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeNull();
     expect(currentLease(dir, key)?.orchId).toBe("foreign-orch");
   });
 
-  test("close proceeds with a foreign live-holder lease", () => {
+  test("close proceeds with a foreign live-holder lease", async () => {
     const dir = fixture();
     process.env.ORCH_DIR = dir;
     const key = mintAgentId();
@@ -163,23 +170,25 @@ describe("lease commands", () => {
     const dirPath = presenceAgentDir(key, dir);
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "status.json"), JSON.stringify({ schema: PRESENCE_SCHEMA, key, state: "idle" }));
+    const served = await servedServices({ orchDir: dir, settings: SETTINGS }, servers);
 
-    withExitCode(() => { cmdClose(services(dir), [key, "--json"]); });
+    await withExitCodeAsync(() => cmdClose(served, [key, "--json"]));
 
     expect(spawnedRecords(dir).has(key)).toBe(false);
     expect(row(orm(dir), sql`SELECT id FROM agents WHERE id = ${key}`)).toBeDefined();
     expect(currentLease(dir, key)?.orchId).toBe("foreign-orch");
   });
 
-  test("reap proceeds with a foreign live-holder lease", () => {
+  test("reap proceeds with a foreign live-holder lease", async () => {
     const dir = fixture();
     process.env.ORCH_DIR = dir;
     const key = mintAgentId();
     agent(dir, key, "reap-worker");
     liveHolder(dir);
     acquireLease(dir, key, "foreign-orch", 2);
+    const served = await servedServices({ orchDir: dir, settings: SETTINGS }, servers);
 
-    void cmdReap(services(dir), [key, "--json"]);
+    await cmdReap(served, [key, "--json"]);
 
     expect(row(orm(dir), sql`SELECT id FROM agents WHERE id = ${key}`)).toBeUndefined();
   });

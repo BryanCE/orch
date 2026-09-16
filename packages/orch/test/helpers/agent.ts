@@ -4,7 +4,7 @@ import { registerSpawnedAgent } from "../../src/store/spawn-registration.ts";
 import { agentById, ensureHarness, ensureHost, ensurePlexer, getOrCreateSessionAgent, insertAgent } from "../../src/store/agent-rows.ts";
 import { hostOs } from "../../src/host.ts";
 import { OPERATOR_HARNESS_ID } from "../../src/policy/caller.ts";
-import { sessionProcessPid } from "../../src/identity/self.ts";
+import { sessionProcessPid } from "../../src/identity/credential.ts";
 import { processStartToken } from "../../src/process-identity.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace } from "../../src/store/interval-rows.ts";
 import { adoptLease, currentLease } from "../../src/store/lease-rows.ts";

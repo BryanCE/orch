@@ -1,4 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 import { orchDirAt } from "../src/services.ts";
 import { describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -6,7 +7,7 @@ import { addTask, cancelTask, listTasks } from "../src/queue.ts";
 import { cmdQueue, renderQueueTasks } from "../src/commands/queue.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { sql } from "drizzle-orm";
-import { testServices } from "./helpers/services.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
 
 describe("commands/queue", () => {
   test("cmdQueue list emits the selected JSON view", async () => {
@@ -21,7 +22,9 @@ describe("commands/queue", () => {
       db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
       db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch','orch','pi','/tmp','orch',1)`);
       const task = addTask(dir, "seam task", {}, "orch");
-      await cmdQueue(testServices({ orchDir: dir, settings: null }), ["list", "--json"]);
+      const servers: RpcServer[] = [];
+      const services = await servedServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
+      try { await cmdQueue(services, ["list", "--json"]); } finally { while (servers.length) await servers.pop()!.close(); }
       expect(JSON.parse(output)).toEqual([expect.objectContaining({ id: task.id, text: "seam task", state: "queued" })]);
     } finally {
       process.stdout.write = oldWrite;

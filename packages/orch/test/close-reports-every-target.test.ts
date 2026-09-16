@@ -9,14 +9,15 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { orm } from "../src/store/connection.ts";
 import { isRecord } from "../src/util.ts";
-import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackendAsync } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { endProcess } from "../src/store/interval-rows.ts";
-import { withExitCode } from "./helpers/exit-code.ts";
-import { testServices } from "./helpers/services.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
+import { captureCommand } from "./helpers/stdout.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 
 /**
  * `orch close --all` left rows it had just failed to
@@ -35,16 +36,16 @@ import { testServices } from "./helpers/services.ts";
  */
 
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 const oldDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 const oldKey = process.env[LAUNCH_ENV];
-const originalWrite = process.stdout.write.bind(process.stdout);
 const SETTINGS = {
   enabled: { adapters: ["pi"], backends: ["headless"] },
   defaults: { adapter: "pi", backend: "headless" },
 };
 
-afterEach(() => {
-  process.stdout.write = originalWrite;
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
   if (oldKey === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldKey;
   while (dirs.length) removeTempDir(dirs.pop()!);
@@ -61,8 +62,12 @@ function fixture(): OrchDir {
   return dir;
 }
 
-function services(dir: OrchDir) {
-  return testServices({ orchDir: dir, settings: SETTINGS });
+/** `orch close --all --json` in-process against `backend`, its writes served by orchd on `dir`. */
+async function closeAll(dir: OrchDir, backend: FakePanedBackend): Promise<Record<string, unknown>> {
+  const services = await servedServices({ orchDir: dir, settings: SETTINGS }, servers);
+  const { text, payload } = await captureCommand(() => withRegisteredBackendAsync(backend, () => cmdClose(services, ["--all", "--json"])));
+  if (Object.keys(payload).length === 0) throw new Error(`expected a JSON object, got ${text}`);
+  return payload;
 }
 
 /** An agent whose process already ended, so close has only its pane and row to settle. */
@@ -76,25 +81,14 @@ function seedAgentWithStatus(dir: OrchDir, key: string, handle: string): void {
   }));
 }
 
-function capture(action: () => void): Record<string, unknown> {
-  let output = "";
-  process.stdout.write = (chunk: string | Uint8Array) => { output += chunk.toString(); return true; };
-  try { withExitCode(action); } finally {
-    process.stdout.write = originalWrite;
-  }
-  const parsed: unknown = JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
-  if (!isRecord(parsed)) throw new Error(`expected a JSON object, got ${output}`);
-  return parsed;
-}
-
 describe("close reports an outcome for every target it was given (U2)", () => {
-  test("--json carries a per-target outcome, not just the successes", () => {
+  test("--json carries a per-target outcome, not just the successes", async () => {
     const dir = fixture();
     seedAgentWithStatus(dir, "closeagt01", "w7:p2A");
     seedAgentWithStatus(dir, "closeagt02", "w7:p2B");
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p2A"), fakePane("w7:p2B")] });
 
-    const payload = withRegisteredBackend(backend, () => capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
+    const payload = await closeAll(dir, backend);
 
     const results = payload.results;
     expect(Array.isArray(results)).toBe(true);
@@ -110,7 +104,7 @@ describe("close reports an outcome for every target it was given (U2)", () => {
     expect(outcomes.map((row) => row.target).sort()).toEqual(["closeagt01", "closeagt02"]);
   });
 
-  test("a failed target reports outcome error WITH the real error text", () => {
+  test("a failed target reports outcome error WITH the real error text", async () => {
     const dir = fixture();
     seedAgentWithStatus(dir, "stuckagt01", "w7:p2C");
     // A plexer that lists the pane and refuses to close it: the close is asked
@@ -118,7 +112,7 @@ describe("close reports an outcome for every target it was given (U2)", () => {
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p2C")] });
     backend.placement.close = (): never => { throw new Error("herdr refused: pane is busy"); };
 
-    const payload = withRegisteredBackend(backend, () => capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
+    const payload = await closeAll(dir, backend);
 
     const results: unknown[] = Array.isArray(payload.results) ? payload.results : [];
     const first: unknown = results[0];
@@ -129,7 +123,7 @@ describe("close reports an outcome for every target it was given (U2)", () => {
     expect(spawnedRecords(dir).has("stuckagt01")).toBe(true);
   });
 
-  test("a pane the plexer no longer has is CLOSED, not failed", () => {
+  test("a pane the plexer no longer has is CLOSED, not failed", async () => {
     const dir = fixture();
     seedAgentWithStatus(dir, "goneagt001", "w7:p2D");
     // U1's root cause reaching close: the recorded handle names no pane. There
@@ -137,19 +131,19 @@ describe("close reports an outcome for every target it was given (U2)", () => {
     // throw a failure leaves a row nothing can ever close.
     const backend = new FakePanedBackend({ id: "headless", panes: [] });
 
-    const payload = withRegisteredBackend(backend, () => capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
+    const payload = await closeAll(dir, backend);
 
     const results: unknown[] = Array.isArray(payload.results) ? payload.results : [];
     expect(results.map((row: unknown) => (isRecord(row) ? row.outcome : null))).toEqual(["done"]);
     expect(spawnedRecords(dir).has("goneagt001")).toBe(false);
   });
 
-  test("the exit code still reflects whether every target closed", () => {
+  test("the exit code still reflects whether every target closed", async () => {
     const dir = fixture();
     seedAgentWithStatus(dir, "closeagt01", "w7:p2A");
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p2A")] });
 
-    const payload = withRegisteredBackend(backend, () => capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
+    const payload = await closeAll(dir, backend);
 
     expect(payload).toMatchObject({ requested: 1, ok: 1 });
   });

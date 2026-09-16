@@ -18,9 +18,9 @@ export function addressOf(view: AgentView, presenceById: ReadonlyMap<string, Pre
   return presenceById.get(view.id)?.key ?? view.id;
 }
 
-export function indexPresenceById(presence: ReadonlyMap<string, PresenceEntry>): Map<string, PresenceEntry> {
+export function indexPresenceById(presence: Iterable<PresenceEntry>): Map<string, PresenceEntry> {
   const byId = new Map<string, PresenceEntry>();
-  for (const entry of presence.values()) {
+  for (const entry of presence) {
     byId.set(entry.key, entry);
   }
   return byId;
@@ -30,9 +30,7 @@ function recipientName(view: AgentView | undefined, space: string, key: string):
   return view?.label ?? view?.name ?? abstractAgentLabel(space, key);
 }
 
-export function recipientFor(root: OrchDir, key: string, views = agentViewIndex(root)): Recipient {
-  const view = viewForKey(views, key);
-  const space = view?.environment.space ?? spaceOf(root, key) ?? "space";
+export function recipientOf(view: AgentView | undefined, space: string, key: string): Recipient {
   return {
     name: recipientName(view, space, key),
     // The harness is the agent's own, never the plexer it happens to sit in.
@@ -42,4 +40,9 @@ export function recipientFor(root: OrchDir, key: string, views = agentViewIndex(
     // own link is addressed by the key either way.
     transportId: view?.environment.handle ?? key,
   };
+}
+
+export function recipientFor(root: OrchDir, key: string, views = agentViewIndex(root)): Recipient {
+  const view = viewForKey(views, key);
+  return recipientOf(view, view?.environment.space ?? spaceOf(root, key) ?? "space", key);
 }

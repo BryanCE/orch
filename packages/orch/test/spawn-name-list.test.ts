@@ -3,6 +3,8 @@ import { claimSpawnNames, resolveSpawnNames } from "../src/commands/spawn/names.
 import { parseSpawnFlags } from "../src/commands/spawn/flags.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { loadPresence, spawnedRecords } from "../src/presence/store.ts";
+import { indexPresenceById } from "../src/entities/lookup.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const dirs: OrchDir[] = [];
@@ -58,7 +60,9 @@ describe("spawn names every agent positionally, at creation", () => {
   });
 
   test("claimSpawnNames takes the resolved names and asserts each is free", () => {
-    makeDir();
-    expect(claimSpawnNames(makeDir(), ["api", "worker"], "")).toEqual(["api", "worker"]);
+    const dir = makeDir();
+    const views = spawnedRecords(dir);
+    const presence = indexPresenceById(loadPresence(dir).values());
+    expect(claimSpawnNames(views, presence, ["api", "worker"], "")).toEqual(["api", "worker"]);
   });
 });

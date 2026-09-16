@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { openFleetHome, resolveSpawnPlacement, spawnBackend } from "../src/commands/spawn/placement.ts";
-import { homeHandle, openHome } from "../src/store/home-rows.ts";
-import { orm } from "../src/store/connection.ts";
+import { openHome } from "../src/commands/home.ts";
+import { homeHandle } from "../src/store/home-rows.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
 import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, HomeSubject, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+import type { Services } from "../src/types/services.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
-import { createLogger } from "../src/log.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 /**
@@ -28,6 +29,7 @@ import type { OrchDir } from "../src/types/core.ts";
  */
 
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 
 beforeEach(() => {
   isolateOrchEnv();
@@ -35,20 +37,18 @@ beforeEach(() => {
   // fixture models a human/driver session with no inherited orch stamp.
 });
 
-afterEach(() => {
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   while (dirs.length) removeTempDir(dirs.pop()!);
   restoreOrchEnv();
 });
 
-function logger(directory: OrchDir) {
-  return createLogger({ file: join(directory, "test.log"), level: "error" });
-}
-
-function fixture(): OrchDir {
+/** A fresh store with the real orchd handler table served on its socket. */
+async function fixture(): Promise<Services> {
   const dir = tempOrchDir("orch-placement-");
   dirs.push(dir);
-  orm(dir);
-  return dir;
+  process.env.ORCH_DIR = dir;
+  return servedServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
 }
 
 function seedOrch(dir: OrchDir, id: string): string {
@@ -123,62 +123,63 @@ function homedBackend(home: SpaceHomeRole | null, inside: boolean, self: string 
 
 /** A grant gate that records whether it was asked, so a test can assert orch did
  *  NOT ask the human to approve a window it was never going to open. */
-function gate(): { asked: number; grantNewHome: () => void } {
-  const state = { asked: 0, grantNewHome: (): void => { state.asked += 1; } };
+function gate(): { asked: number; grantNewHome: () => Promise<void> } {
+  const state = { asked: 0, grantNewHome: (): Promise<void> => { state.asked += 1; return Promise.resolve(); } };
   return state;
 }
 
 describe("outside every plexer, spawn is headless unless the human chose one", () => {
-  test("a plexer orch only probed, from a plain terminal, spawns headless", () => {
-    const dir = fixture();
+  test("a plexer orch only probed, from a plain terminal, spawns headless", async () => {
+    const { logger } = await fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: false }, null).id).toBe("headless");
+      expect(spawnBackend(logger, { backend: "herdr", space: null, backendChosen: false }, null).id).toBe("headless");
     });
   });
 
   // `--backend`, `ORCH_BACKEND` and `defaults.backend` are all the human's
   // choice: a plexer set up in settings.json is one orch may open a home in.
-  test("a chosen plexer stays selected and its home is what the human grants", () => {
-    const dir = fixture();
+  test("a chosen plexer stays selected and its home is what the human grants", async () => {
+    const { logger } = await fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: true }, null).id).toBe("herdr");
+      expect(spawnBackend(logger, { backend: "herdr", space: null, backendChosen: true }, null).id).toBe("herdr");
     });
   });
 
-  test("a chosen plexer that cannot open a home still falls back to headless", () => {
-    const dir = fixture();
+  test("a chosen plexer that cannot open a home still falls back to headless", async () => {
+    const { logger } = await fixture();
     withRegisteredBackend(homedBackend(null, false), () => {
-      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: true }, null).id).toBe("headless");
+      expect(spawnBackend(logger, { backend: "herdr", space: null, backendChosen: true }, null).id).toBe("headless");
     });
   });
 
   // The caller's plexer is read off its RECORD, so a plain terminal inside
   // herdr — no harness marker, no launch key — is inside all the same.
-  test("a caller recorded inside the plexer stays in it, chosen or not", () => {
-    const dir = fixture();
+  test("a caller recorded inside the plexer stays in it, chosen or not", async () => {
+    const { logger } = await fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), true), () => {
-      expect(spawnBackend(logger(dir), { backend: "herdr", space: null, backendChosen: false }, "herdr").id).toBe("herdr");
+      expect(spawnBackend(logger, { backend: "herdr", space: null, backendChosen: false }, "herdr").id).toBe("herdr");
     });
   });
 
-  test("a named space is placement enough: no chosen backend needed", () => {
-    const dir = fixture();
+  test("a named space is placement enough: no chosen backend needed", async () => {
+    const { logger } = await fixture();
     withRegisteredBackend(homedBackend(new RecordingHomeRole(), false), () => {
-      expect(spawnBackend(logger(dir), { backend: "herdr", space: "team", backendChosen: false }, null).id).toBe("herdr");
+      expect(spawnBackend(logger, { backend: "herdr", space: "team", backendChosen: false }, null).id).toBe("herdr");
     });
   });
 });
 
 describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, E10)", () => {
-  test("a named space is orch's own id, and the workspace is its RECORDED home", () => {
-    const dir = fixture();
+  test("a named space is orch's own id, and the workspace is its RECORDED home", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     seedSpace(dir, "space00001");
     const home = new RecordingHomeRole();
-    openHome({ directory: dir, subject: { kind: "space", id: "space00001" }, plexerId: "herdr", home, cwd: "/work", label: "research" });
+    await openHome({ services, subject: { kind: "space", id: "space00001" }, plexerId: "herdr", home, cwd: "/work", label: "research" });
     const grant = gate();
 
-    const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(home, false), space: "space00001",
+    const placement = await resolveSpawnPlacement({
+      services, backend: homedBackend(home, false), space: "space00001",
       packRootId: seedOrch(dir, "packroot01"), callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
     });
 
@@ -192,13 +193,14 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     expect(grant.asked).toBe(0);
   });
 
-  test("with no space, orch INSIDE the plexer spawns beside itself and opens nothing", () => {
-    const dir = fixture();
+  test("with no space, orch INSIDE the plexer spawns beside itself and opens nothing", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     const home = new RecordingHomeRole();
     const grant = gate();
 
-    const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(home, true, "insideorch"), space: null,
+    const placement = await resolveSpawnPlacement({
+      services, backend: homedBackend(home, true, "insideorch"), space: null,
       packRootId: seedOrch(dir, "packroot02"), callerPlexer: "herdr", callerHandle: "wF:p1", grantNewHome: grant.grantNewHome,
     });
 
@@ -213,12 +215,13 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     expect(grant.asked).toBe(0);
   });
 
-  test("a caller INSIDE the plexer whose recorded place is gone resolves no coordinate, never another", () => {
-    const dir = fixture();
+  test("a caller INSIDE the plexer whose recorded place is gone resolves no coordinate, never another", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     const grant = gate();
 
-    const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(new RecordingHomeRole(), true, "insideorch"), space: null,
+    const placement = await resolveSpawnPlacement({
+      services, backend: homedBackend(new RecordingHomeRole(), true, "insideorch"), space: null,
       packRootId: seedOrch(dir, "packroot02c"), callerPlexer: "herdr", callerHandle: "wZ:p9", grantNewHome: grant.grantNewHome,
     });
 
@@ -234,13 +237,14 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
   // with a non-null identity result, so a Claude session the user launched in
   // a herdr pane was told it was OUTSIDE herdr and asked for a grant to open a
   // window it never needed.
-  test("a caller INSIDE the plexer with NO orch identity (a human's pane) spawns beside itself", () => {
-    const dir = fixture();
+  test("a caller INSIDE the plexer with NO orch identity (a human's pane) spawns beside itself", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     const home = new RecordingHomeRole();
     const grant = gate();
 
-    const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(home, true, null), space: null,
+    const placement = await resolveSpawnPlacement({
+      services, backend: homedBackend(home, true, null), space: null,
       packRootId: seedOrch(dir, "packroot02b"), callerPlexer: "herdr", callerHandle: "wF:p1", grantNewHome: grant.grantNewHome,
     });
 
@@ -250,16 +254,17 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     expect(grant.asked).toBe(0);
   });
 
-  test("with no space and orch OUTSIDE the plexer, the PACK gets its own marked home", () => {
-    const dir = fixture();
+  test("with no space and orch OUTSIDE the plexer, the PACK gets its own marked home", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     const orch = seedOrch(dir, "packroot03");
     const home = new RecordingHomeRole();
     const grant = gate();
 
     const backend = homedBackend(home, false);
 
-    const placement = resolveSpawnPlacement({
-      directory: dir, backend, space: null,
+    const placement = await resolveSpawnPlacement({
+      services, backend, space: null,
       packRootId: orch, callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
     });
 
@@ -272,7 +277,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     expect(placement).toEqual({ space: null, workspace: undefined, homeToOpen: subject });
     expect(home.created).toEqual([]);
 
-    const opened = openFleetHome({ directory: dir, backend, subject, cwd: "/home/bryan/work", env: { ROOT_AGENT: "1" } });
+    const opened = await openFleetHome({ services, backend, subject, cwd: "/home/bryan/work", env: { ROOT_AGENT: "1" } });
 
     expect(home.created[0]?.subject).toEqual(subject);
     expect(home.created[0]?.request.env).toEqual({ ROOT_AGENT: "1" });
@@ -286,22 +291,22 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     expect(homeHandle(dir, { kind: "pack", id: orch }, "herdr")).toBe("w1");
   });
 
-  test("the same pack spawning again reuses its home and asks the human nothing", () => {
-    const dir = fixture();
-    const orch = seedOrch(dir, "packroot04");
+  test("the same pack spawning again reuses its home and asks the human nothing", async () => {
+    const services = await fixture();
+    const orch = seedOrch(services.orchDir, "packroot04");
     const home = new RecordingHomeRole();
     const grant = gate();
     const backend = homedBackend(home, false);
     const request = {
-      directory: dir, backend, space: null,
+      services, backend, space: null,
       packRootId: orch, callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
     };
 
     const subject: HomeSubject = { kind: "pack", id: orch };
-    const first = resolveSpawnPlacement(request);
+    const first = await resolveSpawnPlacement(request);
     expect(first.homeToOpen).toEqual(subject);
-    const opened = openFleetHome({ directory: dir, backend, subject, cwd: "/work", env: {} });
-    const second = resolveSpawnPlacement(request);
+    const opened = await openFleetHome({ services, backend, subject, cwd: "/work", env: {} });
+    const second = await resolveSpawnPlacement(request);
 
     expect(second).toEqual({ space: null, workspace: opened.coordinate, homeToOpen: null });
     // One home, one grant. A second window per wave is exactly the "random
@@ -310,12 +315,13 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     expect(grant.asked).toBe(1);
   });
 
-  test("an environment that holds nothing answers with an absence, never a refusal", () => {
-    const dir = fixture();
+  test("an environment that holds nothing answers with an absence, never a refusal", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     const grant = gate();
 
-    const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(null, false), space: null,
+    const placement = await resolveSpawnPlacement({
+      services, backend: homedBackend(null, false), space: null,
       packRootId: seedOrch(dir, "packroot05"), callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
     });
 
@@ -326,15 +332,16 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     expect(grant.asked).toBe(0);
   });
 
-  test("a space with no home HERE places the fleet without borrowing another plexer's", () => {
-    const dir = fixture();
+  test("a space with no home HERE places the fleet without borrowing another plexer's", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
     seedSpace(dir, "space00002");
     const home = new RecordingHomeRole();
-    openHome({ directory: dir, subject: { kind: "space", id: "space00002" }, plexerId: "tmux", home, cwd: "/work", label: "research" });
+    await openHome({ services, subject: { kind: "space", id: "space00002" }, plexerId: "tmux", home, cwd: "/work", label: "research" });
     const grant = gate();
 
-    const placement = resolveSpawnPlacement({
-      directory: dir, backend: homedBackend(home, false), space: "space00002",
+    const placement = await resolveSpawnPlacement({
+      services, backend: homedBackend(home, false), space: "space00002",
       packRootId: seedOrch(dir, "packroot06"), callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
     });
 

@@ -158,3 +158,9 @@ export function isTaskRec(value: unknown): value is TaskRec {
     && hasTaskLifecycle(value)
     && (!("error" in value) || typeof value.error === "string");
 }
+
+export function isPackIntakeRec(value: unknown): value is PackIntakeRec {
+  if (!isRecord(value)) return false;
+  return typeof value.packId === "string" && typeof value.spaceId === "string"
+    && typeof value.since === "number" && (typeof value.until === "number" || value.until === null);
+}

@@ -1,18 +1,14 @@
-import type { OrchDir } from "../src/types/core.ts";
+import { describe, expect, test } from "bun:test";
 import { orchDirAt } from "../src/services.ts";
-import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { eventAcceptor, eventWithinSpaceWall, formatEventGap, isNotifyEvent, onMonitor, parseEventsOptions, passesStateFilter, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { eventAcceptor, formatEventGap, isNotifyEvent, onMonitor, parseEventsOptions, passesStateFilter, renderEvent, sinkLabel } from "../src/commands/events.ts";
 import { MONITOR_DEFAULT_ON } from "../src/settings/schema.ts";
 import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
-import { seedSpace } from "./helpers/space.ts";
-import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir.ts";
 import { helpTopic } from "../src/commands/index.ts";
 import { subscribeEvents } from "../src/daemon/client/rpc.ts";
-import { setSpace } from "../src/store/interval-rows.ts";
+import { withinSpaceCeiling } from "../src/policy/space.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { AgentState } from "../src/agent-state.ts";
 
@@ -164,83 +160,21 @@ describe("commands/events", () => {
   });
 });
 
-// The wall is unconditional: no flag punches through it, so every case here is
-// about WHERE the agent is now. A1 / Rule 11: the space is composed from
-// `agent_spaces`, never a segment read out of the identity key, which pinned the
-// stream to the space the agent was born in.
-describe("commands/events space wall", () => {
-  const directories: OrchDir[] = [];
-  let previousOrchDir: OrchDir | undefined;
-
-  function tempOrchDir(): OrchDir {
-    previousOrchDir ??= process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
-    const directory = mintTempOrchDir("orch-events-space-");
-    directories.push(directory);
-    process.env.ORCH_DIR = directory;
-    return directory;
-  }
-
-  function seedAgent(root: OrchDir, space: string): string {
-    const key = mintAgentId();
-    seedSpace(root, space);
-    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: root, name: "recon", model: "test", space, spawner: null, process: { pid: process.pid, startToken: "commands-events-space-wall-fixture" } });
-    return key;
-  }
-
-  afterEach(() => {
-    if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
-    else process.env.ORCH_DIR = previousOrchDir;
-    previousOrchDir = undefined;
-    while (directories.length > 0) removeTempDir(directories.pop()!);
+describe("commands/events space ceiling", () => {
+  test("matches an event's stamped space and lets an unplaced caller hear all", () => {
+    expect(withinSpaceCeiling("w1", "w1")).toBe(true);
+    expect(withinSpaceCeiling("w1", "w2")).toBe(false);
+    expect(withinSpaceCeiling("w1", null)).toBe(true);
   });
 
-  test("an agent is heard only inside the space it currently occupies", () => {
-    const root = tempOrchDir();
-    const key = seedAgent(root, "w1");
-    expect(eventWithinSpaceWall(root, key, "w1")).toBe(true);
-    expect(eventWithinSpaceWall(root, key, "w2")).toBe(false);
-  });
-
-  test("moving an agent moves its events with it", () => {
-    const root = tempOrchDir();
-    const key = seedAgent(root, "w1");
-    seedSpace(root, "w2");
-    // A move is a new interval on the space axis, not a re-registration.
-    setSpace(root, key, Date.now(), "w2");
-    // The identity key never changed; only the environment did.
-    expect(eventWithinSpaceWall(root, key, "w1")).toBe(false);
-    expect(eventWithinSpaceWall(root, key, "w2")).toBe(true);
-  });
-
-  // The human at a raw terminal: orch minted them no id, so they sit in no space and
-  // there is no wall to stand on. Matching spaces both ways here silenced their stream
-  // entirely, which is the one caller allowed to watch the whole machine.
-  test("an unplaced caller has no wall and hears the machine", () => {
-    const root = tempOrchDir();
-    const key = seedAgent(root, "w1");
-    expect(eventWithinSpaceWall(root, key, null)).toBe(true);
-  });
-
-  test("a key naming no registered agent is in no space", () => {
-    const root = tempOrchDir();
-    expect(eventWithinSpaceWall(root, mintAgentId(), "w1")).toBe(false);
-  });
-
-  // A session watches what it OWNS. Its own transitions are what it is doing, and
-  // streaming them back is how an orchestrator's monitor filled with its own lines.
-  // Mail is the one exception: a message event is keyed by its recipient.
   test("a session hears its workers and its mail, never its own transitions", () => {
-    const root = tempOrchDir();
     const me = mintAgentId();
     const worker = mintAgentId();
-    seedSpace(root, "w1");
-    registerSpawnedAgent(root, { key: me, harnessId: "claude", placed: false, cwd: root, name: "orchestrator", model: "test", space: "w1", spawner: null, process: { pid: process.pid, startToken: "commands-events-self-fixture" } });
-    registerSpawnedAgent(root, { key: worker, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${worker}`, cwd: root, name: "recon", model: "test", space: "w1", spawner: me, process: { pid: process.pid, startToken: "commands-events-self-fixture" } });
-    const accepts = eventAcceptor(root, { ...parseEventsOptions([]), targets: ["recon"] }, new Set([worker]), { mine: true, address: me });
-    expect(accepts(worker, "transition")).toBe(true);
-    expect(accepts(me, "message")).toBe(true);
-    expect(accepts(me, "transition")).toBe(false);
-    expect(accepts(me, "asking")).toBe(false);
+    const accepts = eventAcceptor({ ...parseEventsOptions([]), targets: ["recon"] }, new Set([worker]), { mine: true, address: me }, "w1");
+    expect(accepts({ ...transition("working", "done"), key: worker, space: "w1", spawnedBy: me })).toBe(true);
+    expect(accepts({ type: "message", key: me, agent: "orchestrator", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "m", text: "report" } })).toBe(true);
+    expect(accepts({ ...transition("working", "done"), key: me, space: "w1", spawnedBy: me })).toBe(false);
+    expect(accepts({ ...transition("working", "done"), key: me, space: "w1", spawnedBy: me })).toBe(false);
   });
 });
 

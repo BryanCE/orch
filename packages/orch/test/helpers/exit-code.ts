@@ -9,3 +9,13 @@ export function withExitCode<T>(action: () => T): T {
     process.exitCode = previous ?? 0;
   }
 }
+
+/** {@link withExitCode} for a command that answers a promise. */
+export async function withExitCodeAsync<T>(action: () => Promise<T>): Promise<T> {
+  const previous = process.exitCode;
+  try {
+    return await action();
+  } finally {
+    process.exitCode = previous ?? 0;
+  }
+}

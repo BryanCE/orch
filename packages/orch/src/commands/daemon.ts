@@ -13,7 +13,7 @@ import {
 import { daemonRuntimeFiles } from "../daemon/client/runtime-files.ts";
 import { DaemonAbsentError, DaemonUnreachableError } from "../daemon/client/wire.ts";
 import { rpcCall } from "../daemon/client/rpc.ts";
-import type { GovernedMethod, ParamsOf, ResultOf, Governance } from "../daemon/client/protocol.ts";
+import type { GovernedMethod, ParamsOf, ResultOf, Governance, RpcMethod } from "../daemon/client/protocol.ts";
 import {
   awaitDaemonProbe,
   BIND_GRACE_MS,
@@ -28,12 +28,13 @@ import {
 } from "../daemon/client/reach.ts";
 import { errorMessage, pidAlive } from "../util.ts";
 import { retryingAsync } from "../retry.ts";
+import { callerCredential } from "../identity/credential.ts";
 import { parseCommand } from "./registry.ts";
 import type { ParsedFlags } from "../cli/spec.ts";
-import { actorSpace, callerIsSpawnedAgent, callerOwnerToken, die, forbidNonOperatorOverride } from "./target.ts";
+import { die } from "./target.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
 import type { OrchDir } from "../types/core.ts";
-import type { OrchDirService, Services } from "../types/services.ts";
+import type { DaemonClient, Services } from "../types/services.ts";
 
 async function fetchDaemonStatus(orchDir: OrchDir, timeoutMs = 5000): Promise<DaemonStatus> {
   return rpcCall(orchDir, "daemon-status", undefined, timeoutMs);
@@ -60,38 +61,22 @@ async function waitForDaemon(orchDir: OrchDir, previousStartedAt?: string): Prom
 }
 
 /** The governance a command's parsed flags carry. */
-export function governanceFlags(services: OrchDirService, flags: ParsedFlags): WriteGovernance {
+export function governanceFlags(flags: ParsedFlags): WriteGovernance {
   const gov: WriteGovernance = {};
   if (flags.has("--steal")) gov.steal = true;
   if (flags.has("--cross-space")) gov.crossSpace = true;
-  // Refused at parse time so the message names the flag, before any wall or
-  // resolution failure can obscure it. callDaemon re-checks for programmatic gov.
-  if (gov.steal) forbidNonOperatorOverride(services.orchDir, "--steal");
-  if (gov.crossSpace) forbidNonOperatorOverride(services.orchDir, "--cross-space");
   return gov;
 }
 
-/** One write to orchd, stamped with the caller's actor and governance. Throws the
- *  refusal text a human should read; the caller owns what an unreachable daemon costs.
- *  Use {@link writeRpc} when that cost is the whole command. */
-export async function callDaemon<M extends GovernedMethod>(services: Pick<Services, "orchDir" | "settings" | "logger">, method: M, params: ParamsOf<M>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<ResultOf<M>> {
+/** One write to orchd, carrying the caller's credential; orchd stamps the actor from it. Throws the refusal text a human should read; the caller owns what an unreachable daemon costs. Use {@link writeRpc} when that cost is the whole command. */
+export async function callDaemon<M extends GovernedMethod>(services: DaemonClient, method: M, params: ParamsOf<M>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<ResultOf<M>> {
   const directory = services.orchDir;
   if (timeoutMs === undefined && (method === "steer" || method === "answer")) {
     const { timeouts } = services.settings.current();
     timeoutMs = timeouts.adapter_command_ms + timeouts.dispatch_ack_ms;
   }
-  if (gov.steal) forbidNonOperatorOverride(directory, "--steal");
-  if (gov.crossSpace) forbidNonOperatorOverride(directory, "--cross-space");
-  // The write actor is the id orch issued this process, the same one spawn
-  // stamps as owner; anything else and an orchestrator cannot steer its own fleet.
-  const actor = callerOwnerToken(directory) ?? null;
-  const actorLocation = actor === null ? null : actorSpace(directory, actor);
   const governance: Governance = {
-    ...(actor === null ? {} : {
-      actor,
-      ...(actorLocation === null ? {} : { actorSpace: actorLocation }),
-      actorIsOperator: !callerIsSpawnedAgent(directory),
-    }),
+    caller: callerCredential(),
     ...(gov.steal ? { steal: true } : {}),
     ...(gov.crossSpace ? { crossSpace: true } : {}),
   };
@@ -105,9 +90,30 @@ export async function callDaemon<M extends GovernedMethod>(services: Pick<Servic
 }
 
 /** The daemon write whose failure ends the command. */
-export async function writeRpc<M extends GovernedMethod>(services: Pick<Services, "orchDir" | "settings" | "logger">, method: M, params: ParamsOf<M>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<ResultOf<M>> {
+export async function writeRpc<M extends GovernedMethod>(services: DaemonClient, method: M, params: ParamsOf<M>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<ResultOf<M>> {
   try {
     return await callDaemon(services, method, params, gov, timeoutMs);
+  } catch (error: unknown) {
+    die(errorMessage(error));
+  }
+}
+
+/** One read from orchd. Nothing is stamped: a read carries no governance. Throws
+ *  the refusal text; the caller owns what an unreachable daemon costs. */
+export async function askDaemon<M extends RpcMethod>(services: DaemonClient, method: M, params: ParamsOf<M>, timeoutMs?: number): Promise<ResultOf<M>> {
+  const directory = services.orchDir;
+  try {
+    await ensureDaemon(directory, services.logger);
+    return await rpcCall(directory, method, params, timeoutMs);
+  } catch (error: unknown) {
+    throw translateDaemonError(directory, error);
+  }
+}
+
+/** The daemon read whose failure ends the command. */
+export async function readRpc<M extends RpcMethod>(services: DaemonClient, method: M, params: ParamsOf<M>, timeoutMs?: number): Promise<ResultOf<M>> {
+  try {
+    return await askDaemon(services, method, params, timeoutMs);
   } catch (error: unknown) {
     die(errorMessage(error));
   }

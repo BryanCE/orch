@@ -1,8 +1,9 @@
 import { isAgentId } from "../../backends/identity.ts";
 import { assertNameFree } from "../../policy/name.ts";
-import { spawnedRecords } from "../../presence/store.ts";
-import { renameAgent as renameNormalizedAgent } from "../../store/agent-rows.ts";
 import { errorMessage } from "../../util.ts";
+import { callDaemon } from "../daemon.ts";
+import { readFleet } from "../fleet.ts";
+import { admissionFleet } from "../spawn/admission.ts";
 import { lifecycleLogger } from "./index.ts";
 import { describeHandle } from "./close.ts";
 import { assertAgentOwned, backendTarget, die } from "../target.ts";
@@ -10,6 +11,7 @@ import { parseCommand } from "../registry.ts";
 import { viewForKey } from "../../entities/lookup.ts";
 import type { Backend, BackendHandle } from "../../types/backend.ts";
 import type { AgentView } from "../../types/store.ts";
+import type { PresenceEntry } from "../../types/presence.ts";
 import type { Services } from "../../types/services.ts";
 
 interface ChromeOutcome {
@@ -30,22 +32,24 @@ interface ChromeOutcome {
  * whose failure is reported and never rewrites whether the rename happened
  * The response states the two outcomes separately.
  */
-function renameAgent(
-  services: Pick<Services, "orchDir" | "logger">,
+async function renameAgent(
+  services: Pick<Services, "orchDir" | "settings" | "logger">,
   backend: Backend,
   handle: BackendHandle,
   key: string,
   name: string,
   views: ReadonlyMap<string, AgentView>,
-): ChromeOutcome | null {
+  presence: ReadonlyMap<string, PresenceEntry>,
+): Promise<ChromeOutcome | null> {
   const view = viewForKey(views, key);
   if (!view) {
     lifecycleLogger(services.logger, key).error("rename.unmanaged-agent", { target: key });
     process.stdout.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
     return null;
   }
-  assertNameFree(services.orchDir, name, view.environment.space ?? "");
-  if (!isAgentId(key) || !renameNormalizedAgent(services.orchDir, key, name)) return null;
+  assertNameFree(views, presence, name, view.environment.space);
+  if (!isAgentId(key)) return null;
+  await callDaemon(services, "rename", { target: key, name });
   const role = backend.agentNaming;
   if (!role) throw new Error("target environment has no agent naming role");
   role.renameAgent(handle, name);
@@ -64,7 +68,7 @@ function renameAgent(
   }
 }
 
-export function cmdRename(services: Services, args: string[]) {
+export async function cmdRename(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("rename", args);
   const paneLabel = flags.has("--pane");
   const json = flags.has("--json");
@@ -72,7 +76,7 @@ export function cmdRename(services: Services, args: string[]) {
   const target = positional[0];
   const name = positional[1];
   if (!target || !name) die("usage: orch rename <target> <name> [--pane] [--force]");
-  const views = spawnedRecords(services.orchDir);
+  const { views, presence } = admissionFleet(await readFleet(services, true));
   const { backend, handle, key } = backendTarget(services.orchDir, services.settings.current(), target, "rename", views);
   assertAgentOwned(services.orchDir, target, { key }, force, views);
   // Renaming an agent moves a label only: orch's registry owns the name, the
@@ -86,7 +90,7 @@ export function cmdRename(services: Services, args: string[]) {
       if (!backend.labeling) throw new Error("target environment has no pane naming role");
       backend.labeling.setLabel(handle, name);
       outcome = { chrome: "renamed", chromeError: null };
-    } else outcome = renameAgent(services, backend, handle, key, name, views);
+    } else outcome = await renameAgent(services, backend, handle, key, name, views, presence);
   } catch (error: unknown) {
     die(`orch rename: ${errorMessage(error)}`);
   }

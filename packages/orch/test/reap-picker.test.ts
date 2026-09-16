@@ -6,13 +6,19 @@ import { closeAllStores } from "../src/store/connection.ts";
 import { orchDirAt } from "../src/services.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { cmdReap, reapCandidates, type ReapCandidateInput } from "../src/commands/lease.ts";
+import { cmdReap } from "../src/commands/lease.ts";
+import { reapCandidates } from "../src/daemon/server/handlers/lease.ts";
+import type { ReapCandidateInput } from "../src/types/command.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { errorMessage } from "../src/util.ts";
 import { testServices } from "./helpers/services.ts";
+import { captureStdout } from "./helpers/stdout.ts";
 
 const directories: OrchDir[] = [];
+const servers: RpcServer[] = [];
 const previousOrchDir = process.env.ORCH_DIR;
 const previousAgentId = process.env[LAUNCH_ENV];
 const rows = [
@@ -58,20 +64,13 @@ const rows = [
   },
 ] satisfies ReapCandidateInput[];
 
-afterEach(() => {
+afterEach(async () => {
+  while (servers.length > 0) await servers.pop()!.close();
   closeAllStores();
   while (directories.length > 0) removeTempDir(directories.pop()!);
   if (previousOrchDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = previousOrchDir;
   if (previousAgentId === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = previousAgentId;
 });
-
-function captureStdout(run: () => Promise<void>): Promise<string> {
-  const output: string[] = [];
-  // eslint-disable-next-line typescript/unbound-method
-  const originalWrite = process.stdout.write;
-  process.stdout.write = ((chunk: string | Uint8Array) => { output.push(String(chunk)); return true; });
-  return run().then(() => output.join(""), (error: unknown) => { throw error; }).finally(() => { process.stdout.write = originalWrite; });
-}
 
 describe("reapCandidates", () => {
   test("classifies unleased dead holders and leased dead processes", () => {
@@ -94,8 +93,9 @@ describe("cmdReap", () => {
     insertAgent(directory, { id: dead, name: "dead", spawnedBy: null, harnessId: "pi", cwd: directory, createdAt: 2 });
     process.env.ORCH_DIR = directory;
     process.env[LAUNCH_ENV] = caller;
+    const services = await servedServices({ orchDir: directory, settings: null }, servers);
 
-    const output = await captureStdout(() => cmdReap(testServices({ orchDir: directory, settings: null }), ["--dead", "--json"]));
+    const output = await captureStdout(() => cmdReap(services, ["--dead", "--json"]));
     const parsed: unknown = JSON.parse(output);
     expect(parsed).toEqual([{ target: dead, name: "dead" }]);
   });

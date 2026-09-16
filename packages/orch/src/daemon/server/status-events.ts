@@ -32,6 +32,7 @@ function composeBase(
 ): Omit<TransitionEvent, "type" | "oldState" | "newState"> {
   const key = row.agentId;
   const view = agentView(orchDir, key);
+  const holder = view?.heldBy?.orchId;
   const space = view?.environment.space ?? undefined;
   const question = pendingQuestion(orchDir, key)?.question ?? row.blockedMessage ?? undefined;
   const strippedTask = row.task === null ? undefined : stripWorkerHeader(row.task);
@@ -56,6 +57,7 @@ function composeBase(
     name: view?.name ?? null,
     dispatchId: row.dispatchId ?? undefined,
     spawnedBy: view?.spawnedBy ?? undefined,
+    ...(holder === undefined ? {} : { holder }),
     spawnedByLabel: view?.spawnedByName ?? undefined,
     tab: null,
     model: row.modelId ? modelSpec(row.modelId, row.thinking ?? undefined) : null,

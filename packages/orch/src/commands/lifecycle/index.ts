@@ -1,5 +1,4 @@
-import { buildEntities } from "../../entities/inventory.ts";
-import { recipientFor, viewForKey } from "../../entities/lookup.ts";
+import { recipientFor } from "../../entities/lookup.ts";
 import { resolvePane, resolveTarget } from "../../entities/resolve.ts";
 import { recipientLabel } from "../../recipient.ts";
 import { isAgentId } from "../../backends/identity.ts";
@@ -11,11 +10,12 @@ import { workerPrompt } from "../../worker-prompt.ts";
 import { workerHeaderContext } from "../../policy/spawner.ts";
 import { entityAdapter } from "../status/rows.ts";
 import { spawnedRecords } from "../../presence/store.ts";
-import { governanceFlags, writeRpc } from "../daemon.ts";
+import { governanceFlags, readRpc, writeRpc } from "../daemon.ts";
+import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
-import { backendTarget, die, ownsAgent, requireCallerOwnerToken } from "../target.ts";
+import { backendTarget, die, requireCallerOwnerToken } from "../target.ts";
 import type { Invocation } from "../../cli/spec.ts";
-import type { Services } from "../../types/services.ts";
+import type { DaemonClient, Services } from "../../types/services.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 
 export function lifecycleLogger(logger: Logger, key: string) {
@@ -27,7 +27,7 @@ export async function cmdRun(services: Services, args: string[]): Promise<void> 
   const { flags, positional } = parseCommand("run", args);
   const raw = flags.has("--raw");
   const json = flags.has("--json");
-  const gov = governanceFlags(services, flags);
+  const gov = governanceFlags(flags);
   const target = positional[0];
   const prompt = positional.slice(1).join(" ");
   if (!target || !prompt) die('usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
@@ -86,26 +86,21 @@ export function awaitIdleAfter(orchDir: OrchDir, presenceKey: string, beforeUpda
 
 /** Every orch-owned live agent, addressed by identity key. Keying on paneId instead
  *  silently skipped the entire detached fleet — a headless agent never has a pane. */
-export function ownedAgentKeys(services: Pick<Services, "orchDir" | "settings">): string[] {
+export async function ownedAgentKeys(services: DaemonClient): Promise<string[]> {
   // Ownership is the OPEN lease (Rule 11). A released one is history and must
   // stop answering here, or `--all` keeps steering agents this orch let go.
-  const views = spawnedRecords(services.orchDir);
-  return buildEntities(services.orchDir, services.settings.current())
-    .filter((ent) => {
-      if (!ent.presence) return false;
-      return ownsAgent(services.orchDir, viewForKey(views, ent.key) ?? { id: ent.key, heldBy: null });
-    })
-    .map((ent) => ent.key);
+  const { keys } = await readRpc(services, "owned-agents", { caller: callerCredential() });
+  return keys;
 }
 
 /** The targets a lifecycle command was given: the positionals, plus every agent
  *  this caller owns under `--all`, a right the caller must hold before the list is built. */
-export function lifecycleTargets(services: Pick<Services, "orchDir" | "settings">, { flags, positional }: Invocation): { targets: string[]; all: boolean } {
+export async function lifecycleTargets(services: DaemonClient, { flags, positional }: Invocation): Promise<{ targets: string[]; all: boolean }> {
   const all = flags.has("--all");
   const targets = [...positional];
   if (all) {
     requireCallerOwnerToken(services.orchDir);
-    targets.push(...ownedAgentKeys(services));
+    targets.push(...await ownedAgentKeys(services));
   }
   return { targets, all };
 }

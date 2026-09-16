@@ -1,14 +1,15 @@
-import type { OrchDir, Entity } from "../types/core.ts";
+import type { CallerCredential, OrchDir, Entity } from "../types/core.ts";
 import { checkWall } from "../policy/space.ts";
-import { selfId } from "../identity/self.ts";
-import { callerKind } from "../policy/caller.ts";
+import { selfIdentityOf } from "../identity/self.ts";
+import { callerKindOf } from "../policy/caller.ts";
+import { callerCredential } from "../identity/credential.ts";
 import { holdsLease } from "../store/lease-rows.ts";
 import { ambiguousTargetRefusal, die } from "../refusal.ts";
 import { errorMessage } from "../util.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import { parseTarget, type TargetRef } from "./target.ts";
 import { buildEntities } from "./inventory.ts";
-import { scopeEntitiesToSpace } from "./space.ts";
+import { scopeEntitiesToSpaceFor } from "./space.ts";
 
 function dedupeEntities(entities: Entity[]): Entity[] {
   const seen = new Set<string>();
@@ -31,15 +32,19 @@ function stillRunning(entity: Entity): boolean {
 
 /** A session or spawned agent may resolve only an agent it currently holds.
  *  Ownership is the open lease, never the immutable spawner or a display label. */
-export function callerMayResolve(root: OrchDir, entity: Pick<Entity, "key">): boolean {
-  if (callerKind(root) === "operator") return true;
-  const caller = selfId(root);
+export function callerMayResolveFor(root: OrchDir, credential: CallerCredential, entity: Pick<Entity, "key">): boolean {
+  if (callerKindOf(root, credential) === "operator") return true;
+  const caller = selfIdentityOf(root, credential)?.id;
   if (caller === undefined) return false;
   try {
     return holdsLease(root, entity.key, caller);
   } catch {
     return false;
   }
+}
+
+export function callerMayResolve(root: OrchDir, entity: Pick<Entity, "key">): boolean {
+  return callerMayResolveFor(root, callerCredential(), entity);
 }
 
 export function refuseForeignTarget(target: string): never {
@@ -87,7 +92,13 @@ function matchInPool(entities: Entity[], localTarget: string, target: string, ho
 // default — crossing the wall is never an accident of typing a foreign key.
 // A host-prefixed (<host>/<target>) or --all target opts out; headless runs
 // (no current space) are unscoped.
-export function resolveTarget(root: OrchDir, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): Entity {
+export function resolveTargetFor(
+  root: OrchDir,
+  settings: OrchSettings,
+  credential: CallerCredential,
+  target: string,
+  opts?: { all?: boolean; crossSpace?: boolean },
+): Entity {
   let ref: TargetRef;
   try {
     ref = parseTarget(target, settings.hosts);
@@ -98,24 +109,28 @@ export function resolveTarget(root: OrchDir, settings: OrchSettings, target: str
   const everything = buildEntities(root, settings);
   const crossSpace = opts?.crossSpace === true;
   const crossWall = opts?.all === true || crossSpace || ref.host !== null;
-  const pool = scopeEntitiesToSpace(root, everything, { all: crossWall });
+  const pool = scopeEntitiesToSpaceFor(root, credential, everything, { all: crossWall });
 
   const match = matchInPool(pool, localTarget, target, ref.host);
   if (match) {
-    if (callerMayResolve(root, match)) return match;
+    if (callerMayResolveFor(root, credential, match)) return match;
     refuseForeignTarget(target);
   }
 
   if (!crossWall) {
-    if (callerKind(root) !== "operator") refuseForeignTarget(target);
+    if (callerKindOf(root, credential) !== "operator") refuseForeignTarget(target);
     const foreign = matchInPool(everything, localTarget, target);
     if (foreign) {
       // The wall decision lives in policy/space.ts alone; this only relays it.
-      const decision = checkWall(root, selfId(root) ?? null, foreign.key, { crossSpace: false });
+      const decision = checkWall(root, selfIdentityOf(root, credential)?.id ?? null, foreign.key, { crossSpace: false });
       if (!decision.allowed) die(decision.reason ?? "space-wall denied the write");
     }
   }
   die(`No target matches "${target}". Run 'orch panes' to list.`);
+}
+
+export function resolveTarget(root: OrchDir, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): Entity {
+  return resolveTargetFor(root, settings, callerCredential(), target, opts);
 }
 
 export function resolvePane(root: OrchDir, settings: OrchSettings, target: string, opts?: { all?: boolean; crossSpace?: boolean }): { ent: Entity; pane: string } {

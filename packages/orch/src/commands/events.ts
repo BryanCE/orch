@@ -1,26 +1,26 @@
-import { resolveTarget } from "../entities/resolve.ts";
-import { callerSpace, ensureCallerRegistered } from "../identity/self.ts";
-import { scopeToSpace, spaceOf, spaceOfIn, withinSpaceCeiling } from "../policy/space.ts";
-import { agentViewIndex } from "../store/agent-view.ts";
-import { agentInMineScope, agentInScope, resolveCallerScope } from "../policy/scope.ts";
-import { loadPresence, spawnedRecords } from "../presence/store.ts";
+import { ensureCallerRegistered } from "../identity/self.ts";
+import { scopeToSpace, spaceOfIn, withinSpaceCeiling } from "../policy/space.ts";
+import { agentInMineScope, agentInScope, resolveCallerScopeOf } from "../policy/scope.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { rpcCall, subscribeEvents } from "../daemon/client/rpc.ts";
+import { callerCredential } from "../identity/credential.ts";
 import { ensureDaemon, rpcRegisterSession } from "../daemon/client/reach.ts";
 import { deliver } from "../notify/router.ts";
 import { eventState, isNotifyEvent } from "../notify/event.ts";
 
 export { isNotifyEvent };
 import { notificationHeading, notificationText, oneLine } from "../notify/format.ts";
-import { currentLease } from "../store/lease-rows.ts";
-import { die, forbidNonOperatorOverride } from "./target.ts";
+import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
+import { whoAmI, refuseNonOperatorOverride } from "./self.ts";
+import { readFleet } from "./fleet.ts";
+import { resolveEntity } from "./resolve.ts";
 import type { Services } from "../types/services.ts";
 import type { NotifyEvent } from "../types/notify.ts";
-import type { NotifyEntry, OrchSettings } from "../types/settings.ts";
+import type { NotifyEntry } from "../types/settings.ts";
 import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
-import type { OrchDir } from "../types/core.ts";
+import type { AgentView } from "../types/store.ts";
 import { isAgentState, type AgentState } from "../agent-state.ts";
 
 /** The verbs that hold a stream open; `close --stream` kills any of them. */
@@ -49,25 +49,15 @@ export interface EventsOptions {
 
 export interface EventsContext {
   options: EventsOptions;
-  accepts: (key: string, type: NotifyEvent["type"]) => boolean;
+  accepts: (event: NotifyEvent) => boolean;
   emit: (event: NotifyEvent, streamSeq: number) => boolean;
 }
 
-/**
- * The wall for a streamed transition, asked exactly as `orch status` asks it of a row.
- *
- * A1 / Rule 11: the space is an ENVIRONMENT axis read through {@link spaceOf}, never
- * a segment sliced out of the identity key. Reading it out of the key pinned the
- * stream to the space the agent was BORN in, so a moved or adopted agent kept
- * appearing in a space it had left and vanished from the one it occupies.
- */
-export function eventWithinSpaceWall(root: OrchDir, key: string, ceiling: string | null): boolean {
-  return withinSpaceCeiling(spaceOf(root, key), ceiling);
-}
-
 /** Whether one streamed event belongs on this caller's stream. */
-export function eventAcceptor(root: OrchDir, options: EventsOptions, items: ReadonlySet<string>, scope: ResolvedCallerScope): EventsContext["accepts"] {
-  return (key, type) => {
+export function eventAcceptor(options: EventsOptions, items: ReadonlySet<string>, scope: ResolvedCallerScope, callerSpace: string | null): EventsContext["accepts"] {
+  return (event) => {
+    const key = event.key;
+    const type = event.type;
     // The key IS the minted id (A1), so there is one lookup and no second id space.
     const agentId = isAgentId(key) ? key : null;
     // A message event is keyed by its RECIPIENT, so mail a worker sent this session
@@ -76,14 +66,14 @@ export function eventAcceptor(root: OrchDir, options: EventsOptions, items: Read
     if (key === scope.address) return type === "message";
     const inScope = options.targets.length
       ? items.has(key)
-      : agentId !== null && eventWithinSpaceWall(root, agentId, callerSpace(root));
+      : agentId !== null && withinSpaceCeiling(event.space ?? null, callerSpace);
     if (!inScope) return false;
-    const leaseOwner = currentLease(root, agentId ?? key)?.orchId ?? null;
+    const leaseOwner = event.holder ?? null;
     return agentInScope({
       spaceWide: !scope.mine,
       mineAddress: scope.address,
       leaseOwner,
-      recordSpawnedBy: spawnedRecords(root).get(agentId ?? key)?.spawnedBy ?? undefined,
+      recordSpawnedBy: event.spawnedBy,
     });
   };
 }
@@ -123,11 +113,13 @@ export async function cmdMonitor(services: Services, args: string[]) {
 async function streamEvents(services: Services, verb: StreamVerb, options: EventsOptions, shows: (event: NotifyEvent) => boolean) {
   await ensureDaemon(services.orchDir, services.logger);
   await ensureCallerRegistered(services.orchDir, (directory) => rpcRegisterSession(directory, services.logger));
-  if (options.scope === "any") forbidNonOperatorOverride(services.orchDir, "--space-wide");
-  const items = eventsItems(options, services.orchDir, services.settings.current());
-  const scope = await resolveCallerScope(services.logger, options.scope, services.orchDir);
-  const accepts = eventAcceptor(services.orchDir, options, items, scope);
-  const context: EventsContext = { options, accepts, emit: eventWriter(options, services.orchDir, shows) };
+  const self = await whoAmI(services);
+  if (options.scope === "any") refuseNonOperatorOverride(self, "--space-wide");
+  const fleet = await readFleet(services, true);
+  const items = await eventsItems(services, options, fleet, self);
+  const scope = resolveCallerScopeOf(options.scope, self);
+  const accepts = eventAcceptor(options, items, scope, self.space);
+  const context: EventsContext = { options, accepts, emit: eventWriter(options, shows) };
   // Notification delivery is orchd's, not the client's: the daemon fans every
   // transition out to the sinks configured in settings.json whether or not
   // anyone is streaming. `orch events` only renders.
@@ -135,7 +127,7 @@ async function streamEvents(services: Services, verb: StreamVerb, options: Event
     verb,
     writeNotice: (line) => process.stdout.write(line),
     startTransport: () => startEventsTransport(context, services),
-    ownedAgents: () => ownedAgentCount(scope, services.orchDir),
+    ownedAgents: () => ownedAgentCount(scope, fleet.views),
   });
   process.on("SIGINT", () => { transport.close(); });
   process.on("SIGTERM", () => { transport.close(); });
@@ -204,11 +196,11 @@ export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCal
  * nothing owns nothing, so a watch armed before the first spawn is silence by
  * construction, and a monitor sat on it for three minutes saying nothing.
  */
-function ownedAgentCount(scope: ResolvedCallerScope, root: OrchDir): number {
+function ownedAgentCount(scope: ResolvedCallerScope, views: readonly AgentView[]): number {
   if (!scope.mine || scope.address === undefined) return 0;
   let owned = 0;
-  for (const [agentId, record] of spawnedRecords(root)) {
-    const leaseOwner = currentLease(root, agentId)?.orchId ?? null;
+  for (const record of views) {
+    const leaseOwner = record.heldBy?.orchId ?? null;
     if (agentInMineScope({ mineAddress: scope.address, leaseOwner, recordSpawnedBy: record.spawnedBy ?? undefined })) owned += 1;
   }
   return owned;
@@ -278,20 +270,21 @@ export function parseEventsOptions(args: string[], verb: StreamVerb = "events"):
 }
 
 /** The presence keys a `--agent` narrowed stream accepts; every live scoped key when unnarrowed. */
-function eventsItems(options: EventsOptions, root: OrchDir, settings: OrchSettings): Set<string> {
+async function eventsItems(services: Services, options: EventsOptions, fleet: Awaited<ReturnType<typeof readFleet>>, self: Awaited<ReturnType<typeof whoAmI>>): Promise<Set<string>> {
   const items = new Set<string>();
   if (!options.targets.length) {
+    const views = new Map(fleet.views.map((view) => [view.id, view]));
     const presences = scopeToSpace(
-      spaceOfIn(agentViewIndex(root)),
-      [...loadPresence(root).values()].filter((presence) => presence.alive && looksLikePaneKey(presence.key)),
+      spaceOfIn(views),
+      fleet.presence.filter((presence) => presence.alive && looksLikePaneKey(presence.key)),
       (presence) => presence.key,
-      callerSpace(root),
+      self.space,
       { all: false },
     );
     for (const presence of presences) items.add(presence.key);
   }
   for (const target of options.targets) {
-    const entity = resolveTarget(root, settings, target, { all: false });
+    const { entity } = await resolveEntity(services, target, { all: false });
     if (!entity.presence) die(`Target "${target}" has no agent dir to watch.`);
     items.add(entity.presence.key);
   }
@@ -342,20 +335,18 @@ function eventStateChange(event: Exclude<NotifyEvent, { type: "message" }>): str
   }
 }
 
-function eventWriter(options: EventsOptions, root: OrchDir, shows: (event: NotifyEvent) => boolean): (event: NotifyEvent, streamSeq: number) => boolean {
+function eventWriter(options: EventsOptions, shows: (event: NotifyEvent) => boolean): (event: NotifyEvent, streamSeq: number) => boolean {
   return (event, streamSeq): boolean => {
     if (!shows(event)) return false;
-    const space = event.space ?? spaceOf(root, event.key);
-    process.stdout.write(`${renderEvent(event, options.json, streamSeq, space)}\n`);
+    process.stdout.write(`${renderEvent(event, options.json, streamSeq)}\n`);
     return true;
   };
 }
 
 /** The durable question row rendered as the same asking event shape as a live transition. */
-function pendingQuestionEvent(question: PendingQuestionView, root: OrchDir): NotifyEvent {
+function pendingQuestionEvent(question: PendingQuestionView): NotifyEvent {
   return {
     key: question.agentId,
-    space: spaceOf(root, question.agentId) ?? undefined,
     agent: question.name,
     name: question.name,
     tab: null,
@@ -393,12 +384,12 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
       resolveDone?.();
     },
   };
-  const pending = rpcCall(services.orchDir, "questions", undefined);
+  const pending = rpcCall(services.orchDir, "questions", { caller: callerCredential() });
   subscription = subscribeEvents(
     services.orchDir,
     context.options.sinceSeq === undefined ? {} : { since: context.options.sinceSeq },
     (value, streamSeq) => {
-      if (!isNotifyEvent(value) || !context.accepts(value.key, value.type)) return;
+      if (!isNotifyEvent(value) || !context.accepts(value)) return;
       if (context.emit(value, streamSeq) && context.options.once) transport.close();
     },
     (oldestSeq) => {
@@ -408,8 +399,9 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
   );
   void pending.then((value) => {
     for (const question of value.questions) {
-      if (!context.accepts(question.agentId, "asking")) continue;
-      if (context.emit(pendingQuestionEvent(question, services.orchDir), 0) && context.options.once) {
+      const event = pendingQuestionEvent(question);
+      if (!context.accepts(event)) continue;
+      if (context.emit(event, 0) && context.options.once) {
         transport.close();
         break;
       }

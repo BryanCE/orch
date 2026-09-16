@@ -1,22 +1,18 @@
-import { launchCredential } from "./launch.ts";
 import { agentIdByProcess, agentIdBySessionToken } from "../store/agent-rows.ts";
 import { environmentOf } from "../store/agent-view.ts";
-import { callerSession } from "../adapters/session-env.ts";
-import { callerKind } from "../policy/caller.ts";
-import { processStartToken } from "../process-identity.ts";
-import type { CallerSession, OrchDir, SelfIdentity } from "../types/core.ts";
+import { callerKindOf } from "../policy/caller.ts";
+import { callerCredential } from "./credential.ts";
+import type { CallerCredential, OrchDir, SelfIdentity } from "../types/core.ts";
 
-/** The id orch handed this process, or null when orch has never registered it. */
-export function selfIdentity(orchDir: OrchDir): SelfIdentity | null {
+/** The agent a credential names, resolved against the store. orchd's half of identity. */
+export function selfIdentityOf(orchDir: OrchDir, credential: CallerCredential): SelfIdentity | null {
   // A spawned agent was handed its own id at launch; that IS orch's record of it.
   // The key is the whole id, so there is nothing to parse out of it — and a key
   // that is not a minted id names no agent orch ever registered.
-  const spawned = launchCredential();
-  if (spawned !== null) return { id: spawned };
+  if (credential.launch !== null) return { id: credential.launch };
   // A driving session: its harness's session token is the pointer to the row
   // `register-session` minted. The token is environment; the id it resolves to is identity.
-  const session = callerSession();
-  const token = session?.sessionId;
+  const token = credential.session?.sessionId;
   if (token) {
     const id = agentIdBySessionToken(orchDir, token);
     return id === null ? null : { id };
@@ -24,18 +20,14 @@ export function selfIdentity(orchDir: OrchDir): SelfIdentity | null {
   // No token: the session IS a process — the harness's own, or the shell that
   // ran this command. Registration filed it under that process, so this
   // resolves the same way, and a plain terminal inside a plexer has an id.
-  const pid = sessionProcessPid(session);
-  const startToken = processStartToken(pid);
-  if (startToken === undefined) return null;
-  const id = agentIdByProcess(orchDir, pid, startToken);
+  if (credential.process.startToken === null) return null;
+  const id = agentIdByProcess(orchDir, credential.process.pid, credential.process.startToken);
   return id === null ? null : { id };
 }
 
-/** The process a driving session is: the pid its harness exports, else the
- *  shell that ran this command. Never this CLI process — that is new on every
- *  call and would make every `orch` invocation a different session. */
-export function sessionProcessPid(session: CallerSession | null): number {
-  return session?.pid ?? process.ppid;
+/** The id orch handed this process, or null when orch has never registered it. */
+export function selfIdentity(orchDir: OrchDir): SelfIdentity | null {
+  return selfIdentityOf(orchDir, callerCredential());
 }
 
 /** The id to stamp as owner/actor on a write, or undefined when unregistered. */
@@ -48,7 +40,9 @@ export async function ensureCallerRegistered(
   orchDir: OrchDir,
   registerSession: (directory: OrchDir) => Promise<unknown>,
 ): Promise<void> {
-  if (callerSession() === null || callerKind(orchDir) !== "session" || selfId(orchDir) !== undefined) return;
+  const credential = callerCredential();
+  if (credential.session === null || callerKindOf(orchDir, credential) !== "session") return;
+  if (selfIdentityOf(orchDir, credential) !== null) return;
   await registerSession(orchDir);
 }
 
@@ -63,6 +57,12 @@ export function spaceOfAgent(orchDir: OrchDir, id: string): string | null {
   }
 }
 
+/** The space the credential's agent is composed into; null for an unregistered caller. */
+export function callerSpaceOf(orchDir: OrchDir, credential: CallerCredential): string | null {
+  const id = selfIdentityOf(orchDir, credential)?.id;
+  return id === undefined ? null : spaceOfAgent(orchDir, id);
+}
+
 /**
  * The caller's own space, read off the caller's own agent record.
  *
@@ -74,6 +74,5 @@ export function spaceOfAgent(orchDir: OrchDir, id: string): string | null {
  * not see a driving session, which carries no launch credential at all.
  */
 export function callerSpace(orchDir: OrchDir): string | null {
-  const id = selfId(orchDir);
-  return id === undefined ? null : spaceOfAgent(orchDir, id);
+  return callerSpaceOf(orchDir, callerCredential());
 }

@@ -1,8 +1,7 @@
-import { launchCredential } from "../identity/launch.ts";
-import { callerSession } from "../adapters/session-env.ts";
 import { agentById } from "../store/agent-rows.ts";
+import { callerCredential } from "../identity/credential.ts";
+import type { CallerCredential, OrchDir } from "../types/core.ts";
 import type { CallerKind } from "../types/policy.ts";
-import type { OrchDir } from "../types/core.ts";
 
 export type { CallerKind };
 
@@ -11,9 +10,9 @@ export type { CallerKind };
 export const OPERATOR_HARNESS_ID = "cli";
 
 /** Classify the caller from its harness marker and, for workers, its claim. */
-export function callerKind(orchDir: OrchDir): CallerKind {
-  const session = callerSession();
-  const id = launchCredential();
+export function callerKindOf(orchDir: OrchDir, credential: CallerCredential): CallerKind {
+  const session = credential.session;
+  const id = credential.launch;
   if (id !== null) {
     const row = agentById(orchDir, id);
     const sessionToken = session?.sessionId;
@@ -23,4 +22,8 @@ export function callerKind(orchDir: OrchDir): CallerKind {
       && row.sessionToken === sessionToken) return "agent";
   }
   return session === null ? "operator" : "session";
+}
+
+export function callerKind(orchDir: OrchDir): CallerKind {
+  return callerKindOf(orchDir, callerCredential());
 }

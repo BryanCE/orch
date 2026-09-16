@@ -17,7 +17,7 @@ import { callerOwnerToken } from "../src/commands/target.ts";
 import { selfId } from "../src/identity/self.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
-import { FakePanedBackend, fakePane, withRegisteredBackend } from "../test/helpers/backend.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackendAsync } from "../test/helpers/backend.ts";
 import { fakeAdapter } from "../test/helpers/adapter.ts";
 import { seedSpace } from "../test/helpers/space.ts";
 import { placeAgent, seedAgent, seedLiveProcess, seedOperator } from "../test/helpers/agent.ts";
@@ -25,16 +25,21 @@ import { seedStatus } from "../test/helpers/presence.ts";
 import { peerView } from "../src/daemon/server/peer-view.ts";
 import { sql } from "drizzle-orm";
 import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
-import { withExitCode } from "../test/helpers/exit-code.ts";
-import { testServices } from "../test/helpers/services.ts";
+import { withExitCodeAsync } from "../test/helpers/exit-code.ts";
+import { servedServices } from "../test/helpers/daemon-state.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+import type { Services } from "../src/types/services.ts";
 const fixtureSettings = {
   enabled: { adapters: ["pi"], backends: ["headless"] },
   defaults: { adapter: "pi", backend: "headless" },
 };
 const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
+/** Dirs {@link runCli} already serves: one orchd per dir, however many runs. */
+const servedDirs = new Set<OrchDir>();
 const children: ChildProcess[] = [];
 /** Processes started as nobody's child (see {@link spawnOrphanSleeper}), killed after each test. */
 const orphans: number[] = [];
@@ -75,6 +80,11 @@ function makeDir(): OrchDir {
   return dir;
 }
 
+/** An in-process command writes through orchd: serve the real handler table on this dir. */
+function commandServices(dir: OrchDir): Promise<Services> {
+  return servedServices({ orchDir: dir, settings: fixtureSettings }, servers);
+}
+
 function recordProcess(dir: OrchDir, key: string, pid: number, startToken: string): void {
   const db = orm(dir);
   db.run(sql`INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)`);
@@ -83,21 +93,20 @@ function recordProcess(dir: OrchDir, key: string, pid: number, startToken: strin
   db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
 }
 
-/** One real CLI run. The child is an UNREGISTERED operator unless `extraEnv`
- *  hands it a launch credential: no harness session marker is inherited from
- *  the terminal this suite runs in (a session caller is walled by its lease). */
-function runCli(dir: OrchDir, args: string[], extraEnv?: Record<string, string>): { status: number | null; output: string } {
+/** One real CLI run against orchd served in-process on `dir`, so the child
+ *  never starts a daemon of its own. The child is an UNREGISTERED operator unless
+ *  `extraEnv` hands it a launch credential: no harness session marker is inherited
+ *  from the terminal this suite runs in (a session caller is walled by its lease). */
+async function runCli(dir: OrchDir, args: string[], extraEnv?: Record<string, string>): Promise<{ status: number | null; output: string }> {
+  if (!servedDirs.has(dir)) { servedDirs.add(dir); await commandServices(dir); }
   const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: dir };
   delete env[LAUNCH_ENV];
   for (const name of SESSION_ENV) delete env[name];
   Object.assign(env, extraEnv);
-  const result = Bun.spawnSync([process.execPath, binPath, ...args], {
-    env,
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: 15_000,
-  });
-  return { status: result.exitCode, output: `${result.stdout.toString()}\n${result.stderr.toString()}` };
+  // Async, never spawnSync: the served daemon answers the child from this event loop.
+  const child = Bun.spawn([process.execPath, binPath, ...args], { env, stdout: "pipe", stderr: "pipe", timeout: 15_000 });
+  const [stdout, stderr, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  return { status, output: `${stdout}\n${stderr}` };
 }
 
 afterAll(() => {
@@ -107,6 +116,8 @@ afterAll(() => {
 });
 
 afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
+  servedDirs.clear();
   for (const pid of orphans.splice(0)) { try { process.kill(pid, "SIGKILL"); } catch {} }
   const spawned = children.splice(0);
   for (const child of spawned) {
@@ -168,14 +179,14 @@ describe("fleet ownership scoping", () => {
     expect(selfId(dir)).toBe(orchId);
   });
 
-  test("spawn stamps the caller's registered id as the holder on its record", () => {
+  test("spawn stamps the caller's registered id as the holder on its record", async () => {
     const dir = makeDir();
     const orchId = seedOperator(dir);
     seedSpace(dir, "local");
     delete process.env.HERDR_PANE_ID;
     const backend = new FakePanedBackend({ id: "headless" });
 
-    const agent = spawnOneIntoTab(dir, {
+    const agent = await spawnOneIntoTab(await commandServices(dir), {
       backend,
       adapter: fakeAdapter(),
       adapterId: "pi",
@@ -186,38 +197,40 @@ describe("fleet ownership scoping", () => {
       model: "openai/gpt-5.6",
       thinking: "medium",
       preferredModels: [],
+      spawner: { key: orchId, label: "operator" }, owner: orchId,
     });
 
     expect(spawnedRecords(dir).get(agent.key)?.heldBy?.orchId).toBe(orchId);
   });
 
-  test("close --all works from an unregistered shell", () => {
+  test("close --all works from an unregistered shell", async () => {
     const dir = makeDir();
     delete process.env.HERDR_PANE_ID;
     delete process.env.TMUX_PANE;
     seedSpace(dir, "local");
     seedAgent("kunowned01", { adapter: "pi", backend: "headless", space: "local", handle: "unowned", owner: "other" }, dir);
-    const result = runCli(dir, ["close", "--all", "--json"]);
+    const result = await runCli(dir, ["close", "--all", "--json"]);
     expect(result.status).toBe(0);
     expect(spawnedRecords(dir).has("kunowned01")).toBe(false);
   });
 
-  test("close --all closes all managed records regardless of owner", () => {
+  test("close --all closes all managed records regardless of owner", async () => {
     const dir = makeDir();
     seedSpace(dir, "local");
     seedAgent("klmine0001", { adapter: "pi", backend: "headless", space: "local", handle: "mine", owner: "caller" }, dir);
     seedAgent("klforeign1", { adapter: "pi", backend: "headless", space: "local", handle: "foreign", owner: "other" }, dir);
+    const services = await commandServices(dir);
 
     // `user-pane` is listed but never orch-spawned: `close --all` sweeps only
     // panes orch owns records for, never the user's own.
     const backend = new FakePanedBackend({ panes: ["mine", "foreign", "user-pane"].map((handle) => fakePane(handle, { space: "local" })) });
-    withExitCode(() => withRegisteredBackend(backend, () => { cmdClose(testServices({ orchDir: dir, settings: fixtureSettings }), ["--all", "--json"]); }));
+    await withExitCodeAsync(() => withRegisteredBackendAsync(backend, () => cmdClose(services, ["--all", "--json"])));
 
     // Sweep order is not part of the contract.
     expect([...backend.closed].sort()).toEqual(["foreign", "mine"]);
   });
 
-  test("driving verbs remain gated against a live foreign holder", () => {
+  test("driving verbs remain gated against a live foreign holder", async () => {
     const commands: readonly (readonly [string, string?])[] = [
       ["dispatch", "hello"],
       ["steer", "hello"],
@@ -233,9 +246,11 @@ describe("fleet ownership scoping", () => {
       }));
       seedSpace(dir, "local");
       seedAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" }, dir);
-      const result = runCli(dir, [verb, key, ...(arg ? [arg] : [])]);
+      const result = await runCli(dir, [verb, key, ...(arg ? [arg] : [])]);
       expect(result.status).not.toBe(0);
       expect(result.output).toContain("other-orchestrator");
+      await servers.pop()!.close();
+      servedDirs.delete(dir);
       removeTempDir(dirs.pop()!);
     }
     // One real CLI spawn per driving verb; the default 5s covers none of them
@@ -245,7 +260,7 @@ describe("fleet ownership scoping", () => {
   // Reading is control too: agent names are one flat namespace across sessions,
   // so an unscoped `orch result` hands a foreign orchestrator's work product back
   // as if this session had produced it.
-  test("result refuses a foreign-owned agent and names its owner", () => {
+  test("result refuses a foreign-owned agent and names its owner", async () => {
     const dir = makeDir();
     const key = "kfrgnresu1";
     seedSpace(dir, "local");
@@ -253,17 +268,17 @@ describe("fleet ownership scoping", () => {
     mergeAgentStatus(dir, key, { state: "done" }, Date.now());
     upsertRun(dir, { dispatchId: "d-foreign", agentKey: key, state: "done", startedAt: Date.now(), result: "other session's answer" });
 
-    const refused = runCli(dir, ["result", key]);
+    const refused = await runCli(dir, ["result", key]);
     expect(refused.status).not.toBe(0);
     expect(refused.output).toContain("other-orchestrator");
     expect(refused.output).not.toContain("other session's answer");
 
-    const forced = runCli(dir, ["result", key, "--force"]);
+    const forced = await runCli(dir, ["result", key, "--force"]);
     expect(forced.output).toContain("other session's answer");
   }, 15_000);
 
   // Other pane mutations remain gated; ending is intentionally ungated.
-  test("pane mutations refuse a foreign-owned agent and name its owner", () => {
+  test("pane mutations refuse a foreign-owned agent and name its owner", async () => {
     const dir = makeDir();
     const key = "kfrgnpane1";
     mkdirSync(join(dir, "agents", key), { recursive: true });
@@ -278,13 +293,13 @@ describe("fleet ownership scoping", () => {
       ["move", key, "--new-tab"],
     ];
     for (const args of mutations) {
-      const result = runCli(dir, args);
+      const result = await runCli(dir, args);
       expect(result.status).not.toBe(0);
       expect(result.output).toContain("other-orchestrator");
     }
   }, 30_000);
 
-  test("close has no force option and remains unconditional without it", () => {
+  test("close has no force option and remains unconditional without it", async () => {
     const dir = makeDir();
     const key = "kforced001";
     const pid = spawnOrphanSleeper();
@@ -295,17 +310,17 @@ describe("fleet ownership scoping", () => {
     seedSpace(dir, "local");
     placeAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: JSON.stringify({ pid, key }), owner: "other-orchestrator" }, dir);
 
-    const refused = runCli(dir, ["close", key, "--force"]);
+    const refused = await runCli(dir, ["close", key, "--force"]);
     expect(refused.status).not.toBe(0);
     expect(refused.output).toContain("usage: orch close");
     expect(spawnedRecords(dir).has(key)).toBe(true);
 
-    const result = runCli(dir, ["close", key]);
+    const result = await runCli(dir, ["close", key]);
     expect(result.status).toBe(0);
     expect(spawnedRecords(dir).has(key)).toBe(false);
   }, 15_000);
 
-  test("close cleans up a mismatched recorded process without signalling", () => {
+  test("close cleans up a mismatched recorded process without signalling", async () => {
     const dir = makeDir();
     const key = "kmismatch1";
     const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { detached: true });
@@ -322,7 +337,8 @@ describe("fleet ownership scoping", () => {
     // `capabilities` flag to flip and no shared object to mutate.
     const handle = JSON.stringify({ pid, key });
     const backend = new FakePanedBackend({ panes: [fakePane(handle)] });
-    withExitCode(() => withRegisteredBackend(backend, () => { cmdClose(testServices({ orchDir: dir, settings: fixtureSettings }), [key, "--json"]); }));
+    const services = await commandServices(dir);
+    await withExitCodeAsync(() => withRegisteredBackendAsync(backend, () => cmdClose(services, [key, "--json"])));
 
     expect(backend.closed).toEqual([handle]);
     expect(child.exitCode).toBeNull();
@@ -349,7 +365,7 @@ describe("a spawned agent touches only what it spawned", () => {
     }
   });
 
-  test("--cross-space from a spawned agent is refused", () => {
+  test("--cross-space from a spawned agent is refused", async () => {
     const dir = makeDir();
     const key = "kwbvictim1";
     mkdirSync(join(dir, "agents", key), { recursive: true });
@@ -362,7 +378,7 @@ describe("a spawned agent touches only what it spawned", () => {
     expect(claimAgent(dir, agentKey, sessionToken, 1_000)).toEqual({ kind: "stamped" });
     seedAgent(key, { backend: "headless", adapter: "pi", space: "wB", handle: key }, dir);
 
-    const result = runCli(dir, ["dispatch", key, "hi", "--cross-space"], {
+    const result = await runCli(dir, ["dispatch", key, "hi", "--cross-space"], {
       [LAUNCH_ENV]: agentKey,
       PI_CODING_AGENT: "1",
       PI_SESSION_ID: sessionToken,
@@ -371,7 +387,7 @@ describe("a spawned agent touches only what it spawned", () => {
     expect(result.output).toContain("operator-only");
   }, 15_000);
 
-  test("close --all from an AGENT sweeps only its own subtree", () => {
+  test("close --all from an AGENT sweeps only its own subtree", async () => {
     const dir = makeDir();
     seedSpace(dir, "wF");
     // An agent's sweep reaches only what it owns: what it spawned or adopted.
@@ -379,7 +395,7 @@ describe("a spawned agent touches only what it spawned", () => {
     seedAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey }, dir);
     seedAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" }, dir);
 
-    const result = runCli(dir, ["close", "--all", "--json"], { [LAUNCH_ENV]: agentKey });
+    const result = await runCli(dir, ["close", "--all", "--json"], { [LAUNCH_ENV]: agentKey });
     expect(result.status).toBe(0);
     expect(spawnedRecords(dir).has("kwfmine001")).toBe(false);
     // Another orch's slave survives a sibling's sweep. A `--all` that reached it
@@ -387,7 +403,7 @@ describe("a spawned agent touches only what it spawned", () => {
     expect(spawnedRecords(dir).has("kwftheirs1")).toBe(true);
   }, 15_000);
 
-  test("close --all from the HUMAN sweeps every managed spawn, whoever spawned it", () => {
+  test("close --all from the HUMAN sweeps every managed spawn, whoever spawned it", async () => {
     const dir = makeDir();
     seedSpace(dir, "wF");
     seedAgent(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey }, dir);
@@ -396,13 +412,13 @@ describe("a spawned agent touches only what it spawned", () => {
 
     // No [LAUNCH_ENV]: the caller is a person at a terminal. Rule 11 - the
     // human must ALWAYS be able to stop a runaway agent, so nothing gates this.
-    const result = runCli(dir, ["close", "--all", "--json"]);
+    const result = await runCli(dir, ["close", "--all", "--json"]);
     expect(result.status).toBe(0);
     expect(spawnedRecords(dir).has("kwfmine001")).toBe(false);
     expect(spawnedRecords(dir).has("kwftheirs1")).toBe(false);
   }, 15_000);
 
-  test("close from a spawned agent is REFUSED when the target is not its own", () => {
+  test("close from a spawned agent is REFUSED when the target is not its own", async () => {
     const dir = makeDir();
     const key = "kwfvictim1";
     mkdirSync(join(dir, "agents", key), { recursive: true });
@@ -410,14 +426,14 @@ describe("a spawned agent touches only what it spawned", () => {
     seedSpace(dir, "wF");
     seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: "kwfoperato" }, dir);
 
-    const result = runCli(dir, ["close", key], { [LAUNCH_ENV]: agentKey });
+    const result = await runCli(dir, ["close", key], { [LAUNCH_ENV]: agentKey });
     // An agent may not close what it neither spawned nor adopted; the refusal says who to ask.
     expect(result.status).not.toBe(0);
     expect(result.output).toContain("not yours to close");
     expect(spawnedRecords(dir).has(key)).toBe(true);
   }, 15_000);
 
-  test("close from a spawned agent SUCCEEDS on a slave it spawned itself", () => {
+  test("close from a spawned agent SUCCEEDS on a slave it spawned itself", async () => {
     const dir = makeDir();
     const key = "kwfownslav";
     mkdirSync(join(dir, "agents", key), { recursive: true });
@@ -426,12 +442,12 @@ describe("a spawned agent touches only what it spawned", () => {
     seedAgent(agentKey, { backend: "headless", adapter: "pi", space: "wF", handle: agentKey }, dir);
     seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: agentKey }, dir);
 
-    const result = runCli(dir, ["close", key], { [LAUNCH_ENV]: agentKey });
+    const result = await runCli(dir, ["close", key], { [LAUNCH_ENV]: agentKey });
     expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
     expect(spawnedRecords(dir).has(key)).toBe(false);
   }, 15_000);
 
-  test("the workspace operator keeps control of an agent-owned fleet", () => {
+  test("the workspace operator keeps control of an agent-owned fleet", async () => {
     const dir = makeDir();
     const key = "kwfworkerb";
     mkdirSync(join(dir, "agents", key), { recursive: true });
@@ -440,7 +456,7 @@ describe("a spawned agent touches only what it spawned", () => {
     seedSpace(dir, "wF");
     seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, owner: agentKey }, dir);
 
-    const result = runCli(dir, ["close", key]);
+    const result = await runCli(dir, ["close", key]);
     // Assert on the pair so a non-zero exit prints what orch actually said.
     expect({ status: result.status, output: result.output }).toMatchObject({ status: 0 });
     expect(spawnedRecords(dir).has(key)).toBe(false);

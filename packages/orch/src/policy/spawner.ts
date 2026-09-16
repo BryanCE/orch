@@ -3,14 +3,17 @@ import { ENVIRONMENT_ENV } from "../agent/environment.ts";
 import { selfId, selfIdentity } from "../identity/self.ts";
 import { callerSession } from "../adapters/session-env.ts";
 import { agentById } from "../store/agent-rows.ts";
-import { agentView } from "../store/agent-view.ts";
-import { depthOf } from "./provenance.ts";
 import { projectRoot } from "../util.ts";
 import type { BackendSpawnOpts } from "../types/backend.ts";
 import type { SpawnerIdentity } from "../types/policy.ts";
 import { workerRules } from "../worker-prompt.ts";
+import { agentView } from "../store/agent-view.ts";
+import { depthOf } from "./provenance.ts";
+import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { OrchDir, WorkerHeaderContext } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
+
+type CallerSelf = ResultOf<"self">;
 
 /** Every ORCH_* variable carried through a spawn; tests import this vocabulary
  * so isolation cannot drift from the launch boundary. */
@@ -35,6 +38,23 @@ export function spawnerIdentity(orchDir: OrchDir): SpawnerIdentity {
   const label = name
     ?? (session ? `${session.harnessId} session` : "operator");
   return { key: id, label };
+}
+
+/** The spawner identity a `self` answer describes; the label needs only the harness marker from the env. */
+export function spawnerIdentityOf(self: CallerSelf): SpawnerIdentity {
+  const session = callerSession();
+  const label = self.view?.name ?? (session ? `${session.harnessId} session` : "operator");
+  return { key: self.id, label };
+}
+
+/** Whether a child launched by this caller may itself spawn under the depth limit. */
+export function maySpawnBelow(self: CallerSelf, maxDepth: number): boolean {
+  return self.depth + 1 < maxDepth;
+}
+
+/** The header context for a worker this caller dispatches to. */
+export function workerHeaderContextOf(self: CallerSelf, settings: OrchSettings): WorkerHeaderContext {
+  return { maySpawn: maySpawnBelow(self, settings.fleet.max_depth), spawnerRepliable: self.id !== null, ...workerRules(settings) };
 }
 
 /**
@@ -119,3 +139,4 @@ export function workerHeaderContext(orchDir: OrchDir, settings: OrchSettings): W
     ...workerRules(settings),
   };
 }
+

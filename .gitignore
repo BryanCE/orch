@@ -2,3 +2,4 @@ node_modules/
 .fallow/
 dist/
 .claude/.next-row
+.orch-worktrees/

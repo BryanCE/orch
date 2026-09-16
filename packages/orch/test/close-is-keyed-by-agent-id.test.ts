@@ -9,14 +9,15 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { orm } from "../src/store/connection.ts";
 import { isRecord } from "../src/util.ts";
-import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackendAsync } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { endProcess } from "../src/store/interval-rows.ts";
-import { withExitCode } from "./helpers/exit-code.ts";
-import { testServices } from "./helpers/services.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
+import { captureCommand } from "./helpers/stdout.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 
 /**
  * `orch close --all`, run from a plain shell,
@@ -38,16 +39,16 @@ import { testServices } from "./helpers/services.ts";
  */
 
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 const oldDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 const oldKey = process.env[LAUNCH_ENV];
-const originalWrite = process.stdout.write.bind(process.stdout);
 const SETTINGS = {
   enabled: { adapters: ["pi"], backends: ["headless"] },
   defaults: { adapter: "pi", backend: "headless" },
 };
 
-afterEach(() => {
-  process.stdout.write = originalWrite;
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
   if (oldKey === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldKey;
   while (dirs.length) removeTempDir(dirs.pop()!);
@@ -64,8 +65,10 @@ function fixture(): OrchDir {
   return dir;
 }
 
-function services(dir: OrchDir) {
-  return testServices({ orchDir: dir, settings: SETTINGS });
+/** `orch close --all` in-process against `backend`, its writes served by orchd on `dir`. */
+async function closeAll(dir: OrchDir, backend: FakePanedBackend, args: string[] = ["--json"]): Promise<{ text: string; payload: Record<string, unknown> }> {
+  const services = await servedServices({ orchDir: dir, settings: SETTINGS }, servers);
+  return captureCommand(() => withRegisteredBackendAsync(backend, () => cmdClose(services, ["--all", ...args])));
 }
 
 /** Seed an agent whose process has already ended, so close has nothing to signal.
@@ -92,28 +95,13 @@ class OutsideSessionBackend extends FakePanedBackend {
   }
 }
 
-function capture(action: () => void): { text: string; payload: Record<string, unknown> } {
-  let output = "";
-  process.stdout.write = (chunk: string | Uint8Array) => { output += chunk.toString(); return true; };
-  try { withExitCode(action); } finally {
-    process.stdout.write = originalWrite;
-  }
-  const last = output.trim().split("\n").at(-1) ?? "{}";
-  let payload: Record<string, unknown> = {};
-  try {
-    const parsed: unknown = JSON.parse(last);
-    if (isRecord(parsed)) payload = parsed;
-  } catch { /* a human-readable run prints no JSON */ }
-  return { text: output, payload };
-}
-
 describe("close is keyed by the agent id, never by a plexer coordinate (U10)", () => {
-  test("an agent whose pane is gone is never handed to the plexer as a pane", () => {
+  test("an agent whose pane is gone is never handed to the plexer as a pane", async () => {
     const dir = fixture();
     seedLiveAgent(dir, "2d6biywurb");
     const backend = new OutsideSessionBackend({ id: "headless", panes: [] });
 
-    withRegisteredBackend(backend, () => capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
+    await closeAll(dir, backend);
 
     // The reported failure in one assertion: orch asked `herdr pane close
     // 2d6biywurb`, an agent id in the place a pane handle goes.
@@ -121,25 +109,24 @@ describe("close is keyed by the agent id, never by a plexer coordinate (U10)", (
     expect(backend.closed).toEqual([]);
   });
 
-  test("an agent whose pane is gone still ends, and reports done", () => {
+  test("an agent whose pane is gone still ends, and reports done", async () => {
     const dir = fixture();
     seedLiveAgent(dir, "7eh83quhwd");
     const backend = new OutsideSessionBackend({ id: "headless", panes: [] });
 
-    const { payload } = withRegisteredBackend(backend, () =>
-      capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
+    const { payload } = await closeAll(dir, backend);
 
     const results: unknown[] = Array.isArray(payload.results) ? payload.results : [];
     expect(results.map((row: unknown) => (isRecord(row) ? row.outcome : null))).toEqual(["done"]);
     expect(spawnedRecords(dir).has("7eh83quhwd")).toBe(false);
   });
 
-  test("what a human is told they closed is the agent, not the plexer's coordinate", () => {
+  test("what a human is told they closed is the agent, not the plexer's coordinate", async () => {
     const dir = fixture();
     seedLiveAgent(dir, "zcixvdjos8", "w7:p3C");
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p3C")] });
 
-    const { text } = withRegisteredBackend(backend, () => capture(() => { cmdClose(services(dir), ["--all"]); }));
+    const { text } = await closeAll(dir, backend, []);
 
     // One listing must speak ONE vocabulary. `Closed w7:p3C.` names a herdr
     // coordinate a person never typed and cannot address anything else with.
@@ -147,23 +134,22 @@ describe("close is keyed by the agent id, never by a plexer coordinate (U10)", (
     expect(text).not.toContain("w7:p3C");
   });
 
-  test("the --json closed list names agents, so a caller can map it back", () => {
+  test("the --json closed list names agents, so a caller can map it back", async () => {
     const dir = fixture();
     seedLiveAgent(dir, "3ng6mmpi8e", "w7:p3D");
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p3D")] });
 
-    const { payload } = withRegisteredBackend(backend, () =>
-      capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
+    const { payload } = await closeAll(dir, backend);
 
     expect(payload.closed).toEqual(["3ng6mmpi8e"]);
   });
 
-  test("the plexer is still handed the real handle when there IS a pane", () => {
+  test("the plexer is still handed the real handle when there IS a pane", async () => {
     const dir = fixture();
     seedLiveAgent(dir, "lwhmatovbh", "w7:p3E");
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p3E")] });
 
-    withRegisteredBackend(backend, () => capture(() => { cmdClose(services(dir), ["--all", "--json"]); }));
+    await closeAll(dir, backend);
 
     // The handle is not banished — it is the argument to `placement.close` and
     // nothing else.

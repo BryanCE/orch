@@ -5,11 +5,7 @@
 // and the immutable spawner — and exactly one answer, which lives here. `orch
 // events` asks it per streamed transition, `orch status` asks it per row; a second
 // copy of the rule in either command would be a second truth about who owns what.
-import { launchCredential } from "../identity/launch.ts";
-import { selfId } from "../identity/self.ts";
-import { callerSession } from "../adapters/session-env.ts";
-import { rpcRegisterSession } from "../daemon/client/reach.ts";
-import type { Logger, OrchDir } from "../types/core.ts";
+import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { AgentScopeInput, CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 
 export function agentInMineScope(input: Omit<AgentScopeInput, "spaceWide">): boolean {
@@ -24,43 +20,17 @@ export function agentInScope(input: AgentScopeInput): boolean {
 }
 
 /**
- * The address this process owns agents under, or null when it owns none.
- *
- * A spawned agent carries its minted id at launch. A DRIVING session carries a
- * harness session token instead, which resolves to the id `register-session`
- * minted for it — and registering is worth doing, because an orchestrator that
- * has not spawned yet still wants its own scope.
- *
- * A bare shell is the human at the wheel: no launch credential, no harness
- * session. It owns nothing, so scoping it to "its" agents would answer the
- * fleet question with an empty table. Null here is what makes the default
- * unscoped for a human and scoped for an orch, with no flag on either side.
- */
-async function callerScopeAddress(logger: Logger, directory: OrchDir, options: { register?: boolean } = {}): Promise<string | undefined> {
-  const launched = launchCredential();
-  if (launched !== null) return launched;
-  if (callerSession() === null) return undefined;
-  const known = selfId(directory);
-  if (known !== undefined) return known;
-  // Registration needs the daemon; an offline read takes the unregistered answer.
-  if (options.register === false) return undefined;
-  return (await rpcRegisterSession(directory, logger)).id;
-}
-
-/**
  * Turn the caller's flag (or its absence) into the filter the listing applies.
  *
  * `auto` is identity, not environment (Rule 11): what decides is whether orch
  * has an id for this process, never which plexer, cwd or terminal it sits in.
+ * A bare shell is the human at the wheel: orchd answers it with no id, it owns
+ * nothing, and the default stays unscoped for it and scoped for an orch.
  */
-export async function resolveCallerScope(
-  logger: Logger,
-  choice: CallerScopeChoice,
-  directory: OrchDir,
-  options: { register?: boolean } = {},
-): Promise<ResolvedCallerScope> {
+export function resolveCallerScopeOf(choice: CallerScopeChoice, self: Pick<ResultOf<"self">, "id">): ResolvedCallerScope {
   if (choice === "any") return { mine: false, address: undefined };
-  const address = await callerScopeAddress(logger, directory, options);
+  const address = self.id ?? undefined;
   if (choice === "mine") return { mine: true, address };
   return { mine: address !== undefined, address };
 }
+

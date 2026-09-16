@@ -35,8 +35,11 @@ export function detachBridge(orchDir: OrchDir, key: string, link: BridgeLink): v
   if (links.get(canonical) === link) links.delete(canonical);
 }
 
-export function bridgeAttached(orchDir: OrchDir, key: string): boolean {
-  return links.has(normalizeControlTarget(orchDir, key));
+/** Whether a bridge holds a link for this canonical key. A key no bridge holds,
+ *  including one that names no agent, is simply not attached; nothing resolves
+ *  and nothing throws. */
+export function bridgeAttached(key: string): boolean {
+  return links.has(key);
 }
 
 /** Throws BridgeDetachedError when no link is held. */

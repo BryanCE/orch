@@ -1,8 +1,9 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
-import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
+import type { SpawnerIdentity, ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentEnvironment, AgentView } from "./store.ts";
-import type { Entity, LogLevel, OrchDir, WorkerHeaderContext } from "./core.ts";
+import type { Entity, LogLevel, WorkerHeaderContext } from "./core.ts";
+import type { DaemonClient } from "./services.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 export interface DispatchToAgentOptions {
   raw?: boolean;
@@ -96,14 +97,27 @@ export interface SmokeSteps {
   timeoutMs: number;
 }
 
-/** Where this command runs: orch's store, the plexer it is in, and that plexer's
- *  space-home role when it composes one. */
+/** Where this command runs: the orchd it writes through, the plexer it is in,
+ *  and that plexer's space-home role when it composes one. */
 export interface SpaceEnvironment {
-  readonly directory: OrchDir;
+  readonly services: DaemonClient;
   readonly plexerId: string;
   readonly spaceHome: SpaceHomeRole | null;
-  /** The agent asking, recorded as `spaces.created_by`. It grants nothing. */
-  readonly actorId: string | null;
+}
+
+/** What opening one plexer home for a space or a pack needs. */
+export interface OpenHomeRequest {
+  readonly services: DaemonClient;
+  readonly subject: HomeSubject;
+  readonly plexerId: string;
+  /** The caller gates on the environment holding a home at all (E13); an
+   *  environment that holds none never reaches here. */
+  readonly home: SpaceHomeRole;
+  readonly cwd: string;
+  /** orch's own name for the thing being grouped. It is MARKED before it reaches
+   *  the plexer; the plexer never sees a bare directory basename. */
+  readonly label: string;
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface AgentFlags {
@@ -161,8 +175,10 @@ export interface TabSpawnSpec {
   cmd?: string;
   worktree?: string;
   branch?: string;
-  /** Hello-registered id of the session performing this launch. */
-  spawnerAgentId?: string | null;
+  /** Identity of the session performing this launch. */
+  spawner: SpawnerIdentity;
+  /** Owner lease for the launched agent. */
+  owner: string | undefined;
 }
 
 /** A rendered snapshot of which roles an environment composes. Data for display,
@@ -289,8 +305,10 @@ export interface Spawner {
 
 /** What deciding a {@link SpawnPlacement} needs. */
 export interface SpawnPlacementRequest {
-  readonly directory: OrchDir;
+  readonly services: DaemonClient;
   readonly backend: Backend;
+  /** Identity of the session performing this placement. */
+  readonly spawner?: SpawnerIdentity;
   /** The space the caller named, or null. Never invented here. */
   readonly space: string | null;
   /** The agent at the root of this fleet's provenance tree — what
@@ -306,12 +324,12 @@ export interface SpawnPlacementRequest {
   /** Opening a home puts a window on the human's screen, so it is asked for.
    *  Passed in rather than called here so the decision stays one function and
    *  the gate stays testable. Throws or exits when not granted. */
-  readonly grantNewHome: () => void;
+  readonly grantNewHome: () => Promise<void>;
 }
 
 /** What opening the home a {@link SpawnPlacement} owes needs. */
 export interface OpenFleetHomeRequest {
-  readonly directory: OrchDir;
+  readonly services: DaemonClient;
   readonly backend: Backend;
   readonly subject: HomeSubject;
   /** Where the fleet works, and the name its home is opened under: a workspace
@@ -322,20 +340,30 @@ export interface OpenFleetHomeRequest {
   readonly env: Readonly<Record<string, string>>;
 }
 
-export interface LeaseCommandResult {
-  readonly id: string;
-  readonly name: string;
-  readonly released?: boolean;
-  readonly adopted?: boolean;
-  readonly reaped?: boolean;
-  readonly renamed?: boolean;
-}
-
 /** Every lease operation takes the same two options: when it happened, and
  *  whether the caller is deliberately taking the agent from a LIVE orch (C4). */
 export interface LeaseOptions {
   readonly now?: number;
   readonly steal?: boolean;
+}
+
+export type ReapClassification = "dead" | "held" | "idle";
+
+export type ReapOwnership =
+  | { readonly kind: "leased"; readonly holder: string }
+  | { readonly kind: "unleased"; readonly reason: "none" | "holder-gone" };
+
+export interface ReapCandidateInput {
+  readonly id: string;
+  readonly name: string;
+  readonly harnessId: string;
+  readonly createdAt: number;
+  readonly ownership: ReapOwnership;
+  readonly processLive: boolean;
+}
+
+export interface ReapCandidate extends ReapCandidateInput {
+  readonly classification: ReapClassification;
 }
 
 /**

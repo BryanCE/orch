@@ -10,7 +10,7 @@ panes by eye, and a crammed tab shows nothing.
 First need in a domain:
 
 ```bash
-orch spawn slice-1 slice-2 --tab <domain> --file slice-1.md --file slice-2.md
+orch spawn slice-1 slice-2 --tab <domain> --file tasks/T1.md --file tasks/T2.md
 ```
 
 `--tab <label>` fills a tab that already carries that label, so a second spawn for the same
@@ -86,10 +86,10 @@ capacity. Waiting for a foreign fleet to finish is never the plan.
 The failure mode is always the same: the fleet idles while the orchestrator reads, writes
 one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
 
-- **One command per wave.** Write every spec to a file first, then one `orch spawn` with N
-  `--file` flags and N `--model` flags launches the whole wave on the right models. On the
-  next wave, send all the `rename` calls in one shot, then all N dispatches in the next.
-  One pane at a time is the bottleneck wearing a process hat.
+- **One command per wave.** Write the whole wave's task files first, then one `orch spawn`
+  with N `--file` flags and N `--model` flags launches the whole wave on the right models.
+  On the next wave, send all the `rename` calls in one shot, then all N dispatches in the
+  next. One pane at a time is the bottleneck wearing a process hat.
 - **Keep one reviewer pane on a stronger model.** Give it its own `--model` in the same
   spawn. A `checker` pane, one tier up, does nothing but verify landed work against its specs
   and write findings to a report file such as `recon/wave-review.md`: per slice PASS or
@@ -103,32 +103,44 @@ one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
 - **Self-hosting boundary.** Changes to orch's own code bite only after rebuild, daemon
   reload, and respawn. Bridges reconnect to a restarted daemon on their own.
 
-## The task list file
+## The task list
 
 The task list is the contract between the recon reports and the dispatches. It lives in a
-scratch directory, one file per job. It is written once from the reports, then only appended
-to as findings come back. Each task is a self-contained spec that an orch receives verbatim
-through `--file`, so it carries everything the orch needs and nothing it has to look up.
+scratch directory for the job: one index file, plus ONE FILE PER TASK. Each task file is a
+self-contained spec that an orch receives verbatim through `--file`, so it carries
+everything the orch needs and nothing it has to look up. It is written once from the
+reports, then only appended to as findings come back.
+
+The task file is the dispatch. Write the task into `tasks/T1.md` when you write the list;
+send it with `--file tasks/T1.md`. Never write it into the index and then copy it out into
+another file to send: that is the same task written twice.
+
+```bash
+orch dispatch w1 --file tasks/T1.md --with recon/readers.md
+```
+
+The index:
 
 ```markdown
 # <job>  (reports: recon/readers.md, recon/daemon.md)
 
 ## Wave 1  (files: src/a.ts | src/b.ts | test/a.test.ts)
+- tasks/T1.md   owner: src/a.ts     <one-line title>
+- tasks/T2.md   owner: src/b.ts     <one-line title>
 
-### T1. <one-line title>            owner: src/a.ts
+## CHECKPOINT 1
+scoped checks: bun check packages/orch/src/a.ts packages/orch/src/b.ts ; bun test packages/orch/test/a.test.ts
+user: run their commit skill, report progress.
+```
+
+One task file, `tasks/T1.md`:
+
+```markdown
 Edit src/a.ts:
 - L42 `export function foo(x: string): Foo` → rename to `bar`, same signature.
 - Remove the import of `oldThing` at L3.
 Run: bun check packages/orch/src/a.ts ; bun test packages/orch/test/a.test.ts
 Report: one line. "done: <files>, check clean, tests <n> pass" or "blocked: <exact error>".
-
-### T2. ...
-
-## CHECKPOINT 1
-scoped checks: bun check packages/orch/src/a.ts packages/orch/src/b.ts ; bun test packages/orch/test/a.test.ts
-user: run their commit skill, report progress.
-
-## Wave 2  (files: ...)
 ```
 
 What makes a task dispatchable:

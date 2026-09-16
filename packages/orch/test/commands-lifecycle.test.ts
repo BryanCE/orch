@@ -13,12 +13,15 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedAgent, seedOperator } from "./helpers/agent.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
-import { testServices } from "./helpers/services.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+
+const servers: RpcServer[] = [];
 
 /** A1 / Rule 11: ownership is the OPEN LEASE and nothing else. Releasing it
  *  costs a driver, never the agent — and a released lease is history, so it must
  *  stop answering for ownership the instant it closes. */
-function withFleet(body: (root: OrchDir, key: string, orchId: string) => void): void {
+async function withFleet(body: (root: OrchDir, key: string, orchId: string) => Promise<void>): Promise<void> {
   const root = tempOrchDir("orch-owned-keys-");
   // The runner is the operator: no launch credential, no harness session, one
   // registered parent process (Rule 19).
@@ -34,8 +37,9 @@ function withFleet(body: (root: OrchDir, key: string, orchId: string) => void): 
     seedSpace(root, "local");
     seedAgent(key, { adapter: "pi", backend: "headless", space: "local", handle: "w1:p1", owner: orchId }, root);
     seedStatus(root, key, { key, pid: process.pid });
-    body(root, key, orchId);
+    await body(root, key, orchId);
   } finally {
+    while (servers.length) await servers.pop()!.close();
     closeAllStores();
     restoreOrchEnv();
     removeTempDir(root);
@@ -52,17 +56,15 @@ describe("commands/lifecycle", () => {
   });
   test("reports missing bridge pid without touching backend", () => expect(reloadAgentAndAwaitBridge(orchDirAt(process.env.ORCH_DIR!), new FakePanedBackend(), "p1", "missingag1", "reload")).toMatchObject({ ok: false }));
 
-  test("--all targets the agents this orch holds a live lease on, and drops them when it releases", () => {
-    withFleet((root, key, orchId) => {
-      expect(ownedAgentKeys(testServices({ orchDir: root, settings: {
+  test("--all targets the agents this orch holds a live lease on, and drops them when it releases", async () => {
+    await withFleet(async (root, key, orchId) => {
+      const services = await servedServices({ orchDir: root, settings: {
         enabled: { adapters: ["pi"], backends: ["headless"] },
         defaults: { adapter: "pi", backend: "headless" },
-      } }))).toContain(key);
+      } }, servers);
+      expect(await ownedAgentKeys(services)).toContain(key);
       releaseLease(root, key, orchId);
-      expect(ownedAgentKeys(testServices({ orchDir: root, settings: {
-        enabled: { adapters: ["pi"], backends: ["headless"] },
-        defaults: { adapter: "pi", backend: "headless" },
-      } }))).not.toContain(key);
+      expect(await ownedAgentKeys(services)).not.toContain(key);
     });
   });
 });

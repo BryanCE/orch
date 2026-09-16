@@ -1,10 +1,9 @@
 // Type-only: `typeof` over a runtime binding, erased at compile time, so this
 // creates no runtime edge out of the types layer.
 import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
-import type { HomeSubject, RecordedProcess, SpaceHomeRole } from "./backend.ts";
+import type { RecordedProcess } from "./backend.ts";
 import type { OutboxPayload } from "../control/bridge-message.ts";
 import type { ThinkingLevel } from "./policy.ts";
-import type { OrchDir } from "./core.ts";
 import type { HostOs } from "./host.ts";
 
 export interface AgentInput {
@@ -272,16 +271,12 @@ export interface Lease {
   readonly releaseReason: LeaseReleaseReason | null;
 }
 
-export interface OpenHomeRequest {
-  readonly directory: OrchDir;
-  readonly subject: HomeSubject;
-  readonly plexerId: string;
-  /** The caller gates on the environment holding a home at all (E13); an
-   *  environment that holds none never reaches here. */
-  readonly home: SpaceHomeRole;
-  readonly cwd: string;
-  /** orch's own name for the thing being grouped. It is MARKED before it reaches
-   *  the plexer; the plexer never sees a bare directory basename. */
-  readonly label: string;
-  readonly env?: Readonly<Record<string, string>>;
+export interface SpaceRow {
+  readonly id: string;
+  readonly name: string;
+}
+
+/** A space as `orch space` lists it: with the home this plexer holds for it, if any. */
+export interface SpaceListing extends SpaceRow {
+  readonly home: string | null;
 }

@@ -10,7 +10,10 @@ import { FakePanedBackend } from "./helpers/backend.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
+import { servedServices } from "./helpers/daemon-state.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+import type { Services } from "../src/types/services.ts";
 
 /**
  * `registerSpawnedAgent` is the only write.
@@ -23,6 +26,7 @@ import type { OrchDir } from "../src/types/core.ts";
  * which means the first must be sufficient on its own.
  */
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 
 // The runner spawns as the operator: a registered parent process and nothing
 // else names the owner (Rule 19).
@@ -35,7 +39,13 @@ function tempOrchDir(): OrchDir {
   return dir;
 }
 
-afterEach(() => {
+/** The spawn reads the fleet and writes through orchd: serve the real handler table on this dir. */
+function spawningServices(dir: OrchDir): Promise<Services> {
+  return servedServices({ orchDir: dir, settings: {} }, servers);
+}
+
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   closeAllStores();
   while (dirs.length) removeTempDir(dirs.pop()!);
   restoreOrchEnv();
@@ -62,12 +72,12 @@ describe("one writer records a spawned agent (2.1)", () => {
     expect(view?.heldBy?.orchId).toBe(owner);
   });
 
-  test("a spawn leaves NOTHING for a second writer to fill in", () => {
+  test("a spawn leaves NOTHING for a second writer to fill in", async () => {
     const dir = tempOrchDir();
     seedSpace(dir, "wsTwo");
     const owner = seedOperator(dir);
 
-    const agent = spawnOneIntoTab(dir, {
+    const agent = await spawnOneIntoTab(await spawningServices(dir), {
       backend: new FakePanedBackend({ id: "herdr" }),
       adapter: piAdapter,
       adapterId: "pi",
@@ -78,6 +88,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       model: "openai/gpt-5.6",
       thinking: "medium",
       preferredModels: [],
+      spawner: { key: owner, label: "operator" }, owner,
     });
 
     const view = agentView(dir, agent.key);
@@ -90,12 +101,12 @@ describe("one writer records a spawned agent (2.1)", () => {
   // demanded a space named "" and every spawn from a human's pane failed with
   // `no space named ""`. The plexer coordinate rides in its OWN field (E10) and
   // is what the pane host receives; orch's space is never handed to the plexer.
-  test("a spawn into NO space records no space and hands the plexer only its coordinate", () => {
+  test("a spawn into NO space records no space and hands the plexer only its coordinate", async () => {
     const dir = tempOrchDir();
     seedOperator(dir);
     const backend = new FakePanedBackend({ id: "herdr" });
 
-    const agent = spawnOneIntoTab(dir, {
+    const agent = await spawnOneIntoTab(await spawningServices(dir), {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -108,6 +119,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       model: "openai/gpt-5.6",
       preferredModels: [],
       placement: { split: "right", targetHandle: "fake-pane-0" },
+      spawner: { key: null, label: "operator" }, owner: undefined,
     });
 
     const view = agentView(dir, agent.key);

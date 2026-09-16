@@ -12,8 +12,9 @@ import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { subscribeEvents } from "../src/daemon/client/rpc.ts";
 import { selectAgentStatus } from "../src/store/status-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
+import { acquireLease } from "../src/store/lease-rows.ts";
 import { statusRow } from "./helpers/presence.ts";
-import { seedAgent as registerAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { seedAgent as registerAgent, seedLiveProcess, seedOrch } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -178,6 +179,32 @@ describe("daemon presence events", () => {
     expect(selectRun(orchDir, "dispatch-result")?.result).toBe(resultText);
   });
 
+  test("a status report after the result leaves the settled run alone", () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
+    report(orchDir, key, { state: "working", dispatchId: "d1", startedAt: 1 }, () => { /* seed */ });
+    acceptResultReport(orchDir, key, {
+      text: "answer",
+      dispatchId: "d1",
+      finishedAt: 5,
+      cost: 0.5,
+    });
+    report(orchDir, key, {
+      state: "idle",
+      dispatchId: "d1",
+      finishedAt: null,
+      cost: 0,
+      tokens: null,
+    }, () => { /* settled */ });
+    expect(selectRun(orchDir, "d1")).toMatchObject({
+      state: "done",
+      result: "answer",
+      finishedAt: 5,
+      cost: 0.5,
+    });
+  });
+
   test("repeated transitions upsert one run and only terminal states set finishedAt", () => {
     const orchDir = tempOrchDir();
     const key = "runsrepeat";
@@ -282,8 +309,15 @@ describe("daemon presence events", () => {
     const key = mintAgentId();
     seedAgent(orchDir, key);
     const row = statusRow({ agentId: key, state: "error", dispatchId: "dispatch-name", task: "the task", lastError: "because" });
-    const event = transitionEventFromRow(orchDir, row, "working", "error");
+    const now = new Date("2026-02-03T04:05:06.000Z");
+    const event = transitionEventFromRow(orchDir, row, "working", "error", now);
     expect(event).toMatchObject({ agent: key, dispatchId: "dispatch-name", task: "the task", reason: "because" });
+    expect(event).not.toHaveProperty("holder");
+
+    seedOrch(orchDir, "holder-orch", "pi", now.getTime());
+    acquireLease(orchDir, key, "holder-orch", now.getTime());
+    const heldEvent = transitionEventFromRow(orchDir, row, "working", "error", now);
+    expect(heldEvent.holder).toBe("holder-orch");
   });
 
   test("presence transitions use the normalized agent name after rename", () => {

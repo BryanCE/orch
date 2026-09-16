@@ -1,6 +1,5 @@
 import * as path from "node:path";
-import { closeOutboxForDeadTargets, loadPresence, reapDeadAgentRecords, reapExpiredPresenceDirs, reapMalformedPresenceDirs, spawnedRecords } from "../presence/store.ts";
-import { livePresenceHolders } from "../store/connection.ts";
+import { writeRpc } from "./daemon.ts";
 import { errorMessage } from "../util.ts";
 import {
   listAgentWorktrees,
@@ -12,28 +11,16 @@ import {
   worktreeHasChanges,
   worktreeHasCommitsAheadOf,
 } from "../worktree.ts";
-import { callerIsSpawnedAgent, die, presenceById } from "./target.ts";
+import { callerIsSpawnedAgent, die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
-import type { AgentView } from "../types/store.ts";
-import type { Logger, OrchDir } from "../types/core.ts";
+import type { ResultOf } from "../daemon/client/protocol.ts";
+import type { Logger } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
-import type { PresenceEntry } from "../types/presence.ts";
 
-/** Whether a live agent still runs from this worktree.
- *
- *  A1: the worktree is one ENVIRONMENT axis of an agent, and the agent it
- *  belongs to is found by its minted id — never by a pane, which is a different
- *  axis and can change without the worktree changing at all. `presence` is keyed
- *  by that same id.
- */
-export function liveWorktreeOwner(
-  worktreePath: string,
-  views: readonly AgentView[],
-  presence: ReadonlyMap<string, PresenceEntry>,
-): boolean {
-  const owner = views.find((view) => view.environment.worktree !== null
-    && path.resolve(view.environment.worktree) === path.resolve(worktreePath));
-  return Boolean(owner && presence.get(owner.id)?.alive);
+/** Whether a live agent still runs from this worktree. orchd answers with the
+ * resolved paths of every alive agent's worktree; the match is by path alone. */
+export function liveWorktreeOwner(worktreePath: string, liveWorktrees: readonly string[]): boolean {
+  return liveWorktrees.includes(path.resolve(worktreePath));
 }
 
 function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: string, force: boolean, logger: Logger, json = false): boolean {
@@ -60,7 +47,7 @@ function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: st
   return true;
 }
 
-function cleanWorktrees(root: OrchDir, logger: Logger, force: boolean, json = false): number {
+function cleanWorktrees(liveWorktrees: readonly string[], logger: Logger, force: boolean, json = false): number {
   let repoRoot: string;
   try {
     repoRoot = repositoryCommonRoot(process.cwd());
@@ -68,72 +55,51 @@ function cleanWorktrees(root: OrchDir, logger: Logger, force: boolean, json = fa
     die(errorMessage(error));
   }
   const baseBranch = repositoryBranch(repoRoot);
-  const views = [...spawnedRecords(root).values()];
-  const presence = presenceById(loadPresence(root));
   const worktrees = listAgentWorktrees(repoRoot);
   let reported = false;
   for (const worktreePath of worktrees) {
-    if (liveWorktreeOwner(worktreePath, views, presence)) continue;
+    if (liveWorktreeOwner(worktreePath, liveWorktrees)) continue;
     reported = cleanOneWorktree(repoRoot, baseBranch, worktreePath, force, logger, json) || reported;
   }
   if (!reported && !json) process.stdout.write("No orphan worktrees to clean.\n");
   return worktrees.length;
 }
 
-/** Remove the presence directories that name no agent; the store owns the removal,
- *  this command adds output. */
-function removeMalformedAgentDirs(json = false, root: OrchDir): string[] {
-  const removed = reapMalformedPresenceDirs(root);
+/** Print malformed presence directories reaped by orchd. */
+function removeMalformedAgentDirs(json: boolean, removed: readonly string[]): string[] {
   if (!json) {
     if (removed.length) process.stdout.write("Removed malformed agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
     else process.stdout.write("No malformed agent dirs.\n");
   }
-  return removed;
+  return [...removed];
 }
 
-/** Close the queued writes no live agent will ever read; the store owns the rows,
- *  this command adds output. */
-function closeDeadAgentWrites(json = false, root: OrchDir): number {
-  const closed = closeOutboxForDeadTargets(root);
+/** Print queued writes closed by orchd. */
+function closeDeadAgentWrites(json: boolean, closed: number): number {
   if (!json) process.stdout.write(closed ? `Closed ${closed} queued write(s) to dead agents.\n` : "No queued writes to dead agents.\n");
   return closed;
 }
 
-/** Reap dead presence through the same spawned/ownership cleanup path as daemon
- *  retention. The presence store owns the directory and database cleanup; this
- *  command adds output. */
-/**
- * Why a reap removed nothing. `--force` reaps DEAD agents, so a live fleet leaves
- * it with nothing in scope — and saying only "every dir belongs to a live process"
- * left the user to work out that their own agents were the reason and that closing
- * is the fix. The store's rebuild refusal already says exactly that, from the same
- * `livePresenceHolders` list, so this says it the same way rather than inventing a
- * second wording for one situation.
- */
-function nothingToReapMessage(root: OrchDir): string {
-  const live = livePresenceHolders(root);
-  const holders = [...live.workers, ...live.sessions];
-  if (holders.length === 0) return "Nothing to clean - no agent dirs exist.\n";
-  return `Nothing to clean - ${holders.length} agent${holders.length === 1 ? " is" : "s are"} live: ${holders.join(", ")}. `
+/** Explain why a forced sweep found no dead agents. */
+function nothingToReapMessage(liveHolders: readonly string[]): string {
+  if (liveHolders.length === 0) return "Nothing to clean - no agent dirs exist.\n";
+  return `Nothing to clean - ${liveHolders.length} agent${liveHolders.length === 1 ? " is" : "s are"} live: ${liveHolders.join(", ")}. `
     + `--force reaps DEAD agents only; close them first ('orch close --all'), then retry.\n`;
 }
 
-/** `--force` is the operator's "now": every gone agent's rows and every dead
- *  agent's JSONL history go at once, with no retention window. */
-export function removeDeadAgentDirs(json: boolean, root: OrchDir, now = new Date()): string[] {
-  const reaped = reapDeadAgentRecords(root);
-  const removed = reapExpiredPresenceDirs(root, now);
+/** Print the forced sweep performed by orchd. */
+export function removeDeadAgentDirs(json: boolean, swept: ResultOf<"clean">): string[] {
   if (!json) {
-    if (reaped.length) process.stdout.write("Reaped dead agents:\n" + reaped.map((r) => "  " + r).join("\n") + "\n");
-    if (removed.length) process.stdout.write("Removed dead agent dirs:\n" + removed.map((r) => "  " + r).join("\n") + "\n");
-    if (!reaped.length && !removed.length) process.stdout.write(nothingToReapMessage(root));
+    if (swept.reaped.length) process.stdout.write("Reaped dead agents:\n" + swept.reaped.map((r) => "  " + r).join("\n") + "\n");
+    if (swept.removed.length) process.stdout.write("Removed dead agent dirs:\n" + swept.removed.map((r) => "  " + r).join("\n") + "\n");
+    if (!swept.reaped.length && !swept.removed.length) process.stdout.write(nothingToReapMessage(swept.liveHolders));
   }
-  return removed;
+  return [...swept.removed];
 }
 
 /** Bare `orch clean` removes only what names no agent and closes writes nobody
  *  will read. Ended agents are history; `--force` is the one way to reap them. */
-export function cmdClean(services: Services, args: string[]) {
+export async function cmdClean(services: Services, args: string[]): Promise<void> {
   // A sweep reaps records and worktrees the caller does not own, which is
   // destructive maintenance: the user's or the pack orch's call, never a
   // slave's. It refuses before reading anything, so nothing is mutated.
@@ -142,10 +108,11 @@ export function cmdClean(services: Services, args: string[]) {
   if (positional.length > 0) die("usage: orch clean [--force] [--worktrees] [--json]");
   const json = flags.has("--json");
   const force = flags.has("--force");
-  const malformed = removeMalformedAgentDirs(json, services.orchDir);
-  const closed = closeDeadAgentWrites(json, services.orchDir);
-  const removed = force ? removeDeadAgentDirs(json, services.orchDir) : [];
-  const worktrees = flags.has("--worktrees") ? cleanWorktrees(services.orchDir, services.logger, force, json) : 0;
+  const swept = await writeRpc(services, "clean", { force });
+  const malformed = removeMalformedAgentDirs(json, swept.malformed);
+  const closed = closeDeadAgentWrites(json, swept.closed);
+  const removed = force ? removeDeadAgentDirs(json, swept) : [];
+  const worktrees = flags.has("--worktrees") ? cleanWorktrees(swept.liveWorktrees, services.logger, force, json) : 0;
   if (json) process.stdout.write(JSON.stringify({ malformed, closed, removed, worktrees }) + "\n");
 }
 

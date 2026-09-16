@@ -6,9 +6,11 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Services } from "../src/types/services.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 import { createServices } from "../src/services.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedOperator } from "./helpers/agent.ts";
+import { serveDaemon } from "./helpers/daemon-state.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 const bundleDir = mkdtempSync(join(tmpdir(), "orch-reload-bundles-"));
@@ -36,13 +38,15 @@ beforeAll(async () => {
 });
 
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 
 // The runner is the operator: `--all` on a drive verb is operator-only, and an
 // operator is a registered parent process, nothing else (Rule 19).
 beforeEach(isolateOrchEnv);
 
 // Point ORCH_DIR away first: a later reader of a stale ORCH_DIR recreates whatever it names.
-afterEach(() => {
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   restoreOrchEnv();
   while (dirs.length) removeTempDir(dirs.pop() ?? "");
 });
@@ -56,7 +60,11 @@ describe("reload", () => {
     writeSettingsFixture(orchDir, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     seedOperator(orchDir);
 
-    await cmdReload(createServices({ orchDir }), ["--all", "--json"]);
+    // `--all` asks orchd which agents the operator holds; serve it here, or the
+    // command autostarts the packaged daemon in the temp dir and waits on it.
+    const services = createServices({ orchDir });
+    servers.push(await serveDaemon(services));
+    await cmdReload(services, ["--all", "--json"]);
 
     bundlePaths.forEach((file, index) => {
       expect(readFileSync(file)).toEqual(before[index]!.bytes);

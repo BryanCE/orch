@@ -1,19 +1,23 @@
 import { basename } from "node:path";
 import { assertNameFree } from "../../policy/name.ts";
-import { agentIdentityEnv, spawnerIdentity, worktreeEnv } from "../../policy/spawner.ts";
+import { agentIdentityEnv, spawnerIdentityOf, worktreeEnv } from "../../policy/spawner.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { mintAgentId } from "../../backends/identity.ts";
 import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
 import { nextTilePlacement } from "../../backends/tiling.ts";
 import { createAgentWorktree } from "../../worktree.ts";
 import { errorMessage } from "../../util.ts";
-import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
-import { callerOwnerToken, die } from "../target.ts";
+import { callDaemon } from "../daemon.ts";
+import { die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
 import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
-import { clearHome, homeHandle, openHome } from "../../store/home-rows.ts";
+import type { DaemonClient } from "../../types/services.ts";
+import { listedHomeHandle, openHome } from "../home.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../types/command.ts";
+import type { CallerSelf } from "../self.ts";
+import { readFleet, type FleetSnapshot } from "../fleet.ts";
+import { admissionFleet } from "./admission.ts";
 import type { HomeSubject } from "../../types/backend.ts";
 import type { SpawnAgentPlan, SpawnSettings } from "./flags.ts";
 
@@ -43,13 +47,14 @@ function homeName(cwd: string, subject: HomeSubject): string {
  * A7 — a space is user-created and OPTIONAL. Nothing here mints one; with none
  * set the reachability boundary is the repo root.
  */
-export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlacement {
-  const { directory, backend, space, packRootId, callerPlexer, callerHandle, grantNewHome } = request;
+export async function resolveSpawnPlacement(request: SpawnPlacementRequest): Promise<SpawnPlacement> {
+  const { services, backend, space, packRootId, callerPlexer, callerHandle, grantNewHome } = request;
   // A space the user named is where the agents are FILED, whether or not this
   // plexer holds a home for it. A home recorded in another plexer is not this
   // one's to drive, so its absence here is simply no coordinate.
   if (space !== null) {
-    return { space, workspace: listedHomeHandle(directory, { kind: "space", id: space }, backend) ?? undefined, homeToOpen: null };
+    const listed = await listedHomeHandle(services, { kind: "space", id: space }, backend.id, backend.spaceHome);
+    return { space, workspace: listed ?? undefined, homeToOpen: null };
   }
   // Already inside this plexer: the fleet lands beside the caller, so there is no
   // window to open and nothing to ask the human for. WHERE the caller sits is an
@@ -64,22 +69,10 @@ export function resolveSpawnPlacement(request: SpawnPlacementRequest): SpawnPlac
   // answer, not a failure (E14): the plexer places the fleet on its own default.
   if (backend.spaceHome === null || packRootId === null) return { space: null, workspace: undefined, homeToOpen: null };
   const subject: HomeSubject = { kind: "pack", id: packRootId };
-  const existing = listedHomeHandle(directory, subject, backend);
+  const existing = await listedHomeHandle(services, subject, backend.id, backend.spaceHome);
   if (existing !== null) return { space: null, workspace: existing, homeToOpen: null };
-  grantNewHome();
+  await grantNewHome();
   return { space: null, workspace: undefined, homeToOpen: subject };
-}
-
-/** The recorded home coordinate the plexer still lists. A home the human closed
- *  from the plexer side leaves its row open; that row is dropped here so the
- *  subject is owed a fresh home instead of a spawn into a coordinate that is gone. */
-function listedHomeHandle(directory: OrchDir, subject: HomeSubject, backend: Backend): string | null {
-  const recorded = homeHandle(directory, subject, backend.id);
-  if (recorded === null) return null;
-  const role = backend.spaceHome;
-  if (role === null || role.list().some((home) => home.coordinate === recorded)) return recorded;
-  clearHome(directory, subject);
-  return null;
 }
 
 /** The plexer coordinate holding the caller's recorded place. A caller with no
@@ -94,12 +87,12 @@ function callerCoordinate(backend: Backend, callerHandle: string | null): string
  *  home's root place is opened under the first agent's environment, because
  *  that agent launches in it: a second group beside an empty root is the tab
  *  nobody asked for. */
-export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
-  const { directory, backend, subject, cwd, env } = request;
+export async function openFleetHome(request: OpenFleetHomeRequest): Promise<CreatedHome> {
+  const { services, backend, subject, cwd, env } = request;
   const role = backend.spaceHome;
   if (role === null) die(`${backend.id} cannot open a home for this fleet`);
   try {
-    return openHome({ directory, subject, plexerId: backend.id, home: role, cwd, label: homeName(cwd, subject), env });
+    return await openHome({ services, subject, plexerId: backend.id, home: role, cwd, label: homeName(cwd, subject), env });
   } catch (error: unknown) {
     die(`could not open a home for this fleet: ${errorMessage(error)}`);
   }
@@ -140,47 +133,50 @@ function launchSpawnBackend(orchDir: OrchDir, spec: TabSpawnSpec, key: string, e
   return handle;
 }
 
-function registerSpawnedTabAgent(orchDir: OrchDir, spec: TabSpawnSpec, key: string, handle: BackendHandle, thinking: NonNullable<TabSpawnSpec["thinking"]>): CreatedAgent {
+async function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpec, key: string, handle: BackendHandle, thinking: NonNullable<TabSpawnSpec["thinking"]>): Promise<CreatedAgent> {
   // ONE writer for one record (2.1). This states every axis the agent has —
   // harness, plexer, handle, space, model, worktree, holder, process — because a
   // second writer filling in the rest is how the two came to disagree about
   // which record was authoritative.
-  registerSpawnedAgent(orchDir, {
+  await callDaemon(services, "register-agent", {
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
-    spawner: spec.spawnerAgentId ?? null,
-    owner: callerOwnerToken(orchDir),
+    spawner: spec.spawner.key,
+    owner: spec.owner,
     worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
     process: spec.backend.process.running(handle),
   });
   return { key, handle: String(handle), name: spec.name };
 }
 
-export function spawnOneIntoTab(orchDir: OrchDir, spec: TabSpawnSpec): CreatedAgent {
-  assertNameFree(orchDir, spec.name, spec.space);
+export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec, fleet?: FleetSnapshot): Promise<CreatedAgent> {
+  const orchDir = services.orchDir;
+  const snapshot = fleet ?? await readFleet(services, true);
+  const { views, presence } = admissionFleet(snapshot);
+  assertNameFree(views, presence, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
-  const spawner = spawnerIdentity(orchDir);
+  const spawner = spec.spawner;
   const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
   const thinking = spec.thinking;
   if (thinking === undefined) throw new Error(`spawn requires a resolved thinking level for ${spec.name}`);
   const place = resolveSpawnPlace(spec, env);
   const handle = launchSpawnBackend(orchDir, spec, key, env, place, thinking);
-  return registerSpawnedTabAgent(orchDir, spec, key, handle, thinking);
+  return registerSpawnedTabAgent(services, spec, key, handle, thinking);
 }
 
 /** Add one agent to a group at the spot the planner picks for it against the
  *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
  *  is tiling one agent at a time — the balance only holds while every agent is
  *  placed by the same planner reading the same layout. */
-function tileAgentIntoGroup(orchDir: OrchDir, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): CreatedAgent {
-  return spawnOneIntoTab(orchDir, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
+function tileAgentIntoGroup(services: DaemonClient, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole, fleet: FleetSnapshot): Promise<CreatedAgent> {
+  return spawnOneIntoTab(services, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) }, fleet);
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(orchDir: OrchDir, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent {
+function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, fleet: FleetSnapshot, role: GroupLayoutRole): Promise<CreatedAgent> {
   const name = plan.name;
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-  return tileAgentIntoGroup(orchDir, {
+  return tileAgentIntoGroup(services, {
     backend,
     adapter: resolveAdapterOrDie(settings.adapter),
     adapterId: settings.adapter,
@@ -197,13 +193,15 @@ function placeAgent(orchDir: OrchDir, settings: SpawnSettings, plan: SpawnAgentP
     cmd: settings.commandFlag ? settings.cmd : undefined,
     worktree: settings.worktree ? cwd : undefined,
     branch: settings.worktree ? `orch/${name}` : undefined,
-    spawnerAgentId,
-  }, settings.tiling.first_split, role);
+    spawner: spawnerIdentityOf(self),
+    owner: self.id ?? undefined,
+  }, settings.tiling.first_split, role, fleet);
 }
 
 /** Fill a group with named agents. An agent that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-export function growFleetIntoGroup(orchDir: OrchDir, logger: Logger, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], spawnerAgentId: string | null, role: GroupLayoutRole): CreatedAgent[] {
+export async function growFleetIntoGroup(services: DaemonClient, settings: SpawnSettings, space: string | null, workspace: string | undefined, group: string, backend: Backend, names: readonly string[], self: CallerSelf, fleet: FleetSnapshot, role: GroupLayoutRole): Promise<CreatedAgent[]> {
+  const logger = services.logger;
   const created: CreatedAgent[] = [];
   for (const name of names) {
     const plan = settings.agents.find((agent) => agent.name === name);
@@ -212,7 +210,7 @@ export function growFleetIntoGroup(orchDir: OrchDir, logger: Logger, settings: S
       continue;
     }
     try {
-      created.push(placeAgent(orchDir, settings, plan, space, workspace, group, backend, spawnerAgentId, role));
+      created.push(await placeAgent(services, settings, plan, space, workspace, group, backend, self, fleet, role));
     } catch (error: unknown) {
       const message = errorMessage(error);
       logger.warn("spawn.place-failed", { backend: backend.id, name, error: message });

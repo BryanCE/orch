@@ -1,38 +1,30 @@
-import { mintAgentId } from "../backends/identity.ts";
 import { resolveBackend } from "../backends/registry.ts";
-import { selfId } from "../identity/self.ts";
-import { and, asc, eq, isNull } from "drizzle-orm";
-import { orm } from "../store/connection.ts";
-import { agentSpaces, agents, spaces } from "../db/schema.ts";
-import { clearHome, homeHandle, homeLabel, openHome } from "../store/home-rows.ts";
+import { askDaemon, callDaemon } from "./daemon.ts";
+import { homeLabel, openHome } from "./home.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import { errorMessage } from "../util.ts";
+import type { SpaceHomeRole } from "../types/backend.ts";
 import type { SpaceEnvironment } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
-import type { OrchDir } from "../types/core.ts";
+import type { SpaceListing, SpaceRow } from "../types/store.ts";
 
 /**
  * `orch space` — orch's OWN grouping of work.
  *
  * A space is user-created, optional and identified by a name orch owns. It is
  * NOT a plexer's workspace: creating, renaming, listing and deleting one are
- * orch's own writes and work in every environment, including one with no screen.
+ * orchd's writes and work in every environment, including one with no screen.
  *
  * A plexer may additionally HOLD that space — a home.
  * That is an environment role, composed only by a plexer that implements it
  * completely; `spaceHome === null` IS the absence (E13), never a probe. The
- * coordinate it hands back lands in `space_plexers` and is never displayed
+ * coordinate it hands back is recorded by orchd and is never displayed
  * (E10) — printing one is how `wF` came to be shown as a name a human chose.
  *
  * Only `focus` genuinely needs the home, so only `focus` can be answered with an
  * absence, and that answer names the space and the verb (E14) and exits zero.
  */
-
-interface SpaceRecord {
-  readonly id: string;
-  readonly name: string;
-}
 
 interface BoundaryAnswer {
   readonly outcome: "answer";
@@ -40,34 +32,12 @@ interface BoundaryAnswer {
   readonly reason: "no-pane" | "no-environment-role";
 }
 
-function readSpaceRows(directory: OrchDir): SpaceRecord[] {
-  return orm(directory).select({ id: spaces.id, name: spaces.name }).from(spaces)
-    .orderBy(asc(spaces.name), asc(spaces.id)).all().flatMap((value): SpaceRecord[] => {
-    return [{ id: value.id, name: value.name }];
-  });
-}
-
-/** This environment's live home coordinate for a space, or null when the space
- *  has none HERE — a home recorded in another plexer is not this one's to drive.
- *  The read lives in `src/store/home-rows.ts` with every other home row so a
- *  space and a pack cannot drift into two shapes (E10, E11). */
-function readHome(env: SpaceEnvironment, spaceId: string): string | null {
-  return homeHandle(env.directory, { kind: "space", id: spaceId }, env.plexerId);
-}
-
-function findSpace(directory: OrchDir, target: string): SpaceRecord {
-  const matches = readSpaceRows(directory).filter((space) => space.id === target || space.name === target);
-  if (matches.length === 1) return matches[0]!;
-  if (matches.length > 1) throw new Error(`Ambiguous space "${target}": ${matches.map((space) => space.id).join(", ")}.`);
-  throw new Error(`No space named or identified "${target}".`);
-}
-
 function emit(value: unknown, text: string, json: boolean): void {
   process.stdout.write(json ? JSON.stringify(value) + "\n" : text + "\n");
 }
 
 /** An absence is an answer to whoever asked, never a failure (E14). */
-function answer(space: SpaceRecord, verb: string, json: boolean): void {
+function answer(space: SpaceRow, verb: string, json: boolean): void {
   const plan: BoundaryAnswer = {
     outcome: "answer",
     reason: "no-environment-role",
@@ -76,17 +46,21 @@ function answer(space: SpaceRecord, verb: string, json: boolean): void {
   emit(plan, plan.text, json);
 }
 
-/** The actor id, but only when orch's own store still holds that agent — a
- *  `created_by` naming a reaped row would fail the foreign key on a write that
- *  the reference grants nothing to. */
-function recordableActor(env: SpaceEnvironment): string | null {
-  if (env.actorId === null) return null;
-  const row = orm(env.directory).select({ id: agents.id }).from(agents).where(eq(agents.id, env.actorId)).get();
-  return row ? env.actorId : null;
+interface DrivableHome {
+  readonly role: SpaceHomeRole;
+  readonly coordinate: string;
 }
 
-function listSpaces(env: SpaceEnvironment, json: boolean): void {
-  const spaces = readSpaceRows(env.directory).map((space) => ({ ...space, home: readHome(env, space.id) !== null }));
+/** The home this environment can drive: a recorded coordinate is only one when
+ *  this plexer composes the role that opened it. */
+function drivableHome(env: SpaceEnvironment, space: SpaceListing): DrivableHome | null {
+  if (env.spaceHome === null || space.home === null) return null;
+  return { role: env.spaceHome, coordinate: space.home };
+}
+
+async function listSpaces(env: SpaceEnvironment, json: boolean): Promise<void> {
+  const listed = await askDaemon(env.services, "spaces", { plexerId: env.plexerId });
+  const spaces = listed.spaces.map((space) => ({ id: space.id, name: space.name, home: space.home !== null }));
   if (json) {
     process.stdout.write(JSON.stringify({ spaces }, null, 2) + "\n");
     return;
@@ -95,77 +69,56 @@ function listSpaces(env: SpaceEnvironment, json: boolean): void {
   else for (const space of spaces) process.stdout.write(`${space.name}\n`);
 }
 
-function createSpace(env: SpaceEnvironment, name: string, json: boolean): void {
+async function createSpace(env: SpaceEnvironment, name: string, json: boolean): Promise<void> {
   if (!name) throw new Error("usage: orch space create <name> [--json]");
-  const taken = readSpaceRows(env.directory).some((space) => space.name === name);
-  if (taken) throw new Error(`A space named "${name}" already exists.`);
-  const id = mintAgentId();
-  const now = Date.now();
+  // The spaces row lands FIRST: the home row's foreign key names it. The home is
+  // part of what was asked for, so its failure fails the whole create.
+  const space = await callDaemon(env.services, "space-create", { name });
   const role = env.spaceHome;
-  // The home is part of what was asked for, so its failure fails the whole
-  // create and leaves orch nothing to clean up.
-  // The spaces row lands FIRST: `openHome` records a `space_plexers` row whose
-  // foreign key names it, so opening the home before the space exists would fail
-  // on a reference orch itself had not written yet.
-  orm(env.directory).insert(spaces).values({ id, name, createdBy: recordableActor(env), createdAt: now }).run();
   if (role !== null) {
-    openHome({
-      directory: env.directory, subject: { kind: "space", id }, plexerId: env.plexerId,
-      home: role, cwd: process.cwd(), label: name,
-    });
+    await openHome({ services: env.services, subject: { kind: "space", id: space.id }, plexerId: env.plexerId, home: role, cwd: process.cwd(), label: name });
   }
-  emit({ space: { id, name }, home: role === null ? "none" : "created" }, `Created space "${name}".`, json);
+  emit({ space, home: role === null ? "none" : "created" }, `Created space "${name}".`, json);
 }
 
-function renameSpace(env: SpaceEnvironment, target: string | undefined, name: string | undefined, json: boolean): void {
+async function renameSpace(env: SpaceEnvironment, target: string | undefined, name: string | undefined, json: boolean): Promise<void> {
   if (target === undefined || name === undefined) throw new Error("usage: orch space rename <space> <name> [--json]");
-  const space = findSpace(env.directory, target);
-  const taken = readSpaceRows(env.directory).some((other) => other.name === name && other.id !== space.id);
-  if (taken) throw new Error(`A space named "${name}" already exists.`);
   // orch's name is orch's own write and commits first; plexer chrome is a
   // separate action whose failure never rewrites whether the rename happened.
-  orm(env.directory).update(spaces).set({ name }).where(eq(spaces.id, space.id)).run();
-  const role = env.spaceHome;
-  const coordinate = role === null ? null : readHome(env, space.id);
+  const renamed = await callDaemon(env.services, "space-rename", { target, name, plexerId: env.plexerId });
+  const home = drivableHome(env, renamed);
   // The MARK survives a rename (E8: allowable, but never unmarked). Renaming to
   // a bare name is how a home stops reading as orch's after one edit.
-  if (role !== null && coordinate !== null) role.rename(coordinate, homeLabel(name));
+  if (home !== null) home.role.rename(home.coordinate, homeLabel(name));
   emit(
-    { space: { id: space.id, name }, renamed: true, home: coordinate === null ? "none" : "renamed" },
-    `Renamed space "${space.name}" to "${name}".`,
+    { space: { id: renamed.id, name }, renamed: true, home: home === null ? "none" : "renamed" },
+    `Renamed space "${renamed.previousName}" to "${name}".`,
     json,
   );
 }
 
-function deleteSpace(env: SpaceEnvironment, target: string | undefined, json: boolean): void {
+async function deleteSpace(env: SpaceEnvironment, target: string | undefined, json: boolean): Promise<void> {
   if (target === undefined) throw new Error("usage: orch space delete <space> [--json]");
-  const space = findSpace(env.directory, target);
-  const occupied = orm(env.directory).select({ agentId: agentSpaces.agentId }).from(agentSpaces)
-    .where(and(eq(agentSpaces.spaceId, space.id), isNull(agentSpaces.until))).limit(1).get();
-  // Nobody moves the wall out from under someone else's agents.
-  if (occupied !== undefined) throw new Error(`Space "${space.name}" is not empty; move its agents out first.`);
-  const role = env.spaceHome;
-  const coordinate = role === null ? null : readHome(env, space.id);
-  if (role !== null && coordinate !== null) role.close(coordinate);
-  clearHome(env.directory, { kind: "space", id: space.id });
-  orm(env.directory).delete(spaces).where(eq(spaces.id, space.id)).run();
+  // orchd refuses an occupied space before any plexer window closes.
+  const deleted = await callDaemon(env.services, "space-delete", { target, plexerId: env.plexerId });
+  const home = drivableHome(env, deleted);
+  if (home !== null) home.role.close(home.coordinate);
   emit(
-    { space: { id: space.id, name: space.name }, deleted: true, home: coordinate === null ? "none" : "closed" },
-    `Deleted space "${space.name}".`,
+    { space: { id: deleted.id, name: deleted.name }, deleted: true, home: home === null ? "none" : "closed" },
+    `Deleted space "${deleted.name}".`,
     json,
   );
 }
 
-function focusSpace(env: SpaceEnvironment, target: string | undefined, json: boolean): void {
+async function focusSpace(env: SpaceEnvironment, target: string | undefined, json: boolean): Promise<void> {
   if (target === undefined) throw new Error("usage: orch space focus <space> [--json]");
-  const space = findSpace(env.directory, target);
-  const role = env.spaceHome;
-  const coordinate = role === null ? null : readHome(env, space.id);
-  if (role === null || coordinate === null) {
+  const space = await askDaemon(env.services, "space", { target, plexerId: env.plexerId });
+  const home = drivableHome(env, space);
+  if (home === null) {
     answer(space, "focus", json);
     return;
   }
-  role.focus(coordinate);
+  home.role.focus(home.coordinate);
   emit({ space: { id: space.id, name: space.name }, focused: true }, `Focused space "${space.name}".`, json);
 }
 
@@ -173,7 +126,7 @@ const USAGE = "usage: orch space list|create <name>|rename <space> <name>|delete
 
 /** Run one `orch space` subcommand against a resolved environment. Refusals throw;
  *  the CLI entry point below is the single place that turns one into an exit code. */
-export function runSpace(env: SpaceEnvironment, args: string[]): void {
+export async function runSpace(env: SpaceEnvironment, args: string[]): Promise<void> {
   const { command, flags, positional } = parseCommand("space", args);
   const json = flags.has("--json");
   switch (command.name) {
@@ -188,18 +141,12 @@ export function runSpace(env: SpaceEnvironment, args: string[]): void {
   }
 }
 
-export function cmdSpace(services: Services, args: string[]): void {
-  const directory = services.orchDir;
+export async function cmdSpace(services: Services, args: string[]): Promise<void> {
   const settings = services.settings.current();
   const backend = resolveBackend({ configured: settings.defaults.backend ?? null });
-  const env: SpaceEnvironment = {
-    directory,
-    plexerId: backend.id,
-    spaceHome: backend.spaceHome,
-    actorId: selfId(directory) ?? null,
-  };
+  const env: SpaceEnvironment = { services, plexerId: backend.id, spaceHome: backend.spaceHome };
   try {
-    runSpace(env, args);
+    await runSpace(env, args);
   } catch (error: unknown) {
     die(errorMessage(error));
   }

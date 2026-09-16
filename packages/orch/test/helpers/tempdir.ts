@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,16 @@ const undeleted: string[] = [];
  *  `mkdtempSync` alone yields a string, which nothing taking the orch dir accepts. */
 export function tempOrchDir(prefix: string): OrchDir {
   return orchDirAt(mkdtempSync(join(tmpdir(), prefix)));
+}
+
+/** A throwaway git repository with one commit. The ONLY cwd a test may hand a
+ *  `--worktree` spawn: a worktree or a branch made here can never land in the checkout. */
+export function tempGitRepo(prefix: string): string {
+  const repo = mkdtempSync(join(tmpdir(), prefix));
+  const git = (...args: string[]): void => { execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" }); };
+  git("init", "-q", "-b", "main");
+  git("-c", "user.name=orch-test", "-c", "user.email=orch-test@localhost", "commit", "-q", "--allow-empty", "-m", "root");
+  return repo;
 }
 
 /** Kill the detached orchd a CLI-driven test auto-started under this dir; a live daemon holds

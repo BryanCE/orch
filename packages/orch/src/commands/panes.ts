@@ -5,7 +5,8 @@ import type { Services, SettingsService } from "../types/services.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
-import { agentAddress, assertAgentOwned, die, backendTarget, ownsAgent, presenceById } from "./target.ts";
+import { assertAgentOwned, die, backendTarget, ownsAgent } from "./target.ts";
+import { addressOf, indexPresenceById } from "../entities/lookup.ts";
 import { parseCommand } from "./registry.ts";
 import type { ParsedFlags } from "../cli/spec.ts";
 import { isAgentId } from "../backends/identity.ts";
@@ -13,7 +14,7 @@ import { viewForKey } from "../entities/lookup.ts";
 import { openingPlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
 import { displaySpace } from "./status/options.ts";
 import { spaceName } from "../policy/space.ts";
-import { setHandle } from "../store/interval-rows.ts";
+import { writeRpc } from "./daemon.ts";
 import { ambiguousTargetRefusal } from "../refusal.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSplit, TilePlacement } from "../types/backend.ts";
@@ -179,7 +180,7 @@ export function cmdTabs(services: Services, args: string[]) {
 function assertGroupAgentsOwned(services: Pick<Services, "orchDir">, backend: Backend, group: string, force: boolean): void {
   if (force) return;
   const handles = new Set((backend.placementInventory?.list() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
-  const presence = presenceById(loadPresence(services.orchDir));
+  const presence = indexPresenceById(loadPresence(services.orchDir).values());
   for (const view of spawnedRecords(services.orchDir).values()) {
     // Ownership is the open lease; the pane handle is environment. A group is a
     // set of PLACES, so it is matched on the handle and refused on the lease.
@@ -187,7 +188,7 @@ function assertGroupAgentsOwned(services: Pick<Services, "orchDir">, backend: Ba
     const handle = view.environment.handle;
     if (holder === undefined || handle === null || !handles.has(handle)) continue;
     if (!ownsAgent(services.orchDir, view)) {
-      die(`Group ${group} holds agent ${agentAddress(view, presence)} owned by ${holder}. Use --force to override.`);
+      die(`Group ${group} holds agent ${addressOf(view, presence)} owned by ${holder}. Use --force to override.`);
     }
   }
 }
@@ -288,7 +289,7 @@ function isBackendSplit(value: string): value is BackendSplit {
   return value === "down" || value === "right";
 }
 
-export function cmdMove(services: Services, args: string[]) {
+export async function cmdMove(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("move", args);
   const json = flags.has("--json");
   const force = flags.has("--force");
@@ -317,7 +318,7 @@ export function cmdMove(services: Services, args: string[]) {
     // The pane moved; the agent did not become a different agent. A14: the
     // handle is an interval on its own axis, so the old one closes and a new
     // one opens — identity is untouched.
-    if (isAgentId(key)) setHandle(services.orchDir, key, Date.now(), String(handle));
+    if (isAgentId(key)) await writeRpc(services, "set-handle", { target: key, handle: String(handle) });
     if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: groupId }) + "\n");
     else process.stdout.write(`Moved ${String(handle)} ${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
   } catch (e: unknown) {

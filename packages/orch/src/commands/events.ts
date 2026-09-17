@@ -154,7 +154,7 @@ export async function cmdNotify(services: Services, args: string[]) {
   const settings = services.settings.current();
   const sinks = settings.notify;
   if (!sinks.length) {
-    services.logger.error("notify.test.no-sinks", { sinkCount: 0 });
+    services.logger.error("notify.no-sinks", { sinkCount: 0 });
     process.stdout.write("notify test: no sinks configured\n");
     process.exitCode = 1;
     return;

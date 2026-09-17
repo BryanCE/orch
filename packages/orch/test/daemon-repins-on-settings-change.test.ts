@@ -79,13 +79,13 @@ describe("daemon settings tuning re-pin", () => {
         return Promise.resolve({ outcome: "invoke", ack: "none" });
       },
       logger: {
-        info: (event: string): void => { if (event === "settings.repin.kept") kept.push(event); },
+        info: (event: string): void => { if (event === "repin.kept") kept.push(event); },
         warn: (event: string): void => { void event; },
       },
     });
 
     expect(calls).toEqual([{ target: "agent-two", model: "provider/new:high" }]);
-    expect(kept).toEqual(["settings.repin.kept"]);
+    expect(kept).toEqual(["repin.kept"]);
   });
 
   test("does not pin when tuning settings did not change", async () => {
@@ -135,7 +135,7 @@ describe("daemon settings tuning re-pin", () => {
     });
 
     expect(delivered).toEqual(["agent-two"]);
-    expect(warnings).toEqual(["settings.repin.failed"]);
+    expect(warnings).toEqual(["repin.failed"]);
   });
 
 });

@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { execFileSync } from "node:child_process";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
@@ -51,7 +52,7 @@ async function startReportServer(): Promise<ReportCapture> {
   const server = await startRpcServer(orchDir, stubRpcHandlers({
     "report-status": (params) => { statuses.push(params); return { ok: true }; },
     "report-result": (params) => { results.push(params); return { ok: true }; },
-  }));
+  }), { logger: recordingLogger().logger });
   return { statuses, results, server };
 }
 

@@ -119,7 +119,7 @@ describe("daemon presence events", () => {
     report(orchDir, key, { state: "working" }, () => { /* seed */ });
     const server = await startRpcServer(orchDir, stubRpcHandlers({
       "subscribe-events": () => ({ subscribed: true }),
-    }));
+    }), { logger: recordingLogger().logger });
     servers.push(server);
     const received: unknown[] = [];
     const subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event));

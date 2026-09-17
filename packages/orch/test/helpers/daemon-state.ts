@@ -11,7 +11,7 @@ import { testServices, type TestServicesOptions } from "./services.ts";
  *  test reaches orchd the way it does in use. No loop, no timers; close it after. */
 export async function serveDaemon(services: Services): Promise<RpcServer> {
   const state = idleDaemonState(services, services.orchDir);
-  const server = await startRpcServer(services.orchDir, rpcHandlers(state));
+  const server = await startRpcServer(services.orchDir, rpcHandlers(state), { logger: services.logger });
   state.server = server;
   return server;
 }
@@ -35,6 +35,7 @@ export function idleDaemonState(services: Services, directory: OrchDir): DaemonS
     workLoop: undefined,
     workLoopRunning: false,
     outboxDrain: undefined,
+    loopWatchdog: undefined,
     settingsWatch: undefined,
     lastActivityAt: 0,
     fatalLogged: false,

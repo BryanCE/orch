@@ -23,7 +23,8 @@ import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { testServices } from "./helpers/services.ts";
-import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
+import { daemonStatusFixture, stubRpcHandlers } from "./helpers/rpc-handlers.ts";
+import { recordingLogger } from "./helpers/logger.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
@@ -108,7 +109,7 @@ async function start(dir: OrchDir): Promise<RpcServer> {
       setTimeout(() => emit(transitionEvent({ key: "pushed" })), 5);
       return { subscribed: true };
     },
-  }));
+  }), { logger: recordingLogger().logger });
   servers.push(server);
   return server;
 }
@@ -246,6 +247,22 @@ describe("daemon RPC", () => {
     expect(await rpcCall(dir, "ack", { id: "round-trip" })).toEqual({ ok: true });
   });
 
+  test("logs one rpc record when a request is answered", async () => {
+    const dir = tempOrchDir();
+    const { logger, records } = recordingLogger();
+    const server = await startRpcServer(dir, stubRpcHandlers({ "daemon-status": () => daemonStatusFixture() }), { logger });
+    servers.push(server);
+
+    await rpcCall(dir, "daemon-status", undefined);
+
+    const rpcRecords = records.filter((record) => record.event === "rpc");
+    expect(rpcRecords).toHaveLength(1);
+    const rpcRecord = rpcRecords[0];
+    expect(rpcRecord?.fields?.method).toBe("daemon-status");
+    expect(rpcRecord?.fields?.ok).toBe(true);
+    expect(typeof rpcRecord?.fields?.elapsedMs).toBe("number");
+  });
+
   test("issues one session identity to sequential invocations from one session", async () => {
     const dir = tempOrchDir();
     await start(dir);
@@ -282,7 +299,7 @@ describe("daemon RPC", () => {
     releaseLease(dir, "closed", "holder", 3);
     acquireLease(dir, "leased", "holder", 2);
     endAgent(dir, "ended", 4, null);
-    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs() });
@@ -299,7 +316,7 @@ describe("daemon RPC", () => {
 
   test("hello returns an empty unleased list when none exist", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs() });
@@ -308,7 +325,7 @@ describe("daemon RPC", () => {
 
   test("a TCP hello with the daemon token gets an identity", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs(), label: "web client" });
@@ -322,7 +339,7 @@ describe("daemon RPC", () => {
 
   test("refuses a hello that reports no session pid", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     expect(await tcpHello(server, { token })).toMatchObject({ id: 1, error: { code: "INVALID_PARAMS" } });
@@ -330,7 +347,7 @@ describe("daemon RPC", () => {
 
   test("refuses a hello without its environment", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     expect(await tcpHello(server, { token, pid: process.pid })).toMatchObject({ id: 1, error: { code: "INVALID_PARAMS" } });
@@ -338,7 +355,7 @@ describe("daemon RPC", () => {
 
   test("same session pid keeps its id and a different session pid gets another", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     const claim = (pid: number, label: string) => ({ token, pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs(), label });
@@ -352,14 +369,14 @@ describe("daemon RPC", () => {
 
   test("refuses a TCP hello without a token", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     expect(await tcpHello(server, { token: "", pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs() })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
   });
 
   test("refuses a TCP hello with a wrong token", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     // A complete claim, so the wire accepts the shape and the handler is what refuses it.
     expect(await tcpHello(server, { token: "wrong-token", pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs() })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
@@ -367,7 +384,7 @@ describe("daemon RPC", () => {
 
   test("writes the daemon token with owner-only permissions", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0 });
+    const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const tokenFile = daemonRuntimeFiles(dir).token;
     expect(readFileSync(tokenFile, "utf8").trim()).toMatch(/^[0-9a-f]{64}$/);
@@ -480,7 +497,7 @@ describe("daemon RPC", () => {
   // absent, and a loaded machine would make them kill the daemon they came to use.
   test("calls a slow daemon unreachable, not absent", async () => {
     const dir = tempOrchDir();
-    const server = await startRpcServer(dir, stubRpcHandlers({ "daemon-status": neverAnswers }));
+    const server = await startRpcServer(dir, stubRpcHandlers({ "daemon-status": neverAnswers }), { logger: recordingLogger().logger });
     servers.push(server);
     const failure = await rejectionOf(rpcCall(dir, "daemon-status", undefined, 100));
     expect(failure).toBeInstanceOf(DaemonUnreachableError);

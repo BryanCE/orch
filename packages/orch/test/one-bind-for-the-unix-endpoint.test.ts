@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -56,12 +57,12 @@ describe("one bind for the unix endpoint (2.4)", () => {
     let first: RpcServer | undefined;
     let reclaimed: RpcServer | undefined;
     try {
-      first = await startRpcServer(fresh, stubRpcHandlers({ ack: () => ({ ok: true }) }));
+      first = await startRpcServer(fresh, stubRpcHandlers({ ack: () => ({ ok: true }) }), { logger: recordingLogger().logger });
 
       // A socket path left by a dead instance, and this process holds the lock.
       writeFileSync(join(stale, "orchd.sock"), "");
       writeFileSync(join(stale, "orchd.port"), "65000\n");
-      reclaimed = await startRpcServer(stale, stubRpcHandlers({ ack: () => ({ ok: true }) }), { holdsDaemonLock: true });
+      reclaimed = await startRpcServer(stale, stubRpcHandlers({ ack: () => ({ ok: true }) }), { holdsDaemonLock: true, logger: recordingLogger().logger });
 
       expect(reclaimed.transport).toBe(first.transport);
       expect(existsSync(join(stale, "orchd.port"))).toBe(existsSync(join(fresh, "orchd.port")));

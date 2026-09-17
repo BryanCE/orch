@@ -1,4 +1,4 @@
-import type { Logger, OrchDir } from "../../types/core.ts";
+import type { Logger, LogValue, OrchDir } from "../../types/core.ts";
 import { createServer, type Server, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
@@ -27,8 +27,8 @@ function detachConnectionBridge(orchDir: OrchDir, state: ConnectionState): void 
   state.bridge = undefined;
 }
 
-function logRpc(logger: Logger | undefined, request: RpcRequest, transport: "unix" | "tcp", startedAt: number, error?: unknown): void {
-  const fields: Record<string, string | number | boolean | null> = {
+function logRpc(logger: Logger, request: RpcRequest, transport: "unix" | "tcp", startedAt: number, error?: unknown): void {
+  const fields: Record<string, LogValue> = {
     method: request.method,
     id: request.id,
     transport,
@@ -36,7 +36,7 @@ function logRpc(logger: Logger | undefined, request: RpcRequest, transport: "uni
     elapsedMs: Date.now() - startedAt,
   };
   if (error !== undefined) fields.error = errorMessage(error);
-  logger?.trace("rpc", fields);
+  logger.trace("rpc", fields);
 }
 
 /** A refused attach has already been answered on its socket, so the request ends there. */
@@ -52,7 +52,7 @@ function attachRequest(
   state: ConnectionState,
   transport: "unix" | "tcp",
   onBridgeAttached: ((key: string) => void) | undefined,
-  logger: Logger | undefined,
+  logger: Logger,
 ): AttachOutcome {
   if (request.method !== "attach") return { kind: "not-attach" };
   const startedAt = Date.now();
@@ -67,10 +67,10 @@ function attachRequest(
   } catch (error: unknown) {
     lineResponse(socket, errorResponse(request.id, "UNKNOWN_AGENT", errorMessage(error)));
     logRpc(logger, request, transport, startedAt, error);
-    logger?.info("bridge.refused", { key, reason: errorMessage(error) });
+    logger.info("bridge.refused", { key, reason: errorMessage(error) });
     return { kind: "refused" };
   }
-  logger?.info("bridge.attached", { key });
+  logger.info("bridge.attached", { key });
   state.bridge = { key, link };
   return { kind: "attached", notify: () => onBridgeAttached?.(key) };
 }
@@ -92,7 +92,7 @@ function dispatchRequest(
   emit: RpcEventEmitter,
   state: ConnectionState,
   transport: "unix" | "tcp",
-  logger: Logger | undefined,
+  logger: Logger,
   notifyBridgeAttached?: () => void,
 ): void {
   const startedAt = Date.now();
@@ -121,7 +121,7 @@ function handleLine(
   state: ConnectionState,
   daemonToken: string,
   onBridgeAttached: ((key: string) => void) | undefined,
-  logger: Logger | undefined,
+  logger: Logger,
 ): void {
   const request = parseRequest(line);
   if (!("method" in request)) {
@@ -172,7 +172,7 @@ function attachConnection(
   transport: "unix" | "tcp",
   daemonToken: string,
   onBridgeAttached: ((key: string) => void) | undefined,
-  logger: Logger | undefined,
+  logger: Logger,
 ): () => void {
   const state: ConnectionState = {};
   const detach = () => {
@@ -234,7 +234,7 @@ function boundTcpPort(server: Server): number {
 export async function startRpcServer(
   orchDir: OrchDir,
   handlers: RpcHandlers,
-  options: RpcServerOptions = {},
+  options: RpcServerOptions,
 ): Promise<RpcServer> {
   ensurePrivateDir(orchDir);
   const paths = endpointPaths(orchDir);

@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -137,7 +138,7 @@ describe("runDoctor", () => {
 
   test("accepts a live daemon and an answerable socket", async () => {
     const directory = tempDir();
-    const server = await startRpcServer(directory, stubRpcHandlers({ "daemon-status": () => daemonStatusFixture() }));
+    const server = await startRpcServer(directory, stubRpcHandlers({ "daemon-status": () => daemonStatusFixture() }), { logger: recordingLogger().logger });
     servers.push(server);
     const entrypoint = path.join(import.meta.dir, "../src/daemon/server/orchd.ts");
     fs.writeFileSync(path.join(directory, "orchd.lock"), JSON.stringify({

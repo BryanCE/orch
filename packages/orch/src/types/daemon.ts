@@ -59,7 +59,7 @@ export interface RpcServerOptions {
   /** Report a TCP bind failure without taking down the unix listener. */
   onTcpError?: (error: unknown, port: number) => void;
   /** Logger used to contain failures in event subscribers. */
-  logger?: Logger;
+  logger: Logger;
   /** Report a bridge attach after its RPC reply has been written. */
   onBridgeAttached?: (key: string) => void;
 };

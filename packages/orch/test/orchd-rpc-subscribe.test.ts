@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
@@ -45,7 +46,7 @@ describe("orchd event subscription", () => {
     let first: EventSubscription | undefined;
     let second: EventSubscription | undefined;
     try {
-      server = await startRpcServer(orchDir, stubRpcHandlers());
+      server = await startRpcServer(orchDir, stubRpcHandlers(), { logger: recordingLogger().logger });
       server.emit(event("one"));
       server.emit(event("two"));
       server.emit(event("three"));

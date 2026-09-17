@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createServer, createConnection } from "node:net";
@@ -91,7 +92,7 @@ describe("subscribeEvents reconnect", () => {
     let subscription: EventSubscription | undefined;
     const received: RpcEvent[] = [];
     try {
-      server = await startRpcServer(orchDir, stubRpcHandlers());
+      server = await startRpcServer(orchDir, stubRpcHandlers(), { logger: recordingLogger().logger });
       subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event), undefined, true);
       server.emit(transitionEvent({ key: "before-restart" }));
       await waitFor(() => received, 1);
@@ -99,7 +100,7 @@ describe("subscribeEvents reconnect", () => {
 
       // The daemon goes away with its socket, then returns on the same ORCH_DIR.
       await server.close();
-      server = await startRpcServer(orchDir, stubRpcHandlers());
+      server = await startRpcServer(orchDir, stubRpcHandlers(), { logger: recordingLogger().logger });
       // Emitted while the subscription is still redialling: it lands in the new
       // daemon's replay buffer and must be delivered once the socket is back.
       server.emit(transitionEvent({ key: "after-restart" }));
@@ -123,7 +124,7 @@ describe("subscribeEvents reconnect", () => {
     let server: RpcServer | undefined;
     const received: RpcEvent[] = [];
     try {
-      server = await startRpcServer(orchDir, stubRpcHandlers());
+      server = await startRpcServer(orchDir, stubRpcHandlers(), { logger: recordingLogger().logger });
       const subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event));
       server.emit(transitionEvent({ key: "one" }));
       await waitFor(() => received, 1);
@@ -132,7 +133,7 @@ describe("subscribeEvents reconnect", () => {
       subscription.close(); // clears the pending retry timer
 
       // A fresh daemon the closed subscription must never latch onto.
-      server = await startRpcServer(orchDir, stubRpcHandlers());
+      server = await startRpcServer(orchDir, stubRpcHandlers(), { logger: recordingLogger().logger });
       server.emit(transitionEvent({ key: "two" }));
       await delay(1_000);
       expect(received.map((event) => event.key)).toEqual(["one"]);
@@ -152,7 +153,7 @@ describe("subscribeEvents identity handshake", () => {
     let subscription: EventSubscription | undefined;
     const received: RpcEvent[] = [];
     try {
-      server = await startRpcServer(orchDir, stubRpcHandlers());
+      server = await startRpcServer(orchDir, stubRpcHandlers(), { logger: recordingLogger().logger });
       subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event), undefined, true);
       server.emit(transitionEvent({ key: "one" }));
       await waitFor(() => received, 1);
@@ -174,7 +175,7 @@ describe("subscribeEvents identity handshake", () => {
     let subscription: EventSubscription | undefined;
     const received: RpcEvent[] = [];
     try {
-      server = await startRpcServer(orchDir, stubRpcHandlers());
+      server = await startRpcServer(orchDir, stubRpcHandlers(), { logger: recordingLogger().logger });
       subscription = subscribeEvents(orchDir, { since: 0 }, (event) => received.push(event), undefined, true);
       server.emit(transitionEvent({ key: "one" }));
       await waitFor(() => received, 1);

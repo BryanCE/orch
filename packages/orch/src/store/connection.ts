@@ -49,10 +49,7 @@ export interface DrainRecord {
   readonly elapsedMs: number;
 }
 
-const noDrainReport = (_drain: DrainRecord): void => {
-  void _drain;
-};
-let drainReporter: (drain: DrainRecord) => void = noDrainReport;
+let drainReporter: (drain: DrainRecord) => void = () => undefined;
 
 export function reportDrains(report: (drain: DrainRecord) => void): void {
   drainReporter = report;

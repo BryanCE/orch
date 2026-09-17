@@ -8,10 +8,12 @@ import { isBridgeDelivery } from "../src/control/bridge-message.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import type { Logger } from "../src/types/core.ts";
 import { isRecord } from "../src/util.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
+import { recordingLogger } from "./helpers/logger.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const directories: OrchDir[] = [];
@@ -62,11 +64,11 @@ function liveKey(directory: OrchDir): string {
   return key;
 }
 
-async function start(onBridgeAttached?: (key: string) => void): Promise<RpcServer> {
+async function start(onBridgeAttached?: (key: string) => void, logger: Logger = recordingLogger().logger): Promise<RpcServer> {
   const directory = directories[directories.length - 1]!;
   const server = await startRpcServer(directory, stubRpcHandlers({
     attach: () => ({ attached: true, open: 1 }),
-  }), { onBridgeAttached });
+  }), { onBridgeAttached, logger });
   servers.push(server);
   return server;
 }
@@ -152,15 +154,22 @@ describe("daemon bridge links", () => {
   });
 
   test("attach for an agent the store does not know is refused and the server keeps serving", async () => {
-    const server = await start();
+    const { logger, records } = recordingLogger();
+    const server = await start(undefined, logger);
     const socket = await connected(server);
     const lines = observe(socket);
     socket.write(`${JSON.stringify({ id: 1, method: "attach", params: { key: "unknownagnt" } })}\n`);
     expect(await lineAt(lines, 0)).toMatchObject({ id: 1, error: { code: "UNKNOWN_AGENT" } });
+    const refused = records.filter((record) => record.event === "bridge.refused");
+    expect(refused).toHaveLength(1);
+    expect(refused[0]?.fields?.key).toBe("unknownagnt");
     expect(server.attachedBridgeCount()).toBe(0);
     const key = liveKey(directories[0]!);
     socket.write(`${JSON.stringify({ id: 2, method: "attach", params: { key } })}\n`);
     expect(await lineAt(lines, 1)).toEqual({ id: 2, result: { attached: true, open: 1 } });
+    const attached = records.filter((record) => record.event === "bridge.attached");
+    expect(attached).toHaveLength(1);
+    expect(attached[0]?.fields?.key).toBe(key);
     expect(server.attachedBridgeCount()).toBe(1);
   });
 

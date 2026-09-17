@@ -84,8 +84,8 @@ export async function startDaemon(): Promise<DaemonState> {
     process.on("unhandledRejection", (reason: unknown) => logFatalAndExit(state, "unhandled rejection", reason));
     process.on("exit", (code) => { if (code !== 0 && !state.fatalLogged) state.services.logger.error("daemon.exited", { code }); });
   }
-  reportWriteFailures((error) => state.services.logger.error("store.write_failed", { message: errorMessage(error) }));
-  reportHistoryFailures((error) => state.services.logger.error("history.append_failed", { message: errorMessage(error) }));
+  reportWriteFailures((error) => state.services.logger.error("store.write-failed", { error: errorMessage(error) }));
+  reportHistoryFailures((error) => state.services.logger.error("history.append-failed", { error: errorMessage(error) }));
   observeToolExec((exec) => {
     const fields = { binary: exec.binary, args: exec.args.join(" "), attempt: exec.attempt, ok: exec.ok, elapsedMs: exec.elapsedMs };
     const slowMs = state.services.settings.current().logging.slow_tool_ms;
@@ -160,7 +160,7 @@ export async function startDaemon(): Promise<DaemonState> {
           deliver: (target, action) => deliverControl(directory, settings, state.services.models, target, action),
           logger: services.logger,
         }).catch((error: unknown) => {
-          state.services.logger.warn("settings.repin.failed", { error: errorMessage(error) });
+          state.services.logger.warn("repin.failed", { error: errorMessage(error) });
         });
       }
       previousSettings = settings;

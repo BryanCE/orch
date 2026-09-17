@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -34,7 +35,7 @@ function tempDir(): OrchDir {
 }
 
 async function start(orchDir: OrchDir): Promise<RpcServer> {
-  const server = await startRpcServer(orchDir, stubRpcHandlers());  servers.push(server);
+  const server = await startRpcServer(orchDir, stubRpcHandlers(), { logger: recordingLogger().logger });  servers.push(server);
   return server;
 }
 

@@ -54,21 +54,21 @@ export async function repinLiveFleet(options: RepinLiveFleetOptions): Promise<vo
       if (adapter === undefined) continue;
       if (adapter.modelControl === null && !adapter.bridge?.takes.includes("model")) continue;
       if (agent.tuning.model !== null) {
-        options.logger.info("settings.repin.kept", { agentId: agent.id, model: modelSpec(agent.tuning.model, agent.tuning.thinking) });
+        options.logger.info("repin.kept", { agentId: agent.id, model: modelSpec(agent.tuning.model, agent.tuning.thinking) });
         continue;
       }
       const tuning = resolveTuning({ pinned: agent.tuning, harness: adapter.id, settings: options.settings });
       if (tuning === null) continue;
       const spec = modelSpec(tuning.model, tuning.thinking);
       const outcome = await options.deliver(agent.id, { kind: "model", model: spec, id: randomUUID() });
-      options.logger.info("settings.repin.applied", {
+      options.logger.info("repin.applied", {
         agentId: agent.id,
         model: spec,
         thinking: tuning.thinking,
         outcome: outcome.outcome,
       });
     } catch (error: unknown) {
-      options.logger.warn("settings.repin.failed", { agentId: agent.id, error: errorMessage(error) });
+      options.logger.warn("repin.failed", { agentId: agent.id, error: errorMessage(error) });
     }
   }
 }

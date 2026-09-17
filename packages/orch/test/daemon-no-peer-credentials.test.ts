@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createConnection } from "node:net";
@@ -37,7 +38,7 @@ afterEach(async () => {
 async function start(): Promise<{ orchDir: OrchDir; token: string }> {
   const orchDir = tempOrchDir("orch-peercred-");
   dirs.push(orchDir);
-  servers.push(await startRpcServer(orchDir, stubRpcHandlers()));
+  servers.push(await startRpcServer(orchDir, stubRpcHandlers(), { logger: recordingLogger().logger }));
   return { orchDir, token: readFileSync(endpointPaths(orchDir).token, "utf8").trim() };
 }
 

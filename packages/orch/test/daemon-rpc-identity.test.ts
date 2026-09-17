@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -38,7 +39,7 @@ describe("daemon identity RPCs", () => {
     const dir = tempDir();
     ensureHarness(dir, "pi", "pi", 1);
     insertAgent(dir, { id: "agent-minted", name: "worker", harnessId: "pi", cwd: dir, createdAt: 1 });
-    servers.push(await startRpcServer(dir, stubRpcHandlers()));
+    servers.push(await startRpcServer(dir, stubRpcHandlers(), { logger: recordingLogger().logger }));
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     const result = await rpcCall(dir, "claim-identity", { ...params(token, "session-a"), id: "agent-minted", sessionToken: "session-a" });
     expect(result).toEqual({ id: "agent-minted" });
@@ -50,7 +51,7 @@ describe("daemon identity RPCs", () => {
 
   test("claim-identity refuses an unknown id by naming it", async () => {
     const dir = tempDir();
-    servers.push(await startRpcServer(dir, stubRpcHandlers()));
+    servers.push(await startRpcServer(dir, stubRpcHandlers(), { logger: recordingLogger().logger }));
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     let failure: unknown;
     try {
@@ -64,7 +65,7 @@ describe("daemon identity RPCs", () => {
 
   test("register-session mints one id per session token", async () => {
     const dir = tempDir();
-    servers.push(await startRpcServer(dir, stubRpcHandlers()));
+    servers.push(await startRpcServer(dir, stubRpcHandlers(), { logger: recordingLogger().logger }));
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     const first = await rpcCall(dir, "register-session", params(token, "session-a"));
     const second = await rpcCall(dir, "register-session", params(token, "session-a"));

@@ -161,6 +161,6 @@ describe("command logging", () => {
     }
     const records = parsed.filter(isLogRecord);
     expect(records).toHaveLength(1);
-    expect(records[0]).toMatchObject({ level: "error", event: "notify.test.no-sinks", fields: { sinkCount: 0 } });
+    expect(records[0]).toMatchObject({ level: "error", event: "notify.no-sinks", fields: { sinkCount: 0 } });
   });
 });

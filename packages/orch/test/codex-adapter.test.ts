@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import * as fs from "node:fs";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import * as os from "node:os";
@@ -41,7 +42,7 @@ async function startReportServer(orchDir: OrchDir): Promise<ReportCapture> {
   const server = await startRpcServer(orchDir, stubRpcHandlers({
     "report-status": (params) => { statuses.push(params); return { ok: true }; },
     "report-result": (params) => { results.push(params); return { ok: true }; },
-  }));
+  }), { logger: recordingLogger().logger });
   return { statuses, results, server };
 }
 

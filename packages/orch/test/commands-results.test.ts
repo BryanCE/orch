@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/services.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -97,7 +98,7 @@ async function withQuestionsServer(root: OrchDir, questions: PendingQuestionView
   const server = await startRpcServer(root, stubRpcHandlers({
     questions: () => ({ questions }),
     self: () => ({ id: null, kind: "operator", space: null, view: null, depth: 0 }),
-  }));
+  }), { logger: recordingLogger().logger });
   try { await run(); } finally { await server.close(); }
 }
 

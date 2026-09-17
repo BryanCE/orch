@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
@@ -33,7 +34,7 @@ async function start(): Promise<{ server: RpcServer; orchDir: OrchDir; token: st
   // A companion loopback port, which orch binds on its own only where a client
   // cannot dial the unix socket (Windows). Requesting it here is what makes the
   // two transports comparable at all — it is not what makes TCP a client class.
-  const server = await startRpcServer(orchDir, stubRpcHandlers(), { tcpPort: 0 });
+  const server = await startRpcServer(orchDir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
   servers.push(server);
   return { server, orchDir, token: readFileSync(endpointPaths(orchDir).token, "utf8").trim() };
 }

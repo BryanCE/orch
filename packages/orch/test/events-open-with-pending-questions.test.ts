@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { startEventsTransport, parseEventsOptions } from "../src/commands/events.ts";
@@ -29,7 +30,7 @@ describe("events pending-question snapshot", () => {
       question: "Approve the change?",
       askedAt: 100,
     };
-    const server = await startRpcServer(root, stubRpcHandlers({ questions: () => ({ questions: [question] }) }));
+    const server = await startRpcServer(root, stubRpcHandlers({ questions: () => ({ questions: [question] }) }), { logger: recordingLogger().logger });
     const received: { event: NotifyEvent; seq: number }[] = [];
     const { promise: firstEvent, resolve: arrived } = Promise.withResolvers<void>();
     const context: EventsContext = {

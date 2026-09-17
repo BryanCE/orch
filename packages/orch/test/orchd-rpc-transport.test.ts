@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +22,7 @@ describe("orchd RPC transports", () => {
     const dir = tempOrchDir();
     let server: RpcServer | undefined;
     try {
-      server = await startRpcServer(dir, handlers());
+      server = await startRpcServer(dir, handlers(), { logger: recordingLogger().logger });
       expect(server.transport).toBe("unix");
       expect(await rpcCall(dir, "ack", { id: "unix" })).toEqual({ ok: true });
     } finally {
@@ -36,7 +37,7 @@ describe("orchd RPC transports", () => {
     let server: RpcServer | undefined;
     try {
       writeFileSync(socketPath, "occupied");
-      server = await startRpcServer(dir, handlers());
+      server = await startRpcServer(dir, handlers(), { logger: recordingLogger().logger });
       expect(server.transport).toBe("tcp");
       expect(await rpcCall(dir, "ack", { id: "tcp" })).toEqual({ ok: true });
     } finally {

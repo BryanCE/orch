@@ -152,23 +152,23 @@ export function governWrite(state: DaemonState, target: string, params: Governan
   // dispatch whose lease step left no record cannot be told apart from one that
   // never reached the lease step at all.
   const logLeaseGrant = (): void => {
-    state.services.logger.forAgent(targetId).debug("lease.granted", {
+    state.services.logger.debug("lease.granted", {
       target,
       holderId: lease === null ? null : (holderId ?? lease.orchId),
       holderAlive,
-    });
+    }, { ...context, agentId: targetId });
   };
   if (foreignLease && lease !== null && holderAlive) {
     // The space's human operator keeps control of every fleet keyed into their
     // space, whichever orch holds it; a spawned agent's actor token is its own
     // id, never `operator`, so this lane grants an agent nothing.
     if (!operatorControls(directory, actor, target, actorSpace, actorIsOperator)) {
-      state.services.logger.forAgent(targetId).debug("lease.refused", {
+      state.services.logger.debug("lease.refused", {
         target,
         holderId: holderId ?? lease.orchId,
         holderAlive: true,
         steal,
-      });
+      }, { ...context, agentId: targetId });
       // C4: taking an agent from a LIVE orch is deliberate and has its own verb.
       // A driving verb must never transfer a holding as a side effect, so the
       // refusal names the verb that does it instead of doing it here.

@@ -1,4 +1,3 @@
-import { recordingLogger } from "./helpers/logger.ts";
 import { describe, expect, test } from "bun:test";
 import { reaskQuestions } from "../src/daemon/server/work-loop.ts";
 import type { QuestionRow } from "../src/store/question-rows.ts";
@@ -57,5 +56,3 @@ describe("question re-ask policy", () => {
     expect(run([question()], 400, state, 100, 3)).toEqual([]);
   });
 });
-
-const { logger: testLogger } = recordingLogger();

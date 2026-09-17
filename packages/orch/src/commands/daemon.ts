@@ -11,7 +11,6 @@ import {
   terminateDaemon,
   unprovenLockRefusal,
 } from "../daemon/client/process.ts";
-import { daemonRuntimeFiles } from "../daemon/client/runtime-files.ts";
 import { DaemonAbsentError, DaemonUnreachableError } from "../daemon/client/wire.ts";
 import { rpcCall } from "../daemon/client/rpc.ts";
 import type { GovernedMethod, ParamsOf, ResultOf, Governance, RpcMethod } from "../daemon/client/protocol.ts";

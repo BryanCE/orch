@@ -2171,3 +2171,963 @@ $ bun --filter @bryance/orch test
 @bryance/orch test: 
 @bryance/orch test: test\remote-fanout.test.ts:
 @bryance/orch test: (pass) async remote fan-out > parses valid JSON from a host [280.57ms]
+@bryance/orch test: 
+@bryance/orch test: test\doctor-stale-presence.test.ts:
+@bryance/orch test: (pass) doctor stale presence safety > the removal fix is marked destructive so UIs never pre-select it [306.72ms]
+@bryance/orch test: (pass) doctor stale presence safety > no dead agents leaves nothing to remove [236.74ms]
+@bryance/orch test: (pass) doctor stale presence safety > flags malformed presence directory names [166.35ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-credential.test.ts:
+@bryance/orch test: (skip) the token file is the whole credential > the token is 0600
+@bryance/orch test: (skip) the token file is the whole credential > $ORCH_DIR is 0700, so same-uid is a boundary the filesystem enforces
+@bryance/orch test: (skip) the token file is the whole credential > a token left loose by an earlier run is tightened, not trusted
+@bryance/orch test: (skip) the token file is the whole credential > a runtime directory the daemon creates is 0700 too
+@bryance/orch test: 
+@bryance/orch test: test\commands-help.test.ts:
+@bryance/orch test: (pass) per-command help topics > daemon help names every subcommand and the idle shutdown setting [43.93ms]
+@bryance/orch test: (pass) per-command help topics > aliases resolve to their command's topic [3.31ms]
+@bryance/orch test: (pass) per-command help topics > logs help names every filter the command accepts [0.81ms]
+@bryance/orch test: (pass) per-command help topics > an unknown name has no topic [0.07ms]
+@bryance/orch test: (pass) per-command help topics > every topic is printable text ending in a newline [6.30ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-credential.test.ts:
+@bryance/orch test: (pass) the token file is the whole credential > nothing else is enrolled: there is no allowlist beside the token [54.90ms]
+@bryance/orch test: 
+@bryance/orch test: test\parse-target.test.ts:
+@bryance/orch test: (pass) <host>/<target> grammar > keeps targets without a host unchanged [0.11ms]
+@bryance/orch test: (pass) <host>/<target> grammar > parses configured host prefixes [0.04ms]
+@bryance/orch test: (pass) <host>/<target> grammar > rejects unknown hosts and lists configured hosts [0.18ms]
+@bryance/orch test: (pass) <host>/<target> grammar > rejects empty hosts and targets [0.06ms]
+@bryance/orch test: (pass) <host>/<target> grammar > formats local and host-prefixed targets [0.04ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-queue.test.ts:
+@bryance/orch test: (pass) commands/queue > cmdQueue list emits the selected JSON view [211.81ms]
+@bryance/orch test: 
+@bryance/orch test: test\status-owner-column.test.ts:
+@bryance/orch test: (pass) the rendered status table carries the owner column > each row's OWNER cell holds that row's lease fact [19.01ms]
+@bryance/orch test: (pass) the rendered status table carries the owner column > a dead holder reads as unleased under a table that all shares one owner [0.51ms]
+@bryance/orch test: (pass) the rendered status table carries the owner column > the owner column is dropped only when no row knows its lease [0.52ms]
+@bryance/orch test: 
+@bryance/orch test: test\orchd-rpc-reconnect.test.ts:
+@bryance/orch test: (pass) subscribeEvents identity handshake > a spawned agent never registers as a session [157.76ms]
+@bryance/orch test: 
+@bryance/orch test: test\tool-exec-retry.test.ts:
+@bryance/orch test: (pass) every command into a harness or plexer retries on timing, not on being wrong > observes each attempt at its end [1.74ms]
+@bryance/orch test: 
+@bryance/orch test: test\spawn-policy.test.ts:
+@bryance/orch test: (pass) spawn policy caps > a refused cmdSpawn makes no name, registry, or queue mutation [2075.37ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-write-queue.test.ts:
+@bryance/orch test: (pass) store write queue > closeAllStores drains queued writes [150.70ms]
+@bryance/orch test: (pass) store write queue > reports one record per queue drain [132.77ms]
+@bryance/orch test: (pass) store write queue > writes queued in a transaction are visible in its body [143.48ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-always.test.ts:
+@bryance/orch test: Could not close survives01: pane-survives is still listed by headless after the close
+@bryance/orch test: {"closed":[],"results":[{"target":"survives01","handle":"pane-survives","outcome":"error","error":"pane-survives is still listed by headless after the close"}],"requested":1,"ok":0,"stream":false}
+@bryance/orch test: (pass) close always works > a successful backend close retains a pane that is still listed [1283.72ms]
+@bryance/orch test: 
+@bryance/orch test: test\tool-exec-retry.test.ts:
+@bryance/orch test: (pass) every command into a harness or plexer retries on timing, not on being wrong > a transient refusal is reattempted until it succeeds [10.74ms]
+@bryance/orch test: (pass) every command into a harness or plexer retries on timing, not on being wrong > a failure the caller calls permanent is thrown on the FIRST attempt, never retried [0.27ms]
+@bryance/orch test: (pass) every command into a harness or plexer retries on timing, not on being wrong > a tool that never recovers exhausts the budget and reports how many attempts it cost [30.62ms]
+@bryance/orch test: (pass) every command into a harness or plexer retries on timing, not on being wrong > the seam names no harness: the same policy drives a different binary [1.30ms]
+@bryance/orch test: 
+@bryance/orch test: test\transcript.test.ts:
+@bryance/orch test: (pass) lastAssistantFromJsonl > returns the last assistant text, skipping user and malformed lines [0.60ms]
+@bryance/orch test: (pass) lastAssistantFromJsonl > undefined for blank or empty input [0.03ms]
+@bryance/orch test: (pass) lastAssistantFromJsonl > an empty-content assistant does not overwrite an earlier real one [0.12ms]
+@bryance/orch test: (pass) assistantText > reads role-tagged records [0.02ms]
+@bryance/orch test: (pass) assistantText > reads the {type:'assistant'} envelope with a nested message [0.02ms]
+@bryance/orch test: (pass) assistantText > undefined for non-assistant roles [0.01ms]
+@bryance/orch test: (pass) contentText empty-string part handling > empty parts drop out; real parts are joined without blank lines [0.02ms]
+@bryance/orch test: (pass) contentText empty-string part handling > an all-empty content array yields undefined [0.03ms]
+@bryance/orch test: (pass) contentText empty-string part handling > a bare empty string yields undefined [0.01ms]
+@bryance/orch test: 
+@bryance/orch test: test\peer-project-scope.test.ts:
+@bryance/orch test: (pass) peer discovery walls on the project > all_workspaces deliberately lifts the project wall [151.60ms]
+@bryance/orch test: (pass) peer discovery walls on the project > a cross-project target does not resolve for sends without the explicit flag [112.22ms]
+@bryance/orch test: (pass) peer discovery walls on the project > a record with no project stamp is not walled: it belongs to no other project [113.45ms]
+@bryance/orch test: (pass) peer discovery walls on the project > a spawned agent's all_workspaces flag is ignored [163.09ms]
+@bryance/orch test: (pass) peer discovery walls on the project > a worker sees its orchestrator in visible and peers [146.75ms]
+@bryance/orch test: 
+@bryance/orch test: test\thinking-resolution.test.ts:
+@bryance/orch test: (pass) thinking resolution > resolves every rung in priority order [24.40ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-instants.test.ts:
+@bryance/orch test: (pass) epoch-millisecond store instants > a lease records its holding as an integer instant [170.22ms]
+@bryance/orch test: 
+@bryance/orch test: test\session-refresh-repoints-identity.test.ts:
+@bryance/orch test: (pass) session refresh identity continuity > same token with a new process keeps the agent and repoints its process interval [136.46ms]
+@bryance/orch test: (pass) session refresh identity continuity > a new token and a new process mint a new agent [128.03ms]
+@bryance/orch test: (pass) session refresh identity continuity > a process anchored by an ended agent mints instead of repointing [149.83ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-queue.test.ts:
+@bryance/orch test: No queue tasks.
+@bryance/orch test: (pass) commands/queue > round-trips add/list/cancel on an isolated store [147.74ms]
+@bryance/orch test: (pass) commands/queue > renders empty queues without throwing [0.26ms]
+@bryance/orch test: 
+@bryance/orch test: test\thinking-resolution.test.ts:
+@bryance/orch test: (pass) thinking resolution > bare model with no setting yields harness default [15.29ms]
+@bryance/orch test: (pass) thinking resolution > pi translates the resolved level through its thinking role [0.30ms]
+@bryance/orch test: (pass) thinking resolution > per-harness override beats global default [4.37ms]
+@bryance/orch test: 
+@bryance/orch test: test\remote-fanout.test.ts:
+@bryance/orch test: (pass) async remote fan-out > returns a typed dead-host failure [235.96ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-events.test.ts:
+@bryance/orch test: (pass) event store rows > appendEvent assigns increasing sequence numbers and round-trips payload [150.68ms]
+@bryance/orch test: 
+@bryance/orch test: test\tiling.test.ts:
+@bryance/orch test: (pass) planTilePlacement > a lone pane anchors the split to the only pane [0.13ms]
+@bryance/orch test: (pass) planTilePlacement > first_split rules the opening split, however the screen is shaped [0.07ms]
+@bryance/orch test: (pass) planTilePlacement > first_split longest-edge leaves the opening split to the tab's own shape [0.04ms]
+@bryance/orch test: (pass) planTilePlacement > a tab with no geometry to read still opens the way first_split says [0.03ms]
+@bryance/orch test: (pass) planTilePlacement > past the first split, the biggest pane halves its longer side whatever first_split says [0.09ms]
+@bryance/orch test: (pass) planTilePlacement > the biggest pane is the target, whatever the caller's own pane is [0.03ms]
+@bryance/orch test: (pass) planTilePlacement > equal panes resolve top-left first, so enumeration order cannot decide [0.03ms]
+@bryance/orch test: (pass) planTilePlacement > four agents land in a 2x2 grid, not four columns [0.31ms]
+@bryance/orch test: (pass) planTilePlacement > four agents on an ultrawide screen still land in a 2x2 grid [0.06ms]
+@bryance/orch test: (pass) planTilePlacement > first_split rows stacks the second agent, columns seats it alongside [0.03ms]
+@bryance/orch test: (pass) planTilePlacement > longest-edge on an ultrawide screen is the four-thin-columns layout first_split exists to avoid [0.03ms]
+@bryance/orch test: (pass) planTilePlacement > the same pane count yields the same grid whatever pane order the plexer reports [11.74ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-instants.test.ts:
+@bryance/orch test: (pass) epoch-millisecond store instants > agents order numerically by their creation instant, never lexically [90.70ms]
+@bryance/orch test: (pass) epoch-millisecond store instants > all time-named columns use integer declarations [0.87ms]
+@bryance/orch test: 
+@bryance/orch test: test\os-executors.test.ts:
+@bryance/orch test: (pass) cross-OS execution is a backend, not a peer daemon > an OS side with no executor answers, and never runs the body [0.82ms]
+@bryance/orch test: (pass) cross-OS execution is a backend, not a peer daemon > the local side runs the body and hands back its value [0.45ms]
+@bryance/orch test: (pass) cross-OS execution is a backend, not a peer daemon > doctor passes a daemon registered on the side orch is running on [956.33ms]
+@bryance/orch test: (pass) cross-OS execution is a backend, not a peer daemon > doctor answers, rather than failing, for a daemon on a side with no executor [22.80ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-index.test.ts:
+@bryance/orch test: (pass) commands/index > does not gate help or noninteractive commands [0.12ms]
+@bryance/orch test: 
+@bryance/orch test: test\hello-environment.test.ts:
+@bryance/orch test: (pass) hello records the environment in full > the place the caller occupies in its plexer is recorded at hello [184.94ms]
+@bryance/orch test: (pass) hello records the environment in full > a session that moved to another place re-registers with the new one, and one row stays open [176.42ms]
+@bryance/orch test: (pass) hello records the environment in full > the space the caller registered in is recorded at hello, not inferred later [156.74ms]
+@bryance/orch test: (pass) hello records the environment in full > a session in no space and no plexer records neither, and that is an answer [198.01ms]
+@bryance/orch test: (pass) hello records the environment in full > re-registering the same session does not re-root or re-place it [173.39ms]
+@bryance/orch test: (pass) hello records the environment in full > the claim carries every environment fact hello has to record [113.20ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-index.test.ts:
+@bryance/orch test: (pass) commands/index > reads a package version string [0.86ms]
+@bryance/orch test: (pass) commands/index > prints the daemon's unleased list and stays silent on an empty one [0.37ms]
+@bryance/orch test: (pass) commands/index > dispatches representative commands and reports unknown commands [16.91ms]
+@bryance/orch test: 
+@bryance/orch test: test\check-bridge.test.ts:
+@bryance/orch test: (pass) presence filenames stay limited to the live protocol > inbox.jsonl is no longer a presence-filename breach [0.74ms]
+@bryance/orch test: 
+@bryance/orch test: test\peer-tools-registration.test.ts:
+@bryance/orch test: (pass) peer tool registration > does not register orch_send when no spawner address exists [14.33ms]
+@bryance/orch test: 
+@bryance/orch test: test\caller-kind.test.ts:
+@bryance/orch test: (pass) caller kind > id + recorded token is agent [1033.15ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-interval-rows.test.ts:
+@bryance/orch test: (pass) interval satellites > only one open interval is allowed [161.35ms]
+@bryance/orch test: 
+@bryance/orch test: test\check-bridge.test.ts:
+@bryance/orch test: (pass) presence filenames stay limited to the live protocol > status.json is a state-file breach [0.04ms]
+@bryance/orch test: (pass) Rule 18 forbids state files and fs.watch outside their sanctioned sites > status.json is forbidden under src but allowed outside the scanned scopes [0.02ms]
+@bryance/orch test: (pass) Rule 18 forbids state files and fs.watch outside their sanctioned sites > fs.watch is forbidden outside src/settings/watch.ts [0.03ms]
+@bryance/orch test: (pass) 10.1 packages must not import concrete backends/adapters (checkPackageImportLine) > flags a concrete backend implementation import [0.06ms]
+@bryance/orch test: (pass) 10.1 packages must not import concrete backends/adapters (checkPackageImportLine) > flags a concrete agent adapter import [0.05ms]
+@bryance/orch test: (pass) 10.1 packages must not import concrete backends/adapters (checkPackageImportLine) > allows the registry / port / store / settings seams [0.06ms]
+@bryance/orch test: (pass) 10.1 packages must not import concrete backends/adapters (checkPackageImportLine) > passes the clean tree: no line of the real web server is flagged [1.44ms]
+@bryance/orch test: (pass) composition happens only at roots (checkCompositionRootLine) > flags ORCH_DIR reads outside src/services.ts [0.14ms]
+@bryance/orch test: (pass) composition happens only at roots (checkCompositionRootLine) > flags createServices calls outside the five roots [0.05ms]
+@bryance/orch test: (pass) composition happens only at roots (checkCompositionRootLine) > flags imports of removed global composition exports [0.08ms]
+@bryance/orch test: (pass) composition happens only at roots (checkCompositionRootLine) > allows createServices calls in each composition root [0.04ms]
+@bryance/orch test: (pass) composition happens only at roots (checkCompositionRootLine) > allows the ORCH_DIR read and declaration in src/services.ts [0.03ms]
+@bryance/orch test: (pass) 10.2 adapter control strategies are dispatcher-only (checkDispatcherCallLine) > flags .steer / .answer / .setModel called from a command [0.06ms]
+@bryance/orch test: (pass) 10.2 adapter control strategies are dispatcher-only (checkDispatcherCallLine) > allows the dispatcher itself and the adapter implementations [0.59ms]
+@bryance/orch test: (pass) 10.2 adapter control strategies are dispatcher-only (checkDispatcherCallLine) > allows the shared harness model port outside the adapter dispatcher [0.02ms]
+@bryance/orch test: (pass) 10.2 adapter control strategies are dispatcher-only (checkDispatcherCallLine) > passes the clean tree: every .steer/.answer/.setModel call lives in dispatch.ts [6.46ms]
+@bryance/orch test: (pass) 10.3 bridge bundles stay in build tooling (checkBridgeBundleImportLine) > flags a runtime adapter importing bridge-bundles/build.ts [0.67ms]
+@bryance/orch test: (pass) 10.3 bridge bundles stay in build tooling (checkBridgeBundleImportLine) > allows scripts and the build-tool module itself [0.05ms]
+@bryance/orch test: (pass) 10.4 string-form identity branches are forbidden in core (checkCoreScopeLine) > flags === / !== against a quoted provider or backend id [0.13ms]
+@bryance/orch test: (pass) 10.4 string-form identity branches are forbidden in core (checkCoreScopeLine) > flags ?? and || default-provider fallbacks [0.05ms]
+@bryance/orch test: (pass) 10.4 string-form identity branches are forbidden in core (checkCoreScopeLine) > allows a benign line with none of those shapes [2.57ms]
+@bryance/orch test: (pass) 10.4 string-form identity branches are forbidden in core (checkCoreScopeLine) > the setup smoke test holds no exemption: the branch was deleted, not blessed [0.20ms]
+@bryance/orch test: (pass) 10.4 string-form identity branches are forbidden in core (checkCoreScopeLine) > passes the clean tree: setup.ts has no identity-branch line, exempted or otherwise [11.16ms]
+@bryance/orch test: (pass) 10.4 spawner reply addresses cannot fall back to owner tokens (checkSpawnerReplyFallbackLine) > flags spawner key and spawnerIdentity key owner-token fallbacks [0.23ms]
+@bryance/orch test: (pass) 10.4 spawner reply addresses cannot fall back to owner tokens (checkSpawnerReplyFallbackLine) > allows a benign line [0.02ms]
+@bryance/orch test: (pass) 10.4 spawner reply addresses cannot fall back to owner tokens (checkSpawnerReplyFallbackLine) > passes the clean tree: reply addresses never use owner-token fallbacks [4.83ms]
+@bryance/orch test: (pass) 10.5 identity construction is issuer-only (checkIdentityConstructionLine) > flags object literals that synthesize an identity [0.35ms]
+@bryance/orch test: (pass) 10.5 identity construction is issuer-only (checkIdentityConstructionLine) > flags concatenated and template identity keys [0.55ms]
+@bryance/orch test: (pass) 10.5 identity construction is issuer-only (checkIdentityConstructionLine) > allows a fresh spawn mint and the issuer modules [0.05ms]
+@bryance/orch test: (pass) 10.5 identity construction is issuer-only (checkIdentityConstructionLine) > no file is exempt from the identity-construction rule [0.03ms]
+@bryance/orch test: (pass) 10.5 identity construction is issuer-only (checkIdentityConstructionLine) > passes the clean tree: every identity construction is allowed or registered [12.42ms]
+@bryance/orch test: (pass) 10.6 per-harness session parser banned from commands (checkCommandsParserLine) > flags a parseSession import or call [0.14ms]
+@bryance/orch test: (pass) 10.6 per-harness session parser banned from commands (checkCommandsParserLine) > allows the port-based read [0.03ms]
+@bryance/orch test: (pass) 10.6 per-harness session parser banned from commands (checkCommandsParserLine) > passes the clean tree: no command imports parseSession [0.83ms]
+@bryance/orch test: (pass) 10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine) > a deleted capability bag or optional method is not exempt [0.70ms]
+@bryance/orch test: (pass) 10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine) > the exempted names are the roles the ports actually declare [0.12ms]
+@bryance/orch test: (pass) 10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine) > nullable data on the port is not exempted as a role [0.03ms]
+@bryance/orch test: (pass) 10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine) > flags plexer and harness identity branches [0.04ms]
+@bryance/orch test: (pass) 10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine) > flags method-presence capability checks [0.22ms]
+@bryance/orch test: (pass) 10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine) > allows a branch inside a concrete backend [0.12ms]
+@bryance/orch test: (pass) 10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine) > passes the clean tree: no file in ANY scanned scope branches on an environment id [110.58ms]
+@bryance/orch test: (pass) 10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine) > the core-scope allowlist is EMPTY, so no line holds a standing exemption [0.26ms]
+@bryance/orch test: (pass) 10.8 environment branches use capabilities, not plexer/harness ids (checkEnvironmentCapabilityLine) > allows capability-driven code [0.07ms]
+@bryance/orch test: (pass) 10.7 leases and provenance stay in separate columns (checkLeaseProvenanceLine) > flags INSERT and UPDATE SQL that welds a lease holder into spawned_by [0.51ms]
+@bryance/orch test: (pass) 10.7 leases and provenance stay in separate columns (checkLeaseProvenanceLine) > flags lease row types carrying a provenance field [0.08ms]
+@bryance/orch test: (pass) 10.7 leases and provenance stay in separate columns (checkLeaseProvenanceLine) > allows separate lease and provenance rows [0.13ms]
+@bryance/orch test: (pass) 10.7 leases and provenance stay in separate columns (checkLeaseProvenanceLine) > passes the clean tree: no source line crosses lease and provenance columns [45.40ms]
+@bryance/orch test: (pass) launch env reads stay in identity/launch.ts (checkLaunchEnvLine) > flags a launch env read outside launch.ts with the file and constant named [0.21ms]
+@bryance/orch test: (pass) launch env reads stay in identity/launch.ts (checkLaunchEnvLine) > allows the launch env read inside identity/launch.ts [0.03ms]
+@bryance/orch test: (pass) launch env reads stay in identity/launch.ts (checkLaunchEnvLine) > flags a bare launch env name literal outside launch.ts [0.03ms]
+@bryance/orch test: (pass) launch env reads stay in identity/launch.ts (checkLaunchEnvLine) > flags a comment mentioning the launch env name outside launch.ts [0.02ms]
+@bryance/orch test: (pass) the closed plexer-id set is spelled in exactly one line > the definition line is allowed where it lives, and nowhere else [0.04ms]
+@bryance/orch test: (pass) the closed plexer-id set is spelled in exactly one line > any other quoted plexer id in that same file still fails [0.02ms]
+@bryance/orch test: (pass) the closed plexer-id set is spelled in exactly one line > the line src/types/backend.ts actually carries is the allowed one [0.93ms]
+@bryance/orch test: (pass) the closed plexer-id set is spelled in exactly one line > extensions get the same rule with their own scope named [0.15ms]
+@bryance/orch test: 
+@bryance/orch test: test\orchd-rpc-subscribe.test.ts:
+@bryance/orch test: (pass) orchd event subscription > replays only events missed between subscriptions [215.28ms]
+@bryance/orch test: 
+@bryance/orch test: test\outbox-ack.test.ts:
+@bryance/orch test: (pass) socket outbox acknowledgements > an ack settles an awaiting row and later delivery skips it [182.39ms]
+@bryance/orch test: 
+@bryance/orch test: test\peer-tools-registration.test.ts:
+@bryance/orch test: (pass) peer tool registration > does not register orch_send when the spawner pid is dead [138.41ms]
+@bryance/orch test: (pass) peer tool registration > registers orch_send when the spawner has a live status record [152.14ms]
+@bryance/orch test: 
+@bryance/orch test: test\session-sees-only-held-agents.test.ts:
+@bryance/orch test: (pass) session agent visibility > shows only agents held by the current session, not its provenance children [0.47ms]
+@bryance/orch test: 
+@bryance/orch test: test\pi-model-control.test.ts:
+@bryance/orch test: (pass) splitThinkingSuffix > splits a valid ladder effort off the bare id [0.14ms]
+@bryance/orch test: (pass) splitThinkingSuffix > leaves a bare model untouched [0.02ms]
+@bryance/orch test: (pass) splitThinkingSuffix > keeps a trailing colon token that is not a thinking level as part of the id [0.02ms]
+@bryance/orch test: (pass) resolveRegistryModel ΓÇö task 12.7 suffixed lookup > looks up the BARE id and returns the effort suffix separately [0.40ms]
+@bryance/orch test: (pass) resolveRegistryModel ΓÇö task 12.7 suffixed lookup > retries until a still-booting registry answers [3.38ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-events.test.ts:
+@bryance/orch test: (pass) event store rows > appendEvent keeps sequence numbers across store reopen [124.53ms]
+@bryance/orch test: (pass) event store rows > pruned sequence numbers are never reused [79.44ms]
+@bryance/orch test: (pass) event store rows > selectEventsSince filters by sequence, orders ascending, and honours limit [156.27ms]
+@bryance/orch test: (pass) event store rows > oldestEventSeq reports undefined when empty and the surviving lowest sequence after pruning [138.62ms]
+@bryance/orch test: 
+@bryance/orch test: test\pi-model-control.test.ts:
+@bryance/orch test: (pass) resolveRegistryModel ΓÇö task 12.7 suffixed lookup > throws when the registry never yields the model [0.27ms]
+@bryance/orch test: (pass) resolveRegistryModel ΓÇö task 12.7 suffixed lookup > rejects a token without a provider/id shape [0.09ms]
+@bryance/orch test: (pass) createModelControl.applyControlCommand > applies a suffixed model command and reports a success outcome [1.03ms]
+@bryance/orch test: 
+@bryance/orch test: test\remote-fanout.test.ts:
+@bryance/orch test: (pass) async remote fan-out > returns a typed timeout failure [528.93ms]
+@bryance/orch test: 
+@bryance/orch test: test\caller-kind.test.ts:
+@bryance/orch test: (pass) caller kind > a harness marker is a session even when its token differs [140.96ms]
+@bryance/orch test: (pass) caller kind > a harness marker is a session without a launch credential [147.05ms]
+@bryance/orch test: (pass) caller kind > no harness marker is the operator [1.61ms]
+@bryance/orch test: 
+@bryance/orch test: test\session-sees-only-held-agents.test.ts:
+@bryance/orch test: (pass) session agent visibility > an operator sees every agent in every space [0.35ms]
+@bryance/orch test: 
+@bryance/orch test: test\orchd-rpc-transport.test.ts:
+@bryance/orch test: (pass) orchd RPC transports > round-trips over the default unix transport [53.35ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc-identity.test.ts:
+@bryance/orch test: (pass) daemon identity RPCs > register-session mints one id per session token [2002.56ms]
+@bryance/orch test: (pass) daemon identity RPCs > the removed method is unknown [0.18ms]
+@bryance/orch test: 
+@bryance/orch test: test\orchd-rpc-transport.test.ts:
+@bryance/orch test: (pass) orchd RPC transports > round-trips over the TCP fallback transport [59.95ms]
+@bryance/orch test: 
+@bryance/orch test: test\backend-tmux.test.ts:
+@bryance/orch test: (pass) TmuxBackend > does not expose legacy top-level group methods [0.20ms]
+@bryance/orch test: (pass) TmuxBackend > composes a complete group role bundle [0.11ms]
+@bryance/orch test: (pass) TmuxBackend > exposes tmux pane roles [0.10ms]
+@bryance/orch test: (pass) TmuxBackend > reads the pane shell pid as the pane process [0.68ms]
+@bryance/orch test: (pass) TmuxBackend > reports tmux availability [12.58ms]
+@bryance/orch test: (pass) TmuxBackend > reflects the TMUX environment [0.27ms]
+@bryance/orch test: (pass) TmuxBackend > rejects an empty handle without invoking tmux [0.13ms]
+@bryance/orch test: (pass) TmuxBackend > the pane inventory surfaces only orch-spawned panes [0.94ms]
+@bryance/orch test: (pass) TmuxBackend > status-facing inventory displays the tmux session workspace [0.34ms]
+@bryance/orch test: (pass) TmuxBackend > inventory status is read from the pane's presence status.json [140.63ms]
+@bryance/orch test: (pass) TmuxBackend > inventory status is null when no presence status.json exists [0.35ms]
+@bryance/orch test: (pass) TmuxBackend > waitAgentStatus polls presence status.json until it matches or times out [276.03ms]
+@bryance/orch test: (pass) TmuxBackend > waiting fails immediately when the pane has no presence key [0.30ms]
+@bryance/orch test: (pass) TmuxBackend > the pane screen returns captured text and throws when capture-pane fails [1778.10ms]
+@bryance/orch test: (pass) TmuxBackend > setLabel and renameAgent write two distinct pane options [0.41ms]
+@bryance/orch test: (pass) TmuxBackend > placement.open splits the requested target with cwd and environment [0.37ms]
+@bryance/orch test: (pass) TmuxBackend > spawn places the agent into an existing group via split-window when opts.group is set [1.52ms]
+@bryance/orch test: (pass) TmuxBackend > spawn splits the planned target pane, not whatever pane the window has active [0.43ms]
+@bryance/orch test: (pass) TmuxBackend > groupLayout reports every pane in a window with its cell geometry [0.61ms]
+@bryance/orch test: (pass) TmuxBackend > spawn opens a new window via new-window when no group is given [0.48ms]
+@bryance/orch test: (pass) TmuxBackend > groups() and workspaces() are scoped to windows/sessions containing an orch pane [0.43ms]
+@bryance/orch test: (pass) TmuxBackend > createGroup opens a window and reports its root pane, throwing on failure [1.70ms]
+@bryance/orch test: (pass) an agent is launched with its fleet's project scope (1.13) > a tmux agent in a worktree carries the FLEET's project, not its own cwd [0.87ms]
+@bryance/orch test: (pass) an agent is launched with its fleet's project scope (1.13) > a tmux agent opened in a fresh window carries it too [0.44ms]
+@bryance/orch test: (pass) an agent is launched with its fleet's project scope (1.13) > an empty value is dropped rather than exported as a configured blank [0.44ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-identity.test.ts:
+@bryance/orch test: (pass) hello agent identity rows > reuses the live agent for the same session process and mints for another [202.24ms]
+@bryance/orch test: 
+@bryance/orch test: test\remote-fanout.test.ts:
+@bryance/orch test: (pass) async remote fan-out > returns a typed non-JSON failure [296.69ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-identity.test.ts:
+@bryance/orch test: (pass) hello agent identity rows > first sight creates a named root agent and open process row [102.26ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > rejects a hello response with a malformed optional field [6.22ms]
+@bryance/orch test: 
+@bryance/orch test: test\orchd-rpc-reconnect.test.ts:
+@bryance/orch test: (pass) subscribeEvents identity handshake > a session without a launch credential registers once [1105.45ms]
+@bryance/orch test: 
+@bryance/orch test: test\bridge-apply.test.ts:
+@bryance/orch test: (pass) presence bridge delivery > applies dispatch before ack, dedupes redelivery, and detaches [3.70ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-always.test.ts:
+@bryance/orch test: Could not close signalfai1: cannot signal process 25188: orch is running in it
+@bryance/orch test: {"closed":[],"results":[{"target":"signalfai1","handle":"pane-signal-failed","outcome":"error","error":"cannot signal process 25188: orch is running in it"}],"requested":1,"ok":0,"stream":false}
+@bryance/orch test: (pass) close always works > a failed signal retains the registry and presence and reports failure [1115.38ms]
+@bryance/orch test: 
+@bryance/orch test: test\bridge-apply.test.ts:
+@bryance/orch test: (pass) presence bridge delivery > applies model deliveries through model control [14.28ms]
+@bryance/orch test: (pass) presence bridge delivery > resolves matching answers and drops answers for other questions [1.42ms]
+@bryance/orch test: 
+@bryance/orch test: test\peer-identity.test.ts:
+@bryance/orch test: (pass) spawner identity > a bare operator with no session markers is just the operator [991.84ms]
+@bryance/orch test: 
+@bryance/orch test: test\outbox-ack.test.ts:
+@bryance/orch test: (pass) socket outbox acknowledgements > a detached bridge retries a pending row and logs the reason [154.94ms]
+@bryance/orch test: (pass) socket outbox acknowledgements > a gone agent settles its row as undeliverable on the first attempt [108.50ms]
+@bryance/orch test: (pass) socket outbox acknowledgements > failed delivery at the cap settles, while one attempt earlier retries [105.62ms]
+@bryance/orch test: (pass) socket outbox acknowledgements > redelivery covers every open row for one target, regardless of nextAttemptAt [102.26ms]
+@bryance/orch test: (pass) socket outbox acknowledgements > open-row selection excludes settled rows [70.80ms]
+@bryance/orch test: (pass) socket outbox acknowledgements > malformed stored payloads are rejected [98.76ms]
+@bryance/orch test: 
+@bryance/orch test: test\settings-editor.test.ts:
+@bryance/orch test: (pass) settings editor reducer > moves focus down and up without running off either end [0.37ms]
+@bryance/orch test: 
+@bryance/orch test: test\spawn-identity.test.ts:
+@bryance/orch test: (pass) one key per pane spawn (12.1) > identity is an opaque minted id ΓÇö never the name, never the pane handle [2168.23ms]
+@bryance/orch test: 
+@bryance/orch test: test\settings-editor.test.ts:
+@bryance/orch test: (pass) settings editor reducer > opens the focused setting for editing [0.04ms]
+@bryance/orch test: (pass) settings editor reducer > cancel leaves value unchanged and returns to browsing [0.03ms]
+@bryance/orch test: (pass) settings editor reducer > commit updates value and produces a pending write [0.16ms]
+@bryance/orch test: (pass) settings editor reducer > refuses invalid values with a reason and stays open [0.06ms]
+@bryance/orch test: (pass) settings editor reducer > refuses opening a read-only setting with a reason [0.05ms]
+@bryance/orch test: (pass) settings editor reducer > cancelling without a commit yields zero writes [0.02ms]
+@bryance/orch test: 
+@bryance/orch test: test\pack-membership.test.ts:
+@bryance/orch test: (pass) a pack is the provenance root > a registered session is an orch of a pack of one [126.68ms]
+@bryance/orch test: 
+@bryance/orch test: test\backend-herdr.test.ts:
+@bryance/orch test: (pass) HerdrBackend > composes a complete group role bundle [0.18ms]
+@bryance/orch test: (pass) HerdrBackend > starts an authority-bearing herdr agent with the adapter command [9.28ms]
+@bryance/orch test: (pass) HerdrBackend > starts the mapped herdr harness kind in the pane it created [1.03ms]
+@bryance/orch test: (pass) HerdrBackend > agent_not_ready keeps the pane and does not close it [1.46ms]
+@bryance/orch test: (pass) HerdrBackend > a caller pane is split rather than given a new tab [0.35ms]
+@bryance/orch test: (pass) HerdrBackend > pane and tab creation always preserves focus [0.34ms]
+@bryance/orch test: (pass) HerdrBackend > split direction clamps to herdr's right|down [0.26ms]
+@bryance/orch test: (pass) HerdrBackend > env reaches the pane through herdr's --env, not an argv prefix [0.58ms]
+@bryance/orch test: (pass) HerdrBackend > a handed-over pane is launched into directly, never split or closed [0.22ms]
+@bryance/orch test: (pass) HerdrBackend > a group is created with the environment its own pane will launch under [3.25ms]
+@bryance/orch test: (pass) HerdrBackend > a group with no coordinate is refused, not placed wherever herdr is focused [0.15ms]
+@bryance/orch test: (pass) HerdrBackend > a pane with no coordinate is refused the same way [0.05ms]
+@bryance/orch test: (pass) HerdrBackend > the inventory answers which workspace holds a pane, and null for one herdr no longer lists [0.30ms]
+@bryance/orch test: (pass) HerdrBackend > the pane host closes a pane through herdr [0.09ms]
+@bryance/orch test: (pass) HerdrBackend > a planned target pane is split directly, never re-seated afterwards [0.41ms]
+@bryance/orch test: (pass) HerdrBackend > a grouped spawn with no planned target splits a pane already in that tab, never the caller's pane [1.60ms]
+@bryance/orch test: (pass) HerdrBackend > a same-tab re-seat bounces through a throwaway tab so herdr executes it [2.10ms]
+@bryance/orch test: (pass) HerdrBackend > adopts herdr's replacement pane id after move [0.49ms]
+@bryance/orch test: (pass) HerdrBackend > refuses a live herdr agent name before start [0.44ms]
+@bryance/orch test: (pass) HerdrBackend > reads recent unwrapped pane output [0.12ms]
+@bryance/orch test: (pass) HerdrBackend > a refused move surfaces herdr's reason instead of claiming success [0.08ms]
+@bryance/orch test: (pass) HerdrBackend > groupLayout reads tab geometry straight off the pane listing [0.22ms]
+@bryance/orch test: (pass) HerdrBackend > pane input reports gone handles without retrying and retries plain failures [1775.41ms]
+@bryance/orch test: (pass) HerdrBackend > pane rename failure reaches the role caller [0.12ms]
+@bryance/orch test: (pass) HerdrBackend > waiting uses agent wait --until, not the removed top-level wait [0.09ms]
+@bryance/orch test: (pass) HerdrBackend space home > opens an orch-marked workspace for a pack the caller did not label [1.33ms]
+@bryance/orch test: (pass) HerdrBackend space home > a space home the human named keeps that name [0.15ms]
+@bryance/orch test: (pass) HerdrBackend space home > create hands back the plexer coordinate, the root tab and the root pane, and says none of them [0.08ms]
+@bryance/orch test: 
+@bryance/orch test: test\orchd-rpc-replay.test.ts:
+@bryance/orch test: (pass) orchd RPC replay buffer > assigns monotonic sequence numbers and replays after a sequence [112.26ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-always.test.ts:
+@bryance/orch test: {"closed":["presence01"],"results":[{"target":"presence01","handle":"pane-presence-only","outcome":"done","error":null}],"requested":1,"ok":1,"stream":false}
+@bryance/orch test: (pass) close always works > presence pid without a recorded process closes the pane without signalling and ends the row [519.24ms]
+@bryance/orch test: 
+@bryance/orch test: test\outbox-replay.test.ts:
+@bryance/orch test: (pass) outbox restart replay > replays failed messages after restart without duplicates [437.30ms]
+@bryance/orch test: 
+@bryance/orch test: test\orchd-rpc-replay.test.ts:
+@bryance/orch test: (pass) orchd RPC replay buffer > replays from inside the surviving range without a gap [76.86ms]
+@bryance/orch test: (pass) orchd RPC replay buffer > reports a gap when the requested sequence predates retained history [76.97ms]
+@bryance/orch test: (pass) orchd RPC replay buffer > empty history has no gap or oldest sequence [60.68ms]
+@bryance/orch test: (pass) orchd RPC replay buffer > limits replay size without pruning durable events [128.37ms]
+@bryance/orch test: 
+@bryance/orch test: test\status-filter-columns.test.ts:
+@bryance/orch test: (pass) orch status --filter on columns > drops the named columns from the default table [2.39ms]
+@bryance/orch test: (pass) orch status --filter on columns > a filtered owner column leaves no shared-owner footer [0.37ms]
+@bryance/orch test: (pass) orch status --filter on columns > drops the named columns from the human table [0.17ms]
+@bryance/orch test: (pass) orch status --filter on columns > drops the same facts from a JSON row [0.15ms]
+@bryance/orch test: 
+@bryance/orch test: test\capacity.test.ts:
+@bryance/orch test: (pass) fleet capacity > one pack per root, each against the per-pack cap; roots never sum into one pack [1.09ms]
+@bryance/orch test: (pass) fleet capacity > a selected root scopes the packs to that one pack [0.26ms]
+@bryance/orch test: (pass) fleet capacity > reports configured per-space caps [0.10ms]
+@bryance/orch test: (pass) fleet capacity > uses null for an unlimited total [0.06ms]
+@bryance/orch test: (pass) fleet capacity > formats one pack per root, the caller's first, then space and machine capacity [0.24ms]
+@bryance/orch test: 
+@bryance/orch test: test\pack-membership.test.ts:
+@bryance/orch test: (pass) a pack is the provenance root > membership is inherited from the spawner at any depth, never re-rooted [107.29ms]
+@bryance/orch test: (pass) a pack is the provenance root > every agent is in exactly one pack, and two packs never share a member [89.42ms]
+@bryance/orch test: (pass) a pack is the provenance root > a pack of one grows without re-rooting, and the root stays the orch [84.89ms]
+@bryance/orch test: (pass) a pack is the provenance root > a lease or a move never changes which pack an agent is in [98.16ms]
+@bryance/orch test: (pass) a pack is the provenance root > an agent cannot be spawned by someone who does not exist [91.82ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-always.test.ts:
+@bryance/orch test: {"closed":["owned00001"],"results":[{"target":"owned00001","handle":"pane-owned","outcome":"done","error":null}],"requested":1,"ok":1,"stream":false}
+@bryance/orch test: (pass) close always works > close ignores owner and spawnedBy gates [115.41ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-decision-trail.test.ts:
+@bryance/orch test: (pass) daemon decision trail > records a lease refused against a live holder [1496.91ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-status-lease.test.ts:
+@bryance/orch test: (pass) daemon status lease payload > reports the current holder and its liveness [1497.20ms]
+@bryance/orch test: 
+@bryance/orch test: test\remote-fanout.test.ts:
+@bryance/orch test: (pass) async remote fan-out > fans out and keeps per-host failures without throwing [952.10ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-always.test.ts:
+@bryance/orch test: {"outcome":"answer","reason":"no-environment-role","text":"this pane environment does not provide abort"}
+@bryance/orch test: (pass) close always works > abort ignores owner gate [121.98ms]
+@bryance/orch test: 
+@bryance/orch test: test\remote.test.ts:
+@bryance/orch test: (pass) host-prefixed targets > round-trips local and host-prefixed grammar [0.25ms]
+@bryance/orch test: (pass) host-prefixed targets > reports unknown host and configured names [0.11ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-authority.test.ts:
+@bryance/orch test: (pass) who may end an agent (D7) > the human may close anything [119.78ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-status-lease.test.ts:
+@bryance/orch test: (pass) daemon status lease payload > distinguishes a known unleased agent from an unknown key [109.87ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-lease-rows.test.ts:
+@bryance/orch test: (pass) agent lease rows > fencing ids are monotonic across agents and never reused after reap [149.25ms]
+@bryance/orch test: 
+@bryance/orch test: test\pid-liveness.test.ts:
+@bryance/orch test: (pass) pidAlive liveness contract (shared by pi peers) > EPERM means the process exists under another user ΓÇö alive [0.11ms]
+@bryance/orch test: (pass) pidAlive liveness contract (shared by pi peers) > ESRCH means no such process ΓÇö dead [0.02ms]
+@bryance/orch test: (pass) pidAlive liveness contract (shared by pi peers) > the current process is alive [0.03ms]
+@bryance/orch test: (pass) pidAlive liveness contract (shared by pi peers) > non-positive and non-numeric pids are rejected without signalling [0.02ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-always.test.ts:
+@bryance/orch test: {"closed":["duplicate1"],"results":[{"target":"duplicate1","handle":"pane-duplicate","outcome":"done","error":null}],"requested":1,"ok":1,"stream":false}
+@bryance/orch test: (pass) close always works > duplicate close targets count once [171.00ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-decision-trail.test.ts:
+@bryance/orch test: (pass) daemon decision trail > records a lease granted over a dead holder [121.99ms]
+@bryance/orch test: (pass) daemon decision trail > records a not-placed boundary answer with its reason [205.34ms]
+@bryance/orch test: 
+@bryance/orch test: test\bridge-client.test.ts:
+@bryance/orch test: (pass) bridge daemon client > attaches, receives deliveries, acks on the link, and reconnects [1123.53ms]
+@bryance/orch test: (pass) bridge daemon client > dead endpoints resolve undefined without invoking handlers [9.13ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-events.test.ts:
+@bryance/orch test: (pass) daemon presence events > a report for an unregistered agent throws and publishes nothing [3.07ms]
+@bryance/orch test: 
+@bryance/orch test: test\session-sees-only-held-agents.test.ts:
+@bryance/orch test: (pass) session agent visibility > a session cannot reset a foreign-held agent [1650.90ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-transport-parity.test.ts:
+@bryance/orch test: (pass) both transports carry one mechanism > a bound TCP port does not displace the unix socket or become its own service [57.74ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-interval-rows.test.ts:
+@bryance/orch test: (pass) interval satellites > half-open adjacency is legal [140.75ms]
+@bryance/orch test: (pass) interval satellites > clearSpace closes without opening [145.55ms]
+@bryance/orch test: (pass) interval satellites > agent plexer is immutable one-shot [89.39ms]
+@bryance/orch test: (pass) interval satellites > process restart history closes at the successor since [96.98ms]
+@bryance/orch test: (pass) interval satellites > process rows carry host and process identity [89.97ms]
+@bryance/orch test: (pass) interval satellites > process start_token round-trips [86.97ms]
+@bryance/orch test: (pass) interval satellites > space move history closes at the successor since [517.06ms]
+@bryance/orch test: (pass) interval satellites > tuning change history closes at the successor since [88.47ms]
+@bryance/orch test: (pass) interval satellites > handle history preserves each renumbered handle [76.51ms]
+@bryance/orch test: (pass) interval satellites > interval instants are stored as INTEGER values [109.00ms]
+@bryance/orch test: (pass) interval satellites > process wrapper rolls back predecessor close when successor fails [179.35ms]
+@bryance/orch test: (pass) interval satellites > space wrapper rolls back predecessor close when successor fails [99.71ms]
+@bryance/orch test: (pass) interval satellites > tuning carries model and nullable thinking [115.80ms]
+@bryance/orch test: 
+@bryance/orch test: test\rename-syncs-the-pane-border.test.ts:
+@bryance/orch test: (pass) orch rename syncs the pane border in one command (U5) > one rename sets orch's name AND the plexer chrome [1857.92ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-transport-parity.test.ts:
+@bryance/orch test: (pass) both transports carry one mechanism > the credential is demanded identically on both [62.65ms]
+@bryance/orch test: 
+@bryance/orch test: test\settings-defects.test.ts:
+@bryance/orch test: (pass) settingsDefects > returns no defects for an absent file [4.17ms]
+@bryance/orch test: 
+@bryance/orch test: test\session-sees-only-held-agents.test.ts:
+@bryance/orch test: (pass) session agent visibility > a session cannot read runs by the exact key of a foreign-held agent [152.14ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-runs.test.ts:
+@bryance/orch test: (pass) commands/runs > lists newest first and honors -n [1850.76ms]
+@bryance/orch test: 
+@bryance/orch test: test\pi-model-control.test.ts:
+@bryance/orch test: (pass) createModelControl.applyControlCommand > reports a failure outcome when the model is rejected [1799.74ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-transport-parity.test.ts:
+@bryance/orch test: (pass) both transports carry one mechanism > a missing credential is refused identically on both [67.96ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-events.test.ts:
+@bryance/orch test: (pass) daemon presence events > reports publish only changed-state transitions [136.73ms]
+@bryance/orch test: 
+@bryance/orch test: test\rename-syncs-the-pane-border.test.ts:
+@bryance/orch test: (pass) orch rename syncs the pane border in one command (U5) > the response states the two outcomes SEPARATELY [174.41ms]
+@bryance/orch test: 
+@bryance/orch test: test\session-sees-only-held-agents.test.ts:
+@bryance/orch test: (pass) session agent visibility > a session cannot widen status with --space-wide [99.69ms]
+@bryance/orch test: (pass) session agent visibility > a session cannot resolve a foreign target, even when it shares provenance [107.52ms]
+@bryance/orch test: 
+@bryance/orch test: test\caller-kind.test.ts:
+@bryance/orch test: (pass) caller kind > an unregistered session asks the daemon registration seam [1924.47ms]
+@bryance/orch test: 
+@bryance/orch test: test\settings-defects.test.ts:
+@bryance/orch test: (pass) settingsDefects > returns no defects for a valid settings file [20.49ms]
+@bryance/orch test: (pass) settingsDefects > reports unparsable JSON as one file defect [2.07ms]
+@bryance/orch test: (pass) settingsDefects > suggests a near-match for a stale key [138.64ms]
+@bryance/orch test: (pass) settingsDefects > does not guess a replacement for a removed key [47.25ms]
+@bryance/orch test: (pass) settingsDefects > reports the expected pinned schema value [6.15ms]
+@bryance/orch test: (pass) settingsDefects > reports a wrong value type on a real key [13.23ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-runs.test.ts:
+@bryance/orch test: (pass) commands/runs > target filter and json preserve RunRecord rows [229.22ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-review.test.ts:
+@bryance/orch test: (pass) commands/review > lists an empty fleet [237.30ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-authority.test.ts:
+@bryance/orch test: (pass) who may end an agent (D7) > an orch may close the slaves it owns, at any depth [102.29ms]
+@bryance/orch test: (pass) who may end an agent (D7) > an agent may NOT close another orch's slaves, and is told whose it is [137.07ms]
+@bryance/orch test: (pass) who may end an agent (D7) > an agent may not close a peer orch either [106.93ms]
+@bryance/orch test: (pass) who may end an agent (D7) > an agent may always close itself ΓÇö acting on yourself is not driving a fleet [116.03ms]
+@bryance/orch test: (pass) who may end an agent (D7) > adopting grants the right to end, and the spawner keeps it [121.37ms]
+@bryance/orch test: (pass) who may end an agent (D7) > a provenance cycle terminates instead of hanging [143.19ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > surfaces a missing daemon instead of returning an empty list [5067.57ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-events.test.ts:
+@bryance/orch test: (pass) daemon presence events > an RPC subscriber receives a presence transition [352.50ms]
+@bryance/orch test: 
+@bryance/orch test: test\spawn-registry.test.ts:
+@bryance/orch test: (pass) spawn agent registration > writes the hub, environment, tuning, and lease [154.05ms]
+@bryance/orch test: 
+@bryance/orch test: test\rename-syncs-the-pane-border.test.ts:
+@bryance/orch test: (pass) orch rename syncs the pane border in one command (U5) > a plexer that refuses the chrome never unwrites orch's own name [241.25ms]
+@bryance/orch test: 
+@bryance/orch test: test\backend-process-role.test.ts:
+@bryance/orch test: (pass) ProcessRole > headless provider records pid and start token and safely kills it [1087.03ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-runs.test.ts:
+@bryance/orch test: (pass) commands/runs > running rows render as running, not zero duration [0.53ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > formats invalid and recent timestamps [1.52ms]
+@bryance/orch test: (pass) commands/results > routes a seeded results.jsonl through the command module [181.52ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-runs.test.ts:
+@bryance/orch test: (pass) commands/runs > result falls back to durable run history after presence reap [234.82ms]
+@bryance/orch test: 
+@bryance/orch test: test\caller-kind.test.ts:
+@bryance/orch test: (pass) caller kind > override flags are allowed only for the operator [5.13ms]
+@bryance/orch test: (pass) caller kind > override flags refuse a driving session [154.79ms]
+@bryance/orch test: (pass) caller kind > override flags refuse a spawned agent [135.55ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-is-keyed-by-agent-id.test.ts:
+@bryance/orch test: (pass) close is keyed by the agent id, never by a plexer coordinate (U10) > an agent whose pane is gone is never handed to the plexer as a pane [2211.48ms]
+@bryance/orch test: 
+@bryance/orch test: test\rename-syncs-the-pane-border.test.ts:
+@bryance/orch test: (pass) orch rename syncs the pane border in one command (U5) > --pane still gives the border something DIFFERENT, and leaves the name alone [162.90ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > keeps every settled dispatch and reports the newest [170.13ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-is-keyed-by-agent-id.test.ts:
+@bryance/orch test: (pass) close is keyed by the agent id, never by a plexer coordinate (U10) > an agent whose pane is gone still ends, and reports done [145.95ms]
+@bryance/orch test: 
+@bryance/orch test: test\spawn-registry.test.ts:
+@bryance/orch test: (pass) spawn agent registration > an agent that states no plexer and no handle gets neither row [132.78ms]
+@bryance/orch test: (pass) spawn agent registration > worktree row is present only for a worktree launch [139.77ms]
+@bryance/orch test: (pass) spawn agent registration > an unknown or absent spawner produces a root pack of one and no lease [98.06ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > falls back to adapter session text when results.jsonl is absent [140.70ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-is-keyed-by-agent-id.test.ts:
+@bryance/orch test: (pass) close is keyed by the agent id, never by a plexer coordinate (U10) > what a human is told they closed is the agent, not the plexer's coordinate [122.41ms]
+@bryance/orch test: 
+@bryance/orch test: test\store-lease-rows.test.ts:
+@bryance/orch test: (pass) agent lease rows > a second open lease is rejected [150.81ms]
+@bryance/orch test: (pass) agent lease rows > release and expiry close rows with matching reason and exact until [100.88ms]
+@bryance/orch test: (pass) agent lease rows > handoff closes current and inserts a newer row without changing prior facts [108.26ms]
+@bryance/orch test: (pass) agent lease rows > adoption closes prior and inserts a strictly newer adopter row [118.75ms]
+@bryance/orch test: (pass) agent lease rows > adoption with no open lease is plain acquire and leaves closed history untouched [114.06ms]
+@bryance/orch test: (pass) agent lease rows > handoff rolls back close when successor insert fails [155.53ms]
+@bryance/orch test: (pass) agent lease rows > wrong-holder release and handoff are rejected [124.40ms]
+@bryance/orch test: (pass) agent lease rows > an agent cannot lease itself [116.02ms]
+@bryance/orch test: (pass) agent lease rows > expiry inserts nothing new [98.09ms]
+@bryance/orch test: (pass) agent lease rows > reads return only open rows [92.84ms]
+@bryance/orch test: 
+@bryance/orch test: test\spawn-preferred-models.test.ts:
+@bryance/orch test: (pass) the preferred quicklist reaches every launch route > a pane spawn hands the exact array to the backend [2979.20ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > uses results.jsonl even when the presence status has no agent [130.72ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-is-keyed-by-agent-id.test.ts:
+@bryance/orch test: (pass) close is keyed by the agent id, never by a plexer coordinate (U10) > the --json closed list names agents, so a caller can map it back [155.55ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-self.test.ts:
+@bryance/orch test: (pass) commands/self > reads the caller identity from the daemon [1533.53ms]
+@bryance/orch test: (pass) commands/self > uses caller depth for worker spawn policy [0.27ms]
+@bryance/orch test: (pass) commands/self > refuses non-operator overrides [0.21ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > renders several target results under headers [170.68ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-is-keyed-by-agent-id.test.ts:
+@bryance/orch test: (pass) close is keyed by the agent id, never by a plexer coordinate (U10) > the plexer is still handed the real handle when there IS a pane [155.49ms]
+@bryance/orch test: 
+@bryance/orch test: test\pack-gets-its-own-home.test.ts:
+@bryance/orch test: (pass) a pack gets its own marked plexer home (E8, E9, E10) > the coordinate is STORED against the pack and is never orch's own id [1270.80ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > renders several target results as a JSON array [186.10ms]
+@bryance/orch test: 
+@bryance/orch test: test\pack-gets-its-own-home.test.ts:
+@bryance/orch test: (pass) a pack gets its own marked plexer home (E8, E9, E10) > the home orch opens is MARKED as orch's, never a bare directory name [146.10ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > continues after a missing target and sets exit code [144.80ms]
+@bryance/orch test: 
+@bryance/orch test: test\pack-gets-its-own-home.test.ts:
+@bryance/orch test: (pass) a pack gets its own marked plexer home (E8, E9, E10) > a space's home and a pack's home use the SAME role and different tables [154.48ms]
+@bryance/orch test: 
+@bryance/orch test: test\spawn-identity.test.ts:
+@bryance/orch test: (pass) one key per pane spawn (12.1) > a name freed by a dead agent is reusable, and the two agents differ in identity [2710.75ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > orch tail resolves a non-pi target through that adapter's session view [171.17ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-always.test.ts:
+@bryance/orch test: (pass) close always works > dead pane-less close is a successful no-op that ends the row and leaves presence to reap [1913.48ms]
+@bryance/orch test: 
+@bryance/orch test: test\pack-gets-its-own-home.test.ts:
+@bryance/orch test: (pass) a pack gets its own marked plexer home (E8, E9, E10) > a home recorded in another plexer is not this one's to drive [167.70ms]
+@bryance/orch test: 
+@bryance/orch test: test\close-always.test.ts:
+@bryance/orch test: (pass) close always works > steer remains blocked by the space wall [146.12ms]
+@bryance/orch test: 
+@bryance/orch test: test\peer-identity.test.ts:
+@bryance/orch test: (pass) spawner identity > an unregistered Claude Code session is labelled by its harness, with no id [100.73ms]
+@bryance/orch test: (pass) spawner identity > a session orch has registered IS addressable, by the id orch minted [113.70ms]
+@bryance/orch test: (pass) spawner identity > an unregistered session has no id to hand out, and does not invent one [1.10ms]
+@bryance/orch test: (pass) spawner identity > an orch-spawned orchestrator acts as the id orch minted for it [84.22ms]
+@bryance/orch test: (pass) spawner identity > agentIdentityEnv stamps a reply address only when the spawner has one [0.49ms]
+@bryance/orch test: (pass) spawner identity > worktreeEnv stamps worktree identity only for isolated agents [0.30ms]
+@bryance/orch test: (pass) spawner identity > the registry keeps the exact spawning session distinct from the lease holder [95.42ms]
+@bryance/orch test: (pass) the spawner address invariant > an UNREGISTERED session stamps no address, so no worker is handed an unreachable one [1.63ms]
+@bryance/orch test: (pass) the spawner address invariant > a bare operator stamps no address [67.19ms]
+@bryance/orch test: (pass) the spawner address invariant > an address that IS stamped resolves to a live status record [1651.04ms]
+@bryance/orch test: (pass) peer identity in messaging > peer summaries render an unplaced agent without a local place name [131.44ms]
+@bryance/orch test: (pass) peer identity in messaging > orch_send reports the peer's NAME and calls the message RPC [117.96ms]
+@bryance/orch test: (pass) peer identity in messaging > orch_send reports queued when the message is not acknowledged [110.56ms]
+@bryance/orch test: (pass) peer identity in messaging > orch_send reports when the daemon is unreachable [111.35ms]
+@bryance/orch test: (pass) peer identity in messaging > peers resolve by display name exactly like by key [101.71ms]
+@bryance/orch test: (pass) peer identity in messaging > "spawner" reaches the stamped spawner session across fleet scoping [156.40ms]
+@bryance/orch test: (pass) peer identity in messaging > a spawner with no live status record is refused BY NAME, not with a bare key [135.71ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > orch tail renders pi's per-turn entries with role rows and a tool-call summary [186.07ms]
+@bryance/orch test: 
+@bryance/orch test: test\pack-gets-its-own-home.test.ts:
+@bryance/orch test: (pass) a pack gets its own marked plexer home (E8, E9, E10) > closing a pack's home clears the row, so the next open is a fresh one [157.95ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-events.test.ts:
+@bryance/orch test: orch: a queued store write failed 72 | 		const params = query.params.length === 0 ? query.params : fillPlaceholders(query.params, placeholderValues);
+@bryance/orch test: 73 | 		logger.logQuery(sql, params);
+@bryance/orch test: 74 | 		if (resultKind === "sync") try {
+@bryance/orch test: 75 | 			return executors.run(params);
+@bryance/orch test: 76 | 		} catch (e) {
+@bryance/orch test: 77 | 			throw new DrizzleQueryError(sql, params, e);
+@bryance/orch test:               ^
+@bryance/orch test: DrizzleQueryError: Failed query: insert into "runs" ("dispatch_id", "agent_key", "adapter", "model", "space", "task", "state", "started_at", "finished_at", "tokens_in", "tokens_out", "cache_read", "cache_write", "cost", "turns", "result", "last_error") values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict ("runs"."dispatch_id") do update set "agent_key" = ?, "adapter" = ?, "model" = ?, "space" = ?, "task" = ?, "state" = ?, "finished_at" = ?, "tokens_in" = ?, "tokens_out" = ?, "cache_read" = ?, "cache_write" = ?, "cost" = ?, "turns" = ?, "result" = ?, "last_error" = ?
+@bryance/orch test: params: dispatch-broken,runsbroken,pi,,,,working,1767484800000,,,,,,,,,,runsbroken,pi,,,,working,,,,,,,,,
+@bryance/orch test:   query: "insert into \"runs\" (\"dispatch_id\", \"agent_key\", \"adapter\", \"model\", \"space\", \"task\", \"state\", \"started_at\", \"finished_at\", \"tokens_in\", \"tokens_out\", \"cache_read\", \"cache_write\", \"cost\", \"turns\", \"result\", \"last_error\") values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (\"runs\".\"dispatch_id\") do update set \"agent_key\" = ?, \"adapter\" = ?, \"model\" = ?, \"space\" = ?, \"task\" = ?, \"state\" = ?, \"finished_at\" = ?, \"tokens_in\" = ?, \"tokens_out\" = ?, \"cache_read\" = ?, \"cache_write\" = ?, \"cost\" = ?, \"turns\" = ?, \"result\" = ?, \"last_error\" = ?",
+@bryance/orch test:  params: [
+@bryance/orch test:   "dispatch-broken", "runsbroken", "pi", null, null, null, "working", 1767484800000, null,
+@bryance/orch test:   null, null, null, null, null, null, null, null, "runsbroken", "pi", null, null, null,
+@bryance/orch test:   "working", null, null, null, null, null, null, null, null, null
+@bryance/orch test: ],
+@bryance/orch test: 
+@bryance/orch test:       at run (C:\dev\personal\orch\node_modules\drizzle-orm\sqlite-core\async\session.js:77:10)
+@bryance/orch test:       at <anonymous> (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:67:8)
+@bryance/orch test:       at withTransaction (C:\dev\personal\orch\packages\orch\src\store\connection.ts:387:20)
+@bryance/orch test:       at drainOneByOne (C:\dev\personal\orch\packages\orch\src\store\connection.ts:267:7)
+@bryance/orch test:       at drainWrites (C:\dev\personal\orch\packages\orch\src\store\connection.ts:284:3)
+@bryance/orch test:       at orm (C:\dev\personal\orch\packages\orch\src\store\connection.ts:292:3)
+@bryance/orch test:       at latestResultTexts (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:85:16)
+@bryance/orch test:       at <anonymous> (C:\dev\personal\orch\packages\orch\src\presence\store.ts:317:18)
+@bryance/orch test:       at upsertRun (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:69:40)
+@bryance/orch test:       at acceptStatusReport (C:\dev\personal\orch\packages\orch\src\daemon\server\status-report.ts:51:70)
+@bryance/orch test: 
+@bryance/orch test: 70 | 		const { query, logger, executors, fastPath, resultKind } = this;
+@bryance/orch test: 71 | 		const sql = query._sql ? query._sql.join(" ") : query.sql;
+@bryance/orch test: 72 | 		const params = query.params.length === 0 ? query.params : fillPlaceholders(query.params, placeholderValues);
+@bryance/orch test: 73 | 		logger.logQuery(sql, params);
+@bryance/orch test: 74 | 		if (resultKind === "sync") try {
+@bryance/orch test: 75 | 			return executors.run(params);
+@bryance/orch test:                          ^
+@bryance/orch test: error: history disabled
+@bryance/orch test:  errcode: 1811,
+@bryance/orch test:   errstr: "constraint failed",
+@bryance/orch test:     code: "ERR_SQLITE_ERROR"
+@bryance/orch test: 
+@bryance/orch test:       at run (C:\dev\personal\orch\node_modules\drizzle-orm\sqlite-core\async\session.js:75:21)
+@bryance/orch test:       at <anonymous> (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:67:8)
+@bryance/orch test:       at withTransaction (C:\dev\personal\orch\packages\orch\src\store\connection.ts:387:20)
+@bryance/orch test:       at drainOneByOne (C:\dev\personal\orch\packages\orch\src\store\connection.ts:267:7)
+@bryance/orch test:       at drainWrites (C:\dev\personal\orch\packages\orch\src\store\connection.ts:284:3)
+@bryance/orch test:       at orm (C:\dev\personal\orch\packages\orch\src\store\connection.ts:292:3)
+@bryance/orch test:       at latestResultTexts (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:85:16)
+@bryance/orch test:       at <anonymous> (C:\dev\personal\orch\packages\orch\src\presence\store.ts:317:18)
+@bryance/orch test:       at upsertRun (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:69:40)
+@bryance/orch test: 
+@bryance/orch test: orch: a queued store write failed 72 | 		const params = query.params.length === 0 ? query.params : fillPlaceholders(query.params, placeholderValues);
+@bryance/orch test: 73 | 		logger.logQuery(sql, params);
+@bryance/orch test: 74 | 		if (resultKind === "sync") try {
+@bryance/orch test: 75 | 			return executors.run(params);
+@bryance/orch test: 76 | 		} catch (e) {
+@bryance/orch test: 77 | 			throw new DrizzleQueryError(sql, params, e);
+@bryance/orch test:               ^
+@bryance/orch test: DrizzleQueryError: Failed query: insert into "runs" ("dispatch_id", "agent_key", "adapter", "model", "space", "task", "state", "started_at", "finished_at", "tokens_in", "tokens_out", "cache_read", "cache_write", "cost", "turns", "result", "last_error") values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict ("runs"."dispatch_id") do update set "agent_key" = ?, "adapter" = ?, "model" = ?, "space" = ?, "task" = ?, "state" = ?, "finished_at" = ?, "tokens_in" = ?, "tokens_out" = ?, "cache_read" = ?, "cache_write" = ?, "cost" = ?, "turns" = ?, "result" = ?, "last_error" = ?
+@bryance/orch test: params: dispatch-broken,runsbroken,pi,,,,done,1767484800000,1767484860000,,,,,,,,,runsbroken,pi,,,,done,1767484860000,,,,,,,,
+@bryance/orch test:   query: "insert into \"runs\" (\"dispatch_id\", \"agent_key\", \"adapter\", \"model\", \"space\", \"task\", \"state\", \"started_at\", \"finished_at\", \"tokens_in\", \"tokens_out\", \"cache_read\", \"cache_write\", \"cost\", \"turns\", \"result\", \"last_error\") values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (\"runs\".\"dispatch_id\") do update set \"agent_key\" = ?, \"adapter\" = ?, \"model\" = ?, \"space\" = ?, \"task\" = ?, \"state\" = ?, \"finished_at\" = ?, \"tokens_in\" = ?, \"tokens_out\" = ?, \"cache_read\" = ?, \"cache_write\" = ?, \"cost\" = ?, \"turns\" = ?, \"result\" = ?, \"last_error\" = ?",
+@bryance/orch test:  params: [
+@bryance/orch test:   "dispatch-broken", "runsbroken", "pi", null, null, null, "done", 1767484800000, 1767484860000,
+@bryance/orch test:   null, null, null, null, null, null, null, null, "runsbroken", "pi", null, null, null,
+@bryance/orch test:   "done", 1767484860000, null, null, null, null, null, null, null, null
+@bryance/orch test: ],
+@bryance/orch test: 
+@bryance/orch test:       at run (C:\dev\personal\orch\node_modules\drizzle-orm\sqlite-core\async\session.js:77:10)
+@bryance/orch test:       at <anonymous> (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:67:8)
+@bryance/orch test:       at withTransaction (C:\dev\personal\orch\packages\orch\src\store\connection.ts:387:20)
+@bryance/orch test:       at drainOneByOne (C:\dev\personal\orch\packages\orch\src\store\connection.ts:267:7)
+@bryance/orch test:       at drainWrites (C:\dev\personal\orch\packages\orch\src\store\connection.ts:284:3)
+@bryance/orch test:       at orm (C:\dev\personal\orch\packages\orch\src\store\connection.ts:292:3)
+@bryance/orch test:       at latestResultTexts (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:85:16)
+@bryance/orch test:       at <anonymous> (C:\dev\personal\orch\packages\orch\src\presence\store.ts:317:18)
+@bryance/orch test:       at upsertRun (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:69:40)
+@bryance/orch test:       at acceptStatusReport (C:\dev\personal\orch\packages\orch\src\daemon\server\status-report.ts:51:70)
+@bryance/orch test: 
+@bryance/orch test: 70 | 		const { query, logger, executors, fastPath, resultKind } = this;
+@bryance/orch test: 71 | 		const sql = query._sql ? query._sql.join(" ") : query.sql;
+@bryance/orch test: 72 | 		const params = query.params.length === 0 ? query.params : fillPlaceholders(query.params, placeholderValues);
+@bryance/orch test: 73 | 		logger.logQuery(sql, params);
+@bryance/orch test: 74 | 		if (resultKind === "sync") try {
+@bryance/orch test: 75 | 			return executors.run(params);
+@bryance/orch test:                          ^
+@bryance/orch test: error: history disabled
+@bryance/orch test:  errcode: 1811,
+@bryance/orch test:   errstr: "constraint failed",
+@bryance/orch test:     code: "ERR_SQLITE_ERROR"
+@bryance/orch test: 
+@bryance/orch test:       at run (C:\dev\personal\orch\node_modules\drizzle-orm\sqlite-core\async\session.js:75:21)
+@bryance/orch test:       at <anonymous> (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:67:8)
+@bryance/orch test:       at withTransaction (C:\dev\personal\orch\packages\orch\src\store\connection.ts:387:20)
+@bryance/orch test:       at drainOneByOne (C:\dev\personal\orch\packages\orch\src\store\connection.ts:267:7)
+@bryance/orch test:       at drainWrites (C:\dev\personal\orch\packages\orch\src\store\connection.ts:284:3)
+@bryance/orch test:       at orm (C:\dev\personal\orch\packages\orch\src\store\connection.ts:292:3)
+@bryance/orch test:       at latestResultTexts (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:85:16)
+@bryance/orch test:       at <anonymous> (C:\dev\personal\orch\packages\orch\src\presence\store.ts:317:18)
+@bryance/orch test:       at upsertRun (C:\dev\personal\orch\packages\orch\src\store\run-rows.ts:69:40)
+@bryance/orch test: 
+@bryance/orch test: (pass) daemon presence events > a dispatched transition writes the full run row [156.97ms]
+@bryance/orch test: (pass) daemon presence events > a result report stores the complete result text [138.51ms]
+@bryance/orch test: (pass) daemon presence events > a status report after the result leaves the settled run alone [103.48ms]
+@bryance/orch test: (pass) daemon presence events > repeated transitions upsert one run and only terminal states set finishedAt [98.41ms]
+@bryance/orch test: (pass) daemon presence events > a status without a dispatch id does not write history [109.67ms]
+@bryance/orch test: (pass) daemon presence events > a throwing history write does not stop event delivery [139.71ms]
+@bryance/orch test: (pass) daemon presence events > emitted events carry the pack capacity at publish time [124.38ms]
+@bryance/orch test: (pass) daemon presence events > a flapping status file cannot storm the stream with repeat transitions [0.40ms]
+@bryance/orch test: (pass) daemon presence events > a genuine repeat of the same transition for new work still publishes [0.16ms]
+@bryance/orch test: (pass) daemon presence events > a repeat transition publishes again once the suppression window passes [0.09ms]
+@bryance/orch test: (pass) daemon presence events > repeated observations cannot slide the suppression window forever [0.06ms]
+@bryance/orch test: (pass) daemon presence events > a working-to-done repeat after the dedupe window is emitted [0.09ms]
+@bryance/orch test: (pass) daemon presence events > presence transitions resolve the human name before emission [99.83ms]
+@bryance/orch test: (pass) daemon presence events > presence transitions use the normalized agent name after rename [104.51ms]
+@bryance/orch test: (pass) daemon presence events > status rows preserve the complete asking transition payload [84.28ms]
+@bryance/orch test: (pass) daemon presence events > transition events use blocked messages while asking events use pending questions [140.86ms]
+@bryance/orch test: (pass) daemon presence events > an asking report publishes an asking event [142.09ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > orch tail -n keeps last-N rendered entries for a pi session [82.92ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-events.test.ts:
+@bryance/orch test: (pass) daemon presence events > an asking transition drives command sink delivery [137.48ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-transport-parity.test.ts:
+@bryance/orch test: (pass) both transports carry one mechanism > the same token registers the same session whichever transport carried it [1866.08ms]
+@bryance/orch test: 
+@bryance/orch test: test\backend-process-role.test.ts:
+@bryance/orch test: (pass) ProcessRole > herdr provider records pid and start token and safely kills it [918.56ms]
+@bryance/orch test: (pass) ProcessRole > tmux provider records pid and start token and safely kills it [629.80ms]
+@bryance/orch test: (pass) ProcessRole > reports replaced when a pid is reused by a different process token [0.24ms]
+@bryance/orch test: (pass) ProcessRole > running returns the process identity for a resolved handle [0.07ms]
+@bryance/orch test: (pass) ProcessRole > running throws when the environment reports no process [0.09ms]
+@bryance/orch test: (pass) ProcessRole > running records a null token when the OS cannot provide one [0.05ms]
+@bryance/orch test: (pass) ProcessRole > the default signal refuses orch's own process and its parent [0.07ms]
+@bryance/orch test: (pass) ProcessRole > kill signals a live record that carries no start token [0.06ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > orch session reports the pi entry count [105.15ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-events.test.ts:
+@bryance/orch test: (pass) daemon presence events > liveness announces a dead process as exited, then reaps its rows [105.35ms]
+@bryance/orch test: 
+@bryance/orch test: test\commands-results.test.ts:
+@bryance/orch test: (pass) commands/results > orch session shows zero entries for an adapter view without them [78.09ms]
+@bryance/orch test: 
+@bryance/orch test: test\owner-scoping.test.ts:
+@bryance/orch test: (pass) fleet ownership scoping > driving verbs remain gated against a live foreign holder [7819.52ms]
+@bryance/orch test: 
+@bryance/orch test: test\spawn-identity.test.ts:
+@bryance/orch test: (pass) one key per pane spawn (12.1) > a spawned agent resolves to exactly one control-target candidate [734.15ms]
+@bryance/orch test: 
+@bryance/orch test: test\spawn-preferred-models.test.ts:
+@bryance/orch test: (pass) the preferred quicklist reaches every launch route > two created agents retain their own model tuning [1416.16ms]
+@bryance/orch test: 
+@bryance/orch test: test\spawn-identity.test.ts:
+@bryance/orch test: (pass) A1: spawn registration records the space as an environment axis > a spawn into a space writes agent_spaces, and the composer reads it back [69.24ms]
+@bryance/orch test: (pass) A1: spawn registration records the space as an environment axis > a spawn stating no space records NO ROW ΓÇö a missing axis is a missing row [62.06ms]
+@bryance/orch test: (pass) A1: spawn registration records the space as an environment axis > moving an agent to another space closes the old interval and keeps its identity [86.99ms]
+@bryance/orch test: 
+@bryance/orch test: test\spawn-preferred-models.test.ts:
+@bryance/orch test: (pass) the preferred quicklist reaches every launch route > an unconfigured quicklist stays empty rather than becoming a default one [667.10ms]
+@bryance/orch test: (pass) the preferred quicklist reaches every launch route > the previewed command is the command a launch runs [0.63ms]
+@bryance/orch test: (pass) the preferred quicklist reaches every launch route > a headless launch forwards the quicklist into the adapter's own options [598.79ms]
+@bryance/orch test: (pass) orchd rules on the quicklist it is sent > accepts an absent value and an array of specs [19.56ms]
+@bryance/orch test: (pass) orchd rules on the quicklist it is sent > refuses a joined string or a blank entry instead of coercing it [0.52ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > hello translates an absent daemon instead of reading a missing token [5057.69ms]
+@bryance/orch test: 
+@bryance/orch test: test\reset-build-safety.test.ts:
+@bryance/orch test: (pass) build reset safety > --build dry-run never names a path inside ORCH_DIR [3491.54ms]
+@bryance/orch test: 
+@bryance/orch test: test\owner-scoping.test.ts:
+@bryance/orch test: (pass) fleet ownership scoping > result refuses a foreign-owned agent and names its owner [1720.82ms]
+@bryance/orch test: 
+@bryance/orch test: test\settings-command.test.ts:
+@bryance/orch test: fleet.max_depth = 6
+@bryance/orch test: (pass) orch settings > every registered setting is printed in the table [723.44ms]
+@bryance/orch test: (pass) orch settings > --json reports value + source per setting, settings.json winning over defaults [574.89ms]
+@bryance/orch test: (pass) orch settings > --json reports env as the winning source over settings.json [616.39ms]
+@bryance/orch test: (pass) orch settings > --harness switches defaults.adapter between enabled ids and rejects a non-enabled id [2796.72ms]
+@bryance/orch test: (pass) orch settings > reports each harness's picker quicklist and launch gate as separate rows [402.38ms]
+@bryance/orch test: (pass) orch settings > a load error surfaces loudly with no partial table [353.23ms]
+@bryance/orch test: (pass) orch settings > sets a boolean through its registry entry [250.21ms]
+@bryance/orch test: (pass) orch settings > sets an integer through its registry entry [398.33ms]
+@bryance/orch test: (pass) orch settings > single-setting set delegates to the registry writer [7.59ms]
+@bryance/orch test: (pass) orch settings > sets a choice through its registry entry [233.99ms]
+@bryance/orch test: (pass) orch settings > sets a multi value through its registry entry [221.48ms]
+@bryance/orch test: (pass) orch settings > sets a list value through its registry entry [221.37ms]
+@bryance/orch test: (pass) orch settings > refuses an invalid boolean and names the allowed values [410.91ms]
+@bryance/orch test: (pass) orch settings > refuses an invalid integer and names the allowed range [214.60ms]
+@bryance/orch test: (pass) orch settings > refuses an invalid choice and names the allowed choices [292.50ms]
+@bryance/orch test: (pass) orch settings > refuses an invalid multi value and names the allowed choices [218.86ms]
+@bryance/orch test: (pass) orch settings > refuses an invalid list and names JSON as the allowed format [235.85ms]
+@bryance/orch test: (pass) orch settings > refuses an unknown key and suggests nearest valid keys [260.62ms]
+@bryance/orch test: (pass) orch settings > refuses read-only runtime and names the editing subcommand [232.54ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: 1 unleased agent(s) exist - orch adopt 65hmy4oypy to take one, orch status to see them.
+@bryance/orch test: (pass) daemon RPC > an unreachable agent yields a boundary answer, and the outbox is not left pending [1692.75ms]
+@bryance/orch test: (pass) daemon RPC > round-trips a call over the real unix socket [11.31ms]
+@bryance/orch test: (pass) daemon RPC > logs one rpc record when a request is answered [8.35ms]
+@bryance/orch test: (pass) daemon RPC > issues one session identity to sequential invocations from one session [1093.99ms]
+@bryance/orch test: 
+@bryance/orch test: test\owner-scoping.test.ts:
+@bryance/orch test: (pass) fleet ownership scoping > pane mutations refuse a foreign-owned agent and name its owner [3015.91ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > enqueue returns a queued task visible to listTasks [2112.92ms]
+@bryance/orch test: 
+@bryance/orch test: test\owner-scoping.test.ts:
+@bryance/orch test: (pass) fleet ownership scoping > close has no force option and remains unconditional without it [1812.64ms]
+@bryance/orch test: {"closed":["kmismatch1"],"results":[{"target":"kmismatch1","handle":"{\"pid\":2432,\"key\":\"kmismatch1\"}","outcome":"done","error":null}],"requested":1,"ok":1,"stream":false}
+@bryance/orch test: (pass) fleet ownership scoping > close cleans up a mismatched recorded process without signalling [471.15ms]
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > a spawned agent acts as its own minted id, not its launch key [2.52ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > hello returns live agents whose newest lease is closed or absent [846.01ms]
+@bryance/orch test: 
+@bryance/orch test: test\owner-scoping.test.ts:
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > --cross-space from a spawned agent is refused [674.38ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > hello returns an empty unleased list when none exist [494.09ms]
+@bryance/orch test: (pass) daemon RPC > a TCP hello with the daemon token gets an identity [557.72ms]
+@bryance/orch test: (pass) daemon RPC > refuses a hello that reports no session pid [27.26ms]
+@bryance/orch test: (pass) daemon RPC > refuses a hello without its environment [14.07ms]
+@bryance/orch test: 
+@bryance/orch test: test\owner-scoping.test.ts:
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > close --all from an AGENT sweeps only its own subtree [885.04ms]
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > close --all from the HUMAN sweeps every managed spawn, whoever spawned it [726.86ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > same session pid keeps its id and a different session pid gets another [1429.12ms]
+@bryance/orch test: (pass) daemon RPC > refuses a TCP hello without a token [8.03ms]
+@bryance/orch test: (pass) daemon RPC > refuses a TCP hello with a wrong token [6.91ms]
+@bryance/orch test: (pass) daemon RPC > writes the daemon token with owner-only permissions [8.33ms]
+@bryance/orch test: (pass) daemon RPC > returns an error for an unknown method [6.58ms]
+@bryance/orch test: (pass) daemon RPC > reports malformed lines and keeps the connection alive [19.65ms]
+@bryance/orch test: (pass) daemon RPC > delivers pushed subscription events [56.23ms]
+@bryance/orch test: 
+@bryance/orch test: test\owner-scoping.test.ts:
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > close from a spawned agent is REFUSED when the target is not its own [661.29ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: (pass) daemon RPC > replays durable events after a daemon restart without a gap [319.76ms]
+@bryance/orch test: (pass) daemon RPC > reports the oldest sequence when replay starts before the pruned window [48.11ms]
+@bryance/orch test: (pass) daemon RPC > removes a stale unix socket when the daemon owns the lock [15.40ms]
+@bryance/orch test: (pass) daemon RPC > has a catchable absent-daemon error [0.96ms]
+@bryance/orch test: (pass) daemon RPC > calls a slow daemon unreachable, not absent [112.31ms]
+@bryance/orch test: (pass) daemon RPC > calls a refused endpoint absent so a wedged daemon is still reclaimable [1.96ms]
+@bryance/orch test: 
+@bryance/orch test: test\owner-scoping.test.ts:
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > close from a spawned agent SUCCEEDS on a slave it spawned itself [818.73ms]
+@bryance/orch test: (pass) a spawned agent touches only what it spawned > the workspace operator keeps control of an agent-owned fleet [734.41ms]
+@bryance/orch test: 
+@bryance/orch test: test\daemon-rpc.test.ts:
+@bryance/orch test: 1 unleased agent(s) exist - orch adopt 8q25uez63p to take one, orch status to see them.
+@bryance/orch test: (pass) daemon RPC > dispatch waits for and reports a bridge acknowledgement [1560.34ms]
+@bryance/orch test: 1 unleased agent(s) exist - orch adopt 6y54agyiv6 to take one, orch status to see them.
+@bryance/orch test: (pass) daemon RPC > dispatch reports unavailable while a live agent has no bridge [1604.39ms]
+@bryance/orch test: 1 unleased agent(s) exist - orch adopt 0tmdqjko6w to take one, orch status to see them.
+@bryance/orch test: (pass) daemon RPC > attach reports open rows and re-pushes them [1549.63ms]
+@bryance/orch test: 
+@bryance/orch test: 4 tests skipped:
+@bryance/orch test: (skip) the token file is the whole credential > the token is 0600
+@bryance/orch test: (skip) the token file is the whole credential > $ORCH_DIR is 0700, so same-uid is a boundary the filesystem enforces
+@bryance/orch test: (skip) the token file is the whole credential > a token left loose by an earlier run is tightened, not trusted
+@bryance/orch test: (skip) the token file is the whole credential > a runtime directory the daemon creates is 0700 too
+@bryance/orch test: 
+@bryance/orch test:  1739 pass
+@bryance/orch test:  4 skip
+@bryance/orch test:  0 fail
+@bryance/orch test:  10143 expect() calls
+@bryance/orch test: Ran 1743 tests across 265 files. [28.27s]
+@bryance/orch test: Exited with code 0

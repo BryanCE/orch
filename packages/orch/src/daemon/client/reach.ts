@@ -21,7 +21,6 @@ import {
   terminateDaemon,
   unprovenLockRefusal,
 } from "./process.ts";
-import { daemonRuntimeFiles } from "./runtime-files.ts";
 import { isLogRecord, logFile } from "../../log.ts";
 import { announceUnleasedAgents, sessionClaim } from "./registration.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./wire.ts";

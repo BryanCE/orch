@@ -1,6 +1,6 @@
 import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, inArray, lte, lt } from "drizzle-orm";
-import { orm } from "./connection.ts";
+import { orm, queueWrite } from "./connection.ts";
 import { outbox } from "../db/schema.ts";
 import { isOutboxPayload } from "../control/bridge-message.ts";
 import type { OutboxMessage, OutboxMessageInput, OutboxState } from "../types/store.ts";
@@ -38,14 +38,16 @@ function toMessage(row: OutboxRow): OutboxMessage {
 }
 
 export function insertOutboxMessage(directory: OrchDir, message: OutboxMessageInput): void {
-  orm(directory).insert(outbox).values({
-    id: message.id,
-    target: message.target,
-    payload: JSON.stringify(message.payload),
-    state: "pending",
-    createdAt: message.createdAt ?? Date.now(),
-    nextAttemptAt: 0,
-  }).run();
+  queueWrite(directory, (db) => {
+    db.insert(outbox).values({
+      id: message.id,
+      target: message.target,
+      payload: JSON.stringify(message.payload),
+      state: "pending",
+      createdAt: message.createdAt ?? Date.now(),
+      nextAttemptAt: 0,
+    }).run();
+  });
 }
 
 export function selectPendingOutbox(directory: OrchDir, now: number): OutboxMessage[] {

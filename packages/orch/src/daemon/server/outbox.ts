@@ -1,5 +1,4 @@
 import type { OrchDir } from "../../types/core.ts";
-import { decisionLogger } from "../client/decision-log.ts";
 import { isAgentGone } from "../../control/agent-gone.ts";
 import { isBridgeDetached } from "../../control/bridge-links.ts";
 import type { OutboxDelivery, OutboxDeps } from "../../types/daemon.ts";
@@ -42,8 +41,8 @@ async function attemptDelivery(orchDir: OrchDir, message: OutboxMessage, deps: O
   if (!outboxMessageOpen(orchDir, message.id)) return "skipped";
   inFlight.add(key);
   try {
-    const log = decisionLogger(orchDir, null).forCorrelation(message.id);
-    log.info("dispatch.delivering", { target: message.target, attempt: message.attempts });
+    const log = deps.logger?.forCorrelation(message.id);
+    log?.info("dispatch.delivering", { target: message.target, attempt: message.attempts });
     let outcome: OutboxDelivery;
     let retryReason: "bridge-detached" | "error" = "error";
     try {
@@ -64,13 +63,13 @@ async function attemptDelivery(orchDir: OrchDir, message: OutboxMessage, deps: O
     // retry forever, and each new dispatch waited behind that whole backlog.
     if (outcome === "gone") {
       markOutboxUndeliverable(orchDir, message.id);
-      log.warn("dispatch.undeliverable", { target: message.target, attempts: message.attempts + 1 });
+      log?.warn("dispatch.undeliverable", { target: message.target, attempts: message.attempts + 1 });
       return "undeliverable";
     }
 
     if (outcome === "failed" && message.attempts + 1 >= deps.maxAttempts) {
       markOutboxUndeliverable(orchDir, message.id);
-      log.warn("dispatch.undeliverable", {
+      log?.warn("dispatch.undeliverable", {
         target: message.target,
         attempts: message.attempts + 1,
         reason: "attempts-exhausted",
@@ -83,10 +82,10 @@ async function attemptDelivery(orchDir: OrchDir, message: OutboxMessage, deps: O
     bumpOutboxAttempt(orchDir, message.id, retryAt(deps.now(), message.attempts));
     if (outcome === "queued") {
       markOutboxAwaiting(orchDir, message.id);
-      log.debug("dispatch.awaiting-ack", { target: message.target, attempt: message.attempts, delay });
+      log?.debug("dispatch.awaiting-ack", { target: message.target, attempt: message.attempts, delay });
       return "awaiting";
     }
-    log.debug("retry.attempt", { target: message.target, attempt: message.attempts + 1, delay, reason: retryReason });
+    log?.debug("retry.attempt", { target: message.target, attempt: message.attempts + 1, delay, reason: retryReason });
     return "retried";
   } finally {
     inFlight.delete(key);

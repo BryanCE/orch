@@ -428,7 +428,7 @@ $ORCH_DIR/
 ├── orchd.port               # loopback TCP port when TCP transport is used
 ├── orchd.token              # owner-readable loopback RPC credential
 ├── orchd.lock               # daemon single-instance lock
-├── orchd.log                # detached daemon output and lifecycle log
+├── orch.log                 # daemon and CLI structured lifecycle log
 ├── logs/                    # detached headless-agent output
 └── agents/<id>/             # one directory per agent, named by its minted id
     ├── status.json          # liveness, state, and run facts

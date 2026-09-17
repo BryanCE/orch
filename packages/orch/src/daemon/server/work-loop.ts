@@ -14,7 +14,7 @@ import {
 import { emitAndNotify } from "./events.ts";
 import { askingEventFromRow } from "./status-events.ts";
 import { deliverTaskResult } from "./result-delivery.ts";
-import { loadPresence } from "../../presence/store.ts";
+import { loadPresence, presenceEntry } from "../../presence/store.ts";
 import { pendingQuestions, type QuestionRow } from "../../store/question-rows.ts";
 import { selectAgentStatus } from "../../store/status-rows.ts";
 import { workerHeaderFor, workerRules } from "../../worker-prompt.ts";
@@ -24,7 +24,6 @@ import { isAgentId } from "../../backends/identity.ts";
 import { agentProcessLive } from "../../store/interval-rows.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { sweepExpiredRows } from "./retention.ts";
-import { decisionLogger } from "../client/decision-log.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import type { TaskState } from "../../types/queue.ts";
@@ -111,7 +110,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   // retry of the same id can never deliver the prompt twice, and the agent's
   // status/result echo the id the settle path verifies against.
   const dispatchId = currentAttempt(task)?.dispatchId ?? randomUUID();
-  const correlated = decisionLogger(orchDir, options.settings.current()).forCorrelation(dispatchId);
+  const correlated = options.logger.forCorrelation(dispatchId);
   const log = runnerId === undefined ? correlated : correlated.forAgent(runnerId);
   const sendPrompt = async (): Promise<void> => {
     log.info("dispatch.delivering", { target: entry.key, handle: entry.key });
@@ -171,7 +170,7 @@ function taskEvent(orchDir: OrchDir, entry: PresenceEntry, task: TaskRec, oldSta
   };
 }
 
-function settleClaimedTasks(orchDir: OrchDir, settings: ReturnType<WorkOptions["settings"]["current"]>, emit: (event: NotifyEvent) => void): void {
+function settleClaimedTasks(orchDir: OrchDir, settings: ReturnType<WorkOptions["settings"]["current"]>, emit: (event: NotifyEvent) => void, logger: import("../../types/core.ts").Logger): void {
   const runners = runnersByAgent(orchDir, loadPresence(orchDir));
   for (const task of listTasks(orchDir)) {
     if (task.state !== "claimed") continue;
@@ -189,10 +188,10 @@ function settleClaimedTasks(orchDir: OrchDir, settings: ReturnType<WorkOptions["
     if (!statusSpeaksForTask(status, task)) continue;
     if (status?.state === "done") {
       const settled = recordTaskDone(orchDir, task.id, agent.result);
-      deliverTaskResult(orchDir, settings, task.id);
+      deliverTaskResult(orchDir, settings, task.id, logger);
       emit(taskEvent(orchDir, agent, settled, task.state, settled.state));
     }
-    if (status?.state === "error") settleError(orchDir, settings, task, status.lastError ?? "agent reported error", agent, emit);
+    if (status?.state === "error") settleError(orchDir, settings, task, status.lastError ?? "agent reported error", agent, emit, logger);
   }
 }
 
@@ -244,13 +243,13 @@ function reaskEvent(orchDir: OrchDir, question: QuestionRow, nowMs: number, askC
   return { ...event, task: `Q: ${question.question}` };
 }
 
-function settleError(orchDir: OrchDir, settings: ReturnType<WorkOptions["settings"]["current"]>, task: TaskRec, error: string, entry: PresenceEntry, emit: (event: NotifyEvent) => void): void {
+function settleError(orchDir: OrchDir, settings: ReturnType<WorkOptions["settings"]["current"]>, task: TaskRec, error: string, entry: PresenceEntry, emit: (event: NotifyEvent) => void, logger: import("../../types/core.ts").Logger): void {
   // A failed attempt remains derived as failed until the next attempt INSERT.
   // Selection policy below enforces max_retries + 1 total attempts.
   const settled = recordTaskFailure(orchDir, task.id, error);
   // Cq4: a failure reports back too — silence is the worst outcome for the
   // orch that asked, and it may be in another pack with nothing else to read.
-  deliverTaskResult(orchDir, settings, task.id);
+  deliverTaskResult(orchDir, settings, task.id, logger);
   emit(taskEvent(orchDir, entry, settled, task.state, settled.state, error));
 }
 
@@ -266,15 +265,15 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
       emit(taskEvent(orchDir, entry, failed, current.state, failed.state, "agent did not acknowledge working"));
       return;
     }
-    if (state === "error") return settleError(orchDir, options.settings.current(), current, "agent reported error", entry, emit);
+    if (state === "error") return settleError(orchDir, options.settings.current(), current, "agent reported error", entry, emit, options.logger);
     if (state === "done") {
-      const done = recordTaskDone(orchDir, task.id, loadPresence(orchDir).get(entry.key)?.result);
-      deliverTaskResult(orchDir, options.settings.current(), task.id);
+      const done = recordTaskDone(orchDir, task.id, presenceEntry(orchDir, entry.key)?.result);
+      deliverTaskResult(orchDir, options.settings.current(), task.id, options.logger);
       emit(taskEvent(orchDir, entry, done, current.state, done.state));
     }
   } catch (error) {
     const current = requireTask(orchDir, task.id);
-    settleError(orchDir, options.settings.current(), current, String(error), entry, emit);
+    settleError(orchDir, options.settings.current(), current, String(error), entry, emit, options.logger);
   }
 }
 
@@ -284,20 +283,21 @@ async function assignTask(options: WorkOptions, entry: PresenceEntry, task: Task
 export async function runWorkLoop(options: WorkOptions): Promise<void> {
   const orchDir = orchDirAt(options.orchDir);
   const emit = options.onEvent ?? ((event: NotifyEvent): void => {
-    emitAndNotify(() => { /* noop */ }, options.settings.current().notify, event, orchDir, options.settings);
+    emitAndNotify(() => { /* noop */ }, options.settings.current().notify, event, orchDir, options.settings, Date.now(), options.logger);
   });
   const questionState = new Map<string, QuestionReaskState>();
   let lastSweepAt = Number.NEGATIVE_INFINITY;
   while (!options.signal?.aborted) {
+    const passStartedAt = Date.now();
     const settings = options.settings.current();
     if (settings !== undefined) {
       const nowMs = Date.now();
       const sweepIntervalMs = settings.retention.sweep_interval_ms;
       if (sweepIntervalMs !== undefined && nowMs - lastSweepAt >= sweepIntervalMs) {
         lastSweepAt = nowMs;
-        const counts = sweepExpiredRows(orchDir, settings, new Date(nowMs));
+        const counts = sweepExpiredRows(orchDir, settings, new Date(nowMs), options.logger);
         if (Object.values(counts).some((count) => count > 0)) {
-          decisionLogger(orchDir, settings).info("retention.swept", { ...counts });
+          options.logger.info("retention.swept", { ...counts });
         }
       }
       const questionSettings = settings.questions;
@@ -315,7 +315,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
     }
     const maxRetries = settings?.queue.max_retries ?? options.maxRetries ?? 1;
     const presence = loadPresence(orchDir);
-    settleClaimedTasks(orchDir, settings, emit);
+    settleClaimedTasks(orchDir, settings, emit, options.logger);
     const tasks = listTasks(orchDir);
     const idle = [...presence.values()].filter(agentIdle)
       .map((entry) => runnerOf(orchDir, entry))
@@ -335,11 +335,12 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
     await mapWithLimit(claims, options.settings.current().queue.dispatch_concurrency, ({ entry, claimed }) => assignTask(options, entry, claimed, emit));
     const assigned = claims.length;
     if (options.once) {
-      settleClaimedTasks(orchDir, settings, emit);
+      settleClaimedTasks(orchDir, settings, emit, options.logger);
       return;
     }
     const claimed = tasks.some((task) => task.state === "claimed");
     if (assigned === 0 && !claimed && !options.continuous) return;
+    options.logger.trace("tick.work", { idle: idle.length, claimed: assigned, open: tasks.length, elapsedMs: Date.now() - passStartedAt });
     await options.wake.next(options.tickMs, options.signal);
   }
 }

@@ -9,6 +9,6 @@ export function closeTargets(state: DaemonState, params: ParamsOf<"close-targets
     params.caller,
     params.targets,
     params.all,
-    (address, backendId) => state.logger?.warn("close.unknown-backend", { backend: backendId, handle: address }),
+    (address, backendId) => state.services.logger.warn("close.unknown-backend", { backend: backendId, handle: address }),
   );
 }

@@ -3,7 +3,7 @@ import type { AgentAdapter } from "./adapter.ts";
 import type { HeadlessHandle } from "./plexer.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentId } from "../backends/identity.ts";
-import type { OrchDir } from "./core.ts";
+import type { Logger, OrchDir } from "./core.ts";
 
 /** Where a placed agent sits, as the environment reports it. */
 export interface PlacementCoordinate {
@@ -188,7 +188,7 @@ export interface ServerInfoRole {
  *  answer, not a failure, and replaces the `canPruneLogs` boolean declared
  *  alongside the method. */
 export interface LogPruningRole {
-  prune(cutoff: Date, liveKeys: readonly string[], orchDir: OrchDir): number;
+  prune(cutoff: Date, liveKeys: readonly string[], orchDir: OrchDir, logger: Logger): number;
 }
 
 /** Request to launch one process in an environment. */
@@ -453,6 +453,15 @@ export interface LocalProcessRoleDeps {
   readonly startToken?: (pid: number) => string | undefined;
   readonly spawn?: (request: StartRequest) => StartedProcess;
   readonly signal?: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+/** One attempt of one external tool command, as the exec seam saw it. */
+export interface ToolExecRecord {
+  readonly binary: string;
+  readonly args: readonly string[];
+  readonly attempt: number;
+  readonly ok: boolean;
+  readonly elapsedMs: number;
 }
 
 /**

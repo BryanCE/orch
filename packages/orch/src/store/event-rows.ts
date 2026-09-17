@@ -1,10 +1,12 @@
 import type { OrchDir } from "../types/core.ts";
-import { asc, gt, lt } from "drizzle-orm";
-import { orm } from "./connection.ts";
+import { asc, gt, lt, max } from "drizzle-orm";
+import { orm, queueWrite, registerMemoReset } from "./connection.ts";
 import { events } from "../db/schema.ts";
 import type { StoredEvent } from "../types/store.ts";
 
 type EventRow = typeof events.$inferSelect;
+
+const eventSeqs = new Map<OrchDir, number>();
 
 function rowToStoredEvent(row: EventRow): StoredEvent {
   return { seq: row.seq, ts: row.ts, event: JSON.parse(row.payload) };
@@ -16,11 +18,33 @@ function eventPayload(event: unknown): string {
   return payload;
 }
 
-export function appendEvent(orchDir: OrchDir, ts: number, event: unknown): StoredEvent {
-  const row = orm(orchDir).insert(events).values({ ts, payload: eventPayload(event) }).returning().get();
-  if (!row) throw new Error("event insert did not produce a row");
-  return rowToStoredEvent(row);
+function nextEventSeq(orchDir: OrchDir): number {
+  const known = eventSeqs.get(orchDir);
+  if (known !== undefined) {
+    const next = known + 1;
+    eventSeqs.set(orchDir, next);
+    return next;
+  }
+  const row = orm(orchDir).select({ seq: max(events.seq) }).from(events).get();
+  const next = Number(row?.seq ?? 0) + 1;
+  eventSeqs.set(orchDir, next);
+  return next;
 }
+
+export function appendEvent(orchDir: OrchDir, ts: number, event: unknown): StoredEvent {
+  const seq = nextEventSeq(orchDir);
+  const payload = eventPayload(event);
+  queueWrite(orchDir, (db) => {
+    db.insert(events).values({ seq, ts, payload }).run();
+  });
+  return { seq, ts, event };
+}
+
+export function forgetEventSeqs(): void {
+  eventSeqs.clear();
+}
+
+registerMemoReset(forgetEventSeqs);
 
 export function selectEventsSince(orchDir: OrchDir, seq: number, limit: number): StoredEvent[] {
   return orm(orchDir).select().from(events).where(gt(events.seq, seq))

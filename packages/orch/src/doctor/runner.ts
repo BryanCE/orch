@@ -144,7 +144,7 @@ export async function runDoctor(services: Pick<Services, "orchDir" | "logger" | 
     settingsDependent(orchDir, settings, "command-locks", "Command locks", (current) => checkCommandLocks(current)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
     settingsDependent(orchDir, settings, "notify-sinks", "Notification sinks", (current) => checkNotifySinks(current, bins)),
-    settingsDependent(orchDir, settings, "notifiers", "Notifiers", (current) => checkNotifiers(orchDir, current)),
+    settingsDependent(orchDir, settings, "notifiers", "Notifiers", (current) => checkNotifiers(orchDir, current, logger)),
     isolated("orchdir-location", "ORCH_DIR location", () => checkOrchDirLocation(orchDir)),
     isolated("orchd-registration", "orchd registration", checkDaemonRegistration),
     isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),

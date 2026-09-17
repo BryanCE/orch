@@ -13,12 +13,15 @@ export type OrchDir = string & { readonly __brand: "OrchDir" };
 export const LOG_LEVELS = ["error", "warn", "info", "debug", "trace"] as const;
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
+export type LogProc = "orchd" | "cli";
 
 /** What a field may hold. A record is a row to be queried, not a place for objects:
  *  a nested shape has no stable column and cannot be filtered on. */
 export type LogValue = string | number | boolean | null;
 
 export interface LogRecord {
+  readonly proc: LogProc;
+  readonly pid: number;
   /** Epoch millis. Rule 11: instants are INTEGER epoch millis, never TEXT. */
   readonly at: number;
   readonly level: LogLevel;
@@ -41,6 +44,7 @@ export interface LogContext {
 }
 
 export interface Logger {
+  setLevel(level: LogLevel): void;
   error(event: string, fields?: Readonly<Record<string, LogValue>>, context?: LogContext): void;
   warn(event: string, fields?: Readonly<Record<string, LogValue>>, context?: LogContext): void;
   info(event: string, fields?: Readonly<Record<string, LogValue>>, context?: LogContext): void;
@@ -55,6 +59,7 @@ export interface Logger {
 export interface LoggerOptions {
   readonly file: string;
   readonly level: LogLevel;
+  readonly proc: LogProc;
   /** Injectable so a test can assert ordering without sleeping on the real clock. */
   readonly now?: () => number;
 }

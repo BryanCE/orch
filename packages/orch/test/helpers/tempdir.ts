@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllStores } from "../../src/store/connection.ts";
+import { flushPresenceHistory } from "../../src/presence/history.ts";
 import { provenDaemonPid } from "../../src/daemon/client/process.ts";
 import { orchDirAt } from "../../src/services.ts";
 import type { OrchDir } from "../../src/types/core.ts";
@@ -40,6 +41,7 @@ function killTempDirDaemon(dir: string): void {
  *  until every handle inside it closes, and no test's verdict depends on whether that happened
  *  before the next test started. */
 export function removeTempDir(dir: string): void {
+  flushPresenceHistory();
   closeAllStores();
   killTempDirDaemon(dir);
   try {

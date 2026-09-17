@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
@@ -148,7 +149,7 @@ describe("retention sweep", () => {
     appendEvent(orchDir, Date.parse("2026-01-30T00:00:00.000Z"), { id: "event-new" });
     upsertRun(orchDir, run("run-old", "2025-12-20T00:00:00.000Z"));
     upsertRun(orchDir, run("run-new", "2026-01-20T00:00:00.000Z"));
-    expect(sweepExpiredRows(orchDir, settingsFixture({ queue_days: 14, events_days: 3, runs_days: 30, outbox_days: 7 }), NOW)).toEqual({
+    expect(sweepExpiredRows(orchDir, settingsFixture({ queue_days: 14, events_days: 3, runs_days: 30, outbox_days: 7 }), NOW, testLogger)).toEqual({
       queue: 1, outbox: 1, control_outcomes: 0, events: 1, runs: 1, ended_agents: 0, logs: 0,
     });
     expect(orm(orchDir).all(sql`SELECT id FROM tasks ORDER BY id`)).toHaveLength(3);
@@ -160,7 +161,7 @@ describe("retention sweep", () => {
   test("returns zero counts when every row is inside its window", () => {
     const orchDir = fixture();
     seedQueueTask(orchDir, "queue", "done", "2026-01-31T00:00:00.000Z");
-    expect(sweepExpiredRows(orchDir, settingsFixture(), NOW)).toEqual({ queue: 0, outbox: 0, control_outcomes: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 });
+    expect(sweepExpiredRows(orchDir, settingsFixture(), NOW, testLogger)).toEqual({ queue: 0, outbox: 0, control_outcomes: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 });
   });
 
   test("continues sweeping when one table delete fails", () => {
@@ -169,7 +170,7 @@ describe("retention sweep", () => {
     upsertRun(orchDir, run("old-run", "2020-01-01T00:00:00.000Z"));
     orm(orchDir).run(sql.raw("DROP TABLE tasks"));
 
-    const counts = sweepExpiredRows(orchDir, settingsFixture({ events_days: 1, runs_days: 1 }), NOW);
+    const counts = sweepExpiredRows(orchDir, settingsFixture({ events_days: 1, runs_days: 1 }), NOW, testLogger);
     expect(counts.queue).toBe(0);
     expect(counts.events).toBe(1);
     expect(counts.runs).toBe(1);
@@ -236,7 +237,7 @@ describe("retention sweep", () => {
     const dir = presenceDir(orchDir, key);
     seedStatus(orchDir, key, {});
     touchHistory(dir, NOW);
-    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(0);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW, testLogger).ended_agents).toBe(0);
     expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id=${key}`)).not.toBeUndefined();
     expect(existsSync(dir)).toBe(true);
   });
@@ -248,7 +249,7 @@ describe("retention sweep", () => {
     seedAgent(key, {}, orchDir);
     reapDeadAgentRecords(orchDir);
     touchHistory(dir, new Date(OLD));
-    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(1);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW, testLogger).ended_agents).toBe(1);
     expect(existsSync(dir)).toBe(false);
   });
 
@@ -260,7 +261,7 @@ describe("retention sweep", () => {
     touchHistory(dir, new Date(OLD));
     writeFileSync(join(dir, "results.jsonl"), "{}\n");
     utimesSync(join(dir, "results.jsonl"), new Date(RECENT), new Date(RECENT));
-    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW).ended_agents).toBe(0);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW, testLogger).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
   });
 
@@ -270,7 +271,7 @@ describe("retention sweep", () => {
     const dir = presenceDir(orchDir, key);
     seedAgent(key, {}, orchDir);
     touchHistory(dir, new Date("2020-01-01T00:00:00.000Z"));
-    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: null }), NOW).ended_agents).toBe(0);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: null }), NOW, testLogger).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
   });
 
@@ -284,7 +285,7 @@ describe("retention sweep", () => {
     ageAgent(orchDir, key, OLD);
     touchHistory(dir, new Date(OLD));
     expect(reapDeadAgentRecords(orchDir)).toEqual([]);
-    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 1 }), NOW).ended_agents).toBe(0);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 1 }), NOW, testLogger).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
     expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id=${key}`)).not.toBeUndefined();
   });
@@ -303,7 +304,7 @@ describe("retention sweep", () => {
     const old = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
     utimesSync(deadLog, old, old);
     utimesSync(liveLog, old, old);
-    expect(sweepExpiredRows(orchDir, settingsFixture({ logs_days: 7 }), NOW).logs).toBe(1);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ logs_days: 7 }), NOW, testLogger).logs).toBe(1);
     expect(existsSync(deadLog)).toBe(false);
     expect(existsSync(liveLog)).toBe(true);
   });
@@ -331,6 +332,7 @@ describe("retention sweep", () => {
         update: () => { throw new Error("settings update is not supported in this mock"); },
       };
       const loop = runWorkLoop({
+    logger: testLogger,
         orchDir,
         wake: createWakeSignal(),
         tickMs: 1,
@@ -348,32 +350,26 @@ describe("retention sweep", () => {
 
   test("prunes orch's own logs past the age cap", () => {
     const orchDir = fixture();
-    const daemonLog = join(orchDir, "orchd.log");
-    const cliLog = join(orchDir, "orch.log");
-    writeFileSync(daemonLog, `${JSON.stringify({ at: 1, level: "info", event: "daemon.started" })}\n`);
-    writeFileSync(cliLog, `${JSON.stringify({ at: 1, level: "info", event: "dispatch.cli-accepted" })}\n`);
+    const daemonLog = join(orchDir, "orch.log");
+    writeFileSync(daemonLog, `${JSON.stringify({ proc: "orchd", pid: 1, at: 1, level: "info", event: "daemon.started" })}\n${JSON.stringify({ proc: "cli", pid: 2, at: 1, level: "info", event: "dispatch.cli-accepted" })}\n`);
     const old = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
     utimesSync(daemonLog, old, old);
-    utimesSync(cliLog, old, old);
 
-    expect(sweepExpiredRows(orchDir, settingsFixture({ logs_days: 7 }), NOW).logs).toBe(2);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ logs_days: 7 }), NOW, testLogger).logs).toBe(1);
     expect(existsSync(daemonLog)).toBe(false);
-    expect(existsSync(cliLog)).toBe(false);
   });
 
   test("prunes orch's own logs past the size cap even when freshly written", () => {
     const orchDir = fixture();
-    const daemonLog = join(orchDir, "orchd.log");
-    const cliLog = join(orchDir, "orch.log");
+    const daemonLog = join(orchDir, "orch.log");
     // A daemon resident for a month must not have a gigabyte log: the size cap is
     // the only thing that bounds a file whose mtime is refreshed on every record.
     writeFileSync(daemonLog, "x".repeat(ORCH_LOG_MAX_BYTES + 1));
-    writeFileSync(cliLog, "x".repeat(16));
     utimesSync(daemonLog, NOW, NOW);
-    utimesSync(cliLog, NOW, NOW);
 
-    expect(sweepExpiredRows(orchDir, settingsFixture({ logs_days: 7 }), NOW).logs).toBe(1);
+    expect(sweepExpiredRows(orchDir, settingsFixture({ logs_days: 7 }), NOW, testLogger).logs).toBe(1);
     expect(existsSync(daemonLog)).toBe(false);
-    expect(existsSync(cliLog)).toBe(true);
   });
 });
+
+const { logger: testLogger } = recordingLogger();

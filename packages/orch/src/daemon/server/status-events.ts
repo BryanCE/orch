@@ -34,7 +34,8 @@ function composeBase(
   const view = agentView(orchDir, key);
   const holder = view?.heldBy?.orchId;
   const space = view?.environment.space ?? undefined;
-  const question = pendingQuestion(orchDir, key)?.question ?? row.blockedMessage ?? undefined;
+  const asked = state === "asking" ? pendingQuestion(orchDir, key)?.question : undefined;
+  const question = asked ?? row.blockedMessage ?? undefined;
   const strippedTask = row.task === null ? undefined : stripWorkerHeader(row.task);
   const task = state === "asking" && question
     ? `Q: ${truncate(collapse(question), 80)}`

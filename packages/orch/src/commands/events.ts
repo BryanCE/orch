@@ -159,7 +159,7 @@ export async function cmdNotify(services: Services, args: string[]) {
     process.exitCode = 1;
     return;
   }
-  const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliver(services.orchDir, settings, sink, event) })));
+  const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliver(services.orchDir, settings, sink, event, services.logger) })));
   if (json) process.stdout.write(JSON.stringify(results.map(({ sink, ok }) => ({ sink: sinkLabel(sink), ok }))) + "\n");
   else for (const { sink, ok } of results) process.stdout.write(`notify ${sinkLabel(sink)}: ${ok ? "ok" : "fail"}\n`);
   if (results.some((result) => !result.ok)) process.exitCode = 1;
@@ -386,7 +386,7 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
   const pending = rpcCall(services.orchDir, "questions", { caller: callerCredential() });
   subscription = subscribeEvents(
     services.orchDir,
-    context.options.sinceSeq === undefined ? {} : { since: context.options.sinceSeq },
+    context.options.sinceSeq === undefined ? { logger: services.logger } : { since: context.options.sinceSeq, logger: services.logger },
     (value, streamSeq) => {
       if (!isNotifyEvent(value) || !context.accepts(value)) return;
       if (context.emit(value, streamSeq) && context.options.once) transport.close();

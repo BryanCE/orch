@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { isLogLevel, isLogRecord } from "../log.ts";
+import { isLogLevel, isLogRecord, logFile } from "../log.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import type { LogOptions } from "../types/command.ts";
@@ -37,8 +36,7 @@ export function parseLogOptions(args: string[]): LogOptions {
 
 function records(directory: OrchDir): LogRecord[] {
   const result: LogRecord[] = [];
-  for (const name of ["orch.log", "orchd.log"]) {
-    const file = join(directory, name);
+  for (const file of [logFile(directory)]) {
     if (!existsSync(file)) continue;
     for (const line of readFileSync(file, "utf8").split("\n")) {
       if (!line.trim()) continue;

@@ -1,11 +1,17 @@
 import type { OrchDir } from "../types/core.ts";
 import { desc, eq, isNotNull, lt, max } from "drizzle-orm";
-import { orm } from "./connection.ts";
+import { orm, queueWrite } from "./connection.ts";
 import { runs } from "../db/schema.ts";
 import { nullableJsonText, setNonNullField } from "./row-values.ts";
 import type { RunRecord } from "../types/store.ts";
 
 type RunRow = typeof runs.$inferSelect;
+type RunListener = (directory: OrchDir, run: RunRecord) => void;
+const runListeners = new Set<RunListener>();
+
+export function onRunUpserted(listener: RunListener): void {
+  runListeners.add(listener);
+}
 
 function rowToRun(row: RunRow): RunRecord {
   const run: RunRecord = {
@@ -54,10 +60,13 @@ function mutableColumns(run: RunRecord) {
 /** Record one observation of a dispatch. `startedAt` is written once, on the
  *  first observation, so a later update cannot move the run's start. */
 export function upsertRun(directory: OrchDir, run: RunRecord): void {
-  orm(directory).insert(runs)
-    .values({ dispatchId: run.dispatchId, startedAt: run.startedAt, ...mutableColumns(run) })
-    .onConflictDoUpdate({ target: runs.dispatchId, set: mutableColumns(run) })
-    .run();
+  queueWrite(directory, (db) => {
+    db.insert(runs)
+      .values({ dispatchId: run.dispatchId, startedAt: run.startedAt, ...mutableColumns(run) })
+      .onConflictDoUpdate({ target: runs.dispatchId, set: mutableColumns(run) })
+      .run();
+  });
+  for (const listener of runListeners) listener(directory, run);
 }
 
 /** Runs newest first, for one agent or for every agent. */
@@ -82,6 +91,12 @@ export function latestResultTexts(directory: OrchDir): Map<string, string> {
     if (typeof result === "string") texts.set(row.agentKey, result);
   }
   return texts;
+}
+
+/** Dispatch ids whose runs carry a result. */
+export function settledDispatchIds(directory: OrchDir): Set<string> {
+  return new Set(orm(directory).select({ dispatchId: runs.dispatchId }).from(runs)
+    .where(isNotNull(runs.result)).all().map((row) => row.dispatchId));
 }
 
 /** The one run a dispatch id names. */

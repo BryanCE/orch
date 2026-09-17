@@ -3,9 +3,9 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { logLevelFor } from "../src/settings/read.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
-import { isLogRecord } from "../src/log.ts";
+import { createLogger, isLogRecord } from "../src/log.ts";
 import { testServices } from "./helpers/services.ts";
-import { decisionLogger } from "../src/daemon/client/decision-log.ts";
+import { createServices } from "../src/services.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -80,7 +80,16 @@ describe("the configured log level reaches every logger", () => {
   test("the daemon logger resolves through the same helper", () => {
     const dir = fixture({ logging: { level: "debug" } });
     delete process.env.ORCH_LOG_LEVEL;
-    decisionLogger(dir, fileSettingsManager(dir).current()).debug("daemon.debug.record", {});
-    expect(events(join(dir, "orchd.log"))).toContain("daemon.debug.record");
+    createServices({ orchDir: dir, proc: "orchd" }).logger.debug("daemon.debug.record", {});
+    expect(events(join(dir, "orch.log"))).toContain("daemon.debug.record");
+  });
+
+  test("setLevel updates existing children", () => {
+    const dir = fixture();
+    const logger = createLogger({ file: join(dir, "orch.log"), level: "info", proc: "cli" });
+    const child = logger.forCorrelation("d-1");
+    logger.setLevel("trace");
+    child.trace("trace.record", {});
+    expect(events(join(dir, "orch.log"))).toContain("trace.record");
   });
 });

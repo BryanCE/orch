@@ -3,7 +3,8 @@ import type { RunRecord } from "../src/types/store.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { mergeAgentStatus, selectAgentStatus } from "../src/store/status-rows.ts";
+import { recordAgentStatus } from "../src/presence/store.ts";
+import { selectAgentStatus } from "../src/store/status-rows.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { stubDaemonClient } from "./helpers/daemon-client.ts";
 import { seedAgent } from "./helpers/agent.ts";
@@ -59,7 +60,7 @@ function fakeDaemonClient(orchDir: OrchDir): DaemonClient {
   return {
     ...client,
     reportStatus: (agentKey, patch) => {
-      mergeAgentStatus(orchDir, agentKey, patch, Date.now());
+      recordAgentStatus(orchDir, agentKey, patch, Date.now());
       return Promise.resolve(true);
     },
     reportResult: (agentKey, result) => {

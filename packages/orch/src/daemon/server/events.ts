@@ -1,4 +1,4 @@
-import type { OrchDir } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import { notify } from "../../notify/router.ts";
 import { abstractAgentLabel, spaceLabelForKey } from "../../notify/format.ts";
 import { loadPresence } from "../../presence/store.ts";
@@ -69,6 +69,7 @@ export function emitAndNotify(
   orchDir: OrchDir | undefined,
   settings: SettingsManager,
   now = Date.now(),
+  logger?: Logger,
 ): void {
   if (isRepeatTransition(event, now)) return;
   const space = event.space ?? spaceLabelForKey(event.key);
@@ -89,5 +90,5 @@ export function emitAndNotify(
       })();
   const canonical: NotifyEvent = { ...named, seq, ...(capacity === undefined ? {} : { capacity }) };
   emit(canonical);
-  if (orchDir !== undefined) notify(orchDir, settings.currentOrNull(), sinks, canonical);
+  if (orchDir !== undefined) notify(orchDir, settings.currentOrNull(), sinks, canonical, logger);
 }

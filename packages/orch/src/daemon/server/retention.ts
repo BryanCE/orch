@@ -1,15 +1,14 @@
-import type { OrchDir } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import { loadPresence, reapExpiredPresenceDirs } from "../../presence/store.ts";
 import { allBackends } from "../../backends/registry.ts";
 import { errorMessage } from "../../util.ts";
-import { decisionLogger } from "../client/decision-log.ts";
 import { deleteEventsBefore } from "../../store/event-rows.ts";
 import { deleteDeliveredBefore } from "../../store/outbox-rows.ts";
 import { deleteControlOutcomesBefore } from "../../store/control-outcome-rows.ts";
 import { deleteSettledTasksBefore } from "../../store/task-rows.ts";
 import { deleteRunsBefore } from "../../store/run-rows.ts";
 import { rmSync, statSync } from "node:fs";
-import { daemonRuntimeFiles } from "../client/runtime-files.ts";
+import { logFile } from "../../log.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { SweepCounts } from "../../types/daemon.ts";
 export type { SweepCounts };
@@ -24,9 +23,9 @@ interface SweepEntry {
 }
 
 /** Ask each backend that owns logs to prune its stale artifacts. */
-function removeExpiredLogs(orchDir: OrchDir, cutoff: Date): number {
+function removeExpiredLogs(orchDir: OrchDir, cutoff: Date, logger?: Logger): number {
   let removed = 0;
-  for (const file of [daemonRuntimeFiles(orchDir).log, `${orchDir}/orch.log`]) {
+  for (const file of [logFile(orchDir)]) {
     try {
       const stat = statSync(file);
       if (stat.mtimeMs < cutoff.getTime() || stat.size > ORCH_LOG_MAX_BYTES) {
@@ -43,11 +42,11 @@ function removeExpiredLogs(orchDir: OrchDir, cutoff: Date): number {
   let backendRemoved = 0;
   for (const backend of allBackends()) {
     const pruning = backend.logPruning;
-    if (pruning === null) continue;
+    if (pruning === null || logger === undefined) continue;
     try {
-      backendRemoved += pruning.prune(cutoff, liveKeys, orchDir);
+      backendRemoved += pruning.prune(cutoff, liveKeys, orchDir, logger);
     } catch (error: unknown) {
-      decisionLogger(orchDir, null).warn("retention.sweep-failed", { area: "logs", backend: backend.id, error: errorMessage(error) });
+      logger?.warn("retention.sweep-failed", { area: "logs", backend: backend.id, error: errorMessage(error) });
     }
   }
   return removed + backendRemoved;
@@ -63,7 +62,7 @@ function removeExpiredLogs(orchDir: OrchDir, cutoff: Date): number {
  * opinion about, and the shortcut for that was `{...} as OrchSettings`, which Rule 13
  * forbids. Rule 13's own remedy for a cast is "a wrong signature gets its signature
  * fixed", and this was the wrong signature. */
-export function sweepExpiredRows(orchDir: OrchDir, settings: Pick<OrchSettings, "retention">, now: Date): SweepCounts {
+export function sweepExpiredRows(orchDir: OrchDir, settings: Pick<OrchSettings, "retention">, now: Date, logger?: Logger): SweepCounts {
   const counts: SweepCounts = { queue: 0, outbox: 0, control_outcomes: 0, events: 0, runs: 0, ended_agents: 0, logs: 0 };
   const cutoff = (days: number): Date => new Date(now.getTime() - days * DAY_MS);
   const { retention } = settings;
@@ -76,13 +75,13 @@ export function sweepExpiredRows(orchDir: OrchDir, settings: Pick<OrchSettings, 
     // A gone agent's rows leave on the daemon's liveness tick, not here. Only its
     // JSONL history ages, and a null window keeps that history forever.
     { name: "ended_agents", remove: () => retention.ended_agents_days === null ? 0 : reapExpiredPresenceDirs(orchDir, cutoff(retention.ended_agents_days)).length },
-    { name: "logs", remove: () => removeExpiredLogs(orchDir, cutoff(retention.logs_days)) },
+    { name: "logs", remove: () => removeExpiredLogs(orchDir, cutoff(retention.logs_days), logger) },
   ];
   for (const entry of entries) {
     try {
       counts[entry.name] = entry.remove();
     } catch (error: unknown) {
-      decisionLogger(orchDir, null).warn("retention.sweep-failed", { area: entry.name, error: errorMessage(error) });
+      logger?.warn("retention.sweep-failed", { area: entry.name, error: errorMessage(error) });
     }
   }
   return counts;

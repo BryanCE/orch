@@ -11,6 +11,7 @@ import { emitAndNotify, isRepeatTransition } from "../src/daemon/server/events.t
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { subscribeEvents } from "../src/daemon/client/rpc.ts";
 import { selectAgentStatus } from "../src/store/status-rows.ts";
+import { recordQuestion } from "../src/store/question-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { statusRow } from "./helpers/presence.ts";
@@ -28,6 +29,7 @@ import { testServices } from "./helpers/services.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 import { isRecord } from "../src/util.ts";
 import { askingEvent, closedEvent, eventBase, transitionEvent } from "./helpers/events.ts";
+import { recordingLogger } from "./helpers/logger.ts";
 
 const directories: OrchDir[] = [];
 const servers: RpcServer[] = [];
@@ -379,6 +381,22 @@ describe("daemon presence events", () => {
     expect(event.type).toBe("asking");
   });
 
+  test("transition events use blocked messages while asking events use pending questions", () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
+    recordQuestion(orchDir, { id: "question-event", agentId: key, question: "What should I do?", askedAt: 1 });
+    const row = statusRow({ agentId: key, state: "blocked", task: "continue work", blockedMessage: "waiting on disk" });
+
+    const blocked = transitionEventFromRow(orchDir, row, "working", "blocked");
+    expect(blocked.reason).toBe("waiting on disk");
+    expect(blocked.task).not.toStartWith("Q:");
+
+    const asking = askingEventFromRow(orchDir, row, "working", 1, false);
+    expect(asking.task).toStartWith("Q: ");
+    expect(asking.reason).toBe("What should I do?");
+  });
+
   test("an asking report publishes an asking event", () => {
     const orchDir = tempOrchDir();
     const key = mintAgentId();
@@ -414,13 +432,15 @@ describe("daemon presence events", () => {
     const key = mintAgentId();
     registerAgent(key, { name: key }, orchDir);
     const events: NotifyEvent[] = [];
+    const { logger, records } = recordingLogger();
     report(orchDir, key, { state: "working" }, (event) => events.push(event));
-    const tick = startLivenessTick(orchDir, 10, (event) => events.push(event));
+    const tick = startLivenessTick(orchDir, 10, (event) => events.push(event), logger);
     await waitFor(() => events.some((event) => eventState(event) === "exited"));
     tick.stop();
     expect(events.some((event) => eventState(event) === "exited")).toBe(true);
     // Dead means gone: no row of any kind is left for it.
     expect(selectAgentStatus(orchDir, key)).toBeUndefined();
     expect(agentView(orchDir, key)).toBeNull();
+    expect(records.some((record) => record.event === "tick.liveness" && typeof record.fields?.elapsedMs === "number")).toBe(true);
   });
 });

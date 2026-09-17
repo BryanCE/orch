@@ -58,33 +58,58 @@ grep -rln "store/\|presence/store\|entities/inventory\|identity/self\|policy/cal
 prints `status/offline.ts` and nothing else. `bun check` and the touched tests are the
 rest of the gate. Passed 2026-09-16; the baseline bench is in `docs/orchd-performance.md`.
 
-## Then: the held fleet
+## Then: memory is the truth, sqlite is the copy
 
 Only after the gate above passes. Each step is measured with
 `bun packages/orch/scripts/bench-daemon.ts --requests 500` and recorded in
 `docs/orchd-performance.md`. The number is p99.
 
-1. **Writers invalidate, reads never check.** `storeMemo` drops the `data_version` and
-   `total_changes()` key; `storeVersion` is deleted. A fleet-shape writer (`insertAgent`,
-   `endAgent`, lease, handle, space, process, tuning, rename) calls `forgetFleet`. A read is
-   a map lookup.
-2. **Status, results and liveness are patched, not rebuilt.** `presence/store.ts` holds
-   `statuses`, `results`, `alive` per dir. `mergeAgentStatus` and the result report write
-   the row and patch the map. `alive` is written only by the liveness tick on
-   `daemon.liveness_poll_ms`. No read probes a process. `holdPresenceFor` goes.
-3. **The report path reads the map.** `status-report.ts`, `status-events.ts`: existence
+The model. The daemon's maps are the truth. An operation reads them and patches them. A
+row write is queued and lands in sqlite after the reply, in one transaction per drain.
+sqlite is the copy that survives a crash: orchd loads the maps from it once, and
+`status --offline` and `doctor` open it when no daemon runs. The daemon reads sqlite at
+runtime only for cold data the maps do not hold (run history, past events, closed leases).
+Research and numbers: `learnings/2026-09-17-in-memory-state-with-durable-copy.md`.
+
+1. **The write queue.** `store/connection.ts` gets a per-dir queue of row writes and a
+   drain. A writer pushes its statement and returns. The drain runs on `setImmediate`,
+   after the replies of the turn went out, and commits every queued statement in one
+   `BEGIN IMMEDIATE ... COMMIT`. A runtime read of sqlite (`ormForRead`) drains first, so
+   it is read-your-writes. `daemon stop` and `reload` drain before the connection closes.
+   `orm(orchDir)` drains before it returns, so every read-then-write writer keeps its
+   order; the drain itself uses the raw handle. A writer that needs the write's result
+   (`changes`, a `returning()` id) runs through `orm` synchronously, except the event
+   insert, which is hot: it mints `seq` from a counter loaded with `max(seq)` and queues
+   the row. The loss window on a crash is one event-loop turn; on power loss, the last
+   commit under `synchronous = NORMAL`. The file is never corrupt.
+2. **The fleet map is patched, never rebuilt.** `store/agent-view.ts` holds one
+   `FleetFacts` per dir, built from sqlite once on the first read. A fleet-shape writer
+   (`insertAgent`, `claimAgent`, `reclaimAgent`, `endAgent`, `renameAgent`,
+   `getOrCreateSessionAgent`, lease, handle, space, process, tuning, worktree) writes its
+   row and then refreshes that one agent's entry: its hub row and satellites are read
+   back by id and its view recomposed. A rename also recomposes the children, whose
+   `spawnedByName` changed. `reapAgentRecord` drops the entry. A whole-fleet read is a
+   map lookup; the fleet is never rebuilt after the first load. The fleet no longer uses
+   `storeMemo`.
+3. **Status, results and liveness are patched, not rebuilt.** `presence/store.ts` holds
+   `statuses`, `results`, `alive` per dir. `mergeAgentStatus` and the result report patch
+   the map and queue the row. `alive` is written only by the liveness tick on
+   `daemon.liveness_poll_ms`. No read probes a process. `holdPresenceFor`, `storeMemo`,
+   `storeVersion` and the `data_version` check are deleted.
+4. **The report path reads the map.** `status-report.ts`, `status-events.ts`: existence
    check and `composeBase` from the held fleet; `pendingQuestion` only for `asking`.
-4. **The capacity stamp runs over the held maps.** `events.ts:84` stops rebuilding.
-5. **The work loop wakes for a reason.** Only a transition into `idle`, `done`, `error`,
+5. **The capacity stamp runs over the held maps.** `events.ts:84` stops rebuilding.
+6. **The work loop wakes for a reason.** Only a transition into `idle`, `done`, `error`,
    `aborted`, a result, a registration or a close wakes it.
-6. **Prepared statements on the hot writes.** The status upsert and the run upsert are
-   drizzle `.prepare()` statements built once per connection.
+
+Prepared statements on the hot writes are not a step: the drain batches them, so one
+commit covers a turn's worth of reports.
 
 Targets for the run after step 6: `report-status` and `fan-out` p99 under 50 ms, phase
 under 500 ms; `status` p99 under 60 ms; `peer-view` p99 under 10 ms.
 
 ## Memory
 
-Per agent the daemon holds one composed view, one status row and the newest result text.
-150 agents is under 1 MB plus results. Nothing holds history; `status.jsonl` and
-`results.jsonl` are append-only and never read.
+Per agent the daemon holds one composed view, one status row, the newest result text and
+the queued rows of the current turn. 150 agents is under 1 MB plus results. Nothing holds
+history; `status.jsonl` and `results.jsonl` are append-only and never read.

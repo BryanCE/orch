@@ -210,6 +210,7 @@ export interface PendingQuestionView {
 export type OutboxDelivery = "acked" | "queued" | "failed" | "gone";
 
 export interface OutboxDeps {
+  logger?: Logger;
   deliver(target: string, payload: unknown, id: string): Promise<OutboxDelivery>;
   now(): number;
   /** A row that fails this many attempts is closed as undeliverable. The gone signal is the fix for a dead agent; this is the backstop. */
@@ -232,8 +233,6 @@ export interface DaemonRuntimeFiles {
   readonly port: string;
   /** Owner-readable credential for loopback TCP identity RPCs. */
   readonly token: string;
-  /** Where the daemon's structured JSONL diagnostics are written. */
-  readonly log: string;
 }
 
 export interface SweepCounts {
@@ -264,4 +263,5 @@ export interface WorkOptions {
   dispatch?: (entry: PresenceEntry, task: TaskRec) => Promise<void>;
   /** Emit canonical work lifecycle events through the daemon fan-out. */
   onEvent?: (event: NotifyEvent) => void;
+  logger: Logger;
 }

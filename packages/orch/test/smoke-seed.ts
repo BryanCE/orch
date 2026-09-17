@@ -11,7 +11,7 @@
  */
 import { envOrchDir } from "../src/services.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
-import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { recordAgentStatus } from "../src/presence/store.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { isAgentId } from "../src/backends/identity.ts";
 
@@ -40,7 +40,7 @@ registerSpawnedAgent(root, {
   process: { pid: Number(pidText), startToken: null },
 });
 
-mergeAgentStatus(root, key, {
+recordAgentStatus(root, key, {
   state: "asking",
   dispatchId,
   model: { provider: "openai-codex", id: "gpt-5" },

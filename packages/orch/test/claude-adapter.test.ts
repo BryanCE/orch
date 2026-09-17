@@ -4,7 +4,7 @@ import { existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/backends/identity.ts";
-import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { recordAgentStatus } from "../src/presence/store.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
@@ -116,14 +116,14 @@ describe("Claude adapter", () => {
   test("detects state from a live presence status", () => {
     const key = "claudestt1";
     seedAgent(key, { adapter: "claude" }, orchDir);
-    mergeAgentStatus(orchDir, key, { state: "working" }, Date.now());
+    recordAgentStatus(orchDir, key, { state: "working" }, Date.now());
     expect(claudeAdapter.detectState({ key }, orchDir)).toBe("working");
   });
 
   test("extracts results before transcript and native output", () => {
     const key = "claudersl1";
     seedAgent(key, { adapter: "claude" }, orchDir);
-    mergeAgentStatus(orchDir, key, { state: "working" }, Date.now());
+    recordAgentStatus(orchDir, key, { state: "working" }, Date.now());
     upsertRun(orchDir, { dispatchId: "claude-result", agentKey: key, state: "done", startedAt: Date.now(), result: "result text" });
     const transcript = join(agentDir(key), "transcript.jsonl");
     writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: [{ type: "text", text: "transcript text" }] })}\n`);

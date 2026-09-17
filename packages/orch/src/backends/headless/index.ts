@@ -2,7 +2,6 @@ import { closeSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from "n
 import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import { errorMessage, pidAlive } from "../../util.ts";
-import { decisionLogger } from "../../daemon/client/decision-log.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { environmentStamp } from "../../agent/environment.ts";
 
@@ -15,7 +14,7 @@ import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { createCaptureRole } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
-import type { OrchDir } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
 
 const HEADLESS_BACKEND: BackendId = "headless";
@@ -114,7 +113,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly versionInfo: null = null;
   readonly serverInfo: null = null;
   readonly logPruning: LogPruningRole = {
-    prune: (cutoff: Date, liveKeys: readonly string[], orchDir: OrchDir): number => this.pruneLogFiles(cutoff, liveKeys, orchDir),
+    prune: (cutoff: Date, liveKeys: readonly string[], orchDir: OrchDir, logger: Logger): number => this.pruneLogFiles(cutoff, liveKeys, orchDir, logger),
   };
   readonly capture: CaptureRole = {
     read: (agentId, request) => {
@@ -253,7 +252,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   }
 
   /** Remove old headless logs, retaining every log belonging to a live presence. */
-  private pruneLogFiles(cutoff: Date, liveKeys: readonly string[], orchDir: OrchDir): number {
+  private pruneLogFiles(cutoff: Date, liveKeys: readonly string[], orchDir: OrchDir, logger: Logger): number {
     const logsDir = logDirectory(orchDirectory(orchDir));
     let names: string[];
     try {
@@ -277,7 +276,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
         rmSync(file, { force: true });
         removed++;
       } catch (error: unknown) {
-        decisionLogger(orchDirectory(orchDir), null).warn("retention.sweep-failed", { area: "logs", file, error: errorMessage(error) });
+        logger.warn("retention.sweep-failed", { area: "logs", file, error: errorMessage(error) });
       }
     }
     return removed;

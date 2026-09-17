@@ -2,7 +2,7 @@
 // and entities from one answer instead of opening the store.
 import { buildEntities, sortEntities } from "../../../entities/inventory.ts";
 import { resolveTargetFor } from "../../../entities/resolve.ts";
-import { loadPresence } from "../../../presence/store.ts";
+import { loadPresence, presenceEntry } from "../../../presence/store.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
 import { agentViews } from "../../../store/agent-view.ts";
 import { agentProcessLive } from "../../../store/interval-rows.ts";
@@ -25,7 +25,7 @@ export function fleetSnapshot(state: DaemonState, params: ParamsOf<"fleet">): Re
 /** A reaped agent has no presence, only history; an operator may still read it by exact key. */
 function reapedExactKey(directory: OrchDir, credential: CallerCredential, target: string): boolean {
   return callerKindOf(directory, credential) === "operator"
-    && !loadPresence(directory).has(target)
+    && presenceEntry(directory, target) === undefined
     && selectRuns(directory, { agentKey: target, limit: 1 }).length > 0;
 }
 

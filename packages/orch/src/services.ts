@@ -1,10 +1,10 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createLogger } from "./log.ts";
+import { createLogger, logFile } from "./log.ts";
 import { fileSettingsManager } from "./settings/manager.ts";
 import { logLevelFor } from "./settings/read.ts";
 import { detectHost } from "./host.ts";
-import type { Logger, OrchDir } from "./types/core.ts";
+import type { Logger, LogProc, OrchDir } from "./types/core.ts";
 import type { Host } from "./types/host.ts";
 import type { OrchSettings } from "./types/settings.ts";
 import type { ModelCatalogue } from "./types/adapter.ts";
@@ -27,6 +27,7 @@ export interface ServicesOptions {
   orchDir?: OrchDir;
   settings?: SettingsManager;
   logger?: Logger;
+  proc?: LogProc;
   models?: ModelCatalogue;
   host?: Host;
 }
@@ -45,7 +46,7 @@ function settingsForLogLevel(settings: SettingsManager): OrchSettings | null {
 export function createServices(options: ServicesOptions = {}): Services {
   const orchDir = options.orchDir ?? envOrchDir();
   const settings = options.settings ?? fileSettingsManager(orchDir);
-  const logger = options.logger ?? createLogger({ file: join(orchDir, "orch.log"), level: logLevelFor(settingsForLogLevel(settings)) });
+  const logger = options.logger ?? createLogger({ file: logFile(orchDir), level: logLevelFor(settingsForLogLevel(settings)), proc: options.proc ?? "cli" });
   const models = options.models ?? createModelCatalogue(orchDir, logger);
   const host = options.host ?? detectHost();
   return { orchDir, settings, logger, models, host };

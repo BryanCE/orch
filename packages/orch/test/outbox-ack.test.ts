@@ -12,9 +12,12 @@ import type { BridgeMessage } from "../src/control/bridge-message.ts";
 import { isLogRecord } from "../src/log.ts";
 import type { OutboxDelivery, OutboxDeps } from "../src/types/daemon.ts";
 import type { LogRecord, OrchDir } from "../src/types/core.ts";
+import { createServices } from "../src/services.ts";
+import type { Logger } from "../src/types/core.ts";
 
 const dirs: OrchDir[] = [];
 const previousLogLevel = process.env.ORCH_LOG_LEVEL;
+let currentLogger: Logger | undefined;
 
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
@@ -22,6 +25,7 @@ function fixture(): OrchDir {
   const dir = tempOrchDir("orch-outbox-ack-");
   dirs.push(dir);
   process.env.ORCH_LOG_LEVEL = "debug";
+  currentLogger = createServices({ orchDir: dir, proc: "orchd" }).logger;
   return dir;
 }
 
@@ -29,7 +33,7 @@ function deps(
   maxAttempts: number,
   deliver: (target: string, payload: unknown, id: string) => Promise<OutboxDelivery>,
 ): OutboxDeps {
-  return { maxAttempts, now: () => 0, deliver };
+  return { maxAttempts, now: () => 0, deliver, logger: currentLogger };
 }
 
 afterEach(() => {
@@ -151,7 +155,7 @@ describe("socket outbox acknowledgements", () => {
 });
 
 function selectLog(dir: OrchDir, event: string): LogRecord | undefined {
-  const contents = readFileSync(join(dir, "orchd.log"), "utf8").trim();
+  const contents = readFileSync(join(dir, "orch.log"), "utf8").trim();
   if (contents.length === 0) return undefined;
   return contents.split("\n")
     .map((line) => {

@@ -24,12 +24,14 @@ function linesOf(file: string): LogRecord[] {
 describe("the one log record shape", () => {
   test("writes one JSONL record per call, with an epoch-millis instant", () => {
     const dir = temp();
-    const file = join(dir, "orchd.log");
-    const log = createLogger({ file, level: "info" });
+    const file = join(dir, "orch.log");
+    const log = createLogger({ file, level: "info" , proc: "cli"});
     log.info("daemon.started", { pid: 42 });
 
     const records = linesOf(file);
     expect(records).toHaveLength(1);
+    expect(records[0]!.proc).toBe("cli");
+    expect(records[0]!.pid).toBe(process.pid);
     expect(records[0]!.event).toBe("daemon.started");
     expect(records[0]!.level).toBe("info");
     // Rule 11: instants are INTEGER epoch millis, never TEXT.
@@ -39,8 +41,8 @@ describe("the one log record shape", () => {
 
   test("a record below the configured level is not written at all", () => {
     const dir = temp();
-    const file = join(dir, "orchd.log");
-    const log = createLogger({ file, level: "warn" });
+    const file = join(dir, "orch.log");
+    const log = createLogger({ file, level: "warn" , proc: "cli"});
     log.debug("lease.checked", { holder: "a" });
     log.info("dispatch.accepted", {});
     log.warn("bridge.reconnecting", {});
@@ -51,8 +53,8 @@ describe("the one log record shape", () => {
 
   test("a correlation id rides every record of one dispatch, so one grep finds its whole life", () => {
     const dir = temp();
-    const file = join(dir, "orchd.log");
-    const log = createLogger({ file, level: "info" });
+    const file = join(dir, "orch.log");
+    const log = createLogger({ file, level: "info" , proc: "cli"});
     const dispatch = log.forCorrelation("d-123");
     dispatch.info("dispatch.accepted", {});
     dispatch.info("dispatch.delivered", {});
@@ -64,8 +66,8 @@ describe("the one log record shape", () => {
 
   test("agentId carries orch's minted id; a plexer handle is a field, never the identity", () => {
     const dir = temp();
-    const file = join(dir, "orchd.log");
-    const log = createLogger({ file, level: "info" });
+    const file = join(dir, "orch.log");
+    const log = createLogger({ file, level: "info" , proc: "cli"});
     log.info("agent.spawned", { handle: "w7:p2E" }, { agentId: "5vlv1jey2z" });
 
     const record = linesOf(file)[0]!;
@@ -82,6 +84,6 @@ describe("the one log record shape", () => {
     expect(isLogRecord({ at: 1, level: "shout", event: "x" })).toBe(false);
     expect(isLogRecord({ at: 1, level: "info" })).toBe(false);
     expect(isLogRecord([])).toBe(false);
-    expect(isLogRecord({ at: 1, level: "info", event: "x" })).toBe(true);
+    expect(isLogRecord({ proc: "cli", pid: 1, at: 1, level: "info", event: "x" })).toBe(true);
   });
 });

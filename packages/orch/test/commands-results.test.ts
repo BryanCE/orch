@@ -21,7 +21,7 @@ import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { errorMessage, isRecord } from "../src/util.ts";
 import { sql } from "drizzle-orm";
-import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { recordAgentStatus } from "../src/presence/store.ts";
 import { selectRuns, upsertRun } from "../src/store/run-rows.ts";
 
 /** Target resolution loads settings.json (host lookup) and die()s — killing the whole
@@ -172,7 +172,7 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     seedAgent(root, key, space);
-    mergeAgentStatus(root, key, { state: "done" }, Date.now());
+    recordAgentStatus(root, key, { state: "done" }, Date.now());
     upsertRun(root, { dispatchId: "result-dispatch-42", agentKey: key, state: "done", startedAt: Date.now(), result: "finished" });
     const output: string[] = [];
     // eslint-disable-next-line typescript/unbound-method
@@ -191,7 +191,7 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     seedAgent(root, key, space);
-    mergeAgentStatus(root, key, { state: "done" }, Date.now());
+    recordAgentStatus(root, key, { state: "done" }, Date.now());
     const startedAt = Date.now();
     upsertRun(root, { dispatchId: "result-history-first", agentKey: key, state: "done", startedAt, result: "first dispatch" });
     upsertRun(root, { dispatchId: "result-history-second", agentKey: key, state: "done", startedAt: startedAt + 1, result: "second dispatch" });
@@ -215,7 +215,7 @@ describe("commands/results", () => {
     const session = join(dir, "session.jsonl");
     writeFileSync(session, JSON.stringify({ type: "message", message: { role: "assistant", content: "session final" } }) + "\n");
     seedAgent(root, key, space, "pi");
-    mergeAgentStatus(root, key, { state: "done", sessionPath: session }, Date.now());
+    recordAgentStatus(root, key, { state: "done", sessionPath: session }, Date.now());
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
       expect(await captureStdoutAsync(() => cmdResult(services, [key]))).toContain("(no results.jsonl - falling back to adapter-extracted session text)\nsession final\n");
@@ -231,7 +231,7 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     seedAgent(root, key, space);
-    mergeAgentStatus(root, key, { state: "done" }, Date.now());
+    recordAgentStatus(root, key, { state: "done" }, Date.now());
     upsertRun(root, { dispatchId: "result-no-agent-44", agentKey: key, state: "done", startedAt: Date.now(), result: "finished without agent" });
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
@@ -251,7 +251,7 @@ describe("commands/results", () => {
     try {
       for (const [index, key] of targets.entries()) {
         seedAgent(root, key, "test");
-        mergeAgentStatus(root, key, { state: "done" }, Date.now());
+        recordAgentStatus(root, key, { state: "done" }, Date.now());
         upsertRun(root, { dispatchId: `result-many-${index}`, agentKey: key, state: "done", startedAt: Date.now(), result: `result-${index}` });
       }
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
@@ -274,7 +274,7 @@ describe("commands/results", () => {
     try {
       for (const [index, key] of targets.entries()) {
         seedAgent(root, key, "test");
-        mergeAgentStatus(root, key, { state: "done" }, Date.now());
+        recordAgentStatus(root, key, { state: "done" }, Date.now());
         upsertRun(root, { dispatchId: `result-json-${index}`, agentKey: key, state: "done", startedAt: Date.now(), result: `json-${index}` });
       }
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
@@ -299,7 +299,7 @@ describe("commands/results", () => {
     const known = "resultkn01";
     const missing = "resultms01";
     seedAgent(root, known, "test");
-    mergeAgentStatus(root, known, { state: "done" }, Date.now());
+    recordAgentStatus(root, known, { state: "done" }, Date.now());
     upsertRun(root, { dispatchId: "result-known-01", agentKey: known, state: "done", startedAt: Date.now(), result: "known-result" });
     process.exitCode = 0;
     try {
@@ -330,7 +330,7 @@ describe("commands/results", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "" }, { type: "text", text: "claude final" }] } }),
     ].join("\n") + "\n");
     seedAgent(root, key, space, "claude");
-    mergeAgentStatus(root, key, { state: "done", sessionPath: transcript }, Date.now());
+    recordAgentStatus(root, key, { state: "done", sessionPath: transcript }, Date.now());
     let joined = "";
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
@@ -358,7 +358,7 @@ describe("commands/results", () => {
       JSON.stringify({ type: "message", timestamp: "2026-07-20T10:00:04Z", message: { role: "assistant", content: [{ type: "text", text: "final answer" }] } }),
     ].join("\n") + "\n");
     seedAgent(root, key, space);
-    mergeAgentStatus(root, key, { state: "done", sessionPath: session }, Date.now());
+    recordAgentStatus(root, key, { state: "done", sessionPath: session }, Date.now());
     return { root, key, restore: () => { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); } };
   }
 
@@ -409,7 +409,7 @@ describe("commands/results", () => {
     const transcript = join(dir, "session.jsonl");
     writeFileSync(transcript, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "claude only" }] } }) + "\n");
     seedAgent(root, key, space, "claude");
-    mergeAgentStatus(root, key, { state: "done", sessionPath: transcript }, Date.now());
+    recordAgentStatus(root, key, { state: "done", sessionPath: transcript }, Date.now());
     let joined = "";
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);

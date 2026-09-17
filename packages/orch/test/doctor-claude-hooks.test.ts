@@ -57,7 +57,7 @@ function hooksFor(
 
 const packageRoot = path.join(import.meta.dir, "..");
 const currentShim = claudeHookShimPath(packageRoot);
-const logger = createLogger({ file: path.join(orchHome, "doctor.log"), level: "trace" });
+const logger = createLogger({ file: path.join(orchHome, "doctor.log"), level: "trace" , proc: "cli"});
 
 function currentSettings() {
   return fileSettingsManager(orchHome).current();

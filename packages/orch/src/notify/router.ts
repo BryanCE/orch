@@ -1,15 +1,14 @@
-import type { OrchDir } from "../types/core.ts";
+import type { Logger, OrchDir } from "../types/core.ts";
 import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { commandArgv, commandAvailable, createBuiltinNotifiers, stringArray } from "./sinks.ts";
 import { oneLine } from "./format.ts";
 import type { AgentState } from "../adapters/adapter.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
-import { decisionLogger } from "../daemon/client/decision-log.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import { eventState } from "./event.ts";
 
-function warning(orchDir: OrchDir, message: string): void { decisionLogger(orchDir, null).warn("notify.failed", { message }); }
+function warning(logger: Logger, message: string): void { logger.warn("notify.failed", { message }); }
 
 /** The sink ids are the discriminants settings.ts's `NotifyEntrySchema` already
  *  declares. Re-listing them here made a second copy that could drift, and put a
@@ -34,10 +33,11 @@ class NotifierRegistry {
    *  from them is the sink's business; the router only carries them through the port. */
   private readonly settings: OrchSettings | null;
 
-  constructor(orchDir: OrchDir, settings: OrchSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { timeoutMs?: number; warn?: (message: string) => void } = {}) {
+  constructor(orchDir: OrchDir, settings: OrchSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { timeoutMs?: number; warn?: (message: string) => void; logger?: Logger } = {}) {
     this.settings = settings;
     this.timeoutMs = options.timeoutMs ?? SETTINGS_DEFAULTS.timeouts.notify_ms;
-    this.emitWarning = options.warn ?? ((message) => warning(orchDir, message));
+    const logger = options.logger;
+    this.emitWarning = options.warn ?? (logger === undefined ? () => undefined : (message) => warning(logger, message));
     this.notifiers = new Map(notifiers.flatMap((notifier) => isNotifyId(notifier.id) ? [[notifier.id, notifier]] : []));
   }
 
@@ -98,14 +98,14 @@ class NotifierRegistry {
   }
 }
 
-export function createNotifierRegistry(orchDir: OrchDir, settings: OrchSettings | null, notifiers?: readonly Notifier[], options: { timeoutMs?: number; warn?: (message: string) => void } = {}): NotifierRegistry {
+export function createNotifierRegistry(orchDir: OrchDir, settings: OrchSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { timeoutMs?: number; warn?: (message: string) => void; logger?: Logger } = {}): NotifierRegistry {
   return new NotifierRegistry(orchDir, settings, notifiers, options);
 }
 
-export async function deliver(orchDir: OrchDir, settings: OrchSettings | null, entry: NotifyEntry, event: NotifyEvent): Promise<boolean> {
-  return createNotifierRegistry(orchDir, settings).deliver(entry, event);
+export async function deliver(orchDir: OrchDir, settings: OrchSettings | null, entry: NotifyEntry, event: NotifyEvent, logger?: Logger): Promise<boolean> {
+  return createNotifierRegistry(orchDir, settings, undefined, { logger }).deliver(entry, event);
 }
 
-export function notify(orchDir: OrchDir, settings: OrchSettings | null, entries: readonly NotifyEntry[], event: NotifyEvent): void {
-  createNotifierRegistry(orchDir, settings).notify(entries, event);
+export function notify(orchDir: OrchDir, settings: OrchSettings | null, entries: readonly NotifyEntry[], event: NotifyEvent, logger?: Logger): void {
+  createNotifierRegistry(orchDir, settings, undefined, { logger }).notify(entries, event);
 }

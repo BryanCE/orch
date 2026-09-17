@@ -42,11 +42,11 @@ function agent(directory: OrchDir, id: string): void {
 }
 
 function daemonState(directory: OrchDir) {
-  return idleDaemonState(testServices({ orchDir: directory, settings: {} }), directory);
+  return idleDaemonState(testServices({ orchDir: directory, settings: {}, proc: "orchd" }), directory);
 }
 
 function records(directory: OrchDir): LogRecord[] {
-  const lines = readFileSync(join(directory, "orchd.log"), "utf8").trim().split("\n");
+  const lines = readFileSync(join(directory, "orch.log"), "utf8").trim().split("\n");
   return lines.map((line) => {
     const parsed: unknown = JSON.parse(line);
     expect(isLogRecord(parsed)).toBe(true);
@@ -70,6 +70,8 @@ describe("daemon decision trail", () => {
     if (record === undefined) throw new Error("missing lease refusal record");
     expect(Number.isFinite(record.at)).toBe(true);
     expect(record).toEqual({
+      proc: "orchd",
+      pid: process.pid,
       at: record.at,
       level: "debug",
       event: "lease.refused",
@@ -93,6 +95,8 @@ describe("daemon decision trail", () => {
     if (record === undefined) throw new Error("missing lease grant record");
     expect(Number.isFinite(record.at)).toBe(true);
     expect(record).toEqual({
+      proc: "orchd",
+      pid: process.pid,
       at: record.at,
       level: "debug",
       event: "lease.granted",
@@ -122,6 +126,8 @@ describe("daemon decision trail", () => {
     if (record === undefined) throw new Error("missing boundary answer record");
     expect(Number.isFinite(record.at)).toBe(true);
     expect(record).toEqual({
+      proc: "orchd",
+      pid: process.pid,
       at: record.at,
       level: "debug",
       event: "boundary.answer",

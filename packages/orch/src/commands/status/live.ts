@@ -133,7 +133,7 @@ export async function cmdStatusLive(services: Services, options: StatusOptions):
   let subscription: EventSubscription | undefined;
   try {
     process.stdout.write(ENTER_ALT_SCREEN);
-    subscription = subscribeEvents(services.orchDir, {}, () => refresh());
+    subscription = subscribeEvents(services.orchDir, { logger: services.logger }, () => refresh());
     process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.on("data", onKey);

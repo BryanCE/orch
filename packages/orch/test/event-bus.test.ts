@@ -19,6 +19,7 @@ function event(): NotifyEvent {
 function testLogger(warnings: string[]): Logger {
   const noop = (): void => undefined;
   const logger: Logger = {
+    setLevel: noop,
     error: noop,
     warn: (name) => { warnings.push(name); },
     info: noop,

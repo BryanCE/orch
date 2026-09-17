@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runWorkLoop } from "../src/daemon/server/work-loop.ts";
 import { createWakeSignal } from "../src/daemon/server/wake.ts";
@@ -48,6 +49,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
     await withOrchDir(dir, async () => {
       const task = addTask(dir, "pack work", {}, "enq");
       await runWorkLoop({
+    logger: testLogger,
         orchDir: dir,
         wake: createWakeSignal(),
         tickMs: 10,
@@ -75,6 +77,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       const task = addTask(dir, "pack work", {}, "enq");
       const events: NotifyEvent[] = [];
       await runWorkLoop({
+    logger: testLogger,
         orchDir: dir, wake: createWakeSignal(), tickMs: 10, once: true, json: true,
         settings: testServices({ orchDir: dir, settings: {} }).settings,
         models: testServices({ orchDir: dir }).models,
@@ -93,6 +96,7 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
       const task = addTask(dir, "survives its orch", {}, "runner0000");
       expect(orm(dir).all(sql`SELECT agent_id FROM agent_leases WHERE until IS NULL`)).toEqual([]);
       await runWorkLoop({
+    logger: testLogger,
         orchDir: dir, wake: createWakeSignal(), tickMs: 10, once: true, json: true,
         settings: testServices({ orchDir: dir, settings: {} }).settings,
         models: testServices({ orchDir: dir }).models,
@@ -107,3 +111,5 @@ describe("Cq8/Cq1: the work loop claims as the registered agent, never as a plex
     });
   }, 20_000);
 });
+
+const { logger: testLogger } = recordingLogger();

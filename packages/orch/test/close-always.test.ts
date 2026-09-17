@@ -3,8 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";
-import { spawnedRecords } from "../src/presence/store.ts";
-import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { recordAgentStatus, spawnedRecords } from "../src/presence/store.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
 import { processIsAlive, processStartToken } from "../src/process-identity.ts";
@@ -66,7 +65,7 @@ async function runCli(dir: OrchDir, args: string[]): Promise<{ status: number | 
 /** A working agent as orchd records one: the status row, plus the history
  *  directory orchd opens on the first report. Close ends the row and leaves the history. */
 function writeStatus(dir: OrchDir, key: string): void {
-  mergeAgentStatus(dir, key, { state: "working" }, Date.now());
+  recordAgentStatus(dir, key, { state: "working" }, Date.now());
   mkdirSync(join(dir, "agents", key), { recursive: true });
 }
 
@@ -282,7 +281,7 @@ describe("close always works", () => {
     seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" }, dir);
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
-    mergeAgentStatus(dir, key, { state: "done" }, Date.now());
+    recordAgentStatus(dir, key, { state: "done" }, Date.now());
 
     const result = await runCli(dir, ["close", key, "--json"]);
 

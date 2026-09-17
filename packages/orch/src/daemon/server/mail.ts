@@ -1,11 +1,10 @@
-import type { OrchDir } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import { randomUUID } from "node:crypto";
 import { checkWall } from "../../policy/space.ts";
 import { SETTINGS_DEFAULTS } from "../../settings/schema.ts";
 import { insertOutboxMessage } from "../../store/outbox-rows.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { resolveTargetRoute } from "../../control/dispatch.ts";
-import { decisionLogger } from "../client/decision-log.ts";
 import type { MailDelivery, OrchSettings } from "../../types/settings.ts";
 
 function requiredMailString(value: string, name: string): string {
@@ -35,7 +34,7 @@ function targetPaneFocused(directory: OrchDir, target: string): boolean {
 /** Queue one agent's message to another. Mail is governed by the space wall only, never by
  * the lease: it is not a driving verb (Rule 11). The row is picked up by the outbox drain
  * or by the caller's own delivery attempt, and `mailDelivery` decides its route then. */
-export function acceptMail(directory: OrchDir, settings: OrchSettings | null, from: string, target: string, text: string): { id: string } {
+export function acceptMail(directory: OrchDir, settings: OrchSettings | null, from: string, target: string, text: string, logger?: Logger): { id: string } {
   const sender = requiredMailString(from, "from");
   const recipient = requiredMailString(target, "target");
   const body = requiredMailString(text, "text");
@@ -45,6 +44,6 @@ export function acceptMail(directory: OrchDir, settings: OrchSettings | null, fr
 
   const id = randomUUID();
   insertOutboxMessage(directory, { id, target: recipient, payload: { action: "mail", from: sender, text: body } });
-  decisionLogger(directory, settings).forCorrelation(id).info("mail.accepted", { from: sender, target: recipient });
+  logger?.forCorrelation(id).info("mail.accepted", { from: sender, target: recipient });
   return { id };
 }

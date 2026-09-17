@@ -1,3 +1,4 @@
+import { logFile } from "../../log.ts";
 import type { OrchDir } from "../../types/core.ts";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -170,7 +171,7 @@ function socketPath(orchDir: OrchDir): string {
 }
 
 function logPath(orchDir: OrchDir): string {
-  return daemonRuntimeFiles(orchDir).log;
+  return logFile(orchDir);
 }
 
 function currentCodeHash(): string {

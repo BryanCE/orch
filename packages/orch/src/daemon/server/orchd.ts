@@ -1,5 +1,4 @@
-import type { OrchDir } from "../../types/core.ts";
-import type { LogLevel, Logger } from "../../types/core.ts";
+
 import "../../store/suppress-sqlite-warning.ts";
 import { bootCodeHash, idleShutdownDue, liveAgentCount, socketAnswers, touchOnCall } from "./state.ts";
 import type { DaemonState } from "./state.ts";
@@ -23,53 +22,47 @@ import { startLivenessTick } from "./status-report.ts";
 import { errorMessage, errorTrace } from "../../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { holdPresenceFor } from "../../presence/store.ts";
 import { drainOutbox, redeliverOpenRows } from "./outbox.ts";
 import { isAgentId } from "../../backends/identity.ts";
 import { LAUNCH_ENV, readLaunchCredential } from "../../identity/launch.ts";
 import { deliverControl, resolveTargetAdapter } from "../../control/dispatch.ts";
 import { warmAdapterCatalogues } from "../../adapters/registry.ts";
-import { createLogger } from "../../log.ts";
-import { daemonRuntimeFiles } from "../client/runtime-files.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import { createPanePainter } from "./pane-painter.ts";
 import { liveAgentViews } from "../../store/agent-view.ts";
 import { createWakeSignal } from "./wake.ts";
-
-/** `level` is an explicit override (a flag); everything else resolves the same
- *  way every other logger does, through `logLevelFor`. */
-function loggerFor(directory: OrchDir, level?: LogLevel): Logger {
-  const envLevel = process.env.ORCH_LOG_LEVEL;
-  if (envLevel === undefined && level !== undefined) {
-    return createLogger({ file: daemonRuntimeFiles(directory).log, level });
-  }
-  return createLogger({ file: daemonRuntimeFiles(directory).log, level: logLevelFor(null) });
-}
+import { closeAllStores, reportDrains, reportWriteFailures } from "../../store/connection.ts";
+import { flushPresenceHistory, reportHistoryFailures } from "../../presence/history.ts";
+import { observeToolExec } from "../../backends/tool-exec.ts";
+import { startLoopWatchdog } from "./loop-watchdog.ts";
 
 function logFatalAndExit(state: DaemonState, kind: string, error: unknown): void {
   state.fatalLogged = true;
   const message = errorMessage(error);
-  state.logger?.error("daemon.crashed", { kind, message, trace: errorTrace(error) });
+  state.services.logger.error("daemon.crashed", { kind, message, trace: errorTrace(error) });
   process.exit(1);
 }
 
 async function shutDown(state: DaemonState, reason: string): Promise<void> {
   const directory = state.directory;
-  state.logger?.info("daemon.stopping", { reason });
+  state.services.logger.info("daemon.stopping", { reason });
   if (state.outboxDrain) clearInterval(state.outboxDrain);
   state.livenessTick?.stop();
+  state.loopWatchdog?.stop();
   state.settingsWatch?.stop();
   state.workController.abort();
   await state.workLoop;
   await state.server?.close();
+  flushPresenceHistory();
+  closeAllStores();
   releaseDaemonLock(directory);
   releaseDaemonRegistration();
-  state.logger?.info("daemon.stopped", { pid: process.pid });
+  state.services.logger.info("daemon.stopped", { pid: process.pid });
   process.exit(0);
 }
 
 export async function startDaemon(): Promise<DaemonState> {
-  const services = createServices();
+  const services = createServices({ proc: "orchd" });
   const directory = services.orchDir;
   const state: DaemonState = {
     services,
@@ -81,20 +74,28 @@ export async function startDaemon(): Promise<DaemonState> {
     workLoopRunning: false,
     outboxDrain: undefined,
     livenessTick: undefined,
+    loopWatchdog: undefined,
     settingsWatch: undefined,
     lastActivityAt: Date.now(),
-    logger: undefined,
     fatalLogged: false,
   };
   if (invokedAsMain()) {
     process.on("uncaughtException", (error: unknown) => logFatalAndExit(state, "uncaught exception", error));
     process.on("unhandledRejection", (reason: unknown) => logFatalAndExit(state, "unhandled rejection", reason));
-    process.on("exit", (code) => { if (code !== 0 && !state.fatalLogged) state.logger?.error("daemon.exited", { code }); });
+    process.on("exit", (code) => { if (code !== 0 && !state.fatalLogged) state.services.logger.error("daemon.exited", { code }); });
   }
-  state.logger = loggerFor(directory);
+  reportWriteFailures((error) => state.services.logger.error("store.write_failed", { message: errorMessage(error) }));
+  reportHistoryFailures((error) => state.services.logger.error("history.append_failed", { message: errorMessage(error) }));
+  observeToolExec((exec) => {
+    const fields = { binary: exec.binary, args: exec.args.join(" "), attempt: exec.attempt, ok: exec.ok, elapsedMs: exec.elapsedMs };
+    const slowMs = state.services.settings.current().logging.slow_tool_ms;
+    if (exec.elapsedMs >= slowMs) state.services.logger.warn("tool.slow", fields);
+    else state.services.logger.debug("tool.exec", fields);
+  });
+  reportDrains((drain) => state.services.logger.trace("store.drained", { rows: drain.rows, batched: drain.batched, elapsedMs: drain.elapsedMs }));
   const launch = readLaunchCredential();
   if (launch.kind === "malformed") {
-    state.logger.error("launch.invalid-key", { value: launch.value });
+    state.services.logger.error("launch.invalid-key", { value: launch.value });
     throw new Error(`${LAUNCH_ENV} is set but is not an agent id: ${JSON.stringify(launch.value)}`);
   }
   const answers = await socketAnswers(directory);
@@ -103,26 +104,27 @@ export async function startDaemon(): Promise<DaemonState> {
     const live = registration.registration;
     // The refused daemon exits silently, so its log line is the only record of
     // why: name the live one the same way the CLI's refusal does.
-    state.logger?.warn("daemon.refused", { reason: live ? daemonStartRefusal(live) : "machine registration", pid: live?.pid ?? null, socket: live?.socket ?? null });
+    state.services.logger.warn("daemon.refused", { reason: live ? daemonStartRefusal(live) : "machine registration", pid: live?.pid ?? null, socket: live?.socket ?? null });
     return state;
   }
   if (!acquireDaemonLock(directory, () => answers)) {
     releaseDaemonRegistration();
-    state.logger?.warn("daemon.refused", { reason: "backing store lock" });
+    state.services.logger.warn("daemon.refused", { reason: "backing store lock" });
     return state;
   }
 
   try {
     const settings = services.settings.current();
-    state.logger = loggerFor(directory, services.settings.current().logging?.level);
+    services.logger.setLevel(logLevelFor(services.settings.current()));
     const tcpPort = settings.daemon.tcp_port;
     state.server = await startRpcServer(directory, touchOnCall(state, rpcHandlers(state)), {
       holdsDaemonLock: true,
+      logger: services.logger,
       tcpPort,
-      onTcpError: (error, port) => state.logger?.error("daemon.tcp-listener-failed", { port, error: errorMessage(error) }),
+      onTcpError: (error, port) => state.services.logger.error("daemon.tcp-listener-failed", { port, error: errorMessage(error) }),
       onBridgeAttached: (key) => {
         void redeliverOpenRows(directory, key, outboxDeps(state)).catch((error: unknown) => {
-          state.logger?.error("outbox.redeliver-failed", { target: key, error: errorMessage(error) });
+          state.services.logger.error("outbox.redeliver-failed", { target: key, error: errorMessage(error) });
         });
         state.wake.wake();
       },
@@ -146,23 +148,24 @@ export async function startDaemon(): Promise<DaemonState> {
       return next;
     },
     onChange: (settings) => {
-      if (settingsLoaded) state.logger?.info("config.reloaded");
+      services.logger.setLevel(logLevelFor(settings));
+      if (settingsLoaded) state.services.logger.info("config.reloaded");
       settingsLoaded = true;
-      if (previousSettings !== null && state.logger !== undefined) {
+      if (previousSettings !== null) {
         void repinLiveFleet({
           previousSettings,
           settings,
           listLiveAgents: () => liveAgentViews(directory),
           resolveAdapter: (agent) => resolveTargetAdapter(directory, agent.id),
           deliver: (target, action) => deliverControl(directory, settings, state.services.models, target, action),
-          logger: state.logger,
+          logger: services.logger,
         }).catch((error: unknown) => {
-          state.logger?.warn("settings.repin.failed", { error: errorMessage(error) });
+          state.services.logger.warn("settings.repin.failed", { error: errorMessage(error) });
         });
       }
       previousSettings = settings;
     },
-    onWarn: (message) => state.logger?.warn("config.warning", { message }),
+    onWarn: (message) => state.services.logger.warn("config.warning", { message }),
   });
   const paintPane = createPanePainter(directory);
   const publishPresenceEvent = (event: NotifyEvent): void => {
@@ -187,12 +190,13 @@ export async function startDaemon(): Promise<DaemonState> {
         }
       }
     }
-    emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings);
+    emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings, Date.now(), services.logger);
     state.wake.wake();
   };
   const livenessPollMs = services.settings.current().daemon.liveness_poll_ms;
-  holdPresenceFor(livenessPollMs);
-  state.livenessTick = startLivenessTick(directory, livenessPollMs, publishPresenceEvent);
+  state.livenessTick = startLivenessTick(directory, livenessPollMs, publishPresenceEvent, services.logger);
+  const logging = services.settings.current().logging;
+  state.loopWatchdog = startLoopWatchdog(services.logger, logging.stall_ms, logging.stall_poll_ms);
   state.workLoopRunning = true;
   state.workLoop = runWorkLoop({
     orchDir: directory,
@@ -202,7 +206,8 @@ export async function startDaemon(): Promise<DaemonState> {
     models: services.models,
     signal: state.workController.signal,
     continuous: true,
-    onEvent: (event) => { state.lastActivityAt = Date.now(); emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings); },
+    logger: services.logger,
+    onEvent: (event) => { state.lastActivityAt = Date.now(); emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings, Date.now(), services.logger); },
   }).finally(() => { state.workLoopRunning = false; });
 
   // The outbox drains on orchd's OWN clock. Piggy-backing it on `acceptWrite`
@@ -210,7 +215,7 @@ export async function startDaemon(): Promise<DaemonState> {
   // and that caller then waited out the whole backlog before its own write went.
   state.outboxDrain = setInterval(() => {
     void drainOutbox(directory, outboxDeps(state)).catch((error: unknown) => {
-      state.logger?.error("outbox.drain-failed", { error: errorMessage(error) });
+      state.services.logger.error("outbox.drain-failed", { error: errorMessage(error) });
     });
   }, services.settings.current().daemon.outbox_drain_ms);
   state.outboxDrain.unref?.();
@@ -229,7 +234,7 @@ export async function startDaemon(): Promise<DaemonState> {
   process.once("SIGTERM", () => void shutDown(state, "SIGTERM"));
   process.once("SIGINT", () => void shutDown(state, "SIGINT"));
   const tcp = state.server?.tcpEndpoint;
-  state.logger?.info("daemon.started", { pid: process.pid, hash: bootCodeHash, transport: state.server?.transport ?? "unknown", tcp: tcp ?? null });
+  state.services.logger.info("daemon.started", { pid: process.pid, hash: bootCodeHash, transport: state.server?.transport ?? "unknown", tcp: tcp ?? null });
   return state;
 }
 

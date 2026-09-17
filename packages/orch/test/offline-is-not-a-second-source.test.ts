@@ -6,7 +6,7 @@ import { testServices } from "./helpers/services.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
-import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { recordAgentStatus } from "../src/presence/store.ts";
 import type { AgentState } from "../src/agent-state.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
@@ -47,7 +47,7 @@ function fixture(): OrchDir {
 function seedPresence(root: OrchDir, key: string, alive: boolean, state: AgentState): void {
   seedAgent(key, {}, root);
   if (alive) seedLiveProcess(root, key);
-  mergeAgentStatus(root, key, { state }, Date.now());
+  recordAgentStatus(root, key, { state }, Date.now());
 }
 
 function noSettings(root: OrchDir): OrchSettings {

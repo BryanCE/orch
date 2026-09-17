@@ -5,7 +5,8 @@
  * parsing helpers used by harness shims.
  */
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { setImmediate } from "node:timers";
 import { OUTCOMES_FILE, RESULTS_FILE, STATUS_LOG_FILE } from "./schema.ts";
 import { isRecord } from "../util.ts";
 import type { LaunchEnvFacts, PresenceRecord } from "../types/presence.ts";
@@ -71,22 +72,57 @@ export function launchEnvFacts(): LaunchEnvFacts {
   };
 }
 
-function appendPresenceLine(directory: string, name: string, record: PresenceRecord): void {
-  appendFileSync(presenceFile(directory, name), `${JSON.stringify(record)}\n`);
+/** Lines waiting for the next flush, per history file. History is append-only and
+ *  nothing reads it back, so a report never waits on the disk: the line lands on the
+ *  same `setImmediate` turn as the store's queued rows, after the reply went out. */
+const pendingLines = new Map<string, string[]>();
+let flushScheduled = false;
+
+let historyFailureReporter: (error: unknown) => void = (error) => {
+  console.error("orch: a history append failed", error);
+};
+
+export function reportHistoryFailures(report: (error: unknown) => void): void {
+  historyFailureReporter = report;
+}
+
+function queuePresenceLine(key: string, root: OrchDir, name: string, record: PresenceRecord): void {
+  const file = presenceFile(presenceAgentDir(key, root), name);
+  const lines = pendingLines.get(file) ?? [];
+  lines.push(`${JSON.stringify(record)}\n`);
+  pendingLines.set(file, lines);
+  if (flushScheduled) return;
+  flushScheduled = true;
+  setImmediate(flushPresenceHistory);
+}
+
+/** Land every queued history line: one mkdir per agent dir, one append per file. */
+export function flushPresenceHistory(): void {
+  flushScheduled = false;
+  const files = [...pendingLines];
+  pendingLines.clear();
+  for (const [file, lines] of files) {
+    try {
+      mkdirSync(dirname(file), { recursive: true });
+      appendFileSync(file, lines.join(""));
+    } catch (error) {
+      historyFailureReporter(error);
+    }
+  }
 }
 
 /** Append the agent's settled-turn result. */
-export function writeResult(directory: string, result: PresenceRecord): void {
-  appendPresenceLine(directory, RESULTS_FILE, result);
+export function writeResult(key: string, root: OrchDir, result: PresenceRecord): void {
+  queuePresenceLine(key, root, RESULTS_FILE, result);
 }
 
 /** Append what the agent did with one control command. */
-export function appendOutcome(directory: string, outcome: PresenceRecord): void {
-  appendPresenceLine(directory, OUTCOMES_FILE, outcome);
+export function appendOutcome(key: string, root: OrchDir, outcome: PresenceRecord): void {
+  queuePresenceLine(key, root, OUTCOMES_FILE, outcome);
 }
 
 /** Append one accepted status report to the daemon's history. */
-export function appendStatusHistory(directory: string, record: PresenceRecord): void {
-  appendPresenceLine(directory, STATUS_LOG_FILE, record);
+export function appendStatusHistory(key: string, root: OrchDir, record: PresenceRecord): void {
+  queuePresenceLine(key, root, STATUS_LOG_FILE, record);
 }
 

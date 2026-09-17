@@ -6,19 +6,19 @@ import { join } from "node:path";
 // lives. The dependency runs only this way: presence/ stays standalone so the
 // harness shims can bundle it without dragging in the sqlite graph.
 import { presenceRoot } from "./history.ts";
-import { agentViewIndex, agentViews, liveViews } from "../store/agent-view.ts";
+import { agentView, agentViewIndex, agentViews, liveViews, onAgentRefreshed, refreshAgent } from "../store/agent-view.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { eq, isNotNull } from "drizzle-orm";
-import { orm, storeMemo } from "../store/connection.ts";
+import { orm, registerMemoReset } from "../store/connection.ts";
 import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-rows.ts";
-import { currentProcesses } from "../store/interval-rows.ts";
+import { currentProcess, currentProcesses, type ProcessRow } from "../store/interval-rows.ts";
 import { recordedInstanceIsLive } from "../process-identity.ts";
 import { agents } from "../db/schema.ts";
-import { selectAgentStatuses } from "../store/status-rows.ts";
-import { latestResultTexts } from "../store/run-rows.ts";
+import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../store/status-rows.ts";
+import { latestResultTexts, onRunUpserted, settledDispatchIds } from "../store/run-rows.ts";
 import type { AgentView } from "../types/store.ts";
 import type { OrchDir } from "../types/core.ts";
-import type { PresenceEntry } from "../types/presence.ts";
+import type { PresenceEntry, StatusPatch } from "../types/presence.ts";
 
 export function presenceDir(root: OrchDir): string {
   return presenceRoot(root);
@@ -73,6 +73,7 @@ export function spawnedRecords(root: OrchDir): Map<string, AgentView> {
  *  the presence directory is untouched; that ages out on its own. */
 export function reapAgentRecord(agentId: string, root: OrchDir): void {
   orm(root).delete(agents).where(eq(agents.id, agentId)).run();
+  refreshAgent(root, agentId);
   closeOutboxForTarget(root, agentId);
 }
 
@@ -196,28 +197,125 @@ export function reapExpiredPresenceDirs(root: OrchDir, olderThan: Date): string[
   return removed;
 }
 
-let presenceHoldMs = 0;
-
-/** How long a presence read stands before the processes are probed again. The
- *  daemon sets this to its liveness poll: that tick already bounds how late an
- *  exit is noticed, and it writes the exit, which retires the held read. */
-export function holdPresenceFor(ms: number): void {
-  presenceHoldMs = ms;
+interface HeldPresence {
+  readonly statuses: Map<string, AgentStatusRow>;
+  readonly results: Map<string, string>;
+  readonly settled: Set<string>;
+  readonly processes: Map<string, ProcessRow>;
+  readonly alive: Map<string, boolean>;
 }
 
-/** The fleet's presence in one read per table: status, newest result, and
- *  whether the recorded process still runs. Read again after any store write,
- *  and after {@link holdPresenceFor} elapses. */
-export const loadPresence = storeMemo((root: OrchDir): ReadonlyMap<string, PresenceEntry> => {
-  const presence = new Map<string, PresenceEntry>();
-  const statuses = new Map(selectAgentStatuses(root).map((row) => [row.agentId, row]));
-  const results = latestResultTexts(root);
+const held = new Map<OrchDir, HeldPresence>();
+registerMemoReset(() => held.clear());
+
+function heldPresence(root: OrchDir): HeldPresence {
+  const existing = held.get(root);
+  if (existing) return existing;
   const processes = currentProcesses(root);
-  for (const view of agentViews(root)) {
-    const recorded = processes.get(view.id);
-    const alive = view.endedAt === null && recorded !== undefined && recordedInstanceIsLive(recorded.pid, recorded.startToken);
-    presence.set(view.id, { key: view.id, status: statuses.get(view.id) ?? null, result: results.get(view.id) ?? null, alive });
-  }
+  const alive = new Map<string, boolean>();
+  for (const [agentId, process] of processes) alive.set(agentId, recordedInstanceIsLive(process.pid, process.startToken));
+  const presence: HeldPresence = {
+    statuses: new Map(selectAgentStatuses(root).map((row) => [row.agentId, row])),
+    results: latestResultTexts(root),
+    settled: settledDispatchIds(root),
+    processes,
+    alive,
+  };
+  held.set(root, presence);
   return presence;
-}, () => presenceHoldMs);
+}
+
+function entryFor(view: AgentView, current: HeldPresence): PresenceEntry {
+  return {
+    key: view.id,
+    status: current.statuses.get(view.id) ?? null,
+    result: current.results.get(view.id) ?? null,
+    alive: view.endedAt === null && current.alive.get(view.id) === true,
+  };
+}
+
+export function loadPresence(root: OrchDir): ReadonlyMap<string, PresenceEntry> {
+  const current = heldPresence(root);
+  const presence = new Map<string, PresenceEntry>();
+  for (const view of agentViews(root)) presence.set(view.id, entryFor(view, current));
+  return presence;
+}
+
+/** One agent's presence, or undefined for an id the fleet does not hold. */
+export function presenceEntry(root: OrchDir, agentId: string): PresenceEntry | undefined {
+  const view = agentView(root, agentId);
+  if (view === null) return undefined;
+  return entryFor(view, heldPresence(root));
+}
+
+export function recordAgentStatus(
+  root: OrchDir,
+  agentId: string,
+  patch: StatusPatch,
+  now: number,
+): { previous: AgentStatusRow | undefined; current: AgentStatusRow } {
+  const previous = heldPresence(root).statuses.get(agentId);
+  const current = mergeAgentStatus(root, agentId, previous, patch, now);
+  patchStatus(root, current);
+  return { previous, current };
+}
+
+export function patchStatus(root: OrchDir, row: AgentStatusRow): void {
+  held.get(root)?.statuses.set(row.agentId, row);
+}
+
+export function dropStatus(root: OrchDir, agentId: string): void {
+  held.get(root)?.statuses.delete(agentId);
+}
+
+export function runIsSettled(root: OrchDir, dispatchId: string): boolean {
+  return heldPresence(root).settled.has(dispatchId);
+}
+
+export function refreshProcess(root: OrchDir, agentId: string): void {
+  const current = held.get(root);
+  if (!current) return;
+  if (agentView(root, agentId) === null) {
+    current.statuses.delete(agentId);
+    current.results.delete(agentId);
+    current.processes.delete(agentId);
+    current.alive.delete(agentId);
+    return;
+  }
+  const process = currentProcess(root, agentId);
+  if (process === undefined) {
+    current.processes.delete(agentId);
+    current.alive.set(agentId, false);
+    return;
+  }
+  current.processes.set(agentId, process);
+  current.alive.set(agentId, recordedInstanceIsLive(process.pid, process.startToken));
+}
+
+export function probeAllProcesses(root: OrchDir): void {
+  const current = held.get(root);
+  if (!current) return;
+  for (const [agentId, process] of current.processes) {
+    current.alive.set(agentId, recordedInstanceIsLive(process.pid, process.startToken));
+  }
+}
+
+onAgentRefreshed((root, agentId) => refreshProcess(root, agentId));
+
+/** A run with a text result is the newest for its agent. A run that lost its
+ *  result may leave an older text result as the newest, so that case re-reads
+ *  the agent's newest from the store. */
+onRunUpserted((root, run) => {
+  const current = held.get(root);
+  if (!current) return;
+  if (typeof run.result === "string") {
+    current.results.set(run.agentKey, run.result);
+    current.settled.add(run.dispatchId);
+    return;
+  }
+  current.settled.delete(run.dispatchId);
+  const newest = latestResultTexts(root).get(run.agentKey);
+  if (newest === undefined) current.results.delete(run.agentKey);
+  else current.results.set(run.agentKey, newest);
+});
 

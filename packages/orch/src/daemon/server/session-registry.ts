@@ -6,6 +6,7 @@ import { versionInRange } from "../../backends/versions.ts";
 import { getBackend } from "../../backends/registry.ts";
 import { isHostOs } from "../../host.ts";
 import type { HostOs } from "../../types/host.ts";
+import type { Logger } from "../../types/core.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse, UnleasedAgent } from "../../types/daemon.ts";
 import type { ParamsOf, SessionClaim } from "../client/protocol.ts";
 import { and, asc, eq, isNull, ne, notInArray } from "drizzle-orm";
@@ -73,7 +74,7 @@ function callerFacts<C extends SessionClaim>(claim: C, daemonToken: string): Cal
   return { claim, pid, startToken, harness, cwd, environment: claimedEnvironment(claim), hostOs: claimedHostOs(claim) };
 }
 
-export function registerSession(orchDir: OrchDir, params: ParamsOf<"register-session">, daemonToken: string): RegisterSessionResponse {
+export function registerSession(orchDir: OrchDir, params: ParamsOf<"register-session">, daemonToken: string, logger?: Logger): RegisterSessionResponse {
   const facts = callerFacts(params, daemonToken);
   const alreadyRegistered = sessionAlreadyRegistered(orchDir, facts.pid, facts.startToken);
   const identity = getOrCreateSessionAgent(orchDir, {
@@ -83,8 +84,9 @@ export function registerSession(orchDir: OrchDir, params: ParamsOf<"register-ses
     plexerId: facts.environment.plexerId, plexerVersion: facts.environment.plexerVersion, handle: facts.environment.handle,
     space: facts.environment.space, now: Date.now(),
   });
+  if (identity.repointed) logger?.info("session.repointed", { agentId: identity.id, harnessId: facts.harness });
   const registrationWarning = plexerRegistrationWarning(facts.environment.plexerId, facts.environment.plexerVersion);
-  return { ...identity, ...(registrationWarning ? { registrationWarning } : {}), unleased: alreadyRegistered ? [] : unleasedAgents(orchDir, identity.id) };
+  return { id: identity.id, label: identity.label, kind: identity.kind, ...(registrationWarning ? { registrationWarning } : {}), unleased: alreadyRegistered ? [] : unleasedAgents(orchDir, identity.id) };
 }
 
 export function claimIdentity(orchDir: OrchDir, params: ParamsOf<"claim-identity">, daemonToken: string): ClaimIdentityResponse {

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { declaredRuntime } from "../settings/read.ts";
 
 import type { OrchRuntime } from "../runtime.ts";
-import { loadPresence } from "../presence/store.ts";
+import { presenceEntry } from "../presence/store.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import { isAgentState } from "../agent-state.ts";
@@ -42,7 +42,7 @@ function stateFrom(value: unknown): AgentState {
 }
 
 function presenceFor(key: string, orchDir: OrchDir): PresenceEntry | undefined {
-  return loadPresence(orchDir).get(key);
+  return presenceEntry(orchDir, key);
 }
 
 const HOME = os.homedir();
@@ -183,7 +183,7 @@ class ClaudeAdapter implements AgentAdapter {
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = null;
   readonly bridge = null;
-  readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => loadPresence(orchDir).has(key) };
+  readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceEntry(orchDir, key) !== undefined };
 
   /** State is authoritative only when the Claude settings hooks are installed. */
   readonly hookDriven = true;

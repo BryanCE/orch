@@ -1,6 +1,6 @@
 import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { retryingSync } from "../retry.ts";
-import type { ToolExecutor } from "../types/backend.ts";
+import type { ToolExecRecord, ToolExecutor } from "../types/backend.ts";
 import type { RetryPolicy } from "../types/core.ts";
 
 export const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
@@ -16,6 +16,12 @@ export const DEFAULT_TOOL_RETRY: RetryPolicy = { attempts: 4, delayMs: 250, back
 
 const realExecutor: ToolExecutor = (binary, args, options) => execFileSync(binary, [...args], options);
 
+let toolExecObserver: (exec: ToolExecRecord) => void = () => undefined;
+
+export function observeToolExec(observe: (exec: ToolExecRecord) => void): void {
+  toolExecObserver = observe;
+}
+
 /** Run one external tool command, reattempting the failures the policy admits. */
 export function runTool(
   binary: string,
@@ -24,7 +30,20 @@ export function runTool(
   options: ExecFileSyncOptionsWithStringEncoding = DEFAULT_OPTIONS,
   executor: ToolExecutor = realExecutor,
 ): string {
-  return retryingSync(`${binary} ${args.join(" ")}`, () => executor(binary, args, options), policy);
+  let attempt = 0;
+  const observedAttempt = (): string => {
+    attempt += 1;
+    const startedAt = Date.now();
+    try {
+      const output = executor(binary, args, options);
+      toolExecObserver({ binary, args, attempt, ok: true, elapsedMs: Date.now() - startedAt });
+      return output;
+    } catch (error: unknown) {
+      toolExecObserver({ binary, args, attempt, ok: false, elapsedMs: Date.now() - startedAt });
+      throw error;
+    }
+  };
+  return retryingSync(`${binary} ${args.join(" ")}`, observedAttempt, policy);
 }
 
 /** Run one external tool command, answering null instead of throwing. For the

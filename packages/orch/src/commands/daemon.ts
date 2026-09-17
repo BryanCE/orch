@@ -1,3 +1,4 @@
+import { logFile } from "../log.ts";
 import * as path from "node:path";
 import {
   clearDaemonRuntime,
@@ -150,7 +151,7 @@ async function startDaemon(orchDir: OrchDir, logger: Services["logger"], foregro
   // Never announce a start the daemon did not make: it exits silently when it
   // cannot take the lock, and its reason is in the log.
   const status = await waitForDaemon(directory).catch((): never =>
-    die(`orchd did not answer after start; see ${daemonRuntimeFiles(directory).log}`));
+    die(`orchd did not answer after start; see ${logFile(directory)}`));
   if (json) process.stdout.write(JSON.stringify({ running: true, pid: status.pid, started: true }) + "\n");
   else process.stdout.write(`started (pid ${status.pid})\n`);
 }

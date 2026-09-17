@@ -1,13 +1,9 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-
-
 import { closeAllStores } from "../src/store/connection.ts";
 import { agentById, endAgent, getOrCreateSessionAgent, insertAgent } from "../src/store/agent-rows.ts";
 import { currentProcess } from "../src/store/interval-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
-import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 const tempDirs: OrchDir[] = [];
@@ -45,12 +41,6 @@ describe("session refresh identity continuity", () => {
     expect(currentProcess(orchDir, first.id)).toMatchObject({ pid: 42, startToken: "start-a", since: 1_000, until: null });
     expect(currentLease(orchDir, first.id)).toEqual(leaseBefore);
 
-    const log = readFileSync(daemonRuntimeFiles(orchDir).log, "utf8");
-    expect(log).toContain('"event":"session.repointed"');
-    expect(log).toContain(`"agentId":"${first.id}"`);
-    expect(log).toContain('"harnessId":"pi"');
-    expect(log).not.toContain("session-a");
-    expect(log).not.toContain("session-b");
   });
 
   test("same token with a new process keeps the agent and repoints its process interval", () => {

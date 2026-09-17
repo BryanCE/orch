@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { DEFAULT_OPTIONS, runTool } from "../src/backends/tool-exec.ts";
+import { afterEach, describe, expect, test } from "bun:test";
+import { DEFAULT_OPTIONS, observeToolExec, runTool } from "../src/backends/tool-exec.ts";
 import type { ToolExecutor } from "../src/types/backend.ts";
 
 /** A failure shaped like execFileSync's: a code on stderr is how every tool
@@ -25,7 +25,19 @@ function scriptedExecutor(outcomes: (string | Error)[]): { executor: ToolExecuto
 
 const FAST = { attempts: 4, delayMs: 1, backoff: 2 };
 
+afterEach(() => observeToolExec(() => undefined));
+
 describe("every command into a harness or plexer retries on timing, not on being wrong", () => {
+  test("observes each attempt at its end", () => {
+    const observed: { attempt: number; ok: boolean; elapsedMs: number }[] = [];
+    observeToolExec(({ attempt, ok, elapsedMs }) => observed.push({ attempt, ok, elapsedMs }));
+    const scripted = scriptedExecutor([toolFailure("agent_pane_busy"), "started"]);
+
+    expect(runTool("herdr", ["agent", "start", "a"], { ...FAST, retryable: () => true }, DEFAULT_OPTIONS, scripted.executor)).toBe("started");
+    expect(observed.map(({ attempt, ok }) => ({ attempt, ok }))).toEqual([{ attempt: 1, ok: false }, { attempt: 2, ok: true }]);
+    expect(observed.every(({ elapsedMs }) => typeof elapsedMs === "number")).toBe(true);
+  });
+
   test("a transient refusal is reattempted until it succeeds", () => {
     const scripted = scriptedExecutor([toolFailure("agent_pane_busy"), toolFailure("agent_pane_busy"), "started"]);
     const output = runTool("herdr", ["agent", "start", "a"], {

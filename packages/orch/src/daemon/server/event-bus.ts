@@ -7,7 +7,7 @@ export interface EventBus {
   on(handler: (event: NotifyEvent) => void): () => void;
 }
 
-export function createEventBus(logger: Logger): EventBus {
+export function createEventBus(logger?: Logger): EventBus {
   const handlers = new Set<(event: NotifyEvent) => void>();
   return {
     on: (handler) => {
@@ -15,7 +15,7 @@ export function createEventBus(logger: Logger): EventBus {
         try {
           handler(event);
         } catch (error: unknown) {
-          logger.warn("events.handler-failed", { error: errorMessage(error) });
+          logger?.warn("events.handler-failed", { error: errorMessage(error) });
         }
       };
       handlers.add(wrapped);

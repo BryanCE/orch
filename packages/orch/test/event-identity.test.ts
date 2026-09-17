@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { emitAndNotify } from "../src/daemon/server/events.ts";
@@ -58,6 +59,7 @@ describe("the work loop is not a second presence-transition source", () => {
     const controller = new AbortController();
     try {
       const loop = runWorkLoop({
+    logger: testLogger,
         orchDir,
         wake: createWakeSignal(),
         tickMs: 10,
@@ -80,3 +82,5 @@ describe("the work loop is not a second presence-transition source", () => {
     expect(published).toEqual([]);
   });
 });
+
+const { logger: testLogger } = recordingLogger();

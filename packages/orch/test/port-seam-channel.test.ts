@@ -6,9 +6,9 @@ import { orchDirAt } from "../src/services.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { createCaptureRole } from "../src/presence/roles.ts";
+import { recordAgentStatus } from "../src/presence/store.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageState } from "../src/store/outbox-rows.ts";
-import { mergeAgentStatus } from "../src/store/status-rows.ts";
 import { deliverOutboxMessage } from "../src/daemon/server/outbox.ts";
 import type { OutboxDeps } from "../src/types/daemon.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
@@ -221,7 +221,7 @@ describe("orch bridge links and capture roles", () => {
     const orchDir = tempOrchDir();
     const key = "capturedg1";
     seedAgent(key, { adapter: "codex" }, orchDir);
-    mergeAgentStatus(orchDir, key, { state: "done" }, Date.now());
+    recordAgentStatus(orchDir, key, { state: "done" }, Date.now());
     upsertRun(orchDir, { dispatchId: "run-1", agentKey: key, state: "done", startedAt: Date.now(), result: "captured result" });
 
     const captured = createCaptureRole(orchDir).read(key, { source: "all" });

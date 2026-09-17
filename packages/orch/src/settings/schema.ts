@@ -82,7 +82,7 @@ export const SETTINGS_DEFAULTS = {
   lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
   questions: { renag_ms: 120_000, renag_limit: 5 },
   monitor: { on: MONITOR_DEFAULT_ON },
-  logging: { level: "info" },
+  logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
@@ -166,7 +166,12 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   }).optional(),
   /** Retention windows in days for ended agents, settled queue tasks, stored events,
    * completed runs, delivered outbox messages, and logs. */
-  logging: z.strictObject({ level: z.enum(["error", "warn", "info", "debug", "trace"]).optional() }).optional(),
+  logging: z.strictObject({
+    level: z.enum(["error", "warn", "info", "debug", "trace"]).optional(),
+    slow_tool_ms: PositiveInt.optional(),
+    stall_ms: PositiveInt.optional(),
+    stall_poll_ms: PositiveInt.optional(),
+  }).optional(),
   retention: z.strictObject({
     /** JSONL history of gone agents older than this many days; null keeps it forever. */
     ended_agents_days: PositiveInt.nullable().optional(),

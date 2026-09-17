@@ -4,7 +4,7 @@ import { resolveAdapter } from "../adapters/registry.ts";
 import { getBackend } from "../backends/registry.ts";
 import { normalizeControlTarget } from "./normalize-target.ts";
 import { AgentGoneError } from "./agent-gone.ts";
-import { loadPresence } from "../presence/store.ts";
+import { presenceEntry } from "../presence/store.ts";
 import { pendingQuestion } from "../store/question-rows.ts";
 import { agentView } from "../store/agent-view.ts";
 import { admitModel } from "../policy/model.ts";
@@ -87,7 +87,7 @@ function requireLiveAgent(orchDir: OrchDir, target: string, adapter: AgentAdapte
  */
 function refuseSteerWhileAsking(orchDir: OrchDir, target: string, action: PromptAction): void {
   if (action.kind !== "steer") return;
-  if (loadPresence(orchDir).get(target)?.status?.state !== "asking") return;
+  if (presenceEntry(orchDir, target)?.status?.state !== "asking") return;
   throw new Error(`cannot steer ${target}: it is awaiting an answer - use 'orch answer ${target} "<text>"'`);
 }
 

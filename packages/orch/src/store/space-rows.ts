@@ -32,7 +32,8 @@ function recordableActor(directory: OrchDir, actorId: string | undefined): strin
 }
 
 export function insertSpace(directory: OrchDir, id: string, name: string, actorId: string | undefined, now: number): void {
-  orm(directory).insert(spaces).values({ id, name, createdBy: recordableActor(directory, actorId), createdAt: now }).run();
+  const createdBy = recordableActor(directory, actorId);
+  orm(directory).insert(spaces).values({ id, name, createdBy, createdAt: now }).run();
 }
 
 export function renameSpaceRow(directory: OrchDir, id: string, name: string): void {

@@ -1,7 +1,8 @@
 import type { OrchDir } from "../types/core.ts";
 import { and, eq, isNull } from "drizzle-orm";
-import { orm, withTransaction } from "./connection.ts";
+import { orm, withTransaction, type Orm } from "./connection.ts";
 import { recordedInstanceIsLive } from "../process-identity.ts";
+import { refreshAgent } from "./agent-view.ts";
 import { agentHandles, agentPlexers, agentProcesses, agentSpaces, agentTunings } from "../db/schema.ts";
 import type { ProcessValues, TuningValues } from "../types/store.ts";
 
@@ -23,60 +24,79 @@ type IntervalTable = typeof agentProcesses | typeof agentHandles | typeof agentS
 /** Close the open row and answer the instant it closed at, which is where the
  *  next row opens. `until > since` forbids closing a row at its own start, so
  *  a row opened this same millisecond closes one later. */
-function closeOpen(orchDir: OrchDir, table: IntervalTable, agentId: string, now: number): number {
-  const open = orm(orchDir).select({ since: table.since }).from(table)
+function closeOpen(db: Orm, table: IntervalTable, agentId: string, now: number): number {
+  const open = db.select({ since: table.since }).from(table)
     .where(and(eq(table.agentId, agentId), isNull(table.until))).get();
   if (open === undefined) return now;
   const closesAt = Math.max(now, open.since + 1);
-  orm(orchDir).update(table).set({ until: closesAt })
+  db.update(table).set({ until: closesAt })
     .where(and(eq(table.agentId, agentId), isNull(table.until))).run();
   return closesAt;
 }
 
+export function recordProcessIn(db: Orm, agentId: string, now: number, values: ProcessValues): void {
+  const since = closeOpen(db, agentProcesses, agentId, now);
+  db.insert(agentProcesses).values({
+    agentId, since, until: null, hostId: values.hostId, pid: values.pid, startToken: values.startToken,
+  }).run();
+}
+
 export function recordProcess(orchDir: OrchDir, agentId: string, now: number, values: ProcessValues): void {
-  withTransaction(orchDir, () => {
-    const since = closeOpen(orchDir, agentProcesses, agentId, now);
-    orm(orchDir).insert(agentProcesses).values({
-      agentId, since, until: null, hostId: values.hostId, pid: values.pid, startToken: values.startToken,
-    }).run();
-  });
+  withTransaction(orchDir, () => recordProcessIn(orm(orchDir), agentId, now, values));
+  refreshAgent(orchDir, agentId);
 }
 
 export function endProcess(orchDir: OrchDir, agentId: string, now: number): void {
-  withTransaction(orchDir, () => { closeOpen(orchDir, agentProcesses, agentId, now); });
+  withTransaction(orchDir, () => {
+    closeOpen(orm(orchDir), agentProcesses, agentId, now);
+  });
+  refreshAgent(orchDir, agentId);
 }
 
 export function setHandle(orchDir: OrchDir, agentId: string, now: number, handle: string): void {
   withTransaction(orchDir, () => {
-    const since = closeOpen(orchDir, agentHandles, agentId, now);
-    orm(orchDir).insert(agentHandles).values({ agentId, since, until: null, handle }).run();
+    const db = orm(orchDir);
+    const since = closeOpen(db, agentHandles, agentId, now);
+    db.insert(agentHandles).values({ agentId, since, until: null, handle }).run();
   });
+  refreshAgent(orchDir, agentId);
 }
 
 export function setSpace(orchDir: OrchDir, agentId: string, now: number, spaceId: string): void {
   withTransaction(orchDir, () => {
-    const since = closeOpen(orchDir, agentSpaces, agentId, now);
-    orm(orchDir).insert(agentSpaces).values({ agentId, since, until: null, spaceId }).run();
+    const db = orm(orchDir);
+    const since = closeOpen(db, agentSpaces, agentId, now);
+    db.insert(agentSpaces).values({ agentId, since, until: null, spaceId }).run();
   });
+  refreshAgent(orchDir, agentId);
 }
 
 export function clearSpace(orchDir: OrchDir, agentId: string, now: number): void {
-  withTransaction(orchDir, () => { closeOpen(orchDir, agentSpaces, agentId, now); });
+  withTransaction(orchDir, () => {
+    closeOpen(orm(orchDir), agentSpaces, agentId, now);
+  });
+  refreshAgent(orchDir, agentId);
 }
 
 export function setTuning(orchDir: OrchDir, agentId: string, now: number, values: TuningValues): void {
   withTransaction(orchDir, () => {
-    const since = closeOpen(orchDir, agentTunings, agentId, now);
-    orm(orchDir).insert(agentTunings).values({
+    const db = orm(orchDir);
+    const since = closeOpen(db, agentTunings, agentId, now);
+    db.insert(agentTunings).values({
       agentId, since, until: null, model: values.model, thinking: values.thinking ?? null,
     }).run();
   });
+  refreshAgent(orchDir, agentId);
 }
 
 /** A plexer is a plain membership, not an interval: an agent is in one plexer
  *  for its whole life, and moving between plexers is a new agent. */
 export function setAgentPlexer(orchDir: OrchDir, agentId: string, plexerId: string): void {
+  const existing = orm(orchDir).select({ agentId: agentPlexers.agentId })
+    .from(agentPlexers).where(eq(agentPlexers.agentId, agentId)).get();
+  if (existing !== undefined) throw new Error(`agent ${agentId} already has a plexer`);
   orm(orchDir).insert(agentPlexers).values({ agentId, plexerId }).run();
+  refreshAgent(orchDir, agentId);
 }
 
 export function currentProcess(orchDir: OrchDir, agentId: string): ProcessRow | undefined {

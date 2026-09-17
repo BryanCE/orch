@@ -154,7 +154,12 @@ const settingsValueExtractors = {
     max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries,
     dispatch_concurrency: root.queue?.dispatch_concurrency ?? SETTINGS_DEFAULTS.queue.dispatch_concurrency,
   }),
-  logging: (root: Partial<SettingsFile>) => ({ level: root.logging?.level ?? SETTINGS_DEFAULTS.logging.level }),
+  logging: (root: Partial<SettingsFile>) => ({
+    level: root.logging?.level ?? SETTINGS_DEFAULTS.logging.level,
+    slow_tool_ms: root.logging?.slow_tool_ms ?? SETTINGS_DEFAULTS.logging.slow_tool_ms,
+    stall_ms: root.logging?.stall_ms ?? SETTINGS_DEFAULTS.logging.stall_ms,
+    stall_poll_ms: root.logging?.stall_poll_ms ?? SETTINGS_DEFAULTS.logging.stall_poll_ms,
+  }),
   retention: (root: Partial<SettingsFile>) => ({
     ended_agents_days: settingOr(root.retention?.ended_agents_days, SETTINGS_DEFAULTS.retention.ended_agents_days),
     queue_days: settingOr(root.retention?.queue_days, SETTINGS_DEFAULTS.retention.queue_days),
@@ -324,6 +329,6 @@ export function allowedModelPatterns(settings: OrchSettings, harness: AdapterId)
 export function logLevelFor(settings: OrchSettings | null): LogLevel {
   const env = process.env.ORCH_LOG_LEVEL;
   if (env !== undefined && isLogLevel(env)) return env;
-  return settings?.logging?.level ?? SETTINGS_DEFAULTS.logging.level;
+  return settings?.logging.level ?? SETTINGS_DEFAULTS.logging.level;
 }
 

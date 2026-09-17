@@ -21,7 +21,6 @@ export function daemonRuntimeFiles(orchDir: OrchDir): DaemonRuntimeFiles {
     socket: join(orchDir, "orchd.sock"),
     port: join(orchDir, "orchd.port"),
     token: join(orchDir, "orchd.token"),
-    log: join(orchDir, "orchd.log"),
   };
 }
 

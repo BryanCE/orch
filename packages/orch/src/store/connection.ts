@@ -2,6 +2,7 @@ import type { OrchDir } from "../types/core.ts";
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
+import { setImmediate } from "node:timers";
 import { defineRelations, sql } from "drizzle-orm";
 import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
@@ -25,7 +26,37 @@ interface OpenDatabase {
 const relations = defineRelations(tables);
 export type Orm = NodeSQLiteDatabase<typeof relations>;
 
-const connections = new Map<string, OpenDatabase>();
+const connections = new Map<OrchDir, OpenDatabase>();
+
+type RowWrite = (db: Orm) => void;
+
+const writeQueues = new Map<OrchDir, RowWrite[]>();
+const scheduledDrains = new Set<OrchDir>();
+const openTransactions = new Map<OrchDir, number>();
+
+let writeFailureReporter: (error: unknown) => void = (error) => {
+  console.error("orch: a queued store write failed", error);
+};
+
+export function reportWriteFailures(report: (error: unknown) => void): void {
+  writeFailureReporter = report;
+}
+
+/** One drain of one dir's write queue, as it landed. */
+export interface DrainRecord {
+  readonly rows: number;
+  readonly batched: boolean;
+  readonly elapsedMs: number;
+}
+
+const noDrainReport = (_drain: DrainRecord): void => {
+  void _drain;
+};
+let drainReporter: (drain: DrainRecord) => void = noDrainReport;
+
+export function reportDrains(report: (drain: DrainRecord) => void): void {
+  drainReporter = report;
+}
 
 /** `node:sqlite` is a builtin in node and bun alike: no compiled addon to
  *  mismatch a platform, and none for bun's N-API layer to panic on
@@ -197,45 +228,78 @@ function applyMigrations(opened: OpenDatabase, path: string, orchDir: OrchDir): 
   }
 }
 
-/** The typed drizzle handle for one orch dir: the ONE query stack over the one
- *  connection. Opening creates the file when absent and applies every migration;
- *  the connection is cached per orch dir. */
-export function orm(orchDir: OrchDir): Orm {
+/** The raw drizzle handle for one orch dir. */
+function rawOrm(orchDir: OrchDir): Orm {
   return openDatabase(orchDir).orm;
 }
 
-/** What sqlite says has changed: `data_version` moves on every commit by another
- *  connection, `total_changes()` on every row this connection wrote. Together they
- *  name the store's contents, so a read keyed on them can never serve a write. */
-function storeVersion(opened: OpenDatabase): string {
-  const foreign = opened.client.prepare("PRAGMA data_version").get();
-  const own = opened.client.prepare("SELECT total_changes() AS n").get();
-  return `${isRecord(foreign) ? String(foreign.data_version) : "?"}:${isRecord(own) ? String(own.n) : "?"}`;
+/** Queue a row write for the next event-loop turn, unless already inside a batch. */
+export function queueWrite(orchDir: OrchDir, write: RowWrite): void {
+  if ((openTransactions.get(orchDir) ?? 0) > 0) {
+    write(rawOrm(orchDir));
+    return;
+  }
+  const queue = writeQueues.get(orchDir) ?? [];
+  queue.push(write);
+  writeQueues.set(orchDir, queue);
+  if (scheduledDrains.has(orchDir)) return;
+  scheduledDrains.add(orchDir);
+  setImmediate(() => {
+    scheduledDrains.delete(orchDir);
+    drainWrites(orchDir);
+  });
 }
 
-interface MemoEntry<T> { readonly version: string; readonly builtAt: number; readonly value: T }
+/** Try to land all queued writes in one transaction. */
+function drainAsBatch(orchDir: OrchDir, writes: readonly RowWrite[]): boolean {
+  try {
+    withTransaction(orchDir, () => {
+      const db = rawOrm(orchDir);
+      for (const write of writes) write(db);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Retry a failed batch one write at a time, reporting and dropping failures. */
+function drainOneByOne(orchDir: OrchDir, writes: readonly RowWrite[]): void {
+  for (const write of writes) {
+    try {
+      withTransaction(orchDir, () => write(rawOrm(orchDir)));
+    } catch (error) {
+      writeFailureReporter(error);
+    }
+  }
+}
+
+/** Drain this dir's queued writes, preserving independent writes after a failure. */
+export function drainWrites(orchDir: OrchDir): void {
+  const queued = writeQueues.get(orchDir);
+  if (queued === undefined || queued.length === 0) return;
+  const startedAt = Date.now();
+  writeQueues.set(orchDir, []);
+  if (drainAsBatch(orchDir, queued)) {
+    drainReporter({ rows: queued.length, batched: true, elapsedMs: Date.now() - startedAt });
+    return;
+  }
+  drainOneByOne(orchDir, queued);
+  drainReporter({ rows: queued.length, batched: false, elapsedMs: Date.now() - startedAt });
+}
+
+/** The typed drizzle handle for one orch dir: the ONE query stack over the one
+ *  connection. Opening creates the file when absent and applies every migration;
+ *  the connection is cached per orch dir. Every read drains pending writes. */
+export function orm(orchDir: OrchDir): Orm {
+  drainWrites(orchDir);
+  return rawOrm(orchDir);
+}
 
 const memoResets = new Set<() => void>();
 
-/**
- * A read of the store that is built once per store version. `build` runs again
- * only after a write lands, from this process or another, or once `maxAgeMs`
- * has passed for a read whose inputs are not all in the store (a process probe).
- * Without a store there is nothing to key on and `build` runs every time.
- */
-export function storeMemo<T>(build: (orchDir: OrchDir) => T, maxAgeMs: () => number = () => Number.POSITIVE_INFINITY): (orchDir: OrchDir) => T {
-  const entries = new Map<string, MemoEntry<T>>();
-  memoResets.add(() => entries.clear());
-  return (orchDir) => {
-    if (!storeExists(orchDir)) return build(orchDir);
-    const version = storeVersion(openDatabase(orchDir));
-    const now = Date.now();
-    const held = entries.get(orchDir);
-    if (held?.version === version && now - held.builtAt < maxAgeMs()) return held.value;
-    const value = build(orchDir);
-    entries.set(orchDir, { version, builtAt: now, value });
-    return value;
-  };
+export function registerMemoReset(reset: () => void): void {
+  memoResets.add(reset);
 }
 
 /**
@@ -248,7 +312,7 @@ export function storeMemo<T>(build: (orchDir: OrchDir) => T, maxAgeMs: () => num
  * --offline` on a machine that has never run orch into a machine that has.
  */
 export function storeExists(orchDir: OrchDir): boolean {
-  return connections.has(databasePath(orchDir)) || existsSync(databasePath(orchDir));
+  return connections.has(orchDir) || writeQueues.has(orchDir) || existsSync(databasePath(orchDir));
 }
 
 /** The store for reading, or `null` where there is none. Never creates one. */
@@ -258,7 +322,7 @@ export function ormForRead(orchDir: OrchDir): Orm | null {
 
 function openDatabase(orchDir: OrchDir): OpenDatabase {
   const path = databasePath(orchDir);
-  const cached = connections.get(path);
+  const cached = connections.get(orchDir);
   if (cached) return cached;
   ensurePrivateDir(orchDir);
   const opened = createDatabase(path);
@@ -274,13 +338,15 @@ function openDatabase(orchDir: OrchDir): OpenDatabase {
   // crash of orch loses nothing; only power loss can drop the last commits. FULL
   // was an fsync per status report.
   db.exec("PRAGMA synchronous = NORMAL;");
-  connections.set(path, opened);
+  connections.set(orchDir, opened);
   return opened;
 }
 
 /** Close every cached connection; tests call this before removing their temp dirs. */
 export function closeAllStores(): void {
-  for (const [path, opened] of connections) {
+  const directories = new Set<OrchDir>([...connections.keys(), ...writeQueues.keys()]);
+  for (const orchDir of directories) drainWrites(orchDir);
+  for (const [orchDir, opened] of connections) {
     // A WAL-mode database file can stay locked on Windows past close(); leaving
     // WAL first releases the mapping so the file is deletable the moment close
     // returns, which is what lets a test remove its temp dir.
@@ -291,16 +357,16 @@ export function closeAllStores(): void {
     try { opened.client.exec("PRAGMA wal_checkpoint(TRUNCATE);"); } catch {}
     try { opened.client.exec("PRAGMA journal_mode = DELETE;"); } catch {}
     opened.client.close();
-    connections.delete(path);
+    connections.delete(orchDir);
   }
+  writeQueues.clear();
+  scheduledDrains.clear();
   openTransactions.clear();
   for (const reset of memoResets) reset();
 }
 
 /** How many transactions are open on each connection, so a nested call becomes a
  *  savepoint inside the outer one instead of a second BEGIN sqlite refuses. */
-const openTransactions = new Map<string, number>();
-
 interface TransactionVerbs { readonly begin: string; readonly commit: string; readonly rollback: string }
 
 function transactionVerbs(depth: number): TransactionVerbs {

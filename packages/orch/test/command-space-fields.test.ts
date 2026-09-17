@@ -6,7 +6,7 @@ import { entitySpace } from "../src/entities/space.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
-import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { recordAgentStatus } from "../src/presence/store.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import type { Entity, OrchDir } from "../src/types/core.ts";
@@ -39,7 +39,7 @@ function writeAgent(orchDir: OrchDir, agent: string, space: string, handle: stri
   setAgentPlexer(orchDir, id, "headless");
   setSpace(orchDir, id, 1, space);
   setHandle(orchDir, id, 1, handle);
-  mergeAgentStatus(orchDir, id, { state: "idle" }, Date.now());
+  recordAgentStatus(orchDir, id, { state: "idle" }, Date.now());
   return id;
 }
 

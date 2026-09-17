@@ -3,7 +3,7 @@ import { basename } from "node:path";
 import { runTestDoctor } from "./helpers/doctor.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
-import { mergeAgentStatus } from "../src/store/status-rows.ts";
+import { recordAgentStatus } from "../src/presence/store.ts";
 import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
@@ -19,7 +19,7 @@ function tempDir(): OrchDir {
 
 function seedDeadAgent(orchDir: OrchDir, key: string, facts: { name: string; cwd: string; updatedAt?: number }): void {
   seedAgent(key, { adapter: "pi", cwd: facts.cwd, name: facts.name }, orchDir);
-  mergeAgentStatus(orchDir, key, { state: "done", project: basename(facts.cwd) }, facts.updatedAt ?? Date.now());
+  recordAgentStatus(orchDir, key, { state: "done", project: basename(facts.cwd) }, facts.updatedAt ?? Date.now());
 }
 
 function staleResult(results: CheckResult[]): CheckResult {

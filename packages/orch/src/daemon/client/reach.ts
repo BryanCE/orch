@@ -22,6 +22,7 @@ import {
   unprovenLockRefusal,
 } from "./process.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
+import { isLogRecord, logFile } from "../../log.ts";
 import { announceUnleasedAgents, sessionClaim } from "./registration.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./wire.ts";
 import { rpcCall } from "./rpc.ts";
@@ -78,15 +79,15 @@ export async function awaitDaemonProbe(directory: OrchDir, deadline: number): Pr
 export function starvedDaemonRefusal(directory: OrchDir, lockPid: number | undefined): string {
   const owner = lockPid === undefined ? "orchd" : `orchd pid ${lockPid}`;
   return `${owner} did not answer within ${PROBE_BUDGET_MS}ms; it was NOT stopped — a timeout is no proof it died. `
-    + `The machine is likely loaded: retry, or read ${daemonRuntimeFiles(directory).log}`;
+    + `The machine is likely loaded: retry, or read ${logFile(directory)}`;
 }
 
 /** How far back the log is read for the one line that says why orchd went. */
 const LOG_TAIL_BYTES = 4_096;
 
 /** The last line orchd logged, read from the tail so a long log stays cheap. */
-function lastDaemonLogLine(directory: OrchDir): string | null {
-  const file = daemonRuntimeFiles(directory).log;
+export function lastDaemonLogLine(directory: OrchDir): string | null {
+  const file = logFile(directory);
   try {
     const size = statSync(file).size;
     const from = Math.max(0, size - LOG_TAIL_BYTES);
@@ -98,7 +99,14 @@ function lastDaemonLogLine(directory: OrchDir): string | null {
       closeSync(handle);
     }
     // filter first: an all-blank tail must read as "orchd logged nothing", not as an empty line.
-    return tail.toString("utf8").trimEnd().split(/\r?\n/).filter(Boolean).pop() ?? null;
+    const lines = tail.toString("utf8").trimEnd().split(/\r?\n/).filter(Boolean);
+    for (let index = lines.length - 1; index >= 0; index--) {
+      try {
+        const parsed: unknown = JSON.parse(lines[index]!);
+        if (isLogRecord(parsed) && parsed.proc === "orchd") return lines[index]!;
+      } catch { /* malformed tail line */ }
+    }
+    return null;
   } catch {
     return null;
   }
@@ -111,7 +119,7 @@ function departedDaemonRefusal(directory: OrchDir, lockPid: number | undefined):
   const owner = lockPid === undefined ? "orchd holds no lock and nothing answered" : `orchd pid ${lockPid} is not running`;
   const lastLine = lastDaemonLogLine(directory);
   return `${owner}; its endpoint is stale, not busy. ${lastLine ? `Last log line: ${lastLine}. ` : ""}`
-    + `Start a fresh one with 'orch daemon start'; ${daemonRuntimeFiles(directory).log} has the rest.`;
+    + `Start a fresh one with 'orch daemon start'; ${logFile(directory)} has the rest.`;
 }
 
 /** The lock's pid, but only while that process is running. A dial that times out

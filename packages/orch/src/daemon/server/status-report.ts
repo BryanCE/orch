@@ -1,15 +1,13 @@
-import type { OrchDir } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import type { ResultReport, StatusPatch } from "../../types/presence.ts";
 import type { RunRecord } from "../../types/store.ts";
 import { isAgentState } from "../../agent-state.ts";
 import { agentView } from "../../store/agent-view.ts";
-import { agentProcessLive } from "../../store/interval-rows.ts";
-import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../../store/status-rows.ts";
-import { selectRun, upsertRun } from "../../store/run-rows.ts";
-import { appendStatusHistory, ensurePresenceAgentDir, writeResult } from "../../presence/history.ts";
-import { reapDeadAgentRecords } from "../../presence/store.ts";
-import { decisionLogger } from "../client/decision-log.ts";
+import { type AgentStatusRow } from "../../store/status-rows.ts";
+import { upsertRun } from "../../store/run-rows.ts";
+import { appendStatusHistory, writeResult } from "../../presence/history.ts";
+import { loadPresence, probeAllProcesses, reapDeadAgentRecords, recordAgentStatus, runIsSettled } from "../../presence/store.ts";
 import { askingEventFromRow, transitionEventFromRow } from "./status-events.ts";
 
 const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited"]);
@@ -37,10 +35,6 @@ function runFromRow(orchDir: OrchDir, row: AgentStatusRow, now: number): RunReco
   return run;
 }
 
-/** A run that already carries its result is settled; a later status report never rewrites it. */
-function runSettled(orchDir: OrchDir, dispatchId: string): boolean {
-  return selectRun(orchDir, dispatchId)?.result !== undefined;
-}
 
 export function acceptStatusReport(
   orchDir: OrchDir,
@@ -50,16 +44,11 @@ export function acceptStatusReport(
   now = Date.now(),
 ): { ok: true } {
   if (agentView(orchDir, key) === null) throw new Error(`agent ${key} does not exist`);
-  const { previous, current } = mergeAgentStatus(orchDir, key, patch, now);
-  const directory = ensurePresenceAgentDir(key, orchDir);
-  try {
-    if (directory !== undefined) appendStatusHistory(directory, { ts: now, key, ...patch });
-  } catch {
-    // History is a bystander: a failed append cannot reject a report.
-  }
+  const { previous, current } = recordAgentStatus(orchDir, key, patch, now);
+  appendStatusHistory(key, orchDir, { ts: now, key, ...patch });
   try {
     const run = runFromRow(orchDir, current, now);
-    if (run !== undefined && !runSettled(orchDir, run.dispatchId)) upsertRun(orchDir, run);
+    if (run !== undefined && !runIsSettled(orchDir, run.dispatchId)) upsertRun(orchDir, run);
   } catch {
     // History is a bystander: a failed run write cannot reject a report.
   }
@@ -79,12 +68,7 @@ export function acceptResultReport(
   now = Date.now(),
 ): { ok: true } {
   if (agentView(orchDir, key) === null) throw new Error(`agent ${key} does not exist`);
-  const directory = ensurePresenceAgentDir(key, orchDir);
-  try {
-    if (directory !== undefined) writeResult(directory, { ts: now, key, ...result });
-  } catch {
-    // History is a bystander: a failed append cannot reject a report.
-  }
+  writeResult(key, orchDir, { ts: now, key, ...result });
   if (result.dispatchId !== null && result.dispatchId !== undefined) {
     try {
       const run: RunRecord = {
@@ -117,20 +101,27 @@ export function startLivenessTick(
   orchDir: OrchDir,
   intervalMs: number,
   publish: (event: NotifyEvent) => void,
+  logger: Logger,
 ): { stop(): void } {
   // An agent is alive while its harness process runs. Once it is gone its
   // exit is announced and its rows leave the store; the JSONL history keeps
   // what it did.
   const tick = (): void => {
-    for (const row of selectAgentStatuses(orchDir)) {
-      if (row.state === "exited" || !isAgentState(row.state)) continue;
-      if (agentProcessLive(orchDir, row.agentId)) continue;
+    const startedAt = Date.now();
+    probeAllProcesses(orchDir);
+    let exited = 0;
+    for (const entry of loadPresence(orchDir).values()) {
+      const row = entry.status;
+      if (row === null || row.state === "exited" || !isAgentState(row.state)) continue;
+      if (entry.alive) continue;
       const now = Date.now();
-      const updated = mergeAgentStatus(orchDir, row.agentId, { state: "exited", finishedAt: now }, now);
-      publish(transitionEventFromRow(orchDir, updated.current, row.state, "exited", new Date(now)));
+      const { current: updated } = recordAgentStatus(orchDir, row.agentId, { state: "exited", finishedAt: now }, now);
+      exited += 1;
+      publish(transitionEventFromRow(orchDir, updated, row.state, "exited", new Date(now)));
     }
     const reaped = reapDeadAgentRecords(orchDir);
-    if (reaped.length > 0) decisionLogger(orchDir, null).info("agents.reaped", { agents: reaped.join(",") });
+    if (reaped.length > 0) logger.info("agents.reaped", { agents: reaped.join(",") });
+    logger.trace("tick.liveness", { exited, reaped: reaped.length, elapsedMs: Date.now() - startedAt });
   };
   const timer = setInterval(tick, intervalMs);
   timer.unref?.();

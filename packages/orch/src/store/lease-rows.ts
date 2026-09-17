@@ -2,6 +2,7 @@ import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
 import { agentLeases } from "../db/schema.ts";
+import { refreshAgent } from "./agent-view.ts";
 import type { Lease, LeaseReleaseReason } from "../types/store.ts";
 export type { Lease };
 
@@ -39,10 +40,12 @@ export function openLeaseId(orchDir: OrchDir, agentId: string): number | null {
 }
 
 export function acquireLease(orchDir: OrchDir, agentId: string, orchId: string, since = Date.now()): number {
-  return withTransaction(orchDir, () => {
+  const id = withTransaction(orchDir, () => {
     if (openLease(orchDir, agentId)) throw new Error("one_lease");
     return insertLease(orchDir, agentId, orchId, since);
   });
+  refreshAgent(orchDir, agentId);
+  return id;
 }
 
 /** Close the open holding. `orchId === null` closes whoever holds it (expiry,
@@ -65,24 +68,30 @@ function closeLease(
 
 export function releaseLease(orchDir: OrchDir, agentId: string, orchId: string, until = Date.now(), fence?: number): void {
   withTransaction(orchDir, () => closeLease(orchDir, agentId, orchId, until, "released", fence));
+  refreshAgent(orchDir, agentId);
 }
 
 export function expireLease(orchDir: OrchDir, agentId: string, until = Date.now()): void {
   withTransaction(orchDir, () => closeLease(orchDir, agentId, null, until, "expired"));
+  refreshAgent(orchDir, agentId);
 }
 
 export function handoffLease(orchDir: OrchDir, agentId: string, from: string, to: string, since = Date.now(), fence?: number): number {
-  return withTransaction(orchDir, () => {
+  const id = withTransaction(orchDir, () => {
     closeLease(orchDir, agentId, from, since, "handoff", fence);
     return insertLease(orchDir, agentId, to, since);
   });
+  refreshAgent(orchDir, agentId);
+  return id;
 }
 
 export function adoptLease(orchDir: OrchDir, agentId: string, orchId: string, since = Date.now()): number {
-  return withTransaction(orchDir, () => {
+  const id = withTransaction(orchDir, () => {
     if (openLease(orchDir, agentId)) closeLease(orchDir, agentId, null, since, "adopted");
     return insertLease(orchDir, agentId, orchId, since);
   });
+  refreshAgent(orchDir, agentId);
+  return id;
 }
 
 export function currentLease(orchDir: OrchDir, agentId: string): Lease | null {

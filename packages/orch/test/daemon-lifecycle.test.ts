@@ -101,7 +101,7 @@ describe("daemon lifecycle", () => {
 
   test("clears the lock, socket and port a departed daemon owned, keeping the log", () => {
     const orchDir = makeOrchDir();
-    for (const name of ["orchd.lock", "orchd.sock", "orchd.port", "orchd.log"]) {
+    for (const name of ["orchd.lock", "orchd.sock", "orchd.port", "orch.log"]) {
       writeFileSync(join(orchDir, name), "x");
     }
 
@@ -109,7 +109,7 @@ describe("daemon lifecycle", () => {
     for (const gone of ["orchd.lock", "orchd.sock", "orchd.port"]) {
       expect(existsSync(join(orchDir, gone))).toBe(false);
     }
-    expect(existsSync(join(orchDir, "orchd.log"))).toBe(true);
+    expect(existsSync(join(orchDir, "orch.log"))).toBe(true);
     expect(clearDaemonRuntime(orchDir)).toEqual([]);
   });
 
@@ -138,7 +138,7 @@ describe("daemon lifecycle", () => {
     try {
       const detachedPid = daemonize(orchDir, process.execPath, ["-e", "process.stdout.write('daemon-test')"]);
       expect(detachedPid).toBeGreaterThan(0);
-      expect(readFileSync(join(orchDir, "orchd.log"), "utf8")).toBeDefined();
+      expect(readFileSync(join(orchDir, "orch.log"), "utf8")).toBeDefined();
       // Foreground mode resolves only once the child is gone, and reports its code.
       expect(await runForeground(process.execPath, ["-e", ""])).toBe(0);
       expect(await runForeground(process.execPath, ["-e", "process.exit(3)"])).toBe(3);

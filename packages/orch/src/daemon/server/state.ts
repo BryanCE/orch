@@ -1,4 +1,4 @@
-import type { OrchDir, Logger } from "../../types/core.ts";
+import type { OrchDir } from "../../types/core.ts";
 import { computeCodeHash } from "../client/process.ts";
 import { fileURLToPath } from "node:url";
 import { rpcCall } from "../client/rpc.ts";
@@ -12,6 +12,7 @@ import type { DaemonStatusRow, LeaseStatusPayload, RpcHandler, RpcHandlers, RpcS
 import type { SettingsWatch } from "../../types/settings.ts";
 import type { Services } from "../../types/services.ts";
 import type { WakeSignal } from "./wake.ts";
+import type { LoopWatchdog } from "./loop-watchdog.ts";
 
 /** The one spelling of "is this lease's holder still running". A start token
  *  proves the pid is the SAME process instance, not a recycled number. */
@@ -58,9 +59,9 @@ export interface DaemonState {
   workLoopRunning: boolean;
   outboxDrain: ReturnType<typeof setInterval> | undefined;
   livenessTick?: { stop(): void };
+  loopWatchdog: LoopWatchdog | undefined;
   settingsWatch: SettingsWatch | undefined;
   lastActivityAt: number;
-  logger: Logger | undefined;
   fatalLogged: boolean;
 }
 

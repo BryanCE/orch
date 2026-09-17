@@ -1,4 +1,4 @@
-import { loadPresence } from "./store.ts";
+import { presenceEntry } from "./store.ts";
 import type { CaptureRequest, CaptureRole, CapturedOutput } from "../types/backend.ts";
 import type { OrchDir } from "../types/core.ts";
 
@@ -6,7 +6,7 @@ import type { OrchDir } from "../types/core.ts";
 export function createCaptureRole(root: OrchDir): CaptureRole {
   return {
     read(agentId: string, request: CaptureRequest): CapturedOutput {
-      const entry = loadPresence(root).get(agentId);
+      const entry = presenceEntry(root, agentId);
       if (!entry) throw new Error(`cannot capture ${agentId}: no presence record`);
       const source = request.source ?? "all";
       return {

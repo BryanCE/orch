@@ -17,7 +17,6 @@ import { bridgeAttached } from "../../../control/bridge-links.ts";
 import { isOutboxPayload } from "../../../control/bridge-message.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { agentProcessLive } from "../../../store/interval-rows.ts";
-import { decisionLogger } from "../../client/decision-log.ts";
 import { leaseHolderIsAlive } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import type { Governance, ParamsOf } from "../../client/protocol.ts";
@@ -54,7 +53,7 @@ function deliverToSessionStream(state: DaemonState, target: string, action: stri
     return "gone";
   }
   const event = sessionMessageEvent(directory, target, id, text);
-  emitAndNotify((published) => state.server?.emit(published), state.services.settings.current().notify, event, directory, state.services.settings);
+  emitAndNotify((published) => state.server?.emit(published), state.services.settings.current().notify, event, directory, state.services.settings, Date.now(), state.services.logger);
   log.info("dispatch.delivered", { target, action, reason: "session-stream" });
   return "acked";
 }
@@ -65,7 +64,7 @@ function deliverToSessionStream(state: DaemonState, target: string, action: stri
 export async function deliverWrite(state: DaemonState, target: string, payload: unknown, id: string): Promise<OutboxDelivery> {
   const directory = state.directory;
   const canonicalTarget = normalizeControlTarget(directory, target);
-  const log = decisionLogger(directory, state.services.settings.currentOrNull()).forCorrelation(id);
+  const log = state.services.logger.forCorrelation(id);
   if (!isOutboxPayload(payload) || payload.action === "answer" || payload.action === "model") {
     log.warn("dispatch.malformed", { target: canonicalTarget });
     return "gone";
@@ -93,7 +92,7 @@ export async function deliverWrite(state: DaemonState, target: string, payload: 
     const outcome = await deliverControl(directory, state.services.settings.current(), state.services.models, canonicalTarget, { kind, text, id });
     if (outcome.outcome === "answer") {
       const agentId = canonicalTarget;
-      decisionLogger(directory, state.services.settings.currentOrNull(), { correlationId: id, agentId }).debug("boundary.answer", {
+      state.services.logger.forCorrelation(id).forAgent(agentId).debug("boundary.answer", {
         target: canonicalTarget,
         reason: outcome.reason,
       });
@@ -116,6 +115,7 @@ export function outboxDeps(state: DaemonState): OutboxDeps {
     deliver: (target, payload, id) => deliverWrite(state, target, payload, id),
     now: () => Date.now(),
     maxAttempts: state.services.settings.current().daemon.outbox_max_attempts,
+    logger: state.services.logger,
   };
 }
 
@@ -152,7 +152,7 @@ export function governWrite(state: DaemonState, target: string, params: Governan
   // dispatch whose lease step left no record cannot be told apart from one that
   // never reached the lease step at all.
   const logLeaseGrant = (): void => {
-    decisionLogger(directory, settings.currentOrNull(), { ...context, agentId: targetId }).debug("lease.granted", {
+    state.services.logger.forAgent(targetId).debug("lease.granted", {
       target,
       holderId: lease === null ? null : (holderId ?? lease.orchId),
       holderAlive,
@@ -163,7 +163,7 @@ export function governWrite(state: DaemonState, target: string, params: Governan
     // space, whichever orch holds it; a spawned agent's actor token is its own
     // id, never `operator`, so this lane grants an agent nothing.
     if (!operatorControls(directory, actor, target, actorSpace, actorIsOperator)) {
-      decisionLogger(directory, settings.currentOrNull(), { ...context, agentId: targetId }).debug("lease.refused", {
+      state.services.logger.forAgent(targetId).debug("lease.refused", {
         target,
         holderId: holderId ?? lease.orchId,
         holderAlive: true,
@@ -183,7 +183,7 @@ export function governWrite(state: DaemonState, target: string, params: Governan
 async function acceptTextWrite<M extends "dispatch" | "steer">(state: DaemonState, action: M, params: ParamsOf<M>, id: string): Promise<"none" | "expected"> {
   const directory = state.directory;
   const { target, text } = params;
-  const log = decisionLogger(directory, state.services.settings.currentOrNull()).forCorrelation(id);
+  const log = state.services.logger.forCorrelation(id);
   withTransaction(directory, () => {
     governWrite(state, target, params, { correlationId: id });
     insertOutboxMessage(directory, { id, target, payload: { action, text } });
@@ -209,11 +209,11 @@ async function deliverAcceptedText(state: DaemonState, id: string): Promise<"non
   const deliveryState = outboxMessageState(directory, id);
   if (deliveryState === "undeliverable") throw new Error(`write ${id}: agent ${row.target} is gone`);
   if (deliveryState === "pending") {
-    decisionLogger(directory, state.services.settings.currentOrNull()).forCorrelation(id).info("dispatch.queued", { target: row.target, action: row.payload.action, reason: "bridge-detached" });
+    state.services.logger.forCorrelation(id).info("dispatch.queued", { target: row.target, action: row.payload.action, reason: "bridge-detached" });
     return "none";
   }
   if (deliveryState === "awaiting") return "expected";
-  if (deliveryState === "delivered") decisionLogger(directory, state.services.settings.currentOrNull()).forCorrelation(id).info("dispatch.delivered", { target: row.target, action: row.payload.action });
+  if (deliveryState === "delivered") state.services.logger.forCorrelation(id).info("dispatch.delivered", { target: row.target, action: row.payload.action });
   return "none";
 }
 
@@ -245,7 +245,7 @@ export async function message(state: DaemonState, params: ParamsOf<"message">): 
   const target = params.target;
   const sender = agentView(directory, params.from);
   const prefix = sender ? `[from ${sender.name} (${params.from})] ` : `[from ${params.from}] `;
-  const accepted = acceptMail(directory, settings.currentOrNull(), from, target, prefix + params.text);
+  const accepted = acceptMail(directory, settings.currentOrNull(), from, target, prefix + params.text, state.services.logger);
   const timeoutMs = settings.current().timeouts.dispatch_ack_ms;
   let ack: "acknowledged" | "unavailable";
   try {

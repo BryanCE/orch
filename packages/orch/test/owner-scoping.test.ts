@@ -8,9 +8,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { cmdClose } from "../src/commands/lifecycle/close.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { spawnedRecords } from "../src/presence/store.ts";
+import { recordAgentStatus, spawnedRecords } from "../src/presence/store.ts";
 import { claimAgent } from "../src/store/agent-rows.ts";
-import { mergeAgentStatus } from "../src/store/status-rows.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { selfId } from "../src/identity/self.ts";
@@ -263,7 +262,7 @@ describe("fleet ownership scoping", () => {
     const key = "kfrgnresu1";
     seedSpace(dir, "local");
     seedAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" }, dir);
-    mergeAgentStatus(dir, key, { state: "done" }, Date.now());
+    recordAgentStatus(dir, key, { state: "done" }, Date.now());
     upsertRun(dir, { dispatchId: "d-foreign", agentKey: key, state: "done", startedAt: Date.now(), result: "other session's answer" });
 
     const refused = await runCli(dir, ["result", key]);

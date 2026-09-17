@@ -1,6 +1,6 @@
 import type { OrchDir } from "../types/core.ts";
 import { resolveBackend } from "../backends/registry.ts";
-import {loadPresence} from "../presence/store.ts";
+import { presenceEntry } from "../presence/store.ts";
 import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
 import { cmdSpawn } from "../commands/spawn/index.ts";
@@ -42,7 +42,7 @@ function defaultSmokeSteps(services: Services): SmokeSteps {
   return {
   spawnHeadless: (cwd, prompt) => spawnHeadlessSmokeAgent(services, cwd, prompt),
   buildPrompt: buildSmokePrompt,
-  readResultText: (key) => loadPresence(services.orchDir).get(key)?.result ?? undefined,
+  readResultText: (key) => presenceEntry(services.orchDir, key)?.result ?? undefined,
   cleanup: (key) => closeSmokeAgent(services.orchDir, key),
   now: () => Date.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

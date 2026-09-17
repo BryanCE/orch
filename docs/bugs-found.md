@@ -97,3 +97,20 @@ Fix: no test under `test/` passes `--worktree` or runs git. The worktree module 
 refused `--worktree` spawn are covered in `test-git/worktree.gittest.ts`, which runs only
 under `bun run test:git` (Bryan-only) and only inside a throwaway repository under the
 temp dir. `.orch-worktrees/` is ignored. Ruling in CLAUDE.md rule 0.1.
+
+## 7. A spawn spends its one-use grant before the home opens
+
+Seen 2026-09-17: `orch spawn write-queue --backend herdr` from outside a pane asked for
+`orch grant 21cphcmh`. Bryan granted it. The retry printed `could not open a home for this
+fleet: orchd pid 32908 did not answer within 2000ms` (the daemon was serving another
+session's ten agents). The next retry asked for a NEW grant, `u315q5un`. The first grant
+was gone and nothing had opened. Bryan approved twice for one spawn.
+
+Cause: `placement.ts:74` calls `grantNewHome()`, which spends the grant
+(`grant-rows.ts` `spendGrant`, one `grant_spends` row), and only then opens the home
+through the daemon. The spend and the open are two steps with no link. A failure in the
+open leaves the spend on record.
+
+Fix: spend the grant in the same daemon call that opens the home, after the home opened,
+so a home that did not open costs no grant. The CLI-side spend goes; the `open-home`
+handler takes the request id and records the spend on success.

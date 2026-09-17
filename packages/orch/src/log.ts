@@ -11,8 +11,10 @@
  * behind them.
  */
 import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { LOG_LEVELS, type LogContext, type LogLevel, type LogRecord, type LogValue, type Logger, type LoggerOptions } from "./types/core.ts";
+import { dirname, join } from "node:path";
+import { LOG_LEVELS, type LogContext, type LogLevel, type LogRecord, type LogValue, type Logger, type LoggerOptions, type OrchDir } from "./types/core.ts";
+
+export function logFile(orchDir: OrchDir): string { return join(orchDir, "orch.log"); }
 
 export function isLogLevel(value: unknown): value is LogLevel {
   return typeof value === "string" && LOG_LEVELS.some((level) => level === value);
@@ -35,6 +37,8 @@ function isFields(value: unknown): value is Readonly<Record<string, LogValue>> {
 export function isLogRecord(value: unknown): value is LogRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const candidate: Record<string, unknown> = { ...value };
+  if (typeof candidate.proc !== "string" || (candidate.proc !== "orchd" && candidate.proc !== "cli")) return false;
+  if (typeof candidate.pid !== "number" || !Number.isInteger(candidate.pid)) return false;
   if (typeof candidate.at !== "number" || !Number.isFinite(candidate.at)) return false;
   if (!isLogLevel(candidate.level)) return false;
   if (typeof candidate.event !== "string" || candidate.event.length === 0) return false;
@@ -50,39 +54,32 @@ function severity(level: LogLevel): number {
 
 export function createLogger(options: LoggerOptions, base: LogContext = {}): Logger {
   const now = options.now ?? Date.now;
-  const threshold = severity(options.level);
-
-  const write = (level: LogLevel, event: string, fields?: Readonly<Record<string, LogValue>>, context?: LogContext): void => {
-    // Below the threshold nothing is built and nothing is written — a filtered
-    // record must cost no formatting, or `trace` is unusable in normal operation.
-    if (severity(level) > threshold) return;
-    const correlationId = context?.correlationId ?? base.correlationId;
-    const agentId = context?.agentId ?? base.agentId;
-    const record: LogRecord = {
-      at: now(),
-      level,
-      event,
-      ...(correlationId === undefined ? {} : { correlationId }),
-      ...(agentId === undefined ? {} : { agentId }),
-      ...(fields === undefined ? {} : { fields }),
+  let threshold = severity(options.level);
+  const pid = process.pid;
+  const emit = (record: LogRecord): void => {
+    try { mkdirSync(dirname(options.file), { recursive: true }); appendFileSync(options.file, `${JSON.stringify(record)}\n`); }
+    catch { /* logging must never break the operation */ }
+  };
+  const make = (bound: LogContext): Logger => {
+    const write = (level: LogLevel, event: string, fields?: Readonly<Record<string, LogValue>>, context?: LogContext): void => {
+      if (severity(level) > threshold) return;
+      const correlationId = context?.correlationId ?? bound.correlationId;
+      const agentId = context?.agentId ?? bound.agentId;
+      emit({ proc: options.proc, pid, at: now(), level, event,
+        ...(correlationId === undefined ? {} : { correlationId }),
+        ...(agentId === undefined ? {} : { agentId }),
+        ...(fields === undefined ? {} : { fields }) });
     };
-    try {
-      mkdirSync(dirname(options.file), { recursive: true });
-      appendFileSync(options.file, `${JSON.stringify(record)}\n`);
-    } catch {
-      // A log that cannot be written must never take down the operation it was
-      // describing. There is nowhere else to report this: writing to stderr is the
-      // very habit exists to delete.
-    }
+    return {
+      setLevel: (level) => { threshold = severity(level); },
+      error: (event, fields, context) => write("error", event, fields, context),
+      warn: (event, fields, context) => write("warn", event, fields, context),
+      info: (event, fields, context) => write("info", event, fields, context),
+      debug: (event, fields, context) => write("debug", event, fields, context),
+      trace: (event, fields, context) => write("trace", event, fields, context),
+      forCorrelation: (id) => make({ ...bound, correlationId: id }),
+      forAgent: (id) => make({ ...bound, agentId: id }),
+    };
   };
-
-  return {
-    error: (event, fields, context) => write("error", event, fields, context),
-    warn: (event, fields, context) => write("warn", event, fields, context),
-    info: (event, fields, context) => write("info", event, fields, context),
-    debug: (event, fields, context) => write("debug", event, fields, context),
-    trace: (event, fields, context) => write("trace", event, fields, context),
-    forCorrelation: (correlationId) => createLogger(options, { ...base, correlationId }),
-    forAgent: (agentId) => createLogger(options, { ...base, agentId }),
-  };
+  return make(base);
 }

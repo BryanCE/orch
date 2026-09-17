@@ -1,3 +1,4 @@
+import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runWorkLoop, statusSpeaksForTask } from "../src/daemon/server/work-loop.ts";
 import { createWakeSignal } from "../src/daemon/server/wake.ts";
@@ -51,6 +52,39 @@ function fleet(): OrchDir {
 }
 
 describe("Cq4: results go to the enqueuer, not the runner", () => {
+  test("continuous work passes record tick timing", async () => {
+    const dir = fleet();
+    const controller = new AbortController();
+    const wake = createWakeSignal();
+    let waited = false;
+    const controlledWake = {
+      wake: (): void => wake.wake(),
+      next: (timeoutMs: number, signal?: AbortSignal): Promise<void> => {
+        if (!waited) {
+          waited = true;
+          controller.abort();
+        }
+        return wake.next(timeoutMs, signal);
+      },
+    };
+    const { logger, records } = recordingLogger();
+    const services = testServices({ orchDir: dir, settings: {} });
+    await runWorkLoop({
+      logger,
+      orchDir: dir,
+      wake: controlledWake,
+      tickMs: 1_000,
+      signal: controller.signal,
+      continuous: true,
+      json: true,
+      settings: services.settings,
+      models: services.models,
+    });
+    const ticks = records.filter((record) => record.event === "tick.work");
+    expect(ticks).toHaveLength(1);
+    expect(typeof ticks[0]?.fields?.elapsedMs).toBe("number");
+  });
+
   test("every task event the work loop publishes is keyed to whoever enqueued it", async () => {
     const dir = fleet();
     const previous = process.env.ORCH_DIR;
@@ -59,6 +93,7 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
     try {
       const task = addTask(dir, "cross-pack result", {}, "enq");
       await runWorkLoop({
+    logger: testLogger,
         orchDir: dir,
         wake: createWakeSignal(),
         tickMs: 10,
@@ -82,3 +117,5 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
     }
   }, 20_000);
 });
+
+const { logger: testLogger } = recordingLogger();

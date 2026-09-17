@@ -4,10 +4,9 @@ import { mintAgentId } from "../backends/identity.ts";
 import { isRecord } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
-import { environmentOf } from "./agent-view.ts";
-import { currentProcess, recordProcess, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
+import { environmentOf, refreshAgent } from "./agent-view.ts";
+import { currentProcess, recordProcessIn, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
-import { decisionLogger } from "../daemon/client/decision-log.ts";
 import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
 import type { HostOs } from "../types/host.ts";
 
@@ -43,17 +42,22 @@ export function insertAgent(orchDir: OrchDir, input: AgentInput): AgentRow {
     if (!parent) throw new Error(`unknown spawner: ${spawnedBy}`);
     root = parent.rootAgentId;
   }
+  const harness = db.select({ id: harnesses.id }).from(harnesses).where(eq(harnesses.id, input.harnessId)).get();
+  if (harness === undefined) throw new Error(`unknown harness: ${input.harnessId}`);
+  const existing = db.select({ id: agents.id }).from(agents).where(eq(agents.id, input.id)).get();
+  if (existing !== undefined) throw new Error(`agent already exists: ${input.id}`);
   const row = {
     id: input.id, spawnedBy, rootAgentId: root, harnessId: input.harnessId,
     cwd: input.cwd, name: input.name, label: input.label ?? null,
     claimedAt: null, sessionToken: null, createdAt: input.createdAt,
   };
   db.insert(agents).values(row).run();
+  refreshAgent(orchDir, input.id);
   return { ...row, ending: null };
 }
 
 export function claimAgent(orchDir: OrchDir, id: string, sessionToken: string, now: number): ClaimResult {
-  return withTransaction(orchDir, () => {
+  const result = withTransaction<ClaimResult>(orchDir, () => {
     const db = orm(orchDir);
     const row = db.select({ claimedAt: agents.claimedAt, sessionToken: agents.sessionToken })
       .from(agents).where(eq(agents.id, id)).get();
@@ -67,6 +71,8 @@ export function claimAgent(orchDir: OrchDir, id: string, sessionToken: string, n
       .where(and(eq(agents.id, id), isNull(agents.claimedAt))).run();
     return { kind: "stamped" };
   });
+  refreshAgent(orchDir, id);
+  return result;
 }
 
 export function reclaimAgent(orchDir: OrchDir, id: string): void {
@@ -76,6 +82,7 @@ export function reclaimAgent(orchDir: OrchDir, id: string): void {
       .where(eq(agents.id, id)).run();
     if (result.changes !== 1) throw new Error(`unknown agent: ${id}`);
   });
+  refreshAgent(orchDir, id);
 }
 
 /** Record an agent's ending and close the writes still queued for it. An ended
@@ -84,6 +91,7 @@ export function reclaimAgent(orchDir: OrchDir, id: string): void {
 export function endAgent(orchDir: OrchDir, agentId: string, endedAt: number, closedBy: string | null): void {
   orm(orchDir).insert(agentEndings).values({ agentId, endedAt, closedBy }).run();
   closeOutboxForTarget(orchDir, agentId);
+  refreshAgent(orchDir, agentId);
 }
 
 /** Record that an agent runs from a git worktree. No row means the repo itself. */
@@ -91,6 +99,7 @@ export function setWorktree(orchDir: OrchDir, agentId: string, path: string, bra
   orm(orchDir).insert(agentWorktrees).values({ agentId, path, branch })
     .onConflictDoUpdate({ target: agentWorktrees.agentId, set: { path, branch } })
     .run();
+  refreshAgent(orchDir, agentId);
 }
 
 export function worktreeOf(orchDir: OrchDir, agentId: string): AgentWorktree | null {
@@ -104,7 +113,9 @@ export function worktreeOf(orchDir: OrchDir, agentId: string): AgentWorktree | n
 
 /** Relabel an agent by its immutable id; names are intentionally non-unique. */
 export function renameAgent(orchDir: OrchDir, agentId: string, name: string): boolean {
-  return orm(orchDir).update(agents).set({ name }).where(eq(agents.id, agentId)).run().changes === 1;
+  const changes = orm(orchDir).update(agents).set({ name }).where(eq(agents.id, agentId)).run().changes;
+  refreshAgent(orchDir, agentId);
+  return changes === 1;
 }
 
 export function agentById(orchDir: OrchDir, id: string): AgentRow | null {
@@ -226,7 +237,7 @@ function recordPlexer(orchDir: OrchDir, input: SessionAgentInput): void {
   if (input.plexerVersion) ensureHostPlexer(orchDir, input.hostId, input.plexerId, input.plexerVersion, input.now);
 }
 
-export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInput): SessionAgentIdentity {
+export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInput): SessionAgentIdentity & { readonly repointed: boolean; readonly agent: SessionAgentIdentity } {
   ensureHarness(orchDir, input.harnessId, input.harnessId, input.now);
   ensureHost(orchDir, input.hostId, input.hostName, input.hostOs, input.now);
   recordPlexer(orchDir, input);
@@ -251,7 +262,7 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
       // keeps its open interval.
       const open = currentProcess(orchDir, existing);
       if (open?.pid !== input.pid || open.startToken !== input.startToken) {
-        recordProcess(orchDir, existing, input.now, { hostId: input.hostId, pid: input.pid, startToken: input.startToken });
+        recordProcessIn(orm(orchDir), existing, input.now, { hostId: input.hostId, pid: input.pid, startToken: input.startToken });
       }
       return { id: existing, label: input.label, kind: "session" };
     }
@@ -266,14 +277,12 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
     }).run();
     return { id, label: input.label, kind: "session" };
   });
+  refreshAgent(orchDir, identity.id);
   // Placement runs AFTER the registration transaction. It is idempotent, so a
   // crash in between is repaired by the session's next registration rather than
   // leaving a second row.
-  if (repointedAgentId !== null) {
-    decisionLogger(orchDir, null).info("session.repointed", { agentId: repointedAgentId, harnessId: input.harnessId });
-  }
   placeSession(orchDir, identity.id, input);
-  return identity;
+  return { ...identity, repointed: repointedAgentId !== null, agent: identity };
 }
 
 export function ensureHarness(orchDir: OrchDir, id: string, name: string, enabledAt: number | null = null): void {

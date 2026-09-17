@@ -18,10 +18,9 @@ import { reexecSelf } from "../../client/process.ts";
 import { emitAndNotify } from "../events.ts";
 import { acceptResultReport, acceptStatusReport } from "../status-report.ts";
 import { insertControlOutcome } from "../../../store/control-outcome-rows.ts";
-import { appendOutcome, ensurePresenceAgentDir } from "../../../presence/history.ts";
+import { appendOutcome } from "../../../presence/history.ts";
 import { settleControlOutcome } from "../../../control/outcome.ts";
 import { acknowledgeDelivery } from "../../../control/ack.ts";
-import { decisionLogger } from "../../client/decision-log.ts";
 import type { ControlOutcomeReport } from "../../../types/agent.ts";
 import type { RpcHandlers } from "../../../types/daemon.ts";
 import type { ParamsOf } from "../../client/protocol.ts";
@@ -74,7 +73,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       return { ok: true };
     },
     "report-status": (params) => {
-      const result = acceptStatusReport(directory, params.key, params.status, (event) => emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings));
+      const result = acceptStatusReport(directory, params.key, params.status, (event) => emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings, Date.now(), services.logger));
       state.wake.wake();
       return result;
     },
@@ -148,8 +147,8 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       const id = params.id;
       const row = selectOutboxMessage(directory, id);
       markOutboxDelivered(directory, id);
-      if (row === undefined) decisionLogger(directory, services.settings.currentOrNull()).forCorrelation(id).debug("dispatch.acked", { target: null });
-      else decisionLogger(directory, services.settings.currentOrNull()).forCorrelation(id).info("dispatch.acked", { target: row.target });
+      if (row === undefined) services.logger.forCorrelation(id).debug("dispatch.acked", { target: null });
+      else services.logger.forCorrelation(id).info("dispatch.acked", { target: row.target });
       acknowledgeDelivery(id);
       state.wake.wake();
       return { ok: true };
@@ -171,8 +170,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
         settledAt: Date.now(),
         ...(params.error === undefined ? {} : { error: params.error }),
       });
-      const presenceDirectory = ensurePresenceAgentDir(report.key, directory);
-      if (presenceDirectory !== undefined) appendOutcome(presenceDirectory, { ts: Date.now(), ...report });
+      appendOutcome(report.key, directory, { ts: Date.now(), ...report });
       settleControlOutcome(report);
       return { ok: true };
     },

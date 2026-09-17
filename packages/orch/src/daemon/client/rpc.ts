@@ -1,9 +1,8 @@
-import type { OrchDir } from "../../types/core.ts";
+import type { Logger, OrchDir } from "../../types/core.ts";
 import { createConnection, type Socket } from "node:net";
 import { existsSync } from "node:fs";
 import { readPortPath } from "../../presence/socket-client.ts";
 import { launchCredential } from "../../identity/launch.ts";
-import { decisionLogger } from "./decision-log.ts";
 import type { EventSubscription } from "../../types/daemon.ts";
 import { parseRpcResult, type ParamsOf, type ResultOf, type RpcMethod } from "./protocol.ts";
 import { DaemonAbsentError, DaemonUnreachableError, RpcError, type RpcLine, DEFAULT_TIMEOUT_MS, encodeRequest, endpointPaths, readJsonMessages, responseError } from "./wire.ts";
@@ -193,7 +192,7 @@ function identityHandshake(orchDir: OrchDir): IdentityHandshake | undefined {
  */
 export function subscribeEvents(
   orchDir: OrchDir,
-  opts: { since?: number },
+  opts: { since?: number; logger?: Logger },
   onEvent: (event: NotifyEvent, seq: number) => void,
   onGap?: (oldestSeq: number) => void,
   identify = false,
@@ -210,7 +209,7 @@ export function subscribeEvents(
     if (closed || retryTimer) return;
     const delay = backoffMs;
     retryAttempt += 1;
-    decisionLogger(orchDir, null).debug("retry.attempt", { attempt: retryAttempt, delay });
+    opts.logger?.debug("retry.attempt", { attempt: retryAttempt, delay });
     backoffMs = Math.min(backoffMs * 2, RECONNECT_CAP_MS);
     retryTimer = setTimeout(() => {
       retryTimer = undefined;
@@ -249,7 +248,7 @@ export function subscribeEvents(
                 try {
                   onEvent(line.event, line.seq);
                 } catch (error: unknown) {
-                  decisionLogger(orchDir, null).warn("events.handler-failed", { error: errorMessage(error) });
+                  opts.logger?.warn("events.handler-failed", { error: errorMessage(error) });
                 }
               }
               break;

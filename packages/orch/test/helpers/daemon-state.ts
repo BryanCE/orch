@@ -37,7 +37,6 @@ export function idleDaemonState(services: Services, directory: OrchDir): DaemonS
     outboxDrain: undefined,
     settingsWatch: undefined,
     lastActivityAt: 0,
-    logger: undefined,
     fatalLogged: false,
   };
 }

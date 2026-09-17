@@ -1,9 +1,14 @@
+import { logFile } from "../src/log.ts";
 // Load-test one orchd in a temp orch dir and print latency and throughput per
 // workload. Tooling, not runtime: it runs under bun and may pass bun flags to
 // the daemon it spawns (`--profile`).
 //
-//   bun packages/orch/scripts/bench-daemon.ts [--agents 64] [--concurrency 32] [--requests 2000]
+//   bun packages/orch/scripts/bench-daemon.ts [--agents 64] [--concurrency 32] [--requests 2000] [--rounds 1]
 //                                             [--subscribers 10] [--phase <name>]... [--profile] [--json]
+//
+// Each round prints one header line and, with more than one round, its own table. The last
+// table is the mean of every column across rounds. One round cannot rank a change smaller
+// than the machine's own spread between runs.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,6 +35,7 @@ interface BenchOptions {
   agents: number;
   concurrency: number;
   requests: number;
+  rounds: number;
   subscribers: number;
   phases: readonly string[];
   profile: boolean;
@@ -58,13 +64,12 @@ interface Fleet {
   agentIds: readonly string[];
 }
 
-const DEFAULTS: BenchOptions = { agents: 64, concurrency: 32, requests: 2_000, subscribers: 10, phases: [], profile: false, json: false };
+const DEFAULTS: BenchOptions = { agents: 64, concurrency: 32, requests: 2_000, rounds: 1, subscribers: 10, phases: [], profile: false, json: false };
 const DAEMON_ENTRYPOINT = join(import.meta.dir, "../src/daemon/server/orchd.ts");
 const DAEMON_BOOT_TIMEOUT_MS = 20_000;
 const DAEMON_STOP_GRACE_MS = 10_000;
 const FANOUT_SETTLE_MS = 500;
 const RPC_TIMEOUT_MS = 5_000;
-const PROGRESS_EVERY = 100;
 /** A random loopback port so the bench daemon never contends with a live orchd on 3716. */
 const TCP_PORT = 30_000 + Math.floor(Math.random() * 20_000);
 
@@ -77,6 +82,7 @@ function parseArgs(argv: readonly string[]): BenchOptions {
     if (flag === "--agents") options.agents = next();
     else if (flag === "--concurrency") options.concurrency = next();
     else if (flag === "--requests") options.requests = next();
+    else if (flag === "--rounds") options.rounds = next();
     else if (flag === "--subscribers") options.subscribers = next();
     else if (flag === "--phase") phases.push(String(argv[++index]));
     else if (flag === "--profile") options.profile = true;
@@ -152,6 +158,44 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function mean(values: readonly number[]): number {
+  return values.length === 0 ? 0 : round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function meanFanout(rounds: readonly PhaseResult[]): PhaseResult["fanout"] {
+  const meters = rounds.flatMap((run) => run.fanout === undefined ? [] : [run.fanout]);
+  const first = meters[0];
+  if (first === undefined) return undefined;
+  return {
+    expected: first.expected,
+    received: mean(meters.map((meter) => meter.received)),
+    p50Ms: mean(meters.map((meter) => meter.p50Ms)),
+    p99Ms: mean(meters.map((meter) => meter.p99Ms)),
+    maxMs: mean(meters.map((meter) => meter.maxMs)),
+  };
+}
+
+/** One phase's rounds folded into one row: every latency column is the mean across rounds, errors are summed. */
+function meanOfRounds(rounds: readonly PhaseResult[]): PhaseResult {
+  const first = rounds[0];
+  if (first === undefined) throw new Error("a phase ran zero rounds");
+  const errorKinds: Record<string, number> = {};
+  for (const run of rounds) for (const [kind, count] of Object.entries(run.errorKinds)) errorKinds[kind] = (errorKinds[kind] ?? 0) + count;
+  return {
+    phase: first.phase,
+    requests: first.requests,
+    errors: rounds.reduce((sum, run) => sum + run.errors, 0),
+    errorKinds,
+    elapsedMs: mean(rounds.map((run) => run.elapsedMs)),
+    perSecond: mean(rounds.map((run) => run.perSecond)),
+    p50Ms: mean(rounds.map((run) => run.p50Ms)),
+    p95Ms: mean(rounds.map((run) => run.p95Ms)),
+    p99Ms: mean(rounds.map((run) => run.p99Ms)),
+    maxMs: mean(rounds.map((run) => run.maxMs)),
+    fanout: meanFanout(rounds),
+  };
+}
+
 function errorKind(error: unknown): string {
   if (!isRecord(error)) return String(error);
   const code = error.code;
@@ -161,7 +205,6 @@ function errorKind(error: unknown): string {
 
 /** Run `requests` calls through `concurrency` sequential workers; worker `w` gets every call where `i % concurrency === w`. */
 async function runPhase(phase: string, options: BenchOptions, call: (index: number, worker: number) => Promise<void>): Promise<PhaseResult> {
-  process.stderr.write(`phase: ${phase}\n`);
   const latencies: number[] = [];
   const errorKinds: Record<string, number> = {};
   let errors = 0;
@@ -177,12 +220,10 @@ async function runPhase(phase: string, options: BenchOptions, call: (index: numb
         errorKinds[kind] = (errorKinds[kind] ?? 0) + 1;
       }
       latencies.push(performance.now() - began);
-      if (latencies.length % PROGRESS_EVERY === 0) process.stderr.write(`  ${latencies.length}/${options.requests} after ${round(performance.now() - startedAt)}ms\n`);
     }
   };
   await Promise.all(Array.from({ length: options.concurrency }, (_, id) => worker(id)));
   const elapsedMs = performance.now() - startedAt;
-  process.stderr.write(`  done in ${round(elapsedMs)}ms, ${errors} errors${errors === 0 ? "" : ` ${JSON.stringify(errorKinds)}`}\n`);
   const sorted = [...latencies].sort((a, b) => a - b);
   return {
     phase,
@@ -315,7 +356,9 @@ async function phasePipelined(fleet: Fleet, options: BenchOptions): Promise<Phas
   }
 }
 
-const PHASES: Record<string, (fleet: Fleet, options: BenchOptions) => Promise<PhaseResult>> = {
+type Phase = (fleet: Fleet, options: BenchOptions) => Promise<PhaseResult>;
+
+const PHASES: Record<string, Phase> = {
   "daemon-status": phaseDaemonStatus,
   status: phaseFleetStatus,
   "peer-view": phasePeerView,
@@ -323,42 +366,111 @@ const PHASES: Record<string, (fleet: Fleet, options: BenchOptions) => Promise<Ph
   pipelined: phasePipelined,
 };
 
-function printTable(results: readonly PhaseResult[]): void {
-  const header = ["phase", "req", "err", "ms", "req/s", "p50", "p95", "p99", "max"];
-  const rows = results.map((r) => [r.phase, r.requests, r.errors, r.elapsedMs, r.perSecond, r.p50Ms, r.p95Ms, r.p99Ms, r.maxMs].map(String));
-  const widths = header.map((title, column) => Math.max(title.length, ...rows.map((row) => row[column]?.length ?? 0)));
-  const line = (cells: readonly string[]): string => cells.map((cell, column) => column === 0 ? cell.padEnd(widths[column] ?? 0) : cell.padStart(widths[column] ?? 0)).join("  ");
-  process.stdout.write(`${line(header)}\n`);
-  for (const row of rows) process.stdout.write(`${line(row)}\n`);
-  for (const r of results) {
-    if (r.fanout === undefined) continue;
-    process.stdout.write(`fan-out: ${r.fanout.received}/${r.fanout.expected} events, p50 ${r.fanout.p50Ms}ms, p99 ${r.fanout.p99Ms}ms, max ${r.fanout.maxMs}ms\n`);
+const COLUMN_GAP = "  ";
+const ROUND_RULE = "━";
+const MEAN_RULE = "═";
+const INNER_RULE = "─";
+
+/** The header line and one line per phase, columns padded to fit. */
+function tableLines(results: readonly PhaseResult[]): { header: string; rows: string[] } {
+  const titles = ["phase", "req", "err", "ms", "req/s", "p50", "p95", "p99", "max"];
+  const cells = results.map((r) => [r.phase, r.requests, r.errors, r.elapsedMs, r.perSecond, r.p50Ms, r.p95Ms, r.p99Ms, r.maxMs].map(String));
+  const widths = titles.map((title, column) => Math.max(title.length, ...cells.map((row) => row[column]?.length ?? 0)));
+  const line = (row: readonly string[]): string =>
+    row.map((cell, column) => column === 0 ? cell.padEnd(widths[column] ?? 0) : cell.padStart(widths[column] ?? 0)).join(COLUMN_GAP);
+  return { header: line(titles), rows: cells.map(line) };
+}
+
+function fanoutLines(results: readonly PhaseResult[]): string[] {
+  return results.flatMap((r) => r.fanout === undefined
+    ? []
+    : [`fan-out   ${r.fanout.received}/${r.fanout.expected} events   p50 ${r.fanout.p50Ms} ms   p99 ${r.fanout.p99Ms} ms   max ${r.fanout.maxMs} ms`]);
+}
+
+/** One titled block: a rule in the section's glyph, the title, then the table between inner rules. */
+function printSection(title: string, rule: string, results: readonly PhaseResult[]): void {
+  const { header, rows } = tableLines(results);
+  const width = header.length;
+  const lines = [
+    "",
+    rule.repeat(width),
+    ` ${title}`,
+    INNER_RULE.repeat(width),
+    header,
+    INNER_RULE.repeat(width),
+    ...rows,
+    INNER_RULE.repeat(width),
+    ...fanoutLines(results),
+  ];
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+function selectPhases(names: readonly string[]): Phase[] {
+  const selected = names.length === 0 ? Object.keys(PHASES) : names;
+  return selected.map((name) => {
+    const phase = PHASES[name];
+    if (phase === undefined) throw new Error(`unknown phase ${name}; known: ${Object.keys(PHASES).join(", ")}`);
+    return phase;
+  });
+}
+
+/** One pass over the selected phases, in order. */
+async function runRound(fleet: Fleet, options: BenchOptions, phases: readonly Phase[]): Promise<PhaseResult[]> {
+  const results: PhaseResult[] = [];
+  for (const phase of phases) results.push(await phase(fleet, options));
+  return results;
+}
+
+function roundFacts(options: BenchOptions): string {
+  return `${options.agents} agents · concurrency ${options.concurrency} · ${options.requests} requests/phase · ${options.subscribers} subscribers`;
+}
+
+/** Every round against the one daemon. With more than one, each round's table prints as it lands. */
+async function runRounds(fleet: Fleet, options: BenchOptions, phases: readonly Phase[]): Promise<PhaseResult[][]> {
+  const rounds: PhaseResult[][] = [];
+  for (let pass = 1; pass <= options.rounds; pass += 1) {
+    const results = await runRound(fleet, options, phases);
+    rounds.push(results);
+    if (options.rounds > 1 && !options.json) printSection(`round ${pass}/${options.rounds} · ${roundFacts(options)}`, ROUND_RULE, results);
   }
+  return rounds;
+}
+
+/** Regroup round-major results into one list per phase. */
+function byPhase(rounds: readonly PhaseResult[][]): PhaseResult[][] {
+  return (rounds[0] ?? []).map((_, index) => rounds.flatMap((results) => {
+    const result = results[index];
+    return result === undefined ? [] : [result];
+  }));
+}
+
+function printReport(options: BenchOptions, rounds: readonly PhaseResult[][]): void {
+  const results = byPhase(rounds).map(meanOfRounds);
+  if (options.json) {
+    process.stdout.write(`${JSON.stringify({ options, rounds, results }, null, 2)}\n`);
+    return;
+  }
+  const title = options.rounds > 1 ? `mean of ${options.rounds} rounds · ${roundFacts(options)}` : roundFacts(options);
+  if (options.rounds > 1) process.stdout.write("\n");
+  printSection(title, MEAN_RULE, results);
 }
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const selected = options.phases.length === 0 ? Object.keys(PHASES) : options.phases;
-  for (const name of selected) if (PHASES[name] === undefined) throw new Error(`unknown phase ${name}; known: ${Object.keys(PHASES).join(", ")}`);
+  const phases = selectPhases(options.phases);
   const fleet = seedFleet(options.agents);
   const profileDir = options.profile ? join(fleet.orchDir, "profile") : undefined;
   if (profileDir !== undefined) mkdirSync(profileDir);
   const daemon = spawnDaemon(fleet, profileDir);
-  const results: PhaseResult[] = [];
+  let rounds: PhaseResult[][] = [];
   try {
     await awaitDaemon(fleet.orchDir);
-    process.stderr.write(`orchd pid ${daemon.pid}, ${options.agents} agents, concurrency ${options.concurrency}, ${options.requests} requests/phase\n`);
-    process.stderr.write(`orch dir ${fleet.orchDir}, log ${daemonRuntimeFiles(fleet.orchDir).log}\n`);
-    for (const name of selected) {
-      const phase = PHASES[name];
-      if (phase === undefined) continue;
-      results.push(await phase(fleet, options));
-    }
+    process.stderr.write(`orchd pid ${daemon.pid}, orch dir ${fleet.orchDir}, log ${logFile(fleet.orchDir)}\n`);
+    rounds = await runRounds(fleet, options, phases);
   } finally {
     if (daemon.pid !== undefined) await terminateDaemon(daemon.pid, DAEMON_STOP_GRACE_MS);
   }
-  if (options.json) process.stdout.write(`${JSON.stringify({ options, results }, null, 2)}\n`);
-  else printTable(results);
+  printReport(options, rounds);
   if (profileDir !== undefined) process.stderr.write(`cpu profile: ${profileDir}\n`);
   else {
     rmSync(fleet.orchDir, { recursive: true, force: true });

@@ -34,12 +34,12 @@ function captureStdout(run: () => void): string {
 /** Seed both sinks through the real logger, so a change to the record shape
  *  breaks the reader test instead of leaving it agreeing with a stale fixture. */
 function seedLogs(directory: OrchDir): void {
-  const daemon = createLogger({ file: join(directory, "orchd.log"), level: "trace", now: () => 1_700_000_000_000 });
+  const daemon = createLogger({ file: join(directory, "orch.log"), level: "trace", now: () => 1_700_000_000_000 , proc: "cli"});
   daemon.forCorrelation("dispatch-7").forAgent("agentaaa01").info("dispatch.accepted", { target: "agentaaa01" });
-  const later = createLogger({ file: join(directory, "orchd.log"), level: "trace", now: () => 1_700_000_005_000 });
+  const later = createLogger({ file: join(directory, "orch.log"), level: "trace", now: () => 1_700_000_005_000 , proc: "cli"});
   later.forCorrelation("dispatch-7").forAgent("agentaaa01").error("dispatch.failed", { error: "no channel accepted the write" });
   later.forCorrelation("dispatch-9").forAgent("agentbbb02").info("dispatch.accepted", { target: "agentbbb02" });
-  const cli = createLogger({ file: join(directory, "orch.log"), level: "trace", now: () => 1_700_000_002_000 });
+  const cli = createLogger({ file: join(directory, "orch.log"), level: "trace", now: () => 1_700_000_002_000 , proc: "cli"});
   cli.forCorrelation("dispatch-7").forAgent("agentaaa01").info("dispatch.cli-accepted", { target: "agentaaa01" });
 }
 
@@ -117,6 +117,8 @@ describe("orch logs", () => {
     const parsed: unknown = JSON.parse(lines[0]!);
     expect(isLogRecord(parsed)).toBe(true);
     expect(parsed).toEqual({
+      proc: "cli",
+      pid: process.pid,
       at: 1_700_000_005_000,
       level: "info",
       event: "dispatch.accepted",

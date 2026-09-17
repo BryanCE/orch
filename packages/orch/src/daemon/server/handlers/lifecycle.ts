@@ -12,7 +12,7 @@ import { agentView } from "../../../store/agent-view.ts";
 import { agentById, endAgent, reclaimAgent } from "../../../store/agent-rows.ts";
 import { setHandle as setAgentHandle } from "../../../store/interval-rows.ts";
 import { registerSpawnedAgent } from "../../../store/spawn-registration.ts";
-import { loadPresence } from "../../../presence/store.ts";
+import { presenceEntry } from "../../../presence/store.ts";
 import { isAgentState } from "../../../agent-state.ts";
 import { pendingQuestions, recordQuestion } from "../../../store/question-rows.ts";
 import { governWrite } from "./write.ts";
@@ -94,7 +94,7 @@ export function closeAgent(state: DaemonState, params: ParamsOf<"agent-closed">)
   if (view.endedAt !== null) return { ok: true };
   // The status row is the boundary: a state it does not carry, or one orch
   // does not know, means the agent had already left.
-  const reported = loadPresence(directory).get(key)?.status?.state;
+  const reported = presenceEntry(directory, key)?.status?.state;
   const oldState = isAgentState(reported) ? reported : "exited";
   const closedBy = params.actor !== undefined && agentView(directory, params.actor) !== null ? params.actor : null;
   endAgent(directory, key, Date.now(), closedBy);
@@ -110,7 +110,7 @@ export function closeAgent(state: DaemonState, params: ParamsOf<"agent-closed">)
     newState: "closed",
     ts: new Date().toISOString(),
   };
-  emitAndNotify((published) => state.server?.emit(published), settings.current().notify, event, directory, settings);
+  emitAndNotify((published) => state.server?.emit(published), settings.current().notify, event, directory, settings, Date.now(), state.services.logger);
   return { ok: true };
 }
 

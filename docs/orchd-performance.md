@@ -396,6 +396,47 @@ What it says:
 - bun's drain p99 is 4× node's at the same median; bun's sqlite binding has a longer
   tail.
 
+### 2026-09-18, wave F: names once, rows carry ids; replies are not re-parsed
+
+The `status` reply and `--json` are `{ names: { agents, spaces }, rows }`. A row carries
+ids only (`spawnedBy`, `rootAgentId`, `spaceId`, `lease.holderId`); every name an id stands
+for is in `names`, once per fleet, never once per row. `owner`, `spawnedByLabel`,
+`modelShort`, `spaceName`, `rootAgentName` and `lease.holderName` left the row; the table,
+the live view and the web resolve them from `names` at draw time. The client no longer
+runs `safeParse` on a daemon reply: the zod schema is the type (`ResultOf<M>`), and the one
+runtime check left is `isFleetStatus` at the remote-host boundary.
+
+Same machine, same runtimes, mean of 5 rounds.
+
+node:
+
+| phase | ms/500 | req/s | p50 | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| daemon-status (connect per call) | 66 | 8600 | 3.38 | 14.23 | 14.68 | 15.12 |
+| status (fleet rows) | 356 | 1425 | 21.74 | 27.83 | 30.01 | 31.11 |
+| peer-view | 92 | 5580 | 4.79 | 12.28 | 13.32 | 13.8 |
+| report-status (transition + fan-out) | 520 | 979 | 29.38 | 53.48 | 56.41 | 57.2 |
+| pipelined daemon-status (one socket) | 6 | 92124 | 0.27 | 1.21 | 1.27 | 1.32 |
+| fan-out | 4840/5000 events | | 29 | | 56.4 | 57 |
+
+bun:
+
+| phase | ms/500 | req/s | p50 | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| daemon-status (connect per call) | 47 | 12686 | 2.35 | 9.28 | 9.58 | 9.71 |
+| status (fleet rows) | 294 | 1710 | 17.71 | 24.51 | 25.64 | 26.88 |
+| peer-view | 81 | 6362 | 3.94 | 10.33 | 11.9 | 12.83 |
+| report-status (transition + fan-out) | 503 | 1005 | 28.59 | 55.22 | 58.84 | 59.65 |
+| pipelined daemon-status (one socket) | 5 | 104751 | 0.26 | 0.61 | 0.68 | 0.7 |
+| fan-out | 4840/5000 events | | 28.4 | | 58.8 | 60 |
+
+Against waves B–D: `status` p99 42.5 → 30.0 node and 37.4 → 25.6 bun, p50 27.3 → 21.7
+node and 22.9 → 17.7 bun. Both runtimes moved the same way by more than the band, and the
+two phases the change did not touch stayed inside it (`report-status` p99 57.9 → 56.4 node,
+63.8 → 58.8 bun; `daemon-status` 14.3 → 14.7 node, 12.5 → 9.6 bun). The cut is the bytes:
+64 rows no longer repeat six labels each, and the CLI no longer walks the reply a second
+time to check it.
+
 ## Next
 
 1. Memory is the truth (`docs/orchd-owns-the-store.md`, steps 1–6): a write patches the
@@ -406,5 +447,4 @@ What it says:
    worth its channel. The WAL checkpoint (35 ms, once per run, inside p99) moves off the
    request path: `wal_autocheckpoint = 0`, checkpoint on the idle timer. After that the
    floor is the ten socket writes per event on one thread.
-3. `status`: cut the payload, or stream rows. `rows.ts:88` still reads a session file per
-   row.
+3. `status`: the labels are out of the rows (wave F). Left: pre-encode a row once per change and hand the encoded bytes to every reader, or stream rows.

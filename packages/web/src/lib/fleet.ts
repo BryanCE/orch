@@ -1,9 +1,11 @@
 // Fleet types shared by the god-view, sidebar, and space detail. Data comes
 // from the real daemon via getFleet (src/server/orch.ts) — NO mock source.
 //
-import type { LeasePayload } from "@orch/types/daemon.ts";
+import type { LeasePayload, StatusRow } from "@orch/types/command.ts";
+import type { FleetNames, FleetStatus } from "@orch/types/daemon.ts";
+import type { TokenTotals } from "@orch/types/core.ts";
 import { isAgentState, type AgentState } from "@orch/agent-state.ts";
-import type { WebStatusRow } from "./status-row";
+import { modelShort } from "@orch/policy/thinking.ts";
 
 
 /**
@@ -32,7 +34,7 @@ export interface FleetAgent {
   backendStatus?: string;
   bridgeAttached: boolean | null;
   cost?: number;
-  tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  tokens?: TokenTotals;
   context?: { percent?: number };
   alive: boolean;
   lease: LeasePayload | null;
@@ -80,30 +82,14 @@ function trimmed(value: string | null | undefined): string | null {
   return text.length > 0 ? text : null;
 }
 
-function environmentFor(row: WebStatusRow): AgentEnvironment {
+function environmentFor(row: StatusRow): AgentEnvironment {
   return { pane: row.paneId };
 }
 
-function numberField(value: object, key: string): number | undefined {
-  const item: unknown = Reflect.get(value, key);
-  return typeof item === "number" ? item : undefined;
-}
-
-function tokenFields(value: unknown): FleetAgent["tokens"] | undefined {
-  if (value === null || typeof value !== "object") return undefined;
-  const fields: NonNullable<FleetAgent["tokens"]> = {};
-  const keys: readonly ("input" | "output" | "cacheRead" | "cacheWrite")[] = ["input", "output", "cacheRead", "cacheWrite"];
-  for (const key of keys) {
-    const item = numberField(value, key);
-    if (item !== undefined) fields[key] = item;
-  }
-  return fields;
-}
-
-function projectAgent(row: WebStatusRow): FleetAgent {
-  const tokens = tokenFields(row.tokens);
+function projectAgent(row: StatusRow): FleetAgent {
   const slash = row.model.indexOf("/");
   const model = slash === -1 ? { id: row.model } : { provider: row.model.slice(0, slash), id: row.model.slice(slash + 1) };
+  const short = modelShort(row.model);
   return {
     key: row.key,
     id: row.agentId ?? null,
@@ -112,14 +98,14 @@ function projectAgent(row: WebStatusRow): FleetAgent {
     state: isAgentState(row.state) ? row.state : "unknown",
     stateFallback: row.stateFallback,
     ...(row.model ? { model } : {}),
-    ...(row.modelShort ? { modelShort: row.modelShort } : {}),
+    ...(short ? { modelShort: short } : {}),
     ...(row.lastText ? { lastText: row.lastText } : {}),
     ...(row.task ? { task: row.task } : {}),
     ...(row.dispatchId ? { dispatchId: row.dispatchId } : {}),
     ...(row.backendStatus ? { backendStatus: row.backendStatus } : {}),
     bridgeAttached: row.bridgeAttached,
     cost: row.cost,
-    ...(tokens ? { tokens } : {}),
+    ...(row.tokens ? { tokens: row.tokens } : {}),
     ...(row.ctxPercent !== null ? { context: { percent: row.ctxPercent } } : {}),
     alive: row.alive,
     lease: row.lease,
@@ -133,40 +119,41 @@ function projectAgent(row: WebStatusRow): FleetAgent {
  * under that fact — never under the plexer coordinate `spaceId` may be carrying,
  * which is exactly how `wF` once got printed as a name the user had chosen.
  */
-function liveGroup(row: WebStatusRow): { id: string; name: string } {
-  const name = trimmed(row.spaceName);
-  if (name === null) return { id: UNSCOPED_ID, name: UNSCOPED_NAME };
-  return { id: trimmed(row.spaceId) ?? name, name };
+function liveGroup(row: StatusRow, names: FleetNames): { id: string; name: string } {
+  const id = trimmed(row.spaceId);
+  const name = id === null ? null : trimmed(names.spaces[id]);
+  if (id === null || name === null) return { id: UNSCOPED_ID, name: UNSCOPED_NAME };
+  return { id, name };
 }
 
 /** A11: a pack is its provenance ROOT. Ownership never groups anything - a lease
  *  says who is driving right now, and a pack outlives every lease in it. */
-function historyGroup(row: WebStatusRow): { id: string; name: string } {
+function historyGroup(row: StatusRow, names: FleetNames): { id: string; name: string } {
   const root = trimmed(row.rootAgentId) ?? trimmed(row.spawnedBy);
   if (root === null) return { id: UNSPAWNED_ID, name: UNSPAWNED_NAME };
-  return { id: root, name: trimmed(row.rootAgentName) ?? trimmed(row.spawnedByLabel) ?? UNNAMED_SPAWNER };
+  return { id: root, name: trimmed(names.agents[root]) ?? UNNAMED_SPAWNER };
 }
 
 /** C7: inside a space, live work groups by its LEASE HOLDER. An unheld agent is
  *  filed as unheld — it is adoptable, not gone, and orch never invents a holder
  *  for it (Rule 11: work survives its spawner). */
-function leaseGroup(row: WebStatusRow): { id: string; name: string } {
+function leaseGroup(row: StatusRow, names: FleetNames): { id: string; name: string } {
   const lease = row.lease;
   // A dead holder is not a holder (G9): it must not appear as an orch with a
   // fleet under it, or the view claims work is being driven when none is.
   if (lease === null || !lease.holderAlive) return { id: UNHELD_ID, name: UNHELD_NAME };
-  return { id: lease.holderId, name: trimmed(lease.holderName) ?? lease.holderId };
+  return { id: lease.holderId, name: trimmed(names.agents[lease.holderId]) ?? lease.holderId };
 }
 
 function groupedRows(
-  rows: readonly WebStatusRow[],
+  fleet: FleetStatus,
   historical: boolean,
-  groupFor: (row: WebStatusRow) => { id: string; name: string },
+  groupFor: (row: StatusRow, names: FleetNames) => { id: string; name: string },
 ): AgentGroup[] {
   const groups = new Map<string, AgentGroup>();
-  for (const row of rows) {
+  for (const row of fleet.rows) {
     if (row.exited !== historical) continue;
-    const { id, name } = groupFor(row);
+    const { id, name } = groupFor(row, fleet.names);
     const group = groups.get(id) ?? { id, name, slug: id, agents: [] };
     group.agents.push(projectAgent(row));
     groups.set(id, group);
@@ -174,18 +161,18 @@ function groupedRows(
   return [...groups.values()];
 }
 
-export function projectFleet(rows: readonly WebStatusRow[]): Space[] {
+export function projectFleet(fleet: FleetStatus): Space[] {
   const spaces: Space[] = [];
-  for (const group of groupedRows(rows, false, liveGroup)) {
+  for (const group of groupedRows(fleet, false, liveGroup)) {
     const members = new Set(group.agents.map((agent) => agent.key));
-    const orchs = groupedRows(rows.filter((row) => members.has(row.key)), false, leaseGroup);
+    const orchs = groupedRows({ names: fleet.names, rows: fleet.rows.filter((row) => members.has(row.key)) }, false, leaseGroup);
     spaces.push({ ...group, orchs });
   }
   return spaces;
 }
 
-export function projectHistory(rows: readonly WebStatusRow[]): AgentGroup[] {
-  return groupedRows(rows, true, historyGroup);
+export function projectHistory(fleet: FleetStatus): AgentGroup[] {
+  return groupedRows(fleet, true, historyGroup);
 }
 
 /**

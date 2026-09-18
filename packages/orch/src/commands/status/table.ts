@@ -3,7 +3,7 @@ import { collapse, truncate } from "../../util.ts";
 import { dim } from "../../tui/screen.ts";
 import { DEAD_HOLDER_DRIVER, NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
 import { formatSpace, displayStatusState, NO_STATUS_FILTER, isTTY } from "./options.ts";
-import { modelShort } from "./rows.ts";
+import { modelShort } from "../../policy/thinking.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { FleetNames, FleetStatus } from "../../types/daemon.ts";
 

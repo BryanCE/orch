@@ -5,7 +5,8 @@ import { ensureHarness, ensureHost, getOrCreateSessionAgent, insertAgent, packMe
 import { acquireLease, adoptLease, currentLease, leaseHistory, openLeaseId, releaseLease } from "../src/store/lease-rows.ts";
 import { holderOf } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
-import { deriveLeasePayload } from "../src/daemon/server/state.ts";
+import { leasePayloadFrom } from "../src/commands/status/rows.ts";
+import { storeLeaseFacts } from "../src/agent/drive-state.ts";
 import { governWrite } from "../src/daemon/server/handlers/write.ts";
 import { presenceAgentDir } from "../src/presence/history.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -173,8 +174,8 @@ describe("C4b reads are never gated", () => {
     live(dir, "live-orch");
     agent(dir, "worker", "worker");
     acquireLease(dir, "worker", "live-orch", 2);
-    expect(deriveLeasePayload(dir, "worker")).toEqual({
-      lease: { holderId: "live-orch", holderName: "live-orch", holderAlive: true },
+    expect(leasePayloadFrom("worker", storeLeaseFacts(dir))).toEqual({
+      lease: { holderId: "live-orch", holderAlive: true },
       leaseKnown: true,
     });
     expect(resolveTarget(dir, "worker").id).toBe("worker");

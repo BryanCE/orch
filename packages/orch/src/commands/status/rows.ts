@@ -21,11 +21,6 @@ interface Provenance {
   cwd: string | null;
 }
 
-/** The model as the table shows it: the codex provider prefix is noise there. */
-export function modelShort(model: string): string {
-  return model.replace(/^openai-codex\//, "");
-}
-
 /** Lease facts from the composed view, never from presence or ownership files. */
 export function leasePayloadFrom(key: string, facts: LeaseFacts): LeaseStatusPayload {
   // An agent key IS its minted id (A1); a key that is not one names no agent and

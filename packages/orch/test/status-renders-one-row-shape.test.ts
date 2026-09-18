@@ -70,6 +70,9 @@ describe("status rendering has one row shape and one table renderer", () => {
     const settings = testServices({ orchDir: root, settings: {} }).settings.current();
     const fleet = buildFleetStatus(settings, { directory: root });
     expect(fleet.rows).toHaveLength(3);
-    expect(fleet.names).toEqual({ agents: {}, spaces: {} });
+    expect(fleet.names).toEqual({
+      agents: { fleet00001: "fleet00001", fleet00002: "fleet00002", fleet00003: "fleet00003" },
+      spaces: {},
+    });
   });
 });

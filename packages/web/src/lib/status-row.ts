@@ -1,11 +1,9 @@
-import type { DaemonStatusRow } from "@orch/types/daemon.ts";
-import { isDaemonStatusRow } from "@orch/daemon/client/protocol.ts";
+import type { FleetStatus } from "@orch/types/daemon.ts";
+import { isFleetStatus } from "@orch/daemon/client/protocol.ts";
 
-/** The web view never carries orch's filesystem-only status fields. */
-export type WebStatusRow = Omit<DaemonStatusRow, "presenceDir" | "presenceOnly">;
+const EMPTY_FLEET: FleetStatus = { names: { agents: {}, spaces: {} }, rows: [] };
 
-/** Keep only complete daemon status rows; malformed rows are not repaired. */
-export function daemonStatusRows(value: unknown): WebStatusRow[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter(isDaemonStatusRow);
+/** orchd's `status` reply as the web reads it; a malformed reply is an empty fleet, never repaired. */
+export function fleetStatusOf(value: unknown): FleetStatus {
+  return isFleetStatus(value) ? value : EMPTY_FLEET;
 }

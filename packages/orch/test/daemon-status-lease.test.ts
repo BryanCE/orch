@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { deriveLeasePayload } from "../src/daemon/server/state.ts";
+import { leasePayloadFrom } from "../src/commands/status/rows.ts";
+import { storeLeaseFacts } from "../src/agent/drive-state.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -34,15 +35,15 @@ describe("daemon status lease payload", () => {
   test("reports the current holder and its liveness", () => {
     const dir = fixture();
     acquireLease(dir, WORKER_ID, "orch", 2);
-    expect(deriveLeasePayload(dir, WORKER_ID)).toEqual({
-      lease: { holderId: "orch", holderName: "Lead", holderAlive: true },
+    expect(leasePayloadFrom(WORKER_ID, storeLeaseFacts(dir))).toEqual({
+      lease: { holderId: "orch", holderAlive: true },
       leaseKnown: true,
     });
   });
 
   test("distinguishes a known unleased agent from an unknown key", () => {
     const dir = fixture();
-    expect(deriveLeasePayload(dir, WORKER_ID)).toEqual({ lease: null, leaseKnown: true });
-    expect(deriveLeasePayload(dir, "missingkey0")).toEqual({ lease: null, leaseKnown: false });
+    expect(leasePayloadFrom(WORKER_ID, storeLeaseFacts(dir))).toEqual({ lease: null, leaseKnown: true });
+    expect(leasePayloadFrom("missingkey0", storeLeaseFacts(dir))).toEqual({ lease: null, leaseKnown: false });
   });
 });

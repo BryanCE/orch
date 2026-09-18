@@ -2,8 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { daemonRpc, down, type DaemonDown, type DaemonEndpoint } from "./daemon";
 import { projectFleet, projectHistory, type AgentGroup, type Space } from "@/lib/fleet";
-import { daemonStatusRows } from "@/lib/status-row";
-import type { DaemonStatusRow, PendingQuestionView } from "@orch/types/daemon.ts";
+import { fleetStatusOf } from "@/lib/status-row";
+import type { PendingQuestionView } from "@orch/types/daemon.ts";
 import type { LifecycleVerb } from "@orch/types/adapter.ts";
 import type { WorkerPolicy } from "@orch/types/policy.ts";
 
@@ -79,11 +79,6 @@ export const getDaemonStatus = createServerFn({ method: "GET" }).handler(async (
   }
 });
 
-/** orchd's `status` reply: the one row shape every renderer consumes. */
-interface FleetStatusResult {
-  rows: DaemonStatusRow[];
-}
-
 interface DaemonSendAcceptedResult {
   accepted: true;
   id: string;
@@ -123,12 +118,12 @@ export const sendToAgent = createServerFn({ method: "POST" })
 /** Read the merged pane + presence view from orchd. */
 export const getFleet = createServerFn({ method: "GET" }).handler(async (): Promise<FleetResult> => {
   try {
-    const { result } = await daemonRpc<FleetStatusResult>("status");
-    const rows = daemonStatusRows(result.rows);
+    const { result } = await daemonRpc<unknown>("status");
+    const fleet = fleetStatusOf(result);
     return {
       daemon: "up",
-      spaces: projectFleet(rows),
-      history: projectHistory(rows),
+      spaces: projectFleet(fleet),
+      history: projectHistory(fleet),
     };
   } catch (error) {
     return down(error);

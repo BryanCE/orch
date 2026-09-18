@@ -78,7 +78,7 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     const root = fixture();
     seedPresence(root, "liveagent1", true, "working");
 
-    const [row] = fleetStatusRows(noSettings(root), noSettings(root).spaces, { offline: true, orchId: () => null, directory: root });
+    const [row] = buildFleetStatus(noSettings(root), { offline: true, directory: root }).rows;
 
     // `state` is what the AGENT says about itself and is the only field that
     // answers "is the work finished". Offline reads that same field; it does not
@@ -94,9 +94,9 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     // `status` disagree about the same agent. Enforced statically, because the
     // divergence would otherwise appear only on a machine with a live plexer.
     const source = readFileSync(join(import.meta.dir, "..", "src", "commands", "status", "fetch.ts"), "utf8");
-    const offlineBranch = /if\s*\(offline\)\s*\{[\s\S]*?\n\s{2}\}/.exec(source)?.[0] ?? "";
+    const offlineBranch = /if\s*\(offline\)[^\n]*/.exec(source)?.[0] ?? "";
 
-    expect(offlineBranch).toContain("fleetStatusRows");
+    expect(offlineBranch).toContain("buildFleetStatus");
     // The whole of the offline path is that one call plus the shared snapshot.
     expect(offlineBranch).not.toContain("loadPresence");
     expect(offlineBranch).not.toContain("readdirSync");

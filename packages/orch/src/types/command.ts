@@ -181,15 +181,6 @@ export interface TabSpawnSpec {
   owner: string | undefined;
 }
 
-/** A rendered snapshot of which roles an environment composes. Data for display,
- *  never a thing to branch on — the code reads the role itself. */
-export interface EnvironmentCapabilityView {
-  readonly spaceHome: boolean;
-  readonly identity: boolean;
-  readonly handleLookup: boolean;
-  readonly logPruning: boolean;
-}
-
 export interface StatusRow {
   key: string;
   /** Orch-minted id; distinct from every plexer coordinate. */
@@ -234,15 +225,10 @@ export interface StatusRow {
   backendStatus: string | null;
   /** Backend that supplied this row, when known. */
   backend: string | null;
-  /** What the owning backend can do with this agent. Every renderer branches on
-   *  these, never on the backend's id (Rule 9). Null when no backend owns it. */
-  capabilities: EnvironmentCapabilityView | null;
-  sessionPath: string | null;
   /** True while the agent's bridge holds a link to orchd; null when the row was built
    * without asking the daemon (a local `orch status`). */
   bridgeAttached: boolean | null;
   tokens: unknown;
-  turns: unknown;
   /** Orch-owned space identity and display name. */
   spaceId?: string | null;
   spaceName?: string | null;

@@ -31,11 +31,8 @@ const fixture: StatusRow = {
   lastText: "fixture output",
   backendStatus: null,
   backend: null,
-  capabilities: null,
-  sessionPath: null,
   bridgeAttached: null,
   tokens: null,
-  turns: null,
 };
 
 describe("live status renderer", () => {

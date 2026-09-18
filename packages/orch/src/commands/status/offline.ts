@@ -1,6 +1,6 @@
 // The only command file that opens the store.
 // `--offline` and orchd read through it.
-import { fleetDriveStates } from "../../agent/drive-state.ts";
+import { driveStatesFrom, fleetLeaseFacts, type LeaseFacts } from "../../agent/drive-state.ts";
 import { buildEntities, sortEntities } from "../../entities/inventory.ts";
 import { indexPresenceById } from "../../entities/lookup.ts";
 import { liveViews, agentViewIndex } from "../../store/agent-view.ts";
@@ -24,6 +24,8 @@ export function currentOrchId(orchDir: OrchDir): string | null {
 interface FleetStatusOptions {
   offline?: boolean;
   orchId?: () => string | null;
+  /** Lease facts already read by the caller; read here when absent. */
+  leaseFacts?: LeaseFacts;
   /** Resolve the store root once per fleet build (injectable for cost tests). */
   directory: OrchDir;
 }
@@ -33,7 +35,7 @@ export function fleetStatusRows(settings: OrchSettings, spaces: OrchSettings["sp
   const fleet = agentViewIndex(directory);
   const views = liveViews(fleet);
   const orchId = options.orchId?.() ?? currentOrchId(directory);
-  const driveState = fleetDriveStates(directory, fleet, orchId);
+  const driveState = driveStatesFrom(options.leaseFacts ?? fleetLeaseFacts(directory, fleet), orchId);
   return sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }))
     .map((entity) => statusRowFromEntity(entity, views, spaces, driveState, (id) => pendingQuestion(directory, id)?.question));
 }

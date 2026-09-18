@@ -153,8 +153,8 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
 export function fleetStatus(state: DaemonState): { rows: DaemonStatusRow[] } {
   const directory = state.directory;
   const current = state.services.settings.current();
-  const rows = fleetStatusRows(current, current.spaces, { directory });
   const facts = fleetLeaseFacts(directory, agentViewIndex(directory));
+  const rows = fleetStatusRows(current, current.spaces, { directory, leaseFacts: facts });
   return {
     rows: rows.map((row) => ({ ...row, ...leasePayloadFrom(row.key, facts), bridgeAttached: bridgeAttached(row.key) })),
   };

@@ -1,7 +1,6 @@
 import { modelSpec } from "../../policy/thinking.ts";
 import { NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
 import { getAdapter } from "../../adapters/registry.ts";
-import { getBackend } from "../../backends/registry.ts";
 import { spaceName as resolveSpaceName } from "../../policy/space.ts";
 import { firstNonEmptyText } from "../target.ts";
 import { viewForKey } from "../../entities/lookup.ts";
@@ -13,7 +12,7 @@ import type { DriveState } from "../../types/agent.ts";
 import type { AgentView } from "../../types/store.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
-import type { EnvironmentCapabilityView, StatusRow } from "../../types/command.ts";
+import type { StatusRow } from "../../types/command.ts";
 import type { Entity } from "../../types/core.ts";
 
 interface Provenance {
@@ -137,18 +136,6 @@ function orchNames(key: string, views: ReadonlyMap<string, AgentView>): OrchName
   };
 }
 
-function backendCapabilities(entity: Entity): EnvironmentCapabilityView | null {
-  if (entity.backend === null) return null;
-  const backend = getBackend(entity.backend);
-  if (!backend) return null;
-  return {
-    spaceHome: backend.spaceHome !== null,
-    identity: backend.identity !== null,
-    handleLookup: backend.handleLookup !== null,
-    logPruning: backend.logPruning !== null,
-  };
-}
-
 export function statusRowFromEntity(
   entity: Entity,
   views: ReadonlyMap<string, AgentView>,
@@ -197,11 +184,8 @@ export function statusRowFromEntity(
     lastText: collapse(deriveViewLast(pres, sview)),
     backendStatus: entity.backendStatus,
     backend: entity.backend,
-    capabilities: backendCapabilities(entity),
-    sessionPath: entity.sessionPath,
     bridgeAttached: null,
     tokens: sview?.tokens ?? presenceTokens(pres),
-    turns: pres?.status?.turns ?? sview?.turns ?? null,
     spaceId,
     spaceName: spaceNames.spaceName ?? resolveSpaceName(spaceId, spaces),
   };
@@ -213,7 +197,7 @@ export function warningStatusRow(host: string, warning: string): StatusRow {
     spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
     focused: false, model: "", modelShort: "", state: "warning", stateFallback: false,
     exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,
-    backendStatus: null, backend: null, capabilities: null, sessionPath: null,
-    bridgeAttached: null, tokens: null, turns: null, host, warning,
+    backendStatus: null, backend: null,
+    bridgeAttached: null, tokens: null, host, warning,
   };
 }

@@ -83,7 +83,7 @@ export function parseRpcLine(value: unknown): RpcLine | null {
   return null;
 }
 
-function encodeLine(line: RpcLine): string {
+export function encodeLine(line: RpcLine): string {
   switch (line.kind) {
     case "reply":
       return `${JSON.stringify({ id: line.id, result: line.result })}\n`;
@@ -110,8 +110,13 @@ export function endpointPaths(orchDir: OrchDir): EndpointPaths {
   return { socket: files.socket, port: files.port, token: files.token };
 }
 
+/** Write one already-encoded line to a live socket. */
+export function writeEncodedLine(socket: Socket, encoded: string): void {
+  if (!socket.destroyed) socket.write(encoded);
+}
+
 export function lineResponse(socket: Socket, line: RpcLine): void {
-  if (!socket.destroyed) socket.write(encodeLine(line));
+  writeEncodedLine(socket, encodeLine(line));
 }
 
 export function errorResponse(id: number | null, code: RpcErrorCode, message: string): Extract<RpcLine, { kind: "error" }> {

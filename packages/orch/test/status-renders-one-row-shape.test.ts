@@ -16,8 +16,8 @@ function row(overrides: Partial<StatusRow> = {}): StatusRow {
     model: "pi/model", modelShort: "model", state: "working", stateFallback: false,
     exited: false, alive: true, cost: 0, ctxPercent: null,
     task: "Q: approve", dispatchId: null, lastText: "finished", backendStatus: null,
-    backend: null, capabilities: null, sessionPath: null,
-    bridgeAttached: null, tokens: null, turns: null, spaceId: null, spaceName: null,
+    backend: null,
+    bridgeAttached: null, tokens: null, spaceId: null, spaceName: null,
     rootAgentId: null, rootAgentName: null,
   };
   return { ...base, ...overrides };

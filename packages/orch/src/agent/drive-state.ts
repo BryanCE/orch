@@ -87,8 +87,13 @@ export function deriveDriveState(agentId: string, options: DriveStateInput): Dri
   }
 }
 
+/** The whole fleet's drive states off lease facts already read. */
+export function driveStatesFrom(leaseFacts: LeaseFacts, currentOrchId: string | null | undefined): (agentId: string) => DriveState {
+  const facts: DriveFacts = { ...leaseFacts, currentOrchId };
+  return (agentId) => driveStateFrom(agentId, facts);
+}
+
 /** The whole fleet's drive states off {@link fleetLeaseFacts}. */
 export function fleetDriveStates(directory: OrchDir, views: ReadonlyMap<string, AgentView>, currentOrchId: string | null | undefined): (agentId: string) => DriveState {
-  const facts: DriveFacts = { ...fleetLeaseFacts(directory, views), currentOrchId };
-  return (agentId) => driveStateFrom(agentId, facts);
+  return driveStatesFrom(fleetLeaseFacts(directory, views), currentOrchId);
 }

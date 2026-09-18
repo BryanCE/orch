@@ -32,8 +32,8 @@ function row(key: string, ownerId: string | null, spaceId = "space"): StatusRow 
     owner: ownerId, ownerId, spawnedBy: "different-provenance", spawnedByLabel: null,
     worktree: null, branch: null, cwd: null, focused: false, model: "pi/model", modelShort: "model",
     state: "working", stateFallback: false, exited: false, alive: true, cost: 0, ctxPercent: null,
-    task: null, dispatchId: null, lastText: null, backendStatus: null, backend: null, capabilities: null,
-    sessionPath: null, bridgeAttached: null, tokens: null, turns: null,
+    task: null, dispatchId: null, lastText: null, backendStatus: null, backend: null,
+    bridgeAttached: null, tokens: null,
     spaceId,
   };
 }

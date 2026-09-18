@@ -11,7 +11,7 @@ import { hostOs } from "../../host.ts";
 import type { SessionAgentIdentity } from "../../types/store.ts";
 import type { EndpointPaths, RpcEventEmitter, RpcHandlers, RpcRequestContext, RpcServer, RpcServerOptions } from "../../types/daemon.ts";
 import type { IdentityMethod, ParamsOf, RpcMethod } from "../client/protocol.ts";
-import { RpcError, endpointPaths, errorResponse, framedLineReader, lineResponse, parseRequest, type RpcRequest } from "../client/wire.ts";
+import { RpcError, encodeLine, endpointPaths, errorResponse, framedLineReader, lineResponse, parseRequest, writeEncodedLine, type RpcRequest } from "../client/wire.ts";
 import { ReplayBuffer } from "./replay.ts";
 import { isRegisterSessionResponse } from "../client/registration.ts";
 import { registerSession, claimIdentity } from "./session-registry.ts";
@@ -246,7 +246,8 @@ export async function startRpcServer(
   const bus = createEventBus(logger);
   const unsubscribeBus = bus.on((event) => {
     const buffered = replayBuffer.push(event);
-    for (const socket of subscriptions) lineResponse(socket, { kind: "event", ...buffered });
+    const encoded = encodeLine({ kind: "event", ...buffered });
+    for (const socket of subscriptions) writeEncodedLine(socket, encoded);
   });
   const daemonToken = writeDaemonToken(paths.token);
   const attachFor = (transport: "unix" | "tcp") => (socket: Socket): void => {

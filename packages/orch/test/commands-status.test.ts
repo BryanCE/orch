@@ -44,8 +44,8 @@ function statusRowFixture(overrides: Partial<StatusRow> = {}): StatusRow {
     spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, focused: false,
     model: "-", modelShort: "-", state: "unknown", stateFallback: false, exited: false, alive: true,
     cost: 0, ctxPercent: null, task: null, dispatchId: null, lastText: null, backendStatus: null,
-    backend: null, capabilities: null, sessionPath: null,
-    bridgeAttached: null, tokens: null, turns: null,
+    backend: null,
+    bridgeAttached: null, tokens: null,
     ...overrides,
   };
 }
@@ -170,25 +170,11 @@ describe("commands/status", () => {
       focused: true, model: "openai-codex/gpt-5.6:medium", modelShort: "gpt-5.6:medium",
       state: "working", stateFallback: false, exited: false, cost: 2.5, ctxPercent: 33,
       task: "build the thing", lastText: "on it", tokens: { input: 10 },
-      turns: 4, spaceId: "local",
+      spaceId: "local",
     });
     expect(row.host).toBeUndefined();
   });
 
-  // Renderers branch on caps, never on a backend id (Rule 9), so the row must carry
-  // what the backend DECLARES — a new plexer changes no renderer.
-  test("row carries the owning backend's declared capabilities", () => {
-    const paned = statusRowFromEntity(seededEntity, new Map());
-    expect(paned.capabilities).toEqual({ spaceHome: true, identity: true, handleLookup: false, logPruning: false });
-
-    const detached: Entity = { ...seededEntity, key: "hless00001", backend: "headless" };
-    expect(statusRowFromEntity(detached, new Map()).capabilities).toEqual({ spaceHome: false, identity: false, handleLookup: true, logPruning: true });
-  });
-
-  test("an agent whose backend orch cannot name reports no capabilities", () => {
-    const orphan: Entity = { ...seededEntity, backend: null };
-    expect(statusRowFromEntity(orphan, new Map()).capabilities).toBeNull();
-  });
   // The status OWNER column answers the current driving lease and never falls
   // back to spawning provenance.
   test("status owner ignores spawning provenance when no lease exists", () => {

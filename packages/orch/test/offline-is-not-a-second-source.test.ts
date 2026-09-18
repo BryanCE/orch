@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fleetStatusRows } from "../src/commands/status/offline.ts";
+import { buildFleetStatus } from "../src/commands/status/offline.ts";
 import { testServices } from "./helpers/services.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -16,7 +16,7 @@ import type { OrchDir } from "../src/types/core.ts";
  * or deleted.
  *
  * RULING: it is neither, so it stays a status flag. There is exactly ONE reader
- * — `fleetStatusRows` → `buildEntities` — and exactly one source: orch's store
+ * — `buildFleetStatus` → `buildEntities` — and exactly one source: orch's store
  * and the presence directories. `--offline` sets `skipBackends`, which drops the
  * two things that mean ASKING SOMEONE ELSE (the daemon over RPC, and each plexer
  * for its pane inventory). Same reader, same source, one fewer question.
@@ -60,8 +60,8 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     seedPresence(root, "liveagent1", true, "working");
     seedPresence(root, "deadagent1", false, "done");
 
-    const offline = fleetStatusRows(noSettings(root), noSettings(root).spaces, { offline: true, orchId: () => null, directory: root });
-    const online = fleetStatusRows(noSettings(root), noSettings(root).spaces, { orchId: () => null, directory: root });
+    const offline = buildFleetStatus(noSettings(root), { offline: true, directory: root }).rows;
+    const online = buildFleetStatus(noSettings(root), { directory: root }).rows;
 
     // Every agent orch itself recorded appears in BOTH: offline drops no agent
     // of orch's, it only stops asking a plexer about panes.

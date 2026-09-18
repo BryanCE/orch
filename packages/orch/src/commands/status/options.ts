@@ -39,7 +39,7 @@ export function scopeFleetRows(
     if (opts.agent !== undefined && !statusRowMatches(row, opts.agent)) return false;
     if (!opts.allPanes && !row.managed) return false;
     if (!withinSpaceCeiling(row.spaceId, caller.ceiling)) return false;
-    if (caller.kind !== "operator" && !opts.spaceWide && (caller.id === null || row.ownerId !== caller.id)) return false;
+    if (caller.kind !== "operator" && !opts.spaceWide && (caller.id === null || row.lease?.holderId !== caller.id)) return false;
     if (opts.states?.has(displayStatusState(row))) return false;
     // The table is the fleet as it is NOW. An agent that has exited is history —
     // `orch result` and `orch tail` still read it — and keeping every dead one
@@ -75,14 +75,14 @@ const STATUS_COLUMN_KEYS: Readonly<Record<string, readonly (keyof StatusRow)[]>>
   id: ["key", "agentId"],
   env: ["paneId"],
   name: ["name"],
-  owner: ["owner"],
+  owner: ["lease", "leaseKnown"],
   branch: ["branch"],
   tab: ["tab"],
   agent: ["agent"],
   harness: ["agent"],
   cwd: ["cwd"],
   worktree: ["worktree"],
-  model: ["model", "modelShort"],
+  model: ["model"],
   state: ["state", "stateFallback", "exited"],
   cost: ["cost"],
   ctx: ["ctxPercent"],

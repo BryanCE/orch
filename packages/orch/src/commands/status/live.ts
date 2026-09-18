@@ -8,8 +8,7 @@ import { readStatusResult } from "./fetch.ts";
 import { callerScope } from "./options.ts";
 import type { StatusOptions } from "./options.ts";
 import type { StatusTableOptions } from "./table.ts";
-import type { StatusRow } from "../../types/command.ts";
-import type { EventSubscription } from "../../types/daemon.ts";
+import type { EventSubscription, FleetStatus } from "../../types/daemon.ts";
 import type { Services } from "../../types/services.ts";
 
 function twoDigits(value: number): string {
@@ -77,14 +76,14 @@ export function createRefreshController(read: () => Promise<void>): RefreshContr
 }
 
 export function renderLiveStatus(
-  rows: readonly StatusRow[],
+  fleet: FleetStatus,
   options: StatusTableOptions,
   date = new Date(),
   error?: string,
 ): string {
-  const table = formatStatusTable(rows, options);
+  const table = formatStatusTable(fleet, options);
   const errorLine = error === undefined ? "" : `${error}\n`;
-  return `${CLEAR_SCREEN}${dim(liveHeader(rows.length, date))}\n${errorLine}${table}${table ? "\n" : ""}`;
+  return `${CLEAR_SCREEN}${dim(liveHeader(fleet.rows.length, date))}\n${errorLine}${table}${table ? "\n" : ""}`;
 }
 
 /** Run the terminal-bound live status view until the user quits or the process is signalled. */
@@ -101,7 +100,7 @@ export async function cmdStatusLive(services: Services, options: StatusOptions):
   let stopped = false;
   let resolveDone: (() => void) | undefined;
   const done = new Promise<void>((resolve) => { resolveDone = resolve; });
-  let rows: readonly StatusRow[] = [];
+  let fleet: FleetStatus = { names: { agents: {}, spaces: {} }, rows: [] };
   let host = false;
   const tableOptions = (): StatusTableOptions => ({ spaceWide: options.spaceWide, host, human: options.human, columns: options.filter.columns });
   const refreshController = createRefreshController(async () => {
@@ -109,11 +108,11 @@ export async function cmdStatusLive(services: Services, options: StatusOptions):
     try {
       const result = await readStatusResult(services, options, caller);
       if (stopped) return;
-      rows = result.rows;
+      fleet = result;
       host = result.host;
-      process.stdout.write(renderLiveStatus(rows, tableOptions()));
+      process.stdout.write(renderLiveStatus(fleet, tableOptions()));
     } catch {
-      if (!stopped) process.stdout.write(renderLiveStatus(rows, tableOptions(), new Date(), "daemon unreachable - retrying on next event"));
+      if (!stopped) process.stdout.write(renderLiveStatus(fleet, tableOptions(), new Date(), "daemon unreachable - retrying on next event"));
     }
   });
   const refresh = (): void => refreshController.trigger();

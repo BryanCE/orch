@@ -5,8 +5,9 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { displayStatusState, formatNoRowsMessage, formatSpace, parseStatusOptions, scopeFleetRows } from "../src/commands/status/options.ts";
 import { normalizeStatusRow, readStatusResult } from "../src/commands/status/fetch.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
-import { statusRowFromEntity as composeStatusRow, warningStatusRow } from "../src/commands/status/rows.ts";
-import { deriveDriveState, fleetDriveStates } from "../src/agent/drive-state.ts";
+import { fleetNames, modelShort, statusRowFromEntity, warningStatusRow } from "../src/commands/status/rows.ts";
+import { ownerLabel } from "../src/commands/status/table.ts";
+import { deriveDriveState, fleetLeaseFacts } from "../src/agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../src/policy/capacity.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -17,6 +18,7 @@ import type { StatusRow } from "../src/types/command.ts";
 import type { CallerScope } from "../src/commands/status/options.ts";
 import { presenceEntryFixture, statusRow } from "./helpers/presence.ts";
 import { agentViewFixture } from "./helpers/views.ts";
+import { fleetFixture, statusRowFixture } from "./helpers/status-row.ts";
 import { sql } from "drizzle-orm";
 import { servedServices } from "./helpers/daemon-state.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
@@ -38,27 +40,15 @@ function entityFixture(overrides: Partial<Entity> = {}): Entity {
   };
 }
 
-function statusRowFixture(overrides: Partial<StatusRow> = {}): StatusRow {
-  return {
-    key: "row", paneId: null, managed: true, name: null, tab: null, agent: null, owner: null,
-    spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, focused: false,
-    model: "-", modelShort: "-", state: "unknown", stateFallback: false, exited: false, alive: true,
-    cost: 0, ctxPercent: null, task: null, dispatchId: null, lastText: null, backendStatus: null,
-    backend: null,
-    bridgeAttached: null, tokens: null,
-    ...overrides,
-  };
-}
-
 const seededEntity = entityFixture();
 const syntheticOrchDir: OrchDir = orchDirAt("/tmp");
 
-function statusRowFromEntity(
+function composedRow(
   entity: Entity,
-  views: Parameters<typeof composeStatusRow>[1],
+  views: Parameters<typeof statusRowFromEntity>[1],
   questionOf: (agentId: string) => string | undefined = () => undefined,
-): ReturnType<typeof composeStatusRow> {
-  return composeStatusRow(entity, views, {}, fleetDriveStates(syntheticOrchDir, views, null), questionOf);
+): StatusRow {
+  return statusRowFromEntity(entity, views, fleetLeaseFacts(syntheticOrchDir, views), questionOf);
 }
 
 describe("commands/status", () => {
@@ -111,9 +101,9 @@ describe("commands/status", () => {
   describe("an agent sees what it spawned, and never past its own space", () => {
     const orch: CallerScope = { id: "orch1", ceiling: "w1", kind: "session" };
     const rows = [
-      statusRowFixture({ key: "mine", spaceId: "w1", spawnedBy: "orch1", ownerId: "orch1" }),
-      statusRowFixture({ key: "sibling", spaceId: "w1", spawnedBy: "orch2", ownerId: "orch2" }),
-      statusRowFixture({ key: "elsewhere", spaceId: "w2", spawnedBy: "orch1", ownerId: "orch1" }),
+      statusRowFixture({ key: "mine", spaceId: "w1", spawnedBy: "orch1", lease: { holderId: "orch1", holderAlive: true } }),
+      statusRowFixture({ key: "sibling", spaceId: "w1", spawnedBy: "orch2", lease: { holderId: "orch2", holderAlive: true } }),
+      statusRowFixture({ key: "elsewhere", spaceId: "w2", spawnedBy: "orch1", lease: { holderId: "orch1", holderAlive: true } }),
     ];
 
     test("the default is the agents this caller spawned", () => {
@@ -137,7 +127,7 @@ describe("commands/status", () => {
         status: statusRow({ agentId: "hless00001", state: "working", task: "task", cost: 1.25, contextPercent: 42 }),
       },
     });
-    const row = statusRowFromEntity(entity, new Map());
+    const row = composedRow(entity, new Map());
     expect(row).toMatchObject({ agent: "pi", state: "working", task: "task", lastText: "answer", cost: 1.25, ctxPercent: 42, exited: false });
   });
   test("marks dead presence as exited", () => {
@@ -149,7 +139,7 @@ describe("commands/status", () => {
         status: statusRow({ agentId: "hless00001", state: "working" }),
       },
     });
-    const row = statusRowFromEntity(entity, new Map());
+    const row = composedRow(entity, new Map());
     expect(row).toMatchObject({ state: "exited", exited: true });
     // The shared row is consumed by both table and JSON renderers.
     expect(row).toMatchObject({ state: "exited", alive: false });
@@ -160,18 +150,19 @@ describe("commands/status", () => {
         status: statusRow({ agentId: "appagent01", state: "asking", blockedMessage: "Need approval", task: "ignored task" }),
       }),
     });
-    const row = statusRowFromEntity(entity, new Map(), () => undefined);
+    const row = composedRow(entity, new Map(), () => undefined);
     expect(row).toMatchObject({ state: "asking", exited: false, task: "Q: Need approval", alive: true });
   });
   test("shared status row carries presence-derived fields", () => {
-    const row = statusRowFromEntity(seededEntity, new Map());
+    const row = composedRow(seededEntity, new Map());
     expect(row).toMatchObject({
       key: "appagent01", paneId: "app:p1", name: "worker", tab: "app", agent: "pi",
-      focused: true, model: "openai-codex/gpt-5.6:medium", modelShort: "gpt-5.6:medium",
+      focused: true, model: "openai-codex/gpt-5.6:medium",
       state: "working", stateFallback: false, exited: false, cost: 2.5, ctxPercent: 33,
       task: "build the thing", lastText: "on it", tokens: { input: 10 },
       spaceId: "local",
     });
+    expect(modelShort(row.model)).toBe("gpt-5.6:medium");
     expect(row.host).toBeUndefined();
   });
 
@@ -181,8 +172,12 @@ describe("commands/status", () => {
     // Keyed by the MINTED ID, never by the pane-bearing presence key: the key
     // welds environment onto identity, and the store is keyed by the id alone.
     const spawned = new Map([["appagent01", agentViewFixture("appagent01", { spawnedBy: "orch-a", spawnedByName: "orch-a", heldBy: null })]]);
-    expect(statusRowFromEntity(seededEntity, spawned).owner).toBe("no orch driving it");
-    expect(statusRowFromEntity(seededEntity, new Map()).owner).toBe("no orch driving it");
+    const label = (views: Parameters<typeof statusRowFromEntity>[1]): string | null => {
+      const row = composedRow(seededEntity, views);
+      return ownerLabel(row, fleetNames([row], views, {}));
+    };
+    expect(label(spawned)).toBe("no orch driving it");
+    expect(label(new Map())).toBe("no orch driving it");
   });
   test("lease-backed status attribution distinguishes my lease, another lease, and unleased rows", () => {
     const dir = tempOrchDir("orch-status-");
@@ -208,10 +203,10 @@ describe("commands/status", () => {
     }
   });
   test("default table separates minted identity from pane environment", () => {
-    const table = formatStatusTable([
+    const table = formatStatusTable(fleetFixture([
       statusRowFixture({ key: "headless-id", agentId: "headless-id", paneId: null, name: "headless" }),
-      statusRowFixture({ key: "leased-id", agentId: "leased-id", paneId: "%7", name: "leased", owner: "Orchestrator" }),
-    ], { spaceWide: false, host: false, columns: new Set() });
+      statusRowFixture({ key: "leased-id", agentId: "leased-id", paneId: "%7", name: "leased", lease: { holderId: "orch", holderAlive: true } }),
+    ], { agents: { orch: "Orchestrator" } }), { spaceWide: false, host: false, columns: new Set() });
     expect(table).toContain("ID");
     expect(table).toContain("ENV");
     expect(table).toContain("headless-id");
@@ -222,7 +217,7 @@ describe("commands/status", () => {
   });
 
   test("human table shows harness and working directory facts", () => {
-    const table = formatStatusTable([statusRowFixture({ name: "worker", agent: "claude", cwd: "/repo", worktree: "feature", branch: "main", owner: "Orchestrator" })], { spaceWide: false, host: false, human: true, columns: new Set() });
+    const table = formatStatusTable(fleetFixture([statusRowFixture({ name: "worker", agent: "claude", cwd: "/repo", worktree: "feature", branch: "main", lease: { holderId: "orch", holderAlive: true } })], { agents: { orch: "Orchestrator" } }), { spaceWide: false, host: false, human: true, columns: new Set() });
     expect(table).toContain("HARNESS");
     expect(table).toContain("CWD");
     expect(table).toContain("WORKTREE");
@@ -231,8 +226,8 @@ describe("commands/status", () => {
   });
 
   test("json branch and local table branch derive identical rows apart from host", () => {
-    const jsonRow = statusRowFromEntity(seededEntity, new Map()); // cmdStatusLocal json branch shape
-    const localRow = { ...statusRowFromEntity(seededEntity, new Map()), host: "local" }; // localStatusRows table shape
+    const jsonRow = composedRow(seededEntity, new Map()); // cmdStatusLocal json branch shape
+    const localRow = { ...composedRow(seededEntity, new Map()), host: "local" }; // localStatusRows table shape
     expect(localRow).toEqual({ ...jsonRow, host: "local" });
     expect(jsonRow.host).toBeUndefined();
   });

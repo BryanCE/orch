@@ -52,7 +52,8 @@ export async function cmdStatus(services: Services, options: StatusOptions): Pro
   const result = await readStatusResult(services, options, caller);
   const settings = options.json ? null : services.settings.currentOrNull();
   if (options.json) {
-    process.stdout.write(JSON.stringify(result.rows.map((row) => filterRowKeys(row, options.filter.columns)), null, 2) + "\n");
+    const rows = result.rows.map((row) => filterRowKeys(row, options.filter.columns));
+    process.stdout.write(JSON.stringify({ names: result.names, rows }, null, 2) + "\n");
     return;
   }
   let footer: string | null = null;
@@ -64,6 +65,6 @@ export async function cmdStatus(services: Services, options: StatusOptions): Pro
     if (footer !== null) process.stdout.write(footer + "\n");
     return;
   }
-  process.stdout.write(formatStatusTable(result.rows, { spaceWide: options.spaceWide, host: result.host, human: options.human, columns: options.filter.columns }) + "\n");
+  process.stdout.write(formatStatusTable(result, { spaceWide: options.spaceWide, host: result.host, human: options.human, columns: options.filter.columns }) + "\n");
   if (footer !== null) process.stdout.write(footer + "\n");
 }

@@ -1,31 +1,40 @@
 import { modelSpec } from "../../policy/thinking.ts";
-import { NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
 import { getAdapter } from "../../adapters/registry.ts";
 import { spaceName as resolveSpaceName } from "../../policy/space.ts";
 import { firstNonEmptyText } from "../target.ts";
 import { viewForKey } from "../../entities/lookup.ts";
 import { collapse } from "../../util.ts";
-import { displayStatusState, isTTY } from "./options.ts";
-import { dim } from "../../tui/screen.ts";
+import { displayStatusState } from "./options.ts";
+import type { LeaseFacts } from "../../agent/drive-state.ts";
 import type { AgentAdapter, SessionView } from "../../types/adapter.ts";
-import type { DriveState } from "../../types/agent.ts";
 import type { AgentView } from "../../types/store.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
-import type { StatusRow } from "../../types/command.ts";
+import type { LeaseStatusPayload, StatusRow } from "../../types/command.ts";
+import type { FleetNames } from "../../types/daemon.ts";
 import type { Entity } from "../../types/core.ts";
 
 interface Provenance {
   spawnedBy: string | null;
-  spawnedByLabel: string | null;
   worktree: string | null;
   branch: string | null;
   cwd: string | null;
 }
 
-export function formatOwnerCell(row: Pick<StatusRow, "owner">): string {
-  if (row.owner === null) return "-";
-  return row.owner.startsWith(NO_ORCH_DRIVER) ? (isTTY ? dim(row.owner) : row.owner) : row.owner;
+/** The model as the table shows it: the codex provider prefix is noise there. */
+export function modelShort(model: string): string {
+  return model.replace(/^openai-codex\//, "");
+}
+
+/** Lease facts from the composed view, never from presence or ownership files. */
+export function leasePayloadFrom(key: string, facts: LeaseFacts): LeaseStatusPayload {
+  // An agent key IS its minted id (A1); a key that is not one names no agent and
+  // stays unknown rather than being guessed at.
+  const view = facts.viewOf(key);
+  if (view === null) return { lease: null, leaseKnown: false };
+  const lease = view.heldBy;
+  if (lease === null) return { lease: null, leaseKnown: true };
+  return { lease: { holderId: lease.orchId, holderAlive: facts.holderAlive(lease.orchId) }, leaseKnown: true };
 }
 
 function formatModel(provider: string | null | undefined, model: string, thinking: string | null | undefined): string {
@@ -107,73 +116,60 @@ function deriveViewLast(pres: PresenceEntry | null, sview: SessionView | null): 
 function viewProvenance(view: AgentView | undefined): Provenance {
   return {
     spawnedBy: view?.spawnedBy ?? null,
-    spawnedByLabel: view?.spawnedByName ?? null,
     worktree: view?.environment.worktree ?? null,
     branch: view?.environment.branch ?? null,
     cwd: view?.cwd ?? null,
   };
 }
 
-interface OrchNames {
-  agentId: string | null;
-  agentName: string | null;
-  rootAgentId: string | null;
-  rootAgentName: string | null;
-  spaceId: string | null;
-  spaceName: string | null;
-}
-
-function orchNames(key: string, views: ReadonlyMap<string, AgentView>): OrchNames {
-  const agent = views.get(key);
-  if (!agent) return { agentId: key, agentName: null, rootAgentId: null, rootAgentName: null, spaceId: null, spaceName: null };
-  const root = views.get(agent.rootAgentId);
-  return {
-    agentId: key,
-    agentName: agent.name,
-    rootAgentId: agent.rootAgentId,
-    rootAgentName: root?.name ?? null,
-    spaceId: agent.environment.space,
-    spaceName: null,
+/** Every id a row points at, resolved to its display name once. */
+export function fleetNames(rows: readonly StatusRow[], views: ReadonlyMap<string, AgentView>, spaces: OrchSettings["spaces"]): FleetNames {
+  const agents: Record<string, string> = {};
+  const spaceNames: Record<string, string> = {};
+  const nameAgent = (id: string | null | undefined): void => {
+    if (!id || id in agents) return;
+    const name = views.get(id)?.name;
+    if (name) agents[id] = name;
   };
+  for (const row of rows) {
+    nameAgent(row.spawnedBy);
+    nameAgent(row.rootAgentId);
+    nameAgent(row.lease?.holderId);
+    const space = row.spaceId;
+    if (space && !(space in spaceNames)) {
+      const name = resolveSpaceName(space, spaces);
+      if (name) spaceNames[space] = name;
+    }
+  }
+  return { agents, spaces: spaceNames };
 }
 
 export function statusRowFromEntity(
   entity: Entity,
   views: ReadonlyMap<string, AgentView>,
-  spaces: OrchSettings["spaces"] = {},
-  driveState: (agentId: string) => DriveState,
+  leaseFacts: LeaseFacts,
   questionOf: (agentId: string) => string | undefined,
 ): StatusRow {
   const pres = entity.presence;
   const adapter = getAdapter(viewForKey(views, entity.key)?.harnessId ?? entity.agent ?? "");
   const sview = pres?.status ? null : sessionViewFor(entity, adapter);
   const agentView = viewForKey(views, entity.key);
-  const modelFull = deriveModelString(pres, sview, adapter);
   const { state, stateFallback, exited } = deriveState(pres, entity, sview);
-  const provenance = viewProvenance(agentView);
   const alive = pres?.alive ?? false;
-  const spaceNames = orchNames(entity.key, views);
-  const spaceId = spaceNames.spaceId ?? entity.space;
-  const ownership = {
-    owner: driveState(entity.key).owner,
-    ownerId: agentView?.heldBy?.orchId ?? null,
-  };
+  const agent = views.get(entity.key);
   return {
     key: entity.key,
-    agentId: spaceNames.agentId,
-    rootAgentId: spaceNames.rootAgentId,
-    rootAgentName: spaceNames.rootAgentName,
+    agentId: entity.key,
+    rootAgentId: agent?.rootAgentId ?? null,
     paneId: entity.paneId,
     managed: entity.managed,
-    name: spaceNames.agentName ?? (entity.managed === false ? null : entity.name),
+    name: agent?.name ?? (entity.managed === false ? null : entity.name),
     tab: entity.tabLabel,
     agent: entity.agent,
-    owner: ownership.owner,
-    ownerId: ownership.ownerId,
-    ...provenance,
+    ...leasePayloadFrom(entity.key, leaseFacts),
+    ...viewProvenance(agentView),
     focused: entity.focused,
-    model: modelFull,
-    modelShort: modelFull.replace(/^openai-codex\//, ""),
+    model: deriveModelString(pres, sview, adapter),
     state: displayStatusState({ state, alive, exited }),
     stateFallback,
     exited,
@@ -187,16 +183,15 @@ export function statusRowFromEntity(
     backend: entity.backend,
     bridgeAttached: null,
     tokens: presenceTokens(pres) ?? sview?.tokens ?? null,
-    spaceId,
-    spaceName: spaceNames.spaceName ?? resolveSpaceName(spaceId, spaces),
+    spaceId: agent?.environment.space ?? entity.space,
   };
 }
 
 export function warningStatusRow(host: string, warning: string): StatusRow {
   return {
-    key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", owner: null, ownerId: null,
-    spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
-    focused: false, model: "", modelShort: "", state: "warning", stateFallback: false,
+    key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", lease: null, leaseKnown: false,
+    spawnedBy: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
+    focused: false, model: "", state: "warning", stateFallback: false,
     exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,
     backendStatus: null, backend: null,
     bridgeAttached: null, tokens: null, host, warning,

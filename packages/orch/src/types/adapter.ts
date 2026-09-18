@@ -1,8 +1,7 @@
 import type { AgentState } from "../agent-state.ts";
-import type { OrchDir } from "./core.ts";
+import type { Logger, OrchDir, TokenTotals } from "./core.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { CheckResult } from "./doctor.ts";
-import type { Logger } from "./core.ts";
 import type { OrchSettings } from "./settings.ts";
 import type { BridgeAction } from "../control/bridge-message.ts";
 
@@ -139,7 +138,7 @@ export interface SessionView {
   /** Accumulated cost, when the session records one. */
   readonly cost?: number;
   /** Token usage totals, when the session records them. */
-  readonly tokens?: unknown;
+  readonly tokens?: TokenTotals;
   /** Completed turn count, when the session records one. */
   readonly turns?: number;
   /**

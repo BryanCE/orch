@@ -1,16 +1,16 @@
 import { runRemoteAsync } from "../../remote.ts";
 import { readRpc } from "../daemon.ts";
-import { isDaemonStatusRow } from "../../daemon/client/protocol.ts";
+import { isFleetStatus } from "../../daemon/client/protocol.ts";
 import { warningStatusRow } from "./rows.ts";
-import { fleetStatusRows } from "./offline.ts";
+import { buildFleetStatus } from "./offline.ts";
 import { scopeFleetRows, statusRowMatches, displayStatusState } from "./options.ts";
 import type { CallerScope, StatusOptions } from "./options.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { StatusRow } from "../../types/command.ts";
+import type { FleetNames, FleetStatus } from "../../types/daemon.ts";
 import type { DaemonClient } from "../../types/services.ts";
 
-interface FleetSnapshot {
-  rows: StatusRow[];
+interface FleetSnapshot extends FleetStatus {
   agentsSeen: number;
   alive: number;
   /** Whether a backend inventory actually contributed rows to this snapshot. */
@@ -22,34 +22,44 @@ export interface StatusResult extends FleetSnapshot {
   host: boolean;
 }
 
+const NO_NAMES: FleetNames = { agents: {}, spaces: {} };
+
 export function normalizeStatusRow(row: StatusRow): StatusRow {
   return { ...row, state: displayStatusState(row) };
 }
 
-function snapshot(rows: StatusRow[], backendAnswered: boolean): FleetSnapshot {
-  const normalized = rows.map(normalizeStatusRow);
+function snapshot(fleet: FleetStatus): FleetSnapshot {
+  const normalized = fleet.rows.map(normalizeStatusRow);
   return {
+    names: fleet.names,
     rows: normalized,
     agentsSeen: normalized.length,
     alive: normalized.filter((row) => row.alive).length,
-    backendAnswered,
+    backendAnswered: normalized.some((row) => row.backend != null),
   };
 }
 
-async function readFleetRows(settings: OrchSettings | null, services: DaemonClient, spaces: OrchSettings["spaces"], offline: boolean): Promise<FleetSnapshot> {
-  if (settings === null) return snapshot([], false);
-  if (offline) {
-    const rows = fleetStatusRows(settings, spaces, { offline: true, directory: services.orchDir });
-    return snapshot(rows, rows.some((row) => row.backend != null));
-  }
-  const answer = await readRpc(services, "status", undefined);
-  return snapshot(answer.rows, answer.rows.some((row) => row.backend != null));
+async function readFleet(settings: OrchSettings | null, services: DaemonClient, offline: boolean): Promise<FleetSnapshot> {
+  if (settings === null) return snapshot({ names: NO_NAMES, rows: [] });
+  if (offline) return snapshot(buildFleetStatus(settings, { offline: true, directory: services.orchDir }));
+  return snapshot(await readRpc(services, "status", undefined));
 }
 
-async function localStatusRows(settings: OrchSettings | null, services: DaemonClient, options: StatusOptions, spaces: OrchSettings["spaces"], caller?: CallerScope): Promise<FleetSnapshot> {
-  const snapshot = await readFleetRows(settings, services, spaces, options.offline);
-  const scoped = scopeFleetRows(snapshot.rows, { ...options, states: options.filter.states, caller });
-  return { ...snapshot, rows: scoped.map((row) => ({ ...row, host: "local" })) };
+async function localStatus(settings: OrchSettings | null, services: DaemonClient, options: StatusOptions, caller?: CallerScope): Promise<FleetSnapshot> {
+  const fleet = await readFleet(settings, services, options.offline);
+  const scoped = scopeFleetRows(fleet.rows, { ...options, states: options.filter.states, caller });
+  return { ...fleet, rows: scoped.map((row) => ({ ...row, host: "local" })) };
+}
+
+/** Ids are minted, so two hosts never share one: the maps union without collision. */
+function mergeNames(all: readonly FleetNames[]): FleetNames {
+  const agents: Record<string, string> = {};
+  const spaces: Record<string, string> = {};
+  for (const names of all) {
+    Object.assign(agents, names.agents);
+    Object.assign(spaces, names.spaces);
+  }
+  return { agents, spaces };
 }
 
 type RemoteStatusResult = Awaited<ReturnType<typeof runRemoteAsync>>;
@@ -61,9 +71,8 @@ async function remoteStatusResults(hosts: OrchSettings["hosts"], offline: boolea
   })));
 }
 
-function validRemoteValues(result: RemoteStatusResult): StatusRow[] {
-  if (!result.ok || !Array.isArray(result.value)) return [];
-  return result.value.filter(isDaemonStatusRow);
+function remoteFleet(result: RemoteStatusResult): FleetStatus | null {
+  return result.ok && isFleetStatus(result.value) ? result.value : null;
 }
 
 interface RemoteNarrowing {
@@ -73,8 +82,9 @@ interface RemoteNarrowing {
 
 function remoteRowsFromResult(name: string, result: RemoteStatusResult, narrowing: RemoteNarrowing): StatusRow[] {
   if (!result.ok) return [warningStatusRow(name, result.failure.message)];
-  if (!Array.isArray(result.value)) return [warningStatusRow(name, `Host "${name}" returned an invalid status payload.`)];
-  return validRemoteValues(result).map((value) => normalizeStatusRow(value))
+  const fleet = remoteFleet(result);
+  if (fleet === null) return [warningStatusRow(name, `Host "${name}" returned an invalid status payload.`)];
+  return fleet.rows.map((value) => normalizeStatusRow(value))
     .filter((row) => narrowing.space === undefined || row.spaceId === narrowing.space)
     .filter((row) => narrowing.agent === undefined || statusRowMatches(row, narrowing.agent))
     .map((row) => ({ ...row, host: name }));
@@ -84,9 +94,10 @@ function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: reado
   return [...local, ...remoteResults.flatMap(({ name, result }) => remoteRowsFromResult(name, result, narrowing))];
 }
 
-function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[]): { rows: StatusRow[]; alive: number; backendAnswered: boolean } {
-  const rows = remoteResults.flatMap(({ result }) => validRemoteValues(result));
-  return { rows, alive: rows.filter((row) => row.alive).length, backendAnswered: rows.some((row) => row.backend != null) };
+function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[]): { names: FleetNames; rows: StatusRow[]; alive: number; backendAnswered: boolean } {
+  const fleets = remoteResults.map(({ result }) => remoteFleet(result)).filter((fleet): fleet is FleetStatus => fleet !== null);
+  const rows = fleets.flatMap((fleet) => fleet.rows);
+  return { names: mergeNames(fleets.map((fleet) => fleet.names)), rows, alive: rows.filter((row) => row.alive).length, backendAnswered: rows.some((row) => row.backend != null) };
 }
 
 export async function readStatusResult(
@@ -96,16 +107,16 @@ export async function readStatusResult(
 ): Promise<StatusResult> {
   const settings = services.settings.currentOrNull();
   const hosts = settings === null ? {} : settings.hosts;
-  const spaces = settings === null ? {} : settings.spaces;
   if (options.local || caller.kind !== "operator" || Object.keys(hosts).length === 0) {
-    const local = await localStatusRows(settings, services, options, spaces, caller);
+    const local = await localStatus(settings, services, options, caller);
     return { ...local, host: false };
   }
-  const localSnapshot = await localStatusRows(settings, services, options, spaces, caller);
+  const localSnapshot = await localStatus(settings, services, options, caller);
   const remoteResults = await remoteStatusResults(hosts, options.offline);
   const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, { space: options.space, agent: options.agent });
   const remote = remoteSummary(remoteResults);
   return {
+    names: mergeNames([localSnapshot.names, remote.names]),
     rows,
     agentsSeen: localSnapshot.agentsSeen + remote.rows.length,
     alive: localSnapshot.alive + remote.alive,

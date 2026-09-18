@@ -8,18 +8,18 @@ import { isThinkingLevel } from "../../policy/thinking.ts";
 import { AGENT_STATES } from "../../agent-state.ts";
 import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../../types/policy.ts";
-import type { CallerCredential, CallerSession } from "../../types/core.ts";
+import type { CallerCredential, CallerSession, TokenTotals } from "../../types/core.ts";
 import type { FleetCapacity } from "../../policy/capacity.ts";
 import { isAgentNotice, type AgentNotice } from "../../control/bridge-message.ts";
 import type { PaneLabels } from "../../types/plexer.ts";
 import type { LifecycleVerb } from "../../types/adapter.ts";
-import type { DaemonStatusRow, PeerView, PendingQuestionView } from "../../types/daemon.ts";
+import type { FleetStatus, PeerView, PendingQuestionView } from "../../types/daemon.ts";
 import type { BridgeNotification } from "../../types/agent.ts";
 import type { ResultReport, StatusPatch } from "../../types/presence.ts";
 import type { GrantAction, GrantRequest, SpaceListing, SpaceRow, SpawnRegistration } from "../../types/store.ts";
 import type { HomeSubject } from "../../types/backend.ts";
 import type { CloseTargetWire } from "../../entities/close-targets.ts";
-import type { ReapCandidate } from "../../types/command.ts";
+import type { ReapCandidate, StatusRow } from "../../types/command.ts";
 import { isPackIntakeRec, isTaskOptions, isTaskRec, type PackIntakeRec, type TaskOptions, type TaskRec } from "../../types/queue.ts";
 
 const RPC_ERROR_CODES = [
@@ -192,7 +192,14 @@ const registerSessionResponse = z.object({
   registrationWarning: z.string().optional(),
 });
 
-const daemonStatusRow = z.object({
+const tokenTotals = z.object({
+  input: z.number().optional(),
+  output: z.number().optional(),
+  cacheRead: z.number().optional(),
+  cacheWrite: z.number().optional(),
+}) satisfies z.ZodType<TokenTotals>;
+
+const statusRow = z.object({
   key: z.string(),
   agentId: z.string().nullable().optional(),
   paneId: z.string().nullable(),
@@ -200,16 +207,12 @@ const daemonStatusRow = z.object({
   name: z.string().nullable(),
   tab: z.string().nullable(),
   agent: z.string().nullable(),
-  owner: z.string().nullable(),
-  ownerId: z.string().nullable().optional(),
   spawnedBy: z.string().nullable(),
-  spawnedByLabel: z.string().nullable(),
   worktree: z.string().nullable(),
   branch: z.string().nullable(),
   cwd: z.string().nullable(),
   focused: z.boolean(),
   model: z.string(),
-  modelShort: z.string(),
   state: z.string(),
   stateFallback: z.boolean(),
   exited: z.boolean(),
@@ -222,20 +225,19 @@ const daemonStatusRow = z.object({
   backendStatus: z.string().nullable(),
   backend: z.string().nullable(),
   bridgeAttached: z.boolean().nullable(),
-  tokens: z.unknown(),
+  tokens: tokenTotals.nullable(),
   spaceId: z.string().nullable().optional(),
-  spaceName: z.string().nullable().optional(),
   rootAgentId: z.string().nullable().optional(),
-  rootAgentName: z.string().nullable().optional(),
   host: z.string().optional(),
   warning: z.string().optional(),
-  lease: z.object({
-    holderId: z.string(),
-    holderName: z.string(),
-    holderAlive: z.boolean(),
-  }).nullable(),
+  lease: z.object({ holderId: z.string(), holderAlive: z.boolean() }).nullable(),
   leaseKnown: z.boolean(),
-}) satisfies z.ZodType<DaemonStatusRow>;
+}) satisfies z.ZodType<StatusRow>;
+
+const fleetStatus = z.object({
+  names: z.object({ agents: z.record(z.string(), z.string()), spaces: z.record(z.string(), z.string()) }),
+  rows: z.array(statusRow),
+}) satisfies z.ZodType<FleetStatus>;
 
 export const RPC_PARAMS = {
   "daemon-status": z.undefined(),
@@ -348,7 +350,7 @@ export const RPC_RESULTS = {
   "report-status": OK,
   "report-result": OK,
   enqueue: z.object({ task: z.custom<TaskRec>(isTaskRec) }),
-  status: z.object({ rows: z.array(daemonStatusRow) }),
+  status: fleetStatus,
   attach: z.object({ attached: z.literal(true), open: z.number() }),
   dispatch: ACCEPTED,
   steer: ACCEPTED,
@@ -413,20 +415,10 @@ export type RpcMethod = keyof typeof RPC_PARAMS;
 export type ParamsOf<M extends RpcMethod> = z.infer<(typeof RPC_PARAMS)[M]>;
 export type ResultOf<M extends RpcMethod> = z.infer<(typeof RPC_RESULTS)[M]>;
 
-function parseWith<S extends z.ZodType>(schema: S, value: unknown): { ok: true; value: z.output<S> } | { ok: false; issues: z.core.$ZodIssue[] } {
-  const parsed = schema.safeParse(value);
-  return parsed.success ? { ok: true, value: parsed.data } : { ok: false, issues: parsed.error.issues };
-}
-
-export function parseRpcResult<M extends RpcMethod>(
-  method: M,
-  value: unknown,
-): { ok: true; value: ResultOf<M> } | { ok: false; issues: z.core.$ZodIssue[] };
-export function parseRpcResult(
-  method: RpcMethod,
-  value: unknown,
-): { ok: true; value: unknown } | { ok: false; issues: z.core.$ZodIssue[] } {
-  return parseWith(RPC_RESULTS[method], value);
+/** A reply's result is the schema's type. orchd checked the data when it entered;
+ *  the client that dialed its token does not check it again on the way out. */
+export function daemonResult<M extends RpcMethod>(_method: M, value: unknown): ResultOf<M> {
+  return value as ResultOf<M>;
 }
 
 export function isRpcMethod(value: unknown): value is RpcMethod {
@@ -450,7 +442,8 @@ function isPendingQuestionView(value: unknown): value is PendingQuestionView {
     && typeof value.askedAt === "number";
 }
 
-export function isDaemonStatusRow(value: unknown): value is DaemonStatusRow {
-  return daemonStatusRow.safeParse(value).success;
+/** Another host's `orch status --json`, read off its stdout: the one status payload that crosses a trust boundary. */
+export function isFleetStatus(value: unknown): value is FleetStatus {
+  return fleetStatus.safeParse(value).success;
 }
 

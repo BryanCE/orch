@@ -2,7 +2,7 @@ import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
 import type { SpawnerIdentity, ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentEnvironment, AgentView } from "./store.ts";
-import type { Entity, LogLevel, WorkerHeaderContext } from "./core.ts";
+import type { Entity, LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 export interface DispatchToAgentOptions {
@@ -181,7 +181,20 @@ export interface TabSpawnSpec {
   owner: string | undefined;
 }
 
-export interface StatusRow {
+export interface LeasePayload {
+  readonly holderId: string;
+  readonly holderAlive: boolean;
+}
+
+export interface LeaseStatusPayload {
+  /** The lease as recorded; a dead holder is still named so the row can say "holder gone". */
+  readonly lease: LeasePayload | null;
+  /** False means the status key has no corresponding row in agents yet. */
+  readonly leaseKnown: boolean;
+}
+
+/** One fleet row. Ids only: every name an id stands for is in `FleetNames`, once. */
+export interface StatusRow extends LeaseStatusPayload {
   key: string;
   /** Orch-minted id; distinct from every plexer coordinate. */
   agentId?: string | null;
@@ -191,19 +204,13 @@ export interface StatusRow {
   name: string | null;
   tab: string | null;
   agent: string | null;
-  /** Current live lease holder's display label, or an explicit no-driving status when unleased. */
-  owner: string | null;
-  /** Current live lease holder's minted agent id; null when unleased. */
-  ownerId?: string | null;
   spawnedBy: string | null;
-  spawnedByLabel: string | null;
   worktree: string | null;
   branch: string | null;
   /** Directory the agent works in; the repo boundary a wandering worker crossed. */
   cwd: string | null;
   focused: boolean;
   model: string;
-  modelShort: string;
   /** What the AGENT reports about itself through its presence record — the only
    *  field that answers "is the work finished". It moves ahead of `backendStatus`
    *  by design: an agent is done the moment it says so, whatever its pane shows. */
@@ -228,13 +235,11 @@ export interface StatusRow {
   /** True while the agent's bridge holds a link to orchd; null when the row was built
    * without asking the daemon (a local `orch status`). */
   bridgeAttached: boolean | null;
-  tokens: unknown;
-  /** Orch-owned space identity and display name. */
+  tokens: TokenTotals | null;
+  /** Orch-owned space identity. */
   spaceId?: string | null;
-  spaceName?: string | null;
-  /** Immutable provenance root (pack) identity and display name. */
+  /** Immutable provenance root (pack) identity. */
   rootAgentId?: string | null;
-  rootAgentName?: string | null;
   host?: string;
   warning?: string;
 }

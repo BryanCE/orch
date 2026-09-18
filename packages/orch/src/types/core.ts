@@ -139,11 +139,15 @@ export interface OtherContentBlock {
 export type ContentBlock = TextContentBlock | ToolCallContentBlock | OtherContentBlock;
 export type SessionContent = string | ContentBlock[];
 
-export interface SessionUsage {
+/** Token counts a harness reports; a missing field was never counted. */
+export interface TokenTotals {
   input?: number;
   output?: number;
   cacheRead?: number;
   cacheWrite?: number;
+}
+
+export interface SessionUsage extends TokenTotals {
   cost?: number | { total?: number };
 }
 

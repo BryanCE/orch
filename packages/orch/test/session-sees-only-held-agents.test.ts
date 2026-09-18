@@ -20,22 +20,19 @@ import type { StatusRow } from "../src/types/command.ts";
 import type { CallerScope } from "../src/commands/status/options.ts";
 import { testServices } from "./helpers/services.ts";
 import { servedServices } from "./helpers/daemon-state.ts";
+import { statusRowFixture } from "./helpers/status-row.ts";
 import { errorMessage } from "../src/util.ts";
 import { callerCredential } from "../src/identity/credential.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
 const servers: RpcServer[] = [];
 
-function row(key: string, ownerId: string | null, spaceId = "space"): StatusRow {
-  return {
-    key, agentId: key, paneId: null, managed: true, name: key, tab: null, agent: "pi",
-    owner: ownerId, ownerId, spawnedBy: "different-provenance", spawnedByLabel: null,
-    worktree: null, branch: null, cwd: null, focused: false, model: "pi/model", modelShort: "model",
-    state: "working", stateFallback: false, exited: false, alive: true, cost: 0, ctxPercent: null,
-    task: null, dispatchId: null, lastText: null, backendStatus: null, backend: null,
-    bridgeAttached: null, tokens: null,
-    spaceId,
-  };
+function row(key: string, holderId: string | null, spaceId = "space"): StatusRow {
+  return statusRowFixture({
+    key, agentId: key, name: key, agent: "pi", spawnedBy: "different-provenance",
+    lease: holderId === null ? null : { holderId, holderAlive: true },
+    model: "pi/model", state: "working", spaceId,
+  });
 }
 
 const session: CallerScope = { id: "session-a", ceiling: "space", kind: "session" };

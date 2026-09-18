@@ -16,7 +16,7 @@ import {
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import type { ControlOutcomeReport, DaemonClient } from "../types/agent.ts";
 import type { ResultReport, StatusPatch } from "../types/presence.ts";
-import { parseRpcResult, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/client/protocol.ts";
+import { daemonResult, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/client/protocol.ts";
 import { parseRpcLine } from "../daemon/client/wire.ts";
 import type { SettingsManager } from "../types/services.ts";
 
@@ -52,8 +52,7 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
     }
     const response = parseRpcLine(value);
     if (response?.kind !== "reply" || response.id !== requestId) return undefined;
-    const parsed = parseRpcResult(method, response.result);
-    return parsed.ok ? parsed.value : undefined;
+    return daemonResult(method, response.result);
   }
 
   async function ask<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined> {
@@ -110,10 +109,7 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
         pending.delete(requestId);
         resolve(undefined);
       }
-    }).then((result) => {
-      const parsed = parseRpcResult(method, result);
-      return parsed.ok ? parsed.value : undefined;
-    });
+    }).then((result) => result === undefined ? undefined : daemonResult(method, result));
   }
 
   function clearReconnectTimer(): void {

@@ -147,25 +147,18 @@ export type OsSideExecution<T> =
   | { readonly outcome: "ran"; readonly value: T }
   | { readonly outcome: "answer"; readonly reason: "no-environment-role"; readonly exitCode: 0; readonly text: string };
 
-export interface LeasePayload {
-  readonly holderId: string;
-  readonly holderName: string;
-  readonly holderAlive: boolean;
+/** Every display name the rows point at by id, each once. A holder with no row
+ *  (a harness session) is here too. */
+export interface FleetNames {
+  readonly agents: Readonly<Record<string, string>>;
+  readonly spaces: Readonly<Record<string, string>>;
 }
 
-export interface LeaseStatusPayload {
-  readonly lease: LeasePayload | null;
-  /** False means the status key has no corresponding row in agents yet. */
-  readonly leaseKnown: boolean;
+/** The `status` reply and the `--json` payload: rows carry ids, names travel once. */
+export interface FleetStatus {
+  readonly names: FleetNames;
+  readonly rows: StatusRow[];
 }
-
-/**
- * One row of the daemon's `status` reply: orch's status row plus the lease facts
- * only the daemon holds. Declaring the reply as bare `StatusRow` is what let the
- * web package hand-copy a second spelling of the row and drift from it — every
- * client of the `status` method reads THIS type (Rule 8: one shape).
- */
-export type DaemonStatusRow = StatusRow & LeaseStatusPayload;
 
 export type PeerStatus = Pick<AgentStatusRow, "state" | "task" | "lastText" | "modelId" | "thinking" | "contextPercent" | "sessionPath" | "project">;
 

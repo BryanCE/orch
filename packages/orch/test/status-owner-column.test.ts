@@ -1,46 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { localStatusTable } from "../src/commands/status/table.ts";
+import { fleetFixture, statusRowFixture } from "./helpers/status-row.ts";
 import type { StatusRow } from "../src/types/command.ts";
 
-/** A COMPLETE StatusRow, so a field added to the shape breaks this factory
- *  instead of being silently absent from every fixture (CLAUDE.md Rule 13). */
 function statusRow(overrides: Partial<StatusRow>): StatusRow {
-  const base: StatusRow = {
-    key: "agent00001",
-    agentId: "agent00001",
-    paneId: null,
-    managed: true,
-    name: "worker",
-    tab: "-",
-    agent: "pi",
-    owner: null,
-    spawnedBy: null,
-    spawnedByLabel: null,
-    worktree: null,
-    branch: null,
-    cwd: null,
-    focused: false,
-    model: "anthropic/luna",
-    modelShort: "luna",
-    state: "idle",
-    stateFallback: false,
-    exited: false,
-    alive: true,
-    cost: 0,
-    ctxPercent: null,
-    task: null,
-    dispatchId: null,
-    lastText: null,
-    backendStatus: null,
-    backend: "headless",
-    bridgeAttached: null,
-    tokens: null,
-    spaceId: null,
-    spaceName: null,
-    rootAgentId: null,
-    rootAgentName: null,
-  };
-  return { ...base, ...overrides };
+  return statusRowFixture({ key: "agent00001", agentId: "agent00001", name: "worker", tab: "-", agent: "pi", model: "anthropic/luna", state: "idle", backend: "headless", ...overrides });
 }
 
 /** Column widths come from the rule line: each run of dashes IS one column. */
@@ -73,20 +37,29 @@ function cellUnder(table: string, header: string, lineIndex: number): string {
 // not, was that the rendered table actually carries the column. Deleting the
 // owner cell from the assembled row left every assertion passing.
 describe("the rendered status table carries the owner column", () => {
-  test("each row's OWNER cell holds that row's lease fact", () => {
-    const table = localStatusTable([
-      statusRow({ name: "held", owner: "orch00001" }),
-      statusRow({ key: "agent00002", agentId: "agent00002", name: "loose", owner: "no orch driving it" }),
-    ], false);
+  test("each row's OWNER cell holds that row's lease fact, named through the fleet's names", () => {
+    const table = localStatusTable(fleetFixture([
+      statusRow({ name: "held", lease: { holderId: "orch00001", holderAlive: true } }),
+      statusRow({ key: "agent00002", agentId: "agent00002", name: "loose", lease: null }),
+    ], { agents: { orch00001: "captain" } }), false);
 
-    expect(cellUnder(table, "OWNER", 2)).toBe("orch00001");
+    expect(cellUnder(table, "OWNER", 2)).toBe("captain");
     expect(cellUnder(table, "OWNER", 3)).toBe("no orch driving it");
   });
 
+  test("a holder with no name falls back to its id", () => {
+    const table = localStatusTable(fleetFixture([
+      statusRow({ name: "held", lease: { holderId: "orch00001", holderAlive: true } }),
+      statusRow({ key: "agent00002", agentId: "agent00002", name: "loose", lease: null }),
+    ]), false);
+
+    expect(cellUnder(table, "OWNER", 2)).toBe("orch00001");
+  });
+
   test("a dead holder reads as unleased under a table that all shares one owner", () => {
-    const table = localStatusTable([
-      statusRow({ name: "orphan", owner: "no orch driving it (holder gone)" }),
-    ], false);
+    const table = localStatusTable(fleetFixture([
+      statusRow({ name: "orphan", lease: { holderId: "orch00001", holderAlive: false } }),
+    ]), false);
 
     // One owner for every row is a fact about the table, not about a row: it is
     // stated once beneath it rather than spending 32 columns on every line.
@@ -95,8 +68,8 @@ describe("the rendered status table carries the owner column", () => {
     expect(table).toContain("owner: no orch driving it (holder gone)");
   });
 
-  test("the owner column is dropped only when no row knows its lease", () => {
-    const table = localStatusTable([statusRow({ owner: null })], false);
+  test("the owner column is dropped when only a warning row is there to fill it", () => {
+    const table = localStatusTable(fleetFixture([statusRow({ warning: "host away", task: "host away" })]), false);
     const widths = columnWidths(table);
     expect(cells(table.split("\n")[0] ?? "", widths)).not.toContain("OWNER");
   });

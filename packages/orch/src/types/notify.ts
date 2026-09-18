@@ -1,4 +1,5 @@
 import type { AgentState } from "../agent-state.ts";
+import type { TokenTotals } from "./core.ts";
 import type { OrchSettings } from "./settings.ts";
 import type { TaskState } from "./queue.ts";
 
@@ -29,7 +30,7 @@ export interface AgentActivity {
   readonly lastText?: string;
   readonly reason?: string;
   readonly ctxPercent?: number;
-  readonly tokens?: { readonly input?: number; readonly output?: number; readonly cacheRead?: number; readonly cacheWrite?: number };
+  readonly tokens?: Readonly<TokenTotals>;
   readonly filesTouched?: readonly string[];
 }
 

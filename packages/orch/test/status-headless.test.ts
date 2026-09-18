@@ -1,17 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { formatNoRowsMessage, scopeFleetRows } from "../src/commands/status/options.ts";
+import { statusRowFixture } from "./helpers/status-row.ts";
 import type { StatusRow } from "../src/types/command.ts";
 
 function statusRow(overrides: Partial<StatusRow> = {}): StatusRow {
-  return {
-    key: "agent00001", paneId: null, managed: true, name: "worker", tab: null, agent: "pi",
-    owner: null, spawnedBy: null, spawnedByLabel: null, worktree: null, branch: null, cwd: null,
-    focused: false, model: "pi/model", modelShort: "model", state: "working", stateFallback: false,
-    exited: false, alive: true, cost: 0, ctxPercent: null, task: null,
-    dispatchId: null, lastText: null, backendStatus: null, backend: null,
-    bridgeAttached: null, tokens: null,
-    ...overrides,
-  };
+  return statusRowFixture({ key: "agent00001", name: "worker", agent: "pi", model: "pi/model", state: "working", ...overrides });
 }
 
 const defaultOptions = { spaceWide: false, allPanes: false };

@@ -4,8 +4,8 @@ import { existsSync } from "node:fs";
 import { readPortPath } from "../../presence/socket-client.ts";
 import { launchCredential } from "../../identity/launch.ts";
 import type { EventSubscription } from "../../types/daemon.ts";
-import { parseRpcResult, type ParamsOf, type ResultOf, type RpcMethod } from "./protocol.ts";
-import { DaemonAbsentError, DaemonUnreachableError, RpcError, type RpcLine, DEFAULT_TIMEOUT_MS, encodeRequest, endpointPaths, readJsonMessages, responseError } from "./wire.ts";
+import { daemonResult, type ParamsOf, type ResultOf, type RpcMethod } from "./protocol.ts";
+import { DaemonAbsentError, DaemonUnreachableError, type RpcLine, DEFAULT_TIMEOUT_MS, encodeRequest, endpointPaths, readJsonMessages, responseError } from "./wire.ts";
 import { nonEmpty, sessionClaim } from "./registration.ts";
 import { errorMessage, isRecord } from "../../util.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
@@ -152,11 +152,7 @@ export async function rpcCall<M extends RpcMethod>(
     socket.write(encodeRequest(id, method, params));
     const response = await receiveResponse(socket, id, timeoutMs);
     if (response.kind === "error") throw responseError(response);
-    const parsed = parseRpcResult(method, response.result);
-    if (!parsed.ok) {
-      throw new RpcError("RPC_ERROR", `orchd returned a malformed ${method} result`, parsed.issues);
-    }
-    return parsed.value;
+    return daemonResult(method, response.result);
   } finally {
     socket.destroy();
   }

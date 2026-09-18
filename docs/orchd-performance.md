@@ -365,14 +365,46 @@ One build moves 8 ms on `node status` and 12 ms on `bun report-status` between t
 That is the band on this machine; the wave A row sits inside it on every phase. A change
 under 10 ms on p99 needs more than one run per side to be read at all.
 
+### 2026-09-18, wave E: the drain measured (`--trace`)
+
+The bench gained `--trace`: the daemon logs at trace, and the report ends with a summary
+of every `store.drained` record (`elapsedMs` now from `performance.now()`). A trace run
+appends one log line per rpc call synchronously, so its phase rows are not comparable to
+the runs above (bun's `pipelined daemon-status` went 0.7 → 3.8 ms on the append alone).
+The drain line is the finding.
+
+Same build as waves B–D plus `rows.ts` (the session file is read only when presence has no
+status; the bench's agents have no session file, so that is off this path).
+
+| runtime | drains | rows | rows/drain | p50 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| node | 3701 | 6200 | 1.7 | 0.18 | 0.58 | 34.82 |
+| bun | 3701 | 6200 | 1.7 | 0.24 | 2.38 | 38.15 |
+
+What it says:
+- A commit is 0.18 ms on node. One report costs about 0.85 ms of loop time (p50 27 ms at
+  concurrency 32), so the commit is a fifth of a report. A worker thread for sqlite
+  removes at most that fifth: p99 58 → about 47 on node, at the cost of a second
+  connection and a channel. It is not the tail.
+- The drain does not batch. 1.7 rows per drain means `setImmediate` fires once per
+  request, not once per 32: each request is its own I/O turn. A coalescing window would
+  trade latency for batching and buys nothing at this commit cost.
+- One drain per run takes 35 ms: a WAL checkpoint (`wal_autocheckpoint`, every 1000
+  pages). The 32 requests behind it are 1.3% of a 2500-call phase, which is inside p99.
+  Moving the checkpoint off the request path (`wal_autocheckpoint = 0` and a checkpoint
+  on the liveness tick or the idle timer) is the one drain change that touches p99.
+- bun's drain p99 is 4× node's at the same median; bun's sqlite binding has a longer
+  tail.
+
 ## Next
 
 1. Memory is the truth (`docs/orchd-owns-the-store.md`, steps 1–6): a write patches the
    map and queues the row; a `setImmediate` drain commits the turn's rows in one
    transaction after the replies went out; the tick owns liveness. The `data_version`
    check and the presence hold go.
-2. `report-status`: the capacity rebuild is gone. What remains per transition is the
-   commit and the ten socket writes. Profile the write-queue drain; if the commit shows in
-   the tail, move sqlite writes to a worker thread with its own connection.
+2. `report-status`: the commit is 0.18 ms of a 0.85 ms report; the worker thread is not
+   worth its channel. The WAL checkpoint (35 ms, once per run, inside p99) moves off the
+   request path: `wal_autocheckpoint = 0`, checkpoint on the idle timer. After that the
+   floor is the ten socket writes per event on one thread.
 3. `status`: cut the payload, or stream rows. `rows.ts:88` still reads a session file per
    row.

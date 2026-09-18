@@ -2,42 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { formatStatusTable } from "../src/commands/status/table.ts";
 import { CLEAR_SCREEN } from "../src/tui/screen.ts";
 import { createRefreshController, renderLiveStatus } from "../src/commands/status/live.ts";
-import type { StatusRow } from "../src/types/command.ts";
+import { fleetFixture, statusRowFixture } from "./helpers/status-row.ts";
 
-const fixture: StatusRow = {
-  key: "agent-fixture",
-  paneId: "pane-1",
-  managed: true,
-  name: "worker-one",
-  tab: "tab-a",
-  agent: "pi",
-  owner: null,
-  spawnedBy: null,
-  spawnedByLabel: null,
-  worktree: null,
-  branch: null,
-  cwd: null,
-  focused: false,
-  model: "test/model",
-  modelShort: "test/model",
-  state: "working",
-  stateFallback: false,
-  exited: false,
-  alive: true,
-  cost: 0,
-  ctxPercent: null,
-  task: "fixture task",
-  dispatchId: null,
-  lastText: "fixture output",
-  backendStatus: null,
-  backend: null,
-  bridgeAttached: null,
-  tokens: null,
-};
+const fixture = fleetFixture([statusRowFixture({
+  key: "agent-fixture", paneId: "pane-1", name: "worker-one", tab: "tab-a", agent: "pi",
+  model: "test/model", state: "working", task: "fixture task", lastText: "fixture output",
+})]);
 
 describe("live status renderer", () => {
   test("renders a clear screen, timestamped header, and table body", () => {
-    const frame = renderLiveStatus([fixture], { spaceWide: false, host: false, columns: new Set() }, new Date(2026, 6, 16, 9, 8, 7));
+    const frame = renderLiveStatus(fixture, { spaceWide: false, host: false, columns: new Set() }, new Date(2026, 6, 16, 9, 8, 7));
     expect(frame.startsWith(CLEAR_SCREEN)).toBe(true);
     expect(frame).toContain("1 agents");
     expect(frame).toContain("updated 09:08:07");
@@ -48,7 +22,7 @@ describe("live status renderer", () => {
   });
 
   test("renders a refresh failure in the header area", () => {
-    const frame = renderLiveStatus([fixture], { spaceWide: false, host: false, columns: new Set() }, new Date(2026, 6, 16, 9, 8, 7), "daemon unreachable - retrying on next event");
+    const frame = renderLiveStatus(fixture, { spaceWide: false, host: false, columns: new Set() }, new Date(2026, 6, 16, 9, 8, 7), "daemon unreachable - retrying on next event");
     expect(frame).toContain("daemon unreachable - retrying on next event");
   });
 
@@ -76,7 +50,7 @@ describe("live status renderer", () => {
   });
 
   test("keeps the existing table renderer available", () => {
-    const table = formatStatusTable([fixture], { spaceWide: false, host: false, columns: new Set() });
+    const table = formatStatusTable(fixture, { spaceWide: false, host: false, columns: new Set() });
     expect(table).toContain("STATE");
   });
 });

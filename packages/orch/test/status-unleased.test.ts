@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { formatOwnerCell, statusRowFromEntity } from "../src/commands/status/rows.ts";
-import { deriveDriveState, fleetDriveStates } from "../src/agent/drive-state.ts";
+import { fleetNames, statusRowFromEntity } from "../src/commands/status/rows.ts";
+import { ownerLabel } from "../src/commands/status/table.ts";
+import { deriveDriveState, fleetLeaseFacts } from "../src/agent/drive-state.ts";
 import { agentViewIndex } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
@@ -47,10 +48,11 @@ function entity(): Entity {
   };
 }
 
-/** The row as `fleetStatusRows` composes it: the lease is read off the composed fleet, never a second store read. */
-function composedRow(dir: OrchDir): ReturnType<typeof statusRowFromEntity> {
+/** The row as `buildFleetStatus` composes it: the lease is read off the composed fleet, never a second store read. */
+function composed(dir: OrchDir): { row: ReturnType<typeof statusRowFromEntity>; label: string | null } {
   const views = agentViewIndex(dir);
-  return statusRowFromEntity(entity(), views, {}, fleetDriveStates(dir, views, "caller"), () => undefined);
+  const row = statusRowFromEntity(entity(), views, fleetLeaseFacts(dir, views), () => undefined);
+  return { row, label: ownerLabel(row, fleetNames([row], views, {})) };
 }
 
 describe("status owner rendering", () => {
@@ -58,28 +60,29 @@ describe("status owner rendering", () => {
     const dir = fixture();
     acquireLease(dir, WORKER_ID, "live", 2);
     const drive = deriveDriveState(entity().key, { directory: dir, currentOrchId: "caller" });
-    const row = composedRow(dir);
+    const { row, label } = composed(dir);
     expect(drive.owner).toBe("live");
-    expect(formatOwnerCell(row)).toBe("live");
-    expect(JSON.stringify(row)).toContain('"owner":"live"');
+    expect(row.lease).toEqual({ holderId: "live", holderAlive: true });
+    expect(label).toBe("live");
   });
 
   test("a dead holder is shown as unleased with the holder gone", () => {
     const dir = fixture();
     acquireLease(dir, WORKER_ID, "dead", 2);
     const drive = deriveDriveState(entity().key, { directory: dir, currentOrchId: "caller" });
-    const row = composedRow(dir);
+    const { row, label } = composed(dir);
     expect(drive.owner).toBe("no orch driving it (holder gone)");
-    expect(formatOwnerCell(row)).toBe("no orch driving it (holder gone)");
-    expect(JSON.stringify(row)).toContain('"owner":"no orch driving it (holder gone)"');
+    expect(row.lease).toEqual({ holderId: "dead", holderAlive: false });
+    expect(label).toBe("no orch driving it (holder gone)");
   });
 
   test("an agent never leased shows no orch driving it", () => {
     const dir = fixture();
     const drive = deriveDriveState(entity().key, { directory: dir, currentOrchId: "caller" });
-    const row = composedRow(dir);
+    const { row, label } = composed(dir);
     expect(drive.owner).toBe("no orch driving it");
-    expect(formatOwnerCell(row)).toBe("no orch driving it");
-    expect(JSON.stringify(row)).toContain('"owner":"no orch driving it"');
+    expect(row.lease).toBeNull();
+    expect(row.leaseKnown).toBe(true);
+    expect(label).toBe("no orch driving it");
   });
 });

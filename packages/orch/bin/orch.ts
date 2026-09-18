@@ -1,5 +1,9 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // orch — unified controller for pi agents running in herdr panes.
+// The shebang is node like every other entrypoint: a bun shebang here makes `bun build`
+// emit its `// @bun` pragma into dist/bin/orch.js, and bun decodes a pragma'd file as
+// Latin-1, so every non-ASCII literal (the setup wizard's box glyphs) prints double-encoded.
+// The runtime a user actually runs under is stamped onto the built bin by `orch setup`.
 
 import "../src/store/suppress-sqlite-warning.ts";
 import { runCommand } from "../src/commands/index.ts";

@@ -201,6 +201,65 @@ Against run 6 on p99: status 57 → 40, peer-view 19 → 15, report-status 72 �
 row from here is a mean of 5 rounds, so this is the baseline the next change compares to.
 Over target: report-status 65 vs 50, peer-view 15 vs 10.
 
+## Runtime comparison
+
+The bench takes `--runtime <node|deno|bun>`: it runs the built `dist/daemon/orchd.js`
+under that runtime's binary, so two runs differing only in the flag compare runtimes on
+identical code. Without the flag the daemon runs from source under the bench's own runtime
+(bun), which is what every run above measured.
+
+### 2026-09-17, node vs bun, same build as run 8, mean of 5 rounds
+
+```
+bun packages/orch/scripts/bench-daemon.ts --runtime node --requests 500 --rounds 5
+bun packages/orch/scripts/bench-daemon.ts --runtime bun  --requests 500 --rounds 5
+```
+
+node 22.21.0, bun 1.4.0 (the Rust codebase). The standard 500 requests per phase, so
+every column compares to the log above.
+
+node:
+
+| phase | ms/500 | req/s | p50 | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| daemon-status (connect per call) | 46 | 14189 | 2.14 | 11.42 | 11.98 | 12.62 |
+| status (fleet rows) | 409 | 1251 | 24.29 | 36.22 | 44.24 | 46.46 |
+| peer-view | 86 | 6016 | 4.54 | 10.07 | 12.31 | 12.78 |
+| report-status (transition + fan-out) | 549 | 920 | 32.87 | 49.93 | 54.33 | 55.53 |
+| pipelined daemon-status (one socket) | 5 | 97414 | 0.24 | 1.19 | 1.28 | 1.28 |
+| fan-out | 4840/5000 events | | 32.8 | | 54.6 | 55.8 |
+
+bun:
+
+| phase | ms/500 | req/s | p50 | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| daemon-status (connect per call) | 36 | 15076 | 1.83 | 4.97 | 5.82 | 6.17 |
+| status (fleet rows) | 354 | 1477 | 20.55 | 45.31 | 48.69 | 51.04 |
+| peer-view | 82 | 6349 | 4.43 | 9.24 | 10.08 | 11.01 |
+| report-status (transition + fan-out) | 513 | 987 | 31.33 | 45.19 | 47.01 | 47.85 |
+| pipelined daemon-status (one socket) | 5 | 108170 | 0.24 | 0.55 | 0.66 | 0.72 |
+| fan-out | 4840/5000 events | | 31 | | 46.8 | 47.8 |
+
+On p99, bun leads four of five phases: daemon-status 12.0 → 5.8, peer-view 12.3 → 10.1,
+report-status 54.3 → 47.0 (the first time a report lands under the 50 ms target),
+pipelined 1.28 → 0.66. node leads `status` on p99 (44.2 vs 48.7) while bun leads it on
+p50 and throughput (18% more req/s): bun serialises the 40 KB reply faster and has the
+longer tail. Every gap is under 15% except connect-per-call, where bun's socket accept and
+teardown are about half the cost.
+
+The same pair was run once before at 2000 requests per phase, and there `report-status`
+went the other way: node p99 55.6 vs bun 66.2, node 23% more req/s, while bun still took
+connect-per-call (17.5 vs 6.2) and the rest tied. One phase flipping by 20% between two
+runs of the same two binaries is the machine's own spread, the same spread run 7a/7b
+showed on one runtime. The stable findings are the ones that held both times: bun wins
+connect-per-call by about 2×, and the rest sits within the noise.
+
+Ruling: the runtime is not a performance decision for orchd. `node` stays the default
+(`DEFAULT_RUNTIME`) because it is the most widely present; bun is a valid pick and, on this
+build, slightly ahead on the daemon's hot path. Nothing in orchd may branch on the runtime
+to chase either number; the next gains on `report-status` come from the work in "Next",
+which moves the same on both.
+
 ## Next
 
 1. Memory is the truth (`docs/orchd-owns-the-store.md`, steps 1–6): a write patches the

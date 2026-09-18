@@ -174,7 +174,9 @@ export async function cmdSetup(services: Services, args: string[]) {
   const options = parseSetupOptions(flags);
   await initializeSetup(options, services);
 
-  const composition = await resolveSetupComposition(services.settings.current(), services.models, options);
+  // `currentOrNull`: setup is the command that writes settings.json, so an absent file is the
+  // normal first-run state here, never a refusal.
+  const composition = await resolveSetupComposition(services.settings.currentOrNull(), services.models, options);
   if (composition === null) return;
   const gaps = await installSetupComposition(services, composition, options);
   if (gaps === null) return;

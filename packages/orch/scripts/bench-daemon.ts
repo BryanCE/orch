@@ -1,14 +1,19 @@
 import { logFile } from "../src/log.ts";
 // Load-test one orchd in a temp orch dir and print latency and throughput per
-// workload. Tooling, not runtime: it runs under bun and may pass bun flags to
+// workload. Tooling, not runtime: it runs under bun and may pass runtime flags to
 // the daemon it spawns (`--profile`).
 //
 //   bun packages/orch/scripts/bench-daemon.ts [--agents 64] [--concurrency 32] [--requests 2000] [--rounds 1]
-//                                             [--subscribers 10] [--phase <name>]... [--profile] [--json]
+//                                             [--subscribers 10] [--phase <name>]... [--runtime <node|deno|bun>]
+//                                             [--profile] [--json]
 //
 // Each round prints one header line and, with more than one round, its own table. The last
 // table is the mean of every column across rounds. One round cannot rank a change smaller
 // than the machine's own spread between runs.
+//
+// `--runtime` runs the daemon from the built `dist/daemon/orchd.js` under that runtime's
+// binary on PATH, so two runs differing only in the flag compare runtimes on the same code.
+// Without it the daemon runs from source under the bench's own runtime.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,7 +30,9 @@ import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { orchDirAt } from "../src/services.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
-import { isRecord } from "../src/util.ts";
+import { binaryPath, isRecord } from "../src/util.ts";
+import { ORCH_RUNTIMES, type OrchRuntime } from "../src/runtimes.ts";
+import { runningRuntime } from "../src/doctor/runtime.ts";
 import { settingsFixtureText } from "../test/helpers/settings.ts";
 import { settingsPath } from "../src/settings/schema.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -38,8 +45,14 @@ interface BenchOptions {
   rounds: number;
   subscribers: number;
   phases: readonly string[];
+  /** Run the built daemon under this runtime; undefined runs the source under the bench's own. */
+  runtime: OrchRuntime | undefined;
   profile: boolean;
   json: boolean;
+}
+
+function isOrchRuntime(value: string): value is OrchRuntime {
+  return (ORCH_RUNTIMES as readonly string[]).includes(value);
 }
 
 interface PhaseResult {
@@ -64,8 +77,15 @@ interface Fleet {
   agentIds: readonly string[];
 }
 
-const DEFAULTS: BenchOptions = { agents: 64, concurrency: 32, requests: 2_000, rounds: 1, subscribers: 10, phases: [], profile: false, json: false };
-const DAEMON_ENTRYPOINT = join(import.meta.dir, "../src/daemon/server/orchd.ts");
+const DEFAULTS: BenchOptions = { agents: 64, concurrency: 32, requests: 2_000, rounds: 1, subscribers: 10, phases: [], runtime: undefined, profile: false, json: false };
+const SOURCE_DAEMON_ENTRYPOINT = join(import.meta.dir, "../src/daemon/server/orchd.ts");
+const BUILT_DAEMON_ENTRYPOINT = join(import.meta.dir, "../dist/daemon/orchd.js");
+/** Each runtime's flags for writing a CPU profile into a directory. Deno has no equivalent. */
+const PROFILE_FLAGS: Record<OrchRuntime, ((dir: string) => string[]) | null> = {
+  bun: (dir) => ["--cpu-prof-md", "--cpu-prof-dir", dir],
+  node: (dir) => ["--cpu-prof", "--cpu-prof-dir", dir],
+  deno: null,
+};
 const DAEMON_BOOT_TIMEOUT_MS = 20_000;
 const DAEMON_STOP_GRACE_MS = 10_000;
 const FANOUT_SETTLE_MS = 500;
@@ -85,6 +105,11 @@ function parseArgs(argv: readonly string[]): BenchOptions {
     else if (flag === "--rounds") options.rounds = next();
     else if (flag === "--subscribers") options.subscribers = next();
     else if (flag === "--phase") phases.push(String(argv[++index]));
+    else if (flag === "--runtime") {
+      const runtime = String(argv[++index]);
+      if (!isOrchRuntime(runtime)) throw new Error(`unknown runtime ${runtime}; known: ${ORCH_RUNTIMES.join(", ")}`);
+      options.runtime = runtime;
+    }
     else if (flag === "--profile") options.profile = true;
     else if (flag === "--json") options.json = true;
     else throw new Error(`unknown flag ${flag}`);
@@ -112,19 +137,40 @@ function seedFleet(agents: number): Fleet {
 }
 
 /** The daemon's env: this process's, minus every var that would make orchd read the bench as an agent. */
-function daemonEnv(fleet: Fleet): NodeJS.ProcessEnv {
+function daemonEnv(fleet: Fleet, entrypoint: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   const harnessVars = Object.values(HARNESS_SESSION_ENV).flatMap((vars) => Object.values(vars));
   for (const name of [...ORCH_ENV_VARS, ...harnessVars]) delete env[name];
   env.ORCH_DIR = fleet.orchDir;
   env.ORCH_DAEMON_DISCOVERY_DIR = fleet.discoveryDir;
-  env.ORCHD_ENTRYPOINT = DAEMON_ENTRYPOINT;
+  env.ORCHD_ENTRYPOINT = entrypoint;
   return env;
 }
 
-function spawnDaemon(fleet: Fleet, profileDir: string | undefined): ChildProcess {
-  const flags = profileDir === undefined ? [] : ["--cpu-prof-md", "--cpu-prof-dir", profileDir];
-  return spawn(process.execPath, [...flags, DAEMON_ENTRYPOINT], { env: daemonEnv(fleet), stdio: ["ignore", "inherit", "inherit"] });
+interface DaemonLaunch {
+  binary: string;
+  entrypoint: string;
+  runtime: OrchRuntime;
+}
+
+/** Which binary runs which file: the named runtime over the built daemon, else the bench's own
+ * runtime over the source. The built file must exist; the bench never builds (Rule 1). */
+function daemonLaunch(runtime: OrchRuntime | undefined): DaemonLaunch {
+  if (runtime === undefined) return { binary: process.execPath, entrypoint: SOURCE_DAEMON_ENTRYPOINT, runtime: runningRuntime() };
+  const binary = binaryPath(runtime);
+  if (binary === null) throw new Error(`runtime ${runtime} is not on PATH`);
+  if (!existsSync(BUILT_DAEMON_ENTRYPOINT)) throw new Error(`${BUILT_DAEMON_ENTRYPOINT} is not built; --runtime runs the built daemon, so build first`);
+  return { binary, entrypoint: BUILT_DAEMON_ENTRYPOINT, runtime };
+}
+
+function spawnDaemon(fleet: Fleet, launch: DaemonLaunch, profileDir: string | undefined): ChildProcess {
+  let flags: string[] = [];
+  if (profileDir !== undefined) {
+    const profile = PROFILE_FLAGS[launch.runtime];
+    if (profile === null) throw new Error(`--profile is not supported under ${launch.runtime}`);
+    flags = profile(profileDir);
+  }
+  return spawn(launch.binary, [...flags, launch.entrypoint], { env: daemonEnv(fleet, launch.entrypoint), stdio: ["ignore", "inherit", "inherit"] });
 }
 
 async function awaitDaemon(orchDir: OrchDir): Promise<void> {
@@ -421,17 +467,18 @@ async function runRound(fleet: Fleet, options: BenchOptions, phases: readonly Ph
   return results;
 }
 
-function roundFacts(options: BenchOptions): string {
-  return `${options.agents} agents · concurrency ${options.concurrency} · ${options.requests} requests/phase · ${options.subscribers} subscribers`;
+function roundFacts(options: BenchOptions, launch: DaemonLaunch): string {
+  const source = launch.entrypoint === BUILT_DAEMON_ENTRYPOINT ? "built" : "source";
+  return `orchd under ${launch.runtime} (${source}) · ${options.agents} agents · concurrency ${options.concurrency} · ${options.requests} requests/phase · ${options.subscribers} subscribers`;
 }
 
 /** Every round against the one daemon. With more than one, each round's table prints as it lands. */
-async function runRounds(fleet: Fleet, options: BenchOptions, phases: readonly Phase[]): Promise<PhaseResult[][]> {
+async function runRounds(fleet: Fleet, options: BenchOptions, launch: DaemonLaunch, phases: readonly Phase[]): Promise<PhaseResult[][]> {
   const rounds: PhaseResult[][] = [];
   for (let pass = 1; pass <= options.rounds; pass += 1) {
     const results = await runRound(fleet, options, phases);
     rounds.push(results);
-    if (options.rounds > 1 && !options.json) printSection(`round ${pass}/${options.rounds} · ${roundFacts(options)}`, ROUND_RULE, results);
+    if (options.rounds > 1 && !options.json) printSection(`round ${pass}/${options.rounds} · ${roundFacts(options, launch)}`, ROUND_RULE, results);
   }
   return rounds;
 }
@@ -444,13 +491,13 @@ function byPhase(rounds: readonly PhaseResult[][]): PhaseResult[][] {
   }));
 }
 
-function printReport(options: BenchOptions, rounds: readonly PhaseResult[][]): void {
+function printReport(options: BenchOptions, launch: DaemonLaunch, rounds: readonly PhaseResult[][]): void {
   const results = byPhase(rounds).map(meanOfRounds);
   if (options.json) {
-    process.stdout.write(`${JSON.stringify({ options, rounds, results }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ options, launch, rounds, results }, null, 2)}\n`);
     return;
   }
-  const title = options.rounds > 1 ? `mean of ${options.rounds} rounds · ${roundFacts(options)}` : roundFacts(options);
+  const title = options.rounds > 1 ? `mean of ${options.rounds} rounds · ${roundFacts(options, launch)}` : roundFacts(options, launch);
   if (options.rounds > 1) process.stdout.write("\n");
   printSection(title, MEAN_RULE, results);
 }
@@ -458,19 +505,20 @@ function printReport(options: BenchOptions, rounds: readonly PhaseResult[][]): v
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const phases = selectPhases(options.phases);
+  const launch = daemonLaunch(options.runtime);
   const fleet = seedFleet(options.agents);
   const profileDir = options.profile ? join(fleet.orchDir, "profile") : undefined;
   if (profileDir !== undefined) mkdirSync(profileDir);
-  const daemon = spawnDaemon(fleet, profileDir);
+  const daemon = spawnDaemon(fleet, launch, profileDir);
   let rounds: PhaseResult[][] = [];
   try {
     await awaitDaemon(fleet.orchDir);
-    process.stderr.write(`orchd pid ${daemon.pid}, orch dir ${fleet.orchDir}, log ${logFile(fleet.orchDir)}\n`);
-    rounds = await runRounds(fleet, options, phases);
+    process.stderr.write(`orchd pid ${daemon.pid} (${launch.runtime}: ${launch.entrypoint}), orch dir ${fleet.orchDir}, log ${logFile(fleet.orchDir)}\n`);
+    rounds = await runRounds(fleet, options, launch, phases);
   } finally {
     if (daemon.pid !== undefined) await terminateDaemon(daemon.pid, DAEMON_STOP_GRACE_MS);
   }
-  printReport(options, rounds);
+  printReport(options, launch, rounds);
   if (profileDir !== undefined) process.stderr.write(`cpu profile: ${profileDir}\n`);
   else {
     rmSync(fleet.orchDir, { recursive: true, force: true });

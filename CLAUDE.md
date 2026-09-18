@@ -14,7 +14,10 @@ User-only, no exceptions, not through a worker or subagent or orch verb, not "ju
 - `bun run build:orch:dev`, `bun run build`, `bun run build:orch`, `bun run build:web`, `bun build`, `npm pack`, `npm install -g`, `npm i -g`
 - `bun db:gen`, `bun db:mig`, `bun db:reset`, `drizzle-kit`, editing `drizzle/` or any `migration.sql`
 - `orch daemon reload`, `orch daemon restart`, `orch daemon stop`
-When a change needs one of these, stop, hand Bryan the command, and wait until he says it ran. Never poll, never assume, never retry.
+- Any installed `orch` verb (`orch setup`, `orch doctor`, `orch daemon start`, anything under `$(npm prefix -g)/bin/orch`), `bun reinstall`, `bun run build:dev`. The one exception: when Bryan invokes the `orch` skill, the agent-lifecycle verbs it names (`orch spawn`, `dispatch`, `monitor`, `result`, and the rest of the skill) are allowed for that task. Nothing else, and never outside the skill.
+- Any script under `packages/orch/scripts/` that starts a process: `bench-daemon.ts`, `reset.ts`, `retire-daemon.ts`. Benchmarks are Bryan's to run; he pastes the tables.
+- Any probe that executes orch or a bundle from `dist/` to "see what it does", through `script`, a pty, `timeout`, or a copy in the scratchpad
+When a change needs one of these, stop, hand Bryan the command, and wait until he says it ran. Never poll, never assume, never retry. The only things run without asking are `bun check` and the scoped `bun test` in Rule 0 and 0.1, and read-only shell (`grep`, `cat`, `ls`, `git log`, `git status`, `which`).
 
 # RULE 0. THE GATE IS `bun check` OVER THE WHOLE TREE.
 Whoever edits a file runs `bun check` on it and pastes the clean output. Whoever commits runs `bun check` once over the whole tree first. That run is the gate. `bun test` is scoped to touched files, always. Nothing commits on a dirty gate or a red test.

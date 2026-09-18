@@ -1,11 +1,11 @@
-import { logFile } from "../src/log.ts";
+import { isLogRecord, logFile } from "../src/log.ts";
 // Load-test one orchd in a temp orch dir and print latency and throughput per
 // workload. Tooling, not runtime: it runs under bun and may pass runtime flags to
 // the daemon it spawns (`--profile`).
 //
 //   bun packages/orch/scripts/bench-daemon.ts [--agents 64] [--concurrency 32] [--requests 2000] [--rounds 1]
 //                                             [--subscribers 10] [--phase <name>]... [--runtime <node|deno|bun>]
-//                                             [--profile] [--json]
+//                                             [--profile] [--trace] [--json]
 //
 // Each round prints one header line and, with more than one round, its own table. The last
 // table is the mean of every column across rounds. One round cannot rank a change smaller
@@ -15,7 +15,7 @@ import { logFile } from "../src/log.ts";
 // binary on PATH, so two runs differing only in the flag compare runtimes on the same code.
 // Without it the daemon runs from source under the bench's own runtime.
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -48,6 +48,8 @@ interface BenchOptions {
   /** Run the built daemon under this runtime; undefined runs the source under the bench's own. */
   runtime: OrchRuntime | undefined;
   profile: boolean;
+  /** The daemon logs at trace; the report ends with the write-queue drain summary. */
+  trace: boolean;
   json: boolean;
 }
 
@@ -77,7 +79,7 @@ interface Fleet {
   agentIds: readonly string[];
 }
 
-const DEFAULTS: BenchOptions = { agents: 64, concurrency: 32, requests: 2_000, rounds: 1, subscribers: 10, phases: [], runtime: undefined, profile: false, json: false };
+const DEFAULTS: BenchOptions = { agents: 64, concurrency: 32, requests: 2_000, rounds: 1, subscribers: 10, phases: [], runtime: undefined, profile: false, trace: false, json: false };
 const SOURCE_DAEMON_ENTRYPOINT = join(import.meta.dir, "../src/daemon/server/orchd.ts");
 const BUILT_DAEMON_ENTRYPOINT = join(import.meta.dir, "../dist/daemon/orchd.js");
 /** Each runtime's flags for writing a CPU profile into a directory. Deno has no equivalent. */
@@ -111,6 +113,7 @@ function parseArgs(argv: readonly string[]): BenchOptions {
       options.runtime = runtime;
     }
     else if (flag === "--profile") options.profile = true;
+    else if (flag === "--trace") options.trace = true;
     else if (flag === "--json") options.json = true;
     else throw new Error(`unknown flag ${flag}`);
   }
@@ -118,10 +121,10 @@ function parseArgs(argv: readonly string[]): BenchOptions {
   return options;
 }
 
-function seedFleet(agents: number): Fleet {
+function seedFleet(agents: number, trace: boolean): Fleet {
   const orchDir = orchDirAt(mkdtempSync(join(tmpdir(), "orch-bench-")));
   const discoveryDir = mkdtempSync(join(tmpdir(), "orch-bench-discovery-"));
-  writeFileSync(settingsPath(orchDir), settingsFixtureText({ daemon: { tcp_port: TCP_PORT, idle_shutdown_minutes: 1 } }));
+  writeFileSync(settingsPath(orchDir), settingsFixtureText({ daemon: { tcp_port: TCP_PORT, idle_shutdown_minutes: 1 }, ...(trace ? { logging: { level: "trace" } } : {}) }));
   const agentIds: string[] = [];
   for (let index = 0; index < agents; index += 1) {
     const id = mintAgentId();
@@ -356,6 +359,30 @@ function fanoutSummary(meter: FanoutMeter, expected: number): NonNullable<PhaseR
   return { expected, received: sorted.length, p50Ms: round(percentile(sorted, 0.5)), p99Ms: round(percentile(sorted, 0.99)), maxMs: round(sorted.at(-1) ?? 0) };
 }
 
+interface DrainSummary { drains: number; rows: number; p50Ms: number; p99Ms: number; maxMs: number }
+
+/** Every `store.drained` record the daemon logged, folded into one line's worth of numbers. */
+function drainSummary(orchDir: OrchDir): DrainSummary {
+  const elapsed: number[] = [];
+  let rows = 0;
+  for (const line of readFileSync(logFile(orchDir), "utf8").split("\n")) {
+    if (line.length === 0) continue;
+    const record: unknown = JSON.parse(line);
+    if (!isLogRecord(record) || record.event !== "store.drained") continue;
+    const drainRows = record.fields?.rows;
+    const drainMs = record.fields?.elapsedMs;
+    if (typeof drainRows !== "number" || typeof drainMs !== "number") continue;
+    rows += drainRows;
+    elapsed.push(drainMs);
+  }
+  const sorted = [...elapsed].sort((a, b) => a - b);
+  return { drains: sorted.length, rows, p50Ms: round(percentile(sorted, 0.5)), p99Ms: round(percentile(sorted, 0.99)), maxMs: round(sorted.at(-1) ?? 0) };
+}
+
+function drainLine(summary: DrainSummary): string {
+  return `drain     ${summary.drains} drains   ${summary.rows} rows   p50 ${summary.p50Ms} ms   p99 ${summary.p99Ms} ms   max ${summary.maxMs} ms`;
+}
+
 async function phaseDaemonStatus(fleet: Fleet, options: BenchOptions): Promise<PhaseResult> {
   return runPhase("rpc daemon-status (connect per call)", options, async () => {
     await rpcCall(fleet.orchDir, "daemon-status", undefined, RPC_TIMEOUT_MS);
@@ -491,10 +518,10 @@ function byPhase(rounds: readonly PhaseResult[][]): PhaseResult[][] {
   }));
 }
 
-function printReport(options: BenchOptions, launch: DaemonLaunch, rounds: readonly PhaseResult[][]): void {
+function printReport(options: BenchOptions, launch: DaemonLaunch, rounds: readonly PhaseResult[][], drain: DrainSummary | undefined): void {
   const results = byPhase(rounds).map(meanOfRounds);
   if (options.json) {
-    process.stdout.write(`${JSON.stringify({ options, launch, rounds, results }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ options, launch, rounds, results, drain }, null, 2)}\n`);
     return;
   }
   const title = options.rounds > 1 ? `mean of ${options.rounds} rounds · ${roundFacts(options, launch)}` : roundFacts(options, launch);
@@ -502,11 +529,20 @@ function printReport(options: BenchOptions, launch: DaemonLaunch, rounds: readon
   printSection(title, MEAN_RULE, results);
 }
 
+/** The report is already printed; a dir Windows still holds is named, never a crash. */
+function removeBenchDir(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch (error) {
+    process.stderr.write(`left ${dir}: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
+}
+
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const phases = selectPhases(options.phases);
   const launch = daemonLaunch(options.runtime);
-  const fleet = seedFleet(options.agents);
+  const fleet = seedFleet(options.agents, options.trace);
   const profileDir = options.profile ? join(fleet.orchDir, "profile") : undefined;
   if (profileDir !== undefined) mkdirSync(profileDir);
   const daemon = spawnDaemon(fleet, launch, profileDir);
@@ -518,11 +554,13 @@ async function main(): Promise<void> {
   } finally {
     if (daemon.pid !== undefined) await terminateDaemon(daemon.pid, DAEMON_STOP_GRACE_MS);
   }
-  printReport(options, launch, rounds);
+  const drain = options.trace ? drainSummary(fleet.orchDir) : undefined;
+  printReport(options, launch, rounds, drain);
+  if (drain !== undefined && !options.json) process.stdout.write(`${drainLine(drain)}\n`);
   if (profileDir !== undefined) process.stderr.write(`cpu profile: ${profileDir}\n`);
   else {
-    rmSync(fleet.orchDir, { recursive: true, force: true });
-    rmSync(fleet.discoveryDir, { recursive: true, force: true });
+    removeBenchDir(fleet.orchDir);
+    removeBenchDir(fleet.discoveryDir);
   }
 }
 

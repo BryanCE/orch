@@ -131,6 +131,7 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     "queue-intake": touchHandler(state, handlers["queue-intake"]),
     clean: touchHandler(state, handlers.clean),
     fleet: touchHandler(state, handlers.fleet),
+    capacity: touchHandler(state, handlers.capacity),
     runs: touchHandler(state, handlers.runs),
     run: touchHandler(state, handlers.run),
     "agent-status": touchHandler(state, handlers["agent-status"]),

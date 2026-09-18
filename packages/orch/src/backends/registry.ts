@@ -42,7 +42,6 @@ function supportedIds(): string {
 function validateBackend(id: string): Backend {
   const backend = getBackend(id);
   if (!backend) throw new Error(`Unknown backend ${JSON.stringify(id)}. Supported backends: ${supportedIds()}`);
-  if (!backend.isAvailable()) throw new Error(`Backend ${JSON.stringify(id)} is unavailable`);
   return backend;
 }
 

@@ -292,12 +292,17 @@ export function refreshProcess(root: OrchDir, agentId: string): void {
   current.alive.set(agentId, recordedInstanceIsLive(process.pid, process.startToken));
 }
 
-export function probeAllProcesses(root: OrchDir): void {
+/** Re-ask the OS about every held process. True when any agent's liveness flipped. */
+export function probeAllProcesses(root: OrchDir): boolean {
   const current = held.get(root);
-  if (!current) return;
+  if (!current) return false;
+  let changed = false;
   for (const [agentId, process] of current.processes) {
-    current.alive.set(agentId, recordedInstanceIsLive(process.pid, process.startToken));
+    const alive = recordedInstanceIsLive(process.pid, process.startToken);
+    if (current.alive.get(agentId) !== alive) changed = true;
+    current.alive.set(agentId, alive);
   }
+  return changed;
 }
 
 onAgentRefreshed((root, agentId) => refreshProcess(root, agentId));

@@ -48,6 +48,7 @@ export function stubRpcHandlers(overrides: Partial<RpcHandlers> = {}): RpcHandle
     "queue-intake": notStubbed,
     clean: notStubbed,
     fleet: notStubbed,
+    capacity: notStubbed,
     runs: notStubbed,
     run: notStubbed,
     "agent-status": notStubbed,

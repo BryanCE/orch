@@ -9,6 +9,7 @@ import { upsertRun } from "../../store/run-rows.ts";
 import { appendStatusHistory, writeResult } from "../../presence/history.ts";
 import { loadPresence, probeAllProcesses, reapDeadAgentRecords, recordAgentStatus, runIsSettled } from "../../presence/store.ts";
 import { askingEventFromRow, transitionEventFromRow } from "./status-events.ts";
+import { forgetCapacity } from "./capacity.ts";
 
 const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited"]);
 
@@ -108,7 +109,7 @@ export function startLivenessTick(
   // what it did.
   const tick = (): void => {
     const startedAt = Date.now();
-    probeAllProcesses(orchDir);
+    if (probeAllProcesses(orchDir)) forgetCapacity(orchDir);
     let exited = 0;
     for (const entry of loadPresence(orchDir).values()) {
       const row = entry.status;

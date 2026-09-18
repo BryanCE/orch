@@ -83,6 +83,7 @@ function presenceTokens(pres: PresenceEntry | null): StatusRow["tokens"] {
   };
 }
 
+/** The harness's own session file, read only for an agent whose bridge never reported. */
 function sessionViewFor(ent: Entity, adapter: AgentAdapter | undefined): SessionView | null {
   if (!adapter?.sessionView || !ent.sessionPath) return null;
   return adapter.sessionView.readSessionView({ sessionPath: ent.sessionPath }) ?? null;
@@ -145,7 +146,7 @@ export function statusRowFromEntity(
 ): StatusRow {
   const pres = entity.presence;
   const adapter = getAdapter(viewForKey(views, entity.key)?.harnessId ?? entity.agent ?? "");
-  const sview = sessionViewFor(entity, adapter);
+  const sview = pres?.status ? null : sessionViewFor(entity, adapter);
   const agentView = viewForKey(views, entity.key);
   const modelFull = deriveModelString(pres, sview, adapter);
   const { state, stateFallback, exited } = deriveState(pres, entity, sview);
@@ -185,7 +186,7 @@ export function statusRowFromEntity(
     backendStatus: entity.backendStatus,
     backend: entity.backend,
     bridgeAttached: null,
-    tokens: sview?.tokens ?? presenceTokens(pres),
+    tokens: presenceTokens(pres) ?? sview?.tokens ?? null,
     spaceId,
     spaceName: spaceNames.spaceName ?? resolveSpaceName(spaceId, spaces),
   };

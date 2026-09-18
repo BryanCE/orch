@@ -33,7 +33,6 @@ const activity = {
     cacheWrite: z.number().optional(),
   }).optional(),
   filesTouched: z.array(z.string()).readonly().optional(),
-  capacity: z.object({ packUsed: z.number(), packCap: z.number() }).optional(),
 };
 
 const transitionState = z.enum(AGENT_STATES).refine(

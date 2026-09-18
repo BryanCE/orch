@@ -9,7 +9,7 @@ import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSp
 import { admitHome, decideGrant, listGrants } from "./grant.ts";
 import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, resolveAgentTarget, takeOnQueued } from "./queue.ts";
 import { cleanStore } from "./clean.ts";
-import { agentStatusOf, fleetSnapshot, processLive, runOf, runsOf } from "./fleet.ts";
+import { agentStatusOf, capacityOf, fleetSnapshot, processLive, runOf, runsOf } from "./fleet.ts";
 import { resolveLifecycleEntity, resolveTargetEntity } from "./resolve.ts";
 import { closeTargets } from "./close.ts";
 import { callerSelf } from "./self.ts";
@@ -127,6 +127,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "queue-intake": governed(state, (params) => intakeQueued(directory, params)),
     clean: governed(state, (params) => cleanStore(directory, params)),
     fleet: (params) => fleetSnapshot(state, params),
+    capacity: (params) => capacityOf(state, params),
     runs: (params) => runsOf(state, params),
     run: (params) => runOf(directory, params),
     "agent-status": (params) => agentStatusOf(directory, params),

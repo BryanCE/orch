@@ -1,9 +1,6 @@
 import type { Logger, OrchDir } from "../../types/core.ts";
 import { notify } from "../../notify/router.ts";
 import { abstractAgentLabel, spaceLabelForKey } from "../../notify/format.ts";
-import { loadPresence } from "../../presence/store.ts";
-import { agentViews } from "../../store/agent-view.ts";
-import { computeFleetCapacity, packsUsed } from "../../policy/capacity.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import type { NotifyEntry } from "../../types/settings.ts";
 import type { SettingsManager } from "../../types/services.ts";
@@ -76,19 +73,7 @@ export function emitAndNotify(
   const seq = (published.get(event.key) ?? 0) + 1;
   published.set(event.key, seq);
   const named = event.agent?.trim() ? event : { ...event, agent: abstractAgentLabel(space, event.key), space };
-  const capacity = event.type !== "transition" && event.type !== "asking"
-    ? undefined
-    : orchDir === undefined
-      ? event.capacity
-      : (() => {
-        const views = new Map(agentViews(orchDir).map((view) => [view.id, view]));
-        const presence = loadPresence(orchDir);
-        const view = views.get(event.key);
-        const currentSettings = settings.current();
-        const computed = computeFleetCapacity(views, presence, currentSettings, { packRootId: view?.rootAgentId });
-        return { packUsed: packsUsed(computed), packCap: currentSettings.fleet.max_agents_per_pack };
-      })();
-  const canonical: NotifyEvent = { ...named, seq, ...(capacity === undefined ? {} : { capacity }) };
+  const canonical: NotifyEvent = { ...named, seq };
   emit(canonical);
   if (orchDir !== undefined) notify(orchDir, settings.currentOrNull(), sinks, canonical, logger);
 }

@@ -28,6 +28,11 @@ export interface FleetCapacity {
   readonly total: { readonly used: number; readonly cap: number | null };
 }
 
+/** The whole fleet's capacity plus each pack's live members by space (null = no space). */
+export interface HeldCapacity extends FleetCapacity {
+  readonly membersBySpace: ReadonlyMap<string, ReadonlyMap<string | null, number>>;
+}
+
 /** Live members across every pack in scope. */
 export function packsUsed(capacity: FleetCapacity): number {
   return capacity.packs.reduce((used, pack) => used + pack.used, 0);
@@ -72,17 +77,52 @@ function rootAgent(view: AgentView, views: ReadonlyMap<string, AgentView>): Capa
   return { id: view.rootAgentId, name: current.id === view.id ? view.name : current.name };
 }
 
-function selectedPack(
-  live: readonly AgentView[],
+/** Every pack on the machine, from views and presence, without process or filesystem reads. */
+export function fleetCapacity(
   views: ReadonlyMap<string, AgentView>,
-  packRootId: string | null | undefined,
-  packSpace: string | null | undefined,
-): readonly AgentView[] {
-  if (packRootId !== undefined && packRootId !== null) {
-    return live.filter((view) => rootAgent(view, views).id === packRootId);
+  presence: ReadonlyMap<string, PresenceEntry>,
+  settings: CapacitySettings,
+): HeldCapacity {
+  const live = presenceAliveViews(views, presence);
+  const cap = settings.fleet.max_agents_per_pack;
+  const packsByRoot = new Map<string, CapacityPack>();
+  const membersBySpace = new Map<string, Map<string | null, number>>();
+  for (const view of live) {
+    const root = rootAgent(view, views);
+    const used = (packsByRoot.get(root.id)?.used ?? 0) + 1;
+    packsByRoot.set(root.id, { root, used, cap });
+    const bySpace = membersBySpace.get(root.id) ?? new Map<string | null, number>();
+    bySpace.set(view.environment.space, (bySpace.get(view.environment.space) ?? 0) + 1);
+    membersBySpace.set(root.id, bySpace);
   }
-  if (packSpace !== undefined) return live.filter((view) => view.environment.space === packSpace);
-  return live;
+  const spaces = [...liveSpawnCounts(views, presence).entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, used]) => ({
+      name: spaceName(id, settings.spaces ?? {}) ?? id,
+      used,
+      cap: settings.fleet.max_agents_per_space[id] ?? null,
+    }));
+  const packs = [...packsByRoot.values()].sort((left, right) => left.root.id.localeCompare(right.root.id));
+  return { packs, spaces, total: { used: live.length, cap: settings.fleet.max_agents_total ?? null }, membersBySpace };
+}
+
+export interface CapacityScope {
+  readonly packRootId?: string | null;
+  readonly packSpace?: string | null;
+}
+
+/** The packs in scope: one root, the roots with members in one space, or every root. Spaces and total are fleet-wide. */
+export function scopeCapacity(held: HeldCapacity, scope: CapacityScope): FleetCapacity {
+  const { packs, spaces, total } = held;
+  if (scope.packRootId !== undefined && scope.packRootId !== null) {
+    return { packs: packs.filter((pack) => pack.root.id === scope.packRootId), spaces, total };
+  }
+  if (scope.packSpace === undefined) return { packs, spaces, total };
+  const inSpace = packs.flatMap((pack) => {
+    const used = held.membersBySpace.get(pack.root.id)?.get(scope.packSpace ?? null) ?? 0;
+    return used === 0 ? [] : [{ ...pack, used }];
+  });
+  return { packs: inSpace, spaces, total };
 }
 
 /** Compute fleet usage without reading process or filesystem state. */
@@ -90,30 +130,9 @@ export function computeFleetCapacity(
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
   settings: CapacitySettings,
-  options: { readonly packRootId?: string | null; readonly packSpace?: string | null } = {},
+  options: CapacityScope = {},
 ): FleetCapacity {
-  const live = presenceAliveViews(views, presence);
-  const cap = settings.fleet.max_agents_per_pack;
-  const packsByRoot = new Map<string, CapacityPack>();
-  for (const view of selectedPack(live, views, options.packRootId, options.packSpace)) {
-    const root = rootAgent(view, views);
-    const used = (packsByRoot.get(root.id)?.used ?? 0) + 1;
-    packsByRoot.set(root.id, { root, used, cap });
-  }
-
-  const spaces = [...liveSpawnCounts(views, presence).entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([id, used]) => ({
-      name: spaceName(id, settings.spaces ?? {} ) ?? id,
-      used,
-      cap: settings.fleet.max_agents_per_space[id] ?? null,
-    }));
-  const packs = [...packsByRoot.values()].sort((left, right) => left.root.id.localeCompare(right.root.id));
-  return {
-    packs,
-    spaces,
-    total: { used: live.length, cap: settings.fleet.max_agents_total ?? null },
-  };
+  return scopeCapacity(fleetCapacity(views, presence, settings), options);
 }
 
 /** Render the compact capacity summary used by command output: one entry per pack, the caller's first. */

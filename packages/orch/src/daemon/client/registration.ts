@@ -41,7 +41,7 @@ export function announceUnleasedAgents(
  * should have held.
  */
 function callerEnvironment(): { plexer: string | undefined; plexerVersion: string | undefined; handle: string | undefined } {
-  const here = allBackends().find((backend) => backend.isAvailable() && backend.isInsideSession());
+  const here = allBackends().find((backend) => backend.isInsideSession());
   if (here === undefined) return { plexer: undefined, plexerVersion: undefined, handle: undefined };
   const place = here.placementInventory?.current() ?? null;
   return { plexer: here.id, plexerVersion: here.versionInfo?.installed() ?? undefined, handle: place === null ? undefined : String(place.handle) };

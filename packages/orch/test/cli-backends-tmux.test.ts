@@ -25,12 +25,14 @@ describe("tmux backend registry and capabilities", () => {
     expect(getBackend("tmux")?.id).toBe("tmux");
   });
 
-  test("explicit selection follows tmux availability", () => {
-    const backend = getBackend("tmux")!;
-    if (!backend.isAvailable()) {
-      expect(() => resolveBackend({ explicit: "tmux", configured: null })).toThrow(/unavailable/);
-    } else {
+  test("explicit selection resolves the registered backend without a PATH probe", () => {
+    // eslint-disable-next-line typescript/unbound-method
+    const oldAvailable = TmuxBackend.prototype.isAvailable;
+    TmuxBackend.prototype.isAvailable = () => { throw new Error("isAvailable() ran on an explicit selection"); };
+    try {
       expect(resolveBackend({ explicit: "tmux", configured: null }).id).toBe("tmux");
+    } finally {
+      TmuxBackend.prototype.isAvailable = oldAvailable;
     }
   });
 

@@ -25,7 +25,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { testServices } from "./helpers/services.ts";
 import { daemonStatusFixture, stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 import { recordingLogger } from "./helpers/logger.ts";
-import type { RpcServer } from "../src/types/daemon.ts";
+import type { RpcHandlers, RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { isRecord } from "../src/util.ts";
@@ -53,8 +53,8 @@ function transitionEvent(overrides: Partial<TransitionEvent> = {}): TransitionEv
   };
 }
 
-function tempOrchDir(): OrchDir {
-  const dir = makeTempOrchDir("orch-rpc-");
+function tempOrchDir(prefix = "orch-rpc-"): OrchDir {
+  const dir = makeTempOrchDir(prefix);
   dirs.push(dir);
   return dir;
 }
@@ -102,14 +102,14 @@ async function tcpHello(server: RpcServer, params?: unknown): Promise<Record<str
   });
 }
 
-async function start(dir: OrchDir): Promise<RpcServer> {
-  const server = await startRpcServer(dir, stubRpcHandlers({
-    ack: (_params) => ({ ok: true }),
-    "subscribe-events": (_params, emit) => {
-      setTimeout(() => emit(transitionEvent({ key: "pushed" })), 5);
-      return { subscribed: true };
-    },
-  }), { logger: recordingLogger().logger });
+async function start(dir: OrchDir, handlers: RpcHandlers = stubRpcHandlers({
+  ack: (_params) => ({ ok: true }),
+  "subscribe-events": (_params, emit) => {
+    setTimeout(() => emit(transitionEvent({ key: "pushed" })), 5);
+    return { subscribed: true };
+  },
+})): Promise<RpcServer> {
+  const server = await startRpcServer(dir, handlers, { logger: recordingLogger().logger });
   servers.push(server);
   return server;
 }
@@ -245,6 +245,17 @@ describe("daemon RPC", () => {
     const dir = tempOrchDir();
     await start(dir);
     expect(await rpcCall(dir, "ack", { id: "round-trip" })).toEqual({ ok: true });
+  });
+
+  test("capacity answers the scoped fleet capacity", async () => {
+    const dir = tempOrchDir("orch-rpc-capacity-");
+    const answer = { packs: [], spaces: [], total: { used: 0, cap: null } };
+    const server = await start(dir, stubRpcHandlers({ capacity: () => answer }));
+    try {
+      expect(await rpcCall(dir, "capacity", {}, 1_000)).toEqual(answer);
+    } finally {
+      await server.close();
+    }
   });
 
   test("logs one rpc record when a request is answered", async () => {

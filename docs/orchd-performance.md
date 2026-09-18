@@ -260,11 +260,119 @@ build, slightly ahead on the daemon's hot path. Nothing in orchd may branch on t
 to chase either number; the next gains on `report-status` come from the work in "Next",
 which moves the same on both.
 
+## Machine change
+
+Every run above ran on the home laptop, WSL. From here the bench runs on the office
+machine, WSL, checkout on `/mnt/c`, temp dir on the WSL disk. The first run on the office
+machine was Windows native (bun 1.4.0 Windows x64) and came out 3× to 5× slower on every
+phase (`status` p99 232 node, `report-status` 127): named pipes, NTFS and the temp dir
+scan, not the code. The same build on the same machine under WSL sits beside the laptop
+rows below. Windows native numbers are not comparable to anything in this log.
+
+### 2026-09-18, wave A: encode once, lease facts once, three row fields cut
+
+Three edits. The subscriber fan-out in `rpc.ts` encodes the event line once and writes
+the same string to every socket. `fleetStatus` reads `fleetLeaseFacts` once and hands it
+to `fleetStatusRows` (`leaseFacts`), where it used to run twice per `status` call.
+`StatusRow` lost `capabilities`, `sessionPath` and `turns`: nothing read them off a row.
+
+Office machine, WSL, node 24.12.0, bun 1.4.0, mean of 5 rounds.
+
+node:
+
+| phase | ms/500 | req/s | p50 | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| daemon-status (connect per call) | 65 | 8842 | 3.29 | 13.61 | 14.13 | 14.35 |
+| status (fleet rows) | 430 | 1197 | 26.74 | 33.42 | 37.26 | 39.16 |
+| peer-view | 91 | 5902 | 4.92 | 9.67 | 11.3 | 11.46 |
+| report-status (transition + fan-out) | 488 | 1041 | 27.0 | 50.79 | 55.13 | 59.31 |
+| pipelined daemon-status (one socket) | 4 | 118314 | 0.24 | 0.5 | 0.57 | 0.61 |
+| fan-out | 4840/5000 events | | 26.8 | | 55.6 | 59.4 |
+
+bun:
+
+| phase | ms/500 | req/s | p50 | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| daemon-status (connect per call) | 60 | 10001 | 3.11 | 9.02 | 9.43 | 9.7 |
+| status (fleet rows) | 466 | 1113 | 28.84 | 38.43 | 44.11 | 46.88 |
+| peer-view | 133 | 4268 | 7.33 | 14.83 | 16.99 | 18.02 |
+| report-status (transition + fan-out) | 605 | 841 | 35.12 | 58.78 | 63.17 | 64.96 |
+| pipelined daemon-status (one socket) | 5 | 106672 | 0.28 | 0.47 | 0.54 | 0.57 |
+| fan-out | 4840/5000 events | | 35.2 | | 63 | 65 |
+
+Against the laptop runtime rows, p99: `status` 44.2 → 37.3 node, 48.7 → 44.1 bun, both
+under the 60 ms target. `report-status` 54.3 → 55.1 node, 47.0 → 63.2 bun. The machine
+changed under the comparison, so the `status` gain and the bun `report-status` loss are
+each inside the cross-machine spread until a second run on this machine. `report-status`
+is over the 50 ms target on both runtimes. This run is the baseline the next wave
+compares to.
+
+### 2026-09-18, waves B–D: the event lost its capacity, orchd holds capacity and census
+
+`event.capacity` is gone; no reader existed, and every `report-status` computed it. orchd
+holds `FleetCapacity` in a map (`daemon/server/capacity.ts`) and forgets it only on
+`refreshAgent`, on a liveness flip, or on a settings reload. A `capacity` RPC serves the
+held value scoped per caller, and `orch status` reads its footer line from it instead of a
+second `fleet` pull. The pane census (`entities/census.ts`) is listed once per enabled
+plexer and held until `refreshAgent`; a plexer that does not answer throws and names
+`orch doctor`. `isAvailable()` left `validateBackend`, session registration and the census.
+
+Same machine, same runtimes, mean of 5 rounds.
+
+node:
+
+| phase | ms/500 | req/s | p50 | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| daemon-status (connect per call) | 68 | 8155 | 3.45 | 12.84 | 14.3 | 15.05 |
+| status (fleet rows) | 447 | 1142 | 27.28 | 38.47 | 42.48 | 44.7 |
+| peer-view | 99 | 5209 | 5.52 | 12.21 | 14.3 | 14.59 |
+| report-status (transition + fan-out) | 513 | 1007 | 29.32 | 53.38 | 57.91 | 59.16 |
+| pipelined daemon-status (one socket) | 6 | 95560 | 0.3 | 0.98 | 1.13 | 1.14 |
+| fan-out | 4840/5000 events | | 29.2 | | 58.2 | 58.8 |
+
+bun:
+
+| phase | ms/500 | req/s | p50 | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| daemon-status (connect per call) | 52 | 12191 | 2.39 | 11.91 | 12.49 | 12.62 |
+| status (fleet rows) | 373 | 1349 | 22.87 | 31.65 | 37.35 | 39.4 |
+| peer-view | 92 | 5520 | 4.81 | 10.83 | 13.06 | 14.32 |
+| report-status (transition + fan-out) | 557 | 921 | 32.82 | 57.22 | 63.84 | 65.28 |
+| pipelined daemon-status (one socket) | 4 | 116932 | 0.23 | 0.62 | 0.71 | 0.74 |
+| fan-out | 4840/5000 events | | 32.8 | | 63.8 | 65.2 |
+
+Against wave A, p99: `report-status` 55.1 → 57.9 node, 63.2 → 63.8 bun; `status`
+37.3 → 42.5 node, 44.1 → 37.4 bun. Every delta is inside the run-to-run spread of this
+machine (`daemon-status`, untouched, moved 14.1 → 14.3 node and 9.4 → 12.5 bun). The bench
+enables no plexer and every bench agent stays in one space, so neither the census hold nor
+the capacity hold is on its measured path. What the bench does show: the capacity
+computation that `report-status` paid per transition was not the tail. The tail is the
+fan-out itself: `report-status` p50 tracks fan-out p50 within a millisecond, and the
+per-transition cost is the ten socket writes plus the commit. `report-status` stays over
+the 50 ms target on both runtimes.
+
+A second run of the same build, minutes later, p99:
+
+| phase | node run 1 | node run 2 | bun run 1 | bun run 2 |
+|---|---:|---:|---:|---:|
+| daemon-status (connect per call) | 14.3 | 12.77 | 12.49 | 4.77 |
+| status (fleet rows) | 42.48 | 34.59 | 37.35 | 39.82 |
+| peer-view | 14.3 | 14.82 | 13.06 | 11.18 |
+| report-status (transition + fan-out) | 57.91 | 58.34 | 63.84 | 51.93 |
+| fan-out | 58.2 | 58.6 | 63.8 | 52.4 |
+
+One build moves 8 ms on `node status` and 12 ms on `bun report-status` between two runs.
+That is the band on this machine; the wave A row sits inside it on every phase. A change
+under 10 ms on p99 needs more than one run per side to be read at all.
+
 ## Next
 
 1. Memory is the truth (`docs/orchd-owns-the-store.md`, steps 1–6): a write patches the
    map and queues the row; a `setImmediate` drain commits the turn's rows in one
    transaction after the replies went out; the tick owns liveness. The `data_version`
    check and the presence hold go.
-2. `report-status`: one map patch, one queued row, one event, no rebuild.
-3. `status`: cut the payload, or stream rows.
+2. `report-status`: the capacity rebuild is gone. What remains per transition is the
+   commit and the ten socket writes. Profile the write-queue drain; if the commit shows in
+   the tail, move sqlite writes to a worker thread with its own connection.
+3. `status`: cut the payload, or stream rows. `rows.ts:88` still reads a session file per
+   row.

@@ -4,6 +4,7 @@ import { buildEntities, sortEntities } from "../../../entities/inventory.ts";
 import { resolveTargetFor } from "../../../entities/resolve.ts";
 import { loadPresence, presenceEntry } from "../../../presence/store.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
+import { scopeCapacity } from "../../../policy/capacity.ts";
 import { agentViews } from "../../../store/agent-view.ts";
 import { agentProcessLive } from "../../../store/interval-rows.ts";
 import { selectRun, selectRuns } from "../../../store/run-rows.ts";
@@ -11,6 +12,7 @@ import { selectAgentStatus } from "../../../store/status-rows.ts";
 import type { CallerCredential, OrchDir } from "../../../types/core.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { DaemonState } from "../state.ts";
+import { heldCapacity } from "../capacity.ts";
 
 export function fleetSnapshot(state: DaemonState, params: ParamsOf<"fleet">): ResultOf<"fleet"> {
   const directory = state.directory;
@@ -27,6 +29,10 @@ function reapedExactKey(directory: OrchDir, credential: CallerCredential, target
   return callerKindOf(directory, credential) === "operator"
     && presenceEntry(directory, target) === undefined
     && selectRuns(directory, { agentKey: target, limit: 1 }).length > 0;
+}
+
+export function capacityOf(state: DaemonState, params: ParamsOf<"capacity">): ResultOf<"capacity"> {
+  return scopeCapacity(heldCapacity(state.directory, state.services.settings.current()), params);
 }
 
 export function runsOf(state: DaemonState, params: ParamsOf<"runs">): ResultOf<"runs"> {

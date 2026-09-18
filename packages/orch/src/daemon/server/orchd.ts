@@ -19,6 +19,7 @@ import { watchSettings } from "../../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { emitAndNotify } from "./events.ts";
 import { startLivenessTick } from "./status-report.ts";
+import { forgetCapacity } from "./capacity.ts";
 import { errorMessage, errorTrace } from "../../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -148,6 +149,7 @@ export async function startDaemon(): Promise<DaemonState> {
       return next;
     },
     onChange: (settings) => {
+      forgetCapacity(directory);
       services.logger.setLevel(logLevelFor(settings));
       if (settingsLoaded) state.services.logger.info("config.reloaded");
       settingsLoaded = true;

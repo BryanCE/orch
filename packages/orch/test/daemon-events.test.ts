@@ -23,12 +23,11 @@ import type { NotifyEvent } from "../src/types/notify.ts";
 import type { NotifyEntry } from "../src/types/settings.ts";
 import type { StatusPatch } from "../src/types/presence.ts";
 import { sql } from "drizzle-orm";
-import { writeSettingsFixture } from "./helpers/settings.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { testServices } from "./helpers/services.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 import { isRecord } from "../src/util.ts";
-import { askingEvent, closedEvent, eventBase, transitionEvent } from "./helpers/events.ts";
+import { askingEvent, eventBase, transitionEvent } from "./helpers/events.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 
 const directories: OrchDir[] = [];
@@ -247,23 +246,6 @@ describe("daemon presence events", () => {
     report(orchDir, key, { state: "working", dispatchId: "dispatch-broken", startedAt: Date.parse("2026-01-04T00:00:00.000Z") }, (event) => events.push(event));
     report(orchDir, key, { state: "done", dispatchId: "dispatch-broken", finishedAt: Date.parse("2026-01-04T00:01:00.000Z") }, (event) => events.push(event));
     expect(events.some((event) => eventState(event) === "done")).toBe(true);
-  });
-
-  test("emitted events carry the pack capacity at publish time", () => {
-    const orchDir = tempOrchDir();
-    writeSettingsFixture(orchDir, { fleet: { max_agents_per_pack: 2 } });
-    const root = mintAgentId();
-    const child = mintAgentId();
-    seedAgent(orchDir, root);
-    insertAgent(orchDir, { id: child, spawnedBy: root, harnessId: "pi", cwd: orchDir, name: child, createdAt: 2 });
-    seedLiveProcess(orchDir, child, 2);
-    report(orchDir, root, { state: "working" }, () => { /* seed */ });
-    report(orchDir, child, { state: "working" }, () => { /* seed */ });
-    const emitted: NotifyEvent[] = [];
-    const settings = testServices({ orchDir, settings: { fleet: { max_agents_per_pack: 2 } } }).settings;
-    emitAndNotify((event) => emitted.push(event), [], closedEvent({ key: root }), orchDir, settings);
-    expect(emitted[0]?.type).toBe("closed");
-    expect(emitted[0]?.newState).toBe("closed");
   });
 
   test("a flapping status file cannot storm the stream with repeat transitions", () => {

@@ -9,6 +9,7 @@ import { AGENT_STATES } from "../../agent-state.ts";
 import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../../types/policy.ts";
 import type { CallerCredential, CallerSession } from "../../types/core.ts";
+import type { FleetCapacity } from "../../policy/capacity.ts";
 import { isAgentNotice, type AgentNotice } from "../../control/bridge-message.ts";
 import type { PaneLabels } from "../../types/plexer.ts";
 import type { LifecycleVerb } from "../../types/adapter.ts";
@@ -304,6 +305,7 @@ export const RPC_PARAMS = {
   "queue-intake": GOVERNANCE.extend({ by: nonBlank, agent: nonBlank.optional(), space: nonBlank.optional(), close: z.boolean() }),
   clean: GOVERNANCE.extend({ force: z.boolean() }),
   fleet: z.object({ skipBackends: z.boolean().optional() }).optional(),
+  capacity: z.object({ packRootId: z.string().nullable().optional(), packSpace: z.string().nullable().optional() }),
   runs: z.object({ caller: CALLER, target: nonBlank.optional(), limit: z.number().int().positive().optional() }),
   run: z.object({ dispatchId: nonBlank }),
   "agent-status": z.object({ target: nonBlank }),
@@ -384,6 +386,11 @@ export const RPC_RESULTS = {
   "queue-intake": z.object({ intakes: z.array(PACK_INTAKE) }),
   clean: z.object({ malformed: z.array(z.string()), closed: z.number(), reaped: z.array(z.string()), removed: z.array(z.string()), liveHolders: z.array(z.string()), liveWorktrees: z.array(z.string()) }),
   fleet: z.object({ views: z.array(AGENT_VIEW), presence: z.array(PRESENCE_ENTRY), entities: z.array(ENTITY) }),
+  capacity: z.object({
+    packs: z.array(z.object({ root: z.object({ id: z.string(), name: z.string() }), used: z.number(), cap: z.number() })).readonly(),
+    spaces: z.array(z.object({ name: z.string(), used: z.number(), cap: z.number().nullable() })).readonly(),
+    total: z.object({ used: z.number(), cap: z.number().nullable() }),
+  }) satisfies z.ZodType<FleetCapacity>,
   runs: z.object({ runs: z.array(RUN_RECORD) }),
   run: z.object({ run: RUN_RECORD.nullable() }),
   "agent-status": z.object({ status: AGENT_STATUS_ROW.nullable() }),

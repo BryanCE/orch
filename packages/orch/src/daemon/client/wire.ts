@@ -198,6 +198,7 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "queue-intake": return parseOne(method, RPC_PARAMS[method], id, value);
     case "clean": return parseOne(method, RPC_PARAMS[method], id, value);
     case "fleet": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "capacity": return parseOne(method, RPC_PARAMS[method], id, value);
     case "runs": return parseOne(method, RPC_PARAMS[method], id, value);
     case "run": return parseOne(method, RPC_PARAMS[method], id, value);
     case "agent-status": return parseOne(method, RPC_PARAMS[method], id, value);

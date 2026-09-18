@@ -2,6 +2,7 @@ import type { OrchDir } from "../types/core.ts";
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { setImmediate } from "node:timers";
 import { defineRelations, sql } from "drizzle-orm";
 import { drizzle, type NodeSQLiteDatabase } from "drizzle-orm/node-sqlite";
@@ -275,14 +276,14 @@ function drainOneByOne(orchDir: OrchDir, writes: readonly RowWrite[]): void {
 export function drainWrites(orchDir: OrchDir): void {
   const queued = writeQueues.get(orchDir);
   if (queued === undefined || queued.length === 0) return;
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   writeQueues.set(orchDir, []);
   if (drainAsBatch(orchDir, queued)) {
-    drainReporter({ rows: queued.length, batched: true, elapsedMs: Date.now() - startedAt });
+    drainReporter({ rows: queued.length, batched: true, elapsedMs: performance.now() - startedAt });
     return;
   }
   drainOneByOne(orchDir, queued);
-  drainReporter({ rows: queued.length, batched: false, elapsedMs: Date.now() - startedAt });
+  drainReporter({ rows: queued.length, batched: false, elapsedMs: performance.now() - startedAt });
 }
 
 /** The typed drizzle handle for one orch dir: the ONE query stack over the one

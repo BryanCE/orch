@@ -1,5 +1,5 @@
 import type { OrchDir, Entity } from "../types/core.ts";
-import { allBackends } from "../backends/registry.ts";
+import { enabledBackends, heldCensus, type Census } from "./census.ts";
 import { loadPresence } from "../presence/store.ts";
 import { agentViewIndex } from "../store/agent-view.ts";
 import type { Backend, BackendTarget } from "../types/backend.ts";
@@ -15,30 +15,6 @@ interface Fleet {
   readonly presence: ReadonlyMap<string, PresenceEntry>;
   readonly presenceById: ReadonlyMap<string, PresenceEntry>;
   readonly census: Census;
-}
-
-/** What each environment answers it still holds, by handle. An environment that
- *  cannot answer is absent from this map, and its recorded handles stand. */
-type Census = ReadonlyMap<string, ReadonlyMap<string, BackendTarget>>;
-
-/** Ask every environment what it holds, ONCE per build. */
-/** The plexers the settings enable. Every registered plexer used to be probed on
- *  every command, so a fleet of headless agents paid a retrying tmux and herdr
- *  listing (seconds each) that the settings had already ruled out. */
-function enabledBackends(settings: OrchSettings): Backend[] {
-  const enabled = new Set(settings.enabled.backends);
-  return allBackends().filter((backend) => enabled.has(backend.id));
-}
-
-function paneCensus(settings: OrchSettings): Census {
-  const census = new Map<string, ReadonlyMap<string, BackendTarget>>();
-  for (const backend of enabledBackends(settings)) {
-    if (!backend.placementInventory || !backend.isAvailable()) continue;
-    try {
-      census.set(backend.id, new Map(backend.placementInventory.list().map((target) => [String(target.handle), target])));
-    } catch { /* an environment that cannot answer says nothing either way */ }
-  }
-  return census;
 }
 
 function handlesByKey(fleet: Fleet, backend: Backend): Map<string, string> {
@@ -179,7 +155,7 @@ function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
 export function buildEntities(root: OrchDir, settings: OrchSettings, options: { skipBackends?: boolean } = {}): Entity[] {
   const views = agentViewIndex(root);
   const presence = loadPresence(root);
-  const fleet: Fleet = { views, presence, presenceById: indexPresenceById(presence.values()), census: paneCensus(settings) };
+  const fleet: Fleet = { views, presence, presenceById: indexPresenceById(presence.values()), census: heldCensus(settings) };
   const usedPresence = new Set<string>();
   const backendEntities = options.skipBackends
     ? []

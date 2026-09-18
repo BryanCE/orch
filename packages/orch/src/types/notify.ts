@@ -31,7 +31,6 @@ export interface AgentActivity {
   readonly ctxPercent?: number;
   readonly tokens?: { readonly input?: number; readonly output?: number; readonly cacheRead?: number; readonly cacheWrite?: number };
   readonly filesTouched?: readonly string[];
-  readonly capacity?: { readonly packUsed: number; readonly packCap: number };
 }
 
 export type NotifyEvent =

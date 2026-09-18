@@ -100,7 +100,7 @@ describe("CLI offline routing", () => {
     });
     const exit = await child.exited;
     expect(exit).toBe(0);
-    expect(await new Response(child.stdout).text()).toBe("[]\n");
+    expect(JSON.parse(await new Response(child.stdout).text())).toEqual({ names: { agents: {}, spaces: {} }, rows: [] });
     expect(Bun.file(join(dir, "orchd.lock")).size).toBe(0);
   }, 15_000);
 });

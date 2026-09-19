@@ -9,6 +9,7 @@ import { hashExtensionFile, registerHarnessBridge } from "../../src/agent/harnes
 import { createServices } from "../../src/services.ts";
 import { registerOrchSeat } from "../../src/seat/index.ts";
 import type { HarnessApi, HarnessIdentity } from "../../src/types/agent.ts";
+import { registerPiMonitor } from "./monitor.ts";
 
 /** pi calls itself `pi`, and fires `agent_settled` when a run will not auto-continue. */
 const PI_IDENTITY: HarnessIdentity = { agentId: "pi", settleEvent: "agent_settled" };
@@ -21,6 +22,7 @@ function piExtension(harness: HarnessApi): void {
     orchDir: services.orchDir,
     settings: services.settings,
   });
+  registerPiMonitor(harness, services, bridge.ownKey);
   // The shared bridge exposes only the common harness surface; the orchestrator
   // seat (status line, /orch dashboard, per-agent views) needs pi's richer UI,
   // which is available in this harness-specific composition root.

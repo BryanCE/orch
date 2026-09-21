@@ -1,4 +1,6 @@
+import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import type { NotifyEvent } from "./notify.ts";
+import type { RetryPolicy } from "./core.ts";
 
 /** Canonical state-change payload a bridge hands to the notifier. */
 export type BridgeNotifyEvent = NotifyEvent;
@@ -89,6 +91,33 @@ export type TmuxHandle = string;
 /** Injected home command runner for hermetic provider tests. */
 export interface TmuxBackendDeps {
   readonly homeExec?: (args: string[]) => string;
+}
+
+/** One Orca terminal row from `terminal list --json`. A terminal is one pane
+ *  leaf inside one tab inside one worktree. */
+export interface OrcaTerminal {
+  readonly handle: string;
+  readonly ptyId: string | null;
+  readonly worktreeId: string;
+  readonly worktreePath: string;
+  readonly branch: string;
+  readonly tabId: string;
+  readonly leafId: string;
+  readonly title: string | null;
+  readonly connected: boolean;
+  readonly writable: boolean;
+  readonly lastOutputAt: number | null;
+}
+
+/** Handle owned by one Orca terminal: the runtime-scoped `handle` string. */
+export type OrcaHandle = string;
+
+/** Runs one Orca CLI command and returns its stdout. Injected by hermetic tests. */
+export type OrcaExecutor = (command: string, args: string[], options?: ExecFileSyncOptionsWithStringEncoding, policy?: RetryPolicy) => string;
+
+/** Injected command runner for hermetic provider tests. */
+export interface OrcaBackendDeps {
+  readonly executor?: OrcaExecutor;
 }
 
 /** Handle owned by one detached headless process. */

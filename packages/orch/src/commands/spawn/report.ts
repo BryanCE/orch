@@ -141,8 +141,8 @@ function warnUnregisteredAgents(logger: Logger, created: readonly CreatedAgent[]
   const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
   for (const agent of created) {
     if (!registeredKeys.has(agent.key)) {
-      spawnLogger(logger, agent.key).warn("spawn.not-registered", { name: agent.name });
-      process.stdout.write(`not pinned: ${agent.name} never registered\n`);
+      spawnLogger(logger, agent.key).warn("spawn.not-attached", { name: agent.name });
+      process.stdout.write(`not pinned: ${agent.name} bridge not attached; try: orch model ${agent.name} <model>\n`);
     }
   }
 }
@@ -154,30 +154,27 @@ function buildSpawnPinEntries(registeredAgents: readonly CreatedAgent[] | null, 
   });
 }
 
-async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], registeredAgents: readonly CreatedAgent[] | null): Promise<{ name: string; key: string; dispatchId: string }[]> {
+/** Hand every launch prompt to orchd. The outbox holds a write whose bridge is not
+ *  attached yet and re-pushes it on attach, so a stalled agent still gets its prompt:
+ *  skipping it here is what turned a slow attach into a dropped dispatch. */
+async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[]): Promise<{ name: string; key: string; dispatchId: string }[]> {
   const dispatches: { name: string; key: string; dispatchId: string }[] = [];
   const maySpawn = maySpawnBelow(self, settingsFile.fleet.max_depth);
-  if (registeredAgents && settings.agents.some((agent) => agent.prompt !== null)) {
-    const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
-    for (const [index, agent] of created.entries()) {
-      if (!registeredKeys.has(agent.key)) {
-        process.stdout.write(`not dispatched: ${agent.name} never registered\n`);
-        continue;
-      }
-      const text = settings.agents[index]?.prompt;
-      if (text === undefined || text === null) continue;
-      try {
-        const { id: dispatchId } = await dispatchToAgent(services, logger, agent.key, text, {
-          adapter: resolveAdapterOrDie(settings.adapter),
-          context: { maySpawn, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
-        });
-        dispatches.push({ name: agent.name, key: agent.key, dispatchId });
-        if (!settings.json) process.stdout.write(`dispatched ${agent.name} ${dispatchId}\n`);
-      } catch (error: unknown) {
-        const message = errorMessage(error);
-        spawnLogger(logger, agent.key).error("spawn.dispatch-failed", { name: agent.name, error: message });
-        process.stdout.write(`warning: could not dispatch ${agent.name}: ${message}\n`);
-      }
+  for (const [index, agent] of created.entries()) {
+    const text = settings.agents[index]?.prompt;
+    if (text === undefined || text === null) continue;
+    try {
+      const { id: dispatchId, ack } = await dispatchToAgent(services, logger, agent.key, text, {
+        adapter: resolveAdapterOrDie(settings.adapter),
+        context: { maySpawn, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
+      });
+      dispatches.push({ name: agent.name, key: agent.key, dispatchId });
+      const verb = ack === "acknowledged" ? "dispatched" : "queued";
+      if (!settings.json) process.stdout.write(`${verb} ${agent.name} ${dispatchId}\n`);
+    } catch (error: unknown) {
+      const message = errorMessage(error);
+      spawnLogger(logger, agent.key).error("spawn.dispatch-failed", { name: agent.name, error: message });
+      process.stdout.write(`warning: could not dispatch ${agent.name}: ${message}\n`);
     }
   }
   return dispatches;
@@ -192,7 +189,7 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
   if (registeredAgents) warnUnregisteredAgents(logger, created, registeredAgents);
   const pinEntries = buildSpawnPinEntries(registeredAgents, settings);
   const warnings = await pinModels(services, logger, pinEntries);
-  const dispatches = await dispatchSpawnPrompts(services, self, logger, settingsFile, settings, created, registeredAgents);
+  const dispatches = await dispatchSpawnPrompts(services, self, logger, settingsFile, settings, created);
   const outage = warnings.length ? await reportControlPlaneOutage(services.orchDir, logger, created.length) : null;
   if (settings.json) process.stdout.write(JSON.stringify({
     backend: settings.backend,

@@ -101,6 +101,18 @@ describe("orch logs", () => {
     expect(lines).toHaveLength(4);
   });
 
+  test("--since takes an age counted back from now", () => {
+    const now = 1_700_000_600_000;
+    expect(parseLogOptions(["--since", "30s"], now).since).toBe(now - 30_000);
+    expect(parseLogOptions(["--since", "10m"], now).since).toBe(now - 600_000);
+    expect(parseLogOptions(["--since", "2h"], now).since).toBe(now - 7_200_000);
+    expect(parseLogOptions(["--since", "1d"], now).since).toBe(now - 86_400_000);
+  });
+
+  test("--since names the accepted forms when the value fits none", () => {
+    expect(() => parseLogOptions(["--since", "ten minutes"])).toThrow(/invalid --since value "ten minutes": expected epoch milliseconds, a date\/time, or an age like 30s, 10m, 2h, 1d/);
+  });
+
   test("renders a readable line: instant, level, event, correlation, agent, fields", () => {
     const directory = fixture();
     seedLogs(directory);

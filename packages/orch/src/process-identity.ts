@@ -3,7 +3,7 @@
 // one copy of it.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { errnoCode } from "./util.ts";
 import { hostOs } from "./host.ts";
 
@@ -45,16 +45,63 @@ function readProcessField(command: string, args: string[]): string | undefined {
   }
 }
 
-/** Field 22 of /proc/<pid>/stat: the process's start time in clock ticks. */
-function linuxStartTicks(pid: number): string | undefined {
+/** Fields after the command name in /proc/<pid>/stat. */
+function linuxStatFields(pid: number): string[] | undefined {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     const closingParen = stat.lastIndexOf(")");
     if (closingParen < 0) return undefined;
-    return stat.slice(closingParen + 2).trim().split(/\s+/)[19];
+    return stat.slice(closingParen + 2).trim().split(/\s+/);
   } catch {
     return undefined;
   }
+}
+
+/** Field 22 of /proc/<pid>/stat: the process's start time in clock ticks. */
+function linuxStartTicks(pid: number): string | undefined {
+  return linuxStatFields(pid)?.[19];
+}
+
+function linuxHasEnvironment(pid: number, name: string, value: string): boolean {
+  try {
+    const environ = readFileSync(`/proc/${pid}/environ`, "utf8");
+    return environ.split("\0").includes(`${name}=${value}`);
+  } catch {
+    return false;
+  }
+}
+
+/** The topmost live process whose environment carries `name=value`: a pane's
+ *  own shell, when the plexer stamps one and reports no pid itself. Children
+ *  inherit the stamp, so the one with no stamped parent is the shell. */
+export function pidStampedWith(name: string, value: string): number | null {
+  // The probe is linux-only today.
+  if (hostOs() !== "linux") return null;
+
+  const stamped: number[] = [];
+  let entries: string[];
+  try {
+    entries = readdirSync("/proc", "utf8");
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+    if (linuxHasEnvironment(pid, name, value)) stamped.push(pid);
+  }
+
+  const stampedSet = new Set(stamped);
+  let root: number | null = null;
+  for (const pid of stamped) {
+    const fields = linuxStatFields(pid);
+    if (fields === undefined) continue;
+    const parent = Number(fields[1]);
+    if (!Number.isSafeInteger(parent) || stampedSet.has(parent)) continue;
+    if (root === null || pid < root) root = pid;
+  }
+  return root;
 }
 
 /**

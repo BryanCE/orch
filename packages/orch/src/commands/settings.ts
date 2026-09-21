@@ -19,13 +19,13 @@ import { isThinkingLevel } from "../policy/thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
 import { selfIdentity } from "../identity/self.ts";
-import { agentMayWriteSetting, agentSettingRefusal } from "../policy/agent-settings.ts";
+import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, agentSettingRefusal, withAgentGrant } from "../policy/agent-settings.ts";
 import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell/index.ts";
 import type { NotifierChoice } from "../types/notify.ts";
-import type { NotifyEntry, NotifyState, OrchSettings, SettingKind } from "../types/settings.ts";
+import type { NotifyEntry, NotifyState, OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
 
@@ -92,10 +92,29 @@ function refuseUngrantedAgentWrite(services: Pick<Services, "settings" | "orchDi
   if (!agentMayWriteSetting(settings, key)) die(agentSettingRefusal(settings, key));
 }
 
-function setSingleSetting(services: Pick<Services, "settings" | "orchDir">, key: string, input: string): void {
+/** The registry entry for `key`, or an exit that names the nearest real keys. */
+function writableSpec(key: string): SettingSpec {
   const spec = SETTINGS_REGISTRY.find((setting) => setting.key === key);
   if (spec === undefined) die(`Unknown setting ${JSON.stringify(key)}. Nearest valid keys: ${nearestSettingKeys(key)}.`);
   if (spec.write === undefined) die(`${key} is read-only; edit it with orch setup.`);
+  return spec;
+}
+
+/** `orch settings grant <key>` / `revoke <key>`: flip whether an agent may write one setting. */
+function grantSetting(services: Pick<Services, "settings" | "orchDir">, { positional }: Invocation, granted: boolean): void {
+  const verb = granted ? "grant" : "revoke";
+  const key = positional[0];
+  if (key === undefined || positional.length !== 1) die(`usage: orch settings ${verb} <key>`);
+  writableSpec(key);
+  if (key === AGENT_SETTINGS_GRANT) die(`${key} never grants itself.`);
+  refuseUngrantedAgentWrite(services, AGENT_SETTINGS_GRANT);
+  const keys = withAgentGrant(currentSettings(services), key, granted);
+  try { writeRegisteredSetting(services.settings, AGENT_SETTINGS_GRANT, keys); } catch (error: unknown) { die(errorMessage(error)); }
+  process.stdout.write(`agents may write: ${keys.length ? keys.join(", ") : "(none)"}\n`);
+}
+
+function setSingleSetting(services: Pick<Services, "settings" | "orchDir">, key: string, input: string): void {
+  const spec = writableSpec(key);
   refuseUngrantedAgentWrite(services, key);
   if (spec.env !== undefined && process.env[spec.env] !== undefined) {
     die(`${key} is overridden by ${spec.env}; remove the override before writing it.`);
@@ -334,14 +353,21 @@ function switchSettingsDefaults(services: Pick<Services, "settings">, harness: s
   return false;
 }
 
-interface ProvenanceRow { readonly key: string; readonly value: unknown; readonly source: string; readonly display: string }
+interface ProvenanceRow {
+  readonly key: string;
+  readonly value: unknown;
+  readonly source: string;
+  readonly display: string;
+  /** Whether `agents.writable_settings` lets an agent write this key. */
+  readonly agentWritable: boolean;
+}
 
 function collectSettingsProvenance(services: Pick<Services, "orchDir">, settings: OrchSettings): ProvenanceRow[] {
   // One model row per installed harness: each names models in its own vocabulary,
   // so there is no single "the model" to report.
   const modelRows = settings.enabled.adapters.map((harness) => {
     const resolved = resolveWithSource<string>({ settings: settings.defaults.models[harness], fallback: "(none)" });
-    return { key: `model (${harness})`, ...resolved, display: formatValue(resolved.value) };
+    return { key: `model (${harness})`, ...resolved, display: formatValue(resolved.value), agentWritable: false };
   });
 
   const provenance: ProvenanceRow[] = [];

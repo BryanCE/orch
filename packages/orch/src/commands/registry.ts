@@ -13,7 +13,7 @@ const RAW: FlagSpec = { name: "--raw", arity: "none", help: "Send the exact prom
 const MODEL: FlagSpec = { name: "--model", arity: "one", placeholder: "<model[:thinking]>", help: "Pin the model. A short name expands to the one listed, allowed model that contains it." };
 const THINKING: FlagSpec = { name: "--thinking", arity: "one", placeholder: "<level>", help: "Thinking effort: off, minimal, low, medium, high, xhigh, max." };
 const ADAPTER: FlagSpec = { name: "--agent", aliases: ["--adapter"], arity: "one", placeholder: "<adapter>", help: "Adapter id: pi, claude, codex." };
-const BACKEND: FlagSpec = { name: "--backend", arity: "one", placeholder: "<plexer>", help: "Plexer id: herdr, tmux, headless." };
+const BACKEND: FlagSpec = { name: "--backend", arity: "one", placeholder: "<plexer>", help: "Plexer id: herdr, tmux, orca, headless." };
 const DIR: FlagSpec = { name: "--dir", arity: "one", placeholder: "<path>", help: "Directory the agent starts in. Defaults to the spawner's own." };
 const CMD: FlagSpec = { name: "--cmd", arity: "one", placeholder: "<command>", help: "Harness command to launch. Defaults to the adapter's own." };
 const LINES: FlagSpec = { name: "-n", arity: "one", placeholder: "<count>", help: "How many lines." };
@@ -84,7 +84,7 @@ const OBSERVE: readonly CommandSpec[] = [
     usage: "orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]",
     summary: "Structured diagnosis records.",
     flags: [
-      { name: "--since", arity: "one", placeholder: "<when>", help: "Epoch milliseconds or a date/time." },
+      { name: "--since", arity: "one", placeholder: "<when>", help: "Epoch milliseconds, a date/time, or an age like 30s, 10m, 2h, 1d." },
       { name: "--level", arity: "one", placeholder: "<level>", help: "Exact severity to include." },
       { name: "--agent", arity: "one", placeholder: "<id>", help: "Filter by minted agent id." },
       { name: "--dispatch", arity: "one", placeholder: "<id>", help: "Filter by dispatch id." },

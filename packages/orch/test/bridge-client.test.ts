@@ -42,7 +42,18 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   if (!predicate()) throw new Error("timed out waiting for bridge activity");
 }
 
-function parseConnections(server: Server): void {
+/** Answer one request: a refused attach gets an error line, anything else an ok reply. */
+function answer(socket: Socket, request: Record<string, unknown>, refuseAttaches: number): void {
+  if (typeof request.id !== "number") return;
+  if (request.method === "attach" && refuseAttaches > 0) {
+    socket.write(`${JSON.stringify({ id: request.id, error: { code: "UNKNOWN_AGENT", message: "not registered" } })}\n`);
+    return;
+  }
+  socket.write(`${JSON.stringify({ id: request.id, result: { attached: true, open: 0, ok: true } })}\n`);
+}
+
+function parseConnections(server: Server, refuseAttaches = 0): void {
+  let refusalsLeft = refuseAttaches;
   server.on("connection", (socket) => {
     sockets.push(socket);
     const connection: Connection = { socket, lines: [] };
@@ -56,9 +67,8 @@ function parseConnections(server: Server): void {
         const parsed: unknown = JSON.parse(buffer.slice(0, newline));
         if (isRecord(parsed)) {
           connection.lines.push(parsed);
-          if (typeof parsed.id === "number") {
-            socket.write(`${JSON.stringify({ id: parsed.id, result: { attached: true, open: 0, ok: true } })}\n`);
-          }
+          answer(socket, parsed, refusalsLeft);
+          if (parsed.method === "attach" && refusalsLeft > 0) refusalsLeft -= 1;
         }
         buffer = buffer.slice(newline + 1);
         newline = buffer.indexOf("\n");
@@ -117,6 +127,24 @@ describe("bridge daemon client", () => {
     const connectionCount = connections.length;
     await Bun.sleep(40);
     expect(connections).toHaveLength(connectionCount);
+  });
+
+  test("a refused attach is re-sent on the same link until orchd accepts it", async () => {
+    const directory = tempOrchDir();
+    const server = createServer();
+    parseConnections(server, 2);
+    await listen(server, daemonRuntimeFiles(directory).socket);
+
+    const deliveries: BridgeDelivery[] = [];
+    const settings = testServices({ orchDir: directory, settings: { daemon: { bridge_reconnect_ms: 10 } } }).settings;
+    const client = createDaemonClient(directory, settings);
+    client.attach("agent-key", (delivery) => deliveries.push(delivery));
+    await waitFor(() => client.attached());
+    expect(connections).toHaveLength(1);
+    expect(deliveries).toHaveLength(0);
+    const attaches = connections[0]!.lines.filter((line) => line.method === "attach");
+    expect(attaches).toHaveLength(3);
+    client.detach();
   });
 
   test("dead endpoints resolve undefined without invoking handlers", async () => {

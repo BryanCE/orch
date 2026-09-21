@@ -118,7 +118,7 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
     reconnectTimer = undefined;
   }
 
-  function scheduleReconnect(onDelivery: (delivery: BridgeDelivery) => void): void {
+  function scheduleRetry(retry: () => void): void {
     if (!attachWanted || reconnectTimer !== undefined) return;
     try {
       reconnectMs = settings.currentOrNull()?.daemon.bridge_reconnect_ms ?? SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
@@ -127,9 +127,29 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
     }
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined;
-      void dial(onDelivery);
+      retry();
     }, reconnectMs);
     reconnectTimer.unref?.();
+  }
+
+  function scheduleReconnect(onDelivery: (delivery: BridgeDelivery) => void): void {
+    scheduleRetry(() => void dial(onDelivery));
+  }
+
+  // orchd refuses an attach for a key it has not registered yet: the harness can
+  // start before spawn's register-agent lands. The link is fine, so re-send the
+  // attach on it until orchd knows the key.
+  function sendAttach(connected: JsonLineLink): void {
+    if (link !== connected || attachedKey === undefined) return;
+    linkAttached = false;
+    void sendLinkRequest("attach", { key: attachedKey })?.then((result) => {
+      if (link !== connected) return;
+      if (result === undefined) {
+        scheduleRetry(() => sendAttach(connected));
+        return;
+      }
+      linkAttached = true;
+    });
   }
 
   async function dial(onDelivery: (delivery: BridgeDelivery) => void): Promise<void> {
@@ -145,6 +165,8 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
           linkAttached = false;
           for (const resolve of pending.values()) resolve(undefined);
           pending.clear();
+          // A pending attach retry belongs to the dead link; the reconnect replaces it.
+          clearReconnectTimer();
           scheduleReconnect(onDelivery);
         },
       });
@@ -155,12 +177,7 @@ export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager):
       return;
     }
     link = connected;
-    linkAttached = false;
-    const attachReply = sendLinkRequest("attach", { key: attachedKey });
-    void attachReply?.then((result) => {
-      if (link !== connected || result === undefined) return;
-      linkAttached = true;
-    });
+    sendAttach(connected);
   }
 
   function attach(key: string, onDelivery: (delivery: BridgeDelivery) => void): void {

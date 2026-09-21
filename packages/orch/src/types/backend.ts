@@ -225,7 +225,7 @@ export interface ProcessRole<Handle = BackendHandle> {
 
 
 /** The closed backend-id set, importable without pulling any provider code. */
-export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;
+export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless"] as const;
 
 /** Plexer backends supported by orch. */
 export type BackendId = (typeof BACKEND_IDS)[number];

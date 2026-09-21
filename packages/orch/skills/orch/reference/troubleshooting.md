@@ -33,8 +33,12 @@ not carry it.
 ## Stalled spawn
 
 `STALLED <handle>  <name> - bridge never attached; try: orch restart <name>` means the attach
-wait expired. Spawn exits 1 and the other agents are fine. Check harness startup, then
-`orch restart <name>`.
+wait (`timeouts.spawn_attach_ms`) expired. Spawn exits 1 and the other agents are fine. The
+launch dispatch is still queued (`queued <name> <id>`) and lands on attach; only the model
+pin is skipped. A bridge that dialed before orchd registered its agent is refused and
+re-sends the attach every `daemon.bridge_reconnect_ms` on its own, so a STALLED agent that
+`orch status` later shows idle is a slow harness, not a lost bridge. Check harness startup,
+then `orch restart <name>`.
 
 ## Ambiguous targets
 

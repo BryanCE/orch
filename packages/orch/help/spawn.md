@@ -28,7 +28,10 @@ dispatch sent before attach is queued, not dropped: orchd re-pushes it on attach
     ok      <handle>  <name>
     STALLED <handle>  <name> - bridge never attached; try: orch restart <name>
 
-A stall exits 1; the other agents are fine. An adapter with no bridge prints
+A stall exits 1; the other agents are fine. A stalled agent still gets its `--file` or
+`--prompt` dispatch: spawn prints `queued <name> <id>` and orchd delivers it on attach. Only
+the model pin is skipped (`not pinned: <name> bridge not attached`); `orch model <name>
+<model>` pins it after. An adapter with no bridge prints
 `warning: <adapter> writes no presence record at session start - <count> agent(s)
 UNVERIFIED; check 'orch status' before dispatching`.
 

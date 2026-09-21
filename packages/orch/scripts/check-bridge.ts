@@ -241,7 +241,7 @@ export const BACKEND_KIND_MAP_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>
 export const PLEXER_ID_SET_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
     "src/types/backend.ts",
-    new Set(['export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;']),
+    new Set(['export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless"] as const;']),
   ],
 ]);
 
@@ -253,9 +253,9 @@ export const PLEXER_ID_SET_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> =
  * the closed set, which every other module imports instead of spelling an id.
  */
 export function checkPlexerLiteralLine(line: string, relPath: string, where: string): string | undefined {
-  if (!/["'](herdr|tmux)["']/.test(line)) return undefined;
+  if (!/["'](herdr|tmux|orca)["']/.test(line)) return undefined;
   if (PLEXER_ID_SET_ALLOWLIST.get(relPath)?.has(line.trim())) return undefined;
-  return `quoted herdr/tmux literals are forbidden ${where}`;
+  return `quoted plexer id literals are forbidden ${where}`;
 }
 
 const launchEnvName = LAUNCH_ENV.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

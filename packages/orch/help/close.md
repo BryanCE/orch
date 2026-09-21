@@ -1,5 +1,6 @@
 Close the pane. The process ends; the agent's row and its history stay, so `orch result`
-and `orch tail` still answer. Only `orch reap` deletes.
+and `orch tail` still answer. Only `orch reap` deletes. Closing an agent that already
+exited, or one the reaper already deleted, is a no-op success.
 
 Close is never gated by a lease. The human can always kill. `--all` from an unregistered
 shell sweeps every agent orch spawned, whoever holds it, and never a pane orch did not

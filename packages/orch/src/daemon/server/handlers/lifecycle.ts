@@ -84,14 +84,14 @@ export async function setModel(state: DaemonState, params: ParamsOf<"set-model">
  *  process's stdin, and only orchd outlives the agent it starts. */
 /** Close is the SECOND ending verb. The process is gone; an `agent_endings` row
  *  is written, row and history stay, and only `reap` deletes. An agent that had
- *  already ended is left as it is and nothing is published twice. */
+ *  already ended, or whose row the reaper already deleted, is left as it is and
+ *  nothing is published twice: closing what is gone is a no-op, never an error. */
 export function closeAgent(state: DaemonState, params: ParamsOf<"agent-closed">): { ok: true } {
   const directory = state.directory;
   const settings = state.services.settings;
   const key = params.key;
   const view = agentView(directory, key);
-  if (!view) throw new Error(`agent ${key} does not exist`);
-  if (view.endedAt !== null) return { ok: true };
+  if (view?.endedAt !== null) return { ok: true };
   // The status row is the boundary: a state it does not carry, or one orch
   // does not know, means the agent had already left.
   const reported = presenceEntry(directory, key)?.status?.state;

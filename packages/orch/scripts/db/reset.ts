@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { assertStoreRecreatable, livePresenceHolders } from "../../src/store/connection.ts";
+import { assertStoreRecreatable, databasePath, livePresenceHolders, storeFiles } from "../../src/store/connection.ts";
 import { errorMessage } from "../../src/util.ts";
 import { buildStore, reportStore } from "./build.ts";
 import { targetStoreDir } from "./store.ts";
@@ -13,20 +13,16 @@ import { targetStoreDir } from "./store.ts";
 const isDryRun = process.argv.includes("--dry-run");
 
 const ORCH_DIR = targetStoreDir();
-/** WAL and shared-memory siblings go with the database; leaving one behind
- *  hands the next open a journal describing a file that no longer exists. */
-const STORE_FILES = ["orch.db", "orch.db-wal", "orch.db-shm"];
+const STORE = databasePath(ORCH_DIR);
+const STORE_FILES = storeFiles(ORCH_DIR);
 const BACKUPS = join(ORCH_DIR, "backups");
 
 function describe(file: string): string {
-  const path = join(ORCH_DIR, file);
-  if (!existsSync(path)) return `${path} (absent)`;
-  return `${path} (${statSync(path).size} bytes)`;
+  if (!existsSync(file)) return `${file} (absent)`;
+  return `${file} (${statSync(file).size} bytes)`;
 }
 
-/** Copy the store beside itself under a stamped name. The WAL and shared-memory
- *  siblings are copied too: a database separated from its journal is a database
- *  missing every write that had not yet been checkpointed. */
+/** Copy the store beside itself under a stamped name, siblings included. */
 function backupPath(): string {
   return join(BACKUPS, `orch-${new Date().toISOString().replace(/[:.]/g, "-")}.db`);
 }
@@ -40,10 +36,9 @@ function backupStore(destination: string): StoreCopy[] {
   mkdirSync(BACKUPS, { recursive: true });
   const copied: StoreCopy[] = [];
   for (const file of STORE_FILES) {
-    const source = join(ORCH_DIR, file);
-    if (!existsSync(source)) continue;
-    const backup = destination + file.slice("orch.db".length);
-    copyFileSync(source, backup);
+    if (!existsSync(file)) continue;
+    const backup = destination + file.slice(STORE.length);
+    copyFileSync(file, backup);
     copied.push({ file, backup });
   }
   return copied;
@@ -52,7 +47,7 @@ function backupStore(destination: string): StoreCopy[] {
 /** Put the copies back under their original names. A reset that cannot rebuild
  *  must leave the store it started with, never the hole in between. */
 function restoreStore(copies: readonly StoreCopy[]): void {
-  for (const copy of copies) copyFileSync(copy.backup, join(ORCH_DIR, copy.file));
+  for (const copy of copies) copyFileSync(copy.backup, copy.file);
 }
 
 
@@ -71,14 +66,14 @@ if (!isDryRun) {
   }
 }
 
-const present = STORE_FILES.filter((file) => existsSync(join(ORCH_DIR, file)));
+const present = STORE_FILES.filter((file) => existsSync(file));
 
 if (isDryRun) {
   if (present.length) {
     process.stdout.write(`[dry-run] would back up to ${backupPath()}\n`);
     for (const file of STORE_FILES) process.stdout.write(`[dry-run] would remove ${describe(file)}\n`);
   } else {
-    process.stdout.write(`[dry-run] nothing to remove: ${join(ORCH_DIR, "orch.db")} does not exist\n`);
+    process.stdout.write(`[dry-run] nothing to remove: ${STORE} does not exist\n`);
   }
   if (holders.workers.length) process.stdout.write(`[dry-run] WOULD REFUSE: ${holders.workers.length} live worker(s): ${holders.workers.join(", ")}\n`);
   if (holders.sessions.length) {
@@ -94,8 +89,8 @@ if (isDryRun) {
 const copies = backupStore(backupPath());
 for (const copy of copies) process.stdout.write(`backed up ${copy.backup}\n`);
 for (const file of present) {
-  rmSync(join(ORCH_DIR, file), { force: true });
-  process.stdout.write(`removed ${join(ORCH_DIR, file)}\n`);
+  rmSync(file, { force: true });
+  process.stdout.write(`removed ${file}\n`);
 }
 
 // A reset leaves a store, not a hole: the next orch command must find one it can
@@ -105,6 +100,6 @@ try {
 } catch (error) {
   restoreStore(copies);
   process.stderr.write(`db:reset could not rebuild the store: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.stderr.write(`put the backup back, so ${join(ORCH_DIR, "orch.db")} is the store this run started with.\n`);
+  process.stderr.write(`put the backup back, so ${STORE} is the store this run started with.\n`);
   process.exit(1);
 }

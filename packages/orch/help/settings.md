@@ -17,6 +17,14 @@ instead. `events` always publishes it as a `message` line on `orch monitor` and 
 events` and leaves the input alone. Defaults: `prompt-unless-focused` to the spawner,
 `prompt` to everyone else. The daemon reads them per delivery, so a change applies at once.
 
+`workers.verify_commands` is the list of commands a worker runs over its own slice before
+it reports (lint, type check, scoped tests). Every worker header carries it. The
+orchestrator sets it from the project, and `locked_commands` beside it, because
+`agents.writable_settings` grants both by default. That grant is the only thing an agent
+or a harness session may write with `orch settings`; a key outside it is refused with the
+list of what it may set. Only you widen the grant: `orch settings agents.writable_settings
+'["workers.verify_commands", "fleet.max_depth"]'`. The grant never includes itself.
+
 Subcommands:
 
 - `models`: re-pick, per enabled harness, the launch model, the picker quicklist

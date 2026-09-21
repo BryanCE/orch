@@ -36,6 +36,23 @@ orch rename api-types api-auth && orch dispatch api-auth --file tasks/T4-auth.md
 
 Dispatch clears the context itself. There is no reset step between two tasks.
 
+## The project's commands are a setting, set once before the first wave
+
+Every worker header carries `workers.verify_commands` (what a worker runs over its own
+files before it reports) and `locked_commands` (what a worker never runs; it reports and
+you verify). A task file never names a lint, type check or test command. Set both from the
+project before the first wave, once per project:
+
+```bash
+orch settings workers.verify_commands '["bunx oxlint", "bunx tsc --noEmit", "bun test"]'
+orch settings locked_commands '["bun run build", "bun db:mig", "git push"]'
+```
+
+Read the project's scripts (`package.json`, `Makefile`) and its lint config (biome, oxlint,
+eslint) to pick them. When `orch settings` already shows them set, leave them. These two
+keys are what `agents.writable_settings` grants you; any other key is the user's. A refusal
+names the keys you may set.
+
 ## A task is written once. `--file` sends that file.
 
 - `--file <path>` sends a file's contents as the prompt. The file is one you ALREADY have: a
@@ -56,26 +73,28 @@ Every job runs as waves of 3 to 4 agents. Nobody idles, not you and not an agent
 1. Recon wave. Before you read the tree yourself, spawn 3 to 4 agents that only read and
    report. Each gets one topic, an exact answer shape, and one report file to write.
 2. Task list. You write it from the reports, in one sitting, before any implementing
-   dispatch. Every task names exact files, exact edits, the tests to run, and the report
+   dispatch. Every task names exact files, exact edits, the files to verify, and the report
    shape. A task is 1 to 3 minutes of mechanical work. Group tasks into waves by file
    ownership. The shape is in `reference/fleet.md`.
 3. Dispatch the whole wave in one message, `--file` on each task's own file as you wrote
    it, `--with` on the report it cites, and `orch monitor` armed.
 4. Write the next wave's specs while this one runs. When an agent lands, read its diff and
-   run the scoped checks. A finding is a task for the next wave, not an edit you make.
+   run the verify commands over its files. A finding is a task for the next wave, not an
+   edit you make.
 5. Refill the instant an agent lands. Rename, then dispatch. Close an agent only when the
    task list has nothing left for it.
-6. Checkpoint between waves. Run the scoped checks over everything landed, report to the
+6. Checkpoint between waves. Run the verify commands over everything landed, report to the
    user in a few lines, and do what the user asked for at checkpoints.
 
 ## Who does what
 
-You plan, write the task list, dispatch, read diffs, run scoped checks, and decide. You never
-run the full test suite and never do a task an agent could do.
+You plan, write the task list, dispatch, read diffs, run the verify commands over landed
+work, and decide. You never run a locked command and never do a task an agent could do.
 
-An agent does exactly what its task says, runs only the named tests once, and reports in the
-shape the task asked for. It never plans, investigates past its topic, or decides. A task
-that makes it do any of those was under-specced. Fix the task, not the agent.
+An agent does exactly what its task says, runs the verify commands over its own files once,
+and reports in the shape the task asked for. It never plans, investigates past its topic, or
+decides. A task that makes it do any of those was under-specced. Fix the task, not the
+agent.
 
 ## Rules
 
@@ -86,8 +105,9 @@ that makes it do any of those was under-specced. Fix the task, not the agent.
 - Answer `asking` within seconds: `orch questions`, then `orch answer`. A blocked agent is
   the most expensive idle.
 - Redispatch once on error, then escalate the model one rung.
-- `pending` is not `blocked`. An agent whose own files are clean but whose check names
-  another task's files reports `pending: <files>` and is done. Say this in the task header.
+- `pending` is not `blocked`. An agent whose own files are clean but whose verify run fails
+  in another task's files reports `pending: <files>` and is done. Say this in the task
+  header.
 - A question from an agent gets a one-line scope grant, not a discussion.
 - Another session's agents are never yours. Spawn what fits, hold the rest.
 

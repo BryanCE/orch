@@ -1,11 +1,11 @@
 import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
-import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { is } from "drizzle-orm";
 import { SQLiteTable, getTableConfig } from "drizzle-orm/sqlite-core";
 import * as tables from "../db/schema.ts";
 import { errorMessage } from "../util.ts";
+import { databasePath, storeRebuildRemedy } from "../store/connection.ts";
 import type { CheckResult } from "../types/doctor.ts";
 
 /** drizzle records what it has applied here; a store built before orch adopted
@@ -60,7 +60,7 @@ function tableName(row: unknown): string | null {
 export function checkStore(orchDir: OrchDir): CheckResult {
   const id = "store";
   const label = "Store";
-  const file = path.join(orchDir, "orch.db");
+  const file = databasePath(orchDir);
   if (!filesystem.existsSync(file)) {
     return { id, label, status: "warn", detail: "orch.db is absent" };
   }
@@ -72,7 +72,7 @@ export function checkStore(orchDir: OrchDir): CheckResult {
       database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(tableName).filter((name): name is string => name !== null),
     );
     if (!present.has(MIGRATIONS_TABLE)) {
-      return { id, label, status: "fail", detail: `orch.db predates orch's migrations; rebuild it with 'bun db:reset', which keeps a copy first` };
+      return { id, label, status: "fail", detail: `orch.db predates orch's migrations. ${storeRebuildRemedy(orchDir)}` };
     }
     const missing = expectedTables().filter((table) => !present.has(table));
     if (missing.length) {

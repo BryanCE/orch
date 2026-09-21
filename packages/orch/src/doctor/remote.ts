@@ -1,6 +1,4 @@
-import * as path from "node:path";
-import { readJson } from "./shared.ts";
-import { isRecord, packageRoot, shellQuote } from "../util.ts";
+import { packageManifest, shellQuote } from "../util.ts";
 import type { CheckResult, SshRunner } from "../types/doctor.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
 
@@ -39,8 +37,7 @@ export async function checkRemoteVersion(settings: OrchSettings | null, runner: 
   await Promise.resolve();
   const hosts = configuredHosts(settings);
   const failures: string[] = [];
-  const packageJson = readJson(path.join(packageRoot(), "package.json"));
-  const local = isRecord(packageJson) && typeof packageJson.version === "string" ? packageJson.version : "unknown";
+  const local = packageManifest().version;
   for (const [name, host] of hosts) {
     const destination = hostDestination(name, host);
     const result = runner(destination, "orch --version", { timeoutMs: host.timeout_ms });

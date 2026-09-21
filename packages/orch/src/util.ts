@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { delimiter, dirname, join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostOs } from "./host.ts";
+import { isRecord } from "./json.ts";
 
 /** The installed package directory. Resolved through the real path first: the
  *  harness extension bundles are symlinked into `~/.pi/agent/extensions` and the
@@ -16,6 +17,26 @@ export function packageRoot(): string {
     dir = parent;
   }
   throw new Error(`packageRoot: no package.json found above ${fileURLToPath(import.meta.url)}`);
+}
+
+export interface PackageManifest {
+  readonly name: string;
+  readonly version: string;
+}
+
+/** The installed package's published name and version, read from its manifest. */
+export function packageManifest(): PackageManifest {
+  const file = join(packageRoot(), "package.json");
+  const parsed = readJsonFile(file);
+  if (!isRecord(parsed) || typeof parsed.name !== "string" || typeof parsed.version !== "string") {
+    throw new Error(`${file} names no package: the install is broken`);
+  }
+  return { name: parsed.name, version: parsed.version };
+}
+
+/** The command that puts a missing shipped file back: a fresh install of this package. */
+export function reinstallCommand(): string {
+  return `npm install -g ${packageManifest().name}`;
 }
 
 /**

@@ -37,6 +37,7 @@ export interface OrchSettings {
   mail: { to_spawner: MailDelivery; to_worker: MailDelivery };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[] };
+  agents: { writable_settings: string[] };
   queue: { max_retries: number; dispatch_concurrency: number };
   retention: { ended_agents_days: number | null; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };
   lock: { retries: number; interval_ms: number; stale_ms: number };

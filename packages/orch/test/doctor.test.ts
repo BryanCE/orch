@@ -97,7 +97,9 @@ describe("runDoctor", () => {
 
     const result = checkStore(directory);
     expect(result.status).toBe("fail");
-    expect(result.detail).toContain("db:reset");
+    expect(result.detail).toContain("predates orch's migrations");
+    expect(result.detail).toContain("orch daemon stop");
+    expect(result.detail).toContain(path.join(directory, "orch.db-wal"));
   });
 
   test("fails and names a missing store table", () => {
@@ -196,7 +198,7 @@ describe("runDoctor", () => {
     const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
     expect(result).toMatchObject({
       status: "warn",
-      detail: "extension bundle not built; run: bun run build:ext",
+      detail: "extension bundles are missing from the install; fix: npm install -g @bryance/orch",
     });
   });
 
@@ -207,7 +209,7 @@ describe("runDoctor", () => {
     const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
     expect(result).toMatchObject({
       status: "warn",
-      detail: "extension bundle not built; run: bun run build:ext",
+      detail: "extension bundles are missing from the install; fix: npm install -g @bryance/orch",
     });
   });
 
@@ -221,7 +223,7 @@ describe("runDoctor", () => {
     const result = await checkExtensionStaleness(directory, path.join(directory, "missing-bundle.js"));
     expect(result).toMatchObject({
       status: "warn",
-      detail: "extension bundle not built; run: bun run build:ext",
+      detail: "extension bundles are missing from the install; fix: npm install -g @bryance/orch",
     });
   });
 

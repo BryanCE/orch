@@ -1,10 +1,5 @@
-import * as filesystem from "node:fs";
 import { execFile } from "node:child_process";
 import { isRecord, errorMessage } from "../util.ts";
-
-export function readJson(file: string): unknown {
-  return JSON.parse(filesystem.readFileSync(file, "utf8"));
-}
 
 export function commandOutput(command: string, args: string[]): Promise<{ ok: boolean; output: string }> {
   return new Promise((resolve) => {

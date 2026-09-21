@@ -65,6 +65,7 @@ const settings = (preferred: string[]): OrchSettings => ({
   spaces: {},
   tiling: { first_split: "rows" },
   skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
+  agents: { writable_settings: [] },
 });
 
 /** A pane backend that records the launch options it was handed. */

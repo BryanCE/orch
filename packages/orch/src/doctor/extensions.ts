@@ -2,7 +2,7 @@ import type { OrchDir } from "../types/core.ts";
 import { computeCodeHash } from "../daemon/client/process.ts";
 import { EXTENSION_NAMES, extensionBundlePath } from "../bridge-bundles/metadata.ts";
 import { loadPresence, presenceRootFault } from "../presence/store.ts";
-import { packageRoot } from "../util.ts";
+import { packageRoot, reinstallCommand } from "../util.ts";
 import type { CheckResult } from "../types/doctor.ts";
 
 /**
@@ -29,7 +29,7 @@ export async function checkExtensionStaleness(orchDir: OrchDir, bundlePath?: str
   if (!entries.size) return { id, label, status: "ok", detail: "no live agents with extension hashes" };
 
   const diskHashes = shippedBundleHashes(bundlePath);
-  if (!diskHashes.size) return { id, label, status: "warn", detail: "extension bundle not built; run: bun run build:ext" };
+  if (!diskHashes.size) return { id, label, status: "warn", detail: `extension bundles are missing from the install; fix: ${reinstallCommand()}` };
   const stale: string[] = [];
   let liveWithHash = 0;
   for (const entry of entries.values()) {

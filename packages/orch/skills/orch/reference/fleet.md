@@ -98,10 +98,8 @@ one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
 - **Recon before rewire.** Before a cross-cutting change, spend one pane on a read-only
   inventory (every consumer, every call site, every fixture, file:line) written to a report
   file. Dispatches then cite the report instead of restating it.
-- **Verify at stopping points with scoped runs.** Turn idle panes into verifiers that run only
-  their slice's test files. Full-suite gates stay with the user.
-- **Self-hosting boundary.** Changes to orch's own code bite only after rebuild, daemon
-  reload, and respawn. Bridges reconnect to a restarted daemon on their own.
+- **Verify at stopping points with scoped runs.** Turn idle panes into verifiers that run
+  the verify commands over their slice's files only. Locked commands stay with the user.
 
 ## The task list
 
@@ -129,8 +127,8 @@ The index:
 - tasks/T2.md   owner: src/b.ts     <one-line title>
 
 ## CHECKPOINT 1
-scoped checks: bun check packages/orch/src/a.ts packages/orch/src/b.ts ; bun test packages/orch/test/a.test.ts
-user: run their commit skill, report progress.
+verify: src/a.ts src/b.ts test/a.test.ts
+user: report progress, do what the user asked for at checkpoints.
 ```
 
 One task file, `tasks/T1.md`:
@@ -139,8 +137,8 @@ One task file, `tasks/T1.md`:
 Edit src/a.ts:
 - L42 `export function foo(x: string): Foo` → rename to `bar`, same signature.
 - Remove the import of `oldThing` at L3.
-Run: bun check packages/orch/src/a.ts ; bun test packages/orch/test/a.test.ts
-Report: one line. "done: <files>, check clean, tests <n> pass" or "blocked: <exact error>".
+Verify: src/a.ts test/a.test.ts
+Report: one line. "done: <files>, verify clean" or "blocked: <exact error>".
 ```
 
 What makes a task dispatchable:
@@ -150,8 +148,9 @@ What makes a task dispatchable:
 - **Small.** One to three edits, 1 to 3 minutes. A task that lists five edits is two tasks.
 - **Owned.** No two tasks in one wave touch the same file. Ownership is the wave's
   concurrency guarantee, so it is decided here and never by the orch.
-- **Self-checking.** The task names the exact `bun check` and `bun test` commands for its
-  slice. The orch runs them once, after its edits, and puts the result in its report.
+- **Self-checking.** The worker header carries the project's verify commands
+  (`workers.verify_commands`); the task names only the files to run them over. The orch
+  runs them once, after its edits, and puts the result in its report.
 - **Answerable in one line.** The report shape is written into the task. A one-line answer
   is what lets the orchestrator refill instantly instead of reading a page.
 

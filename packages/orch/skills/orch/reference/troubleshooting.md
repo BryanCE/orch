@@ -3,13 +3,13 @@
 ## Daemon
 
 Daemon first, spawn last. Bridges reconnect to a restarted daemon on their own. After any
-daemon stop, start or rebuild: respawn the fleet, then smoke-test one trivial dispatch
-before fanning out. Trust `orch daemon status`, the RPC answer, not the existence of a pid
-file. A hung daemon means stop, kill the pid, start.
+daemon stop or start: respawn the fleet, then smoke-test one trivial dispatch before
+fanning out. Trust `orch daemon status`, the RPC answer, not the existence of a pid file. A
+hung daemon means stop, kill the pid, start.
 
 A refusal reading `daemon hash=... differs from installed hash=...` is CLI/daemon skew after
-a rebuild. `orch daemon reload` re-execs the daemon on the new code. Never `--stale-ok` past
-it.
+an update of orch. `orch daemon reload` re-execs the daemon on the new code. Never
+`--stale-ok` past it.
 
 ## Model refusals
 

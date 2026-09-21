@@ -6,7 +6,7 @@ import { errnoCode, isRecord, readJsonFile, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
 import { computeCodeHash } from "../daemon/client/process.ts";
-import { packageRoot } from "../util.ts";
+import { packageRoot, reinstallCommand } from "../util.ts";
 import { isAgentState } from "../agent-state.ts";
 import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
@@ -250,7 +250,7 @@ export function diagnoseExtensionLink(harness: string, extensionDir: string, ext
     id,
     label,
     status: "warn",
-    detail: `missing/stale shipped extension bundle: ${source}; fix: run the user's build: bun run build:orch:dev`,
+    detail: `shipped extension bundle is missing from the install: ${source}; fix: ${reinstallCommand()}`,
   };
   if (!stale) return { id, label, status: "ok", detail: `bundled ${extension} extension is current` };
   return { id, label, status: "fail", detail: `missing or stale: ${file}`, ...(fixable ? { fix: apply } : {}) };
@@ -292,9 +292,9 @@ export function installExtensionLink(
   process.stdout.write(`${harness} extensions:\n`);
   const bundle = extensionBundlePath(root, extension);
   let bundleAvailable = false;
-  try { bundleAvailable = fs.statSync(bundle).isFile(); } catch { /* diagnosis below names the user build fix */ }
+  try { bundleAvailable = fs.statSync(bundle).isFile(); } catch { /* the throw below names the fix */ }
   if (!bundleAvailable) {
-    throw new Error(`missing/stale shipped extension bundle: ${bundle}; fix: run the user's build: bun run build:orch:dev`);
+    throw new Error(`shipped extension bundle is missing from the install: ${bundle}; fix: ${reinstallCommand()}`);
   }
   const destination = path.join(extensionDir, `${extension}.js`);
   fs.mkdirSync(extensionDir, { recursive: true });

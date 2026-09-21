@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { errnoCode, errorMessage, isRecord, packageRoot, shellQuote } from "../util.ts";
+import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand, shellQuote } from "../util.ts";
 import { declaredRuntime } from "../settings/read.ts";
 
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
@@ -78,7 +78,7 @@ function installCodexNotifyShim(orchDir: OrchDir, settings: OrchSettings, logger
   process.stdout.write(`Codex notify: ${edit.status === "inserted" ? "added" : "updated"} (${runtime}) in ${configPath}\n`);
   if (!existsSync(shim)) {
     logger.warn("codex.shim-missing", { path: shim });
-    process.stdout.write(`  warning: ${shim} is not built yet - run: bun run build\n`);
+    process.stdout.write(`  warning: ${shim} is missing from the install; fix: ${reinstallCommand()}\n`);
   }
 }
 
@@ -166,7 +166,7 @@ export class CodexAdapter implements AgentAdapter {
   diagnoseShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult {
     const configPath = join(homedir(), ".codex", "config.toml");
     const shim = codexNotifyShimPath(packageRoot());
-    if (!existsSync(shim)) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `${shim} is missing; run: bun run build:notify` };
+    if (!existsSync(shim)) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `${shim} is missing from the install; fix: ${reinstallCommand()}` };
     let raw: string;
     try { raw = readFileSync(configPath, "utf8"); }
     catch (error: unknown) {

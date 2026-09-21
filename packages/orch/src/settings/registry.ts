@@ -5,6 +5,7 @@ import { isRecord, valueAtPath } from "../util.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
 import { isBackendId } from "../backends/backend.ts";
 import { term } from "../policy/vocabulary.ts";
+import { AGENT_SETTINGS_GRANT } from "../policy/agent-settings.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import type { NotifyEntry, OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
 import type { SettingsManager } from "../types/services.ts";
@@ -104,10 +105,27 @@ export function writeNotifyEntries(settings: SettingsManager, entries: readonly 
 }
 
 
+/** The grant names registry keys, so a typo fails here and never at an agent's write.
+ *  The grant itself and a read-only key are refused: neither is an agent's to change. */
+function writeAgentWritableSettings(settings: SettingsManager, value: unknown): void {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new Error(`${AGENT_SETTINGS_GRANT} must be a list of setting keys`);
+  }
+  const keys = value.filter((entry): entry is string => typeof entry === "string");
+  for (const key of keys) {
+    if (key === AGENT_SETTINGS_GRANT) throw new Error(`${AGENT_SETTINGS_GRANT} never grants itself`);
+    const spec = SETTINGS_REGISTRY.find((entry) => entry.key === key);
+    if (spec === undefined) throw new Error(`${AGENT_SETTINGS_GRANT}: unknown setting ${JSON.stringify(key)}`);
+    if (spec.write === undefined) throw new Error(`${AGENT_SETTINGS_GRANT}: ${key} is read-only and cannot be granted`);
+  }
+  writeSettingsValue(settings, AGENT_SETTINGS_GRANT, keys);
+}
+
 function writerFor(key: string): SettingWriter | undefined {
   if (key === "defaults.adapter") return writeDefaultAdapter;
   if (key === "defaults.backend") return writeDefaultBackend;
   if (key === "notify") return writeNotifySinks;
+  if (key === AGENT_SETTINGS_GRANT) return writeAgentWritableSettings;
   return undefined;
 }
 
@@ -162,6 +180,7 @@ const HELP: Readonly<Record<string, string>> = {
   "workers.builtin_tools": "Whether workers receive built-in tools.",
   "workers.allow_tools": "Tools workers may use.",
   "workers.verify_commands": "Commands a worker runs to verify its own slice before it reports.",
+  "agents.writable_settings": "Settings an agent or a harness session may write with orch settings. The human may write any. This key never grants itself.",
   "queue.max_retries": "Maximum retries for queued tasks.",
   "queue.dispatch_concurrency": "How many queued tasks the daemon dispatches at the same time.",
   "logging.level": "Minimum level written to logs.",

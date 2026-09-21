@@ -9,6 +9,7 @@ import { SETTINGS_FILE_SCHEMA, settingsPath } from "../src/settings/schema.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFullTree } from "../src/settings/write.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
+import { AGENT_SETTINGS_GRANT } from "../src/policy/agent-settings.ts";
 import { parseSettingValue } from "../src/settings/parse.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
@@ -191,5 +192,30 @@ describe("settings registry", () => {
   test("contains no duplicate keys", () => {
     const keys = SETTINGS_REGISTRY.map((setting) => setting.key);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  test("agents.writable_settings writes a list of registered keys", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, completeSettings());
+    writeRegisteredSetting(fileSettingsManager(directory), AGENT_SETTINGS_GRANT, ["workers.verify_commands", "fleet.max_depth"]);
+    expect(fileSettingsManager(directory).current().agents.writable_settings).toEqual(["workers.verify_commands", "fleet.max_depth"]);
+  });
+
+  test("agents.writable_settings refuses an unknown key", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, completeSettings());
+    expect(() => writeRegisteredSetting(fileSettingsManager(directory), AGENT_SETTINGS_GRANT, ["fleet.max_dept"])).toThrow(/unknown setting "fleet.max_dept"/);
+  });
+
+  test("agents.writable_settings refuses a read-only key", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, completeSettings());
+    expect(() => writeRegisteredSetting(fileSettingsManager(directory), AGENT_SETTINGS_GRANT, ["runtime"])).toThrow(/runtime is read-only/);
+  });
+
+  test("agents.writable_settings never grants itself", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, completeSettings());
+    expect(() => writeRegisteredSetting(fileSettingsManager(directory), AGENT_SETTINGS_GRANT, [AGENT_SETTINGS_GRANT])).toThrow(/never grants itself/);
   });
 });

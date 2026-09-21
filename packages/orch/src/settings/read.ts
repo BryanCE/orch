@@ -150,6 +150,9 @@ const settingsValueExtractors = {
     allow_tools: root.workers?.allow_tools ?? [],
     verify_commands: root.workers?.verify_commands ?? [],
   }),
+  agents: (root: Partial<SettingsFile>) => ({
+    writable_settings: root.agents?.writable_settings ?? [...SETTINGS_DEFAULTS.agents.writable_settings],
+  }),
   queue: (root: Partial<SettingsFile>) => ({
     max_retries: root.queue?.max_retries ?? SETTINGS_DEFAULTS.queue.max_retries,
     dispatch_concurrency: root.queue?.dispatch_concurrency ?? SETTINGS_DEFAULTS.queue.dispatch_concurrency,
@@ -221,6 +224,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
     mail: settingsValueExtractors.mail(root),
     models: settingsValueExtractors.models(root),
     workers: settingsValueExtractors.workers(root),
+    agents: settingsValueExtractors.agents(root),
     queue: settingsValueExtractors.queue(root),
     retention: settingsValueExtractors.retention(root),
     lock: settingsValueExtractors.lock(root),

@@ -1,6 +1,4 @@
-import * as files from "node:fs";
-import * as path from "node:path";
-import { errorMessage, isRecord, packageRoot } from "../util.ts";
+import { errorMessage, packageManifest } from "../util.ts";
 import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/client/process.ts";
 import { cmdStatusVerb } from "./status/verb.ts";
 import { cmdSpawn, cmdTile } from "./spawn/index.ts";
@@ -47,16 +45,7 @@ export function helpTopic(word: string): string | null {
   return renderTopic(spec, readHelpDoc(spec.name), GLOBAL_FLAGS);
 }
 
-export function readOrchVersion(): string {
-  try {
-    const parsed: unknown = JSON.parse(files.readFileSync(path.join(packageRoot(), "package.json"), "utf8"));
-    return isRecord(parsed) && typeof parsed.version === "string" ? parsed.version : "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
-
-const VERSION = readOrchVersion();
+const VERSION = packageManifest().version;
 
 const STALE_GUARD_COMMANDS = new Set([
   "spawn", "dispatch", "steer", "answer", "close", "kill", "reset", "new", "reload", "restart",
@@ -74,7 +63,7 @@ function preflightSkew(directory: OrchDir, argv: string[]): string[] {
   if (!mutates || staleOk) return sanitized;
   const skew = readDaemonCodeSkew(directory, daemonEntrypoint());
   if (skew) {
-    die(`Refusing orch ${cmd}: daemon hash=${skew.daemonHash} differs from installed hash=${skew.diskHash}; fix: orch daemon reload  # or: bun run build:orch:dev; override: --stale-ok`);
+    die(`Refusing orch ${cmd}: daemon hash=${skew.daemonHash} differs from installed hash=${skew.diskHash}; fix: orch daemon reload; override: --stale-ok`);
   }
   return sanitized;
 }

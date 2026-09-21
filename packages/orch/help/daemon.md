@@ -4,9 +4,9 @@ owns its lifecycle: with no live agents, no event subscribers, and no RPC traffi
 
 Trust `orch daemon status`, the RPC answer, not the existence of a pid file. A hung daemon
 means stop, kill the pid, start. Bridges reconnect to a restarted daemon on their own.
-After any daemon stop, start, or rebuild: respawn the fleet, then smoke-test one trivial
-dispatch before you fan out.
+After any daemon stop or start: respawn the fleet, then smoke-test one trivial dispatch
+before you fan out.
 
 A refusal reading `daemon hash=... differs from installed hash=...` is CLI/daemon skew
-after a rebuild. `orch daemon reload` re-execs the daemon on the new code. Never
+after an update of orch. `orch daemon reload` re-execs the daemon on the new code. Never
 `--stale-ok` past it.

@@ -10,7 +10,7 @@ import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import * as tables from "../db/schema.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { recordedInstanceIsLive } from "../process-identity.ts";
-import { ensurePrivateDir, errorMessage, isRecord, packageRoot } from "../util.ts";
+import { ensurePrivateDir, errorMessage, isRecord, packageRoot, reinstallCommand } from "../util.ts";
 
 /** One open file: the drizzle handle every caller queries through, beside the
  *  driver it was built on. The driver is reached for exactly two things drizzle
@@ -99,8 +99,21 @@ function describeHolders(kind: string, ids: readonly string[]): string {
   return `${ids.length} ${kind}${ids.length === 1 ? " is" : "s are"} live: ${ids.join(", ")}`;
 }
 
-function databasePath(orchDir: OrchDir): string {
+export function databasePath(orchDir: OrchDir): string {
   return join(orchDir, "orch.db");
+}
+
+/** The store and its WAL and shared-memory siblings. They move together: a
+ *  database separated from its journal is missing every write not yet checkpointed. */
+export function storeFiles(orchDir: OrchDir): string[] {
+  const file = databasePath(orchDir);
+  return [file, `${file}-wal`, `${file}-shm`];
+}
+
+/** How an operator rebuilds the store by hand. orch recreates it on the next
+ *  open, so the whole procedure is: stop the daemon, move the files aside, start it. */
+export function storeRebuildRemedy(orchDir: OrchDir): string {
+  return `Rebuild it: run 'orch daemon stop', move ${storeFiles(orchDir).join(", ")} aside, then run 'orch daemon start'. orch recreates the store at the current migration.`;
 }
 
 /** The generated migrations, shipped beside the package. Resolved from the
@@ -208,9 +221,9 @@ function openRemedy(orchDir: OrchDir, reason: string): string {
     return "A spawned agent never rebuilds the store: report this skew to the user or the pack's orch, and change nothing.";
   }
   if (migrationFolderPredatesKit(reason)) {
-    return "Regenerate the migration folder with 'bun db:gen'; rebuilding the store will not help.";
+    return `This orch shipped a migration folder older than its own drizzle; rebuilding the store will not help. Update orch: ${reinstallCommand()}`;
   }
-  return `Rebuild it with 'bun db:reset', which first keeps a copy under ${join(orchDir, "backups")}.`;
+  return storeRebuildRemedy(orchDir);
 }
 
 function applyMigrations(opened: OpenDatabase, path: string, orchDir: OrchDir): void {

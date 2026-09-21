@@ -73,7 +73,7 @@ describe("store migration guards", () => {
     const before = readFileSync(path);
 
     expect(() => orm(dir)).toThrow(/does not match orch's migrations/i);
-    expect(() => orm(dir)).toThrow(/db:reset/i);
+    expect(() => orm(dir)).toThrow(/orch daemon stop/);
     expect(readFileSync(path)).toEqual(before);
     expect(existsSync(join(dir, "orch.db-wal"))).toBe(false);
   });
@@ -128,7 +128,7 @@ describe("a slave never reaps or recreates the store", () => {
     // The fix, addressed to whoever may actually apply it - never a rebuild
     // instruction handed to the agent that must not run one.
     expect(message).toMatch(/spawned agent/i);
-    expect(message).not.toContain("db:reset");
+    expect(message).not.toContain("orch daemon stop");
     expect(readFileSync(path)).toEqual(before);
     expect(existsSync(join(dir, "orch.db-wal"))).toBe(false);
   });

@@ -43,12 +43,12 @@
   },
   "type": "module",
   "bin": {
-    "orch": "./dist/bin/orch.js",
-    "pif": "./bin/pif",
-    "orch-ding": "./dist/bin/orch-ding.js"
+    "orch": "dist/bin/orch.js",
+    "pif": "bin/pif",
+    "orch-ding": "dist/bin/orch-ding.js"
   },
   "files": [
-    "bin/",
+    "bin/pif",
     "drizzle/",
     "scripts/wsl-toast.ps1",
     "dist/",
@@ -57,8 +57,7 @@
     "README.md"
   ],
   "engines": {
-    "node": "^22.13.0 || >=23.4.0",
-    "bun": ">=1.0.0"
+    "node": "^22.13.0 || >=23.4.0"
   },
   "devDependencies": {
     "@clack/core": "^1.4.3",

@@ -19,13 +19,13 @@ describe("adapter bundle installation", () => {
   test("reports a missing shipped bundle as a structured diagnosis", () => {
     const diagnosis = diagnoseExtensionLink("pi", join(tempRoot, "pi", "extensions"), "pi-bridge");
     expect(diagnosis.status).toBe("warn");
-    expect(diagnosis.detail).toContain("run the user's build: bun run build:orch:dev");
+    expect(diagnosis.detail).toContain("fix: npm install -g @bryance/orch");
   });
 
   test("diagnoses a missing shipped bundle without writing", () => {
     const extensionDir = join(tempRoot, "pi", "extensions");
     expect(() => installExtensionLink("pi", extensionDir, "pi-bridge")).toThrow(
-      "fix: run the user's build: bun run build:orch:dev",
+      "fix: npm install -g @bryance/orch",
     );
     expect(readdirSync(tempRoot, { recursive: true })).toEqual([]);
     expect(() => readdirSync(extensionDir)).toThrow();

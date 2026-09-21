@@ -2,7 +2,8 @@ import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/services.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { describe, expect, test } from "bun:test";
-import { needsFirstRunSetup, readOrchVersion, runCommand } from "../src/commands/index.ts";
+import { needsFirstRunSetup, runCommand } from "../src/commands/index.ts";
+import { packageManifest } from "../src/util.ts";
 import { HELP_HEADER } from "../src/cli/help.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { announceUnleasedAgents } from "../src/daemon/client/registration.ts";
@@ -13,7 +14,11 @@ describe("commands/index", () => {
     expect(needsFirstRunSetup(null, "help")).toBe(false);
     expect(needsFirstRunSetup(null, "status")).toBe(false);
   });
-  test("reads a package version string", () => expect(readOrchVersion()).toMatch(/^\d+\.\d+\.\d+/));
+  test("reads the package name and version", () => {
+    const manifest = packageManifest();
+    expect(manifest.name).toBe("@bryance/orch");
+    expect(manifest.version).toMatch(/^\d+\.\d+\.\d+/);
+  });
   test("prints the daemon's unleased list and stays silent on an empty one", () => {
     const output: string[] = [];
     const identity = {

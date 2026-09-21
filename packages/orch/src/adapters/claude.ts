@@ -5,7 +5,7 @@ import { declaredRuntime } from "../settings/read.ts";
 
 import type { OrchRuntime } from "../runtime.ts";
 import { presenceEntry } from "../presence/store.ts";
-import { errnoCode, errorMessage, isRecord, packageRoot } from "../util.ts";
+import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand } from "../util.ts";
 import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import { isAgentState } from "../agent-state.ts";
 import type { AgentState } from "./adapter.ts";
@@ -138,7 +138,7 @@ function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Lo
   process.stdout.write(`Claude Code hooks: ${summary}\n`);
   if (!fs.existsSync(shim)) {
     logger.warn("claude.shim-missing", { path: shim });
-    process.stdout.write(`  warning: ${shim} is not built yet - run: bun run build\n`);
+    process.stdout.write(`  warning: ${shim} is missing from the install; fix: ${reinstallCommand()}\n`);
   }
 }
 

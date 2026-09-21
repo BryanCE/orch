@@ -18,6 +18,8 @@ import { BACKEND_IDS } from "../types/backend.ts";
 import { isThinkingLevel } from "../policy/thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
+import { selfIdentity } from "../identity/self.ts";
+import { agentMayWriteSetting, agentSettingRefusal } from "../policy/agent-settings.ts";
 import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
@@ -82,10 +84,19 @@ export function shouldLaunchSettingsEditor(args: readonly string[], isTTY = proc
   return isTTY && args.length === 0;
 }
 
-function setSingleSetting(services: Pick<Services, "settings">, key: string, input: string): void {
+/** A REGISTERED caller (a spawned agent or a harness session) writes only what
+ *  `agents.writable_settings` grants. An UNREGISTERED caller is the human. */
+function refuseUngrantedAgentWrite(services: Pick<Services, "settings" | "orchDir">, key: string): void {
+  if (selfIdentity(services.orchDir) === null) return;
+  const settings = currentSettings(services);
+  if (!agentMayWriteSetting(settings, key)) die(agentSettingRefusal(settings, key));
+}
+
+function setSingleSetting(services: Pick<Services, "settings" | "orchDir">, key: string, input: string): void {
   const spec = SETTINGS_REGISTRY.find((setting) => setting.key === key);
   if (spec === undefined) die(`Unknown setting ${JSON.stringify(key)}. Nearest valid keys: ${nearestSettingKeys(key)}.`);
   if (spec.write === undefined) die(`${key} is read-only; edit it with orch setup.`);
+  refuseUngrantedAgentWrite(services, key);
   if (spec.env !== undefined && process.env[spec.env] !== undefined) {
     die(`${key} is overridden by ${spec.env}; remove the override before writing it.`);
   }

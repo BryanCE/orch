@@ -20,6 +20,7 @@ const settings = (workerPeerTools?: boolean, allowTools: string[] = []): OrchSet
   spaces: {},
   tiling: { first_split: "rows" },
   skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
+  agents: { writable_settings: [] },
 });
 
 describe("worker tool policy", () => {

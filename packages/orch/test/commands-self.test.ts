@@ -23,6 +23,7 @@ const workerSettings = (maxDepth: number): OrchSettings => ({
   models: { allowed: {}, preferred: {} },
   workers: { ...SETTINGS_DEFAULTS.workers, exclude_extensions: [], allow_tools: [], verify_commands: [] },
   skills: { ...SETTINGS_DEFAULTS.skills, link: [] },
+  agents: { writable_settings: [] },
   notify: [],
   hosts: {},
   spaces: {},

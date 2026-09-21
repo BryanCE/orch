@@ -5,6 +5,9 @@ import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import * as registry from "../src/settings/registry.ts";
 import { SETTINGS_REGISTRY } from "../src/settings/registry.ts";
 import { cmdSettings } from "../src/commands/settings.ts";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
+import { AGENT_SETTINGS_GRANT } from "../src/policy/agent-settings.ts";
 import { isRecord } from "../src/util.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { testServices } from "../test/helpers/services.ts";
@@ -22,13 +25,19 @@ afterEach(() => {
   while (directories.length) removeTempDir(directories.pop()!);
 });
 
-function runSettings(orchDir: OrchDir, extraEnv: Record<string, string>, ...args: string[]): string {
+/** The CLI's environment: the runner's, minus every var that would make the CLI
+ *  an agent or override a setting, plus what the test sets on purpose. */
+function cliEnv(orchDir: OrchDir, extraEnv: Record<string, string>): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env, ORCH_DIR: orchDir, ...extraEnv };
   // An empty ORCH_* var still counts as env-provided; only deletion restores lower precedence.
-  for (const name of ["ORCH_ADAPTER", "ORCH_BACKEND", "ORCH_MODEL", "ORCH_WORKTREE"]) {
+  for (const name of ["ORCH_ADAPTER", "ORCH_BACKEND", "ORCH_MODEL", "ORCH_WORKTREE", LAUNCH_ENV]) {
     if (!(name in extraEnv)) delete env[name];
   }
-  const ran = runSettingsCli(env, args);
+  return env;
+}
+
+function runSettings(orchDir: OrchDir, extraEnv: Record<string, string>, ...args: string[]): string {
+  const ran = runSettingsCli(cliEnv(orchDir, extraEnv), args);
   if (!ran.success) throw new Error(`orch settings ${args.join(" ")} exited ${ran.exitCode}: ${ran.stderr.toString()}`);
   return ran.stdout.toString();
 }
@@ -41,8 +50,8 @@ function runSettingsCli(env: Record<string, string | undefined>, args: readonly 
   });
 }
 
-function runSettingsExpectingFailure(orchDir: OrchDir, ...args: string[]): { status: number; stdout: string } {
-  const ran = runSettingsCli({ ...process.env, ORCH_DIR: orchDir }, args);
+function runSettingsExpectingFailure(orchDir: OrchDir, extraEnv: Record<string, string>, ...args: string[]): { status: number; stdout: string } {
+  const ran = runSettingsCli(cliEnv(orchDir, extraEnv), args);
   if (ran.success) throw new Error("orch settings exited 0, expected a failure");
   return { status: ran.exitCode, stdout: ran.stdout.toString() };
 }
@@ -130,7 +139,7 @@ describe("orch settings", () => {
     const settingsSource = fs.readFileSync(path.join(import.meta.dir, "../src/commands/settings.ts"), "utf8");
     expect(settingsSource.replaceAll("writeRegisteredSetting", "")).not.toContain("writeSettings");
 
-    const rejected = runSettingsExpectingFailure(directory, "--harness=codex");
+    const rejected = runSettingsExpectingFailure(directory, {}, "--harness=codex");
     expect(rejected.status).not.toBe(0);
     expect(rejected.stdout).toContain("codex");
     expect(rejected.stdout).toContain("enabled");
@@ -157,7 +166,7 @@ describe("orch settings", () => {
     const directory = tempDir();
     fs.writeFileSync(path.join(directory, "config.toml"), "[defaults]\n");
 
-    const failed = runSettingsExpectingFailure(directory, "--json");
+    const failed = runSettingsExpectingFailure(directory, {}, "--json");
     expect(failed.status).not.toBe(0);
     expect(failed.stdout).toContain("config.toml");
     expect(failed.stdout).toContain("orch setup");
@@ -215,7 +224,7 @@ describe("orch settings", () => {
   test("refuses an invalid boolean and names the allowed values", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    const failed = runSettingsExpectingFailure(directory, "defaults.worktree", "maybe");
+    const failed = runSettingsExpectingFailure(directory, {}, "defaults.worktree", "maybe");
     expect(failed.stdout).toContain("defaults.worktree");
     expect(failed.stdout).toContain("true or false");
   }, 30_000);
@@ -223,7 +232,7 @@ describe("orch settings", () => {
   test("refuses an invalid integer and names the allowed range", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    const failed = runSettingsExpectingFailure(directory, "fleet.max_depth", "zero");
+    const failed = runSettingsExpectingFailure(directory, {}, "fleet.max_depth", "zero");
     expect(failed.stdout).toContain("fleet.max_depth");
     expect(failed.stdout).toContain("integer");
   }, 30_000);
@@ -231,7 +240,7 @@ describe("orch settings", () => {
   test("refuses an invalid choice and names the allowed choices", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    const failed = runSettingsExpectingFailure(directory, "tiling.first_split", "diagonal");
+    const failed = runSettingsExpectingFailure(directory, {}, "tiling.first_split", "diagonal");
     expect(failed.stdout).toContain("tiling.first_split");
     expect(failed.stdout).toContain("rows");
   }, 30_000);
@@ -239,7 +248,7 @@ describe("orch settings", () => {
   test("refuses an invalid multi value and names the allowed choices", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    const failed = runSettingsExpectingFailure(directory, "enabled.adapters", "bogus");
+    const failed = runSettingsExpectingFailure(directory, {}, "enabled.adapters", "bogus");
     expect(failed.stdout).toContain("enabled.adapters");
     expect(failed.stdout).toContain("pi");
   }, 30_000);
@@ -247,7 +256,7 @@ describe("orch settings", () => {
   test("refuses an invalid list and names JSON as the allowed format", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    const failed = runSettingsExpectingFailure(directory, "skills.link", "not-json");
+    const failed = runSettingsExpectingFailure(directory, {}, "skills.link", "not-json");
     expect(failed.stdout).toContain("skills.link");
     expect(failed.stdout).toContain("JSON array");
   }, 30_000);
@@ -255,7 +264,7 @@ describe("orch settings", () => {
   test("refuses an unknown key and suggests nearest valid keys", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    const failed = runSettingsExpectingFailure(directory, "fleet.max_dept", "5");
+    const failed = runSettingsExpectingFailure(directory, {}, "fleet.max_dept", "5");
     expect(failed.stdout).toContain("fleet.max_dept");
     expect(failed.stdout).toContain("fleet.max_depth");
   }, 30_000);
@@ -263,8 +272,48 @@ describe("orch settings", () => {
   test("refuses read-only runtime and names the editing subcommand", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
-    const failed = runSettingsExpectingFailure(directory, "runtime", "node");
+    const failed = runSettingsExpectingFailure(directory, {}, "runtime", "node");
     expect(failed.stdout).toContain("runtime");
     expect(failed.stdout).toContain("orch setup");
+  }, 30_000);
+});
+
+describe("orch settings from an agent", () => {
+  const fixture = { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } };
+  const asAgent = (): Record<string, string> => ({ [LAUNCH_ENV]: mintAgentId() });
+
+  test("the human sets any writable key", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, fixture);
+    expect(runSettings(directory, {}, "fleet.max_depth", "5")).toContain("fleet.max_depth = 5");
+  }, 30_000);
+
+  test("an agent sets a granted key", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, fixture);
+    expect(runSettings(directory, asAgent(), "workers.verify_commands", "[\"bun check\"]")).toContain("workers.verify_commands = [\"bun check\"]");
+  }, 30_000);
+
+  test("an agent is refused an ungranted key and told what it may set", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, fixture);
+    const failed = runSettingsExpectingFailure(directory, asAgent(), "fleet.max_depth", "5");
+    expect(failed.stdout).toContain("fleet.max_depth is operator-only for an agent");
+    expect(failed.stdout).toContain("workers.verify_commands");
+    expect(failed.stdout).toContain(`orch settings ${AGENT_SETTINGS_GRANT}`);
+  }, 30_000);
+
+  test("an agent never widens its own grant", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { ...fixture, agents: { writable_settings: ["fleet.max_depth", AGENT_SETTINGS_GRANT] } });
+    const failed = runSettingsExpectingFailure(directory, asAgent(), AGENT_SETTINGS_GRANT, "[\"fleet.max_depth\"]");
+    expect(failed.stdout).toContain(`${AGENT_SETTINGS_GRANT} is operator-only for an agent`);
+  }, 30_000);
+
+  test("the human widens the grant and the agent then sets the key", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, fixture);
+    expect(runSettings(directory, {}, AGENT_SETTINGS_GRANT, "[\"fleet.max_depth\"]")).toContain(`${AGENT_SETTINGS_GRANT} = [\"fleet.max_depth\"]`);
+    expect(runSettings(directory, asAgent(), "fleet.max_depth", "3")).toContain("fleet.max_depth = 3");
   }, 30_000);
 });

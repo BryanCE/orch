@@ -1,8 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { asc } from "drizzle-orm";
-import { orm } from "../store/connection.ts";
+import { databasePath, orm } from "../store/connection.ts";
 import { agents, spaces, tasks } from "../db/schema.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
 import { truncate } from "../util.ts";
@@ -45,7 +44,7 @@ function taskLine(task: TaskRec): string {
 
 /** Surface unrunnable and stale work without attaching any automatic fix. */
 export function checkUnrunnableTasks(orchDir: OrchDir): CheckResult {
-  if (!existsSync(join(orchDir, "orch.db"))) {
+  if (!existsSync(databasePath(orchDir))) {
     return { id: "unrunnable-tasks", label: "Unrunnable queue tasks", status: "ok", detail: "no queue" };
   }
   let tasks: TaskRec[];

@@ -88,6 +88,9 @@ export const SETTINGS_DEFAULTS = {
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
   doctor: { unclaimed_after_ms: 120_000 },
   workers: { inherit_extensions: true, builtin_tools: true },
+  // What a registered caller (an agent or a harness session) may write with `orch settings`:
+  // the project's own commands, which the orchestrator knows and the human need not type.
+  agents: { writable_settings: ["workers.verify_commands", "locked_commands"] },
   tiling: { first_split: "rows" },
   // `.agents/skills` is the cross-harness standard, so the real files live there once and
   // a harness that reads its own directory instead gets a link into the store.
@@ -159,6 +162,12 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     allow_tools: z.array(z.string()).optional(),
     /** Commands a worker runs to verify its own slice, named in its header. */
     verify_commands: z.array(z.string()).optional(),
+  }).optional(),
+  /** What a registered caller may change about this install. The human may change anything. */
+  agents: z.strictObject({
+    /** Registry keys an agent or a harness session may write with `orch settings`.
+     *  The registry writer refuses a key it does not declare, and this key itself. */
+    writable_settings: z.array(z.string()).optional(),
   }).optional(),
   queue: z.strictObject({
     max_retries: z.number().int().nonnegative().optional(),

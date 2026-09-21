@@ -1,10 +1,9 @@
 import type { OrchDir } from "../types/core.ts";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { getBackend } from "../backends/registry.ts";
 import { recordedInstanceIsLive } from "../process-identity.ts";
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
-import { orm } from "../store/connection.ts";
+import { databasePath, orm } from "../store/connection.ts";
 import { agentEndings, agentHandles, agentLeases, agentPlexers, agentProcesses, agents } from "../db/schema.ts";
 import { currentProcess, currentTuning } from "../store/interval-rows.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
@@ -88,7 +87,7 @@ function tuningFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDepende
 }
 
 export function checkDeclaredVsReality(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies = DEFAULT_DEPENDENCIES): CheckResult {
-  if (!existsSync(join(orchDir, "orch.db"))) {
+  if (!existsSync(databasePath(orchDir))) {
     return { id: "declared-vs-reality", label: "Declared vs reality", status: "ok", detail: "no store to compare" };
   }
   const findings = [...leaseFindings(orchDir, dependencies), ...environmentFindings(orchDir, dependencies), ...orphanFindings(orchDir, dependencies), ...tuningFindings(orchDir, dependencies)];

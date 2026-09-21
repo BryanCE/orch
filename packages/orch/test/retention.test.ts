@@ -47,6 +47,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     mail: { to_spawner: "prompt", to_worker: "prompt" },
     models: { allowed: {}, preferred: {} },
     workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
+    agents: { writable_settings: [...SETTINGS_DEFAULTS.agents.writable_settings] },
     queue: { max_retries: 1, dispatch_concurrency: 4 },
     logging: { ...SETTINGS_DEFAULTS.logging },
     lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },

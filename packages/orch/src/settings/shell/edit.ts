@@ -19,11 +19,12 @@ import type { EditingState } from "../../types/settings.ts";
 import { editorReducer } from "../editor.ts";
 import { askMulti, submittedText } from "./ask.ts";
 import { editSinks } from "./sinks.ts";
-import { asBrowsing, commitAndFlush, refocusVisible, resetFocused, screenOf, stepFocus, type Session } from "./state.ts";
+import { asBrowsing, commitAndFlush, refocusVisible, resetFocused, screenOf, stepFocus, toggleAgentGrant, type Session } from "./state.ts";
 
 type BrowseOutcome = "open" | "again" | "quit";
 
 const SEARCH_KEY = "/";
+const AGENT_KEY = "a";
 
 function isPrintable(char: string | undefined, info: Key): char is string {
   return typeof char === "string" && char.length === 1 && char >= " " && info.ctrl !== true && info.meta !== true;
@@ -76,6 +77,10 @@ function browseKey(session: Session, manager: SettingsManager, char: string | un
   }
   if (info.ctrl === true && info.name === "d") {
     resetFocused(session, manager);
+    return;
+  }
+  if (char === AGENT_KEY) {
+    toggleAgentGrant(session, manager);
     return;
   }
   if (char === SEARCH_KEY) session.searching = true;

@@ -3,6 +3,7 @@ import type { SettingsManager } from "../../types/services.ts";
 import { errorMessage, isRecord } from "../../util.ts";
 import { createEditorState, editorReducer } from "../editor.ts";
 import { clearRegisteredSetting, SETTINGS_REGISTRY, writeRegisteredSetting } from "../registry.ts";
+import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, grantAgentSetting, revokeAgentSetting } from "../../policy/agent-settings.ts";
 import { visibleEntryIndices } from "../view.ts";
 import type { SettingsScreen } from "../view.ts";
 import type { BrowsingState, EditingState, EditorSetting, EditorState, SettingSource, SettingSpec } from "../../types/settings.ts";
@@ -36,7 +37,9 @@ export function loadEntries(manager: SettingsManager): EditorSetting[] {
     throw new Error(`Could not read ${manager.file}: ${errorMessage(error)}`);
   }
   const settings = manager.current();
-  return SETTINGS_REGISTRY.map((spec) => ({ spec, value: spec.read(settings), ...sourceFor(spec, raw) }));
+  return SETTINGS_REGISTRY.map((spec) => ({
+    spec, value: spec.read(settings), ...sourceFor(spec, raw), agentWritable: agentMayWriteSetting(settings, spec.key),
+  }));
 }
 
 /** Everything one editor run carries between prompts. Mutated by key handlers mid-render. */
@@ -127,6 +130,29 @@ export function resetFocused(session: Session, manager: SettingsManager): void {
     clearRegisteredSetting(manager, key);
     reload(session, manager, key);
     session.status = `${key} reset to default`;
+  } catch (error: unknown) {
+    session.status = errorMessage(error);
+  }
+}
+
+/** Flip whether an agent may write the focused setting, or say why that is refused. */
+export function toggleAgentGrant(session: Session, manager: SettingsManager): void {
+  const entry = session.state.settings[session.state.focusedIndex];
+  if (entry === undefined) return;
+  const key = entry.spec.key;
+  if (entry.spec.write === undefined) {
+    session.status = `${key} is read-only; nobody writes it`;
+    return;
+  }
+  if (key === AGENT_SETTINGS_GRANT) {
+    session.status = `${key} never grants itself`;
+    return;
+  }
+  const keys = entry.agentWritable ? revokeAgentSetting(manager.current(), key) : grantAgentSetting(manager.current(), key);
+  try {
+    writeRegisteredSetting(manager, AGENT_SETTINGS_GRANT, keys);
+    reload(session, manager, key);
+    session.status = entry.agentWritable ? `${key}: the human alone writes it` : `${key}: an agent may write it`;
   } catch (error: unknown) {
     session.status = errorMessage(error);
   }

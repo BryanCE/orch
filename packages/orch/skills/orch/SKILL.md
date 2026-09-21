@@ -49,9 +49,9 @@ orch settings locked_commands '["bun run build", "bun db:mig", "git push"]'
 ```
 
 Read the project's scripts (`package.json`, `Makefile`) and its lint config (biome, oxlint,
-eslint) to pick them. When `orch settings` already shows them set, leave them. These two
-keys are what `agents.writable_settings` grants you; any other key is the user's. A refusal
-names the keys you may set.
+eslint) to pick them. When `orch settings` already shows them set, leave them. Rows marked
+`agent` in `orch settings` are yours to write; any other key is the user's, and a refusal
+names the keys you may set and the `orch settings grant` the user runs to widen them.
 
 ## A task is written once. `--file` sends that file.
 
@@ -105,6 +105,9 @@ agent.
 - Answer `asking` within seconds: `orch questions`, then `orch answer`. A blocked agent is
   the most expensive idle.
 - Redispatch once on error, then escalate the model one rung.
+- Stuck is one tool call with a climbing `Elapsed` in `orch peek`. A steer waits for that
+  call; it frees nothing. `orch abort <name> "<what to do instead>"` cancels the call and
+  steers in one command.
 - `pending` is not `blocked`. An agent whose own files are clean but whose verify run fails
   in another task's files reports `pending: <files>` and is done. Say this in the task
   header.

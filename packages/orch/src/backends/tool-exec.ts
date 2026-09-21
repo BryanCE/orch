@@ -1,5 +1,6 @@
 import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { retryingSync } from "../retry.ts";
+import { errorMessage, isRecord } from "../util.ts";
 import type { ToolExecRecord, ToolExecutor } from "../types/backend.ts";
 import type { RetryPolicy } from "../types/core.ts";
 
@@ -13,6 +14,25 @@ export const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
  *  its tool's error codes should narrow this; one that cannot is still better
  *  served retrying than failing a spawn on a 200ms race. */
 export const DEFAULT_TOOL_RETRY: RetryPolicy = { attempts: 4, delayMs: 250, backoff: 2 };
+
+export function toolOutputText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Uint8Array) return Buffer.from(value).toString("utf8");
+  if (value === undefined) return "";
+  const json = JSON.stringify(value);
+  return json ?? "";
+}
+
+export function toolErrorDetail(error: unknown): string {
+  if (isRecord(error)) {
+    const status = typeof error.status === "number" ? `exit status ${error.status}` : undefined;
+    const stderr = error.stderr === undefined ? "" : toolOutputText(error.stderr).trim();
+    const stdout = error.stdout === undefined ? "" : toolOutputText(error.stdout).trim();
+    const message = error.message === undefined ? toolOutputText(error) : toolOutputText(error.message);
+    return [status, stderr && `stderr: ${stderr}`, stdout && `stdout: ${stdout}`, message].filter(Boolean).join("; ");
+  }
+  return error instanceof Error ? errorMessage(error) : toolOutputText(error);
+}
 
 const realExecutor: ToolExecutor = (binary, args, options) => execFileSync(binary, [...args], options);
 

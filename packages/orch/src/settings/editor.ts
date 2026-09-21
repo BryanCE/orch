@@ -65,7 +65,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         if (validationReason !== null) {
           return { ...state, reason: validationReason };
         }
-        const updatedSetting: EditorSetting = { spec: state.focused.spec, value: action.value };
+        const updatedSetting: EditorSetting = { ...state.focused, value: action.value };
         const settings = state.settings.map((setting, index) =>
           index === state.focusedIndex ? updatedSetting : setting,
         );

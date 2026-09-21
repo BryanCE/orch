@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
+import { OrcaBackend } from "../src/backends/orca/index.ts";
 import type { Backend } from "../src/types/backend.ts";
 
 /**
@@ -42,6 +43,7 @@ describe("a backend exposes each operation exactly once (2.2)", () => {
     ["herdr", (): Backend => new HerdrBackend()],
     ["tmux", (): Backend => new TmuxBackend()],
     ["headless", (): Backend => new HeadlessBackend()],
+    ["orca", (): Backend => new OrcaBackend({ executor: () => { throw new Error("no orca in tests"); } })],
   ] as const) {
     test(`${id} publishes no operation beside the role that owns it`, () => {
       const backend = make();

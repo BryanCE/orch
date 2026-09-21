@@ -16,11 +16,15 @@ export function agentWritableKeys(settings: OrchSettings): string[] {
   return settings.agents.writable_settings.filter((granted) => granted !== AGENT_SETTINGS_GRANT);
 }
 
-/** The grant list with `key` added or removed. Order is kept; a key is listed once. */
-export function withAgentGrant(settings: OrchSettings, key: string, granted: boolean): string[] {
+/** The grant list with `key` in it. Order is kept; a key is listed once. */
+export function grantAgentSetting(settings: OrchSettings, key: string): string[] {
   const current = agentWritableKeys(settings);
-  if (!granted) return current.filter((held) => held !== key);
   return current.includes(key) ? current : [...current, key];
+}
+
+/** The grant list without `key`. */
+export function revokeAgentSetting(settings: OrchSettings, key: string): string[] {
+  return agentWritableKeys(settings).filter((held) => held !== key);
 }
 
 /** The refusal an agent reads when it writes a key outside its grant. */

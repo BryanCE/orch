@@ -18,12 +18,20 @@ events` and leaves the input alone. Defaults: `prompt-unless-focused` to the spa
 `prompt` to everyone else. The daemon reads them per delivery, so a change applies at once.
 
 `workers.verify_commands` is the list of commands a worker runs over its own slice before
-it reports (lint, type check, scoped tests). Every worker header carries it. The
-orchestrator sets it from the project, and `locked_commands` beside it, because
-`agents.writable_settings` grants both by default. That grant is the only thing an agent
-or a harness session may write with `orch settings`; a key outside it is refused with the
-list of what it may set. Only you widen the grant: `orch settings agents.writable_settings
-'["workers.verify_commands", "fleet.max_depth"]'`. The grant never includes itself.
+it reports (lint, type check, scoped tests). `locked_commands` is what a worker never runs.
+Every worker header carries both, and the orchestrator sets them from the project.
+
+Which settings an agent may write is a per-row toggle. The table's last column reads
+`agent` on a row an agent may write; `--json` carries it as `agentWritable`. By default
+that is `workers.verify_commands` and `locked_commands`. An agent that writes any other
+key is refused, and the refusal names the keys it may set. Only you change the grant:
+
+- `orch settings grant <key>` lets an agent write that setting.
+- `orch settings revoke <key>` makes it yours alone again.
+- In the editor, `a` on a row flips it. The row shows `[agent]`.
+
+The grant is stored as `agents.writable_settings`. Nothing writes that key for an agent,
+and it never grants itself.
 
 Subcommands:
 

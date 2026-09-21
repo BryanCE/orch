@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
-import { join } from "node:path";
 import { addTask, claimTask, listTasks, nextQueuedTask } from "../src/queue.ts";
 import { orm } from "../src/store/connection.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { acquireLease, adoptLease, currentLease, leaseHistory } from "../src/store/lease-rows.ts";
+import { cmdStatusVerb } from "../src/commands/status/verb.ts";
+import { createServices } from "../src/services.ts";
+import { daemonOwnershipFiles } from "../src/daemon/client/runtime-files.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
+import { captureStdout } from "../test/helpers/stdout.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "../test/helpers/rows.ts";
@@ -89,18 +93,11 @@ describe("store hardening", () => {
 describe("CLI offline routing", () => {
   test("status --offline does not start or contact orchd", async () => {
     const dir = tempDir("orch-routing-cli-");
-    // orch has no built-in configuration: a spawned CLI reads its composition from this ORCH_DIR.
+    // orch has no built-in configuration: the command reads its composition from this ORCH_DIR.
     writeSettingsFixture(dir, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
-    const emptyPath = tempDir("orch-routing-path-");
-    const child = Bun.spawn([process.execPath, join(import.meta.dir, "..", "bin", "orch.ts"), "status", "--offline", "--local", "--json"], {
-      cwd: join(import.meta.dir, ".."),
-      env: { ...process.env, ORCH_DIR: dir, PATH: emptyPath },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const exit = await child.exited;
-    expect(exit).toBe(0);
-    expect(JSON.parse(await new Response(child.stdout).text())).toEqual({ names: { agents: {}, spaces: {} }, rows: [] });
-    expect(Bun.file(join(dir, "orchd.lock")).size).toBe(0);
-  }, 15_000);
+    const output = await captureStdout(() => cmdStatusVerb(createServices({ orchDir: dir }), ["--offline", "--local", "--json"]));
+    expect(JSON.parse(output)).toEqual({ names: { agents: {}, spaces: {} }, rows: [] });
+    // A started or dialed orchd leaves its runtime files behind; offline leaves none.
+    expect(daemonOwnershipFiles(dir).filter((file) => existsSync(file))).toEqual([]);
+  });
 });

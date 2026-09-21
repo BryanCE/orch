@@ -180,7 +180,7 @@ const HELP: Readonly<Record<string, string>> = {
   "workers.builtin_tools": "Whether workers receive built-in tools.",
   "workers.allow_tools": "Tools workers may use.",
   "workers.verify_commands": "Commands a worker runs to verify its own slice before it reports.",
-  "agents.writable_settings": "Settings an agent or a harness session may write with orch settings. The human may write any. This key never grants itself.",
+  "agents.writable_settings": "Settings an agent may write with orch settings. Change it per row: orch settings grant|revoke <key>, or a in the editor. Never grants itself.",
   "queue.max_retries": "Maximum retries for queued tasks.",
   "queue.dispatch_concurrency": "How many queued tasks the daemon dispatches at the same time.",
   "logging.level": "Minimum level written to logs.",

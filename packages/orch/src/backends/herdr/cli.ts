@@ -1,8 +1,8 @@
 import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { z } from "zod";
-import { errorMessage, isRecord } from "../../util.ts";
+import { isRecord } from "../../util.ts";
 import { extractVersion } from "../versions.ts";
-import { DEFAULT_TOOL_RETRY, runTool } from "../tool-exec.ts";
+import { DEFAULT_TOOL_RETRY, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
 import type { HerdrPane, HerdrTab } from "../../types/plexer.ts";
 import type { RetryPolicy } from "../../types/core.ts";
 
@@ -14,25 +14,6 @@ interface HerdrAgent {
 function parseHerdrOutput(output: string): unknown {
   const value = JSON.parse(output) as unknown;
   return isRecord(value) && value.result !== undefined ? value.result : value;
-}
-
-function outputText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value instanceof Uint8Array) return Buffer.from(value).toString("utf8");
-  if (value === undefined) return "";
-  const json = JSON.stringify(value);
-  return json ?? "";
-}
-
-function errorDetail(error: unknown): string {
-  if (isRecord(error)) {
-    const status = typeof error.status === "number" ? `exit status ${error.status}` : undefined;
-    const stderr = error.stderr === undefined ? "" : outputText(error.stderr).trim();
-    const stdout = error.stdout === undefined ? "" : outputText(error.stdout).trim();
-    const message = error.message === undefined ? outputText(error) : outputText(error.message);
-    return [status, stderr && `stderr: ${stderr}`, stdout && `stdout: ${stdout}`, message].filter(Boolean).join("; ");
-  }
-  return error instanceof Error ? errorMessage(error) : outputText(error);
 }
 
 export type HerdrExecutor = (
@@ -97,7 +78,7 @@ export class HerdrCommandError extends Error {
 function herdrErrorCode(error: unknown): string | null {
   if (!isRecord(error) || error.stderr === undefined) return null;
   try {
-    const parsed: unknown = JSON.parse(outputText(error.stderr).trim());
+    const parsed: unknown = JSON.parse(toolOutputText(error.stderr).trim());
     return isRecord(parsed) && isRecord(parsed.error) && typeof parsed.error.code === "string"
       ? parsed.error.code
       : null;
@@ -162,7 +143,7 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
       listCache.set(cacheKey, { at: Date.now(), value });
       return value;
     } catch (error: unknown) {
-      throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
+      throw new Error(`herdr ${args.join(" ")} failed: ${toolErrorDetail(error)}`);
     }
   };
   const herdrOutput = (args: string[], timeoutMs = MUTATION_TIMEOUT_MS, policy?: RetryPolicy): string => {
@@ -170,7 +151,7 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
     try {
       return executor("herdr", args, { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
     } catch (error: unknown) {
-      throw new HerdrCommandError(herdrErrorCode(error), `herdr ${args.join(" ")} failed: ${errorDetail(error)}`);
+      throw new HerdrCommandError(herdrErrorCode(error), `herdr ${args.join(" ")} failed: ${toolErrorDetail(error)}`);
     }
   };
   const cli: HerdrCli = {
@@ -191,7 +172,7 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
       try { executor("herdr", fullArgs, { timeout: AGENT_START_EXEC_TIMEOUT_MS, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, START_RETRY); }
       catch (error: unknown) {
         if (herdrErrorCode(error) === "agent_not_ready") return;
-        throw new Error(`herdr ${fullArgs.join(" ")} failed: ${errorDetail(error)}`);
+        throw new Error(`herdr ${fullArgs.join(" ")} failed: ${toolErrorDetail(error)}`);
       }
     },
     version: () => {
@@ -224,7 +205,7 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
     },
     exec: (args, options = { encoding: "utf8" }) => {
       try { return executor("herdr", args, options); }
-      catch (error: unknown) { throw new Error(`herdr ${args.join(" ")} failed: ${errorDetail(error)}`); }
+      catch (error: unknown) { throw new Error(`herdr ${args.join(" ")} failed: ${toolErrorDetail(error)}`); }
     },
   };
   return cli;

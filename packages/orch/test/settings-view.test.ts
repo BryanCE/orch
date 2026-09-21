@@ -19,6 +19,7 @@ function entry(key: string, value: unknown, options?: {
   readonly source?: string;
   readonly override?: string;
   readonly writable?: boolean;
+  readonly agentWritable?: boolean;
 }): EditorSetting {
   const spec: SettingSpec = {
     key,
@@ -33,6 +34,7 @@ function entry(key: string, value: unknown, options?: {
     value,
     ...(options?.source === undefined ? {} : { source: options.source }),
     ...(options?.override === undefined ? {} : { override: options.override }),
+    agentWritable: options?.agentWritable === true,
   };
 }
 
@@ -79,6 +81,7 @@ describe("settings view", () => {
         entry("daemon.tcp_port", 3716, { source: "default" }),
         entry("fleet.max_depth", 1, { override: "ORCH_DEPTH" }),
         entry("runtime", "bun", { writable: false }),
+        entry("locked_commands", [], { source: "default", agentWritable: true }),
       ]),
       100,
       40,
@@ -91,6 +94,7 @@ describe("settings view", () => {
     expect(frame).toContain("[default]");
     expect(frame).toContain("[env: ORCH_DEPTH]");
     expect(frame).toContain("[read-only]");
+    expect(frame).toContain("[default] [agent]");
     expect(frame).toContain("Help for daemon.tcp_port");
     expect(frame).toContain(BROWSE_KEYBAR);
   });

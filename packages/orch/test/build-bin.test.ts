@@ -78,7 +78,7 @@ describe("the installed CLI is the packaged build, never live source (K2)", () =
   const manifest = packageManifest();
 
   test("the `orch` bin points at the packaged entrypoint, not bin/orch.ts", () => {
-    expect(manifest.bin.orch).toBe("./dist/bin/orch.js");
+    expect(manifest.bin.orch).toBe("dist/bin/orch.js");
     // A bin pointing at the .ts source would need bun on the user's machine,
     // which is exactly what Rule 6 forbids the distributable from requiring.
     expect(manifest.bin.orch).not.toContain(".ts");

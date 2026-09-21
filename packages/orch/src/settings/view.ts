@@ -39,7 +39,7 @@ export interface SettingsScreen {
 
 // ASCII only, here and in every glyph below: a terminal that is not decoding UTF-8 renders
 // arrows and boxes as mojibake, and a settings editor nobody can read is not a fallback.
-export const BROWSE_KEYBAR = "up/down move | enter edit | ctrl+d use default | / search | esc quit";
+export const BROWSE_KEYBAR = "up/down move | enter edit | ctrl+d use default | a agent may write | / search | esc quit";
 export const SEARCH_KEYBAR = "type to narrow | up/down move | enter keep matches | esc clear";
 export const SELECT_KEYBAR = "up/down choose | enter save | esc cancel";
 export const MULTI_KEYBAR = "up/down move | space toggle | enter save | esc cancel";
@@ -78,11 +78,14 @@ function fit(text: string, width: number): string {
   return text.length <= width ? text : `${text.slice(0, Math.max(0, width - 3))}...`;
 }
 
+/** The row's tags: where its value came from, then who may write it. */
 function sourceTag(entry: EditorSetting): string {
-  if (entry.override !== undefined) return `[env: ${entry.override}]`;
-  if (entry.spec.write === undefined) return "[read-only]";
-  if (entry.source !== undefined && entry.source !== "settings.json") return `[${entry.source}]`;
-  return "";
+  const tags: string[] = [];
+  if (entry.override !== undefined) tags.push(`[env: ${entry.override}]`);
+  else if (entry.spec.write === undefined) tags.push("[read-only]");
+  else if (entry.source !== undefined && entry.source !== "settings.json") tags.push(`[${entry.source}]`);
+  if (entry.agentWritable) tags.push("[agent]");
+  return tags.join(" ");
 }
 
 interface ListLines {

@@ -17,6 +17,7 @@ If anything here disagrees with help, help wins.
 | One look at the fleet, the capacity line, `--json` fields | `orch help status` |
 | A worker is asking | `orch help answer`, `orch help questions` |
 | Correcting a running worker | `orch help steer`, `orch help broadcast` |
+| A worker stuck in one tool call | `orch help abort` (with text: cancel and steer at once) |
 | Handing one result to another agent | `orch help pipe` |
 | Collecting a done worktree | `orch help review` |
 | Ending a pane, `--all`, killing your own stream | `orch help close` |

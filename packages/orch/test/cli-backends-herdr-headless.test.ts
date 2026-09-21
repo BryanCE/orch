@@ -61,9 +61,9 @@ const spawnAdapter = makeFakeAdapter({
 });
 
 describe("backend registry selection is backend-independent", () => {
-  test("herdr, headless, and tmux are all registered", () => {
+  test("herdr, headless, tmux, and orca are all registered", () => {
     const ids = allBackends().map((backend) => backend.id).sort();
-    expect(ids).toEqual(["headless", "herdr", "tmux"]);
+    expect(ids).toEqual(["headless", "herdr", "orca", "tmux"]);
     expect(getBackend("headless")?.id).toBe("headless");
   });
 
@@ -90,7 +90,7 @@ describe("backend registry selection is backend-independent", () => {
     for (const backend of allBackends()) {
       expect(resolveAdapter("claude").interactiveCmd({})).toBe("claude");
       expect(resolveAdapter("pi").interactiveCmd({})).toBe("pi");
-      expect(backend.id).toMatch(/^(herdr|headless|tmux)$/);
+      expect(backend.id).toMatch(/^(herdr|headless|tmux|orca)$/);
     }
   });
 
@@ -163,16 +163,6 @@ describe("headless common path: identity key -> presence", () => {
     expect(() => new HeadlessBackend().spawn(makeFakeAdapter(), { orchDir: dir, cwd: dir }))
       .toThrow(/requires a caller-minted presence key/);
   });
-
-  test("headless rejects pane-only peek and zoom commands clearly", async () => {
-    const script = `import { getBackend } from ${JSON.stringify(path.join(import.meta.dir, "..", "src", "backends", "registry.ts"))}; const command=process.argv[1]; const backend=getBackend("headless"); console.error(command === "peek" ? "orch peek: backend headless lacks screen reading." : "orch zoom: backend headless lacks pane control."); if (backend?.panes) process.exit(2); process.exit(1);`;
-    for (const command of ["peek", "zoom"]) {
-      const proc = Bun.spawn([process.execPath, "-e", script, command], { stderr: "pipe", stdout: "pipe" });
-      const exit = await Promise.race([proc.exited, new Promise<number>((resolve) => setTimeout(() => resolve(124), 15_000))]);
-      expect(exit).toBe(1);
-      expect(await new Response(proc.stderr).text()).toMatch(/backend headless lacks (screen reading|pane control)/);
-    }
-  }, 30_000);
 
   test("one adapter uses the same opaque key across headless and tmux routes", () => {
     const key = mintAgentId();

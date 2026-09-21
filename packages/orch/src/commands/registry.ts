@@ -316,7 +316,7 @@ const AGENTS: readonly CommandSpec[] = [
       JSON_FLAG,
     ],
   },
-  { name: "abort", section: "agents", usage: "orch abort <target>", summary: "Cancel the current turn.", flags: [JSON_FLAG] },
+  { name: "abort", section: "agents", usage: "orch abort <target> [<text...>]", summary: "Cancel the current turn, then steer with the text.", flags: [JSON_FLAG] },
   { name: "detach", section: "agents", usage: "orch detach <target>", summary: "Release the lease. The agent keeps running.", flags: [STEAL, JSON_FLAG] },
   {
     name: "adopt", section: "agents",
@@ -522,6 +522,8 @@ const MAINTENANCE: readonly CommandSpec[] = [
           { name: "remove", usage: "orch settings notify remove <sink>", summary: "Stop delivering through that sink.", flags: [] },
         ],
       },
+      { name: "grant", usage: "orch settings grant <key>", summary: "Let an agent write that setting with orch settings.", flags: [] },
+      { name: "revoke", usage: "orch settings revoke <key>", summary: "Make that setting the human's alone again.", flags: [] },
     ],
   },
   {

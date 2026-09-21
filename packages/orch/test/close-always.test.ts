@@ -26,7 +26,6 @@ import type { RpcServer } from "../src/types/daemon.ts";
  * `recordSpawned` options, land in their own satellites, and are read back
  * through the composer — never spelled into the key and never parsed out of it.
  */
-const binPath = join(import.meta.dir, "..", "bin", "orch.ts");
 const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 const children: ChildProcess[] = [];
@@ -50,16 +49,6 @@ async function closeInProcess(dir: OrchDir, args: string[], backend?: FakePanedB
   const services = await servedServices({ orchDir: dir, settings: testSettings }, servers);
   if (backend) await withRegisteredBackendAsync(backend, () => cmdClose(services, args));
   else await cmdClose(services, args);
-}
-
-/** One real CLI run against orchd served in-process on `dir`, so the child never
- *  starts a daemon of its own. Async, never spawnSync: the served daemon answers
- *  the child from this event loop. */
-async function runCli(dir: OrchDir, args: string[]): Promise<{ status: number | null; output: string }> {
-  await servedServices({ orchDir: dir, settings: testSettings }, servers);
-  const child = Bun.spawn([process.execPath, binPath, ...args], { env: { ...process.env, ORCH_DIR: dir }, stdout: "pipe", stderr: "pipe", timeout: 15_000 });
-  const [stdout, stderr, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  return { status, output: `${stdout}\n${stderr}` };
 }
 
 /** A working agent as orchd records one: the status row, plus the history
@@ -283,12 +272,14 @@ describe("close always works", () => {
     mkdirSync(agentDir, { recursive: true });
     recordAgentStatus(dir, key, { state: "done" }, Date.now());
 
-    const result = await runCli(dir, ["close", key, "--json"]);
-
-    expect(result.status).toBe(0);
+    const oldExitCode = process.exitCode;
+    await withExitCodeAsync(async () => {
+      await closeInProcess(dir, [key, "--json"]);
+      expect(process.exitCode).toBe(oldExitCode);
+    });
     expect(spawnedRecords(dir).has(key)).toBe(false);
     expect(existsSync(agentDir)).toBe(true);
-  }, 15_000);
+  });
 
   test("steer remains blocked by the space wall", () => {
     const dir = makeDir();

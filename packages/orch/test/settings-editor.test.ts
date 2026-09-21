@@ -20,7 +20,7 @@ function setting(
     read: settingsReader(value),
     write,
   };
-  return { spec, value };
+  return { spec, value, agentWritable: false };
 }
 
 function readOnlySetting(key: string, type: SettingKind, value: unknown): EditorSetting {
@@ -31,7 +31,7 @@ function readOnlySetting(key: string, type: SettingKind, value: unknown): Editor
     type,
     read: settingsReader(value),
   };
-  return { spec, value };
+  return { spec, value, agentWritable: false };
 }
 
 describe("settings editor reducer", () => {

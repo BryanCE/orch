@@ -52,7 +52,7 @@ AGENTS (never steals focus except 'focus')
   orch restart <target>... | --all [--cmd <command>]
                                                 Relaunch the harness process.
   orch close <target>... | --all [--stream]     Close (alias: kill).
-  orch abort <target>                           Cancel the current turn.
+  orch abort <target> [<text...>]               Cancel the current turn, then steer with the text.
   orch detach <target>                          Release the lease. The agent keeps running.
   orch adopt <target> | --all                   Take an unleased agent.
   orch reap [<target>] [--dead]                 Delete an agent record.

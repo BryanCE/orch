@@ -7,6 +7,7 @@ import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
 import { callDaemon, readRpc } from "../daemon.ts";
+import { cmdSteer } from "../control.ts";
 import { die } from "../target.ts";
 import { resolveLifecycle } from "../resolve.ts";
 import { callerCredential } from "../../identity/credential.ts";
@@ -244,7 +245,8 @@ export async function cmdAbort(services: Services, args: string[]): Promise<void
   const { flags, positional } = parseCommand("abort", args);
   const json = flags.has("--json");
   const target = positional[0];
-  if (!target) die("usage: orch abort <target> [--force] [--json]");
+  const text = positional.slice(1).join(" ");
+  if (!target) die("usage: orch abort <target> [<text...>] [--json]");
   // Abort itself has no close-authority gate. Lifecycle resolution still scopes a
   // driving session by its open lease; the operator remains unscoped.
   const { backend, handle, entity } = await resolveLifecycle(services, target);
@@ -261,5 +263,7 @@ export async function cmdAbort(services: Services, args: string[]): Promise<void
   input.sendKeys(handle, ["Escape"]);
   if (json) process.stdout.write(JSON.stringify({ target: handle, aborted: true }) + "\n");
   else process.stdout.write(`Aborted ${describeHandle(handle)}.\n`);
+  // The text is a steer: the cancelled turn is gone, and this is what runs instead.
+  if (text) await cmdSteer(services, [target, text, ...(json ? ["--json"] : [])]);
 }
 

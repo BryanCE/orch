@@ -40,6 +40,14 @@ re-sends the attach every `daemon.bridge_reconnect_ms` on its own, so a STALLED 
 `orch status` later shows idle is a slow harness, not a lost bridge. Check harness startup,
 then `orch restart <name>`.
 
+## Stuck agent
+
+`orch status` shows `working` with the same task and a flat cost for minutes, and `orch peek
+<name>` shows one tool call with a climbing `Elapsed`: a repo-wide grep, a slow read across
+the WSL boundary. A steer lands only after the tool returns, so it does not free the agent.
+`orch abort <name> "<text>"` cancels the turn now and steers with the text; it is never
+gated. Name the slow step and forbid it in the text. Still stuck: `orch restart <name>`.
+
 ## Ambiguous targets
 
 `control target <name> is ambiguous: <key>, <key>` means two live agents answer to that

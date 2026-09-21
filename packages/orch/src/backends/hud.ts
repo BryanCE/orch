@@ -11,12 +11,13 @@ import type { OrchDir } from "../types/core.ts";
  * So the daemon depends on this port, and providers register themselves below.
  * The active provider is chosen by capability probe — "is this agent in a pane of
  * mine?" — never by comparing a backend id. When no provider claims the agent
- * (plain terminal, CI, a plexer with no HUD such as tmux today), the no-op HUD is
- * returned and every call is inert.
+ * (plain terminal, CI, or tmux), the no-op HUD is returned and every call is
+ * inert.
  *
  * Adding a HUD for another plexer means appending a provider here.
  */
 import { herdrHud } from "./herdr/hud.ts";
+import { orcaHud } from "./orca/hud.ts";
 
 const NO_HUD: PaneHud = {
   statusReporter: () => () => { /* no pane status line */ },
@@ -37,6 +38,14 @@ const PROVIDERS: readonly PaneHudProvider[] = [
       statusReporter: (paneId) => herdrHud.createPaneStatusReporter(id, paneId, orchDir),
       notify: herdrHud.notify,
       readLabels: (apply) => herdrHud.readPaneLabels(id, apply, orchDir),
+    }),
+  },
+  {
+    isActive: orcaHud.hudActive,
+    hud: (id, orchDir) => ({
+      statusReporter: (paneId) => orcaHud.createPaneStatusReporter(id, paneId, orchDir),
+      notify: orcaHud.notify,
+      readLabels: orcaHud.readLabels,
     }),
   },
 ];

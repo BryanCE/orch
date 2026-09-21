@@ -19,7 +19,7 @@ import { isThinkingLevel } from "../policy/thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
 import { selfIdentity } from "../identity/self.ts";
-import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, agentSettingRefusal, withAgentGrant } from "../policy/agent-settings.ts";
+import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, agentSettingRefusal, grantAgentSetting, revokeAgentSetting } from "../policy/agent-settings.ts";
 import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
@@ -100,17 +100,31 @@ function writableSpec(key: string): SettingSpec {
   return spec;
 }
 
-/** `orch settings grant <key>` / `revoke <key>`: flip whether an agent may write one setting. */
-function grantSetting(services: Pick<Services, "settings" | "orchDir">, { positional }: Invocation, granted: boolean): void {
-  const verb = granted ? "grant" : "revoke";
+/** The one key a grant verb names: registered, writable, not the grant itself, and the caller is the human. */
+function grantTarget(services: Pick<Services, "orchDir" | "settings">, { command, positional }: Invocation): string {
   const key = positional[0];
-  if (key === undefined || positional.length !== 1) die(`usage: orch settings ${verb} <key>`);
+  if (key === undefined || positional.length !== 1) die(`usage: orch settings ${command.name} <key>`);
   writableSpec(key);
   if (key === AGENT_SETTINGS_GRANT) die(`${key} never grants itself.`);
   refuseUngrantedAgentWrite(services, AGENT_SETTINGS_GRANT);
-  const keys = withAgentGrant(currentSettings(services), key, granted);
+  return key;
+}
+
+function writeAgentGrant(services: Pick<Services, "settings">, keys: readonly string[]): void {
   try { writeRegisteredSetting(services.settings, AGENT_SETTINGS_GRANT, keys); } catch (error: unknown) { die(errorMessage(error)); }
   process.stdout.write(`agents may write: ${keys.length ? keys.join(", ") : "(none)"}\n`);
+}
+
+/** `orch settings grant <key>`: let an agent write that setting. */
+function settingsGrant(services: Pick<Services, "settings" | "orchDir">, invocation: Invocation): void {
+  const key = grantTarget(services, invocation);
+  writeAgentGrant(services, grantAgentSetting(currentSettings(services), key));
+}
+
+/** `orch settings revoke <key>`: the human alone writes that setting again. */
+function settingsRevoke(services: Pick<Services, "settings" | "orchDir">, invocation: Invocation): void {
+  const key = grantTarget(services, invocation);
+  writeAgentGrant(services, revokeAgentSetting(currentSettings(services), key));
 }
 
 function setSingleSetting(services: Pick<Services, "settings" | "orchDir">, key: string, input: string): void {
@@ -384,28 +398,37 @@ function collectSettingsProvenance(services: Pick<Services, "orchDir">, settings
     const environment = spec.env === undefined ? undefined : process.env[spec.env];
     const value = environment !== undefined ? envSettingValue(environment, spec.type) : configured ?? null;
     const source = environment !== undefined ? "env" : raw !== undefined ? "settings.json" : "default";
-    provenance.push({ key: spec.key, value, source, display: value === null ? "(none)" : displaySetting(value, spec.type) });
+    provenance.push({
+      key: spec.key, value, source,
+      display: value === null ? "(none)" : displaySetting(value, spec.type),
+      agentWritable: agentMayWriteSetting(settings, spec.key),
+    });
   }
   provenance.push(...modelRows);
   return provenance;
 }
 
+/** The last table column: who may write the row. Blank is the human alone. */
+const AGENT_COLUMN = "agent";
+
 function printSettingsOutput(services: Pick<Services, "settings">, settings: OrchSettings, provenance: readonly ProvenanceRow[], json: boolean): void {
   const enabledSet = settings.enabled.adapters.length > 0 || settings.enabled.backends.length > 0;
   if (json) {
     const out: Record<string, unknown> = {};
-    for (const { key, value, source } of provenance) out[key] = { value, source };
-    out.enabled = { value: settings.enabled, source: enabledSet ? "settings.json" : "default" };
+    for (const { key, value, source, agentWritable } of provenance) out[key] = { value, source, agentWritable };
+    out.enabled = { value: settings.enabled, source: enabledSet ? "settings.json" : "default", agentWritable: false };
     process.stdout.write(JSON.stringify(out, null, 2) + "\n");
     return;
   }
 
   const width = Math.max(...provenance.map((row) => row.key.length));
   const valueWidth = Math.max(...provenance.map((row) => row.display.length));
+  const sourceWidth = Math.max(...provenance.map((row) => row.source.length));
   process.stdout.write(`settings  ${services.settings.file}\n\n`);
-  for (const { key, display, source } of provenance) {
-    process.stdout.write(`  ${key.padEnd(width)}  ${display.padEnd(valueWidth)}  ${source}\n`);
+  for (const { key, display, source, agentWritable } of provenance) {
+    process.stdout.write(`  ${key.padEnd(width)}  ${display.padEnd(valueWidth)}  ${source.padEnd(sourceWidth)}  ${agentWritable ? AGENT_COLUMN : ""}\n`);
   }
+  process.stdout.write(`\n  ${AGENT_COLUMN}: an agent may write that row. Change it: orch settings grant|revoke <key>\n`);
   process.stdout.write("\n");
   process.stdout.write(`  enabled.adapters  ${settings.enabled.adapters.join(", ") || "(none)"}\n`);
   process.stdout.write(`  enabled.backends  ${settings.enabled.backends.join(", ") || "(none)"}\n`);
@@ -440,6 +463,8 @@ export async function cmdSettings(services: Services, args: string[]): Promise<v
     case "thinking": return settingsThinking(services, invocation);
     case "skills": return settingsSkills(services, invocation);
     case "notify": return settingsNotify(services, invocation);
+    case "grant": return settingsGrant(services, invocation);
+    case "revoke": return settingsRevoke(services, invocation);
     default: return settingsRoot(services, invocation);
   }
 }

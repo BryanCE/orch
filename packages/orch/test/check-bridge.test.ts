@@ -451,19 +451,19 @@ describe("launch env reads stay in identity/launch.ts (checkLaunchEnvLine)", () 
 });
 
 describe("the closed plexer-id set is spelled in exactly one line", () => {
-  const DEFINITION = 'export const BACKEND_IDS = ["herdr", "tmux", "headless"] as const;';
+  const DEFINITION = 'export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless"] as const;';
 
   test("the definition line is allowed where it lives, and nowhere else", () => {
     expect(checkPlexerLiteralLine(DEFINITION, "src/types/backend.ts", "outside backends")).toBeUndefined();
     expect(checkPlexerLiteralLine(DEFINITION, "src/commands/status/rows.ts", "outside backends"))
-      .toBe("quoted herdr/tmux literals are forbidden outside backends");
+      .toBe("quoted plexer id literals are forbidden outside backends");
   });
 
   test("any other quoted plexer id in that same file still fails", () => {
     expect(checkPlexerLiteralLine('if (backend === "herdr") return true;', "src/types/backend.ts", "outside backends"))
-      .toBe("quoted herdr/tmux literals are forbidden outside backends");
+      .toBe("quoted plexer id literals are forbidden outside backends");
     expect(checkPlexerLiteralLine('const fallback = "tmux";', "src/types/backend.ts", "outside backends"))
-      .toBe("quoted herdr/tmux literals are forbidden outside backends");
+      .toBe("quoted plexer id literals are forbidden outside backends");
   });
 
   test("the line src/types/backend.ts actually carries is the allowed one", () => {
@@ -476,6 +476,6 @@ describe("the closed plexer-id set is spelled in exactly one line", () => {
 
   test("extensions get the same rule with their own scope named", () => {
     expect(checkPlexerLiteralLine('const id = "herdr";', "extensions/pi/bridge.ts", "in extensions"))
-      .toBe("quoted herdr/tmux literals are forbidden in extensions");
+      .toBe("quoted plexer id literals are forbidden in extensions");
   });
 });

@@ -1,6 +1,7 @@
 import { headlessBackend } from "./headless/index.ts";
 import { herdrBackend } from "./herdr/index.ts";
 import { tmuxBackend } from "./tmux/index.ts";
+import { orcaBackend } from "./orca/index.ts";
 import type { Backend } from "../types/backend.ts";
 
 /** The environment that places an agent nowhere, which a daemon-owned launch
@@ -60,3 +61,4 @@ export function resolveBackend(opts: { explicit?: string | null; configured?: st
 registerBackend(herdrBackend);
 registerBackend(headlessBackend);
 registerBackend(tmuxBackend);
+registerBackend(orcaBackend);

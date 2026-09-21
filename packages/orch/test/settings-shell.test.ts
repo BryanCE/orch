@@ -8,7 +8,7 @@ import { fileSettingsManager } from "../src/settings/manager.ts";
 import { shouldLaunchSettingsEditor } from "../src/commands/settings.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { createEditorState, editorReducer } from "../src/settings/editor.ts";
-import { commitAndFlush, loadEntries, type Session } from "../src/settings/shell/state.ts";
+import { commitAndFlush, loadEntries, toggleAgentGrant, type Session } from "../src/settings/shell/state.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import type { EditorSetting, SettingSpec } from "../src/types/settings.ts";
 
@@ -34,7 +34,7 @@ function setting(key: string, value: unknown, env?: string): EditorSetting {
     write: () => undefined,
     ...(env === undefined ? {} : { env }),
   };
-  return { spec, value };
+  return { spec, value, agentWritable: false };
 }
 
 describe("settings shell decisions", () => {
@@ -82,6 +82,35 @@ describe("settings shell decisions", () => {
     expect(session.status).toBe("mail.to_spawner saved");
     expect(session.state.settings[session.state.focusedIndex]?.value).toBe("prompt-unless-focused");
     expect(manager.current().mail.to_spawner).toBe("prompt-unless-focused");
+  });
+
+  test("the a key flips whether an agent may write the focused row", () => {
+    const directory = tempDir("orch-settings-shell-");
+    writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
+    const manager = fileSettingsManager(directory);
+    const session: Session = { state: createEditorState(loadEntries(manager)), filter: "", searching: false, status: undefined, quit: false, filterKeySpent: false };
+    const focusOn = (key: string): void => {
+      session.state = { ...session.state, focusedIndex: session.state.settings.findIndex((entry) => entry.spec.key === key) };
+    };
+
+    focusOn("fleet.max_depth");
+    expect(session.state.settings[session.state.focusedIndex]?.agentWritable).toBe(false);
+    toggleAgentGrant(session, manager);
+    expect(session.status).toBe("fleet.max_depth: an agent may write it");
+    expect(session.state.settings[session.state.focusedIndex]?.agentWritable).toBe(true);
+    expect(manager.current().agents.writable_settings).toEqual(["workers.verify_commands", "locked_commands", "fleet.max_depth"]);
+
+    toggleAgentGrant(session, manager);
+    expect(session.status).toBe("fleet.max_depth: the human alone writes it");
+    expect(manager.current().agents.writable_settings).toEqual(["workers.verify_commands", "locked_commands"]);
+
+    focusOn("runtime");
+    toggleAgentGrant(session, manager);
+    expect(session.status).toBe("runtime is read-only; nobody writes it");
+
+    focusOn("agents.writable_settings");
+    toggleAgentGrant(session, manager);
+    expect(session.status).toBe("agents.writable_settings never grants itself");
   });
 
   test("registry exposes writable subcommand entries", () => {

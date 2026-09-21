@@ -3,7 +3,7 @@
 // one copy of it.
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { errnoCode } from "./util.ts";
 import { hostOs } from "./host.ts";
 
@@ -102,6 +102,17 @@ export function pidStampedWith(name: string, value: string): number | null {
     if (root === null || pid < root) root = pid;
   }
   return root;
+}
+
+/** The terminal device a process writes to, or null when it has none or the host is not linux. */
+export function linuxTtyOf(pid: number): string | null {
+  if (hostOs() !== "linux") return null;
+  try {
+    const tty = readlinkSync(`/proc/${pid}/fd/1`);
+    return tty.startsWith("/dev/pts/") || tty.startsWith("/dev/tty") ? tty : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

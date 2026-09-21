@@ -123,6 +123,8 @@ export interface EditorSetting {
   readonly source?: string;
   /** A flag or environment value that wins over settings.json, making this row read-only. */
   readonly override?: string;
+  /** Whether `agents.writable_settings` lets an agent write this row. */
+  readonly agentWritable: boolean;
 }
 
 export interface PendingWrite {

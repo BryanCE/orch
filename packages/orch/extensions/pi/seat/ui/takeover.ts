@@ -13,7 +13,7 @@ import type { Component, Focusable } from "@earendil-works/pi-tui";
 import { Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { ALERT_STATES, formatElapsed } from "../domain.ts";
 import { transcriptLines } from "./transcript.ts";
-import type { PackReadView, PackSnapshot, TranscriptCache } from "../../types/seat.ts";
+import type { PackReadView, PackSnapshot, TranscriptCache } from "../types.ts";
 
 const SQUARE = "■";
 type TUI = Parameters<Parameters<ExtensionUIContext["custom"]>[0]>[0];

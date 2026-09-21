@@ -13,11 +13,11 @@
  * adapter proper is setup-time code this shim must not carry); presence reports
  * go through the daemon socket.
  */
-import { detectCodexState, extractCodexResult } from "../../src/adapters/codex-events.ts";
-import { presenceSession } from "../../src/presence/session.ts";
-import { reportOnce } from "../../src/presence/socket-client.ts";
-import { projectRoot, textValue, truncateOptional } from "../../src/util.ts";
-import type { StatusPatch } from "../../src/types/presence.ts";
+import { detectCodexState, extractCodexResult } from "orch/core/adapters/codex-events.ts";
+import { presenceSession } from "orch/core/presence/session.ts";
+import { reportOnce } from "orch/core/presence/socket-client.ts";
+import { projectRoot, textValue, truncateOptional } from "orch/core/util.ts";
+import type { StatusPatch } from "orch/core/types/presence.ts";
 
 const MAX_TEXT = 400;
 

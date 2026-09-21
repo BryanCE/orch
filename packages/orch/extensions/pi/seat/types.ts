@@ -1,8 +1,8 @@
 import type { Effect, Stream } from "effect";
-import type { PackAbortError, PackSendError } from "../seat/domain.ts";
-import type { DaemonClient } from "./agent.ts";
-import type { OrchDir } from "./core.ts";
-import type { NotifyEvent } from "./notify.ts";
+import type { PackAbortError, PackSendError } from "./domain.ts";
+import type { DaemonClient } from "orch/core/types/agent.ts";
+import type { OrchDir } from "orch/core/types/core.ts";
+import type { NotifyEvent } from "orch/core/types/notify.ts";
 
 /** Presence-store facts that events do not carry, refreshed on read. */
 export interface PackEnrichment {

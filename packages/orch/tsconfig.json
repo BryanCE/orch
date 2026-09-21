@@ -17,6 +17,7 @@
     "allowImportingTsExtensions": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "paths": { "orch/core/*": ["./src/*"] },
     "types": ["bun"]
   },
   "include": [

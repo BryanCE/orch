@@ -381,8 +381,7 @@ describe("10.8 environment branches use capabilities, not plexer/harness ids (ch
 
   test("the core-scope allowlist is EMPTY, so no line holds a standing exemption", () => {
     // A per-line exemption never fails, so nothing ever tells you it stopped
-    // being needed - the `src/seat/` hole this rule's comment names. The
-    // allowlist exists as a mechanism and is deliberately unused.
+    // being needed. The allowlist exists as a mechanism and is deliberately unused.
     expect([...CORE_SCOPE_ALLOWLIST.keys()]).toEqual([]);
   });
 

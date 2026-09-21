@@ -8,8 +8,8 @@
  * are orch-owned panes, not in-process subagent runs.
  */
 import { Data } from "effect";
-import type { PackSnapshot } from "../types/seat.ts";
-import type { NotifyEvent } from "../types/notify.ts";
+import type { PackSnapshot } from "./types.ts";
+import type { NotifyEvent } from "orch/core/types/notify.ts";
 
 /** The name an event's agent goes by on the board: its label, else its harness, else its key. */
 export function transitionName(event: NotifyEvent): string {

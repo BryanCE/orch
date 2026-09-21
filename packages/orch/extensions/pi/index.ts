@@ -5,10 +5,10 @@
 // pi's adapter id. A sibling build's event name appearing in this file, or pi's
 // appearing in src/agent/**, is the pair code CLAUDE.md Rule 9 forbids.
 import { fileURLToPath } from "node:url";
-import { hashExtensionFile, registerHarnessBridge } from "../../src/agent/harness-bridge.ts";
-import { createServices } from "../../src/services.ts";
-import { registerOrchSeat } from "../../src/seat/index.ts";
-import type { HarnessApi, HarnessIdentity } from "../../src/types/agent.ts";
+import { hashExtensionFile, registerHarnessBridge } from "orch/core/agent/harness-bridge.ts";
+import { createServices } from "orch/core/services.ts";
+import { registerOrchSeat } from "./seat/index.ts";
+import type { HarnessApi, HarnessIdentity } from "orch/core/types/agent.ts";
 
 /** pi calls itself `pi`, and fires `agent_settled` when a run will not auto-continue. */
 const PI_IDENTITY: HarnessIdentity = { agentId: "pi", settleEvent: "agent_settled" };

@@ -15,14 +15,14 @@
  * running.
  */
 import { readFileSync } from "node:fs";
-import { readJsonStdin } from "../../src/presence/history.ts";
-import { presenceSession } from "../../src/presence/session.ts";
-import { reportOnce } from "../../src/presence/socket-client.ts";
-import { isRecord, projectRoot, textValue, truncateOptional } from "../../src/util.ts";
-import { lastAssistantFromJsonl } from "../../src/adapters/transcript.ts";
-import { prepareWorkerTask } from "../../src/worker-prompt.ts";
-import type { JsonRecord } from "../../src/types/core.ts";
-import type { StatusPatch } from "../../src/types/presence.ts";
+import { readJsonStdin } from "orch/core/presence/history.ts";
+import { presenceSession } from "orch/core/presence/session.ts";
+import { reportOnce } from "orch/core/presence/socket-client.ts";
+import { isRecord, projectRoot, textValue, truncateOptional } from "orch/core/util.ts";
+import { lastAssistantFromJsonl } from "orch/core/adapters/transcript.ts";
+import { prepareWorkerTask } from "orch/core/worker-prompt.ts";
+import type { JsonRecord } from "orch/core/types/core.ts";
+import type { StatusPatch } from "orch/core/types/presence.ts";
 
 const MAX_TEXT = 400;
 const MAX_TASK = 200;

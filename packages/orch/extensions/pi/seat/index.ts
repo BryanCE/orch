@@ -10,15 +10,15 @@
  * own identity as spawner, never from the environment.
  */
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { createDaemonClient } from "../agent/daemon-client.ts";
-import { notificationText } from "../notify/format.ts";
+import { createDaemonClient } from "orch/core/agent/daemon-client.ts";
+import { notificationText } from "orch/core/notify/format.ts";
 import { ALERT_STATES } from "./domain.ts";
 import { createPackRuntime } from "./runtime.ts";
 import { openPackDashboard } from "./ui/takeover.ts";
-import { isRecord } from "../util.ts";
-import type { HarnessApi, HarnessContext } from "../types/agent.ts";
-import type { SettingsManager } from "../types/services.ts";
-import type { OrchSeatOptions, PackRuntime, PackSnapshot } from "../types/seat.ts";
+import { isRecord } from "orch/core/util.ts";
+import type { HarnessApi, HarnessContext } from "orch/core/types/agent.ts";
+import type { SettingsManager } from "orch/core/types/services.ts";
+import type { OrchSeatOptions, PackRuntime, PackSnapshot } from "./types.ts";
 
 /** The pi UI surface this seat actually uses. Declared as what we need rather than
  *  asserted from the harness type, so a harness that lacks it simply fails the guard

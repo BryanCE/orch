@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { Theme } from "@earendil-works/pi-coding-agent";
-import { countStates, formatSeatStatus, hasTheme } from "../src/seat/index.ts";
-import { reconcileDashboardSelection } from "../src/seat/ui/takeover.ts";
+import { countStates, formatSeatStatus, hasTheme } from "../extensions/pi/seat/index.ts";
+import { reconcileDashboardSelection } from "../extensions/pi/seat/ui/takeover.ts";
 import { errorMessage } from "../src/util.ts";
-import type { PackSnapshot } from "../src/types/seat.ts";
+import type { PackSnapshot } from "../extensions/pi/seat/types.ts";
 import { transitionEvent } from "./helpers/events.ts";
 
 function snapshot(state: string, key = state): PackSnapshot {

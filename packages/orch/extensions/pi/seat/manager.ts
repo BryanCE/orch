@@ -12,8 +12,8 @@
 import { Context, Effect, Fiber, Layer, Runtime, Stream } from "effect";
 import { SETTLED_STATES, transitionName } from "./domain.ts";
 import { PackSource } from "./source.ts";
-import type { PackEnrichment, PackManagerShape, PackReadView, PackSnapshot, PackSourceShape } from "../types/seat.ts";
-import type { NotifyEvent } from "../types/notify.ts";
+import type { PackEnrichment, PackManagerShape, PackReadView, PackSnapshot, PackSourceShape } from "./types.ts";
+import type { NotifyEvent } from "orch/core/types/notify.ts";
 
 const MAX_TRACKED = 128;
 const TASK_MAX_LENGTH = 4_096;

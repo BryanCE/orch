@@ -616,9 +616,8 @@ const ENVIRONMENT_ROLE_ALTERNATION = `(?:${ENVIRONMENT_ROLE_NAMES.join("|")})`;
  * asking a PORT whether it has a method; `typeof value.fn === "function"` on a
  * genuinely `unknown` value from a foreign API is a type guard narrowing data,
  * which is the only way to read an `unknown` safely and never a capability
- * negotiation. Unscoped, this pattern flagged those guards — and the answer had
- * been a whole-directory exemption for `src/seat/`, which then exempted every
- * real breach in that directory too. Precision here is what lets the hole close.
+ * negotiation. Unscoped, this pattern would flag those guards and force a
+ * directory exemption, which would then hide every real breach in that directory.
  */
 const METHOD_TYPEOF = new RegExp(`\\btypeof\\s+${METHOD_OWNER}(?:\\.[A-Za-z_$][\\w$]*)+\\s*(?:===|!==|==|!=)\\s*["']function["']`);
 const METHOD_IN = new RegExp(`["'][^"']+["']\\s+in\\s+${METHOD_OWNER}\\b`);
@@ -631,10 +630,8 @@ const OPTIONAL_METHOD_CONDITION = new RegExp(
 
 export function checkEnvironmentCapabilityLine(line: string, relPath: string): string | undefined {
   const normalizedPath = relPath.replace(/\\/g, "/");
-  // Only a CONCRETE plexer directory owns its own wire vocabulary. `src/seat/`
-  // used to be exempt here too — a whole-directory hole in the rule, kept after
-  // the branches that needed it were gone. A path exemption is invisible: it
-  // never fails, so nothing ever tells you it stopped being needed.
+  // Only a CONCRETE plexer directory owns its own wire vocabulary. No other path
+  // is exempt: a path exemption never fails, so nothing tells you it stopped being needed.
   if (/^src\/backends\/[^/]+\//.test(normalizedPath)) return undefined;
 
   if (ENVIRONMENT_ID_EQUALITY.test(line) || ENVIRONMENT_SWITCH.test(line) || ENVIRONMENT_KEY_PREFIX.test(line)) {
@@ -762,9 +759,8 @@ function runAllChecks(): void {
     // A harness extension is per-HARNESS code (Rule 10), never per-plexer, so
     // the identity-branch rule applies here whole: nothing under extensions/ may
     // branch on a plexer id or ask a port whether it has a method. Deliberately
-    // no `extensions/<harness>/` self-exemption to mirror the backends one — the
-    // tree needs none today, and an exemption nothing exercises is the src/seat
-    // hole all over again.
+    // no `extensions/<harness>/` self-exemption to mirror the backends one: the
+    // tree needs none, and an exemption nothing exercises hides every real breach.
     const environmentCapabilityViolation = checkEnvironmentCapabilityLine(line, relPath);
     if (environmentCapabilityViolation) return environmentCapabilityViolation;
     const presenceViolation = checkPresenceFilenameLine(line, relPath);

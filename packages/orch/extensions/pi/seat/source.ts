@@ -9,16 +9,16 @@
  *   abort     → the orch CLI, so control traffic stays on the one dispatcher
  */
 import { execFile } from "node:child_process";
-import { errorMessage } from "../util.ts";
+import { errorMessage } from "orch/core/util.ts";
 import { Context, Effect, Layer, Stream } from "effect";
-import { subscribeEvents } from "../daemon/client/rpc.ts";
-import { presenceAgentDir } from "../presence/history.ts";
-import { sendPeerMessage } from "../agent/peers.ts";
-import { isNotifyEvent } from "../notify/event.ts";
-import { selectAgentStatus } from "../store/status-rows.ts";
+import { subscribeEvents } from "orch/core/daemon/client/rpc.ts";
+import { presenceAgentDir } from "orch/core/presence/history.ts";
+import { sendPeerMessage } from "orch/core/agent/peers.ts";
+import { isNotifyEvent } from "orch/core/notify/event.ts";
+import { selectAgentStatus } from "orch/core/store/status-rows.ts";
 import { PackAbortError, PackSendError, transitionName } from "./domain.ts";
-import type { PackEnrichment, PackSourceConfig, PackSourceShape } from "../types/seat.ts";
-import type { NotifyEvent } from "../types/notify.ts";
+import type { PackEnrichment, PackSourceConfig, PackSourceShape } from "./types.ts";
+import type { NotifyEvent } from "orch/core/types/notify.ts";
 
 export class PackSource extends Context.Tag("orch/seat/PackSource")<PackSource, PackSourceShape>() {}
 

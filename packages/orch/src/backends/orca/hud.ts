@@ -14,6 +14,7 @@ const OSC_TERMINATOR = "\x07";
 /** orch's states as Orca's four. Absent means Orca hears nothing. */
 const ORCA_STATE: Readonly<Partial<Record<AgentState, "working" | "blocked" | "waiting" | "done">>> = {
   working: "working",
+  waiting: "waiting",
   blocked: "blocked",
   asking: "waiting",
   idle: "done",

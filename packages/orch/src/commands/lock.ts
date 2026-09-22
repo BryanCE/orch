@@ -13,16 +13,20 @@ const USAGE = "usage: orch lock -- '<command>'";
 
 /** Ask orchd until the command may run; returns the patterns this process now holds. */
 async function awaitLock(services: Services, params: ParamsOf<"command-lock">): Promise<string[]> {
-  const { command_lock_ms: limitMs, command_lock_poll_ms: pollMs } = services.settings.current().timeouts;
-  const startedAt = Date.now();
+  const pollMs = services.settings.current().timeouts.lock_poll_ms;
   let announced = false;
   for (;;) {
     const verdict = await readRpc(services, "command-lock", params);
-    if (verdict.verdict === "run") return verdict.patterns;
+    if (verdict.verdict === "run") {
+      if (announced) process.stdout.write(`orch lock: got "${verdict.patterns.join('", "')}"; running.\n`);
+      return verdict.patterns;
+    }
     if (verdict.verdict === "refused") {
       die(`orch lock: this command is in gated_commands and needs the human's approval. Ask the human to run: orch grant ${verdict.requestId}\nThen run the exact same command again.`);
     }
-    if (Date.now() - startedAt >= limitMs) die(`orch lock: "${verdict.pattern}" stayed held by ${verdict.holder} for ${limitMs}ms (timeouts.command_lock_ms); not run.`);
+    if (verdict.verdict === "gave-up") {
+      die(`orch lock: gave up on "${verdict.pattern}" after ${Math.round(verdict.waitedMs / 1000)}s (timeouts.lock_wait_ms); ${verdict.holder} still holds it. The command did not run.\nDo your other work first, then run the same command again. Stop and report only when no other work is left.`);
+    }
     if (!announced) process.stdout.write(`orch lock: waiting for "${verdict.pattern}", held by ${verdict.holder}.\n`);
     announced = true;
     await sleep(pollMs);
@@ -52,7 +56,7 @@ export async function cmdLock(services: Services, args: string[]): Promise<void>
   const self = await whoAmI(services);
   const startToken = processStartToken(process.pid) ?? null;
   const held = heldPatterns(process.env);
-  const taken = await awaitLock(services, { command, cwd: process.cwd(), pid: process.pid, startToken, agent: self.id, held });
+  const taken = await awaitLock(services, { command, cwd: process.cwd(), pid: process.pid, startToken, agent: self.id, held, waitingSince: Date.now() });
   try {
     process.exitCode = await runShell(command, [...held, ...taken]);
   } finally {

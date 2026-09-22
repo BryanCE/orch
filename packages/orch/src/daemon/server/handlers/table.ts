@@ -35,6 +35,7 @@ import type { PaneLabels } from "../../../types/plexer.ts";
 export function rpcHandlers(state: DaemonState): RpcHandlers {
   const directory = state.directory;
   const services = state.services;
+  const publish = (event: NotifyEvent): void => emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings, Date.now(), services.logger);
   return {
     "daemon-status": () => ({
       pid: process.pid,
@@ -74,7 +75,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       return { ok: true };
     },
     "report-status": (params) => {
-      const result = acceptStatusReport(directory, params.key, params.status, (event) => emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings, Date.now(), services.logger));
+      const result = acceptStatusReport(directory, params.key, params.status, publish);
       state.wake.wake();
       return result;
     },
@@ -83,7 +84,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       state.wake.wake();
       return result;
     },
-    "command-lock": (params) => lockCommand(directory, services.settings.current(), params),
+    "command-lock": (params) => lockCommand(directory, services.settings.current(), params, publish),
     "command-unlock": (params) => unlockCommand(directory, params),
     status: () => fleetStatus(state),
     attach: (params) => {

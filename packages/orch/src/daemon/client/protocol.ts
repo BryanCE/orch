@@ -171,7 +171,7 @@ const REAP_CANDIDATE = z.object({
 const HOME_SUBJECT = z.object({ kind: z.enum(["space", "pack"]), id: nonBlank }) satisfies z.ZodType<HomeSubject>;
 const SPACE_ROW = z.object({ id: z.string(), name: z.string() }) satisfies z.ZodType<SpaceRow>;
 const SPACE_LISTING = SPACE_ROW.extend({ home: z.string().nullable() }) satisfies z.ZodType<SpaceListing>;
-const GRANT_ACTION = z.object({ kind: z.literal("spawn.new-space"), params: z.record(z.string(), z.string()) }) satisfies z.ZodType<GrantAction>;
+const GRANT_ACTION = z.object({ kind: z.enum(GRANT_KINDS), params: z.record(z.string(), z.string()) }) satisfies z.ZodType<GrantAction>;
 const GRANT_REQUEST = z.object({ id: z.string(), actionHash: z.string(), kind: z.enum(GRANT_KINDS), params: z.record(z.string(), z.string()), requestedBy: z.string().nullable(), requestedAt: z.number() }) satisfies z.ZodType<GrantRequest>;
 const PACK_INTAKE = z.custom<PackIntakeRec>(isPackIntakeRec);
 const TASK = z.object({ task: z.custom<TaskRec>(isTaskRec) });
@@ -252,7 +252,7 @@ export const RPC_PARAMS = {
   notify: notifyParams,
   "report-status": z.object({ key: nonBlank, status: STATUS_PATCH }),
   "report-result": z.object({ key: nonBlank, result: RESULT_REPORT }),
-  "command-lock": z.object({ command: nonBlank, cwd: nonBlank, pid: z.number().int().positive(), startToken: z.string().nullable(), agent: z.string().nullable(), held: z.array(z.string()) }),
+  "command-lock": z.object({ command: nonBlank, cwd: nonBlank, pid: z.number().int().positive(), startToken: z.string().nullable(), agent: z.string().nullable(), held: z.array(z.string()), waitingSince: z.number() }),
   "command-unlock": z.object({ pid: z.number().int().positive(), startToken: z.string().nullable() }),
   enqueue: z.object({
     enqueuedBy: nonBlank,
@@ -354,6 +354,7 @@ export const RPC_RESULTS = {
   "command-lock": z.discriminatedUnion("verdict", [
     z.object({ verdict: z.literal("run"), patterns: z.array(z.string()) }),
     z.object({ verdict: z.literal("wait"), pattern: z.string(), holder: z.string(), since: z.number() }),
+    z.object({ verdict: z.literal("gave-up"), pattern: z.string(), holder: z.string(), waitedMs: z.number() }),
     z.object({ verdict: z.literal("refused"), requestId: z.string() }),
   ]),
   "command-unlock": OK,

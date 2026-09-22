@@ -53,7 +53,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
     retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, ...days },
     monitor: SETTINGS_DEFAULTS.monitor,
-    timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, command_lock_ms: 900_000, command_lock_poll_ms: 1_000 },
+    timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000 },
     notify: [],
     locked_commands: [],
     gated_commands: [],

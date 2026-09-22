@@ -82,12 +82,13 @@ export function passesStateFilter(filter: ReadonlySet<string> | null): (event: N
   return (event) => !filter?.has(event.newState);
 }
 
-/** Whether one event belongs on the monitor: an agent state in `monitor.on`, or a
- *  worker's report. A mid-turn flip (working, idle, a blocked signal and release) is
- *  the noise the monitor exists to drop. */
+/** Whether one event belongs on the monitor: an agent state in `monitor.on`, a
+ *  worker's report, or the end of a watched lock wait (got it, or gave up). A mid-turn
+ *  flip (working, idle, a blocked signal and release) is the noise the monitor exists to drop. */
 export function onMonitor(on: readonly AgentState[]): (event: NotifyEvent) => boolean {
   return (event) => {
     if (event.type === "message") return true;
+    if (event.type === "transition" && event.oldState === "waiting" && on.includes("waiting")) return true;
     const state = eventState(event);
     return state !== undefined && on.includes(state);
   };

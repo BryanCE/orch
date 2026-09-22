@@ -59,6 +59,11 @@ eslint) to pick them. When `orch settings` already shows them set, leave them. R
 `agent` in `orch settings` are yours to write; any other key is the user's, and a refusal
 names the keys you may set and the `orch settings grant` the user runs to widen them.
 
+An agent in `waiting` is held by a locked command, and the monitor line names the holder.
+After `timeouts.lock_wait_ms` the monitor shows `gave up on "<pattern>"`: the command did
+not run, and the agent does its other work first. Step in only when the holder is stuck:
+`orch peek <holder>`.
+
 `gated_commands` is the user's list of commands no agent runs without approval (a build, a
 migration, a push). A match is refused with a request id. Hand the user
 `orch grant <id>`; the agent reruns the exact command once it is approved. A worker's

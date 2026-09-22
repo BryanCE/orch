@@ -71,6 +71,13 @@ describe("worker prompt capability composition", () => {
     const header = workerHeaderFor(getAdapter("pi"), { lockedCommands: ["bun test", "bun run check"] });
     expect(header).toContain("one at a time machine-wide: bun test, bun run check");
     expect(header).toContain("Run them as usual");
+    expect(header).not.toContain("gives up");
+  });
+
+  test("locked-commands clause names the give-up time and says to do other work first", () => {
+    const header = workerHeaderFor(getAdapter("pi"), { lockedCommands: ["bun test"], lockWaitMs: 180_000 });
+    expect(header).toContain("give such a command 180s more than it needs");
+    expect(header).toContain("After 180s orch gives up and the command does not run: do your other work, then run it again.");
   });
 
   test("gated-commands clause names the commands and asks for the request id", () => {

@@ -7,7 +7,7 @@
  * re-spelled: a second literal union wearing the same name is how two different
  * meanings end up behind one identifier.
  */
-export const AGENT_STATES = ["idle", "working", "blocked", "asking", "done", "error", "aborted", "exited", "unknown"] as const;
+export const AGENT_STATES = ["idle", "working", "waiting", "blocked", "asking", "done", "error", "aborted", "exited", "unknown"] as const;
 
 export type AgentState = (typeof AGENT_STATES)[number];
 

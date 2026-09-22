@@ -55,6 +55,8 @@ describe("commands/events", () => {
     expect(shows(transition("idle", "working"))).toBe(false);
     expect(shows(transition("working", "idle"))).toBe(false);
     expect(shows(transition("blocked", "working"))).toBe(false);
+    expect(shows(transition("working", "waiting"))).toBe(true);
+    expect(shows(transition("waiting", "working"))).toBe(true);
     expect(shows({ type: "closed", key: "agent", agent: "pi", tab: null, model: null, oldState: "done", newState: "closed", ts: "now" })).toBe(false);
     expect(shows({ type: "task", key: "agent", agent: "pi", tab: null, model: null, oldState: "queued", newState: "claimed", task: "t", ts: "now" })).toBe(false);
   });
@@ -62,6 +64,7 @@ describe("commands/events", () => {
     const shows = onMonitor(["done"]);
     expect(shows(transition("working", "done"))).toBe(true);
     expect(shows(transition("working", "error"))).toBe(false);
+    expect(shows(transition("waiting", "working"))).toBe(false);
   });
   test("the monitor parses the same flags as events under its own usage", () => {
     expect(parseEventsOptions(["--space-wide", "--json"], "monitor")).toEqual({ json: true, sinceSeq: undefined, once: false, scope: "any", filter: null, targets: [] });

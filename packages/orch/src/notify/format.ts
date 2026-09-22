@@ -113,6 +113,7 @@ function notificationSummary(event: NotifyEvent): string {
       if (event.newState === "done") summary = textValue(event.lastText) ?? textValue(event.task) ?? "state changed";
       else if (event.newState === "error") summary = event.lastError ?? event.task ?? "agent error";
       else if (event.newState === "blocked") summary = event.task ?? "agent needs input";
+      else if (event.newState === "waiting" || event.oldState === "waiting") summary = event.reason ?? event.task ?? "lock wait";
       else summary = event.task ?? "state changed";
       break;
     case "asking":

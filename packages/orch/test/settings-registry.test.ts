@@ -108,7 +108,7 @@ function completeSettings(): Record<string, unknown> {
     queue: { max_retries: 2 },
     logging: { level: "debug" },
     retention: { ended_agents_days: 1, queue_days: 2, events_days: 3, runs_days: 4, outbox_days: 5, logs_days: 6 },
-    timeouts: { dispatch_ack_ms: 1, wait_ms: 2, adapter_command_ms: 3, notify_ms: 4, spawn_attach_ms: 5, spawn_attach_poll_ms: 6, command_lock_ms: 7, command_lock_poll_ms: 8 },
+    timeouts: { dispatch_ack_ms: 1, wait_ms: 2, adapter_command_ms: 3, notify_ms: 4, spawn_attach_ms: 5, spawn_attach_poll_ms: 6, lock_wait_ms: 7, lock_poll_ms: 8 },
     notify: [{ id: "desktop" }],
     locked_commands: ["bun test"],
     gated_commands: ["git push"],

@@ -1,6 +1,8 @@
 The orch's watch. The same stream, scope, and flags as `orch events`, kept to the lines
-you act on: a transition into a state listed in `monitor.on` (asking, blocked, done, error,
-aborted, exited by default) and every `message` a worker sends you. A mid-turn flip
+you act on: a transition into a state listed in `monitor.on` (asking, waiting, blocked, done,
+error, aborted, exited by default) and every `message` a worker sends you. `waiting` is an
+agent held by a locked command; the line names the holder, and a second line says when the
+agent got the lock or gave up on it. A mid-turn flip
 (working, idle, a blocked signal and release) never reaches it. `closed` and `task`
 bookkeeping stays on `orch events`. Change the states with `orch settings monitor.on`.
 

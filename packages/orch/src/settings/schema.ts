@@ -28,9 +28,9 @@ export const HostSchema = z.strictObject({
  *  work needs you, work broke, work finished. A notifier silent on `done` never
  *  tells you the thing you were waiting for. */
 export const NOTIFY_DEFAULT_ON: readonly NotifyState[] = ["blocked", "error", "done"];
-/** The states `orch monitor` shows: work needs you, work broke, work finished, work
- *  died. Every mid-turn flip (working, idle, unknown) stays on `orch events`. */
-export const MONITOR_DEFAULT_ON: readonly NotifyState[] = ["asking", "blocked", "done", "error", "aborted", "exited"];
+/** The states `orch monitor` shows: work needs you, work waits on a lock, work broke,
+ *  work finished, work died. Every mid-turn flip (working, idle, unknown) stays on `orch events`. */
+export const MONITOR_DEFAULT_ON: readonly NotifyState[] = ["asking", "waiting", "blocked", "done", "error", "aborted", "exited"];
 const NotifyOnSchema = z.array(z.enum(NOTIFY_STATES)).optional();
 export const NotifyEntrySchema = z.discriminatedUnion("id", [
   z.strictObject({ id: z.literal("desktop"), on: NotifyOnSchema }),
@@ -83,7 +83,7 @@ export const SETTINGS_DEFAULTS = {
   questions: { renag_ms: 120_000, renag_limit: 5 },
   monitor: { on: MONITOR_DEFAULT_ON },
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
-  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, command_lock_ms: 900_000, command_lock_poll_ms: 1_000 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
   doctor: { unclaimed_after_ms: 120_000 },
@@ -221,8 +221,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     notify_ms: PositiveInt.optional(),
     spawn_attach_ms: PositiveInt.optional(),
     spawn_attach_poll_ms: PositiveInt.optional(),
-    command_lock_ms: PositiveInt.optional(),
-    command_lock_poll_ms: PositiveInt.optional(),
+    lock_wait_ms: PositiveInt.optional(),
+    lock_poll_ms: PositiveInt.optional(),
   }).optional(),
   notify: z.array(NotifyEntrySchema).optional(),
   locked_commands: z.array(z.string()).optional(),

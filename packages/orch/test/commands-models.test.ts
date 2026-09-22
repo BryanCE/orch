@@ -30,7 +30,7 @@ const settings = (): OrchSettings => ({
   workers: { inherit_extensions: false, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
   queue: { max_retries: 1, dispatch_concurrency: 4 },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
-  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, command_lock_ms: 900_000, command_lock_poll_ms: 1_000 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000 },
   notify: [],
   hosts: {},
   spaces: {},

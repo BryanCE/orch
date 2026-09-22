@@ -10,7 +10,7 @@ import type { OrchSettings } from "./types/settings.ts";
 
 /** The rules this machine puts in every worker header, whoever launched the worker. */
 export function workerRules(settings: OrchSettings): WorkerRules {
-  return { lockedCommands: settings.locked_commands, gatedCommands: settings.gated_commands, verifyCommands: settings.workers.verify_commands };
+  return { lockedCommands: settings.locked_commands, lockWaitMs: settings.timeouts.lock_wait_ms, gatedCommands: settings.gated_commands, verifyCommands: settings.workers.verify_commands };
 }
 
 /**
@@ -59,10 +59,15 @@ const WORKER_HEADER_NO_SPAWNER_CLAUSE =
   " NEVER route a report through another agent.";
 
 /** Names the commands that run one at a time machine-wide; empty when the user declared none. */
-function lockedCommandsClause(lockedCommands: readonly string[]): string {
+function lockedCommandsClause(lockedCommands: readonly string[], lockWaitMs: number | undefined): string {
   if (lockedCommands.length === 0) return "";
-  return ` These commands run one at a time machine-wide: ${lockedCommands.join(", ")}.` +
+  const clause = ` These commands run one at a time machine-wide: ${lockedCommands.join(", ")}.` +
     " Run them as usual; orch makes each wait its turn.";
+  if (lockWaitMs === undefined) return clause;
+  const seconds = Math.round(lockWaitMs / 1000);
+  return clause +
+    ` The wait counts against your command timeout, so give such a command ${seconds}s more than it needs.` +
+    ` After ${seconds}s orch gives up and the command does not run: do your other work, then run it again.`;
 }
 
 /** Names the commands only the human may allow; empty when the user declared none. */
@@ -81,7 +86,7 @@ export function workerHeaderFor(adapter: AgentAdapter | undefined, context: Part
   return WORKER_HEADER_BASE
     + verifyCommandsClause(context.verifyCommands ?? [])
     + workerSpawnClause(context.maySpawn === true)
-    + ask + spawner + lockedCommandsClause(context.lockedCommands ?? []) + gatedCommandsClause(context.gatedCommands ?? []);
+    + ask + spawner + lockedCommandsClause(context.lockedCommands ?? [], context.lockWaitMs) + gatedCommandsClause(context.gatedCommands ?? []);
 }
 
 /** Strip the composed worker header (base + any clauses) from a dispatched task's text. */

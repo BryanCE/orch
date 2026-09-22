@@ -23,7 +23,7 @@ async function awaitLock(services: Services, params: ParamsOf<"command-lock">): 
       die(`orch lock: this command is in gated_commands and needs the human's approval. Ask the human to run: orch grant ${verdict.requestId}\nThen run the exact same command again.`);
     }
     if (Date.now() - startedAt >= limitMs) die(`orch lock: "${verdict.pattern}" stayed held by ${verdict.holder} for ${limitMs}ms (timeouts.command_lock_ms); not run.`);
-    if (!announced) process.stderr.write(`orch lock: waiting for "${verdict.pattern}", held by ${verdict.holder}.\n`);
+    if (!announced) process.stdout.write(`orch lock: waiting for "${verdict.pattern}", held by ${verdict.holder}.\n`);
     announced = true;
     await sleep(pollMs);
   }
@@ -40,7 +40,7 @@ function runShell(command: string, held: readonly string[]): Promise<number> {
   process.on("SIGINT", forward);
   process.on("SIGTERM", forward);
   return new Promise((resolve) => {
-    child.on("error", (error) => { process.stderr.write(`orch lock: ${error.message}\n`); resolve(127); });
+    child.on("error", (error) => { process.stdout.write(`orch lock: ${error.message}\n`); resolve(127); });
     child.on("close", (code, signal) => { resolve(code ?? (signal === null ? 1 : 128)); });
   });
 }

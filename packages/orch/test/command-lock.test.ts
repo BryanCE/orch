@@ -8,14 +8,16 @@ import { ensureHost } from "../src/store/agent-rows.ts";
 import { approveGrantRequest } from "../src/store/grant-rows.ts";
 import { selectAgentStatus } from "../src/store/status-rows.ts";
 import { selectCommandLocks, takeCommandLocks } from "../src/store/command-lock-rows.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedOrch } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
+import type { DenyAudience } from "../src/types/settings.ts";
 import type { ParamsOf, ResultOf } from "../src/daemon/client/protocol.ts";
 
 const dirs: OrchDir[] = [];
-const SETTINGS = { locked_commands: ["bun test"], gated_commands: ["git push"], timeouts: { lock_wait_ms: 180_000 } };
+const DENIED: DenyAudience[] = ["workers"];
+const SETTINGS = { locked_commands: ["bun test"], gated_commands: ["git push"], denied_commands: { commands: ["bun check"], applies_to: DENIED }, timeouts: { lock_wait_ms: 180_000 } };
 const LIVE = { pid: process.pid, startToken: processStartToken(process.pid) ?? null };
 
 afterEach(() => {
@@ -84,6 +86,29 @@ describe("command-lock", () => {
     expect(lock(dir, request("git push", 2)).verdict).toBe("refused");
   });
 
+  test("a denied command is refused for a worker, with no grant, only as the whole command", () => {
+    const dir = tempDir();
+    const orchestrator = mintAgentId();
+    const worker = mintAgentId();
+    seedOrch(dir, orchestrator);
+    seedAgent(worker, { spawnedBy: orchestrator }, dir);
+    expect(lock(dir, { ...request("bun check", 2), agent: worker })).toEqual({ verdict: "denied", pattern: "bun check" });
+    expect(lock(dir, { ...request("cd x && bun check 2>&1 | tail -5", 2), agent: worker })).toEqual({ verdict: "denied", pattern: "bun check" });
+    expect(lock(dir, { ...request("bun check src/a.ts", 2), agent: worker })).toEqual({ verdict: "run", patterns: [] });
+  });
+
+  test("denied_commands.applies_to picks who is refused; the human never is", () => {
+    const dir = tempDir();
+    const orchestrator = mintAgentId();
+    seedOrch(dir, orchestrator);
+    expect(lock(dir, { ...request("bun check", 2), agent: orchestrator })).toEqual({ verdict: "run", patterns: [] });
+    expect(lock(dir, request("bun check", 2))).toEqual({ verdict: "run", patterns: [] });
+    const everyAgent: DenyAudience[] = ["workers", "orchestrators"];
+    const both = { ...SETTINGS, denied_commands: { commands: ["bun check"], applies_to: everyAgent } };
+    expect(lockCommand(dir, both, { ...request("bun check", 2), agent: orchestrator }, () => undefined)).toEqual({ verdict: "denied", pattern: "bun check" });
+    expect(lockCommand(dir, both, request("bun check", 2), () => undefined)).toEqual({ verdict: "run", patterns: [] });
+  });
+
   test("a waiting agent is marked waiting once, with the holder named", () => {
     const dir = tempDir();
     const agent = waitingAgent(dir);
@@ -93,6 +118,16 @@ describe("command-lock", () => {
     expect(selectAgentStatus(dir, agent)?.state).toBe("waiting");
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ oldState: "working", newState: "waiting", reason: `waiting for "bun test", held by pid ${LIVE.pid}` });
+  });
+
+  test("a harness report of working keeps waiting; any other state replaces it", () => {
+    const dir = tempDir();
+    const agent = waitingAgent(dir);
+    lock(dir, { ...request("bun test", 2), agent });
+    acceptStatusReport(dir, agent, { state: "working" }, () => undefined);
+    expect(selectAgentStatus(dir, agent)?.state).toBe("waiting");
+    acceptStatusReport(dir, agent, { state: "aborted" }, () => undefined);
+    expect(selectAgentStatus(dir, agent)?.state).toBe("aborted");
   });
 
   test("the agent goes back to working when it gets the lock", () => {

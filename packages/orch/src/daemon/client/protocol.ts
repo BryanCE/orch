@@ -356,6 +356,7 @@ export const RPC_RESULTS = {
     z.object({ verdict: z.literal("wait"), pattern: z.string(), holder: z.string(), since: z.number() }),
     z.object({ verdict: z.literal("gave-up"), pattern: z.string(), holder: z.string(), waitedMs: z.number() }),
     z.object({ verdict: z.literal("refused"), requestId: z.string() }),
+    z.object({ verdict: z.literal("denied"), pattern: z.string() }),
   ]),
   "command-unlock": OK,
   enqueue: z.object({ task: z.custom<TaskRec>(isTaskRec) }),

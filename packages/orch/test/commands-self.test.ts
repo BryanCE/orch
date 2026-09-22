@@ -19,6 +19,8 @@ const workerSettings = (maxDepth: number): OrchSettings => ({
   enabled: { adapters: ["pi"], backends: ["headless"] },
   locked_commands: [],
   gated_commands: [],
+  denied_commands: { commands: [], applies_to: ["workers"] },
+  settings_file: { typo_max_edits: 2 },
   defaults: { ...SETTINGS_DEFAULTS.defaults, models: {} },
   fleet: { ...SETTINGS_DEFAULTS.fleet, max_agents_per_space: {}, max_depth: maxDepth },
   models: { allowed: {}, preferred: {} },
@@ -51,8 +53,8 @@ describe("commands/self", () => {
 
   test("uses caller depth for worker spawn policy", () => {
     const self = { id: "x", kind: "agent" as const, space: null, view: null, depth: 2 };
-    expect(workerHeaderContextOf(self, workerSettings(3)).maySpawn).toBe(false);
-    expect(workerHeaderContextOf(self, workerSettings(4)).maySpawn).toBe(true);
+    expect(workerHeaderContextOf(self, workerSettings(3), undefined).maySpawn).toBe(false);
+    expect(workerHeaderContextOf(self, workerSettings(4), undefined).maySpawn).toBe(true);
   });
 
   test("refuses non-operator overrides", () => {

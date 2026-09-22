@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import { join } from "node:path";
-import { settingsDefects } from "../src/settings/defects.ts";
+import { newerSettingsKeys, settingsDefects } from "../src/settings/defects.ts";
 import { createRepairState, plannedRepairs, repairReducer } from "../src/settings/repair.ts";
 import { applySettingsRepairs } from "../src/settings/write.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
@@ -46,19 +46,17 @@ const STALE_FILE = {
   workspaces: {},
 };
 
+const STALE_KEYS = ["fleet.cross_workspace", "fleet.pack_cap", "fleet.spawn_cap", "fleet.workspace_caps", "workspaces"];
+
 describe("repairing a settings.json the schema rejects", () => {
   test("reports every rejected key without touching the file", () => {
     const directory = orchDirWith(STALE_FILE);
     const file = join(directory, "settings.json");
     const before = readFileSync(file, "utf8");
 
-    const paths = settingsDefects(file).map((defect) => defect.path);
-    expect(paths).toContain("schemaVersion");
-    expect(paths).toContain("fleet.spawn_cap");
-    expect(paths).toContain("fleet.pack_cap");
-    expect(paths).toContain("fleet.workspace_caps");
-    expect(paths).toContain("fleet.cross_workspace");
-    expect(paths).toContain("workspaces");
+    expect(settingsDefects(file).map((defect) => defect.path)).toEqual(["schemaVersion"]);
+    // A removed key reads like a key a newer orch added: kept, ignored, never a defect.
+    expect([...newerSettingsKeys(file)].sort()).toEqual(STALE_KEYS);
     // Diagnosis is not repair: reading a broken file may not change it.
     expect(readFileSync(file, "utf8")).toBe(before);
   });
@@ -76,14 +74,11 @@ describe("repairing a settings.json the schema rejects", () => {
     const directory = orchDirWith(STALE_FILE);
     const file = join(directory, "settings.json");
 
-    let state = createRepairState(settingsDefects(file));
-    state = choose(state, "schemaVersion", "set");
-    for (const path of ["fleet.spawn_cap", "fleet.pack_cap", "fleet.workspace_caps", "fleet.cross_workspace", "workspaces"]) {
-      state = choose(state, path, "drop");
-    }
+    const state = choose(createRepairState(settingsDefects(file)), "schemaVersion", "set");
     applySettingsRepairs(fileSettingsManager(directory), plannedRepairs(state));
 
     expect(settingsDefects(file)).toEqual([]);
+    expect([...newerSettingsKeys(file)].sort()).toEqual(STALE_KEYS);
     const loaded = readSettingsFile(file);
     expect(loaded?.schemaVersion).toBe(1);
     expect(loaded?.runtime).toBe("bun");

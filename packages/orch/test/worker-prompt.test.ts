@@ -67,17 +67,10 @@ describe("worker prompt capability composition", () => {
     expect(unnamed).toContain("Run the tests and typechecks this repository already has.");
   });
 
-  test("locked-commands clause names the commands and tells the worker to run them as usual", () => {
-    const header = workerHeaderFor(getAdapter("pi"), { lockedCommands: ["bun test", "bun run check"] });
-    expect(header).toContain("one at a time machine-wide: bun test, bun run check");
-    expect(header).toContain("Run them as usual");
-    expect(header).not.toContain("gives up");
-  });
-
-  test("locked-commands clause names the give-up time and says to do other work first", () => {
-    const header = workerHeaderFor(getAdapter("pi"), { lockedCommands: ["bun test"], lockWaitMs: 180_000 });
-    expect(header).toContain("give such a command 180s more than it needs");
-    expect(header).toContain("After 180s orch gives up and the command does not run: do your other work, then run it again.");
+  test("the header says nothing about the lock: the harness hook takes it", () => {
+    const header = workerHeaderFor(getAdapter("pi"), { verifyCommands: ["bunx oxlint <files>"], gatedCommands: ["git push"] });
+    expect(header).not.toContain("orch lock");
+    expect(header).not.toContain("machine-wide");
   });
 
   test("gated-commands clause names the commands and asks for the request id", () => {
@@ -87,8 +80,7 @@ describe("worker prompt capability composition", () => {
   });
 
   test("no command clauses when both lists are empty", () => {
-    const header = workerHeaderFor(getAdapter("pi"), { lockedCommands: [], gatedCommands: [] });
-    expect(header).not.toContain("machine-wide");
+    const header = workerHeaderFor(getAdapter("pi"), { gatedCommands: [] });
     expect(header).not.toContain("approval");
   });
 

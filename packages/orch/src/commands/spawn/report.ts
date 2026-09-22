@@ -166,7 +166,7 @@ async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settin
     try {
       const { id: dispatchId, ack } = await dispatchToAgent(services, logger, agent.key, text, {
         adapter: resolveAdapterOrDie(settings.adapter),
-        context: { maySpawn, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
+        context: { maySpawn, cwd: settings.cwd, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
       });
       dispatches.push({ name: agent.name, key: agent.key, dispatchId });
       const verb = ack === "acknowledged" ? "dispatched" : "queued";

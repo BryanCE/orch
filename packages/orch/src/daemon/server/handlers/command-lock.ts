@@ -2,7 +2,8 @@
 // locked one wait while a live process holds its pattern, else take every pattern
 // at once so two wrappers can never each hold half of what the other needs.
 import { recordedInstanceIsLive } from "../../../process-identity.ts";
-import { matchedPatterns } from "../../../policy/command-gate.ts";
+import { matchedPatterns, wholeCommandMatch } from "../../../policy/command-gate.ts";
+import { agentById } from "../../../store/agent-rows.ts";
 import { isAgentState } from "../../../agent-state.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { presenceEntry, recordAgentStatus } from "../../../presence/store.ts";
@@ -12,12 +13,12 @@ import { transitionEventFromRow } from "../status-events.ts";
 import type { AgentState } from "../../../agent-state.ts";
 import type { OrchDir } from "../../../types/core.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
-import type { OrchSettings } from "../../../types/settings.ts";
+import type { DenyAudience, OrchSettings } from "../../../types/settings.ts";
 import type { GrantAction } from "../../../types/store.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 
 type LockParams = ParamsOf<"command-lock">;
-type LockSettings = Pick<OrchSettings, "locked_commands" | "gated_commands"> & { timeouts: Pick<OrchSettings["timeouts"], "lock_wait_ms"> };
+type LockSettings = Pick<OrchSettings, "locked_commands" | "gated_commands" | "denied_commands"> &{ timeouts: Pick<OrchSettings["timeouts"], "lock_wait_ms"> };
 type Publish = (event: NotifyEvent) => void;
 
 function heldBy(params: LockParams): (row: CommandLockRow) => boolean {
@@ -57,8 +58,21 @@ function blockedVerdict(directory: OrchDir, limitMs: number, waitedMs: number, b
   return { verdict: "wait", pattern: blocking.pattern, holder, since: blocking.acquiredAt };
 }
 
+/** A worker is an agent orch spawned; an orchestrator is a session orch did not. */
+function audienceOf(directory: OrchDir, agent: string): DenyAudience {
+  return agentById(directory, agent)?.spawnedBy ? "workers" : "orchestrators";
+}
+
+/** The denied pattern this agent runs, when `denied_commands.applies_to` covers it. The human is never denied. */
+function deniedPattern(directory: OrchDir, denied: LockSettings["denied_commands"], command: string, agent: string | null): string | undefined {
+  if (agent === null || !denied.applies_to.includes(audienceOf(directory, agent))) return undefined;
+  return wholeCommandMatch(command, denied.commands);
+}
+
 export function lockCommand(directory: OrchDir, settings: LockSettings, params: LockParams, publish: Publish): ResultOf<"command-lock"> {
   const agent = params.agent !== null && agentView(directory, params.agent) !== null ? params.agent : null;
+  const denied = deniedPattern(directory, settings.denied_commands, params.command, agent);
+  if (denied !== undefined) return { verdict: "denied", pattern: denied };
   const action: GrantAction = { kind: "command.run", params: { command: params.command, cwd: params.cwd } };
   const gated = matchedPatterns(params.command, settings.gated_commands).length > 0;
   if (gated && !grantIsApproved(directory, action)) return { verdict: "refused", requestId: requestGrant(directory, action, agent).id };

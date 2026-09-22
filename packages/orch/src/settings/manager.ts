@@ -13,7 +13,7 @@ function createSettingsManager(storage: SettingsStorage): SettingsManager {
   const currentOrNull = (): OrchSettings | null => {
     if (held === undefined) {
       const text = storage.read();
-      held = { value: text === null ? null : settingsFromFile(storage.file, parseSettingsText(text, storage.file)) };
+      held = { value: text === null ? null : settingsFromFile(storage.file, parseSettingsText(text, storage.file).settings) };
     }
     return held.value;
   };
@@ -31,7 +31,7 @@ function createSettingsManager(storage: SettingsStorage): SettingsManager {
       let policy: SettingsLockPolicy = SETTINGS_DEFAULTS.lock;
       if (text !== null) {
         try {
-          policy = settingsFromFile(storage.file, parseSettingsText(text, storage.file)).lock;
+          policy = settingsFromFile(storage.file, parseSettingsText(text, storage.file).settings).lock;
         } catch {
           // The repair path writes a malformed file whose policy is unknowable.
         }

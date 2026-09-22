@@ -4,13 +4,14 @@
 // store — `maySpawnBelow` and `workerHeaderContextOf` — live in policy/spawner.ts.
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
+import { commandIn } from "./policy/command-paths.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
 import type { ContextReference, WorkerHeaderContext, WorkerRules } from "./types/core.ts";
 import type { OrchSettings } from "./types/settings.ts";
 
 /** The rules this machine puts in every worker header, whoever launched the worker. */
 export function workerRules(settings: OrchSettings): WorkerRules {
-  return { lockedCommands: settings.locked_commands, lockWaitMs: settings.timeouts.lock_wait_ms, gatedCommands: settings.gated_commands, verifyCommands: settings.workers.verify_commands };
+  return { gatedCommands: settings.gated_commands, verifyCommands: settings.workers.verify_commands };
 }
 
 /**
@@ -26,9 +27,10 @@ const WORKER_HEADER_BASE =
   " Do the work yourself. A slice too big for one agent is reported back, not split by you.";
 
 /** Names the commands that verify a slice; falls back to the repository's own when the user declared none. */
-function verifyCommandsClause(verifyCommands: readonly string[]): string {
+function verifyCommandsClause(verifyCommands: readonly string[], cwd: string | undefined): string {
   if (verifyCommands.length === 0) return " Run the tests and typechecks this repository already has.";
-  return ` Verify with: ${verifyCommands.join(", ")}.`;
+  const commands = cwd === undefined ? verifyCommands : verifyCommands.map((command) => commandIn(command, cwd, process.env.WSL_DISTRO_NAME));
+  return ` Verify with: ${commands.join(", ")}.` + (cwd === undefined ? "" : ` Work only inside ${cwd}.`);
 }
 
 /** Tell the worker whether it may create another provenance level. */
@@ -58,18 +60,6 @@ const WORKER_HEADER_NO_SPAWNER_CLAUSE =
   " finish, write your result, END the turn - your result is collected from your session/result file;" +
   " NEVER route a report through another agent.";
 
-/** Names the commands that run one at a time machine-wide; empty when the user declared none. */
-function lockedCommandsClause(lockedCommands: readonly string[], lockWaitMs: number | undefined): string {
-  if (lockedCommands.length === 0) return "";
-  const clause = ` These commands run one at a time machine-wide: ${lockedCommands.join(", ")}.` +
-    " Run them as usual; orch makes each wait its turn.";
-  if (lockWaitMs === undefined) return clause;
-  const seconds = Math.round(lockWaitMs / 1000);
-  return clause +
-    ` The wait counts against your command timeout, so give such a command ${seconds}s more than it needs.` +
-    ` After ${seconds}s orch gives up and the command does not run: do your other work, then run it again.`;
-}
-
 /** Names the commands only the human may allow; empty when the user declared none. */
 function gatedCommandsClause(gatedCommands: readonly string[]): string {
   if (gatedCommands.length === 0) return "";
@@ -84,9 +74,9 @@ export function workerHeaderFor(adapter: AgentAdapter | undefined, context: Part
     ? WORKER_HEADER_SPAWNER_CLAUSE
     : context.spawnerRepliable ? "" : WORKER_HEADER_NO_SPAWNER_CLAUSE;
   return WORKER_HEADER_BASE
-    + verifyCommandsClause(context.verifyCommands ?? [])
+    + verifyCommandsClause(context.verifyCommands ?? [], context.cwd)
     + workerSpawnClause(context.maySpawn === true)
-    + ask + spawner + lockedCommandsClause(context.lockedCommands ?? [], context.lockWaitMs) + gatedCommandsClause(context.gatedCommands ?? []);
+    + ask + spawner + gatedCommandsClause(context.gatedCommands ?? []);
 }
 
 /** Strip the composed worker header (base + any clauses) from a dispatched task's text. */

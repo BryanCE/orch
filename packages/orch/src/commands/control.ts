@@ -326,7 +326,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   if (!dispatchSettings.keepContext) await clearSession(services, key, gov.steal === true);
   const pinWarnings = await pinModels(services, services.logger, [{ key, handle: dispatchSettings.handle, name: dispatchSettings.ent.name ?? dispatchSettings.handle, model, thinking }]);
   if (pinWarnings.length > 0) process.exitCode = 1;
-  const headerContext = workerHeaderContextOf(self, settings);
+  const headerContext = workerHeaderContextOf(self, settings, dispatchSettings.view?.cwd);
   const agentAdapter = getAdapter(dispatchSettings.view?.harnessId ?? dispatchSettings.ent.agent ?? "");
   const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: agentAdapter, context: headerContext, gov });
   if (dispatchSettings.view === null) await recordAdoptedAgent(services, self, key, dispatchSettings, { model, thinking });

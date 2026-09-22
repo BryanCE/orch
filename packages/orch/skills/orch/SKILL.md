@@ -44,8 +44,10 @@ Dispatch clears the context itself. There is no reset step between two tasks.
 ## The project's commands are a setting, set once before the first wave
 
 Every worker header carries `workers.verify_commands` (what a worker runs over its own
-files before it reports) and `locked_commands` (heavy commands that run one at a time
-machine-wide, so ten workers never run the test suite at once). A task file never names a
+files before it reports; write `{cwd}` or `{wincwd}` for the agent's directory, never a
+path). `locked_commands` are heavy commands that run one at a time machine-wide, so ten
+workers never run the test suite at once; the harness hook locks each match, and the
+worker never hears of it. A task file never names a
 lint, type check or test command. Set both from the project before the first wave, once per
 project:
 
@@ -68,6 +70,12 @@ not run, and the agent does its other work first. Step in only when the holder i
 migration, a push). A match is refused with a request id. Hand the user
 `orch grant <id>`; the agent reruns the exact command once it is approved. A worker's
 header tells it to report the id. You never run a gated command yourself.
+
+`denied_commands.commands` is the user's list of commands an agent never runs, with no
+grant. `denied_commands.applies_to` names who is refused: `workers`, `orchestrators`, or
+both. A pattern matches only the whole command: `bun test` refuses the full suite, and
+`bun test <file>` runs. Never write prose, `*`, or `<file>` into any command list; orch
+refuses it.
 
 ## A task is written once. `--file` sends that file.
 

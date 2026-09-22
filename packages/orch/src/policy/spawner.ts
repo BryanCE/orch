@@ -51,8 +51,8 @@ export function maySpawnBelow(self: CallerSelf, maxDepth: number): boolean {
 }
 
 /** The header context for a worker this caller dispatches to. */
-export function workerHeaderContextOf(self: CallerSelf, settings: OrchSettings): WorkerHeaderContext {
-  return { maySpawn: maySpawnBelow(self, settings.fleet.max_depth), spawnerRepliable: self.id !== null, ...workerRules(settings) };
+export function workerHeaderContextOf(self: CallerSelf, settings: OrchSettings, cwd: string | undefined): WorkerHeaderContext {
+  return { maySpawn: maySpawnBelow(self, settings.fleet.max_depth), ...(cwd === undefined ? {} : { cwd }), spawnerRepliable: self.id !== null, ...workerRules(settings) };
 }
 
 /**

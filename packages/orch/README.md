@@ -109,8 +109,9 @@ whole fan-out.
 
 Every dispatch is prefixed with a **worker header** unless you pass `--raw`. It tells the
 worker the pane is unattended, forbids it from fanning out its own subagents or shelling
-out to `orch`, and names the `locked_commands` (one at a time machine-wide) and the
-`gated_commands` (only after `orch grant`). The header is composed from the
+out to `orch`, names the `workers.verify_commands` with `{cwd}`/`{wincwd}` filled in, and names
+the `gated_commands` (only after `orch grant`). It says nothing about `locked_commands`: the
+harness hook runs every match through `orch lock` itself. The header is composed from the
 harness's declared capabilities — a clause is only added when the mechanism behind it
 actually works ([`src/worker-prompt.ts`](src/worker-prompt.ts)).
 
@@ -159,7 +160,7 @@ workers are never told to reply to an address that would refuse them.
 | `reload <target>… \| --all` | Reload panes and signal watchers. |
 | `reset <target>… \| --all [--model M]` / `new` | Fresh session and context, same pane. |
 | `restart <target>… \| --all [--cmd C]` | Close the harness process and relaunch it. |
-| `lock -- '<command>'` | Run a `locked_commands` match one at a time machine-wide, or a `gated_commands` match once the human granted it. Harness hooks rewrite matches into this. |
+| `lock -- '<command>'` | Run a `locked_commands` match one at a time machine-wide, or a `gated_commands` match once the human granted it. Refuse a `denied_commands` whole-command match for the agents `denied_commands.applies_to` names, with no grant. Harness hooks rewrite matches into this. |
 | `spawn <name> [<name>…] [--tab L] [--dir P] [--model M] [--agent A] [--backend B] [--prompt T] [--worktree]` | Fresh tab of tiled agents, one per name. `--dir` only when an agent belongs outside the spawner's directory. |
 | `tile <tab\|pane> <name> …` | Add one pane to an existing tab. |
 | `grant [<hash>\|--list]` | Approve an action an agent was refused. Needs a terminal; no flag answers the prompt for you. |
@@ -285,6 +286,7 @@ effective value with the source that won.
   ],
   "locked_commands": [],
   "gated_commands": [],
+  "denied_commands": { "commands": ["bun test"], "applies_to": ["workers"] },
   "daemon": { "tcp_port": 3716, "idle_shutdown_minutes": 30 },
   "tiling": { "first_split": "rows" },
   "skills": { "install": true, "store": "~/.agents/skills", "link": ["~/.claude/skills"] },

@@ -10,7 +10,8 @@ import { ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import { errnoCode, errorMessage, isRecord, valueAtPath } from "../util.ts";
 import { isLogLevel } from "../log.ts";
 import type { AdapterId } from "../types/adapter.ts";
-import { SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA, type SettingsFile, settingsPath } from "./schema.ts";
+import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA, type SettingsFile, settingsPath } from "./schema.ts";
+import { checkSettingsKeys, type UnknownKey } from "./unknown-keys.ts";
 import type { OrchSettings, SettingSource } from "../types/settings.ts";
 import type { LogLevel, OrchDir } from "../types/core.ts";
 
@@ -35,38 +36,54 @@ function unknownProviderId(root: unknown, path: readonly PropertyKey[]):
   };
 }
 
-/** Parse and schema-validate settings text. `file` is only used in messages. Throws loudly on any defect. */
-export function parseSettingsText(text: string, file: string): SettingsFile {
+/** Plain guidance naming the file, what is wrong, and the exact command that fixes it.
+ *  A raw zod issue dump never reaches the operator. */
+function invalidSettingsError(file: string, parsed: unknown, error: z.ZodError): Error {
+  const root = isRecord(parsed) ? parsed : null;
+  if (error.issues.some((issue) => issue.path[0] === "schemaVersion")) {
+    return new Error(`${file}: this settings file was written by an older orch (schemaVersion ${JSON.stringify(root?.schemaVersion)}; this orch reads ${SETTINGS_SCHEMA}) and cannot be read.\nRun: orch setup`);
+  }
+  // The runtime is declared, never inferred: there is deliberately no default-on-read.
+  if (error.issues.some((issue) => issue.path[0] === "runtime")) {
+    const found = root?.runtime;
+    const problem = found === undefined
+      ? `has no top-level "runtime" key, so orch does not know which JS runtime to run its harness shims under`
+      : `declares runtime ${JSON.stringify(found)}, which is not a runtime orch supports`;
+    return new Error(`${file}: ${problem}. Accepted values: ${ORCH_RUNTIMES.join(", ")}.\nRun: orch setup`);
+  }
+  const provider = error.issues.map((issue) => unknownProviderId(root, issue.path)).find(Boolean);
+  if (provider) {
+    return new Error(`${file}: ${provider.at}: unknown ${provider.noun} ${JSON.stringify(provider.found)} - supported ${provider.noun}s: ${provider.supported.join(", ")}\nRun: orch setup`);
+  }
+  return new Error(`${file}: this settings file has invalid values:\n${z.prettifyError(error)}\nFix those keys by hand, or re-record the file with: orch setup`);
+}
+
+/** The declared settings, and the keys a newer build added that this build keeps but ignores. */
+export interface ParsedSettings {
+  readonly settings: SettingsFile;
+  readonly newer: readonly UnknownKey[];
+}
+
+/** Validate a raw settings root. `file` is only used in messages. Throws on a bad value or a misspelled key. */
+export function parseSettingsRoot(raw: unknown, file: string): ParsedSettings {
+  const { result, typos, newer } = checkSettingsKeys(raw);
+  if (!result.success) throw invalidSettingsError(file, raw, result.error);
+  if (typos.length) {
+    const named = typos.map((typo) => `${typo.key.at.join(".")} (did you mean ${typo.meant}?)`).join(", ");
+    throw new Error(`${file}: not a settings key: ${named}\nFix the key by hand, or run: orch settings`);
+  }
+  return { settings: result.data, newer };
+}
+
+/** Parse and validate settings text. `file` is only used in messages. Throws loudly on any defect. */
+export function parseSettingsText(text: string, file: string): ParsedSettings {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch (error: unknown) {
     throw new Error(`${file}: expected valid JSON, found ${errorMessage(error)}`);
   }
-  const result = SETTINGS_FILE_SCHEMA.safeParse(parsed);
-  if (!result.success) {
-    // Every rejection below is rendered as plain guidance naming the file, what is wrong, and
-    // the exact command that fixes it. A raw zod issue dump never reaches the operator.
-    const root = isRecord(parsed) ? parsed : null;
-    if (result.error.issues.some((issue) => issue.path[0] === "schemaVersion")) {
-      throw new Error(`${file}: this settings file was written by an older orch (schemaVersion ${JSON.stringify(root?.schemaVersion)}; this orch reads ${SETTINGS_SCHEMA}) and cannot be read.\nRun: orch setup`);
-    }
-    // The runtime is declared, never inferred: an absent or unrecognized value is a hard error
-    // naming the three accepted values. There is deliberately no default-on-read.
-    if (result.error.issues.some((issue) => issue.path[0] === "runtime")) {
-      const found = root?.runtime;
-      const problem = found === undefined
-        ? `has no top-level "runtime" key, so orch does not know which JS runtime to run its harness shims under`
-        : `declares runtime ${JSON.stringify(found)}, which is not a runtime orch supports`;
-      throw new Error(`${file}: ${problem}. Accepted values: ${ORCH_RUNTIMES.join(", ")}.\nRun: orch setup`);
-    }
-    const provider = result.error.issues.map((issue) => unknownProviderId(root, issue.path)).find(Boolean);
-    if (provider) {
-      throw new Error(`${file}: ${provider.at}: unknown ${provider.noun} ${JSON.stringify(provider.found)} - supported ${provider.noun}s: ${provider.supported.join(", ")}\nRun: orch setup`);
-    }
-    throw new Error(`${file}: this settings file has invalid values:\n${z.prettifyError(result.error)}\nFix those keys by hand, or re-record the file with: orch setup`);
-  }
-  return result.data;
+  return parseSettingsRoot(parsed, file);
 }
 
 /** Parse and schema-validate `settings.json`, or null when the file is absent. Throws loudly on any defect. */
@@ -78,7 +95,7 @@ export function readSettingsFile(file: string): SettingsFile | null {
     if (errnoCode(error) === "ENOENT") return null;
     throw error;
   }
-  return parseSettingsText(text, file);
+  return parseSettingsText(text, file).settings;
 }
 
 /** Move an unreadable `settings.json` aside so `orch setup` can re-record from scratch, and
@@ -196,6 +213,13 @@ const settingsValueExtractors = {
   notify: (root: Partial<SettingsFile>) => root.notify ?? [],
   locked_commands: (root: Partial<SettingsFile>) => root.locked_commands ?? [],
   gated_commands: (root: Partial<SettingsFile>) => root.gated_commands ?? [],
+  denied_commands: (root: Partial<SettingsFile>) => ({
+    commands: root.denied_commands?.commands ?? [],
+    applies_to: root.denied_commands?.applies_to ?? SETTINGS_DEFAULTS.denied_commands.applies_to,
+  }),
+  settings_file: (root: Partial<SettingsFile>) => ({
+    typo_max_edits: root.settings_file?.typo_max_edits ?? SETTINGS_DEFAULTS.settings_file.typo_max_edits,
+  }),
   hosts: (root: Partial<SettingsFile>) => root.hosts ?? {},
   spaces: (root: Partial<SettingsFile>) => root.spaces ?? {},
   daemon: (root: Partial<SettingsFile>) => ({
@@ -238,6 +262,8 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
     notify: settingsValueExtractors.notify(root),
     locked_commands: settingsValueExtractors.locked_commands(root),
     gated_commands: settingsValueExtractors.gated_commands(root),
+    denied_commands: settingsValueExtractors.denied_commands(root),
+    settings_file: settingsValueExtractors.settings_file(root),
     hosts: settingsValueExtractors.hosts(root),
     spaces: settingsValueExtractors.spaces(root),
     daemon: settingsValueExtractors.daemon(root),

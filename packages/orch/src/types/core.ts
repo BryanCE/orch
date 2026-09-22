@@ -218,9 +218,8 @@ export interface ShimScope {
 
 export interface WorkerHeaderContext {
   maySpawn: boolean;
-  lockedCommands?: readonly string[];
-  /** How long a locked command waits for its turn before orch gives up on it. */
-  lockWaitMs?: number;
+  /** The agent's own directory: `{cwd}` and `{wincwd}` in a verify command become it. */
+  cwd?: string;
   gatedCommands?: readonly string[];
   /** The commands that prove a slice is finished. Empty: the header asks for
    *  whatever the repository already has, because orch was told no verb. */
@@ -231,7 +230,7 @@ export interface WorkerHeaderContext {
 }
 
 /** The half of a worker header that comes from settings rather than from this spawn. */
-export type WorkerRules = Pick<WorkerHeaderContext, "lockedCommands" | "lockWaitMs" | "gatedCommands" | "verifyCommands">;
+export type WorkerRules = Pick<WorkerHeaderContext, "gatedCommands" | "verifyCommands">;
 
 /** One `--with` reference: where the agent looks for context, never what it is told. */
 export interface ContextReference {

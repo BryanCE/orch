@@ -4,7 +4,7 @@ import type { ResultReport, StatusPatch } from "../../types/presence.ts";
 import type { RunRecord } from "../../types/store.ts";
 import { isAgentState } from "../../agent-state.ts";
 import { agentView } from "../../store/agent-view.ts";
-import { type AgentStatusRow } from "../../store/status-rows.ts";
+import { selectAgentStatus, type AgentStatusRow } from "../../store/status-rows.ts";
 import { upsertRun } from "../../store/run-rows.ts";
 import { appendStatusHistory, writeResult } from "../../presence/history.ts";
 import { loadPresence, probeAllProcesses, reapDeadAgentRecords, recordAgentStatus, runIsSettled } from "../../presence/store.ts";
@@ -36,6 +36,12 @@ function runFromRow(orchDir: OrchDir, row: AgentStatusRow, now: number): RunReco
   return run;
 }
 
+/** A harness still reports `working` while its command waits on a lock; only orchd's
+ *  lock verdict ends `waiting`. Any other state (done, aborted, error) still lands. */
+function lockWaitKept(orchDir: OrchDir, key: string, patch: StatusPatch): StatusPatch {
+  if (patch.state !== "working" || selectAgentStatus(orchDir, key)?.state !== "waiting") return patch;
+  return { ...patch, state: "waiting" };
+}
 
 export function acceptStatusReport(
   orchDir: OrchDir,
@@ -45,7 +51,7 @@ export function acceptStatusReport(
   now = Date.now(),
 ): { ok: true } {
   if (agentView(orchDir, key) === null) throw new Error(`agent ${key} does not exist`);
-  const { previous, current } = recordAgentStatus(orchDir, key, patch, now);
+  const { previous, current } = recordAgentStatus(orchDir, key, lockWaitKept(orchDir, key, patch), now);
   appendStatusHistory(key, orchDir, { ts: now, key, ...patch });
   try {
     const run = runFromRow(orchDir, current, now);

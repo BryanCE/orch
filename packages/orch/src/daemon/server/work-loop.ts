@@ -104,7 +104,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   // a presence key is that spawner's minted id.
   const spawnerKey = view?.spawnedBy;
   const spawnerRepliable = typeof spawnerKey === "string" && agentProcessLive(orchDir, spawnerKey);
-  const header = workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...rules });
+  const header = workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...(view === null ? {} : { cwd: view.cwd }), ...rules });
   const prompt = `${header}\n\n${task.text}`;
   // The claim's dispatch id rides every attempt: the bridge acks per id, so a
   // retry of the same id can never deliver the prompt twice, and the agent's

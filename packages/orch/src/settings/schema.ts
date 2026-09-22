@@ -5,7 +5,9 @@ import { HERDR_SINK_ID } from "../backends/backend.ts";
 import { BACKEND_IDS, TILE_FIRST_SPLITS } from "../types/backend.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { ORCH_RUNTIMES } from "../runtimes.ts";
-import { MAIL_DELIVERIES, NOTIFY_STATES, type NotifyState } from "../types/settings.ts";
+import { FIXED_PATH_MESSAGE, hasFixedPath } from "../policy/command-paths.ts";
+import { COMMAND_PATTERN_MESSAGE, isCommandPattern } from "../policy/command-gate.ts";
+import { DENY_AUDIENCES, MAIL_DELIVERIES, NOTIFY_STATES, type NotifyState } from "../types/settings.ts";
 import type { OrchDir } from "../types/core.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
@@ -16,6 +18,8 @@ import type { OrchDir } from "../types/core.ts";
 export const SETTINGS_SCHEMA = 1;
 
 const PositiveInt = z.number().int().positive();
+const SettingsCommand = z.string().refine((command) => !hasFixedPath(command), FIXED_PATH_MESSAGE);
+const CommandPattern = SettingsCommand.refine(isCommandPattern, COMMAND_PATTERN_MESSAGE);
 
 export const HostSchema = z.strictObject({
   /** SSH destination (for example, user@example.org). */
@@ -82,6 +86,8 @@ export const SETTINGS_DEFAULTS = {
   lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
   questions: { renag_ms: 120_000, renag_limit: 5 },
   monitor: { on: MONITOR_DEFAULT_ON },
+  denied_commands: { applies_to: ["workers"] },
+  settings_file: { typo_max_edits: 2 },
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
@@ -161,7 +167,7 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     builtin_tools: z.boolean().optional(),
     allow_tools: z.array(z.string()).optional(),
     /** Commands a worker runs to verify its own slice, named in its header. */
-    verify_commands: z.array(z.string()).optional(),
+    verify_commands: z.array(SettingsCommand).optional(),
   }).optional(),
   /** What a registered caller may change about this install. The human may change anything. */
   agents: z.strictObject({
@@ -225,8 +231,16 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     lock_poll_ms: PositiveInt.optional(),
   }).optional(),
   notify: z.array(NotifyEntrySchema).optional(),
-  locked_commands: z.array(z.string()).optional(),
-  gated_commands: z.array(z.string()).optional(),
+  locked_commands: z.array(CommandPattern).optional(),
+  gated_commands: z.array(CommandPattern).optional(),
+  denied_commands: z.strictObject({
+    commands: z.array(CommandPattern).optional(),
+    applies_to: z.array(z.enum(DENY_AUDIENCES)).optional(),
+  }).optional(),
+  settings_file: z.strictObject({
+    /** An unknown key this many edits from a declared key is a typo and is refused. */
+    typo_max_edits: z.number().int().min(0).optional(),
+  }).optional(),
   hosts: z.record(z.string(), HostSchema).optional(),
   spaces: z.record(z.string(), z.string()).optional(),
   daemon: z.strictObject({

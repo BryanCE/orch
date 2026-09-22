@@ -18,11 +18,14 @@ async function awaitLock(services: Services, params: ParamsOf<"command-lock">): 
   for (;;) {
     const verdict = await readRpc(services, "command-lock", params);
     if (verdict.verdict === "run") {
-      if (announced) process.stdout.write(`orch lock: got "${verdict.patterns.join('", "')}"; running.\n`);
+      if (verdict.patterns.length) process.stdout.write(`orch lock: holding "${verdict.patterns.join('", "')}".\n`);
       return verdict.patterns;
     }
     if (verdict.verdict === "refused") {
       die(`orch lock: this command is in gated_commands and needs the human's approval. Ask the human to run: orch grant ${verdict.requestId}\nThen run the exact same command again.`);
+    }
+    if (verdict.verdict === "denied") {
+      die(`orch lock: "${verdict.pattern}" is in denied_commands and no agent of your kind may run it. The command did not run. Run it over only the files you changed, or leave it to the human.`);
     }
     if (verdict.verdict === "gave-up") {
       die(`orch lock: gave up on "${verdict.pattern}" after ${Math.round(verdict.waitedMs / 1000)}s (timeouts.lock_wait_ms); ${verdict.holder} still holds it. The command did not run.\nDo your other work first, then run the same command again. Stop and report only when no other work is left.`);

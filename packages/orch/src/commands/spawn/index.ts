@@ -77,7 +77,7 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
         preferredModels: [...settings.preferredModels],
-        prompt: workerPrompt(plan.prompt ?? "", false, adapter, { maySpawn, spawnerRepliable: spawner.key !== null, ...workerRules(settingsFile) }),
+        prompt: workerPrompt(plan.prompt ?? "", false, adapter, { maySpawn, cwd, spawnerRepliable: spawner.key !== null, ...workerRules(settingsFile) }),
         tools: settings.tools,
         workers: settings.workers,
       }, {}, settingsFile.timeouts.adapter_command_ms);

@@ -2,7 +2,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
+import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from "../src/settings/schema.ts";
 import { allowedModelPatterns, declaredRuntime, reapUnreadableSettings, resolveSetting, resolveWithSource } from "../src/settings/read.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsAllowedModels, writeSettingsDefault, writeSettingsFullTree, writeSettingsEnabled, writeSettingsPreferredModels, writeSettingsRuntime } from "../src/settings/write.ts";
@@ -61,11 +61,11 @@ describe("loadSettings", () => {
     expect(() => fileSettingsManager(directory).current()).toThrow(/node, deno, bun/);
   });
 
-  test("rejects a runtime misplaced under defaults", () => {
+  test("a runtime misplaced under defaults is not the declared runtime", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { defaults: { runtime: "node" } });
+    writeSettingsFixture(directory, { runtime: "deno", defaults: { runtime: "node" } });
 
-    expect(() => fileSettingsManager(directory).current()).toThrow(/Unrecognized key.*runtime/);
+    expect(fileSettingsManager(directory).current().runtime).toBe("deno");
   });
 
   test("reads the declared runtime", () => {
@@ -124,6 +124,8 @@ describe("loadSettings", () => {
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       locked_commands: [],
       gated_commands: [],
+      denied_commands: { commands: [], applies_to: ["workers"] },
+      settings_file: { typo_max_edits: 2 },
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       spaces: { wD: "Design" },
       daemon: { tcp_port: 4321, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 7_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
@@ -166,18 +168,11 @@ describe("loadSettings", () => {
     expect(() => fileSettingsManager(directory).current()).toThrow(/queue\.max_retries/);
   });
 
-  test("rejects unknown settings keys", () => {
+  test("rejects a misspelled settings key by name", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { junk: true });
+    writeSettingsFixture(directory, { fleet: { max_dpeth: 4 } });
 
-    expect(() => fileSettingsManager(directory).current()).toThrow(/Unrecognized key.*junk/);
-  });
-
-  test("rejects removed spawn cap setting by name", () => {
-    const directory = tempDir();
-    writeSettingsFixture(directory, { fleet: { ["spawn_" + "cap"]: 4 } });
-
-    expect(() => fileSettingsManager(directory).current()).toThrow(new RegExp("Unrecognized key.*spawn_" + "cap"));
+    expect(() => fileSettingsManager(directory).current()).toThrow("fleet.max_dpeth (did you mean fleet.max_depth?)");
   });
 
   test("parses models.allowed as a per-harness pattern map", () => {
@@ -187,29 +182,24 @@ describe("loadSettings", () => {
     expect(fileSettingsManager(directory).current().models.allowed.pi).toEqual(["openrouter/a", "openrouter/b"]);
   });
 
-  test("rejects renamed fleet keys and loads their replacements", () => {
-    const oldKeys = ["pack" + "_cap", "max" + "_agents", "space" + "_caps"];
-    for (const key of oldKeys) {
-      const directory = tempDir();
-      writeSettingsFixture(directory, { fleet: { [key]: key === oldKeys[2] ? { main: 2 } : 2 } });
-      expect(() => fileSettingsManager(directory).current()).toThrow(/Unrecognized key/);
-      expect(() => fileSettingsManager(directory).current()).toThrow(new RegExp(key));
-    }
+  test("loads the fleet keys", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { max_agents_per_pack: 2, max_agents_total: 4, max_agents_per_space: { main: 2 } } });
     expect(fileSettingsManager(directory).current().fleet).toMatchObject({ max_agents_per_pack: 2, max_agents_total: 4, max_agents_per_space: { main: 2 } });
   });
 
-  test("rejects old settings keys", () => {
+  test("a key far from every declared key is ignored, never read as a setting", () => {
     for (const settings of [
+      { junk: true },
       { limits: {} },
+      { fleet: { spawn_cap: 4, pack_cap: 2 } },
       { defaults: { max_depth: 4 } },
       { defaults: { allowed_models: ["openrouter/a"] } },
       { defaults: { worker_peer_tools: true } },
     ]) {
       const directory = tempDir();
       writeSettingsFixture(directory, settings);
-      expect(() => fileSettingsManager(directory).current()).toThrow(/Unrecognized key/);
+      expect(fileSettingsManager(directory).current().fleet.max_depth).toBe(SETTINGS_DEFAULTS.fleet.max_depth);
     }
   });
 
@@ -243,6 +233,8 @@ describe("loadSettings", () => {
       notify: [],
       locked_commands: [],
       gated_commands: [],
+      denied_commands: { commands: [], applies_to: ["workers"] },
+      settings_file: { typo_max_edits: 2 },
       hosts: {},
       spaces: {},
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },

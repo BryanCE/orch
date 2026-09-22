@@ -34,7 +34,7 @@ export async function cmdRun(services: Services, args: string[]): Promise<void> 
   const resolved = await resolveEntity(services, target, { crossSpace: gov.crossSpace });
   if (!resolved.entity.paneId) die(`Target "${target}" has no pane.`);
   const settings = services.settings.current();
-  const headerContext = workerHeaderContextOf(self, settings);
+  const headerContext = workerHeaderContextOf(self, settings, resolved.view?.cwd);
   const adapter = getAdapter(resolved.view?.harnessId ?? resolved.entity.agent ?? "");
   const result = await writeRpc(services, "dispatch", { target: resolved.entity.key, text: workerPrompt(prompt, raw, adapter, headerContext) }, gov);
   const recipient = recipientOf(resolved.view ?? undefined, resolved.entity.space ?? "space", resolved.entity.key);

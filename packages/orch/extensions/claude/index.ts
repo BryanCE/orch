@@ -29,6 +29,15 @@ import type { StatusPatch } from "orch/core/types/presence.ts";
 
 const MAX_TEXT = 400;
 const MAX_TASK = 200;
+/** Claude's Bash tool: its timeout is in ms, 2 minutes when unset, 10 minutes at most. */
+const BASH_DEFAULT_TIMEOUT_MS = 120_000;
+const BASH_MAX_TIMEOUT_MS = 600_000;
+
+/** The Bash timeout with the lock wait added, so waiting for the lock never eats the command's own time. */
+function bashTimeoutWithWait(timeout: unknown, lockWaitMs: number): number {
+  const own = typeof timeout === "number" ? timeout : BASH_DEFAULT_TIMEOUT_MS;
+  return Math.min(BASH_MAX_TIMEOUT_MS, own + lockWaitMs);
+}
 
 /** Read a claude transcript file to raw JSONL, or undefined when absent/unreadable. */
 function readTranscript(transcriptPath: string | undefined): string | undefined {
@@ -67,9 +76,11 @@ if (event === "pretooluse") {
   const toolInput = input.tool_input;
   if (input.tool_name !== "Bash" || !isRecord(toolInput) || typeof toolInput.command !== "string") process.exit(0);
   const file = readSettingsFile(settingsPath(session.orchDir));
-  const wrapped = file === null ? undefined : lockedCommandLine(toolInput.command, gatedPatterns(settingsValues(file)));
-  if (wrapped !== undefined) {
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { ...toolInput, command: wrapped } } }));
+  const settings = file === null ? null : settingsValues(file);
+  const wrapped = settings === null ? undefined : lockedCommandLine(toolInput.command, gatedPatterns(settings));
+  if (settings !== null && wrapped !== undefined) {
+    const timeout = bashTimeoutWithWait(toolInput.timeout, settings.timeouts.lock_wait_ms);
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { ...toolInput, command: wrapped, timeout } } }));
   }
   process.exit(0);
 }

@@ -67,14 +67,22 @@ describe("doctor settings defects", () => {
     rmSync(file, { recursive: true, force: true });
   });
 
-  test("reports a stale key with the value that was written", async () => {
+  test("warns about a key this orch does not know, which a newer orch added", async () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { spawn_cap: 8 } });
 
     const result = await checkSettingsFile(directory);
+    expect(result.status).toBe("warn");
+    expect(result.detail).toContain("this orch does not know fleet.spawn_cap");
+  });
+
+  test("fails on a typo with the value that was written", async () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { fleet: { max_dpeth: 2 } });
+
+    const result = await checkSettingsFile(directory);
     expect(result.status).toBe("fail");
     expect(result.detail).toContain("1 key cannot be read; fix: orch settings");
-    expect(result.detail).toContain("fleet.spawn_cap = 8  not a settings key");
     expect(result.detail).not.toContain("orch setup");
   });
 
@@ -96,7 +104,7 @@ describe("doctor settings defects", () => {
 
   test("skips settings-dependent checks with a short repair hint", async () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { fleet: { spawn_cap: 8 } });
+    writeSettingsFixture(directory, { fleet: { max_dpeth: 8 } });
 
     const results = await runTestDoctor(directory, { sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
     const result = results.find((entry) => entry.id === "spawn-limits");

@@ -4,7 +4,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { settingsDefects } from "../src/settings/defects.ts";
+import { newerSettingsKeys, settingsDefects } from "../src/settings/defects.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 
 const directories: OrchDir[] = [];
@@ -51,12 +51,18 @@ describe("settingsDefects", () => {
     ]);
   });
 
-  test("does not guess a replacement for a removed key", () => {
-    const file = writeSettingsFixture(tempDir(), { fleet: { spawn_cap: 3 } });
+  test("a key far from every declared key is a newer build's key, not a defect", () => {
+    const file = writeSettingsFixture(tempDir(), { fleet: { spawn_cap: 3 }, denied_commands: { commands: ["bun test"] } });
 
-    const defects = settingsDefects(file);
-    expect(defects).toHaveLength(1);
-    expect(defects[0]).toEqual({ path: "fleet.spawn_cap", value: 3, problem: "not a settings key" });
+    expect(settingsDefects(file)).toEqual([]);
+    expect(newerSettingsKeys(file)).toEqual(["fleet.spawn_cap"]);
+  });
+
+  test("settings_file.typo_max_edits sets how near a key must be to count as a typo", () => {
+    const file = writeSettingsFixture(tempDir(), { fleet: { max_dpeth: 3 }, settings_file: { typo_max_edits: 0 } });
+
+    expect(settingsDefects(file)).toEqual([]);
+    expect(newerSettingsKeys(file)).toEqual(["fleet.max_dpeth"]);
   });
 
   test("reports the expected pinned schema value", () => {

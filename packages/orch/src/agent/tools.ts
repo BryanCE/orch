@@ -315,7 +315,10 @@ export function registerAgentTools(
     const current = settings.currentOrNull();
     if (current === null || typeof event.input.command !== "string") return;
     const wrapped = lockedCommandLine(event.input.command, gatedPatterns(current));
-    if (wrapped !== undefined) event.input.command = wrapped;
+    if (wrapped === undefined) return;
+    event.input.command = wrapped;
+    // pi's bash timeout is in seconds and absent means none; the lock wait must not eat it.
+    if (typeof event.input.timeout === "number") event.input.timeout += Math.ceil(current.timeouts.lock_wait_ms / 1000);
   });
 
   function finalFailedAssistantMessage(messages: readonly unknown[]): AssistantMessageLike | undefined {

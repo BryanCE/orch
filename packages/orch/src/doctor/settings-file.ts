@@ -1,7 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
-import { settingsDefects } from "../settings/defects.ts";
+import { newerSettingsKeys, settingsDefects } from "../settings/defects.ts";
 import { settingsPath } from "../settings/schema.ts";
 import { displayValue } from "../settings/display.ts";
 import { commandOutput } from "./shared.ts";
@@ -43,6 +43,10 @@ export async function checkSettingsFile(orchDir: OrchDir): Promise<CheckResult> 
   if (!filesystem.existsSync(file)) return { id: "settings", label: "Settings validity", status: "ok", detail: "no settings.json" };
   try {
     const defects = settingsDefects(file);
+    const newer = newerSettingsKeys(file);
+    if (defects.length === 0 && newer.length > 0) {
+      return { id: "settings", label: "Settings validity", status: "warn", detail: `this orch does not know ${newer.join(", ")}; a newer orch added them, and this one ignores them until you build it` };
+    }
     if (defects.length === 0) return { id: "settings", label: "Settings validity", status: "ok", detail: file };
     const count = defects.length;
     const headline = `${count} ${count === 1 ? "key" : "keys"} cannot be read; fix: orch settings (settings.json)`;

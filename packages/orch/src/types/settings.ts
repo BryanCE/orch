@@ -28,6 +28,11 @@ export const MAIL_DELIVERIES = ["prompt", "prompt-unless-focused", "events"] as 
 
 export type MailDelivery = (typeof MAIL_DELIVERIES)[number];
 
+/** Who `denied_commands` refuses: an agent orch spawned, or a session orch did not spawn. */
+export const DENY_AUDIENCES = ["workers", "orchestrators"] as const;
+
+export type DenyAudience = (typeof DENY_AUDIENCES)[number];
+
 /** Settings normalized for consumers: every section present and defaults applied. */
 export interface OrchSettings {
   runtime: OrchRuntime;
@@ -48,6 +53,8 @@ export interface OrchSettings {
   notify: NotifyEntry[];
   locked_commands: string[];
   gated_commands: string[];
+  denied_commands: { commands: string[]; applies_to: readonly DenyAudience[] };
+  settings_file: { typo_max_edits: number };
   hosts: Record<string, HostSettings>;
   spaces: Record<string, string>;
   daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number; work_tick_ms: number; liveness_poll_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number; report_timeout_ms: number };

@@ -24,6 +24,8 @@ const settings = (): OrchSettings => ({
   enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
   locked_commands: [],
   gated_commands: [],
+  denied_commands: { commands: [], applies_to: ["workers"] },
+  settings_file: { typo_max_edits: 2 },
   defaults: { ...SETTINGS_DEFAULTS.defaults, models: { pi: "openai/gpt-5.6:high", claude: "sonnet" } },
   fleet: { worker_peer_tools: false, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, cross_space: false, max_agents_per_space: {} },
   models: { allowed: { pi: ["anthropic/*"] }, preferred: { pi: ["anthropic/claude-sonnet-4.5"] } },

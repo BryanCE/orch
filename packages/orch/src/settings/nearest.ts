@@ -6,21 +6,25 @@
  * (every path the schema declares).
  */
 
-/** Levenshtein distance, one row at a time. */
+function swapped(left: string, right: string, i: number, j: number): boolean {
+  return i > 1 && j > 1 && left[i - 1] === right[j - 2] && left[i - 2] === right[j - 1];
+}
+
+/** Edit distance where two swapped neighbours count as one edit, like one added or dropped letter. */
 function editDistance(left: string, right: string): number {
-  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
+  let before: number[] = [];
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
   for (let i = 1; i <= left.length; i += 1) {
-    let diagonal = row[0]!;
-    row[0] = i;
+    const current = [i];
     for (let j = 1; j <= right.length; j += 1) {
-      const above = row[j]!;
-      row[j] = left[i - 1] === right[j - 1]
-        ? diagonal
-        : Math.min(diagonal + 1, above + 1, row[j - 1]! + 1);
-      diagonal = above;
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      const edit = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + cost);
+      current[j] = swapped(left, right, i, j) ? Math.min(edit, before[j - 2]! + 1) : edit;
     }
+    before = previous;
+    previous = current;
   }
-  return row[right.length]!;
+  return previous[right.length]!;
 }
 
 /** The `limit` closest candidates, nearest first. */
@@ -32,19 +36,8 @@ export function nearestKeys(needle: string, candidates: readonly string[], limit
     .map((entry) => entry.key);
 }
 
-/**
- * How far a key may sit from a real one and still read as that key misspelled: four
- * characters in ten. Past it they are two different settings, and offering one for the
- * other invents an intent nobody had — `fleet.max_dpeth` is a typo for `fleet.max_depth`,
- * while a retired key is not a typo for whatever replaced it. It is a key that no longer
- * exists, and only the person who wrote it knows what should become of its value.
- */
-const MISSPELLING_RATIO = 0.4;
-
-/** The key `needle` is a misspelling of, or undefined when it is too far from all of them. */
-export function misspelledKey(needle: string, candidates: readonly string[]): string | undefined {
+/** The key `needle` misspells within `maxEdits` edits, or undefined when every key is further. */
+export function misspelledKey(needle: string, candidates: readonly string[], maxEdits: number): string | undefined {
   const nearest = nearestKeys(needle, candidates, 1)[0];
-  if (nearest === undefined) return undefined;
-  const span = Math.max(needle.length, nearest.length);
-  return editDistance(needle, nearest) <= span * MISSPELLING_RATIO ? nearest : undefined;
+  return nearest !== undefined && editDistance(needle, nearest) <= maxEdits ? nearest : undefined;
 }

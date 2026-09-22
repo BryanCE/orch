@@ -7,7 +7,8 @@ import {
   SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA,
   type SettingsFile,
 } from "./schema.ts";
-import { parseSettingsText, settingsValues, requireEnabledComposition } from "./read.ts";
+import { parseSettingsRoot, parseSettingsText, settingsValues, requireEnabledComposition } from "./read.ts";
+import { withKeys } from "./unknown-keys.ts";
 import type { NotifyEntry, SettingsRepair } from "../types/settings.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { SettingsManager } from "../types/services.ts";
@@ -33,19 +34,20 @@ export function writeSettingsPreferredModels(settings: SettingsManager, preferre
   updateSettingsFile(settings, (root) => ({ ...root, models: { ...root.models, preferred: withoutEmptyLists(preferred) } }));
 }
 
-/** Validate and serialize a settings root for the storage layer to write. */
+/** Validate and serialize a settings root for the storage layer to write; keys a newer build added stay. */
 function serializeSettingsRoot(file: string, candidate: unknown): string {
-  const updated = SETTINGS_FILE_SCHEMA.parse(candidate);
+  const { settings: updated, newer } = parseSettingsRoot(candidate, file);
   requireEnabledComposition(file, updated);
-  return JSON.stringify(updated, null, 2) + "\n";
+  return JSON.stringify(withKeys(updated, newer), null, 2) + "\n";
 }
 
 /** Apply one schema-validated mutation under the settings storage lock. */
 function updateSettingsFile(settings: SettingsManager, mutate: (root: Partial<SettingsFile>) => Partial<SettingsFile>): void {
-  settings.update((current) => serializeSettingsRoot(
-    settings.file,
-    mutate(current === null ? { schemaVersion: SETTINGS_SCHEMA } : parseSettingsText(current, settings.file)),
-  ));
+  settings.update((current) => {
+    const parsed = current === null ? null : parseSettingsText(current, settings.file);
+    const root: Partial<SettingsFile> = parsed?.settings ?? { schemaVersion: SETTINGS_SCHEMA };
+    return serializeSettingsRoot(settings.file, withKeys(mutate(root), parsed?.newer ?? []));
+  });
 }
 
 function copyRecord(root: object): Record<string, unknown> {

@@ -67,15 +67,22 @@ describe("worker prompt capability composition", () => {
     expect(unnamed).toContain("Run the tests and typechecks this repository already has.");
   });
 
-  test("locked-commands clause names the commands, and asks for a report rather than a lock", () => {
+  test("locked-commands clause names the commands and tells the worker to run them as usual", () => {
     const header = workerHeaderFor(getAdapter("pi"), { lockedCommands: ["bun test", "bun run check"] });
-    expect(header).toContain("locked machine-wide: bun test, bun run check");
-    expect(header).not.toContain("orch lock run");
+    expect(header).toContain("one at a time machine-wide: bun test, bun run check");
+    expect(header).toContain("Run them as usual");
   });
 
-  test("no locked-commands clause when the list is empty", () => {
-    const header = workerHeaderFor(getAdapter("pi"), { lockedCommands: [] });
-    expect(header).not.toContain("locked machine-wide");
+  test("gated-commands clause names the commands and asks for the request id", () => {
+    const header = workerHeaderFor(getAdapter("pi"), { gatedCommands: ["git push"] });
+    expect(header).toContain("need the human's approval: git push");
+    expect(header).toContain("request id");
+  });
+
+  test("no command clauses when both lists are empty", () => {
+    const header = workerHeaderFor(getAdapter("pi"), { lockedCommands: [], gatedCommands: [] });
+    expect(header).not.toContain("machine-wide");
+    expect(header).not.toContain("approval");
   });
 
   test("the reply-to-spawner clause needs a reachable spawner, not just a bridge-enabled worker", () => {

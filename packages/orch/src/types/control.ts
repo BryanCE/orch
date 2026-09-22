@@ -1,12 +1,4 @@
 import type { LifecycleVerb } from "./adapter.ts";
-export interface CommandLock {
-  pid: number;
-  start_token: string;
-  holder: string;
-  note?: string;
-  acquired_at: number;
-}
-
 /** Control effect requested for one live agent. */
 export type ControlAction =
   | { readonly kind: "run"; readonly text: string; readonly id: string }

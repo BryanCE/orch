@@ -44,9 +44,10 @@ export interface OrchSettings {
   questions?: { renag_ms: number; renag_limit: number };
   monitor: { on: readonly NotifyState[] };
   logging: { level: LogLevel; slow_tool_ms: number; stall_ms: number; stall_poll_ms: number };
-  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number };
+  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; command_lock_ms: number; command_lock_poll_ms: number };
   notify: NotifyEntry[];
   locked_commands: string[];
+  gated_commands: string[];
   hosts: Record<string, HostSettings>;
   spaces: Record<string, string>;
   daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number; work_tick_ms: number; liveness_poll_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number; report_timeout_ms: number };

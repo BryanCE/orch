@@ -141,7 +141,7 @@ export async function runDoctor(services: Pick<Services, "orchDir" | "logger" | 
     settingsDependent(orchDir, settings, "spawn-limits", "Spawn limits", (current) => checkSpawnLimits(current)),
     settingsDependent(orchDir, settings, "provenance-depth", "Provenance depth", (current) => checkProvenanceDepth(orchDir, current)),
     settingsDependent(orchDir, settings, "unclaimed-agents", "Unclaimed agents", (current) => checkUnclaimedAgents(orchDir, current, Date.now())),
-    settingsDependent(orchDir, settings, "command-locks", "Command locks", (current) => checkCommandLocks(current)),
+    settingsDependent(orchDir, settings, "command-locks", "Command locks", (current) => checkCommandLocks(current, (id) => resolveAdapter(id).commandGate)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
     settingsDependent(orchDir, settings, "notify-sinks", "Notification sinks", (current) => checkNotifySinks(current, bins)),
     settingsDependent(orchDir, settings, "notifiers", "Notifiers", (current) => checkNotifiers(orchDir, current, logger)),

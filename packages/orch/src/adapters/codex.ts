@@ -105,6 +105,7 @@ export class CodexAdapter implements AgentAdapter {
   readonly modelWarm = null;
   readonly bridge = null;
   readonly presenceRegistration = null;
+  readonly commandGate = false;
 
   /** Marker consumed by callers that render heuristic states with a dagger. */
   readonly stateFallback = true;

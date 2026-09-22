@@ -18,6 +18,7 @@ const workerSettings = (maxDepth: number): OrchSettings => ({
   runtime: "node",
   enabled: { adapters: ["pi"], backends: ["headless"] },
   locked_commands: [],
+  gated_commands: [],
   defaults: { ...SETTINGS_DEFAULTS.defaults, models: {} },
   fleet: { ...SETTINGS_DEFAULTS.fleet, max_agents_per_space: {}, max_depth: maxDepth },
   models: { allowed: {}, preferred: {} },

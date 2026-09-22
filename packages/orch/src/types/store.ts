@@ -141,7 +141,9 @@ export interface StoredEvent {
 
 /** Every action requiring consent. A union, so adding one fails to compile until
  *  it has a sentence a human can read. */
-export type GrantKind = "spawn.new-space";
+export const GRANT_KINDS = ["spawn.new-space", "command.run"] as const;
+
+export type GrantKind = (typeof GRANT_KINDS)[number];
 
 /**
  * One consequential action. `params` is the whole truth of what will execute:

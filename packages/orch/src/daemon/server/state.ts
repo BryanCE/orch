@@ -68,6 +68,8 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     notify: touchHandler(state, handlers.notify),
     "report-status": touchHandler(state, handlers["report-status"]),
     "report-result": touchHandler(state, handlers["report-result"]),
+    "command-lock": touchHandler(state, handlers["command-lock"]),
+    "command-unlock": touchHandler(state, handlers["command-unlock"]),
     enqueue: touchHandler(state, handlers.enqueue),
     status: touchHandler(state, handlers.status),
     attach: touchHandler(state, handlers.attach),

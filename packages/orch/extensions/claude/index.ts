@@ -4,7 +4,7 @@
  * Bundled by `bun run build:hooks` into dist/scripts/claude-hooks.js as plain
  * node-compatible ESM. The installed hook runs it with WHATEVER runtime the
  * user has — node, deno, or bun (`installClaudeHooks` probes their PATH);
- * never assume one. Usage: `<runtime> <shim> SessionStart|Stop|Notification`;
+ * never assume one. Usage: `<runtime> <shim> SessionStart|Stop|Notification|PreToolUse`;
  * Claude sends the hook payload as JSON on stdin. Identity parsing stays in
  * its one boundary module (src/backends/identity.ts) and the presence writes go
  * through the one shared writer (src/presence/history.ts) — this shim holds only
@@ -21,6 +21,9 @@ import { reportOnce } from "orch/core/presence/socket-client.ts";
 import { isRecord, projectRoot, textValue, truncateOptional } from "orch/core/util.ts";
 import { lastAssistantFromJsonl } from "orch/core/adapters/transcript.ts";
 import { prepareWorkerTask } from "orch/core/worker-prompt.ts";
+import { gatedPatterns, lockedCommandLine } from "orch/core/policy/command-gate.ts";
+import { readSettingsFile, settingsValues } from "orch/core/settings/read.ts";
+import { settingsPath } from "orch/core/settings/schema.ts";
 import type { JsonRecord } from "orch/core/types/core.ts";
 import type { StatusPatch } from "orch/core/types/presence.ts";
 
@@ -57,6 +60,19 @@ const session = presenceSession(sessionId);
 if (session.kind === "not-orch") process.exit(0);
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
+
+// PreToolUse rewrites a locked or gated Bash command through `orch lock`. No
+// permissionDecision: the user's own rules still judge the rewritten command.
+if (event === "pretooluse") {
+  const toolInput = input.tool_input;
+  if (input.tool_name !== "Bash" || !isRecord(toolInput) || typeof toolInput.command !== "string") process.exit(0);
+  const file = readSettingsFile(settingsPath(session.orchDir));
+  const wrapped = file === null ? undefined : lockedCommandLine(toolInput.command, gatedPatterns(settingsValues(file)));
+  if (wrapped !== undefined) {
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { ...toolInput, command: wrapped } } }));
+  }
+  process.exit(0);
+}
 const transcriptPath = textValue(input.transcript_path ?? input.transcriptPath);
 const transcriptText = lastAssistantFromJsonl(readTranscript(transcriptPath));
 const lastText = truncateOptional(transcriptText, MAX_TEXT);

@@ -167,6 +167,29 @@ describe("commands/spawn", () => {
     expect(settings.agents.map((agent) => agent.prompt)).toEqual(["shared", "shared", "shared"]);
   });
 
+  test("--with hands a bare path to every agent and <name>=<path> to that agent only", () => {
+    const dir = tempOrchDir("orch-spawn-with-");
+    tempDirs.push(dir);
+    const shared = join(dir, "shared.md");
+    const own = join(dir, "own.md");
+    writeFileSync(shared, "s");
+    writeFileSync(own, "o");
+    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "--prompt", "go", "--with", shared, "--with", `b=${own}`]), settingsFor(dir));
+    const [first, second] = settings.agents.map((agent) => agent.prompt ?? "");
+    expect(first).toContain(shared);
+    expect(first).not.toContain(own);
+    expect(second).toContain(shared);
+    expect(second).toContain(own);
+  });
+
+  test("--with treats a prefix that names no agent as part of the path", () => {
+    const dir = tempOrchDir("orch-spawn-with-typo-");
+    tempDirs.push(dir);
+    const own = join(dir, "own.md");
+    writeFileSync(own, "o");
+    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "--prompt", "go", "--with", `c=${own}`]), settingsFor(dir))).toThrow(/--with c=/);
+  });
+
   test("refuses an incorrect number of prompt files", () => {
     const dir = tempOrchDir("orch-spawn-file-count-");
     tempDirs.push(dir);

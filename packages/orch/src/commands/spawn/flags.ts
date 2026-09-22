@@ -11,6 +11,7 @@ import type { WorkerPolicy } from "../../types/policy.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { AgentFlags, AgentSettings } from "../../types/command.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
+import type { ContextReference } from "../../types/core.ts";
 import { adapterCommand } from "./models.ts";
 import { resolveSpawnNames } from "./names.ts";
 import { contextReference, readPromptFile } from "../prompt-file.ts";
@@ -32,7 +33,7 @@ export type SpawnFlags = AgentFlags & {
   promptFiles: string[];
   /** Models to pin, one for all agents or one per agent. */
   modelFlags: string[];
-  /** Where the agents' context lives; each `--with` adds one. Orch checks each exists and never reads it. */
+  /** Where the agents' context lives; each `--with` adds one, `<name>=<path>` for one agent. Orch checks each exists and never reads it. */
   withPaths: string[];
   tasksFile?: string;
   positional: string[];
@@ -124,6 +125,19 @@ function readTasksFile(source: string, n: number): string[] {
   return parsed.filter((item): item is string => typeof item === "string");
 }
 
+/** Each agent's `--with` references: every bare path, then every `<name>=<path>` bound to that name. */
+function referencesByAgent(withPaths: readonly string[], names: readonly string[]): ContextReference[][] {
+  const shared: ContextReference[] = [];
+  const bound = new Map<string, ContextReference[]>(names.map((name) => [name, []]));
+  for (const value of withPaths) {
+    const separator = value.indexOf("=");
+    const target = separator === -1 ? undefined : bound.get(value.slice(0, separator));
+    if (target === undefined) shared.push(contextReference(value));
+    else target.push(contextReference(value.slice(separator + 1)));
+  }
+  return names.map((name) => [...shared, ...bound.get(name) ?? []]);
+}
+
 function resolveSpawnBackend(flags: AgentFlags, settings: OrchSettings): Backend {
   try {
     return resolveBackend({
@@ -158,11 +172,11 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
   let names: string[];
   try { names = resolveSpawnNames(flags.positional); }
   catch (error: unknown) {
-    die(`${errorMessage(error)}\nusage: orch spawn <name> [<name>...] [--tab <label>] [--dir <path>] [--cmd <command>] [--model <model[:thinking]>] [--thinking <level>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--file <path>|-] [--with <path>]... [--worktree]`);
+    die(`${errorMessage(error)}\nusage: orch spawn <name> [<name>...] [--tab <label>] [--dir <path>] [--cmd <command>] [--model <model[:thinking]>] [--thinking <level>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--file <path>|-] [--with [<name>=]<path>]... [--worktree]`);
   }
   const n = names.length;
-  const references = flags.withPaths.map(contextReference);
-  const prompts = resolveSpawnPrompts(flags, n).map((prompt) => prompt === null ? null : taskWithReferences(prompt, references));
+  const references = referencesByAgent(flags.withPaths, names);
+  const prompts = resolveSpawnPrompts(flags, n).map((prompt, index) => prompt === null ? null : taskWithReferences(prompt, references[index] ?? []));
   const models = perAgent("--model", flags.modelFlags, n);
   const tunings = models.map((model) => resolveTuningOrDie({ ...flags, modelFlag: model }, settings, adapter, null));
   const agents = names.map((name, index) => {

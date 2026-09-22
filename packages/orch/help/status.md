@@ -10,12 +10,11 @@ is absent. Read it before every spawn wave. It names the free slots and who hold
 `state` is what the agent says about itself. `backendStatus` (`--json`) is what the plexer
 says about the pane, and it lags. Read `state` for completion.
 
-`--json` is a top-level array of rows; filter with `.[]`. Row fields: key agentId
-rootAgentId rootAgentName paneId managed name tab agent owner ownerId spawnedBy
-spawnedByLabel worktree branch cwd focused model modelShort state stateFallback
-staleExtension exited alive cost ctxPercent task dispatchId lastText backendStatus backend
-capabilities sessionPath presenceDir presenceOnly bridgeAttached tokens turns spaceId
-spaceName host.
+`--json` is an object `{names, rows}`; filter rows with `.rows[]`. Ids resolve to display
+names through `.names.agents` and `.names.spaces`. Row fields: key agentId rootAgentId
+paneId managed name tab agent lease leaseKnown spawnedBy worktree branch cwd focused model
+state stateFallback exited alive cost ctxPercent task dispatchId lastText backendStatus
+backend bridgeAttached tokens spaceId host warning.
 
 Three fields settle arguments. `cwd` is the repo the worker is confined to. `dispatchId`,
 against the id `orch dispatch` printed, proves the pane runs the prompt you sent.

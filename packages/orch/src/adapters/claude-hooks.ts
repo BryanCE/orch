@@ -9,6 +9,9 @@ import type { OrchDir } from "../types/core.ts";
 // purpose — imported by both the adapter's installShim and doctor's hook check
 // without pulling either's graph into the other.
 
+/** Every Claude hook event orch registers its shim under. */
+export const CLAUDE_HOOK_EVENTS = ["SessionStart", "Stop", "Notification", "PreToolUse"] as const;
+
 /** Built hook shim inside a package root (source: extensions/claude/index.ts); plain ESM JS any runtime can run. */
 export function claudeHookShimPath(root: string): string {
   return path.join(root, "dist", "scripts", "claude-hooks.js");

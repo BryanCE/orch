@@ -264,6 +264,8 @@ export interface AgentAdapter {
   readonly modelWarm: ModelWarmRole | null;
   readonly bridge: BridgeRole | null;
   readonly presenceRegistration: PresenceRegistrationRole | null;
+  /** True when this harness's integration rewrites a locked or gated shell command through `orch lock` before it runs. */
+  readonly commandGate: boolean;
   /**
    * Env var this harness's interactive session exports into its subprocesses,
    * letting orch name the session KIND a spawn came from when the caller is not

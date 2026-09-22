@@ -131,21 +131,37 @@ export function denyGrantRequest(orchDir: OrchDir, requestId: string): void {
  */
 export function spendGrant(orchDir: OrchDir, action: GrantAction, spentBy: string | null): boolean {
   return withTransaction(orchDir, () => {
-    const db = orm(orchDir);
-    const approved = db
-      .select({ requestId: grantStates.requestId })
-      .from(grantStates)
-      .where(and(
-        eq(grantStates.actionHash, actionHash(action)),
-        eq(grantStates.state, "approved"),
-        gt(grantStates.expiresAt, Date.now()),
-      ))
-      .orderBy(desc(grantStates.requestedAt))
-      .limit(1)
-      .get();
-    if (!approved) return false;
-    db.insert(grantSpends).values({ requestId: approved.requestId, spentAt: Date.now(), spentBy }).run();
+    const approved = approvedRequestId(orchDir, action);
+    if (approved === undefined) return false;
+    orm(orchDir).insert(grantSpends).values({ requestId: approved, spentAt: Date.now(), spentBy }).run();
     return true;
   });
+}
+
+/** The newest unexpired, unspent approval of exactly this action. */
+function approvedRequestId(orchDir: OrchDir, action: GrantAction): string | undefined {
+  return orm(orchDir)
+    .select({ requestId: grantStates.requestId })
+    .from(grantStates)
+    .where(and(
+      eq(grantStates.actionHash, actionHash(action)),
+      eq(grantStates.state, "approved"),
+      gt(grantStates.expiresAt, Date.now()),
+    ))
+    .orderBy(desc(grantStates.requestedAt))
+    .limit(1)
+    .get()?.requestId;
+}
+
+/** Whether a human approved exactly this action and the approval is still unspent. */
+export function grantIsApproved(orchDir: OrchDir, action: GrantAction): boolean {
+  return approvedRequestId(orchDir, action) !== undefined;
+}
+
+/** The request already awaiting a human for exactly this action, or a new one. */
+export function requestGrant(orchDir: OrchDir, action: GrantAction, requestedBy: string | null): GrantRequest {
+  const row = pendingRows(orchDir, eq(grantRequests.actionHash, actionHash(action))).get();
+  const pending = row ? hydrate(orchDir, row.request) : null;
+  return pending ?? recordGrantRequest(orchDir, action, requestedBy);
 }
 

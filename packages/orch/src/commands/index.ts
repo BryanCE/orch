@@ -18,6 +18,7 @@ import { cmdReview } from "./review.ts";
 import { cmdQueue } from "./queue.ts";
 import { cmdClean } from "./clean.ts";
 import { cmdGrant } from "./grant.ts";
+import { cmdLock } from "./lock.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
 import { cmdSetup, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
 import { compositionUnrecorded } from "../setup/composition.ts";
@@ -159,6 +160,7 @@ export const commandHandlers: Record<string, Handler> = {
   space: cmdSpace,
   clean: (services, args) => cmdClean(services, args),
   grant: cmdGrant,
+  lock: cmdLock,
   settings: cmdSettings,
   setup: cmdSetup,
   "--version": (_services, _args) => { void process.stdout.write(`orch ${VERSION}\n`); },

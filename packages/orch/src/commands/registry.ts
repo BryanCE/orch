@@ -12,7 +12,7 @@ const GOVERNANCE: readonly FlagSpec[] = [STEAL, CROSS_SPACE];
 const RAW: FlagSpec = { name: "--raw", arity: "none", help: "Send the exact prompt, with no worker header." };
 const MODEL: FlagSpec = { name: "--model", arity: "one", placeholder: "<model[:thinking]>", help: "Pin the model. A short name expands to the one listed, allowed model that contains it." };
 const THINKING: FlagSpec = { name: "--thinking", arity: "one", placeholder: "<level>", help: "Thinking effort: off, minimal, low, medium, high, xhigh, max." };
-const ADAPTER: FlagSpec = { name: "--agent", aliases: ["--adapter"], arity: "one", placeholder: "<adapter>", help: "Adapter id: pi, claude, codex." };
+const ADAPTER: FlagSpec = { name: "--agent", aliases: ["--adapter"], arity: "one", placeholder: "<adapter>", help: "Adapter id: pi, omp, claude, codex." };
 const BACKEND: FlagSpec = { name: "--backend", arity: "one", placeholder: "<plexer>", help: "Plexer id: herdr, tmux, orca, headless." };
 const DIR: FlagSpec = { name: "--dir", arity: "one", placeholder: "<path>", help: "Directory the agent starts in. Defaults to the spawner's own." };
 const CMD: FlagSpec = { name: "--cmd", arity: "one", placeholder: "<command>", help: "Harness command to launch. Defaults to the adapter's own." };
@@ -270,7 +270,7 @@ const AGENTS: readonly CommandSpec[] = [
       { name: "--space", arity: "one", placeholder: "<space>", help: "File the fleet in a named orch space. Never a plexer id." },
       { name: "--prompt", arity: "many", placeholder: "<text>", help: "One task for every agent, or repeat exactly N times." },
       { name: "--file", arity: "many", placeholder: "<path>|-", help: "One task file for every agent, or repeat exactly N times. '-' reads stdin." },
-      { name: "--with", arity: "many", placeholder: "<path>", help: "A file or directory the agents open for context. Must exist. Repeat per path." },
+      { name: "--with", arity: "many", placeholder: "[<name>=]<path>", help: "A file or directory the agents open for context. Must exist. Repeat per path. A bare path reaches every agent; <name>=<path> reaches only the agent with that name." },
       { name: "--tasks", arity: "one", placeholder: "<file>", help: "JSON file of exactly N task strings." },
       { name: "--worktree", arity: "none", help: "Give each agent its own git worktree. Collect with 'orch review'." },
       JSON_FLAG,
@@ -335,6 +335,12 @@ const AGENTS: readonly CommandSpec[] = [
     usage: "orch grant [<hash>|--list]",
     summary: "Approve an action an agent was refused.",
     flags: [{ name: "--list", arity: "none", help: "Show what is waiting for approval." }],
+  },
+  {
+    name: "lock", section: "agents",
+    usage: "orch lock -- '<command>'",
+    summary: "Run a locked or gated command once orchd allows it.",
+    flags: [],
   },
   { name: "focus", section: "agents", usage: "orch focus <target>", summary: "Jump the user's view to that pane.", flags: [FORCE, JSON_FLAG] },
   {

@@ -1,7 +1,7 @@
 The orch's watch. The same stream, scope, and flags as `orch events`, kept to the lines
 you act on: a transition into a state listed in `monitor.on` (asking, blocked, done, error,
 aborted, exited by default) and every `message` a worker sends you. A mid-turn flip
-(working, idle, a cmd-lock block and release) never reaches it. `closed` and `task`
+(working, idle, a blocked signal and release) never reaches it. `closed` and `task`
 bookkeeping stays on `orch events`. Change the states with `orch settings monitor.on`.
 
 Arm it bare, through the Monitor tool (persistent), in the same message as the spawn.

@@ -26,16 +26,15 @@ export async function checkSpawnLimits(settings: OrchSettings | null): Promise<C
   };
 }
 
-export async function checkCommandLocks(settings: OrchSettings | null): Promise<CheckResult> {
+/** Every enabled harness must route locked and gated commands through `orch lock`; name the ones that cannot. */
+export async function checkCommandLocks(settings: OrchSettings | null, gatesCommands: (adapterId: string) => boolean): Promise<CheckResult> {
   await Promise.resolve();
-  const config = settings;
-  if (!config || config.locked_commands.length === 0) return { id: "command-locks", label: "Command locks", status: "skip", detail: "no locked_commands configured" };
-  return {
-    id: "command-locks",
-    label: "Command locks",
-    status: "skip",
-    detail: `${config.locked_commands.length} locked command(s) are enforced by the selected harness bridge when available`,
-  };
+  const label = "Command locks";
+  const count = settings === null ? 0 : settings.locked_commands.length + settings.gated_commands.length;
+  if (settings === null || count === 0) return { id: "command-locks", label, status: "skip", detail: "no locked_commands or gated_commands configured" };
+  const open = settings.enabled.adapters.filter((id) => !gatesCommands(id));
+  if (open.length === 0) return { id: "command-locks", label, status: "ok", detail: `${count} command pattern(s) gated by every enabled harness` };
+  return { id: "command-locks", label, status: "warn", detail: `${open.join(", ")} cannot gate commands: a worker there runs locked and gated commands freely` };
 }
 
 export async function checkSettingsFile(orchDir: OrchDir): Promise<CheckResult> {

@@ -35,6 +35,10 @@ the model pin is skipped (`not pinned: <name> bridge not attached`); `orch model
 `warning: <adapter> writes no presence record at session start - <count> agent(s)
 UNVERIFIED; check 'orch status' before dispatching`.
 
+`--with <path>` hands every agent in the spawn that path for context. `--with
+<name>=<path>` hands it only to the agent with that name; repeat it for more. A prefix that
+names no agent in the spawn is part of the path, so a mistyped name fails as a missing path.
+
 An agent starts where you spawned it. `--dir <path>` when a slice belongs somewhere else. A
 repo path typed into a prompt is text, not a boundary.
 

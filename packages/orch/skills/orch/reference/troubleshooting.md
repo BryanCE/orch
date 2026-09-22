@@ -19,14 +19,18 @@ an update of orch. `orch daemon reload` re-execs the daemon on the new code. Nev
   name. The hint carries a spec to paste; `orch models --agent=pi` lists the rest.
 - `model X is not in models.allowed.pi (...)` means the harness lists it and the user's
   allowlist excludes it. That is the user's setting, not a typo; ask, never edit it yourself.
+- `model X matches only a, b, none in models.allowed.pi (...)` means the short name matches
+  only models the user's allowlist excludes. Same ruling: ask.
 
 ## Queued dispatches
 
-`Queued to <agent> (dispatch <id>): no bridge ack within Nms` means the agent is live but
+`Queued to <agent> (dispatch <id>): no bridge ack within Nms` (N is
+`timeouts.dispatch_ack_ms`) means the agent is live but
 its bridge holds no link: the harness is still starting, or the bridge is redialing on
 `daemon.bridge_reconnect_ms`. The write is safe in the outbox and retries every
 `daemon.outbox_drain_ms`, up to `daemon.outbox_max_attempts` before the daemon closes it as
-undeliverable. `orch status --json` shows `bridgeAttached` per agent. Watch `orch events` for
+undeliverable. `orch status --json` shows `.rows[].bridgeAttached` per agent (null under
+`--offline`; `claude` and `codex` have no bridge). Watch `orch events` for
 the delivery: the `working` transition it starts is a mid-turn flip, so `orch monitor` does
 not carry it.
 
@@ -45,18 +49,21 @@ then `orch restart <name>`.
 `orch status` shows `working` with the same task and a flat cost for minutes, and `orch peek
 <name>` shows one tool call with a climbing `Elapsed`: a repo-wide grep, a slow read across
 the WSL boundary. A steer lands only after the tool returns, so it does not free the agent.
-`orch abort <name> "<text>"` cancels the turn now and steers with the text; it is never
-gated. Name the slow step and forbid it in the text. Still stuck: `orch restart <name>`.
+`orch abort <name> "<text>"` presses Escape twice to cancel the turn, then steers with the
+text. The cancel has no lease gate; the steer half does, like `orch steer`. A headless agent
+has no pane to abort. Name the slow step and forbid it in the text. Still stuck: `orch restart <name>`.
 
 ## Ambiguous targets
 
-`control target <name> is ambiguous: <key>, <key>` means two live agents answer to that
-name. Names are per-slice, so this is a duplicate you created. Address the one you mean by
-its identity key (`orch status --json` has `.key`), then `orch rename` one of them.
+`Ambiguous target "<t>": it matches N agents, so nothing was done.` lists each candidate
+key. The word matched more than one of: a name, a key or pane id, a suffix, a harness id.
+Spawn and rename refuse a name already live in the same space. Address the one you mean by
+its key (`orch status --json`, `.rows[].key`), then `orch rename` if two names collide.
 
 ## `orch status --json`
 
-A top-level array; filter with `.[]`. The full row field list is in `orch help status`. Three
+An object `{names, rows}`. Filter rows with `.rows[]`. Ids resolve to display names through
+`.names.agents` and `.names.spaces`. The full row field list is in `orch help status`. Three
 fields settle arguments: `cwd` is the repo the worker is actually confined to; `dispatchId`,
 diffed against the id `orch dispatch` printed, proves the pane runs the prompt you sent;
 `bridgeAttached` says whether a dispatch will deliver or queue. `state` is what the agent
@@ -70,19 +77,22 @@ alone sees the whole machine.
 
 ## Another session's agents
 
-`reset`, `dispatch`, `steer` and `model` against a live foreign holder are refused; `abort`,
-`close` and `reap` never are. `orch detach` releases your own lease; `orch adopt` takes an
+From your session, an agent you hold no lease on does not resolve: every verb answers
+`No target matches "<t>"`, and `close` refuses with `cannot close <name>: it belongs to
+<owner>`. Only the human at an unregistered shell kills (`abort`, `close`, `reap`) without a
+lease check. `orch detach` releases your own lease; `orch adopt` takes an
 unleased one. Never plan on claiming a foreign fleet's agents; their orchestrator may close
 them at any moment.
 
 ## Repair
 
-`orch doctor` diagnoses, `-y` applies every fix unattended. `orch clean` removes presence
+`orch doctor` diagnoses, `-y` applies every fix unattended. `orch clean` is operator-only (a
+spawned agent is refused). It removes presence
 dirs that name no agent and closes queued writes to dead agents; ended agents stay as
 history. `--force` reaps every dead agent's records and dir. `--worktrees` also clears
 orphaned worktrees, and with `--force` discards unmerged work. `orch reap --dead` sweeps
 provably-dead agents without a prompt.
 
 `$ORCH_DIR/orch.db` is the store: liveness, leases, queue state and outcomes are rows, and
-every decision reads them. `$ORCH_DIR/agents/` is readable history beside it, status, results
-and the delivery log as files. Deleting it mid-run costs you the history and nothing else.
+every decision reads them. `$ORCH_DIR/agents/` is readable history beside it: `status.jsonl`,
+`results.jsonl` and `outcomes.jsonl` (control outcomes) per agent. Deleting it mid-run costs you the history and nothing else.

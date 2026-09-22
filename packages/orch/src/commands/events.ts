@@ -83,7 +83,7 @@ export function passesStateFilter(filter: ReadonlySet<string> | null): (event: N
 }
 
 /** Whether one event belongs on the monitor: an agent state in `monitor.on`, or a
- *  worker's report. A mid-turn flip (working, idle, a cmd-lock block and release) is
+ *  worker's report. A mid-turn flip (working, idle, a blocked signal and release) is
  *  the noise the monitor exists to drop. */
 export function onMonitor(on: readonly AgentState[]): (event: NotifyEvent) => boolean {
   return (event) => {

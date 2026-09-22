@@ -6,7 +6,7 @@ import { declaredRuntime } from "../settings/read.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import { presenceEntry } from "../presence/store.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand } from "../util.ts";
-import { claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
+import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import { isAgentState } from "../agent-state.ts";
 import type { AgentState } from "./adapter.ts";
 import { textValue } from "../util.ts";
@@ -109,7 +109,7 @@ function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Lo
     return;
   }
   fileSettings.hooks = hooks;
-  for (const event of ["SessionStart", "Stop", "Notification"] as const) {
+  for (const event of CLAUDE_HOOK_EVENTS) {
     const command = claudeHookCommand(shim, event, runtime, orchDir);
     const entries = hooks[event];
     if (entries !== undefined && !Array.isArray(entries)) {
@@ -148,9 +148,8 @@ function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Lo
  * in between — Claude's hooks fire only at those three points, so there are
  * no mid-run tool/token/cost transitions the way pi's live extension reports
  * them. State and session-tail data are supplied by extensions/claude/index.ts.
+ * PreToolUse reports nothing; it routes locked and gated Bash commands through `orch lock`.
  */
-const CLAUDE_HOOK_EVENTS = ["SessionStart", "Stop", "Notification"] as const;
-
 /** Every command string registered under one Claude hook event, ignoring malformed entries. */
 function registeredHookCommands(settings: Record<string, unknown>, event: string): string[] {
   const entries = isRecord(settings.hooks) ? settings.hooks[event] : undefined;
@@ -184,6 +183,7 @@ class ClaudeAdapter implements AgentAdapter {
   readonly modelWarm = null;
   readonly bridge = null;
   readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceEntry(orchDir, key) !== undefined };
+  readonly commandGate = true;
 
   /** State is authoritative only when the Claude settings hooks are installed. */
   readonly hookDriven = true;

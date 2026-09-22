@@ -109,7 +109,8 @@ whole fan-out.
 
 Every dispatch is prefixed with a **worker header** unless you pass `--raw`. It tells the
 worker the pane is unattended, forbids it from fanning out its own subagents or shelling
-out to `orch`, and names the machine-wide locked commands. The header is composed from the
+out to `orch`, and names the `locked_commands` (one at a time machine-wide) and the
+`gated_commands` (only after `orch grant`). The header is composed from the
 harness's declared capabilities — a clause is only added when the mechanism behind it
 actually works ([`src/worker-prompt.ts`](src/worker-prompt.ts)).
 
@@ -158,7 +159,7 @@ workers are never told to reply to an address that would refuse them.
 | `reload <target>… \| --all` | Reload panes and signal watchers. |
 | `reset <target>… \| --all [--model M]` / `new` | Fresh session and context, same pane. |
 | `restart <target>… \| --all [--cmd C]` | Close the harness process and relaunch it. |
-| `lock run \| check \| status \| release` | One heavy command machine-wide; see `locked_commands`. |
+| `lock -- '<command>'` | Run a `locked_commands` match one at a time machine-wide, or a `gated_commands` match once the human granted it. Harness hooks rewrite matches into this. |
 | `spawn <name> [<name>…] [--tab L] [--dir P] [--model M] [--agent A] [--backend B] [--prompt T] [--worktree]` | Fresh tab of tiled agents, one per name. `--dir` only when an agent belongs outside the spawner's directory. |
 | `tile <tab\|pane> <name> …` | Add one pane to an existing tab. |
 | `grant [<hash>\|--list]` | Approve an action an agent was refused. Needs a terminal; no flag answers the prompt for you. |
@@ -283,6 +284,7 @@ effective value with the source that won.
     { "id": "webhook", "url": "https://example.test/orch-events", "on": ["done", "error"] }
   ],
   "locked_commands": [],
+  "gated_commands": [],
   "daemon": { "tcp_port": 3716, "idle_shutdown_minutes": 30 },
   "tiling": { "first_split": "rows" },
   "skills": { "install": true, "store": "~/.agents/skills", "link": ["~/.claude/skills"] },
@@ -423,7 +425,6 @@ $ORCH_DIR/
 ├── orch.db                  # SQLite (WAL): every brokered table
 ├── settings.json            # user configuration (JSON)
 ├── reload.signal            # touch signal for config/extension reload watchers
-├── cmd-lock.json            # machine-wide command lock holder; present only while held
 ├── orchd.sock               # daemon RPC endpoint (or a marker)
 ├── orchd.port               # loopback TCP port when TCP transport is used
 ├── orchd.token              # owner-readable loopback RPC credential

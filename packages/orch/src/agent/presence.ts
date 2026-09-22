@@ -168,8 +168,8 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     return hasUI ? sessionKey() : undefined;
   }
 
-  // Shared with the tool layer: the cmd-lock interception and the plexer's
-  // blocked signal both raise/lower this count, and writeStatus reads it.
+  // Shared with the tool layer: the plexer's blocked signal raises and lowers
+  // this count, and writeStatus reads it.
   const blocked: { count: number; message: string | undefined } = { count: 0, message: undefined };
   const text: { lastFull: string | undefined; runFull: string | undefined } = {
     lastFull: undefined,

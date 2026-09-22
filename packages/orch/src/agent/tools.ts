@@ -12,14 +12,13 @@ import { isThinkingLevel } from "../policy/thinking.ts";
 import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
 import type { SettingsManager } from "../types/services.ts";
-import { acquireCommandLock, matchesLockedCommand, releaseCommandLock } from "../control/cmd-lock.ts";
+import { gatedPatterns, lockedCommandLine } from "../policy/command-gate.ts";
 import { registerPeerTools, toolResult } from "./peers.ts";
 import { extractText, isAssistantMessageLike, HEARTBEAT_MS, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
 import { sessionUsageCost } from "../session.ts";
 import { isRecord, isUnknownArray, optionalString, truncate } from "../util.ts";
 import { prepareWorkerTask } from "../worker-prompt.ts";
 import type { AgentToolsOptions, AssistantMessageLike, BridgeNotification, BridgeToolResult, HarnessApi, HarnessContext } from "../types/agent.ts";
-import type { CommandLock } from "../types/control.ts";
 
 interface ModelSelectEventLike {
   model: unknown;
@@ -45,11 +44,6 @@ interface ToolExecutionStartEventLike {
   toolCallId?: unknown;
   toolName: unknown;
   args: unknown;
-}
-
-interface ToolExecutionEndEventLike {
-  toolCallId?: unknown;
-  toolName: unknown;
 }
 
 interface OrchAskParams {
@@ -80,8 +74,13 @@ function isToolExecutionStartEvent(value: unknown): value is ToolExecutionStartE
   return isRecord(value) && "toolName" in value && "args" in value;
 }
 
-function isToolExecutionEndEvent(value: unknown): value is ToolExecutionEndEventLike {
-  return isRecord(value) && "toolName" in value;
+interface ToolCallEventLike {
+  toolName: unknown;
+  input: unknown;
+}
+
+function isToolCallEvent(value: unknown): value is ToolCallEventLike {
+  return isRecord(value) && "toolName" in value && "input" in value;
 }
 
 function noOrchestratorAnswer(): BridgeToolResult {
@@ -309,88 +308,15 @@ export function registerAgentTools(
 
   harness.on("tool_execution_start", recordToolStart);
 
-  // Pi awaits tool_execution_start before invoking the tool. This is the
-  // execution-side interception point: acquiring here avoids deadlocking the
-  // sequential tool_call preflight when a turn contains multiple bash calls.
-  const commandLocks = new Map<string, {
-    lock: CommandLock;
-    previousState: typeof state.state;
-    previousBlockedMessage: string | undefined;
-  }>();
-
-  function lockedCommandPatterns(): string[] {
-    return settings.currentOrNull()?.locked_commands ?? [];
-  }
-
-  function bashCommand(args: unknown): string | undefined {
-    if (!isRecord(args) || typeof args.command !== "string") return undefined;
-    return args.command;
-  }
-
-  harness.on("tool_execution_start", async (event: unknown, ctx: HarnessContext) => {
-    if (!isToolExecutionStartEvent(event) || event.toolName !== "bash") return;
-    const command = bashCommand(event.args);
-    const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
-    if (!command || !toolCallId || !matchesLockedCommand(command.trim().split(/\s+/), lockedCommandPatterns())) return;
-
-    const previousState = state.state;
-    const previousBlockedMessage = blocked.message;
-    state.state = "blocked";
-    blocked.message = "waiting on cmd-lock";
-    presence.writeStatus();
-    try {
-      const holder = presence.ownPresenceKey(ctx) || `session-${process.pid}`;
-      const lock = await acquireCommandLock(orchDir, {
-        holder,
-        note: command,
-        timeoutMs: 15 * 60 * 1000,
-        pollMs: 500,
-      });
-      commandLocks.set(toolCallId, { lock, previousState, previousBlockedMessage });
-      if (state.state === "blocked" && blocked.message === "waiting on cmd-lock") {
-        state.state = previousState;
-        blocked.message = previousBlockedMessage;
-        presence.writeStatus();
-      }
-    } catch (error) {
-      if (state.state === "blocked" && blocked.message === "waiting on cmd-lock") {
-        state.state = previousState;
-        blocked.message = previousBlockedMessage;
-        presence.writeStatus();
-      }
-      throw error;
-    }
+  // tool_call is the one hook that can still change a command before it runs; a
+  // locked or gated one runs only through `orch lock`, which asks orchd first.
+  harness.on("tool_call", (event: unknown) => {
+    if (!isToolCallEvent(event) || event.toolName !== "bash" || !isRecord(event.input)) return;
+    const current = settings.currentOrNull();
+    if (current === null || typeof event.input.command !== "string") return;
+    const wrapped = lockedCommandLine(event.input.command, gatedPatterns(current));
+    if (wrapped !== undefined) event.input.command = wrapped;
   });
-
-  harness.on("tool_execution_end", (event: unknown) => {
-    if (!isToolExecutionEndEvent(event)) return;
-    const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
-    if (!toolCallId) return;
-    const held = commandLocks.get(toolCallId);
-    if (!held) return;
-    commandLocks.delete(toolCallId);
-    try {
-      releaseCommandLock(orchDir, held.lock.pid, held.lock.start_token);
-    } catch {
-      // best-effort; the lock implementation also reaps dead holders
-    }
-  });
-
-  // An aborted or errored turn never fires tool_execution_end for the call that
-  // was in flight, and the process lives on - exactly the leak that stalls a
-  // fleet behind a live-pid lock. Turn end releases anything still held.
-  function releaseAllCommandLocks(): void {
-    for (const [toolCallId, held] of commandLocks) {
-      commandLocks.delete(toolCallId);
-      try {
-        releaseCommandLock(orchDir, held.lock.pid, held.lock.start_token);
-      } catch {
-        // best-effort; dead-holder eviction is the backstop
-      }
-    }
-  }
-  harness.on("turn_end", releaseAllCommandLocks);
-  harness.on("session_shutdown", releaseAllCommandLocks);
 
   function finalFailedAssistantMessage(messages: readonly unknown[]): AssistantMessageLike | undefined {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -508,14 +434,6 @@ export function registerAgentTools(
   }
 
   harness.on("session_shutdown", () => {
-    for (const held of commandLocks.values()) {
-      try {
-        releaseCommandLock(orchDir, held.lock.pid, held.lock.start_token);
-      } catch {
-        // best-effort
-      }
-    }
-    commandLocks.clear();
     if (heartbeat) clearInterval(heartbeat);
     presence.stopPresence();
     // Not `exited`: a session shutdown is also what `/new` fires, and the

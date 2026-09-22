@@ -18,6 +18,9 @@ If anything here disagrees with help, help wins.
 | A worker is asking | `orch help answer`, `orch help questions` |
 | Correcting a running worker | `orch help steer`, `orch help broadcast` |
 | A worker stuck in one tool call | `orch help abort` (with text: cancel and steer at once) |
+| Diagnosing a worker without a peek | `orch help tail`, `orch help runs`, `orch help logs` |
+| One blocking checkpoint on one worker | `orch help wait` |
+| New code (`reload`), new session (`reset`), new process (`restart`) | `orch help reload`, `orch help reset`, `orch help restart` |
 | Handing one result to another agent | `orch help pipe` |
 | Collecting a done worktree | `orch help review` |
 | Ending a pane, `--all`, killing your own stream | `orch help close` |
@@ -25,9 +28,11 @@ If anything here disagrees with help, help wins.
 
 ## What help does not repeat
 
-A target is an agent name, an identity key, or a unique handle suffix, and every command
-resolves all three the same way. Names are the readable option; name each agent for the
-slice it holds. `result`, `reset`, `reload`, `restart`, and `close` take `<target>...`.
+A target is an agent name, an identity key or pane id, or a unique suffix of one. Names of
+running agents win over stopped ones. A session resolves only agents it holds a lease on.
+Names are the readable option; name each agent for the slice it holds. `result`, `reset`,
+`reload`, `restart`, and `close` take `<target>...`, and `broadcast` takes
+`"<text>" <target>...`. `dispatch`, `steer`, `abort`, `model` and `rename` take one.
 
 Reuse before you spawn. Dispatch gives an idle agent the next task on a fresh context, name
 and model intact. Spawn a replacement only after a dispatch to the idle agent errors, then
@@ -39,5 +44,5 @@ dispatch with reset: dispatch already clears the session.
 Arrange without stealing focus: `tile`, `move`, `zoom`, `tab`, `space`. Only the `focus`
 verbs jump the user's view.
 
-Every number orch uses is a setting in `settings.json`. A refusal that names a setting is
-the user's choice, not a typo. Ask; never edit it yourself.
+A refusal that names a setting is the user's choice, not a typo. Rows marked `agent` in
+`orch settings` are yours to write. Ask before you touch any other.

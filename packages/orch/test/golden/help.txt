@@ -57,6 +57,7 @@ AGENTS (never steals focus except 'focus')
   orch adopt <target> | --all                   Take an unleased agent.
   orch reap [<target>] [--dead]                 Delete an agent record.
   orch grant [<hash>|--list]                    Approve an action an agent was refused.
+  orch lock -- '<command>'                      Run a locked or gated command once orchd allows it.
   orch focus <target>                           Jump the user's view to that pane.
   orch zoom <target> [--on|--off]               Zoom the pane full-tab.
   orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label <label>]

@@ -16,8 +16,9 @@ orch spawn slice-1 slice-2 --tab <domain> --file tasks/T1.md --file tasks/T2.md
 `--tab <label>` fills a tab that already carries that label, so a second spawn for the same
 domain lands where it belongs without a move. There is no implicit "grow under a prefix"
 path: names are per-slice and unnumbered. `orch tile <tab|pane> <name>` adds exactly one
-pane, named. Use `orch move <pane> --tab <tab_id from orch tabs> --split down` only when a
-pane is already in the wrong tab, and there pass the tab ID, never the label.
+pane, named. Use `orch move <target> --tab <tab_id|label>` only when a pane is already in the
+wrong tab. Pass the tab id from `orch tabs` when the label is not unique. Leave `--split` off
+so the pane lands balanced. Move does not check the tab cap, so never move into a full tab.
 
 Fill a tab to its cap before creating a new one. When a domain needs more, create an
 overflow tab named `<domain>-02` (then `-03`) holding more agents of the same domain. A spawn
@@ -27,8 +28,9 @@ tab is justified only when every existing tab is full and the work is a differen
 
 ## Size the fleet to the slices
 
-Default is roughly 6 to 8 panes when the work slices that thin. Scale panes to the number of
-file-disjoint slices, not to comfort. Fewer panes than disjoint slices means the
+Default is one wave of 3 to 4 panes per tab (the tab cap is `fleet.max_agents_per_tab`),
+and more tabs when the work has more file-disjoint slices, up to `fleet.max_agents_per_pack`.
+Scale panes to the number of file-disjoint slices, not to comfort. Fewer panes than disjoint slices means the
 orchestrator is the bottleneck. But a handful of related edits is one worker doing them in
 sequence, and that beats three workers plus the coordination.
 
@@ -67,7 +69,8 @@ no work. `orch close` a tab only when that domain is done. Close-and-respawn cyc
 waste time and leave dead panes that look idle.
 
 Name panes for the work, and rename when the work changes. `orch rename <target> <name>`
-sets the NAME column (`--pane` sets the border label instead) and costs nothing: pane,
+sets the NAME column and the pane border together (`--pane` sets only the border) and costs
+nothing: pane,
 context and model are untouched. A spawn-ordinal name like `recon-2` says nothing about what
 that worker holds. Name by slice: `mcp-types`, `mcp-tools`, `mcp-guards`. After a dispatch
 onto a new slice, rename in the same breath. A stale name is worse than an ordinal because it
@@ -75,8 +78,11 @@ actively lies. Renaming does not break the watch, since the scope filters on `sp
 
 ## Another session's panes are never yours
 
-You do not own their lease. `reset`, `dispatch`, `steer` and `model` against a live foreign
-holder are refused, and that fleet's orchestrator may close its panes at any moment, so a
+You do not own their lease. Every verb that drives or reads an agent (`dispatch`, `steer`,
+`answer`, `model`, `reset`, `reload`, `restart`, `rename`, `result`, `broadcast`, `move`,
+`zoom`, `focus`, `keys`) refuses a live foreign holder. From a harness session a foreign
+agent does not even resolve (`No target matches`). That fleet's orchestrator may close its
+panes at any moment, so a
 plan built on claiming them stalls forever when they vanish. If the pack cap blocks your
 spawn, spawn as many as do fit now, queue or hold the rest, and retry on any event that frees
 capacity. Waiting for a foreign fleet to finish is never the plan.
@@ -91,15 +97,16 @@ one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
   On the next wave, send all the `rename` calls in one shot, then all N dispatches in the
   next. One pane at a time is the bottleneck wearing a process hat.
 - **Keep one reviewer pane on a stronger model.** Give it its own `--model` in the same
-  spawn. A `checker` pane, one tier up, does nothing but verify landed work against its specs
-  and write findings to a report file such as `recon/wave-review.md`: per slice PASS or
-  ISSUES, file:line, smallest fix. The next fix wave dispatches by pointing `--with` at that
-  file, so the orchestrator rules on conflicts instead of re-deriving every finding.
+  spawn. A `checker` pane, one tier up, reads every landed diff, runs the verify commands
+  over its files, and writes a verdict to a report file such as `recon/wave-review.md`: per
+  slice PASS or ISSUES, file:line, smallest fix. The orchestrator reads the verdict, never
+  the diff. The next fix wave dispatches by pointing `--with` at that file.
 - **Recon before rewire.** Before a cross-cutting change, spend one pane on a read-only
-  inventory (every consumer, every call site, every fixture, file:line) written to a report
-  file. Dispatches then cite the report instead of restating it.
+  inventory (every consumer, every call site, every fixture, file:line, the current code
+  quoted verbatim) written to a report file. Dispatches then cite the report instead of
+  restating it.
 - **Verify at stopping points with scoped runs.** Turn idle panes into verifiers that run
-  the verify commands over their slice's files only. Locked commands stay with the user.
+  the verify commands over their slice's files only. Gated commands stay with the user.
 
 ## The task list
 
@@ -155,5 +162,7 @@ What makes a task dispatchable:
   is what lets the orchestrator refill instantly instead of reading a page.
 
 Recon tasks use the same shape with no edits: a topic, an exact answer shape, one report
-file, and the reply "report written". Their reports are what `--with` points at in the
+file, and the reply "report written". The answer shape always asks for the current code at
+each site, quoted verbatim, and the replacement, so the task file is assembled from the
+report without a Read. Their reports are what `--with` points at in the
 waves that follow.

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { claudeAdapter } from "../src/adapters/claude.ts";
-import { claudeHookCommand, claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
+import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createLogger } from "../src/log.ts";
@@ -49,7 +49,7 @@ function hooksFor(
   shim: string,
   command: (shim: string, event: string) => string = (s, e) => claudeHookCommand(s, e, "node", orchHome),
 ): Record<string, unknown> {
-  return Object.fromEntries(["SessionStart", "Stop", "Notification"].map((event) => [
+  return Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => [
     event,
     [{ hooks: [{ type: "command", command: command(shim, event) }] }],
   ]));

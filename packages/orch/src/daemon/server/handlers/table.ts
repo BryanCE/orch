@@ -7,6 +7,7 @@ import { applyLifecycle, closeAgent, enqueue, listPendingQuestions, reclaim, rec
 import { adopt, detach, reap, reapCandidateList, rename } from "./lease.ts";
 import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
 import { admitHome, decideGrant, listGrants } from "./grant.ts";
+import { lockCommand, unlockCommand } from "./command-lock.ts";
 import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, resolveAgentTarget, takeOnQueued } from "./queue.ts";
 import { cleanStore } from "./clean.ts";
 import { agentStatusOf, capacityOf, fleetSnapshot, processLive, runOf, runsOf } from "./fleet.ts";
@@ -82,6 +83,8 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       state.wake.wake();
       return result;
     },
+    "command-lock": (params) => lockCommand(directory, services.settings.current(), params),
+    "command-unlock": (params) => unlockCommand(directory, params),
     status: () => fleetStatus(state),
     attach: (params) => {
       const key = params.key;

@@ -388,6 +388,18 @@ export const grantSpends = sqliteTable("grant_spends", {
   spentBy: text("spent_by").references(() => agents.id),
 });
 
+// ── command locks ────────────────────────────────────────────────────────────
+
+/** One `locked_commands` pattern held by one live `orch lock` process instance. */
+export const commandLocks = sqliteTable("command_locks", {
+  pattern: text("pattern").notNull().primaryKey(),
+  pid: integer("pid").notNull(),
+  startToken: text("start_token"),
+  agentId: text("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+  command: text("command").notNull(),
+  acquiredAt: integer("acquired_at").notNull(),
+});
+
 // ── derived states ───────────────────────────────────────────────────────────
 
 /** Every agent whose ending row is absent — the only definition of "still

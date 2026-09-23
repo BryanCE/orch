@@ -160,7 +160,7 @@ workers are never told to reply to an address that would refuse them.
 | `reload <target>… \| --all` | Reload panes and signal watchers. |
 | `reset <target>… \| --all [--model M]` / `new` | Fresh session and context, same pane. |
 | `restart <target>… \| --all [--cmd C]` | Close the harness process and relaunch it. |
-| `lock -- '<command>'` | Run a `locked_commands` match one at a time machine-wide, or a `gated_commands` match once the human granted it. Refuse a `denied_commands` whole-command match for the agents `denied_commands.applies_to` names, with no grant. Harness hooks rewrite matches into this. |
+| `lock -- '<command>'` | Run a `locked_commands.commands` match one at a time machine-wide for the agents `locked_commands.applies_to` names, or a `gated_commands` match once the human granted it. Refuse a `denied_commands` whole-command match for the agents `denied_commands.applies_to` names, with no grant. Harness hooks rewrite matches into this. |
 | `spawn <name> [<name>…] [--tab L] [--dir P] [--model M] [--agent A] [--backend B] [--prompt T] [--worktree]` | Fresh tab of tiled agents, one per name. `--dir` only when an agent belongs outside the spawner's directory. |
 | `tile <tab\|pane> <name> …` | Add one pane to an existing tab. |
 | `grant [<hash>\|--list]` | Approve an action an agent was refused. Needs a terminal; no flag answers the prompt for you. |
@@ -284,9 +284,9 @@ effective value with the source that won.
     { "id": "desktop", "on": ["blocked", "error", "done"] },
     { "id": "webhook", "url": "https://example.test/orch-events", "on": ["done", "error"] }
   ],
-  "locked_commands": [],
+  "locked_commands": { "commands": ["bun test"], "applies_to": ["orch", "slave"] },
   "gated_commands": [],
-  "denied_commands": { "commands": ["bun test"], "applies_to": ["workers"] },
+  "denied_commands": { "commands": ["bun test"], "applies_to": ["slave"] },
   "daemon": { "tcp_port": 3716, "idle_shutdown_minutes": 30 },
   "tiling": { "first_split": "rows" },
   "skills": { "install": true, "store": "~/.agents/skills", "link": ["~/.claude/skills"] },

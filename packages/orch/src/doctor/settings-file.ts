@@ -30,7 +30,7 @@ export async function checkSpawnLimits(settings: OrchSettings | null): Promise<C
 export async function checkCommandLocks(settings: OrchSettings | null, gatesCommands: (adapterId: string) => boolean): Promise<CheckResult> {
   await Promise.resolve();
   const label = "Command locks";
-  const count = settings === null ? 0 : settings.locked_commands.length + settings.gated_commands.length;
+  const count = settings === null ? 0 : settings.locked_commands.commands.length +settings.gated_commands.length;
   if (settings === null || count === 0) return { id: "command-locks", label, status: "skip", detail: "no locked_commands or gated_commands configured" };
   const open = settings.enabled.adapters.filter((id) => !gatesCommands(id));
   if (open.length === 0) return { id: "command-locks", label, status: "ok", detail: `${count} command pattern(s) gated by every enabled harness` };

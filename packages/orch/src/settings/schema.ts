@@ -7,7 +7,8 @@ import { THINKING_LEVELS } from "../types/policy.ts";
 import { ORCH_RUNTIMES } from "../runtimes.ts";
 import { FIXED_PATH_MESSAGE, hasFixedPath } from "../policy/command-paths.ts";
 import { COMMAND_PATTERN_MESSAGE, isCommandPattern } from "../policy/command-gate.ts";
-import { DENY_AUDIENCES, MAIL_DELIVERIES, NOTIFY_STATES, type NotifyState } from "../types/settings.ts";
+import { ROLES } from "../types/policy.ts";
+import { MAIL_DELIVERIES, NOTIFICATION_POSITIONS, NOTIFY_STATES, type NotifyState } from "../types/settings.ts";
 import type { OrchDir } from "../types/core.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
@@ -86,7 +87,9 @@ export const SETTINGS_DEFAULTS = {
   lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
   questions: { renag_ms: 120_000, renag_limit: 5 },
   monitor: { on: MONITOR_DEFAULT_ON },
-  denied_commands: { applies_to: ["workers"] },
+  notification: { position: "top-left" },
+  locked_commands: { applies_to: ROLES },
+  denied_commands: { applies_to: ROLES.filter((role) => role !== "orch") },
   settings_file: { typo_max_edits: 2 },
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000 },
@@ -96,7 +99,7 @@ export const SETTINGS_DEFAULTS = {
   workers: { inherit_extensions: true, builtin_tools: true },
   // What a registered caller (an agent or a harness session) may write with `orch settings`:
   // the project's own commands, which the orchestrator knows and the human need not type.
-  agents: { writable_settings: ["workers.verify_commands", "locked_commands"] },
+  agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
   tiling: { first_split: "rows" },
   // `.agents/skills` is the cross-harness standard, so the real files live there once and
   // a harness that reads its own directory instead gets a link into the store.
@@ -231,11 +234,17 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     lock_poll_ms: PositiveInt.optional(),
   }).optional(),
   notify: z.array(NotifyEntrySchema).optional(),
-  locked_commands: z.array(CommandPattern).optional(),
+  notification: z.strictObject({
+    position: z.enum(NOTIFICATION_POSITIONS).optional(),
+  }).optional(),
+  locked_commands: z.strictObject({
+    commands: z.array(CommandPattern).optional(),
+    applies_to: z.array(z.enum(ROLES)).optional(),
+  }).optional(),
   gated_commands: z.array(CommandPattern).optional(),
   denied_commands: z.strictObject({
     commands: z.array(CommandPattern).optional(),
-    applies_to: z.array(z.enum(DENY_AUDIENCES)).optional(),
+    applies_to: z.array(z.enum(ROLES)).optional(),
   }).optional(),
   settings_file: z.strictObject({
     /** An unknown key this many edits from a declared key is a typo and is refused. */

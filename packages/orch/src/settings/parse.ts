@@ -64,6 +64,7 @@ export function parseSettingValue(spec: SettingSpec, input: string): SettingValu
       return parseSinksSetting(kind, input);
     case "text":
       return input.length > 0 ? { ok: true, value: input } : { ok: false, reason: "expected non-empty text" };
+    case "models":
     case "list":
       return parseListSetting(input);
     default: {

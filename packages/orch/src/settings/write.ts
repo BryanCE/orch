@@ -252,6 +252,8 @@ export function writeSettingsFullTree(settings: SettingsManager): void {
       ...values,
       fleet: { ...fleet, ...(maxAgents === undefined ? {} : { max_agents_total: maxAgents }) },
       monitor: { on: [...values.monitor.on] },
+      locked_commands: { ...values.locked_commands, applies_to: [...values.locked_commands.applies_to] },
+      denied_commands: { ...values.denied_commands, applies_to: [...values.denied_commands.applies_to] },
     };
   });
 }

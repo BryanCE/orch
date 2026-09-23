@@ -57,7 +57,7 @@ class NotifierRegistry {
     // it is never converted to `false`.
     if (entry.id === "command" && !commandAvailable(config)) return false;
     if (!(await notifier.available(this.settings))) return false;
-    return await notifier.deliver(event, config);
+    return await notifier.deliver(event, config, this.settings);
   }
 
   validate(entry: NotifyEntry): string[] {

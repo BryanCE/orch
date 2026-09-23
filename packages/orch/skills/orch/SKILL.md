@@ -18,12 +18,18 @@ it. Broken install: `orch doctor -y`.
 ## The loop
 
 ```bash
-orch spawn api-types api-routes api-guards --tab api \
-  --file tasks/T1-types.md --file tasks/T2-routes.md --file tasks/T3-guards.md \
+orch spawn api-types api-routes api-guards --tab api --with tasks/W1-api.md \
+  --prompt "Do section T1 of tasks/W1-api.md. Only that section." \
+  --prompt "Do section T2 of tasks/W1-api.md. Only that section." \
+  --prompt "Do section T3 of tasks/W1-api.md. Only that section." \
   --model luna:high --model luna:low --model luna:high
 orch monitor                                  # arm as a Monitor in this same message
 orch result api-types api-routes api-guards   # one call collects the wave
 ```
+
+The Monitor's command is exactly `orch monitor`, the two words and nothing else. orch
+filters and formats its own output and resolves its own directory, so the command takes no
+`cd`, no `2>&1`, no pipe and no `grep`. Any of those can hide the events you arm it for.
 
 A fleet is one command. `--file`, `--prompt` and `--model` each take one value for all or
 exactly N. `--with <path>` on a spawn reaches every agent; `--with <name>=<path>` reaches
@@ -36,7 +42,7 @@ bridge: spawn prints an UNVERIFIED warning, so check `orch status` before you di
 Refill the moment an agent lands:
 
 ```bash
-orch rename api-types api-auth && orch dispatch api-auth --file tasks/T4-auth.md --with recon/api.md
+orch rename api-types api-auth && orch dispatch api-auth "Do section T4 of tasks/W2-api.md. Only that section." --with tasks/W2-api.md --with recon/api.md
 ```
 
 Dispatch clears the context itself. There is no reset step between two tasks.
@@ -45,15 +51,15 @@ Dispatch clears the context itself. There is no reset step between two tasks.
 
 Every worker header carries `workers.verify_commands` (what a worker runs over its own
 files before it reports; write `{cwd}` or `{wincwd}` for the agent's directory, never a
-path). `locked_commands` are heavy commands that run one at a time machine-wide, so ten
+path). `locked_commands.commands` are heavy commands that run one at a time machine-wide, so ten
 workers never run the test suite at once; the harness hook locks each match, and the
-worker never hears of it. A task file never names a
+worker never hears of it. A task never names a
 lint, type check or test command. Set both from the project before the first wave, once per
 project:
 
 ```bash
 orch settings workers.verify_commands '["bunx oxlint", "bunx tsc --noEmit", "bun test"]'
-orch settings locked_commands '["bun test", "bunx tsc"]'
+orch settings locked_commands.commands '["bun test", "bunx tsc"]'
 ```
 
 Read the project's scripts (`package.json`, `Makefile`) and its lint config (biome, oxlint,
@@ -72,23 +78,27 @@ migration, a push). A match is refused with a request id. Hand the user
 header tells it to report the id. You never run a gated command yourself.
 
 `denied_commands.commands` is the user's list of commands an agent never runs, with no
-grant. `denied_commands.applies_to` names who is refused: `workers`, `orchestrators`, or
+grant. `denied_commands.applies_to` names who is refused: `slave`, `orch`, or
 both. A pattern matches only the whole command: `bun test` refuses the full suite, and
 `bun test <file>` runs. Never write prose, `*`, or `<file>` into any command list; orch
 refuses it.
 
-## A task is written once. `--file` sends that file.
+## A task is written once, in the task list, and sent where it stands.
 
-- `--file <path>` sends a file's contents as the prompt. The file is one you ALREADY have: a
-  task you wrote in the task list, a spec the user wrote. Write each task straight into the
-  file `--file` will send, one file per task, at the moment you write the task list.
-- `--with <path>` hands the agent a path it opens for context: a recon report, a directory.
-  Orch checks it exists and never reads it.
+- The task list is one file per task or one file per wave, whichever fits the tasks. Both
+  work.
+  - One file per task: send it with `--file tasks/T13.md`. The file's contents are the prompt.
+  - One file per wave, one section per task (`## T13 <title>`): send a one-line pointer to the
+    section, with the wave file in `--with`:
+    `--prompt "Do section T13 of tasks/W2-core.md. Only that section." --with tasks/W2-core.md`.
+    The worker does its own section, and the other sections give it context.
+- `--with <path>` hands the agent a path it opens for context: a wave file, a recon report,
+  a directory. Orch checks it exists and never reads it.
+- `--file <path>` also sends a spec the user wrote.
 - A short task with no file is typed: `--prompt` on spawn, the quoted argument on dispatch.
 
-Never write a second file to send a task that exists. Never rewrite, restate or copy a task
-out of the task list into a temp file for `--file`. That is the same task paid for twice,
-plus a file to name, create and clean up. The task list IS the files you send.
+Never copy a task out of the task list into another file. That is the same task paid for
+twice, plus a file to name, create and clean up. The task list IS what you send.
 
 ## Waves
 
@@ -101,8 +111,8 @@ Every job runs as waves of 3 to 4 agents. Nobody idles, not you and not an agent
    any implementing dispatch. Every task names exact files, exact edits, the files to
    verify, and the report shape. A task is 1 to 3 minutes of mechanical work. Group tasks
    into waves by file ownership. The shape is in `reference/fleet.md`.
-3. Dispatch the whole wave in one message, `--file` on each task's own file as you wrote
-   it, `--with` on the report it cites, and `orch monitor` armed.
+3. Dispatch the whole wave in one message: each task as its file or its section pointer,
+   `--with` on the report it cites, and `orch monitor` armed.
 4. Assemble the next wave's specs from the reports while this one runs. A landed diff goes
    to a reviewer agent that reports pass or a finding list. You read the verdict, not the
    diff. A finding is a task for the next wave, not an edit you make.
@@ -139,7 +149,7 @@ agent.
   steers in one command.
 - `pending` is not `blocked`. An agent whose own files are clean but whose verify run fails
   in another task's files reports `pending: <files>` and is done. orch's worker header does
-  not say this, so write it into every task file.
+  not say this, so write it into every task.
 - A question from an agent gets a one-line scope grant, not a discussion.
 - Another session's agents are never yours. Spawn what fits, hold the rest.
 

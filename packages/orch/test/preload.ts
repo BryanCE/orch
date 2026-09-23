@@ -55,3 +55,6 @@ const sandboxHome = join(tmpdir(), "orch-test-home");
 mkdirSync(sandboxHome, { recursive: true });
 process.env.HOME = sandboxHome;
 process.env.USERPROFILE = sandboxHome;
+
+/** Every daemon a test starts runs the source under test, never the last build in `dist/`. */
+process.env.ORCHD_ENTRYPOINT = join(import.meta.dir, "..", "src", "daemon", "server", "orchd.ts");

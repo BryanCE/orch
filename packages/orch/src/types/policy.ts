@@ -76,6 +76,9 @@ export type Term = keyof typeof VOCABULARY;
 /** A11: orch = pack root, slave = any non-root member. */
 export type Role = Extract<Term, "orch" | "slave">;
 
+/** Every role, for a setting that names which roles a rule covers. */
+export const ROLES = ["orch", "slave"] as const satisfies readonly Role[];
+
 /**
  * What a spawned worker is allowed to load, expressed in orch vocabulary and
  * resolved once here. Adapters translate this policy into their own harness's

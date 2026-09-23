@@ -13,7 +13,9 @@ import { transitionEventFromRow } from "../status-events.ts";
 import type { AgentState } from "../../../agent-state.ts";
 import type { OrchDir } from "../../../types/core.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
-import type { DenyAudience, OrchSettings } from "../../../types/settings.ts";
+import type { OrchSettings } from "../../../types/settings.ts";
+import type { Role } from "../../../types/policy.ts";
+import { roleOf } from "../../../policy/vocabulary.ts";
 import type { GrantAction } from "../../../types/store.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 
@@ -58,14 +60,22 @@ function blockedVerdict(directory: OrchDir, limitMs: number, waitedMs: number, b
   return { verdict: "wait", pattern: blocking.pattern, holder, since: blocking.acquiredAt };
 }
 
-/** A worker is an agent orch spawned; an orchestrator is a session orch did not. */
-function audienceOf(directory: OrchDir, agent: string): DenyAudience {
-  return agentById(directory, agent)?.spawnedBy ? "workers" : "orchestrators";
+/** Whether a rule's `applies_to` names this agent's role. */
+function covers(directory: OrchDir, appliesTo: readonly Role[], agent: string): boolean {
+  const row = agentById(directory, agent);
+  return row !== null && appliesTo.includes(roleOf(row));
+}
+
+/** The locked patterns this command must hold and does not yet. An agent outside
+ *  `locked_commands.applies_to` holds none; the human's own `orch lock` always waits. */
+function wantedPatterns(directory: OrchDir, locked: LockSettings["locked_commands"], params: LockParams, agent: string | null): string[] {
+  if (agent !== null && !covers(directory, locked.applies_to, agent)) return [];
+  return matchedPatterns(params.command, locked.commands).filter((pattern) => !params.held.includes(pattern));
 }
 
 /** The denied pattern this agent runs, when `denied_commands.applies_to` covers it. The human is never denied. */
 function deniedPattern(directory: OrchDir, denied: LockSettings["denied_commands"], command: string, agent: string | null): string | undefined {
-  if (agent === null || !denied.applies_to.includes(audienceOf(directory, agent))) return undefined;
+  if (agent === null || !covers(directory, denied.applies_to, agent)) return undefined;
   return wholeCommandMatch(command, denied.commands);
 }
 
@@ -77,7 +87,7 @@ export function lockCommand(directory: OrchDir, settings: LockSettings, params: 
   const gated = matchedPatterns(params.command, settings.gated_commands).length > 0;
   if (gated && !grantIsApproved(directory, action)) return { verdict: "refused", requestId: requestGrant(directory, action, agent).id };
 
-  const wanted = matchedPatterns(params.command, settings.locked_commands).filter((pattern) => !params.held.includes(pattern));
+  const wanted = wantedPatterns(directory, settings.locked_commands, params, agent);
   const rows = selectCommandLocks(directory, wanted);
   const own = heldBy(params);
   const blocking = rows.find((row) => !own(row) && recordedInstanceIsLive(row.pid, row.startToken));

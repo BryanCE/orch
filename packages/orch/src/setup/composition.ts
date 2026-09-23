@@ -94,7 +94,7 @@ export async function resolveHarnessModels(
     const harness = resolveAdapter(id);
     const offered = await readHarnessCatalogue(harness, catalogue, interactive);
     const targeted = assignments.get(id);
-    const chosen = await resolveDefaultModel(targeted, harness, offered, interactive);
+    const chosen = await resolveDefaultModel({ flag: targeted, harness, offered, interactive, recorded: settings?.defaults.models[id] });
     if (chosen === null) return null;
     // Blank means the harness is not ready; leaving it unrecorded is what lets setup finish and
     // `orch settings models --harness=<id>` fill it in once the harness can enumerate.
@@ -137,21 +137,26 @@ async function readHarnessCatalogue(harness: AgentAdapter, catalogue: ModelCatal
 }
 
 /** The model spawns of ONE harness launch on: `--model=`, else a pick from what that harness
- * reports it can run, else its own default when non-interactive. orch decides and records; the
- * harness only enumerates. Null when the user cancels, empty when the harness offers nothing
- * and the operator named nothing either. */
+ * reports it can run, else its own default when non-interactive. The pick opens on the recorded
+ * default, so Enter keeps it. orch decides and records; the harness only enumerates. Null when
+ * the user cancels, empty when the harness offers nothing and the operator named nothing either. */
+interface DefaultModelRequest {
+  readonly flag: string | undefined;
+  readonly harness: AgentAdapter;
+  readonly offered: readonly HarnessModel[];
+  readonly interactive: boolean;
+  readonly recorded: string | undefined;
+}
+
 async function resolveDefaultModel(
-  flag: string | undefined,
-  harness: AgentAdapter,
-  offered: readonly HarnessModel[],
-  interactive: boolean,
+  { flag, harness, offered, interactive, recorded }: DefaultModelRequest,
   pick: (harnessId: string, offered: readonly HarnessModel[], suggested: string | undefined) => Promise<string | null> = selectDefaultModel,
 ): Promise<string | null> {
   // A harness listing nothing is not signed in. readHarnessCatalogue already said so; asking for
   // a model it cannot resolve would only record a broken one.
   if (flag === undefined && !offered.length) return "";
   const suggested = harness.defaultModel?.defaultModelString();
-  const chosen = flag ?? (interactive ? await pick(harness.id, offered, suggested) : suggested ?? offered[0]?.spec);
+  const chosen = flag ?? (interactive ? await pick(harness.id, offered, recorded ?? suggested) : suggested ?? offered[0]?.spec);
   if (chosen === null) return null;
   if (!chosen) return "";
   try {
@@ -160,6 +165,14 @@ async function resolveDefaultModel(
     die(errorMessage(error));
   }
   return chosen;
+}
+
+/** Record what a model pick chose. Each map merges over what settings.json holds, so a harness
+ *  the pick never asked about keeps every list it had. */
+export function recordHarnessModels(settings: SettingsManager, current: OrchSettings, chosen: HarnessModelChoices): void {
+  writeSettingsModels(settings, { ...current.defaults.models, ...chosen.defaults });
+  writeSettingsPreferredModels(settings, { ...current.models.preferred, ...chosen.preferred });
+  writeSettingsAllowedModels(settings, { ...current.models.allowed, ...chosen.allowed });
 }
 
 /** Resolve the declared JS runtime from `--runtime`, the wizard, or the no-preference value.

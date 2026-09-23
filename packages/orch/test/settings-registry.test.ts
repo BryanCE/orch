@@ -110,7 +110,7 @@ function completeSettings(): Record<string, unknown> {
     retention: { ended_agents_days: 1, queue_days: 2, events_days: 3, runs_days: 4, outbox_days: 5, logs_days: 6 },
     timeouts: { dispatch_ack_ms: 1, wait_ms: 2, adapter_command_ms: 3, notify_ms: 4, spawn_attach_ms: 5, spawn_attach_poll_ms: 6, lock_wait_ms: 7, lock_poll_ms: 8 },
     notify: [{ id: "desktop" }],
-    locked_commands: ["bun test"],
+    locked_commands: { commands: ["bun test"], applies_to: ["slave"] },
     gated_commands: ["git push"],
     hosts: { local: { dest: "localhost" } },
     spaces: { main: "/tmp/main" },
@@ -218,5 +218,13 @@ describe("settings registry", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, completeSettings());
     expect(() => writeRegisteredSetting(fileSettingsManager(directory), AGENT_SETTINGS_GRANT, [AGENT_SETTINGS_GRANT])).toThrow(/never grants itself/);
+  });
+
+  test("the model rows open the model picker and still parse JSON on the CLI", () => {
+    for (const key of ["defaults.models", "models.allowed", "models.preferred"]) {
+      const spec = registered(key);
+      expect(spec.type).toEqual({ kind: "models" });
+      expect(parseSettingValue(spec, "{\"pi\":[\"openai-codex/gpt-6-luna\"]}").ok).toBe(true);
+    }
   });
 });

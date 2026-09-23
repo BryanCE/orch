@@ -19,7 +19,10 @@ function choicesFor(key: string, node: JsonSchemaNode): readonly string[] {
   return values.filter((value): value is string => typeof value === "string");
 }
 
+const MODEL_KEYS: readonly string[] = ["defaults.models", "models.allowed", "models.preferred"];
+
 function kindFor(key: string): SettingKind {
+  if (MODEL_KEYS.includes(key)) return { kind: "models" };
   // Sinks are checked off a list; the ones that carry a value declare the field to ask for.
   if (key === "notify") {
     return {
@@ -205,10 +208,12 @@ const HELP: Readonly<Record<string, string>> = {
   "timeouts.spawn_attach_ms": "How long spawn waits for every agent's bridge to attach, in milliseconds.",
   "timeouts.spawn_attach_poll_ms": "How often spawn asks orchd which bridges attached, in milliseconds.",
   notify: "Where agent state changes are delivered. enter picks the sinks - sound (a ding on this machine), desktop, herdr, webhook (a URL), command (any command line you want) - space turns one on, e sets what it carries, w picks which states it fires on.",
-  locked_commands: "Commands that run one at a time machine-wide. A harness that gates commands routes each match through orch lock, which waits for the lock.",
+  "notification.position": "The screen corner a plexer shows an orch notification in: top-left, top-right, bottom-left or bottom-right.",
+  "locked_commands.commands": "Commands that run one at a time machine-wide. A harness that gates commands routes each match through orch lock, which waits for the lock.",
+  "locked_commands.applies_to": `Who waits for locked_commands: ${term("slave")} (agents orch spawned), ${term("orch")} (sessions orch did not spawn), or both. An agent outside it runs the command at once.`,
   gated_commands: "Commands no agent runs without the human's approval. A match is refused until the human runs orch grant for that exact command.",
   "denied_commands.commands": "Commands an agent may never run, with no grant. A pattern matches only the whole command: bun test refuses the full suite, bun test <file> runs.",
-  "denied_commands.applies_to": "Who denied_commands refuses: workers (agents orch spawned), orchestrators (sessions orch did not spawn), or both. The human's own shell is never refused.",
+  "denied_commands.applies_to": `Who denied_commands refuses: ${term("slave")} (agents orch spawned), ${term("orch")} (sessions orch did not spawn), or both. The human's own shell is never refused.`,
   "settings_file.typo_max_edits": "An unknown key in settings.json this many edits from a real key is a typo, and orch refuses the file. Any other unknown key is one a newer orch added, and this orch ignores it.",
   "timeouts.lock_wait_ms": "How long an agent waits for a locked command's lock before it gives up, in milliseconds. The agent then does its other work and runs the command again later.",
   "timeouts.lock_poll_ms": "How often orch lock asks orchd whether the lock is free, in milliseconds.",

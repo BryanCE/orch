@@ -21,7 +21,8 @@ function globToRegex(pattern: string): RegExp {
 function isAllowedModel(settings: OrchSettings, harness: AdapterId, bareModel: string): boolean {
   const patterns = allowedModelPatterns(settings, harness);
   if (patterns.length === 0) return true;
-  if (bareModel === splitThinkingSuffix(settings.defaults.models[harness] ?? "").bare) return true;
+  const recorded = settings.defaults.models[harness];
+  if (recorded !== undefined && splitThinkingSuffix(recorded).bare === bareModel) return true;
   return patterns.some((pattern) => globToRegex(pattern).test(bareModel));
 }
 

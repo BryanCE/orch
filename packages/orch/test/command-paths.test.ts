@@ -22,7 +22,7 @@ describe("settings commands name no fixed directory", () => {
     const fixed = "cd /mnt/c/dev/other && bun test";
     const fields = SETTINGS_FILE_SCHEMA.shape;
     expect(fields.workers.safeParse({ verify_commands: [fixed] }).success).toBe(false);
-    expect(fields.locked_commands.safeParse([fixed]).success).toBe(false);
+    expect(fields.locked_commands.safeParse({ commands: [fixed] }).success).toBe(false);
     expect(fields.gated_commands.safeParse([fixed]).success).toBe(false);
     expect(fields.workers.safeParse({ verify_commands: ["cd {cwd} && bun test"] }).success).toBe(true);
   });
@@ -30,10 +30,10 @@ describe("settings commands name no fixed directory", () => {
   test("settings refuse prose and globs in locked and gated commands", () => {
     const fields = SETTINGS_FILE_SCHEMA.shape;
     for (const prose of ["bun test (whole suite; only bun test <file> over your own files)", "any database migration, generate, push or reset command", "bun script:*", "scripts/*"]) {
-      expect(fields.locked_commands.safeParse([prose]).success).toBe(false);
+      expect(fields.locked_commands.safeParse({ commands: [prose] }).success).toBe(false);
       expect(fields.gated_commands.safeParse([prose]).success).toBe(false);
     }
-    expect(fields.locked_commands.safeParse(["bun test", "bun db:gen", "bunx tsc --noEmit", "git push"]).success).toBe(true);
+    expect(fields.locked_commands.safeParse({ commands: ["bun test", "bun db:gen", "bunx tsc --noEmit", "git push"] }).success).toBe(true);
   });
 });
 

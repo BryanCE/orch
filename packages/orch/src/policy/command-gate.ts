@@ -52,7 +52,7 @@ export function matchedPatterns(command: string, patterns: readonly string[]): s
 
 /** The patterns a harness must route through `orch lock`: locked, gated and denied alike. */
 export function gatedPatterns(settings: Pick<OrchSettings, "locked_commands" | "gated_commands" | "denied_commands">): string[] {
-  return [...settings.locked_commands, ...settings.gated_commands, ...settings.denied_commands.commands];
+  return [...settings.locked_commands.commands, ...settings.gated_commands, ...settings.denied_commands.commands];
 }
 
 /** A command the agent already sent through `orch lock` itself. */

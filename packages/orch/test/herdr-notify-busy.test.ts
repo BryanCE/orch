@@ -47,14 +47,20 @@ describe("a busy herdr is waited out, not dropped", () => {
 
   test("a toast shown on the first try is sent once and waits for nothing", () => {
     const io = recorder([SHOWN]);
-    expect(deliverHerdrNotification({ title: "t", body: "b" }, io)).toBe(true);
+    expect(deliverHerdrNotification({ title: "t", body: "b" }, "top-left", io)).toBe(true);
     expect(io.sent.length).toBe(1);
     expect(io.waited).toEqual([]);
   });
 
+  test("the toast shows in the configured corner", () => {
+    const io = recorder([SHOWN]);
+    deliverHerdrNotification({ title: "t", body: "b" }, "bottom-right", io);
+    expect(io.sent[0]).toEndWith("--position bottom-right");
+  });
+
   test("a busy herdr is retried after a wait, and the retry is the delivery", () => {
     const io = recorder([BUSY, SHOWN]);
-    expect(deliverHerdrNotification({ title: "t", body: "b" }, io)).toBe(true);
+    expect(deliverHerdrNotification({ title: "t", body: "b" }, "top-left", io)).toBe(true);
     expect(io.sent.length).toBe(2);
     expect(io.waited.length).toBe(1);
     expect(io.waited[0]).toBeGreaterThan(0);
@@ -62,14 +68,14 @@ describe("a busy herdr is waited out, not dropped", () => {
 
   test("a herdr that stays busy gives up rather than blocking the daemon forever", () => {
     const io = recorder([BUSY]);
-    expect(deliverHerdrNotification({ title: "t", body: "b" }, io)).toBe(false);
+    expect(deliverHerdrNotification({ title: "t", body: "b" }, "top-left", io)).toBe(false);
     expect(io.sent.length).toBeLessThanOrEqual(6);
     expect(io.sent.length).toBeGreaterThan(1);
   });
 
   test("a refusal that waiting cannot fix is not retried", () => {
     const io = recorder(['{"result":{"reason":"disabled","shown":false}}']);
-    expect(deliverHerdrNotification({ title: "t", body: "b" }, io)).toBe(false);
+    expect(deliverHerdrNotification({ title: "t", body: "b" }, "top-left", io)).toBe(false);
     expect(io.sent.length).toBe(1);
   });
 });

@@ -27,6 +27,7 @@ import { isAgentId } from "../../backends/identity.ts";
 import { LAUNCH_ENV, readLaunchCredential } from "../../identity/launch.ts";
 import { refreshAdapterCatalogues, warmAdapterCatalogues } from "../../adapters/registry.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
+import type { OrchSettings } from "../../types/settings.ts";
 import { createPanePainter } from "./pane-painter.ts";
 import { createWakeSignal } from "./wake.ts";
 import { closeAllStores, reportDrains, reportWriteFailures } from "../../store/connection.ts";
@@ -57,6 +58,11 @@ async function shutDown(state: DaemonState, reason: string): Promise<void> {
   releaseDaemonRegistration();
   state.services.logger.info("daemon.stopped", { pid: process.pid });
   process.exit(0);
+}
+
+/** The model settings a harness catalogue answers for, as one comparable value. */
+function modelChoicesOf(settings: OrchSettings | null): string {
+  return JSON.stringify([settings?.defaults.models, settings?.models]);
 }
 
 export async function startDaemon(): Promise<DaemonState> {
@@ -138,6 +144,7 @@ export async function startDaemon(): Promise<DaemonState> {
   warmAdapterCatalogues(state.services.models);
 
   let settingsLoaded = false;
+  let modelChoices = modelChoicesOf(services.settings.currentOrNull());
   state.settingsWatch = watchSettings(services.settings, {
     load: () => {
       const next = services.settings.reload();
@@ -147,12 +154,16 @@ export async function startDaemon(): Promise<DaemonState> {
     onChange: (settings) => {
       forgetCapacity(directory);
       services.logger.setLevel(logLevelFor(settings));
-      // A settings change reaches the next spawn, never a running agent: re-asking the
+      if (settingsLoaded) state.services.logger.info("config.reloaded");
+      // A model settings change reaches the next spawn, never a running agent: re-asking the
       // harnesses is what lets a newly named model be offered and admitted.
-      if (settingsLoaded) {
-        state.services.logger.info("config.reloaded");
-        void refreshAdapterCatalogues(state.services.models);
+      const nextChoices = modelChoicesOf(settings);
+      if (settingsLoaded && nextChoices !== modelChoices) {
+        refreshAdapterCatalogues(state.services.models).catch((error: unknown) => {
+          state.services.logger.warn("models.refresh-failed", { error: errorMessage(error) });
+        });
       }
+      modelChoices = nextChoices;
       settingsLoaded = true;
     },
     onWarn: (message) => state.services.logger.warn("config.warning", { message }),

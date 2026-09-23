@@ -321,23 +321,23 @@ describe("orch settings from an agent", () => {
   test("the human grants a key and the agent then sets it", async () => {
     const directory = tempDir();
     writeSettingsFixture(directory, fixture);
-    expect(await runSettings(directory, {}, "grant", "fleet.max_depth")).toBe("agents may write: workers.verify_commands, locked_commands, fleet.max_depth\n");
+    expect(await runSettings(directory, {}, "grant", "fleet.max_depth")).toBe("agents may write: workers.verify_commands, locked_commands.commands, fleet.max_depth\n");
     expect(await runSettings(directory, asAgent(), "fleet.max_depth", "3")).toContain("fleet.max_depth = 3");
   });
 
   test("the human revokes a key and the agent is refused it", async () => {
     const directory = tempDir();
     writeSettingsFixture(directory, fixture);
-    expect(await runSettings(directory, {}, "revoke", "locked_commands")).toBe("agents may write: workers.verify_commands\n");
+    expect(await runSettings(directory, {}, "revoke", "locked_commands.commands")).toBe("agents may write: workers.verify_commands\n");
     expect(await runSettings(directory, {}, "revoke", "workers.verify_commands")).toBe("agents may write: (none)\n");
-    const failed = await runSettingsExpectingFailure(directory, asAgent(), "locked_commands", "[\"git push\"]");
+    const failed = await runSettingsExpectingFailure(directory, asAgent(), "locked_commands.commands", "[\"git push\"]");
     expect(failed.message).toContain("An agent may set: (none)");
   });
 
   test("grant is idempotent and refuses an unknown, read-only, or self key", async () => {
     const directory = tempDir();
     writeSettingsFixture(directory, fixture);
-    expect(await runSettings(directory, {}, "grant", "locked_commands")).toBe("agents may write: workers.verify_commands, locked_commands\n");
+    expect(await runSettings(directory, {}, "grant", "locked_commands.commands")).toBe("agents may write: workers.verify_commands, locked_commands.commands\n");
     expect((await runSettingsExpectingFailure(directory, {}, "grant", "fleet.max_dept")).message).toContain("fleet.max_depth");
     expect((await runSettingsExpectingFailure(directory, {}, "grant", "runtime")).message).toContain("read-only");
     expect((await runSettingsExpectingFailure(directory, {}, "grant", AGENT_SETTINGS_GRANT)).message).toContain("never grants itself");
@@ -347,7 +347,7 @@ describe("orch settings from an agent", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, fixture);
     expect((await runSettingsExpectingFailure(directory, asAgent(), "grant", "fleet.max_depth")).message).toContain("operator-only for an agent");
-    expect((await runSettingsExpectingFailure(directory, asAgent(), "revoke", "locked_commands")).message).toContain("operator-only for an agent");
+    expect((await runSettingsExpectingFailure(directory, asAgent(), "revoke", "locked_commands.commands")).message).toContain("operator-only for an agent");
   });
 
   test("the table and --json say which rows an agent may write", async () => {

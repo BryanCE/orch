@@ -211,7 +211,13 @@ const settingsValueExtractors = {
     lock_poll_ms: root.timeouts?.lock_poll_ms ?? SETTINGS_DEFAULTS.timeouts.lock_poll_ms,
   }),
   notify: (root: Partial<SettingsFile>) => root.notify ?? [],
-  locked_commands: (root: Partial<SettingsFile>) => root.locked_commands ?? [],
+  notification: (root: Partial<SettingsFile>) => ({
+    position: root.notification?.position ?? SETTINGS_DEFAULTS.notification.position,
+  }),
+  locked_commands: (root: Partial<SettingsFile>) => ({
+    commands: root.locked_commands?.commands ?? [],
+    applies_to: root.locked_commands?.applies_to ?? SETTINGS_DEFAULTS.locked_commands.applies_to,
+  }),
   gated_commands: (root: Partial<SettingsFile>) => root.gated_commands ?? [],
   denied_commands: (root: Partial<SettingsFile>) => ({
     commands: root.denied_commands?.commands ?? [],
@@ -260,6 +266,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
     logging: settingsValueExtractors.logging(root),
     timeouts: settingsValueExtractors.timeouts(root),
     notify: settingsValueExtractors.notify(root),
+    notification: settingsValueExtractors.notification(root),
     locked_commands: settingsValueExtractors.locked_commands(root),
     gated_commands: settingsValueExtractors.gated_commands(root),
     denied_commands: settingsValueExtractors.denied_commands(root),

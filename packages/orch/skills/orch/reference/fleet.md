@@ -10,7 +10,9 @@ panes by eye, and a crammed tab shows nothing.
 First need in a domain:
 
 ```bash
-orch spawn slice-1 slice-2 --tab <domain> --file tasks/T1.md --file tasks/T2.md
+orch spawn slice-1 slice-2 --tab <domain> --with tasks/W1.md \
+  --prompt "Do section T1 of tasks/W1.md. Only that section." \
+  --prompt "Do section T2 of tasks/W1.md. Only that section."
 ```
 
 `--tab <label>` fills a tab that already carries that label, so a second spawn for the same
@@ -92,8 +94,9 @@ capacity. Waiting for a foreign fleet to finish is never the plan.
 The failure mode is always the same: the fleet idles while the orchestrator reads, writes
 one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
 
-- **One command per wave.** Write the whole wave's task files first, then one `orch spawn`
-  with N `--file` flags and N `--model` flags launches the whole wave on the right models.
+- **One command per wave.** Write the whole wave's tasks first, then one `orch spawn` with N
+  `--file` flags (or the wave file in `--with` and N `--prompt` pointers) and N `--model`
+  flags launches the whole wave on the right models.
   On the next wave, send all the `rename` calls in one shot, then all N dispatches in the
   next. One pane at a time is the bottleneck wearing a process hat.
 - **Keep one reviewer pane on a stronger model.** Give it its own `--model` in the same
@@ -111,17 +114,19 @@ one spec, dispatches one pane, and repeats. The fixes, in order of leverage:
 ## The task list
 
 The task list is the contract between the recon reports and the dispatches. It lives in a
-scratch directory for the job: one index file, plus ONE FILE PER TASK. Each task file is a
-self-contained spec that an orch receives verbatim through `--file`, so it carries
-everything the orch needs and nothing it has to look up. It is written once from the
-reports, then only appended to as findings come back.
+scratch directory for the job: one index file, plus one file per task or one file per wave
+with one section per task, whichever fits the tasks. Each task is a self-contained spec, so
+it carries everything the orch needs and nothing it has to look up. It is written once from
+the reports, then only appended to as findings come back.
 
-The task file is the dispatch. Write the task into `tasks/T1.md` when you write the list;
-send it with `--file tasks/T1.md`. Never write it into the index and then copy it out into
-another file to send: that is the same task written twice.
+The task as written is the dispatch. Send a task file with `--file`. Send a wave file's
+section as a one-line pointer, with the wave file in `--with`; the worker does its own
+section, and the other sections are context. Never copy a task out into another file to
+send: that is the same task written twice.
 
 ```bash
 orch dispatch w1 --file tasks/T1.md --with recon/readers.md
+orch dispatch w2 "Do section T2 of tasks/W1.md. Only that section." --with tasks/W1.md --with recon/readers.md
 ```
 
 The index:
@@ -129,18 +134,19 @@ The index:
 ```markdown
 # <job>  (reports: recon/readers.md, recon/daemon.md)
 
-## Wave 1  (files: src/a.ts | src/b.ts | test/a.test.ts)
-- tasks/T1.md   owner: src/a.ts     <one-line title>
-- tasks/T2.md   owner: src/b.ts     <one-line title>
+## Wave 1: tasks/W1.md  (files: src/a.ts | src/b.ts | test/a.test.ts)
+- T1   owner: src/a.ts     <one-line title>
+- T2   owner: src/b.ts     <one-line title>
 
 ## CHECKPOINT 1
 verify: src/a.ts src/b.ts test/a.test.ts
 user: report progress, do what the user asked for at checkpoints.
 ```
 
-One task file, `tasks/T1.md`:
+One task, as `tasks/T1.md` or as a section of `tasks/W1.md` (the section adds the heading):
 
 ```markdown
+## T1 Rename foo to bar
 Edit src/a.ts:
 - L42 `export function foo(x: string): Foo` → rename to `bar`, same signature.
 - Remove the import of `oldThing` at L3.
@@ -163,6 +169,6 @@ What makes a task dispatchable:
 
 Recon tasks use the same shape with no edits: a topic, an exact answer shape, one report
 file, and the reply "report written". The answer shape always asks for the current code at
-each site, quoted verbatim, and the replacement, so the task file is assembled from the
+each site, quoted verbatim, and the replacement, so the task is assembled from the
 report without a Read. Their reports are what `--with` points at in the
 waves that follow.

@@ -47,7 +47,7 @@ function toolInput(toolName: string, input: Record<string, unknown>): Record<str
   const daemon = stubDaemonClient();
   const identity = { agentId: "pi", settleEvent: "agent_settled" };
   const presence = createAgentPresence({ harness, identity, extensionHash: "test", daemon });
-  const settings = testServices({ orchDir: root, settings: { locked_commands: ["bun test"] } }).settings;
+  const settings = testServices({ orchDir: root, settings: { locked_commands: { commands: ["bun test"] } } }).settings;
   registerAgentTools(harness, { presence, daemon, identity, notify: () => undefined, refreshLabels: () => Promise.resolve() }, root, settings);
   const event = { toolName, input: { ...input } };
   for (const handler of handlers.get("tool_call") ?? []) void handler(event, harnessContext());

@@ -12,12 +12,13 @@ import { seedAgent, seedOrch } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
-import type { DenyAudience } from "../src/types/settings.ts";
+import type { Role } from "../src/types/policy.ts";
 import type { ParamsOf, ResultOf } from "../src/daemon/client/protocol.ts";
 
 const dirs: OrchDir[] = [];
-const DENIED: DenyAudience[] = ["workers"];
-const SETTINGS = { locked_commands: ["bun test"], gated_commands: ["git push"], denied_commands: { commands: ["bun check"], applies_to: DENIED }, timeouts: { lock_wait_ms: 180_000 } };
+const DENIED: Role[] = ["slave"];
+const EVERY_AGENT: Role[] = ["orch", "slave"];
+const SETTINGS = { locked_commands: { commands: ["bun test"], applies_to: EVERY_AGENT }, gated_commands: ["git push"], denied_commands: { commands: ["bun check"], applies_to: DENIED }, timeouts: { lock_wait_ms: 180_000 } };
 const LIVE = { pid: process.pid, startToken: processStartToken(process.pid) ?? null };
 
 afterEach(() => {
@@ -103,10 +104,19 @@ describe("command-lock", () => {
     seedOrch(dir, orchestrator);
     expect(lock(dir, { ...request("bun check", 2), agent: orchestrator })).toEqual({ verdict: "run", patterns: [] });
     expect(lock(dir, request("bun check", 2))).toEqual({ verdict: "run", patterns: [] });
-    const everyAgent: DenyAudience[] = ["workers", "orchestrators"];
-    const both = { ...SETTINGS, denied_commands: { commands: ["bun check"], applies_to: everyAgent } };
+    const both = { ...SETTINGS, denied_commands: { commands: ["bun check"], applies_to: EVERY_AGENT } };
     expect(lockCommand(dir, both, { ...request("bun check", 2), agent: orchestrator }, () => undefined)).toEqual({ verdict: "denied", pattern: "bun check" });
     expect(lockCommand(dir, both, request("bun check", 2), () => undefined)).toEqual({ verdict: "run", patterns: [] });
+  });
+
+  test("locked_commands.applies_to picks who waits; the human's own orch lock always does", () => {
+    const dir = tempDir();
+    const orchestrator = mintAgentId();
+    seedOrch(dir, orchestrator);
+    const workersOnly = { ...SETTINGS, locked_commands: { commands: ["bun test"], applies_to: DENIED } };
+    lock(dir, request("bun test", LIVE.pid, LIVE.startToken));
+    expect(lockCommand(dir, workersOnly, { ...request("bun test", 2), agent: orchestrator }, () => undefined)).toEqual({ verdict: "run", patterns: [] });
+    expect(lockCommand(dir, workersOnly, request("bun test", 2), () => undefined)).toMatchObject({ verdict: "wait", pattern: "bun test" });
   });
 
   test("a waiting agent is marked waiting once, with the holder named", () => {

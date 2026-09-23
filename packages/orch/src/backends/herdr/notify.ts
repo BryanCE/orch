@@ -1,4 +1,5 @@
-import type { OrchSettings } from "../../types/settings.ts";
+import type { NotificationPosition, OrchSettings } from "../../types/settings.ts";
+import { SETTINGS_DEFAULTS } from "../../settings/schema.ts";
 import type { HerdrCli } from "./cli.ts";
 import { HERDR_SINK_ID } from "../backend.ts";
 import { notificationText } from "../../notify/format.ts";
@@ -22,7 +23,10 @@ export function createHerdrNotifier(cli: HerdrCli): Notifier {
     metadata: { description: "Herdr native notifications", requiredConfig: [] },
     remediation: "fix: enable the herdr plexer in orch setup, and start herdr so its control socket answers",
     available: (settings) => herdrRunsAgents(settings) && cli.reachable(),
-    deliver: (event, _config) => Promise.resolve(deliverHerdrNotification(notificationText(event), io)),
+    deliver: (event, _config, settings) => {
+      const position = settings?.notification.position ?? SETTINGS_DEFAULTS.notification.position;
+      return Promise.resolve(deliverHerdrNotification(notificationText(event), position, io));
+    },
   };
 }
 
@@ -72,8 +76,8 @@ function readNotificationAnswer(output: string): NotificationAnswer | null {
  * exit code only, so a wave of eight agents produced one visible notification and
  * seven silent losses that were all reported as delivered.
  */
-export function deliverHerdrNotification(text: { title: string; body: string }, io: NotificationIo): boolean {
-  const args = ["notification", "show", text.title, "--body", text.body];
+export function deliverHerdrNotification(text: { title: string; body: string }, position: NotificationPosition, io: NotificationIo): boolean {
+  const args = ["notification", "show", text.title, "--body", text.body, "--position", position];
   for (let attempt = 0; attempt <= BUSY_RETRIES; attempt++) {
     const answer = readNotificationAnswer(io.send(args));
     if (answer?.shown === true) return true;

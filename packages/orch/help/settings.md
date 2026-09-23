@@ -18,12 +18,12 @@ events` and leaves the input alone. Defaults: `prompt-unless-focused` to the spa
 `prompt` to everyone else. The daemon reads them per delivery, so a change applies at once.
 
 `workers.verify_commands` is the list of commands a worker runs over its own slice before
-it reports (lint, type check, scoped tests). `locked_commands` is what a worker never runs.
+it reports (lint, type check, scoped tests). `locked_commands.commands` run one at a time machine-wide.
 Every worker header carries both, and the orchestrator sets them from the project.
 
 Which settings an agent may write is a per-row toggle. The table's last column reads
 `agent` on a row an agent may write; `--json` carries it as `agentWritable`. By default
-that is `workers.verify_commands` and `locked_commands`. An agent that writes any other
+that is `workers.verify_commands` and `locked_commands.commands`. An agent that writes any other
 key is refused, and the refusal names the keys it may set. Only you change the grant:
 
 - `orch settings grant <key>` lets an agent write that setting.

@@ -65,13 +65,14 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     },
     notify: (event: ParamsOf<"notify">) => {
       const { newState } = event;
+      const { position } = services.settings.current().notification;
       if (newState === "asking") {
         const composed: NotifyEvent = { ...event, type: "asking", newState: "asking", askCount: 1, gaveUp: false };
-        activePaneHud(event.key, directory).notify(composed);
+        activePaneHud(event.key, directory).notify(composed, position);
         return { ok: true };
       }
       const composed: NotifyEvent = { ...event, type: "transition", newState };
-      activePaneHud(event.key, directory).notify(composed);
+      activePaneHud(event.key, directory).notify(composed, position);
       return { ok: true };
     },
     "report-status": (params) => {

@@ -9,7 +9,7 @@ import { errorMessage, isRecord } from "../util.ts";
 import { validateSetupFlag } from "../setup/flags.ts";
 import { parseCommand } from "./registry.ts";
 import type { Invocation, ParsedFlags } from "../cli/spec.ts";
-import { resolveHarnessModels } from "../setup/composition.ts";
+import { recordHarnessModels, resolveHarnessModels } from "../setup/composition.ts";
 import { refreshAdapterCatalogues } from "../adapters/registry.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
@@ -161,17 +161,17 @@ async function settingsModels(services: Services, { flags }: Invocation): Promis
   if (!enabled.length) die("no harnesses are installed - run: orch setup");
   const only = flags.value("--harness");
   const targets = only === undefined ? enabled : [validateSetupFlag("harness", only, enabled)];
+  const interactive = process.stdout.isTTY === true;
+  const model = flags.value("--model");
+  // With no terminal to pick on, only a named model is written; orch never picks one for the user.
+  if (!interactive && model === undefined) die("orch settings models needs a terminal to pick on; without one, name the model: --model <harness>=<model>");
 
   // Catalogues are stored and refreshed on a cycle, so an operator who just installed a model
   // needs a way to say "ask again now" rather than picking from yesterday's list.
   if (flags.has("--refresh")) await refreshAdapterCatalogues(services.models);
-  const chosen = await resolveHarnessModels(settings, services.models, flags.value("--model"), targets, process.stdout.isTTY === true);
+  const chosen = await resolveHarnessModels(settings, services.models, model, targets, interactive);
   if (chosen === null) return;
-  // Only the targeted harnesses were prompted, so each map merges over what is already
-  // recorded; a harness this run never asked about keeps every list it had.
-  writeRegisteredSetting(services.settings, "defaults.models", { ...settings.defaults.models, ...chosen.defaults });
-  writeRegisteredSetting(services.settings, "models.preferred", { ...settings.models.preferred, ...chosen.preferred });
-  writeRegisteredSetting(services.settings, "models.allowed", { ...settings.models.allowed, ...chosen.allowed });
+  recordHarnessModels(services.settings, settings, chosen);
   for (const id of targets) {
     const recorded = chosen.defaults[id];
     if (!recorded) {
@@ -354,7 +354,7 @@ async function settingsNotify(services: Services, invocation: Invocation): Promi
 
 async function launchSettingsEditor(services: Services): Promise<void> {
   try {
-    await runSettingsEditor(services.settings);
+    await runSettingsEditor(services.settings, services.models);
   } catch (error: unknown) {
     die(errorMessage(error));
   }

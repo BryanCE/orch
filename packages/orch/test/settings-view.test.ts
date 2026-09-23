@@ -81,7 +81,7 @@ describe("settings view", () => {
         entry("daemon.tcp_port", 3716, { source: "default" }),
         entry("fleet.max_depth", 1, { override: "ORCH_DEPTH" }),
         entry("runtime", "bun", { writable: false }),
-        entry("locked_commands", [], { source: "default", agentWritable: true }),
+        entry("locked_commands.commands", [], { source: "default", agentWritable: true }),
       ]),
       100,
       40,

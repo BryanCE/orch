@@ -107,7 +107,7 @@ export function screenOf(session: Session, manager: SettingsManager): SettingsSc
 }
 
 /** Rebuild rows from disk and restore focus to `focusKey`. */
-function reload(session: Session, manager: SettingsManager, focusKey: string): void {
+export function reloadRows(session: Session, manager: SettingsManager, focusKey: string): void {
   const state = createEditorState(loadEntries(manager));
   const index = state.settings.findIndex((entry) => entry.spec.key === focusKey);
   session.state = index < 0 ? state : moveTo(state, index);
@@ -128,7 +128,7 @@ export function resetFocused(session: Session, manager: SettingsManager): void {
   }
   try {
     clearRegisteredSetting(manager, key);
-    reload(session, manager, key);
+    reloadRows(session, manager, key);
     session.status = `${key} reset to default`;
   } catch (error: unknown) {
     session.status = errorMessage(error);
@@ -151,7 +151,7 @@ export function toggleAgentGrant(session: Session, manager: SettingsManager): vo
   const keys = entry.agentWritable ? revokeAgentSetting(manager.current(), key) : grantAgentSetting(manager.current(), key);
   try {
     writeRegisteredSetting(manager, AGENT_SETTINGS_GRANT, keys);
-    reload(session, manager, key);
+    reloadRows(session, manager, key);
     session.status = entry.agentWritable ? `${key}: the human alone writes it` : `${key}: an agent may write it`;
   } catch (error: unknown) {
     session.status = errorMessage(error);
@@ -173,5 +173,5 @@ export function commitAndFlush(session: Session, manager: SettingsManager, editi
   } catch (error: unknown) {
     session.status = errorMessage(error);
   }
-  reload(session, manager, key);
+  reloadRows(session, manager, key);
 }

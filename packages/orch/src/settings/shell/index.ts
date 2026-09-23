@@ -1,12 +1,13 @@
 import { ENTER_ALT_SCREEN, EXIT_ALT_SCREEN } from "../../tui/screen.ts";
 import type { SettingsManager } from "../../types/services.ts";
+import type { ModelCatalogue } from "../../types/adapter.ts";
 import { createEditorState } from "../editor.ts";
 import { browseOnce, editFocused } from "./edit.ts";
 import { repairSettingsFile } from "./repair-screen.ts";
 import { loadEntries, type Session } from "./state.ts";
 
 /** Run the interactive settings editor. It owns no settings logic: all edits go through the reducer. */
-export async function runSettingsEditor(manager: SettingsManager): Promise<void> {
+export async function runSettingsEditor(manager: SettingsManager, catalogue: ModelCatalogue): Promise<void> {
   process.stdout.write(ENTER_ALT_SCREEN);
   try {
     if (!await repairSettingsFile(manager)) return;
@@ -22,7 +23,7 @@ export async function runSettingsEditor(manager: SettingsManager): Promise<void>
       const outcome = await browseOnce(session, manager);
       if (outcome === "quit") return;
       if (outcome === "again") continue;
-      await editFocused(session, manager);
+      await editFocused(session, manager, catalogue);
     }
   } finally {
     process.stdout.write(EXIT_ALT_SCREEN);

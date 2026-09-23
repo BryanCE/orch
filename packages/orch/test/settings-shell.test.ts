@@ -98,11 +98,11 @@ describe("settings shell decisions", () => {
     toggleAgentGrant(session, manager);
     expect(session.status).toBe("fleet.max_depth: an agent may write it");
     expect(session.state.settings[session.state.focusedIndex]?.agentWritable).toBe(true);
-    expect(manager.current().agents.writable_settings).toEqual(["workers.verify_commands", "locked_commands", "fleet.max_depth"]);
+    expect(manager.current().agents.writable_settings).toEqual(["workers.verify_commands", "locked_commands.commands", "fleet.max_depth"]);
 
     toggleAgentGrant(session, manager);
     expect(session.status).toBe("fleet.max_depth: the human alone writes it");
-    expect(manager.current().agents.writable_settings).toEqual(["workers.verify_commands", "locked_commands"]);
+    expect(manager.current().agents.writable_settings).toEqual(["workers.verify_commands", "locked_commands.commands"]);
 
     focusOn("runtime");
     toggleAgentGrant(session, manager);

@@ -66,7 +66,7 @@ export interface Notifier {
   metadata: NotifierMetadata;
   /** A rejected availability probe is treated as unavailable by the registry. */
   available(settings: OrchSettings | null): boolean | Promise<boolean>;
-  deliver(event: NotifyEvent, config: Record<string, unknown>): Promise<boolean>;
+  deliver(event: NotifyEvent, config: Record<string, unknown>, settings: OrchSettings | null): Promise<boolean>;
 };
 
 export interface NotifierChoice {

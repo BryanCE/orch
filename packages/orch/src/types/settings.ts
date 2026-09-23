@@ -8,7 +8,7 @@ import type { BackendId } from "./backend.ts";
 import type { LogLevel } from "./core.ts";
 import type { SettingsManager } from "./services.ts";
 import type { OrchRuntime } from "../runtimes.ts";
-import type { ThinkingLevel } from "./policy.ts";
+import type { Role, ThinkingLevel } from "./policy.ts";
 import type { TileFirstSplit } from "./backend.ts";
 
 /** The shared agent-state vocabulary used by presence, events, and notify sinks. */
@@ -28,10 +28,11 @@ export const MAIL_DELIVERIES = ["prompt", "prompt-unless-focused", "events"] as 
 
 export type MailDelivery = (typeof MAIL_DELIVERIES)[number];
 
-/** Who `denied_commands` refuses: an agent orch spawned, or a session orch did not spawn. */
-export const DENY_AUDIENCES = ["workers", "orchestrators"] as const;
+/** The screen corner a plexer shows a notification in. */
+export const NOTIFICATION_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
 
-export type DenyAudience = (typeof DENY_AUDIENCES)[number];
+export type NotificationPosition = (typeof NOTIFICATION_POSITIONS)[number];
+
 
 /** Settings normalized for consumers: every section present and defaults applied. */
 export interface OrchSettings {
@@ -51,9 +52,10 @@ export interface OrchSettings {
   logging: { level: LogLevel; slow_tool_ms: number; stall_ms: number; stall_poll_ms: number };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number };
   notify: NotifyEntry[];
-  locked_commands: string[];
+  notification: { position: NotificationPosition };
+  locked_commands: { commands: string[]; applies_to: readonly Role[] };
   gated_commands: string[];
-  denied_commands: { commands: string[]; applies_to: readonly DenyAudience[] };
+  denied_commands: { commands: string[]; applies_to: readonly Role[] };
   settings_file: { typo_max_edits: number };
   hosts: Record<string, HostSettings>;
   spaces: Record<string, string>;
@@ -105,6 +107,8 @@ export type SettingKind =
     /** Fired on when a sink names no states of its own. */
     readonly defaultStates: readonly string[];
   }
+  /** A per-harness model map, picked from what each harness lists; typed as JSON on the CLI. */
+  | { readonly kind: "models" }
   | { readonly kind: "text" }
   | { readonly kind: "list" };
 

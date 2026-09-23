@@ -1,5 +1,6 @@
 import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import type { NotifyEvent } from "./notify.ts";
+import type { NotificationPosition } from "./settings.ts";
 import type { RetryPolicy } from "./core.ts";
 
 /** Canonical state-change payload a bridge hands to the notifier. */
@@ -23,7 +24,7 @@ export interface PaneHud {
   /** Build the per-status-write sink that keeps the pane's custom status current. */
   statusReporter: (paneId: string | null) => (snapshot: PaneStatusSnapshot) => void;
   /** Raise a desktop notification through the plexer. */
-  notify: (event: BridgeNotifyEvent) => void;
+  notify: (event: BridgeNotifyEvent, position: NotificationPosition) => void;
   /** Pull the pane/tab labels the user set; false when unavailable. */
   readLabels: (apply: (labels: PaneLabels) => void) => Promise<boolean>;
 }

@@ -2,7 +2,7 @@ import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { allBackends } from "../backends/registry.ts";
-import { promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
+import { idOptions, promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
 import type { HarnessModel } from "../types/adapter.ts";
 import type { NotifierChoice } from "../types/notify.ts";
 import type { CataloguePicker } from "../types/command.ts";
@@ -20,7 +20,7 @@ export function selectRuntime(): Promise<OrchRuntime | null> {
     + " - node: the default, most widely present;"
     + " deno: sandboxed shims (scoped fs + env, no network);"
     + " bun: fastest startup",
-    ORCH_RUNTIMES,
+    idOptions(ORCH_RUNTIMES),
     DEFAULT_RUNTIME,
   );
 }
@@ -40,7 +40,7 @@ export function selectAdapters<Id extends string>(adapters: readonly Id[]): Prom
 
 /** Pick the default harness among the selected set; null when the user cancels. */
 export function selectDefaultAdapter<Id extends string>(selected: readonly Id[]): Promise<Id | null> {
-  return promptSelect("Default harness for new spawns", selected);
+  return promptSelect("Default harness for new spawns", idOptions(selected));
 }
 
 /** Multi-select every backend to set up; null when the user cancels. */
@@ -53,7 +53,7 @@ export function selectBackends<Id extends string>(backends: readonly Id[]): Prom
 
 /** Pick the default backend among the selected set; null when the user cancels. */
 export function selectDefaultBackend<Id extends string>(selected: readonly Id[]): Promise<Id | null> {
-  return promptSelect("Default backend for new spawns", selected);
+  return promptSelect("Default backend for new spawns", idOptions(selected));
 }
 
 type ModelPicker = (
@@ -64,15 +64,15 @@ type ModelPicker = (
   maxItems: number,
 ) => Promise<string | null>;
 
+/** A model row: the harness's own name on every row, not only the focused one, then the spec. */
+function modelOption(model: HarnessModel): { value: string; label: string } {
+  return { value: model.spec, label: model.label ? `${model.label} · ${model.spec}` : model.spec };
+}
+
 const defaultModelPicker: ModelPicker = (mode, message, offered, initial, maxItems) =>
   mode === "autocomplete"
-    ? promptAutocomplete(
-      message,
-      offered.map((model) => ({ value: model.spec, label: model.spec, ...(model.label ? { hint: model.label } : {}) })),
-      initial,
-      maxItems,
-    )
-    : promptSelect(message, offered.map((model) => model.spec), initial);
+    ? promptAutocomplete(message, offered.map(modelOption), initial, maxItems)
+    : promptSelect(message, offered.map(modelOption), initial);
 
 /** Pick the model one harness's spawns launch on, from the models that harness reports it can
  *  run — the prompt names the harness because each has its own vocabulary. Callers must hold a
@@ -110,12 +110,7 @@ function pickFromCatalogue(
   pick: CataloguePicker,
 ): Promise<string[] | null> {
   const checked = new Set(already);
-  const options = offered.map((model) => ({
-    value: model.spec,
-    label: model.spec,
-    ...(model.label ? { hint: model.label } : {}),
-    checked: checked.has(model.spec),
-  }));
+  const options = offered.map((model) => ({ ...modelOption(model), checked: checked.has(model.spec) }));
   const searchable = offered.length > MODEL_PICKER_MAX_ITEMS;
   return pick(searchable ? "autocomplete" : "multiselect", message, options, MODEL_PICKER_MAX_ITEMS);
 }

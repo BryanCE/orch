@@ -53,18 +53,23 @@ export async function promptText(message: string, suggested?: string): Promise<s
 // `string` — which resolves the conditional — and narrow the answer back on the
 // way out: it can only ever be one of the ids that went in.
 
-/** Run a clack single-select over id options; return the chosen id, or null when the user cancels. */
+/** Options whose label is the id itself. */
+export function idOptions<Id extends string>(ids: readonly Id[]): { value: Id; label: string }[] {
+  return ids.map((id) => ({ value: id, label: id }));
+}
+
+/** Run a clack single-select; return the chosen value, or null when the user cancels. */
 export async function promptSelect<Id extends string>(
   message: string,
-  options: readonly Id[],
+  options: readonly { value: Id; label: string }[],
   initial?: Id,
 ): Promise<Id | null> {
   const answer = guardCancel(await select<string>({
     message,
-    options: options.map((id) => ({ value: id, label: id })),
+    options: options.map(({ value, label }) => ({ value, label })),
     ...(initial !== undefined ? { initialValue: initial } : {}),
   }));
-  return answer === null ? null : validatePromptSelection(answer, options);
+  return answer === null ? null : validatePromptSelection(answer, options.map(({ value }) => value));
 }
 
 /** Run a bounded, searchable single-select over model options. */

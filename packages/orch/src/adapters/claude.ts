@@ -12,7 +12,7 @@ import type { AgentState } from "./adapter.ts";
 import { textValue } from "../util.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, HarnessModel, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, HarnessModel, ModelCatalogue, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
@@ -47,16 +47,36 @@ function presenceFor(key: string, orchDir: OrchDir): PresenceEntry | undefined {
 
 const HOME = os.homedir();
 
-/** Claude Code's accepted `--model` vocabulary: the stable aliases plus the current
- *  dated ids. Update here when Anthropic ships a new model; nothing else reads it. */
-const CLAUDE_MODELS: readonly HarnessModel[] = [
-  { spec: "opus", label: "Latest Opus" },
-  { spec: "sonnet", label: "Latest Sonnet" },
-  { spec: "haiku", label: "Latest Haiku" },
-  { spec: "claude-opus-4-6", label: "Claude Opus 4.6" },
-  { spec: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
-  { spec: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
-];
+/** Claude Code lists its models in the answer to the stream-json `initialize` control request.
+ *  No setting sources and no persistence, so the query fires no hook and writes no session. */
+const CLAUDE_MODELS_ARGV = ["-p", "--setting-sources", "", "--no-session-persistence", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] as const;
+const CLAUDE_MODELS_REQUEST = `${JSON.stringify({ type: "control_request", request_id: "models", request: { subtype: "initialize" } })}\n`;
+
+/** One `ModelInfo` row of the initialize answer. */
+function claudeModelRow(entry: unknown): HarnessModel[] {
+  if (!isRecord(entry) || typeof entry.value !== "string" || !entry.value) return [];
+  return [{
+    spec: entry.value,
+    ...(typeof entry.displayName === "string" && entry.displayName ? { label: entry.displayName } : {}),
+  }];
+}
+
+/** The `models` of the initialize control response, the one line of stdout that carries it. */
+function parseClaudeModelsOutput(stdout: string): readonly HarnessModel[] {
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.includes("control_response")) continue;
+    let message: unknown;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isRecord(message) || !isRecord(message.response) || !isRecord(message.response.response)) continue;
+    const models = message.response.response.models;
+    if (Array.isArray(models)) return models.flatMap(claudeModelRow);
+  }
+  return [];
+}
 
 function isOrchShimHook(hook: unknown): boolean {
   return isRecord(hook) && hook.type === "command"
@@ -179,8 +199,8 @@ class ClaudeAdapter implements AgentAdapter {
     diagnoseShim: (orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult => this.diagnoseShim(orchDir, settings, logger),
   };
   readonly defaultModel = null;
-  readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
-  readonly modelWarm = null;
+  readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseClaudeModelsOutput(catalogue.read("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST)) };
+  readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST) };
   readonly bridge = null;
   readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceEntry(orchDir, key) !== undefined };
   readonly commandGate = true;
@@ -229,13 +249,6 @@ class ClaudeAdapter implements AgentAdapter {
   /** Claude runs no bridge; the caller routes degraded steering through the environment. */
   steer(_request: SteerRequest): AdapterCommand | undefined {
     return undefined;
-  }
-
-  /** Claude Code takes an alias or a dated model id, never a provider/id spec. It ships
-   *  no machine-readable catalogue, so its accepted vocabulary is declared here — in the
-   *  adapter that owns it — rather than guessed at by orch. */
-  listModels(): readonly HarnessModel[] {
-    return CLAUDE_MODELS;
   }
 
   /** Prefer the daemon-reported result, then Claude transcript JSONL, then native output. */

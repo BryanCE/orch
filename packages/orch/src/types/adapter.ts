@@ -213,10 +213,11 @@ export interface DefaultModelRole {
  * Built once at the composition root and carried on Services. */
 export interface ModelCatalogue {
   /** The stored answer for `bin argv`, re-queried in the background once stale; only a command
-   * never asked before makes the caller wait. Empty string when the harness cannot answer. */
-  read(bin: string, argv: readonly string[]): string;
+   * never asked before makes the caller wait. Empty string when the harness cannot answer.
+   * `stdin` is written to the command for a harness that answers a request, not a flag. */
+  read(bin: string, argv: readonly string[], stdin?: string): string;
   /** Start a background query unless a fresh answer is already stored. Silent on failure. */
-  warm(bin: string, argv: readonly string[]): Promise<void>;
+  warm(bin: string, argv: readonly string[], stdin?: string): Promise<void>;
   /** Forget every answer, in memory and on disk, so the next read asks the harnesses again. */
   forget(): void;
 }

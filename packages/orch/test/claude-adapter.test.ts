@@ -10,9 +10,11 @@ import { upsertRun } from "../src/store/run-rows.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
+import { testServices } from "./helpers/services.ts";
 import type { ParamsOf } from "../src/daemon/client/protocol.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import type { ModelCatalogue } from "../src/types/adapter.ts";
 // Imported FIRST on purpose, and for its evaluation order alone: reaching
 // adapters/claude.ts as the ENTRY point makes it the head of the pre-existing
 // config.ts -> runtime.ts -> adapters/registry.ts -> claude.ts import cycle, and
@@ -103,6 +105,28 @@ describe("Claude adapter", () => {
     expect(claudeAdapter.bridge).toBeNull();
     expect(claudeAdapter.modelControl).toBeNull();
     expect(claudeAdapter.lifecycleControl).toBeNull();
+  });
+
+  test("lists the models Claude Code reports in its initialize control response", () => {
+    const initialize = JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: "models", response: { models: [
+      { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5" },
+      { value: "claude-opus-5", displayName: "Opus 5" },
+      { value: "haiku" },
+      { displayName: "no value" },
+    ] } } });
+    const asked: { bin: string; argv: readonly string[]; stdin?: string }[] = [];
+    const catalogue: ModelCatalogue = {
+      ...testServices({ orchDir }).models,
+      read: (bin, argv, stdin) => { asked.push({ bin, argv, stdin }); return `{"type":"system"}\n${initialize}\n`; },
+    };
+    expect(claudeAdapter.models.listModels(catalogue)).toEqual([
+      { spec: "opus", label: "Opus 5.5" },
+      { spec: "claude-opus-5", label: "Opus 5" },
+      { spec: "haiku" },
+    ]);
+    expect(asked[0]?.bin).toBe("claude");
+    expect(JSON.parse(asked[0]?.stdin ?? "")).toMatchObject({ type: "control_request", request: { subtype: "initialize" } });
+    expect(claudeAdapter.models.listModels({ ...catalogue, read: () => "" })).toEqual([]);
   });
 
   test("builds the interactive Claude launch command", () => {

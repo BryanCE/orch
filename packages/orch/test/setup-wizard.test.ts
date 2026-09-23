@@ -85,6 +85,18 @@ describe("setup model list picker", () => {
     expect(seen[0]!.message).toContain("none = allow all");
   });
 
+  test("every row shows the harness's own model name, not only the focused one", async () => {
+    const labels: string[] = [];
+    const pick: CataloguePicker = (_mode, _message, options) => {
+      labels.push(...options.map((option) => option.label));
+      return Promise.resolve([]);
+    };
+
+    await selectAllowedModels("claude", [{ spec: "opus", label: "Opus 5.5" }, { spec: "haiku" }], [], pick);
+
+    expect(labels).toEqual(["Opus 5.5 · opus", "haiku"]);
+  });
+
   test("stored values start checked, and clearing them returns an empty selection", async () => {
     const { seen, pick } = capture();
 

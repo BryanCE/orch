@@ -5,7 +5,7 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { basename } from "node:path";
 import { createAgentPresence } from "../src/agent/presence.ts";
-import { stubDaemonClient } from "./helpers/daemon-client.ts";
+import { stubDaemonLink } from "./helpers/daemon-client.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
 import { peerView } from "../src/daemon/server/peer-view.ts";
@@ -89,7 +89,7 @@ function presenceFor() {
     harness: fakeHarness(),
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",
-    daemon: stubDaemonClient(),
+    daemon: stubDaemonLink(),
   });
 }
 

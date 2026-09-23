@@ -6,9 +6,9 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { recordAgentStatus } from "../src/presence/store.ts";
 import { selectAgentStatus } from "../src/store/status-rows.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
-import { stubDaemonClient } from "./helpers/daemon-client.ts";
+import { stubDaemonLink } from "./helpers/daemon-client.ts";
 import { seedAgent } from "./helpers/agent.ts";
-import type { DaemonClient, HarnessApi, HarnessContext, HarnessEventHandler } from "../src/types/agent.ts";
+import type { DaemonLink, HarnessApi, HarnessContext, HarnessEventHandler } from "../src/types/agent.ts";
 import { testServices } from "./helpers/services.ts";
 
 interface FakeHarness extends HarnessApi {
@@ -55,8 +55,8 @@ const roots: OrchDir[] = [];
 // plexer and a grouping in it is not an identity, and presence would skip it.
 const key = "worker0001";
 
-function fakeDaemonClient(orchDir: OrchDir): DaemonClient {
-  const client = stubDaemonClient();
+function fakeDaemonLink(orchDir: OrchDir): DaemonLink {
+  const client = stubDaemonLink();
   return {
     ...client,
     reportStatus: (agentKey, patch) => {
@@ -107,7 +107,7 @@ describe("bridge terminal turn seam", () => {
     process.env[LAUNCH_ENV] = key;
     seedAgent(key, {}, root);
     const harness = fakeHarness();
-    const daemon = fakeDaemonClient(root);
+    const daemon = fakeDaemonLink(root);
     const presence = createAgentPresence({
       harness,
       identity: { agentId: "pi", settleEvent: "agent_settled" },

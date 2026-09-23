@@ -16,7 +16,7 @@ import { presenceAgentDir } from "../presence/history.ts";
 import { isRecord, optionalString, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
-import type { AgentPresence, BridgeToolResult, DaemonClient, DriveState, HarnessApi, HarnessContext, Peer, PeerResolution, PeerSummary } from "../types/agent.ts";
+import type { AgentPresence, BridgeToolResult, DaemonLink, DriveState, HarnessApi, HarnessContext, Peer, PeerResolution, PeerSummary } from "../types/agent.ts";
 import type { PeerView } from "../types/daemon.ts";
 
 function peerModel(status: unknown): string | undefined {
@@ -52,12 +52,12 @@ export function isPeerView(value: unknown): value is PeerView {
     && Object.values(value.drive).every(isDriveState);
 }
 
-async function peerViewFor(daemon: DaemonClient, ownKey: string, keys: string[], allSpaces: boolean): Promise<PeerView | undefined> {
+async function peerViewFor(daemon: DaemonLink, ownKey: string, keys: string[], allSpaces: boolean): Promise<PeerView | undefined> {
   const answer = await daemon.ask("peer-view", { ownKey, keys, allSpaces, projectRoot: projectRoot() });
   return answer;
 }
 
-async function livePeers(orchDir: OrchDir, daemon: DaemonClient, ownKey: string, allSpaces = false): Promise<{ peers: Peer[]; view: PeerView } | undefined> {
+async function livePeers(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, allSpaces = false): Promise<{ peers: Peer[]; view: PeerView } | undefined> {
   try {
     const view = await daemon.ask("peer-view", { ownKey, keys: [], allSpaces, projectRoot: projectRoot() });
     // The daemon owns enumeration and liveness; request the fleet through its
@@ -94,7 +94,7 @@ async function livePeers(orchDir: OrchDir, daemon: DaemonClient, ownKey: string,
 const UNREACHABLE_SPAWNER_ADVICE = " Write your result and end the turn; it is collected from your result file.";
 
 /** Resolve the stamped spawner from the daemon's live peer view. */
-async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient, ownKey: string): Promise<Peer | undefined> {
+async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonLink, ownKey: string): Promise<Peer | undefined> {
   const key = optionalString(process.env.ORCH_SPAWNER);
   if (!key) return undefined;
   const view = await peerViewFor(daemon, ownKey, [key], true);
@@ -113,7 +113,7 @@ async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient, ownKey: s
 /** The caller's own orchestrator, resolved by the address its launch stamped.
  *  The fleet wall never applies here: the spawner handed this worker its own
  *  address at launch, and replying to it is the one always-valid cross-scope edge. */
-async function resolveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient, ownKey: string): Promise<PeerResolution> {
+async function resolveSpawnerPeer(orchDir: OrchDir, daemon: DaemonLink, ownKey: string): Promise<PeerResolution> {
   const key = optionalString(process.env.ORCH_SPAWNER);
   const label = optionalString(process.env.ORCH_SPAWNER_LABEL);
   if (!key) return { error: `error: no spawner address recorded for this agent${label ? ` (spawned by ${label})` : ""}.${UNREACHABLE_SPAWNER_ADVICE}` };
@@ -124,7 +124,7 @@ async function resolveSpawnerPeer(orchDir: OrchDir, daemon: DaemonClient, ownKey
   return { peer };
 }
 
-export async function resolvePeer(orchDir: OrchDir, daemon: DaemonClient, target: string, ownKey: string, allRequested = false): Promise<PeerResolution> {
+export async function resolvePeer(orchDir: OrchDir, daemon: DaemonLink, target: string, ownKey: string, allRequested = false): Promise<PeerResolution> {
   if (target === "spawner" || (target.length > 0 && target === optionalString(process.env.ORCH_SPAWNER))) return await resolveSpawnerPeer(orchDir, daemon, ownKey);
   const live = await livePeers(orchDir, daemon, ownKey, allRequested);
   if (!live) return { error: "error: peer view unavailable" };
@@ -159,7 +159,7 @@ function summarizePeer(peer: Peer, view: PeerView, spawnerKey: string | undefine
 
 /** The caller's spawner as a listable row, when fleet scoping hid it. A worker
  *  must always see who orchestrates it, whatever space shape that session has. */
-async function hiddenSpawnerSummary(orchDir: OrchDir, daemon: DaemonClient, ownKey: string, rows: PeerSummary[], view: PeerView, spawnerKey: string | undefined): Promise<PeerSummary | null> {
+async function hiddenSpawnerSummary(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, rows: PeerSummary[], view: PeerView, spawnerKey: string | undefined): Promise<PeerSummary | null> {
   if (!spawnerKey || rows.some((row) => row.key === spawnerKey)) return null;
   const resolved = await resolveSpawnerPeer(orchDir, daemon, ownKey);
   if ("error" in resolved) return null;
@@ -172,7 +172,7 @@ async function hiddenSpawnerSummary(orchDir: OrchDir, daemon: DaemonClient, ownK
  *  addresses no agent, so the caller holds nothing. */
 
 
-export async function peerSummaries(orchDir: OrchDir, daemon: DaemonClient, ownKey: string, allSpaces = false): Promise<PeerSummary[]> {
+export async function peerSummaries(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, allSpaces = false): Promise<PeerSummary[]> {
   const live = await livePeers(orchDir, daemon, ownKey, allSpaces);
   if (!live) return [];
   const spawnerKey = optionalString(process.env.ORCH_SPAWNER);
@@ -181,7 +181,7 @@ export async function peerSummaries(orchDir: OrchDir, daemon: DaemonClient, ownK
   return spawner ? [spawner, ...rows] : rows;
 }
 
-export async function sendPeerMessage(orchDir: OrchDir, daemon: DaemonClient, target: string, text: string, ownKey: string, allSpaces = false): Promise<string> {
+export async function sendPeerMessage(orchDir: OrchDir, daemon: DaemonLink, target: string, text: string, ownKey: string, allSpaces = false): Promise<string> {
   const resolved = await resolvePeer(orchDir, daemon, target, ownKey, allSpaces);
   if ("error" in resolved) return resolved.error;
   const response = await daemon.ask("message", {
@@ -260,7 +260,7 @@ interface OrchAgentsParams {
 }
 
 /** Registers the commands and tools through which this agent reaches its peers. */
-export function registerPeerTools(orchDir: OrchDir, harness: HarnessApi, presence: AgentPresence, daemon: DaemonClient): void {
+export function registerPeerTools(orchDir: OrchDir, harness: HarnessApi, presence: AgentPresence, daemon: DaemonLink): void {
   harness.registerCommand("peers", {
     description: "List live orch peer agents",
     handler: (_args, ctx) => {

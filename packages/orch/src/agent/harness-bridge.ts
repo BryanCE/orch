@@ -8,7 +8,7 @@ import type { OrchDir } from "../types/core.ts";
 // pair code CLAUDE.md Rule 9 forbids.
 import * as fs from "node:fs";
 import { createHash } from "node:crypto";
-import { createDaemonClient } from "./daemon-client.ts";
+import { createDaemonLink } from "./daemon-client.ts";
 import { createAgentPresence } from "./presence.ts";
 import { agentEnvironment, isBlockedSignal } from "./environment.ts";
 import { registerAgentTools } from "./tools.ts";
@@ -31,7 +31,7 @@ export function registerHarnessBridge(
   // orch at spawn and stamped into the launch env; what its environment KNOWS is
   // answered by orchd, the one process that talks to a plexer at all.
   const environment = agentEnvironment();
-  const daemon = createDaemonClient(options.orchDir, options.settings);
+  const daemon = createDaemonLink(options.orchDir, options.settings);
 
   const presence = createAgentPresence({ harness, identity, extensionHash, daemon });
 

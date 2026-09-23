@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication -- declarative command table; similar flag lists are data, not logic.
 /** Every orch command, declared once. The parser reads the flags; `orch help` reads all of it. */
 
 import { parseInvocation } from "../cli/parse.ts";

@@ -14,10 +14,10 @@ import { NO_TUNING } from "../../policy/tuning.ts";
 import { whoAmI, type CallerSelf } from "../self.ts";
 import { lifecycleLogger, lifecycleTargets } from "./index.ts";
 import { parseCommand } from "../registry.ts";
-import { describeHandle } from "./close.ts";
+import { describeHandle } from "../../backends/backend.ts";
 import type { Backend, ForegroundProcesses } from "../../types/backend.ts";
 import type { AgentAdapter, LifecycleVerb } from "../../types/adapter.ts";
-import type { LifecycleResolution } from "../resolve.ts";
+import type { HeldLifecycleTarget } from "../resolve.ts";
 import type { LifecycleTarget } from "../../types/command.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { Services } from "../../types/services.ts";
@@ -210,7 +210,7 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
  *  an EXISTING agent, so it relaunches on the tuning the agent holds, resolved
  *  exactly like dispatch and reset rather than letting the harness fall back to
  *  its own default. */
-function restartLaunchCommand(resolved: LifecycleResolution, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings, catalogue: Services["models"]): string {
+function restartLaunchCommand(resolved: HeldLifecycleTarget, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings, catalogue: Services["models"]): string {
   if (cmd !== null) return cmd;
   const tuning = resolveTuningOrDie({}, settings, adapter.id, resolved.view?.tuning ?? NO_TUNING);
   const model = admitLaunchModel(settings, adapter.id, catalogue, tuning.model);

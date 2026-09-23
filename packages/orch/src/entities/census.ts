@@ -38,8 +38,3 @@ export function heldCensus(settings: OrchSettings): Census {
   }
   return census;
 }
-
-/** Drop every held listing; the next census lists again. For a break seen outside the store. */
-export function forgetCensus(): void {
-  held.clear();
-}

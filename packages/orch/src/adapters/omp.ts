@@ -1,10 +1,9 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { isRecord } from "../util.ts";
-import { bridgeExtensionArgv, diagnoseExtensionLink, installExtensionLink, modelSelectionArgv, PI_LIFECYCLE_TEXT, piSessionView, presenceAgentState, presenceFor, resultFromPresenceOrSession, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
-import type { AgentState } from "./adapter.ts";
+import { bridgeExtensionArgv, diagnoseExtensionLink, installExtensionLink, modelSelectionArgv, PiBridgeAdapter, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest } from "../types/adapter.ts";
+import type { AgentAdapter, HarnessModel, ModelCatalogue, QuicklistForm, ShimInstallOpts, SpawnOpts } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { ExtensionName, Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -65,7 +64,7 @@ function ompModelArgv(opts: SpawnOpts, form: QuicklistForm): string[] {
 }
 
 /** Adapter for omp (@oh-my-pi/pi-coding-agent), driven through orch's omp-bridge extension. */
-class OmpAdapter implements AgentAdapter {
+class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
   readonly id = "omp" as const;
 
   /** omp exports its session id into subprocesses; it is both marker and identity. */
@@ -73,13 +72,6 @@ class OmpAdapter implements AgentAdapter {
   readonly sessionIdEnv = HARNESS_SESSION_ENV.omp.sessionId;
 
   readonly thinking = null;
-  readonly workerLaunch = {
-    restrictedInteractiveCmd: (opts: SpawnOpts): string => this.restrictedInteractiveCmd(opts),
-    restrictedHeadlessCmd: (prompt: string, opts: SpawnOpts): string[] => this.restrictedHeadlessCmd(prompt, opts),
-  };
-  readonly modelControl = { setModel: (request: ModelRequest): AdapterCommand | undefined => this.setModel(request) };
-  readonly lifecycleControl = { lifecycleCmd: (verb: LifecycleVerb): { text: string } | undefined => this.lifecycleCmd(verb) };
-  readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = {
     installShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
@@ -88,9 +80,6 @@ class OmpAdapter implements AgentAdapter {
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseOmpModelsOutput(catalogue.read("omp", OMP_MODELS_ARGV)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("omp", OMP_MODELS_ARGV) };
-  readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
-  readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceFor(key, orchDir) !== undefined };
-  readonly commandGate = true;
 
   /** Start omp directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {
@@ -115,36 +104,6 @@ class OmpAdapter implements AgentAdapter {
   /** Start omp headless under the same worker policy as an interactive omp worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
     return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...ompModelArgv(opts, "argv"), prompt];
-  }
-
-  /** Read omp's authoritative status.json through the shared presence helpers. */
-  detectState(input: PiStateDetectionInput, orchDir: OrchDir): AgentState {
-    return presenceAgentState(input.key, orchDir);
-  }
-
-  /** The bridge takes steers; nothing to run. */
-  steer(_request: SteerRequest): AdapterCommand | undefined {
-    return undefined;
-  }
-
-  /** The bridge applies model deliveries; nothing to run. */
-  setModel(_request: ModelRequest): AdapterCommand | undefined {
-    return undefined;
-  }
-
-  /** Return omp's slash-command text for a lifecycle verb. */
-  lifecycleCmd(verb: LifecycleVerb): { text: string } | undefined {
-    return { text: PI_LIFECYCLE_TEXT[verb] };
-  }
-
-  /** Read results.jsonl first, then fall back to the last assistant session entry. */
-  extractResult(input: PiResultExtractionInput, orchDir: OrchDir): string | undefined {
-    return resultFromPresenceOrSession(input, orchDir);
-  }
-
-  /** Read omp's session tail and map it to the shared session-view shape. */
-  readSessionView(input: SessionViewInput): SessionView | undefined {
-    return piSessionView(input);
   }
 
   /** Verify the extension link and bundle written by installShim. */

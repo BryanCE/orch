@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication -- one entry per RPC method is how TypeScript keeps each handler's own params without a cast.
 import type { OrchDir } from "../../types/core.ts";
 import { computeCodeHash } from "../client/process.ts";
 import { fileURLToPath } from "node:url";
@@ -22,7 +23,7 @@ export function leaseHolderIsAlive(directory: OrchDir, holderId: string): boolea
   return recordedProcessIsLive(directory, holderId);
 }
 
-export const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url);
+const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url);
 export const bootCodeHash = computeCodeHash(entrypoint);
 export const startedAt = new Date();
 export interface DaemonState {
@@ -55,7 +56,7 @@ export function liveAgentCount(directory: OrchDir): number {
 }
 
 /** Every served call proves the daemon is in use; the idle clock restarts. */
-export function touchHandler<M extends Exclude<keyof RpcHandlers, "register-session" | "claim-identity">>(state: DaemonState, handler: RpcHandler<M>): RpcHandler<M> {
+function touchHandler<M extends Exclude<keyof RpcHandlers, "register-session" | "claim-identity">>(state: DaemonState, handler: RpcHandler<M>): RpcHandler<M> {
   return (params, emit, context) => { state.lastActivityAt = Date.now(); return handler(params, emit, context); };
 }
 

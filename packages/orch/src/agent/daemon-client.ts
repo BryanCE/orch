@@ -14,13 +14,13 @@ import {
   type JsonLineLink,
 } from "../presence/socket-client.ts";
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
-import type { ControlOutcomeReport, DaemonClient } from "../types/agent.ts";
+import type { ControlOutcomeReport, DaemonLink } from "../types/agent.ts";
 import type { ResultReport, StatusPatch } from "../types/presence.ts";
 import { daemonResult, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/client/protocol.ts";
 import { parseRpcLine } from "../daemon/client/wire.ts";
 import type { SettingsManager } from "../types/services.ts";
 
-export function createDaemonClient(orchDir: OrchDir, settings: SettingsManager): DaemonClient {
+export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): DaemonLink {
   const ackedMessageIds = new Set<string>();
 
   const pending = new Map<number, (result: unknown) => void>();

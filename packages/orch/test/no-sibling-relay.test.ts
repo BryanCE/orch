@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { resolvePeer } from "../src/agent/peers.ts";
-import { stubDaemonClient } from "./helpers/daemon-client.ts";
+import { stubDaemonLink } from "./helpers/daemon-client.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
@@ -45,7 +45,7 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
     seedStatus(d, "worker0001", { agent: "pi", label: "research-1", pid: process.pid, state: "working" });
     seedStatus(d, "sibling002", { agent: "pi", label: "research-2", pid: process.pid, state: "working" });
 
-    const resolved = await resolvePeer(d, stubDaemonClient(), "spawner", "worker0001");
+    const resolved = await resolvePeer(d, stubDaemonLink(), "spawner", "worker0001");
     const error = "error" in resolved ? resolved.error : "";
 
     // This is the exact turn-burning moment. A bare refusal leaves the worker
@@ -63,7 +63,7 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
     seedStatus(d, "sibling002", { agent: "pi", label: "research-2", pid: process.pid, state: "idle" });
     seedStatus(d, "sibling003", { agent: "pi", label: "research-3", pid: process.pid, state: "idle" });
 
-    const resolved = await resolvePeer(d, stubDaemonClient(), "spawner", "worker0001");
+    const resolved = await resolvePeer(d, stubDaemonLink(), "spawner", "worker0001");
     const error = "error" in resolved ? resolved.error : "";
     // Naming a live peer here is what turned a dead end into a relay chain.
     for (const name of ["research-2", "research-3", "sibling002", "sibling003"]) {
@@ -77,7 +77,7 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
     process.env.ORCH_SPAWNER_LABEL = "claude session";
     seedStatus(d, "worker0001", { agent: "pi", label: "research-1", pid: process.pid, state: "working" });
 
-    const resolved = await resolvePeer(d, stubDaemonClient(), "spawner", "worker0001");
+    const resolved = await resolvePeer(d, stubDaemonLink(), "spawner", "worker0001");
     const error = "error" in resolved ? resolved.error : "";
     expect(error).toContain("claude session");
     expect(error.toLowerCase()).toContain("result");

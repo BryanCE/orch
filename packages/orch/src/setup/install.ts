@@ -92,7 +92,7 @@ function linkBin(src: string, dest: string, copy: boolean): void {
   process.stdout.write(`  ${dest} ${wired === "copy" ? "(copy)" : "-> " + src}\n`);
 }
 
-export interface MissingPrerequisite { bin: string; cmd: string }
+interface MissingPrerequisite { bin: string; cmd: string }
 interface ManualPrerequisite { id: string; url: string }
 
 function reportAdapterPrerequisites(
@@ -235,7 +235,7 @@ export function alignEntrypointToRuntime(runtime: OrchRuntime): void {
   process.stdout.write(`  entrypoint ${target} now runs under ${runtime}\n`);
 }
 
-/** Wire the `orch`/`pif`/`orch-ding` bins onto PATH (repo-clone case; `bun add -g` already
+/** Wire the `orch`/`orch-ding` bins onto PATH (repo-clone case; `bun add -g` already
  * links bins). A bin already resolving into this package is left alone; a stale one is repointed. */
 export function wireBinaries(copy: boolean): void {
   process.stdout.write("bins:\n");
@@ -243,7 +243,6 @@ export function wireBinaries(copy: boolean): void {
   const binDir = path.join(home(), ".local", "bin");
   for (const [name, rel] of [
     ["orch", path.join("dist", "bin", "orch.js")],
-    ["pif", path.join("bin", "pif")],
     [ORCH_DING_BIN, path.join("dist", "bin", `${ORCH_DING_BIN}.js`)],
   ] as const) {
     const resolved = binaryPath(name);

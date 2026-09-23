@@ -3,7 +3,7 @@
 import { bootCodeHash, startedAt, fleetStatus } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import { answer, dispatch, message, steer } from "./write.ts";
-import { applyLifecycle, closeAgent, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, setHandle, setModel, spawnHeadless } from "./lifecycle.ts";
+import { applyLifecycle, closeAgent, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
 import { adopt, detach, reap, reapCandidateList, rename } from "./lease.ts";
 import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
 import { admitHome, decideGrant, listGrants } from "./grant.ts";
@@ -111,7 +111,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     reap: governed(state, (params) => reap(state, params)),
     "reap-candidates": governed(state, (params) => reapCandidateList(state, params)),
     reclaim: governed(state, (params) => reclaim(directory, params)),
-    "set-handle": governed(state, (params) => setHandle(directory, params)),
+    "set-handle": governed(state, (params) => moveHandle(directory, params)),
     spaces: (params) => spaceListings(directory, params),
     space: (params) => spaceListing(directory, params),
     "space-create": governed(state, (params) => createSpace(directory, params)),

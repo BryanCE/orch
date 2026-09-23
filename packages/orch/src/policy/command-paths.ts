@@ -2,8 +2,8 @@
 // the directory of the agent that runs it, filled in per agent. A fixed path in a
 // command would send every agent on the machine into one project, so it is refused.
 
-export const CWD_TOKEN = "{cwd}";
-export const WINCWD_TOKEN = "{wincwd}";
+const CWD_TOKEN = "{cwd}";
+const WINCWD_TOKEN = "{wincwd}";
 
 const FIXED_PATH = /(?:^|[\s"'=;(,])(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|\/[\w.-]+\/)/;
 

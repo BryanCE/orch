@@ -114,7 +114,7 @@ describe("bridge links", () => {
       thrown = error;
     }
     expect(isBridgeDetached(thrown)).toBe(true);
-    expect(thrown instanceof BridgeDetachedError && thrown.code).toBe("BRIDGE_DETACHED");
+    expect(thrown).toBeInstanceOf(BridgeDetachedError);
   });
 
   test("an unknown target is refused before the registry is consulted", () => {

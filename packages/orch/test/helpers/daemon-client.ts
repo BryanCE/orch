@@ -1,23 +1,23 @@
 import type { OrchDir } from "../../src/types/core.ts";
 import { peerView } from "../../src/daemon/server/peer-view.ts";
 import type { PeerView } from "../../src/types/daemon.ts";
-import type { DaemonClient } from "../../src/types/agent.ts";
+import type { DaemonLink } from "../../src/types/agent.ts";
 import type { ParamsOf, ResultOf, RpcMethod } from "../../src/daemon/client/protocol.ts";
 
 type AskHandlers = Partial<{ [M in RpcMethod]: (params: ParamsOf<M>) => ResultOf<M> }>;
 
-export function askFrom(table: AskHandlers): DaemonClient["ask"] {
+export function askFrom(table: AskHandlers): DaemonLink["ask"] {
   return (method, params) => {
     const handler = table[method];
     return Promise.resolve(handler === undefined ? undefined : handler(params));
   };
 }
 
-/** A DaemonClient that accepts everything, forwards nothing, and answers nothing —
+/** A DaemonLink that accepts everything, forwards nothing, and answers nothing —
  *  the shape a bridge sees when orchd is absent. */
-export function daemonClientForPeers(directory: OrchDir, keys: string[]): DaemonClient {
+export function daemonClientForPeers(directory: OrchDir, keys: string[]): DaemonLink {
   return {
-    ...stubDaemonClient(),
+    ...stubDaemonLink(),
     ask: askFrom({
       "peer-view": (params) => peerView(
         directory,
@@ -30,14 +30,14 @@ export function daemonClientForPeers(directory: OrchDir, keys: string[]): Daemon
   };
 }
 
-export function daemonClientForPeerView(view: PeerView): DaemonClient {
+export function daemonClientForPeerView(view: PeerView): DaemonLink {
   return {
-    ...stubDaemonClient(),
+    ...stubDaemonLink(),
     ask: askFrom({ "peer-view": () => view }),
   };
 }
 
-export function stubDaemonClient(): DaemonClient {
+export function stubDaemonLink(): DaemonLink {
   return {
     isAcked: () => false,
     markAcked: () => undefined,

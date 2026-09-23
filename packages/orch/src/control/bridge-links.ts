@@ -9,8 +9,6 @@ export interface BridgeLink {
 
 /** No bridge holds a link for the key: the row stays open and the drain retries. */
 export class BridgeDetachedError extends Error {
-  readonly code = "BRIDGE_DETACHED";
-
   constructor(key: string) {
     super(`no bridge link for ${key}`);
     this.name = "BridgeDetachedError";

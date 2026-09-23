@@ -15,7 +15,7 @@ export async function captureStdout(run: () => Promise<void>): Promise<string> {
 }
 
 /** The last stdout line as a JSON object; `{}` when the run printed prose instead. */
-export function lastJsonRecord(text: string): Record<string, unknown> {
+function lastJsonRecord(text: string): Record<string, unknown> {
   const last = text.trim().split("\n").at(-1) ?? "{}";
   try {
     const parsed: unknown = JSON.parse(last);

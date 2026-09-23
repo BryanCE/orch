@@ -216,7 +216,7 @@ describe("commands/spawn", () => {
   });
   test("each pi flavor launches its own binary and preserves raw prompt", () => {
     expect(piAdapter.interactiveCmd({})).toBe("pi");
-    expect(piAdapter.headlessCmd("go", {})[0]).toBe("pif");
+    expect(piAdapter.headlessCmd("go", {})[0]).toBe("pi");
     expect(ompAdapter.interactiveCmd({})).toBe("omp");
     expect(ompAdapter.headlessCmd("go", {})[0]).toBe("omp");
     expect(workerPrompt("hello", true, undefined)).toBe("hello");

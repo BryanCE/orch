@@ -50,17 +50,3 @@ export function callerSpaceOf(orchDir: OrchDir, credential: CallerCredential): s
   const id = selfIdentityOf(orchDir, credential)?.id;
   return id === undefined ? null : spaceOfAgent(orchDir, id);
 }
-
-/**
- * The caller's own space, read off the caller's own agent record.
- *
- * It lives beside {@link selfId} because it is the same question — where the
- * calling process sits is ENVIRONMENT, read from the agent it IS, never a field
- * on its identity. Asking the PLEXER "which workspace am I in" answers with a
- * plexer coordinate, which is environment wearing identity's hat (Rule 11); and
- * a second copy that asked the backend instead of resolving the minted id could
- * not see a driving session, which carries no launch credential at all.
- */
-export function callerSpace(orchDir: OrchDir): string | null {
-  return callerSpaceOf(orchDir, callerCredential());
-}

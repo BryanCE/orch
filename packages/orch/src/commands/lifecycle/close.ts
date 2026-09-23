@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
 import { getBackend } from "../../backends/registry.ts";
+import { describeHandle } from "../../backends/backend.ts";
 import type { CloseTargetWire } from "../../entities/close-targets.ts";
 import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
@@ -49,10 +50,6 @@ interface CloseOutcome {
   readonly error: string | null;
 }
 
-/** Render a native handle without falling back to Object.prototype.toString. */
-export function describeHandle(handle: BackendHandle): string {
-  return typeof handle === "string" ? handle : handle.toString();
-}
 
 /** One agent a close was asked to end, with everything needed to end it. */
 interface CloseTarget {

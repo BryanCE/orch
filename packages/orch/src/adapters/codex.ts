@@ -6,7 +6,7 @@ import { declaredRuntime } from "../settings/read.ts";
 
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import { detectCodexState, extractCodexResult, readCodexSessionView } from "./codex-events.ts";
-import type { AgentState } from "./adapter.ts";
+import { modelFlag, shimRole, type AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
@@ -96,10 +96,7 @@ export class CodexAdapter implements AgentAdapter {
   readonly lifecycleControl = null;
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
-  readonly shim = {
-    installShim: (orchDir: OrchDir, settings: OrchSettings, logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, settings, logger, opts),
-    diagnoseShim: (orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult => this.diagnoseShim(orchDir, settings, logger),
-  };
+  readonly shim = shimRole(this);
   readonly defaultModel = null;
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = null;
@@ -117,15 +114,12 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return opts.model ? ["codex", "--model", opts.model] : ["codex"];
+    return ["codex", ...modelFlag(opts)];
   }
 
   /** Run Codex's documented JSON event stream in a detached process. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const command = ["codex", "exec", "--json"];
-    if (opts.model) command.push("--model", opts.model);
-    command.push(prompt);
-    return command;
+    return ["codex", "exec", "--json", ...modelFlag(opts), prompt];
   }
 
   detectState(input: StateDetectionInput): AgentState {

@@ -8,7 +8,7 @@ import { presenceEntry } from "../presence/store.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand } from "../util.ts";
 import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import { isAgentState } from "../agent-state.ts";
-import type { AgentState } from "./adapter.ts";
+import { modelFlag, shimRole, type AgentState } from "./adapter.ts";
 import { textValue } from "../util.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
@@ -194,10 +194,7 @@ class ClaudeAdapter implements AgentAdapter {
   readonly lifecycleControl = null;
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
-  readonly shim = {
-    installShim: (orchDir: OrchDir, settings: OrchSettings, logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, settings, logger, opts),
-    diagnoseShim: (orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult => this.diagnoseShim(orchDir, settings, logger),
-  };
+  readonly shim = shimRole(this);
   readonly defaultModel = null;
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseClaudeModelsOutput(catalogue.read("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST) };
@@ -223,15 +220,12 @@ class ClaudeAdapter implements AgentAdapter {
   }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return opts.model ? ["claude", "--model", opts.model] : ["claude"];
+    return ["claude", ...modelFlag(opts)];
   }
 
   /** Run Claude Code's print mode for detached workers. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const command = ["claude", "-p"];
-    if (opts.model) command.push("--model", opts.model);
-    command.push(prompt);
-    return command;
+    return ["claude", "-p", ...modelFlag(opts), prompt];
   }
 
   /** Read the status written by Claude's SessionStart/Stop/Notification hooks. */

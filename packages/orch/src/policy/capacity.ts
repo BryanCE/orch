@@ -41,7 +41,7 @@ export function packsUsed(capacity: FleetCapacity): number {
 type CapacitySettings = Pick<OrchSettings, "fleet"> & Partial<Pick<OrchSettings, "spaces">>;
 
 /** Views whose agents are alive per presence, used by spawn admission and capacity reporting. */
-export function presenceAliveViews(
+function presenceAliveViews(
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
 ): readonly AgentView[] {

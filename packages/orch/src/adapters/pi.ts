@@ -23,8 +23,8 @@ const PI_EXTENSION_DIR = path.join(PI_AGENT_DIR, "extensions");
 const PI_TRUST_FILE = path.join(PI_AGENT_DIR, "trust.json");
 /** pi's shipped bundle, built from extensions/pi/. */
 const PI_EXTENSION: ExtensionName = "pi-bridge";
-/** Binaries that start pi: the CLI and orch's `pif` wrapper. */
-const PI_BINARIES = ["pi", "pif"];
+/** Binaries that start pi. */
+const PI_BINARIES = ["pi"];
 
 const EXTENSION_SUFFIXES = [".ts", ".js", ".mjs"];
 
@@ -336,8 +336,8 @@ export function piSessionView(input: SessionViewInput): SessionView | undefined 
 
 /** Build one pi launch composition. Worker routes opt into orch's bridge, tools, and
  * inherited user extensions; the ordinary interactive form remains the bare harness. */
-function piLaunchArgv(opts: SpawnOpts, worker: boolean, binary: "pi" | "pif", prompt: string | undefined, form: QuicklistForm, thinking?: ThinkingStrategy | null): string[] {
-  const argv: string[] = [binary];
+function piLaunchArgv(opts: SpawnOpts, worker: boolean, prompt: string | undefined, form: QuicklistForm, thinking?: ThinkingStrategy | null): string[] {
+  const argv: string[] = ["pi"];
   if (worker) argv.push(...piToolArgv(opts), ...piExtensionArgv(opts));
   argv.push(...piModelArgv(opts, form));
   if (thinking && opts.thinking !== undefined) argv.push(...thinking.launchArgs(opts.thinking));
@@ -345,21 +345,10 @@ function piLaunchArgv(opts: SpawnOpts, worker: boolean, binary: "pi" | "pif", pr
   return argv;
 }
 
-/** Adapter for pi (@earendil-works/pi-coding-agent), driven through orch's pi-bridge extension. */
-export class PiAdapter implements AgentAdapter {
-  readonly id = "pi" as const;
-
-  /** pi exposes a neutral CLI flag for launch-time thinking effort. */
-  readonly thinking: ThinkingStrategy = {
-    launchArgs: (level: ThinkingLevel): readonly string[] => ["--thinking", level],
-    set: (_level: ThinkingLevel): void => {
-      // Running-session changes are delivered by the pi bridge's control plane.
-    },
-  };
-
-  /** pi exports these into every subprocess of an interactive session. */
-  readonly sessionEnvMarker = HARNESS_SESSION_ENV.pi.marker;
-  readonly sessionIdEnv = HARNESS_SESSION_ENV.pi.sessionId;
+/** The roles pi and omp share: both run orch's bridge extension and pi's session format. */
+export abstract class PiBridgeAdapter {
+  abstract restrictedInteractiveCmd(opts: SpawnOpts): string;
+  abstract restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[];
 
   readonly workerLaunch = {
     restrictedInteractiveCmd: (opts: SpawnOpts): string => this.restrictedInteractiveCmd(opts),
@@ -368,47 +357,11 @@ export class PiAdapter implements AgentAdapter {
   readonly modelControl = { setModel: (request: ModelRequest): AdapterCommand | undefined => this.setModel(request) };
   readonly lifecycleControl = { lifecycleCmd: (verb: LifecycleVerb): { text: string } | undefined => this.lifecycleCmd(verb) };
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
-  readonly workspaceTrust = { preTrustWorkspace: (cwd: string, cmd: string): void => this.preTrustWorkspace(cwd, cmd) };
-  readonly shim = {
-    installShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
-    diagnoseShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger): CheckResult => this.diagnoseShim
-      ? this.diagnoseShim(orchDir)
-      : { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi integration shim disabled" },
-  };
-  readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
-  readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parsePiModelsOutput(catalogue.read("pi", PI_MODELS_ARGV)) };
-  readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("pi", PI_MODELS_ARGV) };
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
   readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceEntry(orchDir, key) !== undefined };
   readonly commandGate = true;
 
-  /** Start pi directly in an interactive backend session. Worker options use the same
-   * composition as restricted launches, so tile/spawn cannot silently drop extensions. */
-  interactiveCmd(opts: SpawnOpts): string {
-    return piLaunchArgv(opts, opts.workers !== undefined, "pi", undefined, "shell", this.thinking).join(" ");
-  }
-
-  interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return piLaunchArgv(opts, opts.workers !== undefined, "pi", undefined, "argv", this.thinking);
-  }
-
-  /** Start pi as an orch worker: orch's bridge always, plus whatever extensions
-   * and tools the worker policy admits. */
-  restrictedInteractiveCmd(opts: SpawnOpts): string {
-    return piLaunchArgv(opts, true, "pi", undefined, "shell", this.thinking).join(" ");
-  }
-
-  /** Start the pif wrapper with the initial prompt for headless runs. */
-  headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return piLaunchArgv(opts, opts.workers !== undefined, "pif", prompt, "argv", this.thinking);
-  }
-
-  /** Start pif under the same worker policy as an interactive pi worker. */
-  restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return piLaunchArgv(opts, true, "pif", prompt, "argv", this.thinking);
-  }
-
-  /** Read pi's authoritative status.json through the shared presence helpers. */
+  /** Read the authoritative status through the shared presence helpers. */
   detectState(input: PiStateDetectionInput, orchDir: OrchDir): AgentState {
     return presenceAgentState(input.key, orchDir);
   }
@@ -423,7 +376,7 @@ export class PiAdapter implements AgentAdapter {
     return undefined;
   }
 
-  /** Return pi's slash-command text for a lifecycle verb. */
+  /** Return the slash-command text for a lifecycle verb. */
   lifecycleCmd(verb: LifecycleVerb): { text: string } | undefined {
     return { text: PI_LIFECYCLE_TEXT[verb] };
   }
@@ -433,9 +386,63 @@ export class PiAdapter implements AgentAdapter {
     return resultFromPresenceOrSession(input, orchDir);
   }
 
-  /** Read pi's session tail via parseSession and map it to the shared session-view shape. */
+  /** Read the session tail and map it to the shared session-view shape. */
   readSessionView(input: SessionViewInput): SessionView | undefined {
     return piSessionView(input);
+  }
+}
+
+/** Adapter for pi (@earendil-works/pi-coding-agent), driven through orch's pi-bridge extension. */
+export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
+  readonly id = "pi" as const;
+
+  /** pi exposes a neutral CLI flag for launch-time thinking effort. */
+  readonly thinking: ThinkingStrategy = {
+    launchArgs: (level: ThinkingLevel): readonly string[] => ["--thinking", level],
+    set: (_level: ThinkingLevel): void => {
+      // Running-session changes are delivered by the pi bridge's control plane.
+    },
+  };
+
+  /** pi exports these into every subprocess of an interactive session. */
+  readonly sessionEnvMarker = HARNESS_SESSION_ENV.pi.marker;
+  readonly sessionIdEnv = HARNESS_SESSION_ENV.pi.sessionId;
+
+  readonly workspaceTrust = { preTrustWorkspace: (cwd: string, cmd: string): void => this.preTrustWorkspace(cwd, cmd) };
+  readonly shim = {
+    installShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
+    diagnoseShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger): CheckResult => this.diagnoseShim
+      ? this.diagnoseShim(orchDir)
+      : { id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi integration shim disabled" },
+  };
+  readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
+  readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parsePiModelsOutput(catalogue.read("pi", PI_MODELS_ARGV)) };
+  readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("pi", PI_MODELS_ARGV) };
+
+  /** Start pi directly in an interactive backend session. Worker options use the same
+   * composition as restricted launches, so tile/spawn cannot silently drop extensions. */
+  interactiveCmd(opts: SpawnOpts): string {
+    return piLaunchArgv(opts, opts.workers !== undefined, undefined, "shell", this.thinking).join(" ");
+  }
+
+  interactiveArgv(opts: SpawnOpts): readonly string[] {
+    return piLaunchArgv(opts, opts.workers !== undefined, undefined, "argv", this.thinking);
+  }
+
+  /** Start pi as an orch worker: orch's bridge always, plus whatever extensions
+   * and tools the worker policy admits. */
+  restrictedInteractiveCmd(opts: SpawnOpts): string {
+    return piLaunchArgv(opts, true, undefined, "shell", this.thinking).join(" ");
+  }
+
+  /** Start pi with the initial prompt for headless runs. */
+  headlessCmd(prompt: string, opts: SpawnOpts): string[] {
+    return piLaunchArgv(opts, opts.workers !== undefined, prompt, "argv", this.thinking);
+  }
+
+  /** Start headless pi under the same worker policy as an interactive pi worker. */
+  restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
+    return piLaunchArgv(opts, true, prompt, "argv", this.thinking);
   }
 
   /** Verify the extension link and bundle written by installShim. */

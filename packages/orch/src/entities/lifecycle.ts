@@ -11,7 +11,6 @@ import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { Backend } from "../types/backend.ts";
 import type { OrchSettings } from "../types/settings.ts";
-import type { LifecycleTarget } from "../types/command.ts";
 
 /** Every spelling that addresses one agent: its minted id, its mutable name, or
  * its current pane handle. Only the id is identity; the other two are lookups,
@@ -161,14 +160,4 @@ export function lifecycleBackend(resolution: LifecycleResolution, target: string
   const backend = resolution.backendId ? getBackend(resolution.backendId) : undefined;
   if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(resolution.backendId)}.`);
   return backend;
-}
-
-/**
- * Resolve lifecycle targets from orch's registry, not the current space.
- * Close is cleanup, so it must still resolve a dead or headless record after
- * the backend has stopped reporting the pane.
- */
-export function resolveLifecycleTargetFor(orchDir: OrchDir, settings: OrchSettings, credential: CallerCredential, target: string): LifecycleTarget {
-  const resolution = lifecycleResolutionFor(orchDir, settings, credential, target);
-  return { ...resolution, backend: lifecycleBackend(resolution, target) };
 }

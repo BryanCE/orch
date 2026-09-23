@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerPeerTools } from "../src/agent/peers.ts";
 import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
-import { stubDaemonClient } from "./helpers/daemon-client.ts";
+import { stubDaemonLink } from "./helpers/daemon-client.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
@@ -42,7 +42,7 @@ function fakePresence(harness: HarnessApi) {
     harness,
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",
-    daemon: stubDaemonClient(),
+    daemon: stubDaemonLink(),
   });
 }
 
@@ -69,7 +69,7 @@ describe("peer tool registration", () => {
     delete process.env.ORCH_SPAWNER;
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(directory, harness, fakePresence(harness), stubDaemonClient());
+    registerPeerTools(directory, harness, fakePresence(harness), stubDaemonLink());
 
     expect(toolNames).not.toContain("orch_send");
     expect(toolNames).toContain("orch_agents");
@@ -83,7 +83,7 @@ describe("peer tool registration", () => {
     seedStatus(directory, "dead-spawner", { pid: 2147483646 });
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(directory, harness, fakePresence(harness), stubDaemonClient());
+    registerPeerTools(directory, harness, fakePresence(harness), stubDaemonLink());
 
     expect(toolNames).not.toContain("orch_send");
   });
@@ -96,7 +96,7 @@ describe("peer tool registration", () => {
     seedStatus(directory, "live-spawner", { pid: process.pid });
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(directory, harness, fakePresence(harness), stubDaemonClient());
+    registerPeerTools(directory, harness, fakePresence(harness), stubDaemonLink());
 
     expect(toolNames).toContain("orch_send");
   });

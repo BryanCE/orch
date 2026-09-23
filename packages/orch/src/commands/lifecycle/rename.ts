@@ -7,7 +7,7 @@ import { admissionFleet } from "../spawn/admission.ts";
 import { resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
 import { whoAmI } from "../self.ts";
 import { lifecycleLogger } from "./index.ts";
-import { describeHandle } from "./close.ts";
+import { describeHandle } from "../../backends/backend.ts";
 import { die } from "../target.ts";
 import { parseCommand } from "../registry.ts";
 import type { Backend, BackendHandle } from "../../types/backend.ts";

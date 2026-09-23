@@ -9,7 +9,7 @@ import { die } from "../target.ts";
 import { resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
 import { whoAmI } from "../self.ts";
 import { lifecycleTargets, awaitIdleAfter } from "./index.ts";
-import { describeHandle } from "./close.ts";
+import { describeHandle } from "../../backends/backend.ts";
 
 import type { Services } from "../../types/services.ts";
 

@@ -10,7 +10,7 @@ import type { Services } from "../types/services.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 /** Spawn one headless agent through the real `orch spawn` path and return the newly-recorded key. */
-export async function spawnHeadlessSmokeAgent(services: Services, cwd: string, prompt: string): Promise<string> {
+async function spawnHeadlessSmokeAgent(services: Services, cwd: string, prompt: string): Promise<string> {
   const before = new Set(agentViews(services.orchDir).map((view) => view.id));
   await cmdSpawn(services, ["orch-smoke", "--backend", "headless", "--dir", cwd, "--prompt", prompt]);
   const after = agentViews(services.orchDir);

@@ -10,7 +10,7 @@
  * own identity as spawner, never from the environment.
  */
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { createDaemonClient } from "orch/core/agent/daemon-client.ts";
+import { createDaemonLink } from "orch/core/agent/daemon-client.ts";
 import { notificationText } from "orch/core/notify/format.ts";
 import { ALERT_STATES } from "./domain.ts";
 import { createPackRuntime } from "./runtime.ts";
@@ -97,7 +97,7 @@ export function registerOrchSeat(pi: SeatRegistrationApi, settings: SettingsMana
   const lastStates = new Map<string, string>();
 
   const ensureRuntime = (): PackRuntime => {
-    runtime ??= createPackRuntime({ orchDir: options.orchDir, ownKey: options.ownKey, daemon: createDaemonClient(options.orchDir, settings) });
+    runtime ??= createPackRuntime({ orchDir: options.orchDir, ownKey: options.ownKey, daemon: createDaemonLink(options.orchDir, settings) });
     return runtime;
   };
 

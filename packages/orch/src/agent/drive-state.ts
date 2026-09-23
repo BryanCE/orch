@@ -88,7 +88,7 @@ export function deriveDriveState(agentId: string, options: DriveStateInput): Dri
 }
 
 /** The whole fleet's drive states off lease facts already read. */
-export function driveStatesFrom(leaseFacts: LeaseFacts, currentOrchId: string | null | undefined): (agentId: string) => DriveState {
+function driveStatesFrom(leaseFacts: LeaseFacts, currentOrchId: string | null | undefined): (agentId: string) => DriveState {
   const facts: DriveFacts = { ...leaseFacts, currentOrchId };
   return (agentId) => driveStateFrom(agentId, facts);
 }

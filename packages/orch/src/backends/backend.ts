@@ -1,4 +1,9 @@
-import { BACKEND_IDS, type BackendId, type HomeSubject } from "../types/backend.ts";
+import { BACKEND_IDS, type BackendHandle, type BackendId, type HomeSubject } from "../types/backend.ts";
+
+/** Render a native handle without falling back to Object.prototype.toString. */
+export function describeHandle(handle: BackendHandle): string {
+  return typeof handle === "string" ? handle : handle.toString();
+}
 
 /**
  * The label a home is opened with (E8). An orch that opens a home of its own

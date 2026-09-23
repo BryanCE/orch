@@ -96,12 +96,6 @@ export function mergeAgentStatus(
   return values;
 }
 
-export function deleteAgentStatus(orchDir: OrchDir, agentId: string): void {
-  queueWrite(orchDir, (db) => {
-    db.delete(agentStatus).where(eq(agentStatus.agentId, agentId)).run();
-  });
-}
-
 export function filesTouchedOf(row: AgentStatusRow): string[] {
   if (row.filesTouched === null) return [];
   try {

@@ -34,7 +34,7 @@ export function isRpcErrorCode(value: unknown): value is RpcErrorCode {
 
 const CALLER_SESSION = z.object({ harnessId: z.string(), sessionId: z.string().nullable(), pid: z.number().int().nullable() }) satisfies z.ZodType<CallerSession>;
 /** What a caller says about itself with no store; orchd resolves it to an agent. */
-export const CALLER = z.object({
+const CALLER = z.object({
   launch: z.string().nullable(),
   session: CALLER_SESSION.nullable(),
   process: z.object({ pid: z.number().int(), startToken: z.string().nullable() }),

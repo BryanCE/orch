@@ -48,10 +48,10 @@ describe("pi worker launch obeys the worker policy", () => {
     expect(command).toContain("--tools read,edit");
   });
 
-  test("headless pif launches under the same policy and keeps the prompt last", () => {
+  test("headless pi launches under the same policy and keeps the prompt last", () => {
     const argv = piAdapter.restrictedHeadlessCmd("PROMPT", { workers: LOCKED_DOWN });
 
-    expect(argv[0]).toBe("pif");
+    expect(argv[0]).toBe("pi");
     expect(argv).toContain("--no-builtin-tools");
     expect(argv).toContain("read,bash,orch_ask");
     expect(argv).toContain("--no-extensions");

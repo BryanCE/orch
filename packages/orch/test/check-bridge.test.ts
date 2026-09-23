@@ -7,7 +7,6 @@ import {
   CORE_SCOPE_ALLOWLIST,
   IDENTITY_CONSTRUCTION_ALLOWLIST,
   checkCommandsParserLine,
-  checkBridgeBundleImportLine,
   checkIdentityConstructionLine,
   checkCoreScopeLine,
   checkDispatcherCallLine,
@@ -151,26 +150,6 @@ describe("10.2 adapter control strategies are dispatcher-only (checkDispatcherCa
     for (const line of readRepoLines("src/control/dispatch.ts")) {
       expect(checkDispatcherCallLine(line, "src/control/dispatch.ts")).toBeUndefined();
     }
-  });
-});
-
-describe("10.3 bridge bundles stay in build tooling (checkBridgeBundleImportLine)", () => {
-  test("flags a runtime adapter importing bridge-bundles/build.ts", () => {
-    expect(checkBridgeBundleImportLine(
-      'import { buildExtensionBundle } from "../bridge-bundles/build.ts";',
-      "src/adapters/pi.ts",
-    )).toContain("build tooling");
-  });
-
-  test("allows scripts and the build-tool module itself", () => {
-    expect(checkBridgeBundleImportLine(
-      'import { EXTENSION_NAMES } from "../src/bridge-bundles/build.ts";',
-      "scripts/reset.ts",
-    )).toBeUndefined();
-    expect(checkBridgeBundleImportLine(
-      'import { extensionBundlePath } from "./metadata.ts";',
-      "src/bridge-bundles/build.ts",
-    )).toBeUndefined();
   });
 });
 

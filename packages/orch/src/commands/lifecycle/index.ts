@@ -15,7 +15,7 @@ import { whoAmI, refuseNonOperatorOverride, type CallerSelf } from "../self.ts";
 import type { Invocation } from "../../cli/spec.ts";
 import type { DaemonClient, Services } from "../../types/services.ts";
 import type { Logger } from "../../types/core.ts";
-import { describeHandle } from "./close.ts";
+import { describeHandle } from "../../backends/backend.ts";
 
 export function lifecycleLogger(logger: Logger, key: string) {
   return isAgentId(key) ? logger.forAgent(key) : logger;

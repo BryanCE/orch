@@ -213,10 +213,6 @@ export function environmentOf(orchDir: OrchDir, agentId: string): AgentEnvironme
   return composeEnvironment(agentId, heldFleet(orchDir).axes);
 }
 
-export function tuningOf(orchDir: OrchDir, agentId: string): AgentTuning {
-  return heldFleet(orchDir).tunings.get(agentId) ?? NO_TUNING;
-}
-
 export function holderOf(orchDir: OrchDir, agentId: string): AgentHolder | null {
   return heldFleet(orchDir).holders.get(agentId) ?? null;
 }

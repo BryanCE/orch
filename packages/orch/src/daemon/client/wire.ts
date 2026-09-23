@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication -- one case per RPC method is how TypeScript links a method to its params without a cast.
 import type { OrchDir } from "../../types/core.ts";
 import { z } from "zod";
 import { type Socket } from "node:net";

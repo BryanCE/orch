@@ -27,7 +27,6 @@ import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { OrchDir } from "../types/core.ts";
 
-export { compositionUnrecorded };
 
 /** Confirm-to-record prompt, defaulting to NO — a cancelled or declined prompt records nothing. */
 async function promptConfirm(message: string): Promise<boolean> {

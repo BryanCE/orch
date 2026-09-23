@@ -1,7 +1,7 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
 import type { SpawnerIdentity, ThinkingLevel, WorkerPolicy } from "./policy.ts";
-import type { AgentEnvironment, AgentView } from "./store.ts";
+import type { AgentView } from "./store.ts";
 import type { Entity, LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
@@ -286,12 +286,6 @@ export interface SpawnPlacement {
    *  the caller's, after the first agent's environment exists: the home's root
    *  place launches that agent, so it is opened under that agent's environment. */
   readonly homeToOpen: HomeSubject | null;
-}
-
-/** The agent running `orch spawn`: its id and the environment recorded under it. */
-export interface Spawner {
-  readonly id: string;
-  readonly environment: AgentEnvironment;
 }
 
 /** What deciding a {@link SpawnPlacement} needs. */

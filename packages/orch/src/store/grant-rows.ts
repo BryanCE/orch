@@ -39,7 +39,7 @@ function canonicalAction(action: GrantAction): string {
   return [action.kind, ...fields].join("\n");
 }
 
-export function actionHash(action: GrantAction): string {
+function actionHash(action: GrantAction): string {
   return createHash("sha256").update(canonicalAction(action)).digest("hex").slice(0, 16);
 }
 

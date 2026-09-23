@@ -1,6 +1,6 @@
 import type { Effect, Stream } from "effect";
 import type { PackAbortError, PackSendError } from "./domain.ts";
-import type { DaemonClient } from "orch/core/types/agent.ts";
+import type { DaemonLink } from "orch/core/types/agent.ts";
 import type { OrchDir } from "orch/core/types/core.ts";
 import type { NotifyEvent } from "orch/core/types/notify.ts";
 
@@ -86,7 +86,7 @@ export interface PackSourceShape {
 export interface PackSourceConfig {
   readonly orchDir: OrchDir;
   readonly ownKey: () => string | undefined;
-  readonly daemon: DaemonClient;
+  readonly daemon: DaemonLink;
 }
 
 export interface TranscriptCache {

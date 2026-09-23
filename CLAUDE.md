@@ -61,7 +61,7 @@ Nothing has published. There is exactly one current shape for every record, conf
 `extensions/pi/`, `extensions/claude/`, `extensions/codex/`. Never a generic name (`bridge`, `shim`), never in `scripts/`. `scripts/` is build tooling.
 - Harness is not backend. Code gated on a plexer (`backend === "herdr"`, `HERDR_SOCKET_PATH`, tmux panes) goes in `src/backends/<plexer>/`, never `extensions/`.
 - The presence protocol is orch's, and it is the daemon socket. A harness reports state, results, and control outcomes over RPC (`report-status`, `report-result`, `control-outcome`) and never touches `$ORCH_DIR/agents/`. orchd owns that directory and appends `status.jsonl`, `results.jsonl`, `outcomes.jsonl` there as history. Nothing reads those files to make a decision. `rm -rf $ORCH_DIR/agents/*` loses history and nothing else. The one history appender lives in `src/presence/`.
-- Bundle output names are decoupled from source dirs in `src/bridge-bundles/metadata.ts`. Renaming a source dir must not rename a shipped artifact. The bundler (`src/bridge-bundles/build.ts`) is build tooling; runtime `src/**` never imports it.
+- Bundle output names are decoupled from source dirs in `src/bridge-bundles/metadata.ts`. Renaming a source dir must not rename a shipped artifact. The `build:*` scripts in `packages/orch/package.json` are the only bundler; runtime `src/**` never bundles.
 - `scripts/check-bridge.ts` enforces this. Its `extensions` scan must stay recursive or it scans nothing and passes.
 
 # RULE 11. ORCH OWNS EVERY AGENT. AN ORCHESTRATOR IS AN AGENT. ENVIRONMENT IS NEVER IDENTITY.

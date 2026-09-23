@@ -32,7 +32,6 @@ export interface Services {
   readonly host: Host;
 }
 
-export type OrchDirService = Pick<Services, "orchDir">;
 export type SettingsService = Pick<Services, "settings">;
 /** What a command needs to reach orchd: the root, the settings, and a logger. */
 export type DaemonClient = Pick<Services, "orchDir" | "settings" | "logger">;

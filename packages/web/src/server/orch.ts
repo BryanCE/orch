@@ -5,7 +5,6 @@ import { projectFleet, projectHistory, type AgentGroup, type Space } from "@/lib
 import { fleetStatusOf } from "@/lib/status-row";
 import type { PendingQuestionView } from "@orch/types/daemon.ts";
 import type { LifecycleVerb } from "@orch/types/adapter.ts";
-import type { WorkerPolicy } from "@orch/types/policy.ts";
 
 // Every export here is a server function, so the TanStack Start plugin strips this
 // module's body from the client bundle. Adding a plain exported function pulls
@@ -27,31 +26,13 @@ export interface FleetSnapshot {
 }
 type FleetResult = DaemonDown | FleetSnapshot;
 
-export type SendAck = { accepted: true; id: string; ack: "acknowledged" | "unavailable" };
+type SendAck = { accepted: true; id: string; ack: "acknowledged" | "unavailable" };
 
-
-export interface AgentQuestion {
+interface AgentQuestion {
   key: string;
   name: string | null;
   text: string | null;
   askedAt: number | null;
-}
-
-interface SpawnAgentInput {
-  key: string;
-  adapter: string;
-  model: string;
-  prompt: string;
-  cwd?: string;
-  env?: Readonly<Record<string, string>>;
-  preferredModels?: readonly string[];
-  tools?: string;
-  workers?: WorkerPolicy;
-}
-
-interface SpawnAgentResult {
-  key: string;
-  pid: number;
 }
 
 /**
@@ -185,14 +166,3 @@ export const getQuestions = createServerFn({ method: "GET" }).handler(async (): 
     return down(error);
   }
 });
-
-export const spawnAgents = createServerFn({ method: "POST" })
-  .validator((input: SpawnAgentInput) => input)
-  .handler(async ({ data }): Promise<SpawnAgentResult | DaemonDown> => {
-    try {
-      const { result } = await daemonRpc<SpawnAgentResult>("spawn-headless", data);
-      return result;
-    } catch (error) {
-      return down(error);
-    }
-  });

@@ -10,10 +10,10 @@ import type { DaemonClient } from "../types/services.ts";
 
 export type ResolvedTarget = ResultOf<"resolve-target">;
 export type ResolvedLifecycle = ResultOf<"resolve-lifecycle">;
-export type LifecycleResolution = LifecycleTarget & Pick<ResolvedLifecycle, "holder" | "callerOwns">;
+export type HeldLifecycleTarget = LifecycleTarget & Pick<ResolvedLifecycle, "holder" | "callerOwns">;
 
 /** The lifecycle resolver, answered by orchd, with the Backend object attached. */
-export async function resolveLifecycle(services: DaemonClient, target: string): Promise<LifecycleResolution> {
+export async function resolveLifecycle(services: DaemonClient, target: string): Promise<HeldLifecycleTarget> {
   const resolution = await readRpc(services, "resolve-lifecycle", { caller: callerCredential(), target });
   return { ...resolution, backend: lifecycleBackend(resolution, target) };
 }

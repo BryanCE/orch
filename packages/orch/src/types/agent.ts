@@ -215,7 +215,7 @@ export interface AgentPresenceOptions {
   /** Bridge code hash stamped into status.json for the doctor staleness check. */
   extensionHash: string;
   /** Daemon-socket client: delivery acknowledgements and control outcomes. */
-  daemon: DaemonClient;
+  daemon: DaemonLink;
 }
 
 /** The live presence binding returned by {@link createAgentPresence}. */
@@ -237,7 +237,7 @@ export interface DriveStateOptions {
 
 export interface AgentToolsOptions {
   presence: AgentPresence;
-  daemon: DaemonClient;
+  daemon: DaemonLink;
   /** Which harness build this session is, and what it calls its settle signal. */
   identity: HarnessIdentity;
   /** Delivers a state-change notification (wired to the plexer HUD, if any). */
@@ -262,7 +262,7 @@ export interface ControlOutcomeReport extends ControlOutcome {
 }
 
 /** The agent's live link to orchd for requests, deliveries, and acknowledgements. */
-export interface DaemonClient {
+export interface DaemonLink {
   isAcked(id: string): boolean;
   markAcked(id: string): void;
   /** Asks orchd a question; `undefined` when the daemon is absent, unreachable,

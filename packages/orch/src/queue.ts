@@ -84,7 +84,7 @@ function packsOpenTo(orchDir: OrchDir, enqueuer: AgentRow): Set<string> {
 }
 
 /** The space an agent is in right now, or null when it is in none. */
-export function spaceOf(orchDir: OrchDir, agentId: string): string | null {
+function spaceOf(orchDir: OrchDir, agentId: string): string | null {
   return currentSpace(orchDir, agentId)?.spaceId ?? null;
 }
 

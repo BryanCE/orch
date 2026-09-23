@@ -12,7 +12,7 @@ export function agentMayWriteSetting(settings: OrchSettings, key: string): boole
 }
 
 /** The keys an agent may write, as the human reads them. */
-export function agentWritableKeys(settings: OrchSettings): string[] {
+function agentWritableKeys(settings: OrchSettings): string[] {
   return settings.agents.writable_settings.filter((granted) => granted !== AGENT_SETTINGS_GRANT);
 }
 

@@ -211,6 +211,7 @@ export function stateGlow(state: AgentState): string {
     case "idle": return "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]";
     case "working": return "border-chart-2 shadow-[0_0_28px_-2px_var(--color-chart-2)]";
     case "blocked": return "border-chart-4 shadow-[0_0_28px_-2px_var(--color-chart-4)]";
+    case "waiting": return "border-chart-4 shadow-[0_0_28px_-2px_var(--color-chart-4)]";
     case "asking": return "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]";
     case "done": return "border-primary shadow-[0_0_28px_-2px_var(--color-primary)]";
     case "error": return "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]";
@@ -229,6 +230,7 @@ export function stateColor(state: AgentState): string {
     case "idle": return "text-muted-foreground";
     case "working": return "text-chart-2";
     case "blocked": return "text-chart-4";
+    case "waiting": return "text-chart-4";
     case "asking": return "text-destructive";
     case "done": return "text-primary";
     case "error": return "text-destructive";

@@ -16,7 +16,7 @@ import type { ProcessValues, TuningValues } from "../types/store.ts";
  */
 export type ProcessRow = typeof agentProcesses.$inferSelect;
 export type HandleRow = typeof agentHandles.$inferSelect;
-export type SpaceRow = typeof agentSpaces.$inferSelect;
+export type AgentSpaceRow = typeof agentSpaces.$inferSelect;
 export type TuningRow = typeof agentTunings.$inferSelect;
 
 type IntervalTable = typeof agentProcesses | typeof agentHandles | typeof agentSpaces | typeof agentTunings;
@@ -115,7 +115,7 @@ export function currentHandle(orchDir: OrchDir, agentId: string): HandleRow | un
     .where(and(eq(agentHandles.agentId, agentId), isNull(agentHandles.until))).get();
 }
 
-export function currentSpace(orchDir: OrchDir, agentId: string): SpaceRow | undefined {
+export function currentSpace(orchDir: OrchDir, agentId: string): AgentSpaceRow | undefined {
   return orm(orchDir).select().from(agentSpaces)
     .where(and(eq(agentSpaces.agentId, agentId), isNull(agentSpaces.until))).get();
 }

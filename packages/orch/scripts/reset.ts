@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, sep, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { envOrchDir } from "../src/services.ts";
-import { EXTENSION_NAMES } from "../src/bridge-bundles/build.ts";
+import { EXTENSION_NAMES } from "../src/bridge-bundles/metadata.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { provenDaemonPid, terminateDaemon } from "../src/daemon/client/process.ts";
 import { loadPresence } from "../src/presence/store.ts";
@@ -108,7 +108,7 @@ function packageTarballRemovals(): WipeStep[] {
 }
 
 function binShimRemovals(): WipeStep[] {
-  return ["orch", "pif", "orch-ding"].map((name) => deletion(join(HOME, ".local", "bin", name))).filter(nonNull);
+  return ["orch", "orch-ding"].map((name) => deletion(join(HOME, ".local", "bin", name))).filter(nonNull);
 }
 
 /** True for a link into an orch package — the mark of an orch-installed extension. */

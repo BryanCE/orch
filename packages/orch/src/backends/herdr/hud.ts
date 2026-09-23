@@ -228,7 +228,7 @@ function notifyInternal(event: BridgeNotifyEvent, position: NotificationPosition
   }
 }
 
-export interface HerdrHud {
+interface HerdrHud {
   paneHandle: (id: string | null, orchDir: OrchDir) => string | null;
   hudActive: (id: string | null, orchDir: OrchDir) => boolean;
   createPaneStatusReporter: (id: string | null, paneId: string | null, orchDir: OrchDir) => (snapshot: PaneStatusSnapshot) => void;

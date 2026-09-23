@@ -17,7 +17,7 @@ import { readFleet } from "./fleet.ts";
 import { resolveLifecycle, refuseForeignHolder } from "./resolve.ts";
 import { refuseNonOperatorOverride, whoAmI, type CallerSelf } from "./self.ts";
 import { sameSpace, spaceName } from "../policy/space.ts";
-import { describeHandle } from "./lifecycle/close.ts";
+import { describeHandle } from "../backends/backend.ts";
 
 type BoundaryPlan<T> =
   | { readonly outcome: "invoke"; readonly role: T }

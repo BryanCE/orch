@@ -1,7 +1,7 @@
 import type { GrantKind, GrantRequest } from "../types/store.ts";
 
 /** What a human is shown for each action, in orch's words and never a caller's. */
-export const ACTION_SENTENCE: Record<GrantKind, string> = {
+const ACTION_SENTENCE: Record<GrantKind, string> = {
   "spawn.new-space": "open a NEW space on your screen and spawn agents into it",
   "command.run": "run a command listed in gated_commands, once, in this directory",
 };

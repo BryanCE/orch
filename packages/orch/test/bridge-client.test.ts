@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
-import { createDaemonClient } from "../src/agent/daemon-client.ts";
+import { createDaemonLink } from "../src/agent/daemon-client.ts";
 import { openJsonLineLink } from "../src/presence/socket-client.ts";
 import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files.ts";
 import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir.ts";
@@ -99,7 +99,7 @@ describe("bridge daemon client", () => {
     await listen(server, socketPath);
 
     const deliveries: BridgeDelivery[] = [];
-    const client = createDaemonClient(directory, testServices({ orchDir: directory, settings: null }).settings);
+    const client = createDaemonLink(directory, testServices({ orchDir: directory, settings: null }).settings);
     client.attach("agent-key", (delivery) => deliveries.push(delivery));
     await waitFor(() => connections.length === 1 && connections[0]!.lines.length === 1);
     await waitFor(() => client.attached());
@@ -137,7 +137,7 @@ describe("bridge daemon client", () => {
 
     const deliveries: BridgeDelivery[] = [];
     const settings = testServices({ orchDir: directory, settings: { daemon: { bridge_reconnect_ms: 10 } } }).settings;
-    const client = createDaemonClient(directory, settings);
+    const client = createDaemonLink(directory, settings);
     client.attach("agent-key", (delivery) => deliveries.push(delivery));
     await waitFor(() => client.attached());
     expect(connections).toHaveLength(1);

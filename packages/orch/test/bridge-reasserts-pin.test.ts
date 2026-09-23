@@ -7,7 +7,7 @@ import { registerAgentTools } from "../src/agent/tools.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import type {
   ControlOutcomeReport,
-  DaemonClient,
+  DaemonLink,
   HarnessApi,
   HarnessContext,
   HarnessEventHandler,
@@ -81,7 +81,7 @@ function fakeHarness(): FakeHarness {
 }
 
 function fakeDaemon(): {
-  daemon: DaemonClient;
+  daemon: DaemonLink;
   deliver(delivery: BridgeDelivery): void;
   reports: ControlOutcomeReport[];
 } {

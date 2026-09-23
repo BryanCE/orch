@@ -10,7 +10,7 @@ import { deliverControl } from "../../../control/dispatch.ts";
 import { emitAndNotify } from "../events.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { agentById, endAgent, reclaimAgent } from "../../../store/agent-rows.ts";
-import { setHandle as setAgentHandle } from "../../../store/interval-rows.ts";
+import { setHandle } from "../../../store/interval-rows.ts";
 import { registerSpawnedAgent } from "../../../store/spawn-registration.ts";
 import { presenceEntry } from "../../../presence/store.ts";
 import { isAgentState } from "../../../agent-state.ts";
@@ -138,9 +138,9 @@ export function reclaim(directory: OrchDir, params: ParamsOf<"reclaim">): { ok: 
 
 /** The pane moved; the agent did not become a different agent. The handle is an
  *  interval on its own axis, so the old one closes and a new one opens. */
-export function setHandle(directory: OrchDir, params: ParamsOf<"set-handle">): { ok: true } {
+export function moveHandle(directory: OrchDir, params: ParamsOf<"set-handle">): { ok: true } {
   if (agentView(directory, params.target) === null) throw new Error(`agent ${params.target} does not exist`);
-  setAgentHandle(directory, params.target, Date.now(), params.handle);
+  setHandle(directory, params.target, Date.now(), params.handle);
   return { ok: true };
 }
 

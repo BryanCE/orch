@@ -16,7 +16,7 @@ interface DaemonLink {
   reason?: string;
 }
 
-export interface ReplayGap {
+interface ReplayGap {
   oldestSeq: number;
 }
 

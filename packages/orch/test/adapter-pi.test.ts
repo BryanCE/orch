@@ -46,10 +46,10 @@ afterAll(() => {
 });
 
 describe("PiAdapter", () => {
-  test("uses pi interactively, pif headlessly, and declares honest capabilities", () => {
+  test("uses pi interactively and headlessly, and declares honest capabilities", () => {
     expect(adapter.interactiveCmd({})).toBe("pi");
     expect(adapter.headlessCmd("fix tests", { model: "openai/gpt-5" })).toEqual([
-      "pif",
+      "pi",
       "--model",
       "openai/gpt-5",
       "fix tests",

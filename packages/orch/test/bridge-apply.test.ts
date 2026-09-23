@@ -2,7 +2,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
-import type { DaemonClient, HarnessApi, HarnessContext } from "../src/types/agent.ts";
+import type { DaemonLink, HarnessApi, HarnessContext } from "../src/types/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 
@@ -53,7 +53,7 @@ function fakeHarness(): { harness: HarnessApi; messages: HarnessCall[]; models: 
 }
 
 function fakeDaemon(): {
-  daemon: DaemonClient;
+  daemon: DaemonLink;
   deliveries: (delivery: BridgeDelivery) => void;
   attached: string[];
   acks: string[];
@@ -64,7 +64,7 @@ function fakeDaemon(): {
   const attached: string[] = [];
   const acks: string[] = [];
   let detached = 0;
-  const daemon: DaemonClient = {
+  const daemon: DaemonLink = {
     isAcked: (id) => acked.has(id),
     markAcked: (id) => { acked.add(id); },
     ask: () => Promise.resolve(undefined),
@@ -92,7 +92,7 @@ function fakeDaemon(): {
   };
 }
 
-function presence(daemon: DaemonClient, harness: HarnessApi) {
+function presence(daemon: DaemonLink, harness: HarnessApi) {
   const orchDir = tempOrchDir("orch-bridge-apply-");
   process.env.ORCH_DIR = orchDir;
   directories.push(orchDir);

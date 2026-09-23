@@ -40,7 +40,7 @@ export function appendEvent(orchDir: OrchDir, ts: number, event: unknown): Store
   return { seq, ts, event };
 }
 
-export function forgetEventSeqs(): void {
+function forgetEventSeqs(): void {
   eventSeqs.clear();
 }
 

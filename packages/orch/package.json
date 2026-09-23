@@ -38,17 +38,22 @@
   },
   "license": "MIT",
   "author": "Bryan Edman",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BryanCE/orch.git",
+    "directory": "packages/orch"
+  },
+  "homepage": "https://github.com/BryanCE/orch/tree/main/packages/orch#readme",
+  "bugs": "https://github.com/BryanCE/orch/issues",
   "publishConfig": {
     "access": "public"
   },
   "type": "module",
   "bin": {
     "orch": "dist/bin/orch.js",
-    "pif": "bin/pif",
     "orch-ding": "dist/bin/orch-ding.js"
   },
   "files": [
-    "bin/pif",
     "drizzle/",
     "scripts/wsl-toast.ps1",
     "dist/",

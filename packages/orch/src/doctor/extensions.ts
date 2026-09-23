@@ -11,7 +11,7 @@ import type { CheckResult } from "../types/doctor.ts";
  * agent whose hash matches omp's bundle is current, and comparing it against pi's
  * would report a fleet-wide failure that is really just "a different harness".
  */
-export function shippedBundleHashes(bundlePath?: string): ReadonlySet<string> {
+function shippedBundleHashes(bundlePath?: string): ReadonlySet<string> {
   const bundles = bundlePath ? [bundlePath] : EXTENSION_NAMES.map((name) => extensionBundlePath(packageRoot(), name));
   return new Set(bundles.flatMap((bundle) => {
     try { return [computeCodeHash(bundle)]; } catch { return []; }

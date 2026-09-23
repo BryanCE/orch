@@ -89,7 +89,7 @@ function nothingToReapMessage(liveHolders: readonly string[]): string {
 }
 
 /** Print the forced sweep performed by orchd. */
-export function removeDeadAgentDirs(json: boolean, swept: ResultOf<"clean">): string[] {
+function removeDeadAgentDirs(json: boolean, swept: ResultOf<"clean">): string[] {
   if (!json) {
     if (swept.reaped.length) process.stdout.write("Reaped dead agents:\n" + swept.reaped.map((r) => "  " + r).join("\n") + "\n");
     if (swept.removed.length) process.stdout.write("Removed dead agent dirs:\n" + swept.removed.map((r) => "  " + r).join("\n") + "\n");

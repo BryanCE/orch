@@ -114,7 +114,7 @@ describe("commands/setup", () => {
     const settings = parseSetupSettings(JSON.parse(readFileSync(join(orchDir, "settings.json"), "utf8")));
 
     expect(settings).toMatchObject({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", defaults: { adapter: "pi", backend: "headless" } });
-    expect(readdirSync(binDir).sort()).toEqual(["orch", "orch-ding", "pif"]);
+    expect(readdirSync(binDir).sort()).toEqual(["orch", "orch-ding"]);
     // Where a symlink is refused this wires the bins by copy, which is real IO.
   }, 30_000);
 

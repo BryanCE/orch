@@ -47,16 +47,6 @@ export function readJsonStdin(): JsonRecord {
   }
 }
 
-/** Parse one JSON command argument at a shim boundary. */
-export function parseJsonArgument(raw: string | undefined): JsonRecord {
-  try {
-    const parsed: unknown = JSON.parse(raw ?? "{}");
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
 export function launchEnvFacts(): LaunchEnvFacts {
   const value = (name: string): string | null => {
     const raw = process.env[name];

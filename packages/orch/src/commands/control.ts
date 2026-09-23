@@ -56,21 +56,40 @@ interface DispatchSettings {
   keepContext: boolean;
 }
 
+/** A verb that sends one text to one target: steer and answer. */
+interface TextCommand {
+  readonly json: boolean;
+  readonly gov: WriteGovernance;
+  readonly target: string;
+  readonly text: string;
+}
+
+function parseTextCommand(verb: "steer" | "answer", args: string[], usage: string): TextCommand {
+  const { flags, positional } = parseCommand(verb, args);
+  const target = positional[0];
+  const text = positional.slice(1).join(" ");
+  if (!target || !text) die(usage);
+  return { json: flags.has("--json"), gov: governanceFlags(flags), target, text };
+}
+
+/** Run the verb on the host that holds the target, with the caller's flags. */
+function forwardText(hosts: OrchSettings["hosts"], remote: { host: string; target: string }, verb: "steer" | "answer", command: TextCommand): void {
+  const flags = [...(command.gov.steal ? ["--steal"] : []), ...(command.gov.crossSpace ? ["--cross-space"] : []), ...(command.json ? ["--json"] : [])];
+  remoteWrite(hosts, remote.host, verb, [remote.target, command.text, ...flags]);
+}
+
+/** A target a drive verb may take from a live holder with --steal. */
+function resolveDriveTarget(services: Services, self: CallerSelf, target: string, gov: WriteGovernance): Promise<ResolvedTarget> {
+  return resolveOwnedTarget(services, self, target, { crossSpace: gov.crossSpace, override: gov.steal, overrideFlag: "--steal" });
+}
 
 export async function cmdSteer(services: Services, args: string[]): Promise<void> {
   const self = await whoAmI(services);
-  const { flags, positional } = parseCommand("steer", args);
-  const json = flags.has("--json");
-  const gov = governanceFlags(flags);
-  const target = positional[0];
-  const text = positional.slice(1).join(" ");
-  if (!target || !text) die('usage: orch steer <target> <text...> [--steal] [--cross-space] [--json]');
-  const remote = targetHost(services.settings.current().hosts, target);
-  if (remote) {
-    remoteWrite(services.settings.current().hosts, remote.host, "steer", [remote.target, text, ...(json ? ["--json"] : [])]);
-    return;
-  }
-  const resolved = await resolveOwnedTarget(services, self, target, { crossSpace: gov.crossSpace, override: gov.steal, overrideFlag: "--steal" });
+  const { json, gov, target, text } = parseTextCommand("steer", args, "usage: orch steer <target> <text...> [--steal] [--cross-space] [--json]");
+  const hosts = services.settings.current().hosts;
+  const remote = targetHost(hosts, target);
+  if (remote) return forwardText(hosts, remote, "steer", { json, gov, target, text });
+  const resolved = await resolveDriveTarget(services, self, target, gov);
   const result = await writeRpc(services, "steer", { target: resolved.entity.key, text }, gov);
   const recipient = recipientOf(resolved.view ?? undefined, resolved.entity.space ?? "space", resolved.entity.key);
   reportControlDelivery(recipient, "steered", resolved.entity.key, result, json, ` -> ${truncate(collapse(text), 60)}`);
@@ -179,18 +198,11 @@ export async function cmdPipe(services: Services, args: string[]) {
 
 export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
   const self = await whoAmI(services);
-  const { flags, positional } = parseCommand("answer", args);
-  const json = flags.has("--json");
-  const gov = governanceFlags(flags);
-  const target = positional[0];
-  const text = positional.slice(1).join(" ");
-  if (!target || !text) die('usage: orch answer <target> "<text>" [--steal] [--cross-space] [--json]');
-  const remote = targetHost(services.settings.current().hosts, target);
-  if (remote) {
-    remoteWrite(services.settings.current().hosts, remote.host, "answer", [remote.target, text, ...(gov.steal ? ["--steal"] : []), ...(gov.crossSpace ? ["--cross-space"] : []), ...(json ? ["--json"] : [])]);
-    return;
-  }
-  const resolved = await resolveOwnedTarget(services, self, target, { crossSpace: gov.crossSpace, override: gov.steal, overrideFlag: "--steal" });
+  const { json, gov, target, text } = parseTextCommand("answer", args, 'usage: orch answer <target> "<text>" [--steal] [--cross-space] [--json]');
+  const hosts = services.settings.current().hosts;
+  const remote = targetHost(hosts, target);
+  if (remote) return forwardText(hosts, remote, "answer", { json, gov, target, text });
+  const resolved = await resolveDriveTarget(services, self, target, gov);
   if (!resolved.entity.presence) die(`Target "${target}" has no agent dir.`);
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
   // the CLI never invokes the adapter's answer strategy directly.
@@ -207,7 +219,7 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
   const target = positional[0];
   const modelArg = positional[1];
   if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-space] [--no-wait]");
-  const resolved = await resolveOwnedTarget(services, self, target, { crossSpace: gov.crossSpace, override: gov.steal, overrideFlag: "--steal" });
+  const resolved = await resolveDriveTarget(services, self, target, gov);
   const ent = resolved.entity;
   const handle = ent.paneId ?? ent.key;
   const harness = resolved.view?.harnessId;
@@ -363,7 +375,7 @@ async function resolveDispatchSettings(services: Services, self: CallerSelf, fla
   const target = flags.positional[0];
   const prompt = promptBody(flags);
   if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--thinking <level>] [--agent adapter]');
-  const resolved = await resolveOwnedTarget(services, self, target, { crossSpace: gov.crossSpace, override: gov.steal, overrideFlag: "--steal" });
+  const resolved = await resolveDriveTarget(services, self, target, gov);
   const ent = resolved.entity;
   const handle = ent.paneId ?? ent.key;
   return { adapter: pickAdapter(flags, settings), model: requestedModel(flags), raw: flags.raw, json: flags.json, ent, view: resolved.view, handle, prompt: taskWithReferences(prompt, flags.withPaths.map(contextReference)), keepContext: flags.keepContext };

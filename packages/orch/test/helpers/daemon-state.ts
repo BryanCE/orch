@@ -9,7 +9,7 @@ import { testServices, type TestServicesOptions } from "./services.ts";
 
 /** The real handler table on this dir's socket, in-process, so a command under
  *  test reaches orchd the way it does in use. No loop, no timers; close it after. */
-export async function serveDaemon(services: Services): Promise<RpcServer> {
+async function serveDaemon(services: Services): Promise<RpcServer> {
   const state = idleDaemonState(services, services.orchDir);
   const server = await startRpcServer(services.orchDir, rpcHandlers(state), { logger: services.logger });
   state.server = server;

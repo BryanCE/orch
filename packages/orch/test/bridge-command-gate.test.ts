@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerAgentTools } from "../src/agent/tools.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { stubDaemonClient } from "./helpers/daemon-client.ts";
+import { stubDaemonLink } from "./helpers/daemon-client.ts";
 import { testServices } from "./helpers/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { HarnessApi, HarnessContext, HarnessEventHandler } from "../src/types/agent.ts";
@@ -44,7 +44,7 @@ function toolInput(toolName: string, input: Record<string, unknown>): Record<str
     setThinkingLevel: () => undefined,
     events: { on: () => undefined },
   };
-  const daemon = stubDaemonClient();
+  const daemon = stubDaemonLink();
   const identity = { agentId: "pi", settleEvent: "agent_settled" };
   const presence = createAgentPresence({ harness, identity, extensionHash: "test", daemon });
   const settings = testServices({ orchDir: root, settings: { locked_commands: { commands: ["bun test"] } } }).settings;

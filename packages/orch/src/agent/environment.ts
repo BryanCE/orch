@@ -14,7 +14,7 @@ import type { PaneLabels } from "../types/plexer.ts";
 
 export const ENVIRONMENT_ENV = "ORCH_ENVIRONMENT";
 
-export interface AgentEnvironment {
+export interface EnvironmentRoles {
   /** The environment can report the pane and tab labels a human typed. */
   readonly labels: boolean;
   /** Harness-bus event this environment raises when its pane blocks, or null
@@ -23,7 +23,7 @@ export interface AgentEnvironment {
 }
 
 /** An environment composing no roles: a plain terminal, CI, a detached agent. */
-const BARE: AgentEnvironment = { labels: false, blockedEvent: null };
+const BARE: EnvironmentRoles = { labels: false, blockedEvent: null };
 
 /** The blocked signal an environment raises, decoded at the boundary. The
  *  CHANNEL is the environment's vocabulary; this pair is all a bridge sees. */
@@ -44,7 +44,7 @@ export function isPaneLabels(value: unknown): value is PaneLabels {
   return value.tabLabel === null || typeof value.tabLabel === "string";
 }
 
-function isAgentEnvironment(value: unknown): value is AgentEnvironment {
+function isEnvironmentRoles(value: unknown): value is EnvironmentRoles {
   if (!isRecord(value)) return false;
   if (typeof value.labels !== "boolean") return false;
   return value.blockedEvent === null || typeof value.blockedEvent === "string";
@@ -53,18 +53,18 @@ function isAgentEnvironment(value: unknown): value is AgentEnvironment {
 /** The launch-env entry a backend stamps so the agent it spawns can read back
  *  what its environment composes. Each backend declares its OWN roles, in its
  *  own directory, so no plexer's vocabulary leaks into core or into a harness. */
-export function environmentStamp(environment: AgentEnvironment): Record<string, string> {
+export function environmentStamp(environment: EnvironmentRoles): Record<string, string> {
   return { [ENVIRONMENT_ENV]: JSON.stringify(environment) };
 }
 
 /** The roles orch stamped at spawn. An unstamped process composes nothing —
  *  a driving session in a plain terminal is the normal case, not an error. */
-export function agentEnvironment(): AgentEnvironment {
+export function agentEnvironment(): EnvironmentRoles {
   const raw = process.env[ENVIRONMENT_ENV];
   if (!raw) return BARE;
   try {
     const parsed: unknown = JSON.parse(raw);
-    return isAgentEnvironment(parsed) ? parsed : BARE;
+    return isEnvironmentRoles(parsed) ? parsed : BARE;
   } catch {
     return BARE;
   }

@@ -124,6 +124,12 @@ describe("the settings allowlist applies on top of harness membership", () => {
     const catalogue = testServices({ orchDir: dir }).models;
     expect(() => admitModel(fileSettingsManager(dir).current(), pi, catalogue, "nothing-like-it:high")).toThrow(/pi does not list model/);
   });
+
+  test("the configured default is admitted though the allowlist omits it", () => {
+    const dir = makeDir({ defaults: { models: { pi: "openrouter/upstage/solar-pro-3:high" } }, models: { allowed: { pi: ["openrouter/openai/*"] } } });
+    const catalogue = testServices({ orchDir: dir }).models;
+    expect(admitModel(fileSettingsManager(dir).current(), pi, catalogue, "openrouter/upstage/solar-pro-3")).toBe("openrouter/upstage/solar-pro-3");
+  });
 });
 
 // The retrospective case: the rules say `luna:high`, the harness lists

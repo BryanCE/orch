@@ -4,7 +4,6 @@ import { bootCodeHash, idleShutdownDue, liveAgentCount, socketAnswers, touchOnCa
 import type { DaemonState } from "./state.ts";
 import { outboxDeps } from "./handlers/write.ts";
 import { rpcHandlers } from "./handlers/table.ts";
-import { repinLiveFleet } from "./repin.ts";
 import {
   acquireDaemonLock,
   releaseDaemonLock,
@@ -26,11 +25,9 @@ import { fileURLToPath } from "node:url";
 import { drainOutbox, redeliverOpenRows } from "./outbox.ts";
 import { isAgentId } from "../../backends/identity.ts";
 import { LAUNCH_ENV, readLaunchCredential } from "../../identity/launch.ts";
-import { deliverControl, resolveTargetAdapter } from "../../control/dispatch.ts";
-import { warmAdapterCatalogues } from "../../adapters/registry.ts";
+import { refreshAdapterCatalogues, warmAdapterCatalogues } from "../../adapters/registry.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import { createPanePainter } from "./pane-painter.ts";
-import { liveAgentViews } from "../../store/agent-view.ts";
 import { createWakeSignal } from "./wake.ts";
 import { closeAllStores, reportDrains, reportWriteFailures } from "../../store/connection.ts";
 import { flushPresenceHistory, reportHistoryFailures } from "../../presence/history.ts";
@@ -141,7 +138,6 @@ export async function startDaemon(): Promise<DaemonState> {
   warmAdapterCatalogues(state.services.models);
 
   let settingsLoaded = false;
-  let previousSettings = services.settings.currentOrNull();
   state.settingsWatch = watchSettings(services.settings, {
     load: () => {
       const next = services.settings.reload();
@@ -151,21 +147,13 @@ export async function startDaemon(): Promise<DaemonState> {
     onChange: (settings) => {
       forgetCapacity(directory);
       services.logger.setLevel(logLevelFor(settings));
-      if (settingsLoaded) state.services.logger.info("config.reloaded");
-      settingsLoaded = true;
-      if (previousSettings !== null) {
-        void repinLiveFleet({
-          previousSettings,
-          settings,
-          listLiveAgents: () => liveAgentViews(directory),
-          resolveAdapter: (agent) => resolveTargetAdapter(directory, agent.id),
-          deliver: (target, action) => deliverControl(directory, settings, state.services.models, target, action),
-          logger: services.logger,
-        }).catch((error: unknown) => {
-          state.services.logger.warn("repin.failed", { error: errorMessage(error) });
-        });
+      // A settings change reaches the next spawn, never a running agent: re-asking the
+      // harnesses is what lets a newly named model be offered and admitted.
+      if (settingsLoaded) {
+        state.services.logger.info("config.reloaded");
+        void refreshAdapterCatalogues(state.services.models);
       }
-      previousSettings = settings;
+      settingsLoaded = true;
     },
     onWarn: (message) => state.services.logger.warn("config.warning", { message }),
   });

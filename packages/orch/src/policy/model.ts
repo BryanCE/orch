@@ -16,10 +16,12 @@ function globToRegex(pattern: string): RegExp {
   return new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
 }
 
-/** True when the bare model passes that harness's configured allowlist; no patterns means no restriction. */
+/** True when the bare model passes that harness's configured allowlist; no patterns means no
+ *  restriction, and the harness's configured default is always allowed. */
 function isAllowedModel(settings: OrchSettings, harness: AdapterId, bareModel: string): boolean {
   const patterns = allowedModelPatterns(settings, harness);
   if (patterns.length === 0) return true;
+  if (bareModel === splitThinkingSuffix(settings.defaults.models[harness] ?? "").bare) return true;
   return patterns.some((pattern) => globToRegex(pattern).test(bareModel));
 }
 

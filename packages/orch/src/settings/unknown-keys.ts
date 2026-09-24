@@ -26,26 +26,27 @@ function parentAt(root: unknown, at: readonly string[]): object | undefined {
   return typeof parent === "object" && parent !== null ? parent : undefined;
 }
 
-/** A deep copy of `root` without the keys. */
-function withoutKeys(root: unknown, keys: readonly UnknownKey[]): unknown {
+/** Copy `root`, removing the keys or restoring them where their parent exists. */
+function copyKeys(root: unknown, keys: readonly UnknownKey[], restore: boolean): unknown {
   const copy: unknown = structuredClone(root);
   for (const key of keys) {
     const parent = parentAt(copy, key.at);
     const name = key.at.at(-1);
-    if (parent !== undefined && name !== undefined) Reflect.deleteProperty(parent, name);
+    if (parent === undefined || name === undefined) continue;
+    if (restore) Reflect.set(parent, name, key.value);
+    else Reflect.deleteProperty(parent, name);
   }
   return copy;
 }
 
+/** A deep copy of `root` without the keys. */
+function withoutKeys(root: unknown, keys: readonly UnknownKey[]): unknown {
+  return copyKeys(root, keys, false);
+}
+
 /** A deep copy of `root` with the keys put back, where their parent still exists. */
 export function withKeys(root: unknown, keys: readonly UnknownKey[]): unknown {
-  const copy: unknown = structuredClone(root);
-  for (const key of keys) {
-    const parent = parentAt(copy, key.at);
-    const name = key.at.at(-1);
-    if (parent !== undefined && name !== undefined) Reflect.set(parent, name, key.value);
-  }
-  return copy;
+  return copyKeys(root, keys, true);
 }
 
 export interface Typo {

@@ -92,16 +92,7 @@ function SpaceDetail() {
                       <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{orch.name}</h2>
                       <Badge variant="outline" className="font-mono text-[10px]">{orch.agents.length}</Badge>
                     </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {orch.agents.map((a) => (
-                        <AgentCard
-                          key={a.key}
-                          agent={a}
-                          active={selected?.key === a.key}
-                          onClick={() => setSelected(a)}
-                        />
-                      ))}
-                    </div>
+                    {renderAgentGrid(orch.agents, selected, setSelected)}
                   </section>
                 ))}
                 {orphans.length > 0 && (
@@ -110,16 +101,7 @@ function SpaceDetail() {
                       <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Orphans — unleased</h2>
                       <Badge variant="outline" className="font-mono text-[10px]">{orphans.length}</Badge>
                     </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {orphans.map((a) => (
-                        <AgentCard
-                          key={a.key}
-                          agent={a}
-                          active={selected?.key === a.key}
-                          onClick={() => setSelected(a)}
-                        />
-                      ))}
-                    </div>
+                    {renderAgentGrid(orphans, selected, setSelected)}
                   </section>
                 )}
               </>
@@ -164,6 +146,25 @@ function SpaceDetail() {
           {selected && <AgentFocus agent={selected} />}
         </SheetContent>
       </Sheet>
+    </div>
+  );
+}
+
+function renderAgentGrid(
+  agents: FleetAgent[],
+  selected: FleetAgent | null,
+  onSelect: (agent: FleetAgent) => void,
+) {
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {agents.map((agent) => (
+        <AgentCard
+          key={agent.key}
+          agent={agent}
+          active={selected?.key === agent.key}
+          onClick={() => onSelect(agent)}
+        />
+      ))}
     </div>
   );
 }

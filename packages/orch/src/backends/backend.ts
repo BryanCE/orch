@@ -1,4 +1,8 @@
-import { BACKEND_IDS, type BackendHandle, type BackendId, type HomeSubject } from "../types/backend.ts";
+import { BACKEND_IDS, type BackendHandle, type BackendId, type CaptureRole, type HomeSubject } from "../types/backend.ts";
+import type { BackendSpawnOpts } from "../types/backend.ts";
+import type { AgentAdapter } from "../types/adapter.ts";
+import { createCaptureRole } from "../presence/roles.ts";
+import type { OrchDir } from "../types/core.ts";
 
 /** Render a native handle without falling back to Object.prototype.toString. */
 export function describeHandle(handle: BackendHandle): string {
@@ -21,6 +25,22 @@ export function homeLabel(subject: HomeSubject, requested?: string | null): stri
   if (requested) return requested;
   const id = subject.id.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
   return `orch-${subject.kind}-${id || subject.kind}`;
+}
+
+export function createInteractiveCommand(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
+  const command = opts.cmd ?? adapter.workerLaunch?.restrictedInteractiveCmd(opts) ?? adapter.interactiveCmd(opts);
+  if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
+  return command;
+}
+
+export function createBackendCaptureRole(backend: string, orchDir: () => OrchDir | undefined): CaptureRole {
+  return {
+    read: (agentId, request) => {
+      const directory = orchDir();
+      if (directory === undefined) throw new Error(`${backend} capture requires an orch directory`);
+      return createCaptureRole(directory).read(agentId, request);
+    },
+  };
 }
 
 export function isBackendId(value: unknown): value is BackendId {

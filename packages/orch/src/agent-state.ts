@@ -15,3 +15,8 @@ export type AgentState = (typeof AGENT_STATES)[number];
 export function isAgentState(value: unknown): value is AgentState {
   return typeof value === "string" && AGENT_STATES.some((state) => state === value);
 }
+
+/** The declared state a value names, or `unknown`. */
+export function agentStateFrom(value: unknown): AgentState {
+  return isAgentState(value) ? value : "unknown";
+}

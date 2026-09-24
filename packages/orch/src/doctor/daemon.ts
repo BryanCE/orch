@@ -72,13 +72,18 @@ export function checkOsExecutors(): CheckResult {
   };
 }
 
+function readDaemonLockState(orchDir: OrchDir): { lockFile: string; exists: boolean; lock: ReturnType<typeof readDaemonLock> } {
+  const lockFile = daemonRuntimeFiles(orchDir).lock;
+  const exists = filesystem.existsSync(lockFile);
+  return { lockFile, exists, lock: exists ? readDaemonLock(orchDir) : null };
+}
+
 export async function checkDaemonPresence(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
-  const lockFile = daemonRuntimeFiles(orchDir).lock;
-  if (!filesystem.existsSync(lockFile)) {
+  const { exists, lock } = readDaemonLockState(orchDir);
+  if (!exists) {
     return { id: "orchd", label: "orchd presence", status: "ok", detail: "orchd is absent (daemon is optional)" };
   }
-  const lock = readDaemonLock(orchDir);
   if (!lock) {
     return { id: "orchd", label: "orchd presence", status: "warn", detail: "orchd lock is present but invalid" };
   }
@@ -138,11 +143,10 @@ function staleLockResult(lockFile: string, why: string): CheckResult {
 
 export async function checkDaemonLock(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
-  const lockFile = daemonRuntimeFiles(orchDir).lock;
-  if (!filesystem.existsSync(lockFile)) {
+  const { lockFile, exists, lock } = readDaemonLockState(orchDir);
+  if (!exists) {
     return { id: "orchd-lock", label: "orchd lock", status: "ok", detail: "no orchd lock" };
   }
-  const lock = readDaemonLock(orchDir);
   if (!lock) return staleLockResult(lockFile, "names no verifiable daemon");
   if (pidAlive(lock.pid)) {
     return { id: "orchd-lock", label: "orchd lock", status: "ok", detail: `lock belongs to live pid ${lock.pid}` };

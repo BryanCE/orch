@@ -8,9 +8,8 @@
 // functions in as its herdr provider — no herdr socket, event name, or shell-out
 // ever appears outside `src/backends/herdr/`.
 import { execFile } from "node:child_process";
-import { isAgentId } from "../identity.ts";
+import { hasPaneHandle, resolvePaneHandle } from "../pane-environment.ts";
 import { requestJsonLine } from "../../presence/socket-client.ts";
-import { environmentOf } from "../../store/agent-view.ts";
 import type { HerdrCli } from "./cli.ts";
 import { herdrBackend, herdrEnvironmentPresent } from "./index.ts";
 import { notificationText } from "../../notify/format.ts";
@@ -22,11 +21,6 @@ import type { NotificationPosition } from "../../types/settings.ts";
 
 const HERDR_METADATA_SOURCE = "orch:bridge";
 const CUSTOM_STATUS_MAX = 32;
-
-/** This plexer's id, as the plexer's OWN provider writes and reads it. Rule 11
- *  bans branching on an environment id in core code; a provider recognising its
- *  own rows inside `src/backends/<plexer>/` is the one place it is the answer. */
-const HERDR_PLEXER = "herdr";
 
 /** Herdr's own report of where its server listens. Asked once and remembered:
  *  one server serves the machine, and orchd outside every session still has to
@@ -62,16 +56,7 @@ function herdrSocketPath(state: HudState, cli: HerdrCli): string | undefined {
  * mutable, so it is asked for on every call and never frozen at import.
  */
 function paneHandle(id: string | null, orchDir: OrchDir): string | null {
-  // An id that is not minted names no agent orch registered, so there is no
-  // environment to compose — never a pane handle to fall back on.
-  if (!isAgentId(id)) return null;
-  try {
-    const environment = environmentOf(orchDir, id);
-    return environment.plexer === HERDR_PLEXER ? environment.handle : null;
-  } catch {
-    // No store to read yet is "no pane", not a crash: this runs inside the agent.
-    return null;
-  }
+  return resolvePaneHandle(id, orchDir, "herdr");
 }
 
 /**
@@ -84,7 +69,7 @@ function paneHandle(id: string | null, orchDir: OrchDir): string | null {
  * already allowed itself.
  */
 function hudActive(id: string | null, orchDir: OrchDir): boolean {
-  return paneHandle(id, orchDir) !== null;
+  return hasPaneHandle(id, orchDir, "herdr");
 }
 
 // ---- pane custom-status metadata ----

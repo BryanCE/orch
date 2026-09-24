@@ -13,6 +13,10 @@ const SETTLED_OUTBOX_STATES: readonly OutboxState[] = ["delivered", "undeliverab
 
 type OutboxRow = typeof outbox.$inferSelect;
 
+function openStateCondition() {
+  return inArray(outbox.state, [...OPEN_OUTBOX_STATES]);
+}
+
 function isOutboxState(value: string): value is OutboxState {
   return value === "pending" || value === "awaiting" || value === "delivered" || value === "undeliverable";
 }
@@ -97,12 +101,12 @@ export function outboxMessageUnsent(directory: OrchDir, id: string): boolean {
 /** True until the write settles, whether or not a channel has taken it. */
 export function outboxMessageOpen(directory: OrchDir, id: string): boolean {
   return orm(directory).select({ id: outbox.id }).from(outbox)
-    .where(and(eq(outbox.id, id), inArray(outbox.state, [...OPEN_OUTBOX_STATES]))).limit(1).get() !== undefined;
+    .where(and(eq(outbox.id, id), openStateCondition())).limit(1).get() !== undefined;
 }
 
 function settle(directory: OrchDir, id: string, state: Extract<OutboxState, "delivered" | "undeliverable">): void {
   orm(directory).update(outbox).set({ state })
-    .where(and(eq(outbox.id, id), inArray(outbox.state, [...OPEN_OUTBOX_STATES]))).run();
+    .where(and(eq(outbox.id, id), openStateCondition())).run();
 }
 
 /** Record that a channel took the write and an ack is expected. */
@@ -124,14 +128,14 @@ export function markOutboxUndeliverable(directory: OrchDir, id: string): void {
  *  Nothing will ever read them, and left open they retried forever. */
 export function closeOutboxForTarget(directory: OrchDir, target: string): number {
   return Number(orm(directory).update(outbox).set({ state: "undeliverable" })
-    .where(and(eq(outbox.target, target), inArray(outbox.state, [...OPEN_OUTBOX_STATES]))).run().changes);
+    .where(and(eq(outbox.target, target), openStateCondition())).run().changes);
 }
 
 export function bumpOutboxAttempt(directory: OrchDir, id: string, nextAttemptAt: number): void {
   const row = orm(directory).select({ attempts: outbox.attempts }).from(outbox).where(eq(outbox.id, id)).get();
   if (!row) return;
   orm(directory).update(outbox).set({ attempts: Number(row.attempts) + 1, nextAttemptAt })
-    .where(and(eq(outbox.id, id), inArray(outbox.state, [...OPEN_OUTBOX_STATES]))).run();
+    .where(and(eq(outbox.id, id), openStateCondition())).run();
 }
 
 export function deleteDeliveredBefore(directory: OrchDir, cutoff: number): number {

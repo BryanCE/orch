@@ -10,23 +10,22 @@ export function oneLine(error: unknown): string {
 const SPACE_COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#9333ea", "#0891b2", "#db2777", "#4f46e5"] as const;
 const SPACE_ANSI = [34, 32, 33, 31, 35, 36, 35, 34] as const;
 
-/** Stable palette color for a space. */
-export function spaceColor(space: string): string {
+function hashSpaceName(space: string): number {
   let hash = 2166136261;
   for (let index = 0; index < space.length; index++) {
     hash ^= space.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return SPACE_COLORS[(hash >>> 0) % SPACE_COLORS.length]!;
+  return hash >>> 0;
+}
+
+/** Stable palette color for a space. */
+export function spaceColor(space: string): string {
+  return SPACE_COLORS[hashSpaceName(space) % SPACE_COLORS.length]!;
 }
 
 function spaceAnsi(space: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < space.length; index++) {
-    hash ^= space.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `\u001b[${SPACE_ANSI[(hash >>> 0) % SPACE_ANSI.length]!}m`;
+  return `\u001b[${SPACE_ANSI[hashSpaceName(space) % SPACE_ANSI.length]!}m`;
 }
 
 export function spaceLabelForKey(_key: string): string {

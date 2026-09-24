@@ -14,9 +14,8 @@ const HERDR_ENVIRONMENT_STAMP = environmentStamp({ labels: true, blockedEvent: H
 import { GONE_HANDLE_CODES, HERDR_INPUT_RETRY, HerdrCommandError, createHerdrCli, type HerdrCli } from "./cli.ts";
 import { layoutReplySchema, moveReplySchema, paneOpenReplySchema, tabOpenReplySchema, workspaceListReplySchema, workspaceOpenReplySchema } from "./wire.ts";
 import { AgentGoneError } from "../../control/agent-gone.ts";
-import { homeLabel } from "../backend.ts";
+import { createBackendCaptureRole, homeLabel } from "../backend.ts";
 import { isAgentId } from "../identity.ts";
-import { createCaptureRole } from "../../presence/roles.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
@@ -161,12 +160,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     supported: (): string => SUPPORTED_HERDR,
   };
   readonly serverInfo: ServerInfoRole = { running: (): ServerReport | null => this.serverReport() };
-  readonly capture: CaptureRole = {
-    read: (agentId, request) => {
-      if (this.orchDir === undefined) throw new Error("herdr capture requires an orch directory");
-      return createCaptureRole(this.orchDir).read(agentId, request);
-    },
-  };
+  readonly capture: CaptureRole = createBackendCaptureRole("herdr", () => this.orchDir);
   readonly agentInput = {
     submit: (handle: HerdrHandle, text: string): void => { reportGoneHandle(handle, () => this.cli.ack(["pane", "run", handle, text], undefined, HERDR_INPUT_RETRY)); },
     sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { reportGoneHandle(handle, () => this.cli.ack(["pane", "send-keys", handle, ...keys], undefined, HERDR_INPUT_RETRY)); },

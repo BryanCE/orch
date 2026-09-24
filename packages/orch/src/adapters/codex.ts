@@ -158,6 +158,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** Verify the top-level notify artifact written by installShim. */
+  // fallow-ignore-next-line unused-class-member -- reached through shimRole(this).
   diagnoseShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult {
     const configPath = join(homedir(), ".codex", "config.toml");
     const shim = codexNotifyShimPath(packageRoot());

@@ -3,11 +3,11 @@ import { AgentGoneError } from "../../control/agent-gone.ts";
 import { environmentStamp } from "../../agent/environment.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { pidStampedWith } from "../../process-identity.ts";
-import { createCaptureRole } from "../../presence/roles.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import { binaryOnPath, shellQuote } from "../../util.ts";
 import { isAgentId } from "../identity.ts";
 import { OrcaCommandError, GONE_HANDLE_CODES, ORCA_INPUT_RETRY, createOrcaCli, orcaBinary, type OrcaCli } from "./cli.ts";
+import { createBackendCaptureRole, createInteractiveCommand } from "../backend.ts";
 import type {
   AgentNamingRole,
   AgentStatusRole,
@@ -99,12 +99,7 @@ export class OrcaBackend implements Backend<OrcaHandle> {
     this.orchDir = deps.orchDir;
   }
 
-  readonly capture: CaptureRole = {
-    read: (agentId, request) => {
-      if (this.orchDir === undefined) throw new Error("orca capture requires an orch directory");
-      return createCaptureRole(this.orchDir).read(agentId, request);
-    },
-  };
+  readonly capture: CaptureRole = createBackendCaptureRole("orca", () => this.orchDir);
   readonly identity: EnvironmentIdentityRole = {
     current: (id: string | null): string | null => {
       if (!process.env[ORCA_PANE_KEY]) return null;
@@ -259,8 +254,7 @@ export class OrcaBackend implements Backend<OrcaHandle> {
   }
 
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): OrcaHandle {
-    const command = opts.cmd ?? adapter.workerLaunch?.restrictedInteractiveCmd(opts) ?? adapter.interactiveCmd(opts);
-    if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
+    const command = createInteractiveCommand(adapter, opts);
     const cwd = opts.cwd ?? process.cwd();
     const env = agentLaunchEnv(opts, ORCA_ENVIRONMENT_STAMP);
     const adopted = typeof opts.intoHandle === "string" ? opts.intoHandle : null;

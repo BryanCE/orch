@@ -14,6 +14,10 @@ function encodeJson(value: unknown): string {
   return encoded;
 }
 
+function requireOneChange(changed: number | bigint, message: string): void {
+  if (changed !== 1 && changed !== 1n) throw new Error(message);
+}
+
 function isTaskState(value: string | null): value is TaskState {
   return value === "queued" || value === "claimed" || value === "done"
     || value === "failed" || value === "cancelled" || value === "unrunnable";
@@ -89,7 +93,7 @@ export function updateTask(dir: OrchDir, taskId: string, byAgentId: string, chan
   const changed = orm(dir).update(tasks).set(values)
     .where(and(eq(tasks.id, taskId), eq(tasks.enqueuedBy, byAgentId), inArray(tasks.id, idsInState(dir, "queued"))))
     .run().changes;
-  if (changed !== 1) throw new Error("task is not editable by this enqueuer");
+  requireOneChange(changed, "task is not editable by this enqueuer");
 }
 
 /** Re-scope an unrunnable task to a live taker's pack. */
@@ -98,7 +102,7 @@ export function rescopeTask(dir: OrchDir, taskId: string, packId: string): void 
     .set({ scopeAgentId: null, scopePackId: packId, scopeSpaceId: null })
     .where(and(eq(tasks.id, taskId), inArray(tasks.id, idsInState(dir, "unrunnable"))))
     .run().changes;
-  if (changed !== 1) throw new Error("task is not unrunnable");
+  requireOneChange(changed, "task is not unrunnable");
 }
 
 /** Explicitly remove an unrunnable task; queued/claimable work is never reapable. */
@@ -106,7 +110,7 @@ export function deleteUnrunnableTask(dir: OrchDir, taskId: string): boolean {
   const changed = orm(dir).delete(tasks)
     .where(and(eq(tasks.id, taskId), inArray(tasks.id, idsInState(dir, "unrunnable"))))
     .run().changes;
-  if (changed !== 1) throw new Error("task is not unrunnable");
+  requireOneChange(changed, "task is not unrunnable");
   return true;
 }
 

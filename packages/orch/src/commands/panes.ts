@@ -84,6 +84,11 @@ async function requireOwnedPaneTarget(services: Services, self: CallerSelf, targ
   return { backend: resolved.backend, handle: resolved.handle, key: resolved.key, entity: resolved.entity };
 }
 
+async function planOwnedPaneRole<T>(services: Services, self: CallerSelf, target: string, force: boolean, command: string, selectRole: (backend: Backend) => T | null): Promise<{ handle: BackendHandle; plan: BoundaryPlan<T> }> {
+  const { backend, handle, entity } = await requireOwnedPaneTarget(services, self, target, force);
+  return { handle, plan: paneBoundary(target, command, selectRole(backend), !!entity.paneId) };
+}
+
 export async function cmdKeys(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("keys", args);
   const json = flags.has("--json");
@@ -92,8 +97,7 @@ export async function cmdKeys(services: Services, args: string[]): Promise<void>
   const keys = positional.slice(1);
   if (!target || !keys.length) die("usage: orch keys <target> <key> [key...] [--force]");
   const self = await whoAmI(services);
-  const { backend, handle, entity } = await requireOwnedPaneTarget(services, self, target, force);
-  const plan = paneBoundary(target, "keys", backend.agentInput, !!entity.paneId);
+  const { handle, plan } = await planOwnedPaneRole(services, self, target, force, "keys", (backend) => backend.agentInput);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.sendKeys(handle, keys);
   if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), keys, sent: true }) + "\n");
@@ -265,8 +269,7 @@ export async function cmdFocus(services: Services, args: string[]): Promise<void
   const target = positional[0];
   if (!target) die("usage: orch focus <target> [--force] [--json]");
   const self = await whoAmI(services);
-  const { backend, handle, entity } = await requireOwnedPaneTarget(services, self, target, force);
-  const plan = paneBoundary(target, "focus", backend.agentInput, !!entity.paneId);
+  const { handle, plan } = await planOwnedPaneRole(services, self, target, force, "focus", (backend) => backend.agentInput);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.focus(handle);
   if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), focused: true }) + "\n");
@@ -280,8 +283,7 @@ export async function cmdZoom(services: Services, args: string[]): Promise<void>
   const target = positional[0];
   if (!target) die("usage: orch zoom <target> [--on|--off] [--force]  (default: toggle)");
   const self = await whoAmI(services);
-  const { backend, handle, entity } = await requireOwnedPaneTarget(services, self, target, force);
-  const plan = paneBoundary(target, "zoom", backend.zooming, !!entity.paneId);
+  const { handle, plan } = await planOwnedPaneRole(services, self, target, force, "zoom", (backend) => backend.zooming);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   const zoomMode = flags.has("--on") ? "on" : flags.has("--off") ? "off" : "toggle";
   plan.role.setZoom(handle, zoomMode);

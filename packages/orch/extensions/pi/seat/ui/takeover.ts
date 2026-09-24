@@ -37,6 +37,10 @@ function configuredKeys(keybindings: KeybindingsManager, binding: Parameters<Key
   return keybindings.getKeys(binding).join("/") || "unbound";
 }
 
+function renderHint(theme: Theme, text: string, width: number): string {
+  return truncateToWidth(theme.fg("dim", text), width);
+}
+
 // --- Entry points --------------------------------------------------------------
 
 async function openAgentView(ctx: ExtensionCommandContext, view: PackReadView, key: string): Promise<void> {
@@ -142,6 +146,13 @@ class PackDashboard implements Component {
     this.cleanup();
   }
 
+  private moveSelection(step: number, agents: readonly PackSnapshot[]): void {
+    if (agents.length === 0) return;
+    this.selection.index = (this.selection.index + step + agents.length) % agents.length;
+    this.selection.id = agents[this.selection.index]?.key;
+    this.tui.requestRender();
+  }
+
   handleInput(data: string): void {
     const agents = this.agents();
     reconcileDashboardSelection(this.selection, agents);
@@ -156,19 +167,11 @@ class PackDashboard implements Component {
       return;
     }
     if (this.keybindings.matches(data, "tui.select.up") || data === "k") {
-      if (agents.length > 0) {
-        this.selection.index = (this.selection.index - 1 + agents.length) % agents.length;
-        this.selection.id = agents[this.selection.index]?.key;
-        this.tui.requestRender();
-      }
+      this.moveSelection(-1, agents);
       return;
     }
     if (this.keybindings.matches(data, "tui.select.down") || data === "j") {
-      if (agents.length > 0) {
-        this.selection.index = (this.selection.index + 1) % agents.length;
-        this.selection.id = agents[this.selection.index]?.key;
-        this.tui.requestRender();
-      }
+      this.moveSelection(1, agents);
       return;
     }
     if (data === "x") {
@@ -218,15 +221,11 @@ class PackDashboard implements Component {
     }
 
     lines.push(theme.fg("border", "╰") + theme.fg("border", "─".repeat(innerWidth)) + theme.fg("border", "╯"));
-    lines.push(
-      truncateToWidth(
-        theme.fg(
-          "dim",
-          `  ${configuredKeys(this.keybindings, "tui.select.up")}/${configuredKeys(this.keybindings, "tui.select.down")}/jk select · ${configuredKeys(this.keybindings, "tui.select.confirm")} open · x abort · ${configuredKeys(this.keybindings, "tui.select.cancel")} close`,
-        ),
-        width,
-      ),
-    );
+    lines.push(renderHint(
+      this.theme,
+      `  ${configuredKeys(this.keybindings, "tui.select.up")}/${configuredKeys(this.keybindings, "tui.select.down")}/jk select · ${configuredKeys(this.keybindings, "tui.select.confirm")} open · x abort · ${configuredKeys(this.keybindings, "tui.select.cancel")} close`,
+      width,
+    ));
     return lines;
   }
 
@@ -371,6 +370,11 @@ class AgentView implements Component, Focusable {
     this.cleanup();
   }
 
+  private scrollTranscript(lines: number): void {
+    this.scrollOffset = Math.max(0, this.scrollOffset + lines);
+    this.tui.requestRender();
+  }
+
   handleInput(data: string): void {
     if (this.keybindings.matches(data, "app.clear")) {
       const snapshot = this.snap();
@@ -382,23 +386,19 @@ class AgentView implements Component, Focusable {
       return;
     }
     if (this.keybindings.matches(data, "tui.editor.cursorUp")) {
-      this.scrollOffset += TRANSCRIPT_SCROLL_STEP;
-      this.tui.requestRender();
+      this.scrollTranscript(TRANSCRIPT_SCROLL_STEP);
       return;
     }
     if (this.keybindings.matches(data, "tui.editor.cursorDown")) {
-      this.scrollOffset = Math.max(0, this.scrollOffset - TRANSCRIPT_SCROLL_STEP);
-      this.tui.requestRender();
+      this.scrollTranscript(-TRANSCRIPT_SCROLL_STEP);
       return;
     }
     if (this.keybindings.matches(data, "tui.editor.pageUp")) {
-      this.scrollOffset += this.viewportHeight();
-      this.tui.requestRender();
+      this.scrollTranscript(this.viewportHeight());
       return;
     }
     if (this.keybindings.matches(data, "tui.editor.pageDown")) {
-      this.scrollOffset = Math.max(0, this.scrollOffset - this.viewportHeight());
-      this.tui.requestRender();
+      this.scrollTranscript(-this.viewportHeight());
       return;
     }
     this.input.handleInput(data);
@@ -456,15 +456,11 @@ class AgentView implements Component, Focusable {
 
     lines.push(border);
     lines.push(...this.input.render(width));
-    lines.push(
-      truncateToWidth(
-        theme.fg(
-          "dim",
-          `  enter steer through orch · ${configuredKeys(this.keybindings, "app.clear")} abort turn · ${configuredKeys(this.keybindings, "tui.editor.cursorUp")}/${configuredKeys(this.keybindings, "tui.editor.cursorDown")} scroll · esc back`,
-        ),
-        width,
-      ),
-    );
+    lines.push(renderHint(
+      theme,
+      `  enter steer through orch · ${configuredKeys(this.keybindings, "app.clear")} abort turn · ${configuredKeys(this.keybindings, "tui.editor.cursorUp")}/${configuredKeys(this.keybindings, "tui.editor.cursorDown")} scroll · esc back`,
+      width,
+    ));
     return lines;
   }
 

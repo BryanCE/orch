@@ -144,32 +144,29 @@ export function isLiveAgentIdentity(orchDir: OrchDir, value: unknown): value is 
   return liveAgentId(orchDir, eq(agents.id, value.id)) !== null;
 }
 
-/** The live agent holding an OPEN process interval for this exact instance. The
- *  pair is not an identity — it is how a harness exporting no session token is
- *  recognised across one process's life. */
-/** The live agent registered as this process instance, or null. */
-export function agentIdByProcess(orchDir: OrchDir, pid: number, startToken: string): string | null {
+function liveProcessAgentId(orchDir: OrchDir, pid: number, startToken: string, extra: SQL | undefined): string | null {
   const row = orm(orchDir).select({ id: agents.id }).from(agents)
     .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
-    .where(and(eq(agentProcesses.pid, pid), eq(agentProcesses.startToken, startToken), isNull(agentEndings.agentId)))
+    .where(and(
+      eq(agentProcesses.pid, pid), eq(agentProcesses.startToken, startToken),
+      isNull(agentEndings.agentId), extra,
+    ))
     .limit(1).get();
   return row?.id ?? null;
+}
+
+/** The live agent registered as this process instance, or null. */
+export function agentIdByProcess(orchDir: OrchDir, pid: number, startToken: string): string | null {
+  return liveProcessAgentId(orchDir, pid, startToken, undefined);
 }
 
 /** The live session agent for one process instance and harness. A worker can
  * share a process-shaped record, so the session token and harness facts are
  * both part of this continuity lookup. */
 function sessionAgentIdByProcess(orchDir: OrchDir, pid: number, startToken: string, harnessId: string): string | null {
-  const row = orm(orchDir).select({ id: agents.id }).from(agents)
-    .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
-    .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
-    .where(and(
-      eq(agentProcesses.pid, pid), eq(agentProcesses.startToken, startToken),
-      eq(agents.harnessId, harnessId), isNotNull(agents.sessionToken), isNull(agentEndings.agentId),
-    ))
-    .limit(1).get();
-  return row?.id ?? null;
+  return liveProcessAgentId(orchDir, pid, startToken,
+    and(eq(agents.harnessId, harnessId), isNotNull(agents.sessionToken)));
 }
 
 /** Register a caller as an agent.

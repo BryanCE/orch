@@ -12,7 +12,7 @@
 import { Context, Effect, Fiber, Layer, Runtime, Stream } from "effect";
 import { SETTLED_STATES, transitionName } from "./domain.ts";
 import { PackSource } from "./source.ts";
-import type { PackEnrichment, PackManagerShape, PackReadView, PackSnapshot, PackSourceShape } from "./types.ts";
+import type { PackManagerShape, PackReadView, PackSnapshot, PackSourceShape } from "./types.ts";
 import type { NotifyEvent } from "orch/core/types/notify.ts";
 
 const MAX_TRACKED = 128;
@@ -21,20 +21,7 @@ const TASK_MAX_LENGTH = 4_096;
 // --- Internal state -----------------------------------------------------------
 
 /** Mutable snapshot; exposed to readers via the readonly PackSnapshot type. */
-interface MutableSnapshot {
-  key: string;
-  name: string;
-  state: string;
-  model: string | null;
-  task: string;
-  lastError?: string;
-  cost?: number;
-  dispatchId?: string;
-  createdAt: number;
-  lastTransitionAt: number;
-  lastEvent: NotifyEvent;
-  info: PackEnrichment;
-}
+type MutableSnapshot = { -readonly [Key in keyof PackSnapshot]: PackSnapshot[Key] };
 
 interface Entry {
   snapshot: MutableSnapshot;

@@ -1,14 +1,11 @@
 import { writeFileSync } from "node:fs";
 import { isAgentState, type AgentState } from "../../agent-state.ts";
 import { linuxTtyOf } from "../../process-identity.ts";
-import { environmentOf } from "../../store/agent-view.ts";
 import type { OrchDir } from "../../types/core.ts";
-import type { BackendId } from "../../types/backend.ts";
 import type { BridgeNotifyEvent, PaneLabels, PaneStatusSnapshot } from "../../types/plexer.ts";
-import { isAgentId } from "../identity.ts";
+import { hasPaneHandle, resolvePaneHandle } from "../pane-environment.ts";
 import { orcaBackend } from "./index.ts";
 
-const ORCA_PLEXER: BackendId = "orca";
 const OSC_AGENT_STATUS_PREFIX = "\x1b]9999;";
 const OSC_TERMINATOR = "\x07";
 /** orch's states as Orca's four. Absent means Orca hears nothing. */
@@ -25,17 +22,11 @@ const ORCA_STATE: Readonly<Partial<Record<AgentState, "working" | "blocked" | "w
 };
 
 function paneHandle(id: string | null, orchDir: OrchDir): string | null {
-  if (!isAgentId(id)) return null;
-  try {
-    const environment = environmentOf(orchDir, id);
-    return environment.plexer === ORCA_PLEXER ? environment.handle : null;
-  } catch {
-    return null;
-  }
+  return resolvePaneHandle(id, orchDir, "orca");
 }
 
 function hudActive(id: string | null, orchDir: OrchDir): boolean {
-  return paneHandle(id, orchDir) !== null;
+  return hasPaneHandle(id, orchDir, "orca");
 }
 
 function frameFor(snapshot: PaneStatusSnapshot): string | null {

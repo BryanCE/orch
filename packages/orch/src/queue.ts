@@ -278,16 +278,17 @@ function openAttempt(task: TaskRec): TaskAttemptRec {
   return attempt;
 }
 
-export function recordTaskDone(orchDir: OrchDir, id: string, result?: unknown): TaskRec {
+function settleTaskAttempt(orchDir: OrchDir, id: string, outcome: "done" | "failed", values: { result?: unknown; error?: string }): TaskRec {
   const task = requireTask(orchDir, id);
   const attempt = openAttempt(task);
-  settleAttempt(orchDir, id, attempt.since, Math.max(Date.now(), attempt.since + 1), "done", { result });
+  settleAttempt(orchDir, id, attempt.since, Math.max(Date.now(), attempt.since + 1), outcome, values);
   return requireTask(orchDir, id);
 }
 
+export function recordTaskDone(orchDir: OrchDir, id: string, result?: unknown): TaskRec {
+  return settleTaskAttempt(orchDir, id, "done", { result });
+}
+
 export function recordTaskFailure(orchDir: OrchDir, id: string, error: string): TaskRec {
-  const task = requireTask(orchDir, id);
-  const attempt = openAttempt(task);
-  settleAttempt(orchDir, id, attempt.since, Math.max(Date.now(), attempt.since + 1), "failed", { error });
-  return requireTask(orchDir, id);
+  return settleTaskAttempt(orchDir, id, "failed", { error });
 }

@@ -206,40 +206,23 @@ export function findSpace(list: readonly Space[], slug: string): Space | undefin
   return list.find((space) => space.slug === slug);
 }
 
+const STATE_STYLES = {
+  idle: { glow: "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]", color: "text-muted-foreground" },
+  working: { glow: "border-chart-2 shadow-[0_0_28px_-2px_var(--color-chart-2)]", color: "text-chart-2" },
+  blocked: { glow: "border-chart-4 shadow-[0_0_28px_-2px_var(--color-chart-4)]", color: "text-chart-4" },
+  waiting: { glow: "border-chart-4 shadow-[0_0_28px_-2px_var(--color-chart-4)]", color: "text-chart-4" },
+  asking: { glow: "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]", color: "text-destructive" },
+  done: { glow: "border-primary shadow-[0_0_28px_-2px_var(--color-primary)]", color: "text-primary" },
+  error: { glow: "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]", color: "text-destructive" },
+  aborted: { glow: "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]", color: "text-destructive" },
+  exited: { glow: "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]", color: "text-muted-foreground" },
+  unknown: { glow: "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]", color: "text-muted-foreground" },
+} satisfies Record<AgentState, { glow: string; color: string }>;
+
 export function stateGlow(state: AgentState): string {
-  switch (state) {
-    case "idle": return "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]";
-    case "working": return "border-chart-2 shadow-[0_0_28px_-2px_var(--color-chart-2)]";
-    case "blocked": return "border-chart-4 shadow-[0_0_28px_-2px_var(--color-chart-4)]";
-    case "waiting": return "border-chart-4 shadow-[0_0_28px_-2px_var(--color-chart-4)]";
-    case "asking": return "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]";
-    case "done": return "border-primary shadow-[0_0_28px_-2px_var(--color-primary)]";
-    case "error": return "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]";
-    case "aborted": return "border-destructive shadow-[0_0_28px_-2px_var(--color-destructive)]";
-    case "exited": return "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]";
-    case "unknown": return "border-foreground/40 shadow-[0_0_22px_-4px_var(--color-foreground)]";
-    default: {
-      const exhaustive: never = state;
-      return exhaustive;
-    }
-  }
+  return STATE_STYLES[state].glow;
 }
 
 export function stateColor(state: AgentState): string {
-  switch (state) {
-    case "idle": return "text-muted-foreground";
-    case "working": return "text-chart-2";
-    case "blocked": return "text-chart-4";
-    case "waiting": return "text-chart-4";
-    case "asking": return "text-destructive";
-    case "done": return "text-primary";
-    case "error": return "text-destructive";
-    case "aborted": return "text-destructive";
-    case "exited": return "text-muted-foreground";
-    case "unknown": return "text-muted-foreground";
-    default: {
-      const exhaustive: never = state;
-      return exhaustive;
-    }
-  }
+  return STATE_STYLES[state].color;
 }

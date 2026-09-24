@@ -1,4 +1,4 @@
-import { homeLabel } from "../backend.ts";
+import { createBackendCaptureRole, createInteractiveCommand, homeLabel } from "../backend.ts";
 import { isAgentId } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
@@ -10,7 +10,6 @@ const TMUX_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: n
 import { sleepMs } from "../shell-ready.ts";
 import { selectAgentStatus } from "../../store/status-rows.ts";
 import { bestEffortTmux, execTmux, orchPanes, windowPaneRects } from "./cli.ts";
-import { createCaptureRole } from "../../presence/roles.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
@@ -68,9 +67,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   constructor(deps: TmuxBackendDeps & { readonly orchDir?: OrchDir } = {}) {
     this.homeExec = deps.homeExec ?? ((args) => execTmux(args));
     this.orchDir = deps.orchDir;
-    this.capture = this.orchDir === undefined
-      ? { read: () => { throw new Error("tmux capture requires an orch directory"); } }
-      : createCaptureRole(this.orchDir);
+    this.capture = createBackendCaptureRole("tmux", () => this.orchDir);
   }
   readonly identity: EnvironmentIdentityRole = {
     current: (id: string | null): string | null => this.ownIdentity(id),
@@ -297,8 +294,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): TmuxHandle {
     if (!this.isInsideSession()) throw new Error("tmux spawn requires running inside a tmux session");
     // An explicit --cmd is the caller's launch line verbatim; without one the adapter builds it.
-    const command = opts.cmd ?? adapter.workerLaunch?.restrictedInteractiveCmd(opts) ?? adapter.interactiveCmd(opts);
-    if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
+    const command = createInteractiveCommand(adapter, opts);
 
     const cwd = opts.cwd ?? process.cwd();
     const envArgs = tmuxEnvArgs(agentLaunchEnv(opts, TMUX_ENVIRONMENT_STAMP));

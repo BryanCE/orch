@@ -89,6 +89,10 @@ export function createModelCatalogue(orchDir: OrchDir, logger: Logger): ModelCat
     return query;
   }
 
+  function refreshStaleCatalogue(answer: StoredCatalogue, command: string, bin: string, argv: readonly string[], stdin: string | undefined): void {
+    if (isStale(answer)) void queryInBackground(command, bin, argv, stdin);
+  }
+
   /** Run a harness's model-listing command. A stored answer is served at once and re-queried in
    * the background once stale, so only a harness never asked before makes the caller wait.
    * Empty string when it cannot answer, reason on stdout. */
@@ -96,7 +100,7 @@ export function createModelCatalogue(orchDir: OrchDir, logger: Logger): ModelCat
     const command = commandLine(bin, argv);
     const answer = catalogues().get(command);
     if (answer) {
-      if (isStale(answer)) void queryInBackground(command, bin, argv, stdin);
+      refreshStaleCatalogue(answer, command, bin, argv, stdin);
       return answer.stdout;
     }
     try {
@@ -116,7 +120,7 @@ export function createModelCatalogue(orchDir: OrchDir, logger: Logger): ModelCat
     const command = commandLine(bin, argv);
     const answer = catalogues().get(command);
     if (answer) {
-      if (isStale(answer)) void queryInBackground(command, bin, argv, stdin);
+      refreshStaleCatalogue(answer, command, bin, argv, stdin);
       return Promise.resolve();
     }
     if (!binaryOnPath(bin)) return Promise.resolve();

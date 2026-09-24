@@ -7,13 +7,12 @@ import type { OrchRuntime } from "../runtime.ts";
 import { presenceEntry } from "../presence/store.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand } from "../util.ts";
 import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
-import { isAgentState } from "../agent-state.ts";
+import { agentStateFrom } from "../agent-state.ts";
 import { modelFlag, shimRole, type AgentState } from "./adapter.ts";
 import { textValue } from "../util.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, HarnessModel, ModelCatalogue, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
-import type { PresenceEntry } from "../types/presence.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -35,14 +34,6 @@ function readTextFile(file: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function stateFrom(value: unknown): AgentState {
-  return isAgentState(value) ? value : "unknown";
-}
-
-function presenceFor(key: string, orchDir: OrchDir): PresenceEntry | undefined {
-  return presenceEntry(orchDir, key);
 }
 
 const HOME = os.homedir();
@@ -230,10 +221,10 @@ class ClaudeAdapter implements AgentAdapter {
 
   /** Read the status written by Claude's SessionStart/Stop/Notification hooks. */
   detectState(input: ClaudeStateDetectionInput, orchDir: OrchDir): AgentState {
-    const presence = presenceFor(input.key, orchDir);
+    const presence = presenceEntry(orchDir, input.key);
     if (presence) {
       const state = presence.status?.state;
-      if (state !== undefined) return stateFrom(state);
+      if (state !== undefined) return agentStateFrom(state);
     }
     if (input.signal || (input.exitCode !== undefined && input.exitCode !== 0)) return "error";
     if (input.exitCode === 0) return "done";
@@ -247,7 +238,7 @@ class ClaudeAdapter implements AgentAdapter {
 
   /** Prefer the daemon-reported result, then Claude transcript JSONL, then native output. */
   extractResult(input: ClaudeResultExtractionInput, orchDir: OrchDir): string | undefined {
-    const presence = presenceFor(input.key, orchDir);
+    const presence = presenceEntry(orchDir, input.key);
     const resultText = textValue(presence?.result);
     if (resultText !== undefined) return resultText;
 

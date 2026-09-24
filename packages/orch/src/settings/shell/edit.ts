@@ -32,6 +32,10 @@ function isPrintable(char: string | undefined, info: Key): char is string {
   return typeof char === "string" && char.length === 1 && char >= " " && info.ctrl !== true && info.meta !== true;
 }
 
+function moveFocus(session: Session, direction: "up" | "down"): void {
+  session.state = stepFocus(session.state, session.filter, direction);
+}
+
 function clearFilter(session: Session): void {
   session.filter = "";
   session.searching = false;
@@ -51,7 +55,7 @@ function searchKey(session: Session, char: string | undefined, info: Key): void 
     return;
   }
   if (info.name === "up" || info.name === "down") {
-    session.state = stepFocus(session.state, session.filter, info.name);
+    moveFocus(session, info.name);
     return;
   }
   if (info.name === "backspace") {
@@ -74,7 +78,7 @@ function browseKey(session: Session, manager: SettingsManager, char: string | un
     return;
   }
   if (info.name === "up" || info.name === "down") {
-    session.state = stepFocus(session.state, session.filter, info.name);
+    moveFocus(session, info.name);
     return;
   }
   if (info.ctrl === true && info.name === "d") {

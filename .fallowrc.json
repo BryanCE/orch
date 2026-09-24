@@ -2,7 +2,8 @@
 	"$schema": "https://docs.fallow.tools/schema.json",
 	"entry": [
 		"packages/orch/bin/orch.ts",
-		"packages/orch/src/daemon/orchd.ts",
+		"packages/orch/src/daemon/server/orchd.ts",
+		"packages/orch/bin/orch-ding.ts",
 		"packages/orch/extensions/*/index.ts",
 		"packages/orch/test/smoke-seed.ts",
 		"packages/web/src/router.tsx"
@@ -14,6 +15,7 @@
 	],
 	"ignoreDependencies": [
 		"@tanstack/react-db",
+		"fuse.js",
 		"react"
 	],
 	"overrides": [

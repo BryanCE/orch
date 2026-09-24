@@ -7,11 +7,10 @@ import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
 import { computeCodeHash } from "../daemon/client/process.ts";
 import { packageRoot, reinstallCommand } from "../util.ts";
-import { isAgentState } from "../agent-state.ts";
+import { agentStateFrom } from "../agent-state.ts";
 import type { AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
-import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
@@ -111,16 +110,6 @@ export function toolPolicyArgv(
   return argv;
 }
 
-export function presenceFor(key: string, orchDir: OrchDir): PresenceEntry | undefined {
-  return presenceEntry(orchDir, key);
-}
-
-/** The presence state a pi-shaped harness's bridge last wrote for this agent. */
-export function presenceAgentState(key: string, orchDir: OrchDir): AgentState {
-  const presence = presenceFor(key, orchDir);
-  return presence ? stateFrom(presence.status?.state) : "unknown";
-}
-
 /**
  * Parse pi's supported `--list-models` table into orch's provider/id vocabulary.
  * pi exposes its built-in and authenticated custom registry through this CLI
@@ -177,15 +166,11 @@ export function settingsDefaultModel(agentDir: string): string | undefined {
 }
 
 /** The slash-commands a pi-shaped CLI answers for each lifecycle verb. */
-export const PI_LIFECYCLE_TEXT: Record<LifecycleVerb, string> = {
+const PI_LIFECYCLE_TEXT: Record<LifecycleVerb, string> = {
   reset: "/new",
   reload: "/reload",
   restart: "/quit",
 };
-
-function stateFrom(value: unknown): AgentState {
-  return isAgentState(value) ? value : "unknown";
-}
 
 /** Pick the most descriptive argument value from a pi tool-call block. */
 function toolCallArg(block: ToolCallContentBlock): string {
@@ -305,8 +290,8 @@ export function installExtensionLink(
 }
 
 /** results.jsonl first, then the last assistant entry of the session file. */
-export function resultFromPresenceOrSession(input: PiResultExtractionInput, orchDir: OrchDir): string | undefined {
-  const result = presenceFor(input.key, orchDir)?.result;
+function resultFromPresenceOrSession(input: PiResultExtractionInput, orchDir: OrchDir): string | undefined {
+  const result = presenceEntry(orchDir, input.key)?.result;
   if (typeof result === "string" && result.trim()) return result.trim();
   if (!input.sessionPath) return undefined;
   try {
@@ -317,7 +302,7 @@ export function resultFromPresenceOrSession(input: PiResultExtractionInput, orch
 }
 
 /** Read a pi-format session tail and map it to orch's shared session-view shape. */
-export function piSessionView(input: SessionViewInput): SessionView | undefined {
+function piSessionView(input: SessionViewInput): SessionView | undefined {
   if (!input.sessionPath) return undefined;
   const data = parseSession(input.sessionPath);
   if (!data.exists) return undefined;
@@ -361,9 +346,9 @@ export abstract class PiBridgeAdapter {
   readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceEntry(orchDir, key) !== undefined };
   readonly commandGate = true;
 
-  /** Read the authoritative status through the shared presence helpers. */
+  /** The presence state the bridge last wrote for this agent. */
   detectState(input: PiStateDetectionInput, orchDir: OrchDir): AgentState {
-    return presenceAgentState(input.key, orchDir);
+    return agentStateFrom(presenceEntry(orchDir, input.key)?.status?.state);
   }
 
   /** The bridge takes steers; nothing to run. */

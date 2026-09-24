@@ -113,9 +113,13 @@ export function reloadRows(session: Session, manager: SettingsManager, focusKey:
   session.state = index < 0 ? state : moveTo(state, index);
 }
 
+function focusedEntry(session: Session): EditorSetting | undefined {
+  return session.state.settings[session.state.focusedIndex];
+}
+
 /** Clear the focused setting back to its default, or say why that is refused. */
 export function resetFocused(session: Session, manager: SettingsManager): void {
-  const entry = session.state.settings[session.state.focusedIndex];
+  const entry = focusedEntry(session);
   if (entry === undefined) return;
   const key = entry.spec.key;
   if (entry.override !== undefined) {
@@ -137,7 +141,7 @@ export function resetFocused(session: Session, manager: SettingsManager): void {
 
 /** Flip whether an agent may write the focused setting, or say why that is refused. */
 export function toggleAgentGrant(session: Session, manager: SettingsManager): void {
-  const entry = session.state.settings[session.state.focusedIndex];
+  const entry = focusedEntry(session);
   if (entry === undefined) return;
   const key = entry.spec.key;
   if (entry.spec.write === undefined) {

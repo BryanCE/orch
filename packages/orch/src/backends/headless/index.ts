@@ -11,7 +11,7 @@ import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { LocalProcessRole, signalOtherProcess } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
-import { createCaptureRole } from "../../presence/roles.ts";
+import { createBackendCaptureRole } from "../backend.ts";
 import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
@@ -115,12 +115,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly logPruning: LogPruningRole = {
     prune: (cutoff: Date, liveKeys: readonly string[], orchDir: OrchDir, logger: Logger): number => this.pruneLogFiles(cutoff, liveKeys, orchDir, logger),
   };
-  readonly capture: CaptureRole = {
-    read: (agentId, request) => {
-      if (this.orchDir === undefined) throw new Error("headless capture requires an orch directory");
-      return createCaptureRole(this.orchDir).read(agentId, request);
-    },
-  };
+  readonly capture: CaptureRole = createBackendCaptureRole("headless", () => this.orchDir);
   readonly placement = null;
   readonly placementInventory = null;
   readonly agentInput = null;

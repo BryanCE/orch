@@ -24,6 +24,14 @@ function configFor(entry: NotifyEntry): Record<string, unknown> {
   return {};
 }
 
+function findConfigErrors(entry: NotifyEntry, notifier: Notifier, config: Record<string, unknown>): string[] {
+  return notifier.metadata.requiredConfig.flatMap((field) => {
+    const name = field.name;
+    const value = config[name];
+    return name === "command" ? (stringArray(value)?.length ? [] : [`${entry.id} requires ${name}`]) : (typeof value === "string" && value.trim() ? [] : [`${entry.id} requires ${name}`]);
+  });
+}
+
 class NotifierRegistry {
   private readonly notifiers: Map<NotifyEntry["id"], Notifier>;
   private readonly emitWarning: (message: string) => void;
@@ -47,11 +55,7 @@ class NotifierRegistry {
     const notifier = this.notifiers.get(entry.id);
     if (!notifier) { this.emitWarning(`${entry.id} notifier is not registered`); return false; }
     const config = configFor(entry);
-    const errors = notifier.metadata.requiredConfig.flatMap((field) => {
-      const name = field.name;
-      const value = config[name];
-      return name === "command" ? (stringArray(value)?.length ? [] : [`${entry.id} requires ${name}`]) : (typeof value === "string" && value.trim() ? [] : [`${entry.id} requires ${name}`]);
-    });
+    const errors = findConfigErrors(entry, notifier, config);
     if (errors.length) { this.emitWarning(errors.join("; ")); return false; }
     // Send throws real errors. A delivery failure reaches the caller unchanged;
     // it is never converted to `false`.
@@ -64,11 +68,7 @@ class NotifierRegistry {
     const notifier = this.notifiers.get(entry.id);
     if (!notifier) return [`unknown notifier: ${entry.id}`];
     const config = configFor(entry);
-    return notifier.metadata.requiredConfig.flatMap((field) => {
-      const name = field.name;
-      const value = config[name];
-      return name === "command" ? (stringArray(value)?.length ? [] : [`${entry.id} requires ${name}`]) : (typeof value === "string" && value.trim() ? [] : [`${entry.id} requires ${name}`]);
-    });
+    return findConfigErrors(entry, notifier, config);
   }
 
   notifierFor(entry: NotifyEntry): Notifier | undefined { return this.notifiers.get(entry.id); }

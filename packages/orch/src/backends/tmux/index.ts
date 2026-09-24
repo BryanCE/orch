@@ -256,9 +256,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       "-lc",
       command,
     ]);
-    const handle = output?.trim() ?? "";
-    if (!handle) throw new Error("tmux split-window returned no pane id");
-    return handle;
+    return this.requirePaneHandle(output, "split-window");
   }
 
   /** Replace a pane's shell with the agent, so a window's own pane becomes the
@@ -269,6 +267,12 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     const respawned = bestEffortTmux(["respawn-pane", "-k", "-t", target, "-c", cwd, ...envArgs, "--", "bash", "-lc", command]);
     if (respawned === null) throw new Error(`tmux could not start the agent in pane ${target}`);
     return target;
+  }
+
+  private requirePaneHandle(output: string | null, command: string): TmuxHandle {
+    const handle = output?.trim() ?? "";
+    if (!handle) throw new Error(`tmux ${command} returned no pane id`);
+    return handle;
   }
 
   /** Open a fresh window to place a new pane when no group is given. */
@@ -286,9 +290,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       "-lc",
       command,
     ]);
-    const handle = output?.trim() ?? "";
-    if (!handle) throw new Error("tmux new-window returned no pane id");
-    return handle;
+    return this.requirePaneHandle(output, "new-window");
   }
 
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): TmuxHandle {

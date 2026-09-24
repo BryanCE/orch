@@ -16,6 +16,7 @@ import type { Invocation } from "../../cli/spec.ts";
 import type { DaemonClient, Services } from "../../types/services.ts";
 import type { Logger } from "../../types/core.ts";
 import { describeHandle } from "../../backends/backend.ts";
+import { parseCount } from "../panes.ts";
 
 export function lifecycleLogger(logger: Logger, key: string) {
   return isAgentId(key) ? logger.forAgent(key) : logger;
@@ -46,7 +47,7 @@ export async function cmdWait(services: Services, args: string[]): Promise<void>
   const { flags, positional } = parseCommand("wait", args);
   const status = flags.value("--status") ?? "done";
   const defaultTimeout = services.settings.current().timeouts.wait_ms;
-  const timeout = parseInt(flags.value("--timeout") ?? "", 10) || defaultTimeout;
+  const timeout = parseCount(flags.value("--timeout"), defaultTimeout);
   const json = flags.has("--json");
   const target = positional[0];
   if (!target) die("usage: orch wait <target> [--status done|idle|working|blocked] [--timeout ms]");

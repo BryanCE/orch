@@ -6,7 +6,7 @@ import { declaredRuntime } from "../settings/read.ts";
 
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import { detectCodexState, extractCodexResult, readCodexSessionView } from "./codex-events.ts";
-import { modelFlag, shimRole, type AgentState } from "./adapter.ts";
+import { buildHeadlessArgv, buildInteractiveArgv, shimRole, type AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
@@ -114,12 +114,12 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return ["codex", ...modelFlag(opts)];
+    return buildInteractiveArgv("codex", opts);
   }
 
   /** Run Codex's documented JSON event stream in a detached process. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return ["codex", "exec", "--json", ...modelFlag(opts), prompt];
+    return buildHeadlessArgv("codex", ["exec", "--json"], opts, prompt);
   }
 
   detectState(input: StateDetectionInput): AgentState {

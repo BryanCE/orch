@@ -238,9 +238,7 @@ export function repairFrame(screen: RepairScreen, columns: number, rows: number)
 
   const chrome = 1 + 1 + 1 + 1 + 1 + 1 + 1;
   const budget = Math.max(3, rows - chrome);
-  const { start, end } = windowBounds(lines.length, focusLine, budget);
-  const windowed = lines.slice(start, end);
-  markWindow(windowed, start, end, lines.length);
+  const windowed = visibleWindow(lines, focusLine, budget);
 
   // Every chrome line is fitted too: a headline or keybar longer than the terminal
   // wraps, and a wrapped line pushes the whole frame down a row on every render.
@@ -260,6 +258,13 @@ export function repairFrame(screen: RepairScreen, columns: number, rows: number)
 function markWindow(windowed: string[], start: number, end: number, length: number): void {
   if (start > 0 && windowed.length > 0) windowed[0] = dim(` ^ ${start} more`);
   if (end < length && windowed.length > 0) windowed[windowed.length - 1] = dim(` v ${length - end} more`);
+}
+
+function visibleWindow(lines: readonly string[], focusLine: number, budget: number): string[] {
+  const { start, end } = windowBounds(lines.length, focusLine, budget);
+  const windowed = lines.slice(start, end);
+  markWindow(windowed, start, end, lines.length);
+  return windowed;
 }
 
 function filterLineOf(screen: SettingsScreen): string[] {
@@ -289,9 +294,7 @@ export function settingsFrame(
   const chrome = 1 + filterLine.length + 1 + 1 + 1 + overlayLines.length + 1 + 1;
   const budget = Math.max(3, rows - chrome);
 
-  const { start, end } = windowBounds(lines.length, focusLine, budget);
-  const windowed = lines.slice(start, end);
-  markWindow(windowed, start, end, lines.length);
+  const windowed = visibleWindow(lines, focusLine, budget);
   if (windowed.length === 0) windowed.push(dim(` no settings match ${JSON.stringify(screen.filter)}`));
 
   const frame = [

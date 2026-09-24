@@ -3,6 +3,7 @@ import { z } from "zod";
 import { hostOs } from "../../host.ts";
 import { isRecord } from "../../util.ts";
 import { extractVersion } from "../versions.ts";
+import { buildCommandFailure, findFreshCacheEntry, parseCliJson } from "../shared-cli.ts";
 import { DEFAULT_TOOL_RETRY, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
 import type { OrcaExecutor, OrcaTerminal } from "../../types/plexer.ts";
 import type { RetryPolicy } from "../../types/core.ts";
@@ -120,6 +121,11 @@ export interface OrcaCli {
 
 const ASK_ONCE: RetryPolicy = { attempts: 1, delayMs: 0, backoff: 1 };
 
+function wrapOrcaFailure(error: unknown, args: readonly string[]): OrcaCommandError {
+  if (error instanceof OrcaCommandError) return error;
+  return new OrcaCommandError(orcaErrorCode(error), buildCommandFailure("orca", args, toolErrorDetail(error)));
+}
+
 function withJson(args: string[]): string[] {
   return [...args.filter((arg) => arg !== "--json"), "--json"];
 }
@@ -131,17 +137,15 @@ export function orcaBinary(): string {
 export function createOrcaCli(executor: OrcaExecutor = defaultOrcaExecutor): OrcaCli {
   const listCache = new Map<string, { at: number; value: unknown }>();
   const read = (args: string[], policy?: RetryPolicy): unknown => {
-    const cacheKey = args.join(" ");
-    const cached = listCache.get(cacheKey);
-    if (cached && Date.now() - cached.at < LIST_CACHE_TTL_MS) return cached.value;
+    const cached = findFreshCacheEntry(listCache, args, LIST_CACHE_TTL_MS);
+    if (cached.kind === "hit") return cached.value;
     try {
       const output = executor(orcaBinary(), withJson(args), { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
       const value = unwrapEnvelope(output);
-      listCache.set(cacheKey, { at: Date.now(), value });
+      listCache.set(cached.key, { at: Date.now(), value });
       return value;
     } catch (error: unknown) {
-      if (error instanceof OrcaCommandError) throw error;
-      throw new OrcaCommandError(orcaErrorCode(error), `orca ${args.join(" ")} failed: ${toolErrorDetail(error)}`);
+      throw wrapOrcaFailure(error, args);
     }
   };
   const mutation = (args: string[], timeoutMs = MUTATION_TIMEOUT_MS, policy?: RetryPolicy): unknown => {
@@ -150,18 +154,12 @@ export function createOrcaCli(executor: OrcaExecutor = defaultOrcaExecutor): Orc
       const output = executor(orcaBinary(), withJson(args), { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
       return unwrapEnvelope(output);
     } catch (error: unknown) {
-      if (error instanceof OrcaCommandError) throw error;
-      throw new OrcaCommandError(orcaErrorCode(error), `orca ${args.join(" ")} failed: ${toolErrorDetail(error)}`);
+      throw wrapOrcaFailure(error, args);
     }
   };
   const cli: OrcaCli = {
     json<S extends z.ZodType>(args: string[], schema: S): z.output<S> {
-      const parsed = schema.safeParse(read(args));
-      if (!parsed.success) {
-        const issues = parsed.error.issues.map((issue) => issue.message).join(", ");
-        throw new OrcaCommandError(null, `orca ${args.join(" ")} answered an unexpected shape: ${issues}`);
-      }
-      return parsed.data;
+      return parseCliJson(read(args), schema, `orca ${args.join(" ")}`, (message) => new OrcaCommandError(null, message));
     },
     ack: (args, timeoutMs, policy) => { mutation(args, timeoutMs, policy); },
     version: () => {
@@ -189,8 +187,7 @@ export function createOrcaCli(executor: OrcaExecutor = defaultOrcaExecutor): Orc
     exec: (args, options = { encoding: "utf8" }) => {
       try { return executor(orcaBinary(), args, options); }
       catch (error: unknown) {
-        if (error instanceof OrcaCommandError) throw error;
-        throw new OrcaCommandError(orcaErrorCode(error), `orca ${args.join(" ")} failed: ${toolErrorDetail(error)}`);
+        throw wrapOrcaFailure(error, args);
       }
     },
   };

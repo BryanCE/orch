@@ -1,44 +1,563 @@
 {
+  "kind": "health",
   "finding_counts": {
-    "extensions/claude/index.ts": {
-      "complexity_critical": {
-        "count": 2
-      },
-      "crap_critical": {
-        "count": 2
-      },
-      "crap_high": {
-        "count": 3
-      }
-    },
-    "extensions/codex/index.ts": {
+    "packages/orch/extensions/claude/index.ts": {
       "crap_high": {
         "count": 1
       }
     },
-    "extensions/pi/daemon-ack.ts": {
+    "packages/orch/extensions/pi/seat/index.ts": {
       "crap_moderate": {
         "count": 1
       }
     },
-    "extensions/pi/presence.ts": {
-      "complexity_moderate": {
-        "count": 1
-      },
+    "packages/orch/extensions/pi/seat/manager.ts": {
       "crap_moderate": {
-        "count": 2
+        "count": 1
       }
     },
-    "extensions/pi/tools.ts": {
+    "packages/orch/extensions/pi/seat/ui/takeover.ts": {
       "complexity_moderate": {
-        "count": 2
+        "count": 1
       },
       "crap_moderate": {
         "count": 4
       }
     },
-    "packages/web/src/components/AgentCard.tsx": {
+    "packages/orch/extensions/pi/seat/ui/transcript.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/adapters/claude.ts": {
+      "complexity_high": {
+        "count": 1
+      },
       "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/adapters/codex-events.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/orch/src/adapters/codex-notify.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/adapters/pi.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/adapters/transcript.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/agent/harness-bridge.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/agent/peers.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/agent/presence.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/backends/headless/index.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/backends/herdr/index.ts": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/orch/src/backends/orca/cli.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/backends/tmux/cli.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/backends/tmux/index.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/backends/versions.ts": {
+      "complexity_high": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/clean.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/control.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/daemon.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/index.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/lifecycle/close.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/lifecycle/reload.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/panes.ts": {
+      "complexity_moderate": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/results.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/orch/src/commands/review.ts": {
+      "complexity_moderate": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/orch/src/commands/settings.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 4
+      }
+    },
+    "packages/orch/src/commands/setup.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/spawn/index.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/spawn/report.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/status/index.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/status/options.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/status/rows.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/commands/status/table.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/control/dispatch.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/daemon/client/process.ts": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/orch/src/daemon/client/wire.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/daemon/server/events.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/daemon/server/handlers/write.ts": {
+      "complexity_moderate": {
+        "count": 2
+      }
+    },
+    "packages/orch/src/daemon/server/orchd.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/daemon/server/outbox.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/daemon/server/retention.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/daemon/server/rpc.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/daemon/server/session-registry.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/daemon/server/status-events.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/daemon/server/status-report.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/daemon/server/work-loop.ts": {
+      "complexity_high": {
+        "count": 3
+      },
+      "crap_high": {
+        "count": 2
+      }
+    },
+    "packages/orch/src/doctor/notify.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/doctor/runtime.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/doctor/skills.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/entities/inventory.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/entities/resolve.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/log.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/notify/format.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/orch/src/policy/caller.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/presence/session.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/process-identity.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/queue.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/remote.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/retry.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/session.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/settings/editor.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/orch/src/settings/parse.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/settings/read.ts": {
+      "complexity_high": {
+        "count": 3
+      },
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/orch/src/settings/registry.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/settings/shell/edit.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/settings/shell/sinks.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/settings/storage.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/settings/view.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/setup/composition.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/setup/install.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/setup/notifiers.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/store/agent-rows.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/store/run-rows.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/store/spawn-registration.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/store/status-rows.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/store/suppress-sqlite-warning.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/orch/src/types/queue.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/web/src/components/AgentCard.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/web/src/components/DaemonEventList.tsx": {
+      "crap_critical": {
         "count": 1
       }
     },
@@ -52,7 +571,10 @@
         "count": 1
       }
     },
-    "packages/web/src/components/SubToolSidebar.tsx": {
+    "packages/web/src/components/QuestionsPanel.tsx": {
+      "crap_high": {
+        "count": 1
+      },
       "crap_moderate": {
         "count": 1
       }
@@ -62,412 +584,96 @@
         "count": 1
       }
     },
+    "packages/web/src/lib/daemon-events.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
     "packages/web/src/lib/fleet.ts": {
+      "complexity_high": {
+        "count": 1
+      },
       "crap_high": {
         "count": 1
       }
     },
-    "packages/web/src/routes/ws/$slug.tsx": {
+    "packages/web/src/routes/index.tsx": {
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/web/src/routes/queue.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/web/src/routes/spaces/$slug.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
       "crap_high": {
         "count": 1
       },
       "crap_moderate": {
         "count": 1
+      }
+    },
+    "packages/web/src/server/daemon.ts": {
+      "crap_moderate": {
+        "count": 4
       }
     },
     "packages/web/src/server/orch.ts": {
-      "crap_critical": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      }
-    },
-    "src/adapters/claude.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "complexity_high": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 2
-      },
-      "crap_critical": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 3
-      }
-    },
-    "src/adapters/codex-notify.ts": {
-      "complexity_high": {
-        "count": 1
-      }
-    },
-    "src/adapters/codex.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      },
       "crap_moderate": {
         "count": 1
-      }
-    },
-    "src/adapters/pi.ts": {
-      "complexity_high": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      }
-    },
-    "src/backends/headless/index.ts": {
-      "complexity_high": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      }
-    },
-    "src/backends/herdr/hud.ts": {
-      "complexity_high": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/backends/herdr/index.ts": {
-      "complexity_high": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/backends/identity.ts": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/backends/tmux/cli.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/backends/tmux/index.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/commands/clean.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/commands/control.ts": {
-      "complexity_moderate": {
-        "count": 2
-      }
-    },
-    "src/commands/events.ts": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/commands/index.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      }
-    },
-    "src/commands/lifecycle.ts": {
-      "complexity_critical": {
-        "count": 2
-      },
-      "complexity_high": {
-        "count": 2
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/commands/panes.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 4
-      },
-      "crap_critical": {
-        "count": 1
-      }
-    },
-    "src/commands/queue.ts": {
-      "complexity_high": {
-        "count": 1
-      }
-    },
-    "src/commands/results.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "complexity_high": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/commands/review.ts": {
-      "complexity_high": {
-        "count": 2
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      }
-    },
-    "src/commands/setup.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 2
-      }
-    },
-    "src/commands/spawn.ts": {
-      "complexity_high": {
-        "count": 2
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 2
-      }
-    },
-    "src/commands/status.ts": {
-      "complexity_critical": {
-        "count": 3
-      },
-      "complexity_high": {
-        "count": 2
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 3
-      },
-      "crap_high": {
-        "count": 2
-      }
-    },
-    "src/config.ts": {
-      "complexity_high": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/daemon/events.ts": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/daemon/lifecycle.ts": {
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/daemon/rpc.ts": {
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 3
-      }
-    },
-    "src/doctor/extensions.ts": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/doctor/notify.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/doctor/presence.ts": {
-      "complexity_high": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      }
-    },
-    "src/doctor/runner.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/doctor/runtime.ts": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/entities.ts": {
-      "complexity_high": {
-        "count": 1
-      }
-    },
-    "src/notify/format.ts": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/notify/router.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/remote.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/session.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "complexity_high": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/store/sqlite.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/work.ts": {
-      "complexity_high": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 3
       }
     }
   },
   "runtime_coverage_findings": [],
   "target_keys": [
-    "src/work.ts:complexity",
-    "src/doctor/runner.ts:high impact",
-    "src/adapters/claude.ts:high impact",
-    "src/entities.ts:high impact",
-    "src/commands/spawn.ts:high impact",
-    "src/table.ts:high impact",
-    "src/daemon/events.ts:high impact",
-    "src/commands/target.ts:high impact",
-    "src/backends/registry.ts:high impact",
-    "src/policy/workspace.ts:high impact",
-    "src/backends/herdr/index.ts:high impact",
-    "src/adapters/codex.ts:untested risk",
-    "src/notify/router.ts:high impact",
-    "extensions/pi/peers.ts:dead code",
-    "src/commands/status.ts:high impact",
-    "src/commands/daemon.ts:high impact",
-    "src/commands/lifecycle.ts:complexity",
-    "src/remote.ts:high impact",
-    "src/commands/results.ts:complexity",
-    "src/doctor/notify.ts:complexity",
-    "src/session.ts:complexity",
-    "src/doctor/shared.ts:high impact",
-    "src/commands/review.ts:complexity",
-    "src/commands/panes.ts:complexity",
-    "src/commands/setup.ts:complexity",
-    "extensions/pi/presence.ts:circular dependency",
-    "extensions/claude/index.ts:untested risk",
-    "src/backends/herdr/hud.ts:untested risk"
+    "packages/orch/src/commands/results.ts:untested risk",
+    "packages/orch/src/settings/read.ts:churn+complexity",
+    "packages/orch/src/doctor/runner.ts:high impact",
+    "packages/orch/src/store/status-rows.ts:high impact",
+    "packages/orch/src/adapters/pi.ts:high impact",
+    "packages/orch/src/daemon/client/wire.ts:high impact",
+    "packages/orch/src/notify/router.ts:high impact",
+    "packages/orch/src/backends/herdr/index.ts:high impact",
+    "packages/orch/src/daemon/server/work-loop.ts:complexity",
+    "packages/orch/src/commands/target.ts:high impact",
+    "packages/orch/src/queue.ts:high impact",
+    "packages/orch/src/adapters/claude.ts:untested risk",
+    "packages/orch/src/policy/space.ts:high impact",
+    "packages/orch/src/agent/peers.ts:high impact",
+    "packages/orch/src/host.ts:high impact",
+    "packages/orch/src/daemon/client/process.ts:high impact",
+    "packages/orch/src/settings/write.ts:high impact",
+    "packages/orch/src/entities/lookup.ts:high impact",
+    "packages/orch/src/commands/settings.ts:untested risk",
+    "packages/orch/src/notify/format.ts:high impact",
+    "packages/orch/src/settings/editor.ts:untested risk",
+    "packages/orch/src/commands/status/options.ts:high impact",
+    "packages/orch/src/store/agent-view.ts:high impact",
+    "packages/orch/src/entities/inventory.ts:high impact",
+    "packages/orch/src/adapters/adapter.ts:high impact",
+    "packages/orch/src/notify/sinks.ts:high impact",
+    "packages/orch/src/log.ts:high impact",
+    "packages/orch/src/table.ts:high impact",
+    "packages/orch/src/store/lease-rows.ts:high impact",
+    "packages/orch/src/commands/status/table.ts:high impact",
+    "packages/orch/src/commands/review.ts:untested risk",
+    "packages/orch/src/retry.ts:high impact",
+    "packages/orch/src/adapters/codex-events.ts:untested risk",
+    "packages/orch/src/policy/capacity.ts:high impact",
+    "packages/orch/src/types/queue.ts:high impact",
+    "packages/orch/src/setup/io.ts:high impact",
+    "packages/orch/extensions/pi/seat/ui/transcript.ts:complexity",
+    "packages/orch/src/settings/storage.ts:complexity"
   ]
 }

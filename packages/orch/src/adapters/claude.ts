@@ -8,7 +8,7 @@ import { presenceEntry } from "../presence/store.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand } from "../util.ts";
 import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
 import { agentStateFrom } from "../agent-state.ts";
-import { modelFlag, shimRole, type AgentState } from "./adapter.ts";
+import { buildHeadlessArgv, buildInteractiveArgv, shimRole, type AgentState } from "./adapter.ts";
 import { textValue } from "../util.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
@@ -211,12 +211,12 @@ class ClaudeAdapter implements AgentAdapter {
   }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return ["claude", ...modelFlag(opts)];
+    return buildInteractiveArgv("claude", opts);
   }
 
   /** Run Claude Code's print mode for detached workers. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return ["claude", "-p", ...modelFlag(opts), prompt];
+    return buildHeadlessArgv("claude", ["-p"], opts, prompt);
   }
 
   /** Read the status written by Claude's SessionStart/Stop/Notification hooks. */

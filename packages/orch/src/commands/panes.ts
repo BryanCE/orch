@@ -35,6 +35,25 @@ function renderBoundaryAnswer<T>(plan: BoundaryPlan<T>, json: boolean): boolean 
   else process.stdout.write(plan.text + "\n");
   return false;
 }
+
+export function writeEmptyOrJson<T>(items: readonly T[], json: boolean, emptyText: string, jsonValue: unknown = items): boolean {
+  if (!items.length) {
+    if (json) process.stdout.write("[]\n");
+    else process.stdout.write(emptyText + "\n");
+    return true;
+  }
+  if (!json) return false;
+  process.stdout.write(JSON.stringify(jsonValue, null, 2) + "\n");
+  return true;
+}
+
+export function parseCount(value: string | undefined, fallback: number): number {
+  return parseInt(value ?? "", 10) || fallback;
+}
+
+function readPaneOptions(flags: ParsedFlags, positional: readonly string[]): { json: boolean; force: boolean; target: string | undefined } {
+  return { json: flags.has("--json"), force: flags.has("--force"), target: positional[0] };
+}
 export async function cmdPanes(services: Services, args: string[]): Promise<void> {
   const { flags } = parseCommand("panes", args);
   const all = flags.has("--all");
@@ -91,9 +110,7 @@ async function planOwnedPaneRole<T>(services: Services, self: CallerSelf, target
 
 export async function cmdKeys(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("keys", args);
-  const json = flags.has("--json");
-  const force = flags.has("--force");
-  const target = positional[0];
+  const { json, force, target } = readPaneOptions(flags, positional);
   const keys = positional.slice(1);
   if (!target || !keys.length) die("usage: orch keys <target> <key> [key...] [--force]");
   const self = await whoAmI(services);
@@ -106,7 +123,7 @@ export async function cmdKeys(services: Services, args: string[]): Promise<void>
 
 export async function cmdPeek(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("peek", args);
-  const n = parseInt(flags.value("-n") ?? "", 10) || 25;
+  const n = parseCount(flags.value("-n"), 25);
   const json = flags.has("--json");
   const target = positional[0];
   if (!target) die("usage: orch peek <target> [-n N] [--json]");
@@ -164,15 +181,7 @@ export function cmdTabs(services: Services, args: string[]): void {
   // answer: every tab is listed rather than an invented one being matched.
   const workspace = backend.placementInventory?.current()?.workspace ?? null;
   const tabs = groups.filter((tab) => all || workspace === null || tab.workspace === workspace);
-  if (!tabs.length) {
-    if (json) process.stdout.write("[]\n");
-    else process.stdout.write("No groups available.\n");
-    return;
-  }
-  if (json) {
-    process.stdout.write(JSON.stringify(tabs, null, 2) + "\n");
-    return;
-  }
+  if (writeEmptyOrJson(tabs, json, "No groups available.")) return;
   // The plexer's own grouping, echoed verbatim: its word, never orch's.
   const showWorkspace = all && new Set(tabs.map((t) => t.workspace ?? "-")).size > 1;
   const headers = showWorkspace ? ["TAB", "LABEL", "NUM", "PANES", "STATUS", "WS"] : ["TAB", "LABEL", "NUM", "PANES", "STATUS"];
@@ -264,9 +273,7 @@ export async function cmdTab(services: Services, args: string[]): Promise<void> 
 
 export async function cmdFocus(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("focus", args);
-  const json = flags.has("--json");
-  const force = flags.has("--force");
-  const target = positional[0];
+  const { json, force, target } = readPaneOptions(flags, positional);
   if (!target) die("usage: orch focus <target> [--force] [--json]");
   const self = await whoAmI(services);
   const { handle, plan } = await planOwnedPaneRole(services, self, target, force, "focus", (backend) => backend.agentInput);
@@ -278,9 +285,7 @@ export async function cmdFocus(services: Services, args: string[]): Promise<void
 
 export async function cmdZoom(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("zoom", args);
-  const json = flags.has("--json");
-  const force = flags.has("--force");
-  const target = positional[0];
+  const { json, force, target } = readPaneOptions(flags, positional);
   if (!target) die("usage: orch zoom <target> [--on|--off] [--force]  (default: toggle)");
   const self = await whoAmI(services);
   const { handle, plan } = await planOwnedPaneRole(services, self, target, force, "zoom", (backend) => backend.zooming);

@@ -15,6 +15,7 @@ import type { Entity, Logger, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
 import { CommandRefusal } from "../refusal.ts";
+import { parseCount, writeEmptyOrJson } from "./panes.ts";
 
 function resultLogger(logger: Logger, key?: string) {
   return key !== undefined && isAgentId(key) ? logger.forAgent(key) : logger;
@@ -218,23 +219,16 @@ async function collectPendingQuestions(services: Services, all: boolean): Promis
 async function cmdQuestionsLocal(services: Services, { all, json }: QuestionOptions): Promise<void> {
   const { pending } = await collectPendingQuestions(services, all);
   const orchDir = services.orchDir;
-  if (!pending.length) {
-    if (json) process.stdout.write("[]\n");
-    else process.stdout.write("No pending questions.\n");
-    return;
-  }
-  if (json) {
-    process.stdout.write(JSON.stringify(pending.map(({ view }) => ({
-      key: view.key,
-      name: view.name,
-      age: formatAge(view.askedAt),
-      id: view.questionId,
-      question: view.question,
-      ts: new Date(view.askedAt).toISOString(),
-      space: spaceOf(orchDir, view.key) ?? "-",
-    })), null, 2) + "\n");
-    return;
-  }
+  const rows = pending.map(({ view }) => ({
+    key: view.key,
+    name: view.name,
+    age: formatAge(view.askedAt),
+    id: view.questionId,
+    question: view.question,
+    ts: new Date(view.askedAt).toISOString(),
+    space: spaceOf(orchDir, view.key) ?? "-",
+  }));
+  if (writeEmptyOrJson(pending, json, "No pending questions.", rows)) return;
   const spaces = pending.map(({ view }) => spaceOf(orchDir, view.key) ?? "-");
   const showSpace = all && new Set(spaces).size > 1;
   process.stdout.write(
@@ -366,9 +360,8 @@ function writeTailText(ent: Entity, view: SessionView, lines: number): void {
 
 export async function cmdTail(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("tail", args);
-  const target = positional[0];
-  if (!target) die("usage: orch tail <target> [-n N] [--json]");
-  const lines = parseInt(flags.value("-n") ?? "", 10) || 20;
+  const target = requireSessionTarget(positional[0], "usage: orch tail <target> [-n N] [--json]");
+  const lines = parseCount(flags.value("-n"), 20);
   const resolved = await resolveEntity(services, target);
   const ent = resolved.entity;
   const adapter = resolveSessionTailAdapter(resolved, target);
@@ -376,6 +369,11 @@ export async function cmdTail(services: Services, args: string[]): Promise<void>
   if (!view) die(`No session data for "${target}" (${ent.sessionPath ?? "unknown path"}).`);
   if (flags.has("--json")) writeTailJson(target, ent, view, lines);
   else writeTailText(ent, view, lines);
+}
+
+function requireSessionTarget(target: string | undefined, usage: string): string {
+  if (!target) die(usage);
+  return target;
 }
 
 function writeSessionJson(ent: Entity, view: SessionView | undefined): void {
@@ -402,8 +400,7 @@ function writeSessionText(ent: Entity, view: SessionView | undefined): void {
 
 export async function cmdSession(services: Services, args: string[]): Promise<void> {
   const { flags, positional } = parseCommand("session", args);
-  const target = positional[0];
-  if (!target) die("usage: orch session <target> [--json]");
+  const target = requireSessionTarget(positional[0], "usage: orch session <target> [--json]");
   const resolved = await resolveEntity(services, target);
   const ent = resolved.entity;
   if (!ent.sessionPath) die(`No session path known for "${target}".`);

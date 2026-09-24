@@ -3,7 +3,7 @@ import { isAgentState, type AgentState } from "../../agent-state.ts";
 import { linuxTtyOf } from "../../process-identity.ts";
 import type { OrchDir } from "../../types/core.ts";
 import type { BridgeNotifyEvent, PaneLabels, PaneStatusSnapshot } from "../../types/plexer.ts";
-import { hasPaneHandle, resolvePaneHandle } from "../pane-environment.ts";
+import { isHudPaneActive, resolveHudPane, type PaneHudProvider } from "../shared-hud.ts";
 import { orcaBackend } from "./index.ts";
 
 const OSC_AGENT_STATUS_PREFIX = "\x1b]9999;";
@@ -22,11 +22,11 @@ const ORCA_STATE: Readonly<Partial<Record<AgentState, "working" | "blocked" | "w
 };
 
 function paneHandle(id: string | null, orchDir: OrchDir): string | null {
-  return resolvePaneHandle(id, orchDir, "orca");
+  return resolveHudPane(id, orchDir, "orca");
 }
 
 function hudActive(id: string | null, orchDir: OrchDir): boolean {
-  return hasPaneHandle(id, orchDir, "orca");
+  return isHudPaneActive(id, orchDir, "orca");
 }
 
 function frameFor(snapshot: PaneStatusSnapshot): string | null {
@@ -77,10 +77,7 @@ function createPaneStatusReporterInternal(
   };
 }
 
-export interface OrcaHud {
-  paneHandle: (id: string | null, orchDir: OrchDir) => string | null;
-  hudActive: (id: string | null, orchDir: OrchDir) => boolean;
-  createPaneStatusReporter: (id: string | null, paneId: string | null, orchDir: OrchDir) => (snapshot: PaneStatusSnapshot) => void;
+export interface OrcaHud extends PaneHudProvider {
   notify: (event: BridgeNotifyEvent) => void;
   readLabels: (apply: (labels: PaneLabels) => void) => Promise<boolean>;
 }

@@ -78,6 +78,14 @@ function forwardText(hosts: OrchSettings["hosts"], remote: { host: string; targe
   remoteWrite(hosts, remote.host, verb, [remote.target, command.text, ...flags]);
 }
 
+/** Forward a text command when its target belongs to another host. */
+function forwardTextToHost(hosts: OrchSettings["hosts"], verb: "steer" | "answer", command: TextCommand): boolean {
+  const remote = targetHost(hosts, command.target);
+  if (!remote) return false;
+  forwardText(hosts, remote, verb, command);
+  return true;
+}
+
 /** A target a drive verb may take from a live holder with --steal. */
 function resolveDriveTarget(services: Services, self: CallerSelf, target: string, gov: WriteGovernance): Promise<ResolvedTarget> {
   return resolveOwnedTarget(services, self, target, { crossSpace: gov.crossSpace, override: gov.steal, overrideFlag: "--steal" });
@@ -87,8 +95,7 @@ export async function cmdSteer(services: Services, args: string[]): Promise<void
   const self = await whoAmI(services);
   const { json, gov, target, text } = parseTextCommand("steer", args, "usage: orch steer <target> <text...> [--steal] [--cross-space] [--json]");
   const hosts = services.settings.current().hosts;
-  const remote = targetHost(hosts, target);
-  if (remote) return forwardText(hosts, remote, "steer", { json, gov, target, text });
+  if (forwardTextToHost(hosts, "steer", { json, gov, target, text })) return;
   const resolved = await resolveDriveTarget(services, self, target, gov);
   const result = await writeRpc(services, "steer", { target: resolved.entity.key, text }, gov);
   const recipient = recipientOf(resolved.view ?? undefined, resolved.entity.space ?? "space", resolved.entity.key);
@@ -200,8 +207,7 @@ export async function cmdAnswer(services: Services, args: string[]): Promise<voi
   const self = await whoAmI(services);
   const { json, gov, target, text } = parseTextCommand("answer", args, 'usage: orch answer <target> "<text>" [--steal] [--cross-space] [--json]');
   const hosts = services.settings.current().hosts;
-  const remote = targetHost(hosts, target);
-  if (remote) return forwardText(hosts, remote, "answer", { json, gov, target, text });
+  if (forwardTextToHost(hosts, "answer", { json, gov, target, text })) return;
   const resolved = await resolveDriveTarget(services, self, target, gov);
   if (!resolved.entity.presence) die(`Target "${target}" has no agent dir.`);
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);

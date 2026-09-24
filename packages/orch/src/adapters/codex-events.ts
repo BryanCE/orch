@@ -5,7 +5,7 @@
 // (and, through those, zod) into its bundle.
 import { readFileSync } from "node:fs";
 import { isRecord, textValue } from "../util.ts";
-import { contentText } from "./transcript.ts";
+import { contentText, visitJsonlValues } from "./transcript.ts";
 import type { AgentState } from "./adapter.ts";
 import type { CodexResultExtractionInput, SessionView, StateDetectionInput } from "../types/adapter.ts";
 import type { JsonRecord } from "../types/core.ts";
@@ -139,20 +139,13 @@ function transcriptResult(file: string | undefined): string | undefined {
   const raw = readTextFile(file);
   if (!raw) return undefined;
   let last: string | undefined;
-  for (const line of raw.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      if (isRecord(parsed)) {
-        const notify = notifyText(parsed);
-        if (notify !== undefined) last = notify;
-        const assistant = assistantText(parsed);
-        if (assistant !== undefined) last = assistant;
-      }
-    } catch {
-      // Native transcripts are JSONL; malformed lines do not invalidate the tail.
-    }
-  }
+  visitJsonlValues(raw, (parsed) => {
+    if (!isRecord(parsed)) return;
+    const notify = notifyText(parsed);
+    if (notify !== undefined) last = notify;
+    const assistant = assistantText(parsed);
+    if (assistant !== undefined) last = assistant;
+  });
   return last;
 }
 

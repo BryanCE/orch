@@ -8,7 +8,7 @@
 // functions in as its herdr provider — no herdr socket, event name, or shell-out
 // ever appears outside `src/backends/herdr/`.
 import { execFile } from "node:child_process";
-import { hasPaneHandle, resolvePaneHandle } from "../pane-environment.ts";
+import { isHudPaneActive, resolveHudPane, type PaneHudProvider } from "../shared-hud.ts";
 import { requestJsonLine } from "../../presence/socket-client.ts";
 import type { HerdrCli } from "./cli.ts";
 import { herdrBackend, herdrEnvironmentPresent } from "./index.ts";
@@ -56,7 +56,7 @@ function herdrSocketPath(state: HudState, cli: HerdrCli): string | undefined {
  * mutable, so it is asked for on every call and never frozen at import.
  */
 function paneHandle(id: string | null, orchDir: OrchDir): string | null {
-  return resolvePaneHandle(id, orchDir, "herdr");
+  return resolveHudPane(id, orchDir, "herdr");
 }
 
 /**
@@ -69,7 +69,7 @@ function paneHandle(id: string | null, orchDir: OrchDir): string | null {
  * already allowed itself.
  */
 function hudActive(id: string | null, orchDir: OrchDir): boolean {
-  return hasPaneHandle(id, orchDir, "herdr");
+  return isHudPaneActive(id, orchDir, "herdr");
 }
 
 // ---- pane custom-status metadata ----
@@ -213,10 +213,7 @@ function notifyInternal(event: BridgeNotifyEvent, position: NotificationPosition
   }
 }
 
-interface HerdrHud {
-  paneHandle: (id: string | null, orchDir: OrchDir) => string | null;
-  hudActive: (id: string | null, orchDir: OrchDir) => boolean;
-  createPaneStatusReporter: (id: string | null, paneId: string | null, orchDir: OrchDir) => (snapshot: PaneStatusSnapshot) => void;
+interface HerdrHud extends PaneHudProvider {
   readPaneLabels: (id: string | null, apply: (labels: PaneLabels) => void, orchDir: OrchDir) => Promise<boolean>;
   notify: (event: BridgeNotifyEvent, position: NotificationPosition) => void;
 }

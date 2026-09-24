@@ -35,12 +35,24 @@ export interface ReloadResult {
 
 /** Block until the agent's bridge republishes status.json while its recorded
  *  process is live, proving the harness came back. */
+async function readAgentRuntime(services: LifecycleServices, presenceKey: string) {
+  const status = (await readRpc(services, "agent-status", { target: presenceKey })).status;
+  const live = (await readRpc(services, "process-live", { target: presenceKey })).live;
+  return { status, live };
+}
+
+async function submitAgentText(backend: Backend, handle: string, text: string): Promise<void> {
+  backend.agentInput?.sendKeys(handle, ["Escape"]);
+  await sleep(500);
+  if (!backend.agentInput) throw new Error("target environment cannot take input");
+  backend.agentInput.submit(handle, text);
+}
+
 async function awaitBridgeRefresh(services: LifecycleServices, presenceKey: string, wasUpdatedAt: number | undefined, tries: number): Promise<boolean> {
   return retryingAsync(
     "await bridge refresh",
     async () => {
-      const status = (await readRpc(services, "agent-status", { target: presenceKey })).status;
-      const live = (await readRpc(services, "process-live", { target: presenceKey })).live;
+      const { status, live } = await readAgentRuntime(services, presenceKey);
       return status !== null
         && live
         && (wasUpdatedAt === undefined || status.updatedAt > wasUpdatedAt);
@@ -70,10 +82,7 @@ async function lifecycleThroughDaemon(services: LifecycleServices, verb: Lifecyc
 export async function reloadAgentAndAwaitBridge(services: LifecycleServices, backend: Backend, handle: string, presenceKey: string, reloadText: string): Promise<ReloadResult> {
   try {
     const oldUpdatedAt = (await readRpc(services, "agent-status", { target: presenceKey })).status?.updatedAt;
-    backend.agentInput?.sendKeys(handle, ["Escape"]);
-    await sleep(500);
-    if (!backend.agentInput) throw new Error("target environment cannot take input");
-    backend.agentInput.submit(handle, reloadText);
+    await submitAgentText(backend, handle, reloadText);
     const refreshed = await awaitBridgeRefresh(services, presenceKey, oldUpdatedAt, 60);
     if (refreshed) return { handle, ok: true };
     return { handle, ok: false, reason: errorMessage(`bridge status.json did not refresh within 30s after ${reloadText}`) };
@@ -89,10 +98,7 @@ function touchReloadSignal(orchDir: OrchDir): void {
 }
 
 async function restartAgentAndAwaitBridge(services: LifecycleServices, logger: Logger, backend: Backend, handle: string, cmd: string, presenceKey: string, quitText: string): Promise<boolean> {
-  backend.agentInput?.sendKeys(handle, ["Escape"]);
-  await sleep(500);
-  if (!backend.agentInput) throw new Error("target environment cannot take input");
-  backend.agentInput.submit(handle, quitText);
+  await submitAgentText(backend, handle, quitText);
   const shellSeen = await retryingAsync(
     "await shell prompt",
     () => atShellPrompt(foregroundOf(backend, handle)),
@@ -104,12 +110,12 @@ async function restartAgentAndAwaitBridge(services: LifecycleServices, logger: L
     process.stdout.write(`${handle}: agent did not exit after ${quitText} - skipping relaunch.\n`);
     return false;
   }
+  if (!backend.agentInput) throw new Error("target environment cannot take input");
   backend.agentInput.submit(handle, cmd);
   const refreshed = await retryingAsync(
     "await relaunched bridge",
     async () => {
-      const status = (await readRpc(services, "agent-status", { target: presenceKey })).status;
-      const live = (await readRpc(services, "process-live", { target: presenceKey })).live;
+      const { status, live } = await readAgentRuntime(services, presenceKey);
       return status !== null && live;
     },
     { attempts: 40, delayMs: 500, backoff: 1 },

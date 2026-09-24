@@ -2,6 +2,7 @@ import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { z } from "zod";
 import { isRecord } from "../../util.ts";
 import { extractVersion } from "../versions.ts";
+import { buildCommandFailure, findFreshCacheEntry, parseCliJson } from "../shared-cli.ts";
 import { DEFAULT_TOOL_RETRY, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
 import type { HerdrPane, HerdrTab } from "../../types/plexer.ts";
 import type { RetryPolicy } from "../../types/core.ts";
@@ -134,16 +135,15 @@ const ASK_ONCE: RetryPolicy = { attempts: 1, delayMs: 0, backoff: 1 };
 export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): HerdrCli {
   const listCache = new Map<string, { at: number; value: unknown }>();
   const herdr = (args: string[], policy?: RetryPolicy): unknown => {
-    const cacheKey = args.join(" ");
-    const cached = listCache.get(cacheKey);
-    if (cached && Date.now() - cached.at < LIST_CACHE_TTL_MS) return cached.value;
+    const cached = findFreshCacheEntry(listCache, args, LIST_CACHE_TTL_MS);
+    if (cached.kind === "hit") return cached.value;
     try {
       const output = executor("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
       const value = parseHerdrOutput(output);
-      listCache.set(cacheKey, { at: Date.now(), value });
+      listCache.set(cached.key, { at: Date.now(), value });
       return value;
     } catch (error: unknown) {
-      throw new Error(`herdr ${args.join(" ")} failed: ${toolErrorDetail(error)}`);
+      throw new Error(buildCommandFailure("herdr", args, toolErrorDetail(error)));
     }
   };
   const herdrOutput = (args: string[], timeoutMs = MUTATION_TIMEOUT_MS, policy?: RetryPolicy): string => {
@@ -151,18 +151,13 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
     try {
       return executor("herdr", args, { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
     } catch (error: unknown) {
-      throw new HerdrCommandError(herdrErrorCode(error), `herdr ${args.join(" ")} failed: ${toolErrorDetail(error)}`);
+      throw new HerdrCommandError(herdrErrorCode(error), buildCommandFailure("herdr", args, toolErrorDetail(error)));
     }
   };
   const cli: HerdrCli = {
     json<S extends z.ZodType>(args: string[], schema: S): z.output<S> {
       const output = herdrOutput(args);
-      const parsed = schema.safeParse(parseHerdrOutput(output));
-      if (!parsed.success) {
-        const issues = parsed.error.issues.map((issue) => issue.message).join(", ");
-        throw new HerdrCommandError(null, `herdr ${args.join(" ")} answered an unexpected shape: ${issues}`);
-      }
-      return parsed.data;
+      return parseCliJson(parseHerdrOutput(output), schema, `herdr ${args.join(" ")}`, (message) => new HerdrCommandError(null, message));
     },
     ack: (args, timeoutMs, policy) => { herdrOutput(args, timeoutMs, policy); },
     answer: (args, timeoutMs) => herdrOutput(args, timeoutMs),
@@ -172,7 +167,7 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
       try { executor("herdr", fullArgs, { timeout: AGENT_START_EXEC_TIMEOUT_MS, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, START_RETRY); }
       catch (error: unknown) {
         if (herdrErrorCode(error) === "agent_not_ready") return;
-        throw new Error(`herdr ${fullArgs.join(" ")} failed: ${toolErrorDetail(error)}`);
+        throw new Error(buildCommandFailure("herdr", fullArgs, toolErrorDetail(error)));
       }
     },
     version: () => {
@@ -205,7 +200,7 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
     },
     exec: (args, options = { encoding: "utf8" }) => {
       try { return executor("herdr", args, options); }
-      catch (error: unknown) { throw new Error(`herdr ${args.join(" ")} failed: ${toolErrorDetail(error)}`); }
+      catch (error: unknown) { throw new Error(buildCommandFailure("herdr", args, toolErrorDetail(error))); }
     },
   };
   return cli;

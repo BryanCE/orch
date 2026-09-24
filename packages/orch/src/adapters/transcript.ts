@@ -55,22 +55,27 @@ export function assistantText(record: JsonRecord): string | undefined {
 }
 
 /** The last assistant text in a claude-format JSONL transcript, or undefined when none. */
-export function lastAssistantFromJsonl(raw: string | undefined): string | undefined {
-  if (!raw?.trim()) return undefined;
-  let last: string | undefined;
+export function visitJsonlValues(raw: string, visit: (value: unknown) => void): void {
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) continue;
     try {
-      const parsed: unknown = JSON.parse(line);
-      const records = Array.isArray(parsed) ? parsed : [parsed];
-      for (const item of records) {
-        if (!isRecord(item)) continue;
-        const text = assistantText(item);
-        if (text !== undefined) last = text;
-      }
+      visit(JSON.parse(line));
     } catch {
-      // Transcript files are JSONL; skip malformed/log lines.
+      // Malformed JSONL lines are skipped.
     }
   }
+}
+
+export function lastAssistantFromJsonl(raw: string | undefined): string | undefined {
+  if (!raw?.trim()) return undefined;
+  let last: string | undefined;
+  visitJsonlValues(raw, (parsed) => {
+    const records = Array.isArray(parsed) ? parsed : [parsed];
+    for (const item of records) {
+      if (!isRecord(item)) continue;
+      const text = assistantText(item);
+      if (text !== undefined) last = text;
+    }
+  });
   return last;
 }

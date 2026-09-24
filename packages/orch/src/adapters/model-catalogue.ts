@@ -93,16 +93,19 @@ export function createModelCatalogue(orchDir: OrchDir, logger: Logger): ModelCat
     if (isStale(answer)) void queryInBackground(command, bin, argv, stdin);
   }
 
+  function readCachedCatalogue(command: string, bin: string, argv: readonly string[], stdin: string | undefined): StoredCatalogue | undefined {
+    const answer = catalogues().get(command);
+    if (answer) refreshStaleCatalogue(answer, command, bin, argv, stdin);
+    return answer;
+  }
+
   /** Run a harness's model-listing command. A stored answer is served at once and re-queried in
    * the background once stale, so only a harness never asked before makes the caller wait.
    * Empty string when it cannot answer, reason on stdout. */
   function read(bin: string, argv: readonly string[], stdin?: string): string {
     const command = commandLine(bin, argv);
-    const answer = catalogues().get(command);
-    if (answer) {
-      refreshStaleCatalogue(answer, command, bin, argv, stdin);
-      return answer.stdout;
-    }
+    const answer = readCachedCatalogue(command, bin, argv, stdin);
+    if (answer) return answer.stdout;
     try {
       const stdout = retryingSync(command, () => execFileSync(bin, [...argv], { ...CATALOGUE_EXEC, input: stdin, stdio: ["pipe", "pipe", "ignore"] }), CATALOGUE_RETRY);
       record(command, stdout);
@@ -118,11 +121,8 @@ export function createModelCatalogue(orchDir: OrchDir, logger: Logger): ModelCat
    * skipped silently — orch warms every harness it knows of, selected or not. */
   function warm(bin: string, argv: readonly string[], stdin?: string): Promise<void> {
     const command = commandLine(bin, argv);
-    const answer = catalogues().get(command);
-    if (answer) {
-      refreshStaleCatalogue(answer, command, bin, argv, stdin);
-      return Promise.resolve();
-    }
+    const answer = readCachedCatalogue(command, bin, argv, stdin);
+    if (answer) return Promise.resolve();
     if (!binaryOnPath(bin)) return Promise.resolve();
     return queryInBackground(command, bin, argv, stdin);
   }

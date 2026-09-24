@@ -1,8 +1,11 @@
 import { ADAPTER_IDS, LIFECYCLE_VERBS, type AdapterId, type LifecycleVerb, type ShimRole, type SpawnOpts } from "../types/adapter.ts";
 
-/** `--model <model>` when the spawn names one. */
-export function modelFlag(opts: SpawnOpts): string[] {
-  return opts.model ? ["--model", opts.model] : [];
+export function buildInteractiveArgv(command: string, opts: SpawnOpts): string[] {
+  return [command, ...(opts.model ? ["--model", opts.model] : [])];
+}
+
+export function buildHeadlessArgv(command: string, mode: readonly string[], opts: SpawnOpts, prompt: string): string[] {
+  return [command, ...mode, ...(opts.model ? ["--model", opts.model] : []), prompt];
 }
 
 /** The shim role, bound to the adapter that installs and diagnoses it. */

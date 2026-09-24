@@ -189,18 +189,23 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
     }
     toast.error(`${kind} → ${agent.name} failed`, { description: result.reason });
   };
+  const runAgentAction = async (action: () => Promise<void>) => {
+    setActing(true);
+    await action();
+    setActing(false);
+  };
   const answerQuestion = async () => {
     const text = answer.trim();
     if (!text || acting) return;
-    setActing(true);
-    const result = await answerAgent({ data: { key: agent.key, text } });
-    setActing(false);
-    if ("daemon" in result) {
-      toast.error(`answer → ${agent.name} failed`, { description: result.reason });
-      return;
-    }
-    toast.success(`answer → ${agent.name}`);
-    setAnswer("");
+    await runAgentAction(async () => {
+      const result = await answerAgent({ data: { key: agent.key, text } });
+      if ("daemon" in result) {
+        toast.error(`answer → ${agent.name} failed`, { description: result.reason });
+        return;
+      }
+      toast.success(`answer → ${agent.name}`);
+      setAnswer("");
+    });
   };
   const lifecycle = async (verb: "reset" | "reload" | "restart") => {
     if (acting) return;
@@ -217,14 +222,14 @@ function AgentFocus({ agent }: { agent: FleetAgent }) {
   const saveModel = async () => {
     const value = model.trim();
     if (!value || acting) return;
-    setActing(true);
-    const result = await setAgentModel({ data: { key: agent.key, model: value } });
-    setActing(false);
-    if ("daemon" in result) {
-      toast.error(`model → ${agent.name} failed`, { description: result.reason });
-      return;
-    }
-    toast.success(`model → ${result.applied}`);
+    await runAgentAction(async () => {
+      const result = await setAgentModel({ data: { key: agent.key, model: value } });
+      if ("daemon" in result) {
+        toast.error(`model → ${agent.name} failed`, { description: result.reason });
+        return;
+      }
+      toast.success(`model → ${result.applied}`);
+    });
   };
 
   return (

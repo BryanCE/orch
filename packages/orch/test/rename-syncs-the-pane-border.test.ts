@@ -26,8 +26,8 @@ import { captureCommand } from "./helpers/stdout.ts";
  *
  * The operator watches the panes. With 8 panes across 2 tabs, if the border is
  * the stale name then the one artifact they actually look at is the one that is
- * wrong — which is the exact failure `skills/orch/SKILL.md` names ("a stale name
- * is worse than an ordinal because it actively lies").
+ * wrong — which is the exact failure `skills/orch/reference/fleet.md` names ("a
+ * stale name lies").
  *
  * This is two names for one fact. A name is ONE piece of mutable display metadata
  * on an agent, and Rule 9 forbids two mechanisms for one fact. The port seam

@@ -13,6 +13,7 @@ import { die } from "../target.ts";
 import { resolveLifecycle } from "../resolve.ts";
 import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
+import { usageError } from "../../cli/usage.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
 import { STREAM_VERBS } from "../events.ts";
@@ -227,11 +228,12 @@ function closeTargetOf(wire: CloseTargetWire): CloseTarget {
 }
 
 export async function cmdClose(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("close", args);
+  const invocation = parseCommand("close", args);
+  const { flags, positional } = invocation;
   const all = flags.has("--all");
   const stream = flags.has("--stream");
   const json = flags.has("--json");
-  if (!all && !positional.length) die("usage: orch close <target>... | --all [--stream] [--json]");
+  if (!all && !positional.length) throw usageError(invocation);
 
   const answer = await readRpc(services, "close-targets", { caller: callerCredential(), targets: [...positional], all });
   if (answer.refusal !== null) die(answer.refusal);
@@ -239,11 +241,12 @@ export async function cmdClose(services: Services, args: string[]): Promise<void
 }
 
 export async function cmdAbort(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("abort", args);
+  const invocation = parseCommand("abort", args);
+  const { flags, positional } = invocation;
   const json = flags.has("--json");
   const target = positional[0];
   const text = positional.slice(1).join(" ");
-  if (!target) die("usage: orch abort <target> [<text...>] [--json]");
+  if (!target) throw usageError(invocation);
   // Abort itself has no close-authority gate. Lifecycle resolution still scopes a
   // driving session by its open lease; the operator remains unscoped.
   const { backend, handle, entity } = await resolveLifecycle(services, target);

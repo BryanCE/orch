@@ -1,56 +1,31 @@
-import { recipientOf } from "../../entities/lookup.ts";
-import { recipientLabel } from "../../recipient.ts";
 import { isAgentId } from "../../backends/identity.ts";
 import { retryingAsync } from "../../retry.ts";
-import { workerPrompt } from "../../worker-prompt.ts";
-import { isRecord } from "../../util.ts";
-import { workerHeaderContextOf } from "../../policy/spawner.ts";
-import { getAdapter } from "../../adapters/registry.ts";
-import { governanceFlags, readRpc, writeRpc } from "../daemon.ts";
+import { readRpc } from "../daemon.ts";
 import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
 import { die } from "../target.ts";
-import { resolveEntity, resolveLifecycle } from "../resolve.ts";
-import { whoAmI, refuseNonOperatorOverride, type CallerSelf } from "../self.ts";
+import { resolveLifecycle } from "../resolve.ts";
+import { refuseNonOperatorOverride, type CallerSelf } from "../self.ts";
+import { durationSpan } from "../../cli/duration.ts";
+import { usageError } from "../../cli/usage.ts";
 import type { Invocation } from "../../cli/spec.ts";
 import type { DaemonClient, Services } from "../../types/services.ts";
 import type { Logger } from "../../types/core.ts";
 import { describeHandle } from "../../backends/backend.ts";
-import { parseCount } from "../panes.ts";
 
 export function lifecycleLogger(logger: Logger, key: string) {
   return isAgentId(key) ? logger.forAgent(key) : logger;
 }
 
-/** Dispatch a prompt and retry once when the pane never enters working state. */
-export async function cmdRun(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("run", args);
-  const raw = flags.has("--raw");
-  const json = flags.has("--json");
-  const gov = governanceFlags(flags);
-  const target = positional[0];
-  const prompt = positional.slice(1).join(" ");
-  if (!target || !prompt) die('usage: orch run <target> "<prompt>" [--raw] [--steal] [--cross-space] [--json]');
-  const self = await whoAmI(services);
-  const resolved = await resolveEntity(services, target, { crossSpace: gov.crossSpace });
-  if (!resolved.entity.paneId) die(`Target "${target}" has no pane.`);
-  const settings = services.settings.current();
-  const headerContext = workerHeaderContextOf(self, settings, resolved.view?.cwd);
-  const adapter = getAdapter(resolved.view?.harnessId ?? resolved.entity.agent ?? "");
-  const result = await writeRpc(services, "dispatch", { target: resolved.entity.key, text: workerPrompt(prompt, raw, adapter, headerContext) }, gov);
-  const recipient = recipientOf(resolved.view ?? undefined, resolved.entity.space ?? "space", resolved.entity.key);
-  if (json) process.stdout.write(JSON.stringify({ target: resolved.entity.paneId, recipient, dispatched: true, ...(isRecord(result) ? result : {}) }) + "\n");
-  else process.stdout.write(`Dispatched to ${recipientLabel(recipient)}.\n`);
-}
-
 export async function cmdWait(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("wait", args);
+  const invocation = parseCommand("wait", args);
+  const { flags, positional } = invocation;
   const status = flags.value("--status") ?? "done";
-  const defaultTimeout = services.settings.current().timeouts.wait_ms;
-  const timeout = parseCount(flags.value("--timeout"), defaultTimeout);
+  const timeoutText = flags.value("--timeout");
+  const timeout = timeoutText === undefined ? services.settings.current().timeouts.wait_ms : durationSpan(timeoutText, Date.now());
   const json = flags.has("--json");
   const target = positional[0];
-  if (!target) die("usage: orch wait <target> [--status done|idle|working|blocked] [--timeout ms]");
+  if (!target) throw usageError(invocation);
   const { backend, handle, entity } = await resolveLifecycle(services, target);
   if (!entity.paneId) {
     if (json) process.stdout.write(JSON.stringify({ outcome: "answer", reason: "no-pane", text: `${target} has no pane; wait does not apply.` }) + "\n");

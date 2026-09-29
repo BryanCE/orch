@@ -129,7 +129,7 @@ describe("daemon governWrite enforcement", () => {
     expect(() => governWrite(dir, "targetaaa1", { actor: "actoraaaa1", text: "hi" })).toThrow(/space wall/);
   });
 
-  test("--cross-space clears the wall but the lease still applies", () => {
+  test("--space clears the wall but the lease still applies", () => {
     const dir = freshDir();
     liveOrch(dir, "holderaaa1");
     agent(dir, "actoraaaa1");

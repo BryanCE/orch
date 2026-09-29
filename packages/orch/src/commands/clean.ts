@@ -14,6 +14,7 @@ import {
 import { die } from "./target.ts";
 import { whoAmI } from "./self.ts";
 import { parseCommand } from "./registry.ts";
+import { usageError } from "../cli/usage.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { Logger } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
@@ -35,7 +36,7 @@ function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: st
       removeMergedWorktree(repoRoot, worktreePath, branch);
       if (!json) process.stdout.write(`Removed orphan worktree ${worktreePath} (${branch}; empty or merged).\n`);
     } else if (!force) {
-      if (!json) process.stdout.write(`Kept orphan worktree ${worktreePath} (${branch}; ${discardReason}). Re-run with --force to discard it.\n`);
+      if (!json) process.stdout.write(`Kept orphan worktree ${worktreePath} (${branch}; ${discardReason}). Re-run with --all to discard it.\n`);
     } else {
       removeDiscardedWorktree(repoRoot, worktreePath, branch);
       if (!json) process.stdout.write(`Removed orphan worktree ${worktreePath} (${branch}); discarded ${discardReason}.\n`);
@@ -85,7 +86,7 @@ function closeDeadAgentWrites(json: boolean, closed: number): number {
 function nothingToReapMessage(liveHolders: readonly string[]): string {
   if (liveHolders.length === 0) return "Nothing to clean - no agent dirs exist.\n";
   return `Nothing to clean - ${liveHolders.length} agent${liveHolders.length === 1 ? " is" : "s are"} live: ${liveHolders.join(", ")}. `
-    + `--force reaps DEAD agents only; close them first ('orch close --all'), then retry.\n`;
+    + `--all reaps DEAD agents only; close them first ('orch close --all'), then retry.\n`;
 }
 
 /** Print the forced sweep performed by orchd. */
@@ -99,17 +100,18 @@ function removeDeadAgentDirs(json: boolean, swept: ResultOf<"clean">): string[] 
 }
 
 /** Bare `orch clean` removes only what names no agent and closes writes nobody
- *  will read. Ended agents are history; `--force` is the one way to reap them. */
+ *  will read. Ended agents are history; `--all` is the one way to reap them. */
 export async function cmdClean(services: Services, args: string[]): Promise<void> {
   // A sweep reaps records and worktrees the caller does not own, which is
   // destructive maintenance: the user's or the pack orch's call, never a
   // slave's. It refuses before reading anything, so nothing is mutated.
   const self = await whoAmI(services);
   if (self.kind === "agent") die("orch clean is operator-only: a spawned agent never reaps records it does not own. Ask the user or your orch to run it.");
-  const { flags, positional } = parseCommand("clean", args);
-  if (positional.length > 0) die("usage: orch clean [--force] [--worktrees] [--json]");
+  const invocation = parseCommand("clean", args);
+  const { flags } = invocation;
+  if (invocation.positional.length > 0) throw usageError(invocation);
   const json = flags.has("--json");
-  const force = flags.has("--force");
+  const force = flags.has("--all");
   const swept = await writeRpc(services, "clean", { force });
   const malformed = removeMalformedAgentDirs(json, swept.malformed);
   const closed = closeDeadAgentWrites(json, swept.closed);

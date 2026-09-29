@@ -6,11 +6,8 @@ import { readGroupLayout } from "../../backends/tiling.ts";
 import { dispatchToAgent } from "../control.ts";
 import { errorMessage, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/client/reach.ts";
-import { readFleet, type FleetSnapshot } from "../fleet.ts";
-import { admissionFleet } from "./admission.ts";
 import type { CallerSelf } from "../self.ts";
 import { isAgentId } from "../../backends/identity.ts";
-import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../../policy/capacity.ts";
 import type { Backend } from "../../types/backend.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { Services } from "../../types/services.ts";
@@ -36,7 +33,6 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
   const pending = new Map(created.map((c) => [c.key, c]));
   const attached = new Map<string, CreatedAgent>();
   const deadline = Date.now() + timeouts.spawn_attach_ms;
-  if (!json) process.stdout.write("\nWaiting for agents to attach:\n");
   while (pending.size && Date.now() < deadline) {
     let answer: ResultOf<"status"> | null = null;
     try {
@@ -49,7 +45,7 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
       if (keys.has(key)) {
         pending.delete(key);
         attached.set(key, agent);
-        if (!json) process.stdout.write(`  ok      ${agent.handle}  ${agent.name}\n`);
+        if (!json) process.stdout.write(`ok      ${agent.handle}  ${agent.name}\n`);
       }
     }
     if (pending.size) await sleep(timeouts.spawn_attach_poll_ms);
@@ -59,7 +55,7 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
   // launch read as success and dispatch into agents that never came up.
   for (const agent of pending.values()) {
     spawnLogger(logger, agent.key).error("spawn.stalled", { handle: agent.handle, name: agent.name });
-    process.stdout.write(`  STALLED ${agent.handle}  ${agent.name} - bridge never attached; try: orch restart ${agent.name}\n`);
+    process.stdout.write(`STALLED ${agent.handle}  ${agent.name} - bridge never attached; try: orch restart ${agent.name}\n`);
   }
   if (pending.size) process.exitCode = 1;
   return [...attached.values()];
@@ -116,27 +112,6 @@ async function reportControlPlaneOutage(orchDir: OrchDir, logger: Logger, placem
   return outage;
 }
 
-function printSpawnAgentLines(settings: SpawnSettings, created: readonly CreatedAgent[], backend: Backend, group: string, tabLabel: string): void {
-  if (!settings.json) {
-    for (const agent of created) process.stdout.write(`${agent.handle}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
-    printLayout(backend, group, "\nFinal tiling:");
-  }
-}
-
-async function printFleetCapacitySummary(services: Pick<Services, "settings" | "orchDir" | "logger">, self: CallerSelf, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], tabLabel: string): Promise<void> {
-  const fleet: FleetSnapshot = await readFleet(services, true);
-  const { views, presence } = admissionFleet(fleet);
-  if (!settings.json) {
-    const caller = self.id ?? undefined;
-    const callerRoot = caller === undefined
-      ? created.map((agent) => views.get(agent.key)?.rootAgentId).find((root): root is string => root !== undefined)
-      : views.get(caller)?.rootAgentId;
-    const capacity = computeFleetCapacity(views, presence, settingsFile, { packRootId: callerRoot });
-    process.stdout.write(`\nSpawned ${created.length} (pack now ${packsUsed(capacity)}/${settingsFile.fleet.max_agents_per_pack}) on tab "${tabLabel}" (no focus stolen).\n`);
-    process.stdout.write(`${formatCapacityLine(capacity, callerRoot)}\n`);
-  }
-}
-
 function warnUnregisteredAgents(logger: Logger, created: readonly CreatedAgent[], registeredAgents: readonly CreatedAgent[]): void {
   const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
   for (const agent of created) {
@@ -180,12 +155,10 @@ async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settin
   return dispatches;
 }
 
-export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
-  printSpawnAgentLines(settings, created, backend, group, tabLabel);
+export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, tabLabel: string, created: CreatedAgent[]): Promise<void> {
   reportShortfall(logger, settings.agents.length, created.length);
   const registeredAgents = await confirmAgentsCameUp(services.orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settingsFile.timeouts, settings.json);
   const registered = registeredAgents?.length ?? null;
-  await printFleetCapacitySummary(services, self, settingsFile, settings, created, tabLabel);
   if (registeredAgents) warnUnregisteredAgents(logger, created, registeredAgents);
   const pinEntries = buildSpawnPinEntries(registeredAgents, settings);
   const warnings = await pinModels(services, logger, pinEntries);
@@ -202,5 +175,4 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
     dispatches,
     daemon: outage ?? "ok",
   }) + "\n");
-  else process.stdout.write(`\n'orch status' shows the fleet.\n`);
 }

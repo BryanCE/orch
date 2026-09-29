@@ -5,6 +5,7 @@ import { admitLaunchModel, pinModels } from "../spawn/models.ts";
 import { agentFlags, pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { readRpc, writeRpc } from "../daemon.ts";
 import { parseCommand } from "../registry.ts";
+import { usageError } from "../../cli/usage.ts";
 import { die } from "../target.ts";
 import { resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
 import { whoAmI } from "../self.ts";
@@ -16,10 +17,10 @@ import type { Services } from "../../types/services.ts";
 interface ClearedAgent { key: string; handle: string; name: string }
 
 /** Clear one agent's session and wait for it to come back ready. */
-export async function clearSession(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string, force: boolean): Promise<ClearedAgent> {
+export async function clearSession(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string, steal: boolean): Promise<ClearedAgent> {
   const self = await whoAmI(services);
   const resolved = await resolveLifecycle(services, target);
-  refuseForeignHolder(self, target, resolved, force);
+  refuseForeignHolder(self, target, resolved, steal);
   const label = describeHandle(resolved.handle);
   const ent = resolved.entity;
   const { status } = await readRpc(services, "agent-status", { target: ent.key });
@@ -36,17 +37,17 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
 export async function cmdNew(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("reset", args);
   const json = invocation.flags.has("--json");
-  const force = invocation.flags.has("--force");
+  const steal = invocation.flags.has("--steal");
   const flags = agentFlags(invocation.flags);
   const self = await whoAmI(services);
   const { targets } = await lifecycleTargets(services, self, invocation);
-  if (!targets.length) die("usage: orch reset <target>... | --all [--model <model>] [--thinking <level>] [--json]");
+  if (!targets.length) throw usageError(invocation);
   const settings = services.settings.current();
   // Check ownership before resolving model configuration: a driving verb must
   // name a live foreign holder even when this caller has no model selected.
   const owned = await Promise.all(targets.map(async (target) => {
     const resolved = await resolveLifecycle(services, target);
-    refuseForeignHolder(self, target, resolved, force);
+    refuseForeignHolder(self, target, resolved, steal);
     return { target, key: resolved.key, tuning: resolved.view?.tuning ?? NO_TUNING };
   }));
   const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
@@ -58,7 +59,7 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   });
   const cleared: (ClearedAgent & Tuning)[] = [];
   for (const plan of plans) {
-    const agent = await clearSession(services, plan.target, force);
+    const agent = await clearSession(services, plan.target, steal);
     cleared.push({ ...agent, ...plan.tuning });
     if (!json) process.stdout.write(`Cleared session on ${agent.handle}; ready.\n`);
   }

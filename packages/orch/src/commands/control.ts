@@ -8,6 +8,7 @@ import { spawnerIdentityOf, workerHeaderContextOf } from "../policy/spawner.ts";
 import { callDaemon, governanceFlags, readRpc, writeRpc } from "./daemon.ts";
 import { parseCommand } from "./registry.ts";
 import type { Invocation } from "../cli/spec.ts";
+import { usageError } from "../cli/usage.ts";
 import { die, remoteWrite, resultText, targetHost } from "./target.ts";
 import { resolveEntity, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
 import { readFleet, type FleetSnapshot } from "./fleet.ts";
@@ -60,21 +61,24 @@ interface DispatchSettings {
 interface TextCommand {
   readonly json: boolean;
   readonly gov: WriteGovernance;
+  /** The `--space` the target resolves in, as typed. */
+  readonly space: string | undefined;
   readonly target: string;
   readonly text: string;
 }
 
-function parseTextCommand(verb: "steer" | "answer", args: string[], usage: string): TextCommand {
-  const { flags, positional } = parseCommand(verb, args);
+function parseTextCommand(verb: "steer" | "answer", args: string[]): TextCommand {
+  const invocation = parseCommand(verb, args);
+  const { flags, positional } = invocation;
   const target = positional[0];
   const text = positional.slice(1).join(" ");
-  if (!target || !text) die(usage);
-  return { json: flags.has("--json"), gov: governanceFlags(flags), target, text };
+  if (!target || !text) throw usageError(invocation);
+  return { json: flags.has("--json"), gov: governanceFlags(flags), space: flags.value("--space"), target, text };
 }
 
 /** Run the verb on the host that holds the target, with the caller's flags. */
 function forwardText(hosts: OrchSettings["hosts"], remote: { host: string; target: string }, verb: "steer" | "answer", command: TextCommand): void {
-  const flags = [...(command.gov.steal ? ["--steal"] : []), ...(command.gov.crossSpace ? ["--cross-space"] : []), ...(command.json ? ["--json"] : [])];
+  const flags = [...(command.gov.steal ? ["--steal"] : []), ...(command.space === undefined ? [] : ["--space", command.space]), ...(command.json ? ["--json"] : [])];
   remoteWrite(hosts, remote.host, verb, [remote.target, command.text, ...flags]);
 }
 
@@ -93,9 +97,10 @@ function resolveDriveTarget(services: Services, self: CallerSelf, target: string
 
 export async function cmdSteer(services: Services, args: string[]): Promise<void> {
   const self = await whoAmI(services);
-  const { json, gov, target, text } = parseTextCommand("steer", args, "usage: orch steer <target> <text...> [--steal] [--cross-space] [--json]");
+  const command = parseTextCommand("steer", args);
+  const { json, gov, target, text } = command;
   const hosts = services.settings.current().hosts;
-  if (forwardTextToHost(hosts, "steer", { json, gov, target, text })) return;
+  if (forwardTextToHost(hosts, "steer", command)) return;
   const resolved = await resolveDriveTarget(services, self, target, gov);
   const result = await writeRpc(services, "steer", { target: resolved.entity.key, text }, gov);
   const recipient = recipientOf(resolved.view ?? undefined, resolved.entity.space ?? "space", resolved.entity.key);
@@ -123,13 +128,14 @@ function reportControlDelivery(recipient: Recipient, action: "steered" | "answer
 
 export async function cmdBroadcast(services: Services, args: string[]) {
   const self = await whoAmI(services);
-  const { flags, positional } = parseCommand("broadcast", args);
+  const invocation = parseCommand("broadcast", args);
+  const { flags, positional } = invocation;
   let all = flags.has("--all");
   const json = flags.has("--json");
-  const force = flags.has("--force");
+  const steal = flags.has("--steal");
   const text = positional[0];
   const targets = positional.slice(1);
-  if (!text) die('usage: orch broadcast "<text>" [target ...|--all]');
+  if (!text) throw usageError(invocation);
   const explicitAll = all;
   if (!targets.length) all = true;
   const destinations = new Map<string, PresenceEntry>();
@@ -146,7 +152,7 @@ export async function cmdBroadcast(services: Services, args: string[]) {
     }
   }
   for (const target of targets) {
-    const resolved = await resolveOwnedTarget(services, self, target, { override: force });
+    const resolved = await resolveOwnedTarget(services, self, target, { override: steal });
     if (!resolved.entity.presence) die(`Target "${target}" has no agent dir.`);
     resolvedByKey.set(resolved.entity.key, resolved);
     destinations.set(resolved.entity.presence.key, resolved.entity.presence);
@@ -180,12 +186,13 @@ export async function cmdBroadcast(services: Services, args: string[]) {
 
 export async function cmdPipe(services: Services, args: string[]) {
   const self = await whoAmI(services);
-  const { flags, positional } = parseCommand("pipe", args);
+  const invocation = parseCommand("pipe", args);
+  const { flags, positional } = invocation;
   const json = flags.has("--json");
   const src = positional[0];
   const dst = positional[1];
   const instruction = positional.slice(2).join(" ");
-  if (!src || !dst) die('usage: orch pipe <src> <dst> ["instruction"] [--json]');
+  if (!src || !dst) throw usageError(invocation);
   void self;
   const resolvedSource = await resolveEntity(services, src);
   const source = resolvedSource.entity;
@@ -205,9 +212,10 @@ export async function cmdPipe(services: Services, args: string[]) {
 
 export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
   const self = await whoAmI(services);
-  const { json, gov, target, text } = parseTextCommand("answer", args, 'usage: orch answer <target> "<text>" [--steal] [--cross-space] [--json]');
+  const command = parseTextCommand("answer", args);
+  const { json, gov, target, text } = command;
   const hosts = services.settings.current().hosts;
-  if (forwardTextToHost(hosts, "answer", { json, gov, target, text })) return;
+  if (forwardTextToHost(hosts, "answer", command)) return;
   const resolved = await resolveDriveTarget(services, self, target, gov);
   if (!resolved.entity.presence) die(`Target "${target}" has no agent dir.`);
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
@@ -219,12 +227,13 @@ export async function cmdAnswer(services: Services, args: string[]): Promise<voi
 
 export async function cmdModel(services: Services, args: string[]): Promise<void> {
   const self = await whoAmI(services);
-  const { flags, positional } = parseCommand("model", args);
+  const invocation = parseCommand("model", args);
+  const { flags, positional } = invocation;
   const json = flags.has("--json");
   const gov = governanceFlags(flags);
   const target = positional[0];
   const modelArg = positional[1];
-  if (!target || !modelArg) die("usage: orch model <target> <model[:thinking]> [--steal] [--cross-space] [--no-wait]");
+  if (!target || !modelArg) throw usageError(invocation);
   const resolved = await resolveDriveTarget(services, self, target, gov);
   const ent = resolved.entity;
   const handle = ent.paneId ?? ent.key;
@@ -328,7 +337,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const flags = dispatchFlags(invocation);
   const settings = services.settings.current();
   if (forwardedToTargetHost(settings.hosts, args, flags.positional[0])) return;
-  const dispatchSettings = await resolveDispatchSettings(services, self, flags, settings, gov);
+  const dispatchSettings = await resolveDispatchSettings(services, self, invocation, flags, gov);
   // Address the daemon by the one canonical identity, never the handle: a second
   // registry row keyed by handle forks the agent and makes every later control
   // target ambiguous (dispatch/steer/reset all fail post-first-run).
@@ -377,10 +386,11 @@ export function promptBody(flags: Pick<DispatchFlags, "promptFile" | "positional
   return readPromptFile(flags.promptFile);
 }
 
-async function resolveDispatchSettings(services: Services, self: CallerSelf, flags: DispatchFlags, settings: OrchSettings, gov: WriteGovernance = {}): Promise<DispatchSettings> {
+async function resolveDispatchSettings(services: Services, self: CallerSelf, invocation: Invocation, flags: DispatchFlags, gov: WriteGovernance): Promise<DispatchSettings> {
+  const settings = services.settings.current();
   const target = flags.positional[0];
   const prompt = promptBody(flags);
-  if (!target || !prompt) die('usage: orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model provider/id:think] [--thinking <level>] [--agent adapter]');
+  if (!target || !prompt) throw usageError(invocation);
   const resolved = await resolveDriveTarget(services, self, target, gov);
   const ent = resolved.entity;
   const handle = ent.paneId ?? ent.key;

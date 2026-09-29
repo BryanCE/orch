@@ -2,7 +2,7 @@ import { renderTable } from "../../table.ts";
 import { collapse, truncate } from "../../util.ts";
 import { dim } from "../../tui/screen.ts";
 import { DEAD_HOLDER_DRIVER, NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
-import { formatSpace, displayStatusState, NO_STATUS_FILTER, isTTY } from "./options.ts";
+import { formatSpace, displayStatusState, NO_STATUS_HIDE, isTTY } from "./options.ts";
 import { modelShort } from "../../policy/thinking.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { FleetNames, FleetStatus } from "../../types/daemon.ts";
@@ -34,7 +34,7 @@ export interface StatusTableOptions {
   spaceWide: boolean;
   host: boolean;
   human?: boolean;
-  /** Columns `--filter` removed. */
+  /** Columns `--hide` removed. */
   columns: ReadonlySet<string>;
 }
 
@@ -159,5 +159,5 @@ export function formatStatusTable(fleet: FleetStatus, options: StatusTableOption
 }
 
 export function localStatusTable(fleet: FleetStatus, spaceWide: boolean): string {
-  return formatStatusTable(fleet, { spaceWide, host: false, columns: NO_STATUS_FILTER.columns });
+  return formatStatusTable(fleet, { spaceWide, host: false, columns: NO_STATUS_HIDE.columns });
 }

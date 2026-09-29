@@ -18,7 +18,7 @@ import { compositionUnrecorded, resolveSetupComposition, recordComposition } fro
 import type { SetupComposition } from "../setup/composition.ts";
 import { parseSetupOptions } from "../setup/flags.ts";
 import { parseCommand } from "./registry.ts";
-import { die } from "./target.ts";
+import { usageError } from "../cli/usage.ts";
 import type { SetupOptions } from "../setup/flags.ts";
 import { installPrerequisites, installAdapterShims, wireBinaries, alignEntrypointToRuntime } from "../setup/install.ts";
 import { runSetupSmoke, smokeBlocker } from "../setup/smoke.ts";
@@ -63,7 +63,7 @@ async function offerSkills(
   writeSettingsSkills(services.settings, { install });
   process.stdout.write("Skills:\n");
   if (!install) {
-    process.stdout.write("  not installed - turn it back on with: orch settings skills --install\n");
+    process.stdout.write("  not installed - turn it back on with: orch settings skills --skills\n");
     return;
   }
   for (const placed of installSkills(roots)) process.stdout.write(`  ${describeSkillPlacement(placed)}\n`);
@@ -168,9 +168,9 @@ async function finishSetup(services: Services, options: SetupOptions, gaps: read
 /** Onboarding wizard: record the composition, install prerequisites and adapter shims, wire bins,
  * then run a closing doctor pass. Each step is a single-purpose helper; this orchestrates them. */
 export async function cmdSetup(services: Services, args: string[]) {
-  const { flags, positional } = parseCommand("setup", args);
-  if (positional.length) die(`orch setup takes no arguments, got ${positional.join(" ")}`);
-  const options = parseSetupOptions(flags);
+  const invocation = parseCommand("setup", args);
+  if (invocation.positional.length) throw usageError(invocation, `orch setup takes no arguments, got ${invocation.positional.join(" ")}`);
+  const options = parseSetupOptions(invocation.flags);
   await initializeSetup(options, services);
 
   // `currentOrNull`: setup is the command that writes settings.json, so an absent file is the
@@ -223,8 +223,8 @@ export function setupRequiredMessage(orchDir: OrchDir): string {
   // <id> and leaving the reader to go find them.
   return `orch is not set up yet - no harness/backend recorded in ${settingsPath(orchDir)}.\n`
     + `Run: orch setup\n`
-    + `Non-interactive: orch setup --yes --agent <${ADAPTER_IDS.join("|")}> `
-    + `--backend <${BACKEND_IDS.join("|")}> [--runtime ${ORCH_RUNTIMES.join("|")}]`;
+    + `Non-interactive: orch setup --yes --harness <${ADAPTER_IDS.join("|")}> `
+    + `--plexer <${BACKEND_IDS.join("|")}> [--runtime ${ORCH_RUNTIMES.join("|")}]`;
 }
 
 /** Walk the first run through the setup wizard, then dispatch the original command via the injected dispatcher. */

@@ -32,6 +32,7 @@ import { callerCredential } from "../identity/credential.ts";
 import { parseCommand } from "./registry.ts";
 import type { ParsedFlags } from "../cli/spec.ts";
 import { die } from "./target.ts";
+import { usageError } from "../cli/usage.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
 import type { OrchDir } from "../types/core.ts";
 import type { DaemonClient, Services } from "../types/services.ts";
@@ -64,7 +65,7 @@ async function waitForDaemon(orchDir: OrchDir, previousStartedAt?: string): Prom
 export function governanceFlags(flags: ParsedFlags): WriteGovernance {
   const gov: WriteGovernance = {};
   if (flags.has("--steal")) gov.steal = true;
-  if (flags.has("--cross-space")) gov.crossSpace = true;
+  if (flags.value("--space") !== undefined) gov.crossSpace = true;
   return gov;
 }
 
@@ -200,25 +201,26 @@ async function reloadDaemon(orchDir: OrchDir, json = false): Promise<void> {
 }
 
 export async function cmdDaemon(services: Services, args: string[]): Promise<void> {
-  const { command, flags, positional } = parseCommand("daemon", args);
+  const invocation = parseCommand("daemon", args);
+  const { command, flags, positional } = invocation;
   const json = flags.has("--json");
-  if (positional.length > 0) die(`usage: ${command.usage}`);
+  if (positional.length > 0) throw usageError(invocation);
   switch (command.name) {
     case "start": return startDaemon(services.orchDir, services.logger, flags.has("--fg"), json);
     case "stop": return stopDaemon(services.orchDir, json);
     case "status": return statusDaemon(services.orchDir, json);
     case "reload": return reloadDaemon(services.orchDir, json);
-    default: die(`usage: ${command.usage}`);
+    default: throw usageError(invocation);
   }
 }
 
 export async function cmdWork(services: Services, args: string[]) {
-  const { flags, positional } = parseCommand("work", args);
-  const json = flags.has("--json");
-  const once = flags.has("--once");
-  if (positional.length > 0) die("usage: orch work [--once] [--json]");
+  const invocation = parseCommand("work", args);
+  const json = invocation.flags.has("--json");
+  const pass = invocation.flags.has("--pass");
+  if (invocation.positional.length > 0) throw usageError(invocation);
   await ensureDaemon(services.orchDir, services.logger);
-  if (json) process.stdout.write(JSON.stringify({ once, accepted: true, daemon: "orchd" }) + "\n");
+  if (json) process.stdout.write(JSON.stringify({ pass, accepted: true, daemon: "orchd" }) + "\n");
   else process.stdout.write("orchd is processing the queue.\n");
 }
 

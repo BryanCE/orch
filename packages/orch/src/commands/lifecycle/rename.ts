@@ -10,6 +10,7 @@ import { lifecycleLogger } from "./index.ts";
 import { describeHandle } from "../../backends/backend.ts";
 import { die } from "../target.ts";
 import { parseCommand } from "../registry.ts";
+import { usageError } from "../../cli/usage.ts";
 import type { Backend, BackendHandle } from "../../types/backend.ts";
 import type { AgentView } from "../../types/store.ts";
 import type { Services } from "../../types/services.ts";
@@ -68,16 +69,17 @@ async function renameAgent(
 }
 
 export async function cmdRename(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("rename", args);
+  const invocation = parseCommand("rename", args);
+  const { flags, positional } = invocation;
   const paneLabel = flags.has("--pane");
   const json = flags.has("--json");
-  const force = flags.has("--force");
+  const steal = flags.has("--steal");
   const target = positional[0];
   const name = positional[1];
-  if (!target || !name) die("usage: orch rename <target> <name> [--pane] [--force]");
+  if (!target || !name) throw usageError(invocation);
   const self = await whoAmI(services);
   const resolved = await resolveLifecycle(services, target);
-  refuseForeignHolder(self, target, resolved, force);
+  refuseForeignHolder(self, target, resolved, steal);
   const { backend, handle, key } = resolved;
   // Renaming an agent moves a label only: orch's registry owns the name, the
   // identity key never changes, and every session/daemon route survives it.

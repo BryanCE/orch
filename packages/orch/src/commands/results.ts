@@ -9,6 +9,8 @@ import { callerCredential } from "../identity/credential.ts";
 import { resolveEntity, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
 import { refuseNonOperatorOverride, type CallerSelf, whoAmI } from "./self.ts";
 import { parseCommand } from "./registry.ts";
+import { usageError } from "../cli/usage.ts";
+import type { Invocation } from "../cli/spec.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
 import type { Entity, Logger, OrchDir } from "../types/core.ts";
@@ -51,12 +53,12 @@ function adapterResultDocument(ent: Entity, adapter: AgentAdapter, text: string)
   };
 }
 
-function lookupRemoteResult(services: Services, self: CallerSelf, settings: ReturnType<Services["settings"]["current"]>, remote: NonNullable<ReturnType<typeof targetHost>>, force: boolean): ResultLookup {
+function lookupRemoteResult(services: Services, self: CallerSelf, settings: ReturnType<Services["settings"]["current"]>, remote: NonNullable<ReturnType<typeof targetHost>>, steal: boolean): ResultLookup {
   refuseNonOperatorOverride(self, "remote targets");
   const host = settings.hosts[remote.host];
   const destination = host?.dest;
   if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
-  const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(force ? ["--force"] : []), "--json"]), { timeoutMs: host.timeout_ms });
+  const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(steal ? ["--steal"] : []), "--json"]), { timeoutMs: host.timeout_ms });
   if (!result.ok) die(`Host "${remote.host}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
   let payload: unknown;
   try { payload = JSON.parse(result.stdout); } catch { payload = result.stdout.trimEnd(); }
@@ -78,8 +80,8 @@ async function resolveResultTarget(services: Services, target: string): Promise<
   }
 }
 
-async function lookupResolvedResult(services: Services, self: CallerSelf, target: string, resolved: ResolvedTarget, force: boolean): Promise<ResultLookup> {
-  await resolveOwnedTarget(services, self, target, { override: force });
+async function lookupResolvedResult(services: Services, self: CallerSelf, target: string, resolved: ResolvedTarget, steal: boolean): Promise<ResultLookup> {
+  await resolveOwnedTarget(services, self, target, { override: steal });
   const ent = resolved.entity;
   const dispatchId = ent.presence?.status?.dispatchId;
   if (dispatchId) {
@@ -106,19 +108,19 @@ async function lookupResolvedResult(services: Services, self: CallerSelf, target
   return { kind: "missing", reason: `No result available for "${target}" (no settled dispatch, no reported result, and no adapter-extractable session text).` };
 }
 
-async function lookupResultBody(services: Services, self: CallerSelf, target: string, force: boolean): Promise<ResultLookup> {
+async function lookupResultBody(services: Services, self: CallerSelf, target: string, steal: boolean): Promise<ResultLookup> {
   const settings = services.settings.current();
   const remote = targetHost(settings.hosts, target);
-  if (remote) return lookupRemoteResult(services, self, settings, remote, force);
+  if (remote) return lookupRemoteResult(services, self, settings, remote, steal);
   const resolved = await resolveResultTarget(services, target);
   if ("kind" in resolved) return resolved;
-  return lookupResolvedResult(services, self, target, resolved, force);
+  return lookupResolvedResult(services, self, target, resolved, steal);
 }
 
 /** Resolve one target without writing output. Refusals become data for multi-target callers. */
-async function lookupResult(services: Services, self: CallerSelf, target: string, force: boolean): Promise<ResultLookup> {
+async function lookupResult(services: Services, self: CallerSelf, target: string, steal: boolean): Promise<ResultLookup> {
   try {
-    return await lookupResultBody(services, self, target, force);
+    return await lookupResultBody(services, self, target, steal);
   } catch (error: unknown) {
     if (error instanceof CommandRefusal) return { kind: "missing", reason: error.message };
     throw error;
@@ -160,11 +162,12 @@ function printResults(entries: readonly { target: string; lookup: ResultLookup }
 }
 
 export async function cmdResult(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("result", args);
-  if (positional.length === 0) die("usage: orch result <target>... [--force] [--json]");
-  const force = flags.has("--force");
+  const invocation = parseCommand("result", args);
+  const { flags, positional } = invocation;
+  if (positional.length === 0) throw usageError(invocation);
+  const steal = flags.has("--steal");
   const self = await whoAmI(services);
-  const entries = await Promise.all(positional.map(async (target) => ({ target, lookup: await lookupResult(services, self, target, force) })));
+  const entries = await Promise.all(positional.map(async (target) => ({ target, lookup: await lookupResult(services, self, target, steal) })));
   printResults(entries, flags.has("--json"));
 }
 
@@ -359,8 +362,9 @@ function writeTailText(ent: Entity, view: SessionView, lines: number): void {
 }
 
 export async function cmdTail(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("tail", args);
-  const target = requireSessionTarget(positional[0], "usage: orch tail <target> [-n N] [--json]");
+  const invocation = parseCommand("tail", args);
+  const { flags } = invocation;
+  const target = requireSessionTarget(invocation);
   const lines = parseCount(flags.value("-n"), 20);
   const resolved = await resolveEntity(services, target);
   const ent = resolved.entity;
@@ -371,8 +375,9 @@ export async function cmdTail(services: Services, args: string[]): Promise<void>
   else writeTailText(ent, view, lines);
 }
 
-function requireSessionTarget(target: string | undefined, usage: string): string {
-  if (!target) die(usage);
+function requireSessionTarget(invocation: Invocation): string {
+  const target = invocation.positional[0];
+  if (!target) throw usageError(invocation);
   return target;
 }
 
@@ -399,8 +404,9 @@ function writeSessionText(ent: Entity, view: SessionView | undefined): void {
 }
 
 export async function cmdSession(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("session", args);
-  const target = requireSessionTarget(positional[0], "usage: orch session <target> [--json]");
+  const invocation = parseCommand("session", args);
+  const { flags } = invocation;
+  const target = requireSessionTarget(invocation);
   const resolved = await resolveEntity(services, target);
   const ent = resolved.entity;
   if (!ent.sessionPath) die(`No session path known for "${target}".`);

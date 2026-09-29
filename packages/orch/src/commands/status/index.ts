@@ -36,8 +36,7 @@ export async function cmdStatus(services: Services, options: StatusOptions): Pro
     caller = offlineCallerScope(services.orchDir);
     orchId = currentOrchId(services.orchDir);
   }
-  if (options.spaceWide) refuseNonOperatorOverride(caller, "--space-wide");
-  if (options.allPanes) refuseNonOperatorOverride(caller, "--all-panes");
+  if (options.all) refuseNonOperatorOverride(caller, "--all");
   if (options.capacity) {
     const settings = services.settings.currentOrNull();
     if (settings === null) throw new Error("capacity unavailable: settings.json does not exist");
@@ -52,7 +51,7 @@ export async function cmdStatus(services: Services, options: StatusOptions): Pro
   const result = await readStatusResult(services, options, caller);
   const settings = options.json ? null : services.settings.currentOrNull();
   if (options.json) {
-    const rows = result.rows.map((row) => filterRowKeys(row, options.filter.columns));
+    const rows = result.rows.map((row) => filterRowKeys(row, options.hide.columns));
     process.stdout.write(JSON.stringify({ names: result.names, rows }, null, 2) + "\n");
     return;
   }
@@ -65,6 +64,6 @@ export async function cmdStatus(services: Services, options: StatusOptions): Pro
     if (footer !== null) process.stdout.write(footer + "\n");
     return;
   }
-  process.stdout.write(formatStatusTable(result, { spaceWide: options.spaceWide, host: result.host, human: options.human, columns: options.filter.columns }) + "\n");
+  process.stdout.write(formatStatusTable(result, { spaceWide: options.all, host: result.host, human: options.human, columns: options.hide.columns }) + "\n");
   if (footer !== null) process.stdout.write(footer + "\n");
 }

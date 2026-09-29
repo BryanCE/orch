@@ -81,7 +81,7 @@ export type ShimBoundaryPlan = ShimBoundaryAnswer | ShimBoundaryInvocation;
 
 /** The four IO steps of the closing smoke round-trip, injected so the orchestration is testable
  * without a live daemon, a model, or a real spawn. Each default is a thin wrapper over the same
- * plumbing `orch spawn`/`orch run`/`orch result` use — the smoke reuses those paths, never
+ * plumbing `orch spawn`/`orch dispatch`/`orch result` use — the smoke reuses those paths, never
  * reimplements them. */
 export interface SmokeSteps {
   /** Spawn one headless agent ON the given prompt and return its identity key; throws when none is recorded. */

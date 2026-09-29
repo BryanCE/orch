@@ -9,6 +9,7 @@ import { createAgentWorktree } from "../worktree.ts";
 import { askDaemon, callDaemon } from "./daemon.ts";
 import { die, remoteWrite } from "./target.ts";
 import { parseCommand } from "./registry.ts";
+import { usageError } from "../cli/usage.ts";
 import type { Invocation, ParsedFlags } from "../cli/spec.ts";
 import type { QueueScopeFlags } from "../types/command.ts";
 import type { DaemonClient } from "../types/services.ts";
@@ -94,9 +95,10 @@ function worktreeOptions(wanted: boolean): Record<string, unknown> {
   return { worktree: true, cwd: worktreePath, branch: `orch/${name}` };
 }
 
-async function queueAdd(services: DaemonClient, { flags, positional }: Invocation, args: string[]): Promise<void> {
+async function queueAdd(services: DaemonClient, invocation: Invocation, args: string[]): Promise<void> {
+  const { flags, positional } = invocation;
   const text = positional.join(" ");
-  if (!text) die('usage: orch queue add "<task text>" [--agent <target>|--pack <target>|--space <id>] [--worktree] [--json]');
+  if (!text) throw usageError(invocation);
   const host = flags.value("--host");
   if (host !== undefined) {
     remoteWrite(services.settings.current().hosts, host, "queue", ["add", ...withoutHostFlag(args.slice(1), host)]);
@@ -110,17 +112,19 @@ async function queueAdd(services: DaemonClient, { flags, positional }: Invocatio
   writeQueueTask(task, flags.has("--json"), task.id);
 }
 
-async function queueCollection(services: DaemonClient, { command, flags, positional }: Invocation): Promise<void> {
-  if (positional.length > 0) die(`usage: orch queue ${command.name} [--json]`);
+async function queueCollection(services: DaemonClient, invocation: Invocation): Promise<void> {
+  const { command, flags, positional } = invocation;
+  if (positional.length > 0) throw usageError(invocation);
   const { tasks } = await askDaemon(services, "queue-list", { history: command.name === "history" });
   if (flags.has("--json")) process.stdout.write(JSON.stringify(tasks, null, 2) + "\n");
   else renderQueueTasks(tasks);
 }
 
-async function queueEdit(services: DaemonClient, { flags, positional }: Invocation): Promise<void> {
+async function queueEdit(services: DaemonClient, invocation: Invocation): Promise<void> {
+  const { flags, positional } = invocation;
   const id = positional[0];
   const text = positional.slice(1).join(" ");
-  if (!id || !text) die("usage: orch queue edit <id> <task text> [--json]");
+  if (!id || !text) throw usageError(invocation);
   await withQueueCaller(services, async (callerId) => {
     const { task } = await callDaemon(services, "queue-edit", { target: id, by: callerId, text });
     writeQueueTask(task, flags.has("--json"), `Edited ${task.id}`);
@@ -128,14 +132,15 @@ async function queueEdit(services: DaemonClient, { flags, positional }: Invocati
 }
 
 /** The one task id a subcommand names, or the usage line. */
-function oneTaskId(positional: readonly string[], usage: string): string {
-  const id = positional[0];
-  if (!id || positional.length !== 1) die(usage);
+function oneTaskId(invocation: Invocation): string {
+  const id = invocation.positional[0];
+  if (!id || invocation.positional.length !== 1) throw usageError(invocation);
   return id;
 }
 
-async function queueTakeOn(services: DaemonClient, { flags, positional }: Invocation): Promise<void> {
-  const id = oneTaskId(positional, "usage: orch queue take-on <id> [--agent <target>] [--json]");
+async function queueTakeOn(services: DaemonClient, invocation: Invocation): Promise<void> {
+  const { flags } = invocation;
+  const id = oneTaskId(invocation);
   const agent = flags.value("--agent");
   await withQueueCaller(services, async (callerId) => {
     const { task } = await callDaemon(services, "queue-take-on", { target: id, taker: agent ?? callerId });
@@ -143,8 +148,9 @@ async function queueTakeOn(services: DaemonClient, { flags, positional }: Invoca
   });
 }
 
-async function queueReap(services: DaemonClient, { flags, positional }: Invocation): Promise<void> {
-  const id = oneTaskId(positional, "usage: orch queue reap <id> [--json]");
+async function queueReap(services: DaemonClient, invocation: Invocation): Promise<void> {
+  const { flags } = invocation;
+  const id = oneTaskId(invocation);
   await withQueueCaller(services, async (callerId) => {
     await callDaemon(services, "queue-reap", { target: id, by: callerId });
     if (flags.has("--json")) process.stdout.write(JSON.stringify({ id, state: "reaped" }) + "\n");
@@ -154,12 +160,12 @@ async function queueReap(services: DaemonClient, { flags, positional }: Invocati
 
 /** `orch queue intake` — the consuming half of space scope (Cq3). Publishing a
  *  task into a space is an offer; this is the pack saying it will take them. */
-async function queueIntake(services: DaemonClient, { flags, positional }: Invocation): Promise<void> {
+async function queueIntake(services: DaemonClient, invocation: Invocation): Promise<void> {
+  const { flags, positional } = invocation;
   const space = positional[0];
   const close = flags.has("--close");
-  if (positional.length > 1 || (!space && close)) {
-    die("usage: orch queue intake [<space id>] [--close] [--agent <target>] [--json]");
-  }
+  if (positional.length > 1) throw usageError(invocation);
+  if (!space && close) throw usageError(invocation, "--close needs the <space> it closes");
   await withQueueCaller(services, async (callerId) => {
     const { intakes } = await callDaemon(services, "queue-intake", {
       by: callerId,
@@ -173,8 +179,9 @@ async function queueIntake(services: DaemonClient, { flags, positional }: Invoca
   });
 }
 
-async function queueCancel(services: DaemonClient, { flags, positional }: Invocation): Promise<void> {
-  const id = oneTaskId(positional, "usage: orch queue cancel <id> [--json]");
+async function queueCancel(services: DaemonClient, invocation: Invocation): Promise<void> {
+  const { flags } = invocation;
+  const id = oneTaskId(invocation);
   await withQueueCaller(services, async (callerId) => {
     const { task } = await callDaemon(services, "queue-cancel", { target: id, by: callerId });
     writeQueueTask(task, flags.has("--json"), `Cancelled ${task.id}`);
@@ -207,6 +214,6 @@ export async function cmdQueue(services: Services, args: string[]): Promise<void
       await queueIntake(services, invocation);
       return;
     default:
-      die("usage: orch queue <add|list|history|cancel|edit|take-on|reap|intake> ...");
+      throw usageError(invocation);
   }
 }

@@ -58,7 +58,7 @@ afterEach(() => {
 
 describe("commands/setup", () => {
   test("reads the setup flags in either spelling, with every --model kept in order", () => {
-    const options = parseSetupOptions(parseCommand("setup", ["--agent", "pi", "--plexer=headless", "--model", "pi=a", "--model=claude=b", "-y", "--no-skills"]).flags);
+    const options = parseSetupOptions(parseCommand("setup", ["--harness", "pi", "--plexer=headless", "--model", "pi=a", "--model=claude=b", "-y", "--no-skills"]).flags);
     expect(options.adapterFlag).toBe("pi");
     expect(options.backendFlag).toBe("headless");
     expect(options.modelFlags).toEqual(["pi=a", "claude=b"]);
@@ -67,7 +67,7 @@ describe("commands/setup", () => {
     expect(parseSetupOptions(parseCommand("setup", []).flags).adapterFlag).toBeUndefined();
   });
   test("resolves noninteractive provider sets and defaults", async () => {
-    expect(await resolveProviderSet("adapter", "--agent", "pi,claude", ["pi", "claude"], false, () => Promise.resolve(null))).toEqual(["pi", "claude"]);
+    expect(await resolveProviderSet("adapter", "--harness", "pi,claude", ["pi", "claude"], false, () => Promise.resolve(null))).toEqual(["pi", "claude"]);
     expect(await resolveActiveDefault(["pi", "claude"], false, false, () => Promise.resolve(null))).toBe("pi");
   });
   test("runs non-interactive setup against the requested ORCH_DIR and records the selected composition", async () => {
@@ -103,7 +103,7 @@ describe("commands/setup", () => {
     });
     try {
       const services = createServices({ orchDir, settings: fileSettingsManager(orchDir) });
-      await cmdSetup(services, ["--yes", "--no-install", "--no-skills", "--agent=pi", "--backend=headless", "--runtime=node"]);
+      await cmdSetup(services, ["--yes", "--no-install", "--no-skills", "--harness=pi", "--plexer=headless", "--runtime=node"]);
     } finally {
       Object.defineProperties(adapter, {
         modelWarm: { value: original.modelWarm, configurable: true, enumerable: true, writable: true },

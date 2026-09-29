@@ -11,6 +11,9 @@ export { isNotifyEvent };
 import { notificationHeading, notificationText, oneLine } from "../notify/format.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
+import { usageError } from "../cli/usage.ts";
+import type { Invocation } from "../cli/spec.ts";
+import { readNameList } from "./status/options.ts";
 import { registerCallerSession, whoAmI, refuseNonOperatorOverride } from "./self.ts";
 import { readFleet } from "./fleet.ts";
 import { resolveEntity } from "./resolve.ts";
@@ -41,8 +44,10 @@ export interface EventsOptions {
   sinceSeq: number | undefined;
   once: boolean;
   scope: CallerScopeChoice;
-  /** States the caller dropped, or null for every state — which is the default. */
-  filter: Set<string> | null;
+  /** `--only`: the states kept, or null for every state — which is the default. */
+  only: ReadonlySet<string> | null;
+  /** `--hide`: the states dropped, or null for none. */
+  hide: ReadonlySet<string> | null;
   targets: string[];
 }
 
@@ -77,9 +82,9 @@ export function eventAcceptor(options: EventsOptions, items: ReadonlySet<string>
   };
 }
 
-/** Whether one event survives the caller's `--filter`: a named state is hidden. */
-export function passesStateFilter(filter: ReadonlySet<string> | null): (event: NotifyEvent) => boolean {
-  return (event) => !filter?.has(event.newState);
+/** Whether one event survives the caller's `--only` and `--hide`. */
+export function passesStates(options: Pick<EventsOptions, "only" | "hide">): (event: NotifyEvent) => boolean {
+  return (event) => (options.only === null || options.only.has(event.newState)) && options.hide?.has(event.newState) !== true;
 }
 
 /** Whether one event belongs on the monitor: an agent state in `monitor.on`, a
@@ -101,12 +106,12 @@ function both(first: (event: NotifyEvent) => boolean, second: (event: NotifyEven
 
 export async function cmdEvents(services: Services, args: string[]) {
   const options = parseEventsOptions(args, "events");
-  await streamEvents(services, "events", options, passesStateFilter(options.filter));
+  await streamEvents(services, "events", options, passesStates(options));
 }
 
 export async function cmdMonitor(services: Services, args: string[]) {
   const options = parseEventsOptions(args, "monitor");
-  const shows = both(onMonitor(services.settings.current().monitor.on), passesStateFilter(options.filter));
+  const shows = both(onMonitor(services.settings.current().monitor.on), passesStates(options));
   await streamEvents(services, "monitor", options, shows);
 }
 
@@ -114,7 +119,7 @@ async function streamEvents(services: Services, verb: StreamVerb, options: Event
   await ensureDaemon(services.orchDir, services.logger);
   await registerCallerSession(services);
   const self = await whoAmI(services);
-  if (options.scope === "any") refuseNonOperatorOverride(self, "--space-wide");
+  if (options.scope === "any") refuseNonOperatorOverride(self, "--all");
   const fleet = await readFleet(services, true);
   const items = await eventsItems(services, options, fleet, self);
   const scope = resolveCallerScopeOf(options.scope, self);
@@ -135,12 +140,12 @@ async function streamEvents(services: Services, verb: StreamVerb, options: Event
 }
 
 export async function cmdNotify(services: Services, args: string[]) {
-  const { command, flags, positional } = parseCommand("notify", args);
-  const usage = "usage: orch notify test [--state <state>] [--json]";
-  if (command.name !== "test" || positional.length) die(usage);
+  const invocation = parseCommand("notify", args);
+  const { command, flags, positional } = invocation;
+  if (command.name !== "test" || positional.length) throw usageError(invocation);
   const json = flags.has("--json");
   const state = flags.value("--state") ?? "blocked";
-  if (!isAgentState(state) || state === "asking") die(usage);
+  if (!isAgentState(state) || state === "asking") throw usageError(invocation, `--state cannot be "${state}"`);
   const event: NotifyEvent = {
     type: "transition",
     key: "test:notify",
@@ -209,7 +214,7 @@ function ownedAgentCount(scope: ResolvedCallerScope, views: readonly AgentView[]
 /** What a caller owning nothing is told, in place of an empty stream. */
 function emptyScopeNotice(verb: StreamVerb): string {
   return `orch ${verb}: you own no agents, so nothing can arrive on this stream yet.`
-    + " It covers whatever you spawn or dispatch to from here on; --space-wide watches the rest of your space now.\n";
+    + " It covers whatever you spawn or dispatch to from here on; --all watches the rest of your space now.\n";
 }
 
 export function eventsScopeNotice(
@@ -227,45 +232,43 @@ export function eventsScopeNotice(
     : "watching all agents from now on";
 }
 
-/** `--since-seq <n>`, or a refusal: a replay point that is not an integer names no event. */
-function readSinceSeq(value: string | undefined, usage: string): number | undefined {
+/** `--since-seq <seq>`, or a refusal: a replay point that is not an integer names no event. */
+function readSinceSeq(invocation: Invocation, value: string | undefined): number | undefined {
   if (value === undefined) return undefined;
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed)) die(usage);
+  if (!Number.isSafeInteger(parsed)) throw usageError(invocation, `--since-seq needs an integer, got "${value}"`);
   return parsed;
 }
 
-/** `--filter=working,idle`, or a refusal: an empty list drops nothing, so the flag
- *  was a typo. Same sense as `orch status --filter`: a named state is hidden. */
-function readStateFilter(value: string | undefined, usage: string): Set<string> | null {
-  if (value === undefined) return null;
-  const states = value.split(",").map((state) => state.trim()).filter((state) => state.length > 0);
-  if (states.length === 0) die(usage);
-  return new Set(states);
+/** A state list as a set, or null when the flag is absent. */
+function readStates(invocation: Invocation, flag: string): ReadonlySet<string> | null {
+  const names = readNameList(invocation, flag, invocation.flags.value(flag));
+  return names === null ? null : new Set(names);
 }
 
 /** A named target, refused when blank so it cannot widen the stream. */
-function namedTarget(value: string, usage: string): string {
+function namedTarget(invocation: Invocation, value: string): string {
   const trimmed = value.trim();
-  if (!trimmed) die(usage);
+  if (!trimmed) throw usageError(invocation, "--agent needs a target");
   return trimmed;
 }
 
 export function parseEventsOptions(args: string[], verb: StreamVerb = "events"): EventsOptions {
   // Bare `orch events` is every state of every agent you own, in readable lines,
-  // self-contained enough to act on without a second command. Flags only ever drop
-  // states from it (`--filter`) or widen it to the rest of your space (`--space-wide`).
+  // self-contained enough to act on without a second command. Flags narrow the states
+  // (`--only`, `--hide`) or widen it to the rest of your space (`--all`).
   // `orch monitor` takes the same flags over the `monitor.on` states.
-  const { command, flags, positional } = parseCommand(verb, args);
-  const usage = `usage: ${command.usage}`;
-  const named = [...flags.values("--agent"), ...flags.values("--agent-id")].map((value) => namedTarget(value, usage));
+  const invocation = parseCommand(verb, args);
+  const { flags, positional } = invocation;
+  if (positional.length) throw usageError(invocation);
   return {
     json: flags.has("--json"),
-    sinceSeq: readSinceSeq(flags.value("--since-seq"), usage),
+    sinceSeq: readSinceSeq(invocation, flags.value("--since-seq")),
     once: flags.has("--once"),
-    scope: flags.has("--space-wide") ? "any" : "auto",
-    filter: readStateFilter(flags.value("--filter"), usage),
-    targets: [...positional, ...named],
+    scope: flags.has("--all") ? "any" : "auto",
+    only: readStates(invocation, "--only"),
+    hide: readStates(invocation, "--hide"),
+    targets: flags.values("--agent").map((value) => namedTarget(invocation, value)),
   };
 }
 

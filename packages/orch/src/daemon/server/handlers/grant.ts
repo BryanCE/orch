@@ -13,7 +13,7 @@ export function listGrants(directory: OrchDir): ResultOf<"grants"> {
 /** The host row the approval points at: the machine that had the terminal. */
 export function decideGrant(directory: OrchDir, params: ParamsOf<"grant">): ResultOf<"grant"> {
   const request = pendingGrantRequest(directory, params.target);
-  if (request === null) throw new Error(`no pending request ${params.target}; 'orch grant --list' shows what is waiting.`);
+  if (request === null) throw new Error(`no pending request ${params.target}; 'orch grant list' shows what is waiting.`);
   if (params.decision === "deny") {
     denyGrantRequest(directory, request.id);
     return { id: request.id, decision: "deny", expiresAt: null };

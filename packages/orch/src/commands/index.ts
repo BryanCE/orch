@@ -3,12 +3,12 @@ import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/client/process.t
 import { cmdStatusVerb } from "./status/verb.ts";
 import { cmdSpawn, cmdTile } from "./spawn/index.ts";
 import { cmdAnswer, cmdBroadcast, cmdDispatch, cmdModel, cmdPipe, cmdSteer } from "./control.ts";
-import { cmdRun, cmdWait } from "./lifecycle/index.ts";
+import { cmdWait } from "./lifecycle/index.ts";
 import { cmdNew } from "./lifecycle/reset.ts";
 import { cmdReload, cmdRestart } from "./lifecycle/reload.ts";
 import { cmdRename } from "./lifecycle/rename.ts";
 import { cmdAbort, cmdClose } from "./lifecycle/close.ts";
-import { cmdFocus, cmdKeys, cmdMove, cmdPanes, cmdPeek, cmdTab, cmdTabs, cmdZoom } from "./panes.ts";
+import { cmdFocus, cmdKeys, cmdMove, cmdPane, cmdPeek, cmdTab, cmdZoom } from "./panes.ts";
 import { cmdSpace } from "./space.ts";
 import { cmdQuestions, cmdResult, cmdSession, cmdTail } from "./results.ts";
 import { cmdRuns } from "./runs.ts";
@@ -115,7 +115,7 @@ export const commandHandlers: Record<string, Handler> = {
   status: cmdStatusVerb,
   events: cmdEvents,
   monitor: cmdMonitor,
-  logs: (services, args) => cmdLogs(services, args),
+  logs: cmdLogs,
   notify: cmdNotify,
   questions: cmdQuestions,
   runs: cmdRuns,
@@ -131,10 +131,9 @@ export const commandHandlers: Record<string, Handler> = {
   broadcast: cmdBroadcast,
   tail: (services, args) => cmdTail(services, args),
   session: (services, args) => cmdSession(services, args),
-  panes: (services, args) => cmdPanes(services, args),
+  pane: cmdPane,
   spawn: cmdSpawn,
   tile: cmdTile,
-  run: cmdRun,
   model: cmdModel,
   models: (services, args) => cmdModels(services, args),
   wait: (services, args) => cmdWait(services, args),
@@ -152,7 +151,6 @@ export const commandHandlers: Record<string, Handler> = {
   abort: cmdAbort,
   keys: (services, args) => cmdKeys(services, args),
   peek: (services, args) => cmdPeek(services, args),
-  tabs: (services, args) => cmdTabs(services, args),
   tab: (services, args) => cmdTab(services, args),
   focus: (services, args) => cmdFocus(services, args),
   zoom: (services, args) => cmdZoom(services, args),

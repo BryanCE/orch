@@ -28,6 +28,8 @@ import { admitLaunchModel, pinModels } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
 import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
 import { awaitBridgeAttach, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
+import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
+import { usageError } from "../../cli/usage.ts";
 
 
 // Headless agents are launched BY THE DAEMON, not here: orchd outlives this CLI
@@ -83,7 +85,6 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
       }, {}, settingsFile.timeouts.adapter_command_ms);
       // A headless agent is placed nowhere, so its key is the handle every display uses.
       created.push({ key, handle: key, name });
-      if (!settings.json) process.stdout.write(`${key}  ${name}  [${settings.backend}]\n`);
     } catch (error: unknown) {
       // Stop asking for more, but report the agents already launched: a caller told
       // only "failed" retries the whole spawn and ends up with a duplicate fleet.
@@ -107,16 +108,12 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
     created: created.length,
     registered: registered.length,
   }) + "\n");
-  else {
-    process.stdout.write(`\nSpawned ${created.length} headless agent(s); nothing shows them.\n`);
-    process.stdout.write("'orch status' shows the fleet.\n");
-  }
 }
 
 /** Spawn every requested agent into an already-open tab, balancing as it fills. */
 async function spawnIntoExistingTab(services: Pick<Services, "orchDir" | "logger" | "settings">, self: CallerSelf, fleet: FleetSnapshot, settingsFile: OrchSettings, settings: SpawnSettings, group: BackendGroup, space: string | null, workspace: string | undefined, backend: Backend, names: readonly string[], role: GroupLayoutRole): Promise<void> {
   const created = await growFleetIntoGroup(services, settings, space, workspace, group.id, backend, names, self, fleet, role);
-  await reportSpawnResults(services, self, services.logger, settingsFile, settings, group.id, group.label ?? group.id, created, backend);
+  await reportSpawnResults(services, self, services.logger, settingsFile, settings, group.label ?? group.id, created);
 }
 
 /** Announce a fleet whose control plane is down, and fail the launch. Agents without
@@ -267,12 +264,12 @@ function seatFleetInHome(backend: Backend, groupHome: GroupHomeRole, home: Creat
 /** The group this fleet fills and the coordinate it sits at. A fleet owed a
  *  home opens one and takes its root group; any other fleet opens a group where
  *  placement put it. */
-async function seatFleet(services: DaemonClient, backend: Backend, groupHome: GroupHomeRole, placement: SpawnPlacement, settings: SpawnSettings, prepared: readonly PreparedAgent[]): Promise<{ group: BackendGroup; workspace: string | undefined }> {
+async function seatFleet(services: DaemonClient, backend: Backend, groupHome: GroupHomeRole, placement: SpawnPlacement, settings: SpawnSettings, label: string, prepared: readonly PreparedAgent[]): Promise<{ group: BackendGroup; workspace: string | undefined }> {
   if (placement.homeToOpen === null) {
-    return { group: createSpawnGroup(groupHome, placement.workspace, settings.label, prepared), workspace: placement.workspace };
+    return { group: createSpawnGroup(groupHome, placement.workspace, label, prepared), workspace: placement.workspace };
   }
   const home = await openFleetHome({ services, backend, subject: placement.homeToOpen, cwd: settings.cwd, env: prepared[0]!.env });
-  return { group: seatFleetInHome(backend, groupHome, home, settings.label, prepared), workspace: home.coordinate };
+  return { group: seatFleetInHome(backend, groupHome, home, label, prepared), workspace: home.coordinate };
 }
 
 /** A spawned agent already carries its id; only a driving session registers. */
@@ -297,27 +294,25 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
   const adapter = resolveAdapterOrDie(settings.adapter);
   const { views, presence } = admissionFleet(fleet);
   const names = claimSpawnNames(views, presence, settings.agents.map((agent) => agent.name), space);
-  // `--tab <existing>` fills that tab instead of opening a new one, auto-balancing
-  // as it fills, so no follow-up move/tile is needed. There is no implicit
-  // "grow the fleet under this prefix" path: names are per-slice and unnumbered
-  // so the tab is named explicitly or it is a new one. A home not yet open holds
-  // no tab to fill.
-  const existing = settings.tabExplicit && placement.homeToOpen === null ? findGroupInSpace(backend, placement.workspace, settings.label) : undefined;
+  // `--tab <existing>` fills that tab, balancing as it fills. A home not yet
+  // open holds no tab to fill. With no --tab the fleet opens a tab under a rolled label.
+  const existing = settings.tab !== null && placement.homeToOpen === null ? findGroupInSpace(backend, placement.workspace, settings.tab) : undefined;
   if (existing) {
     assertTabCapacity(settings, existing.label ?? existing.id, readGroupLayout(groupLayout, existing.id).placements.length, names.length);
     return spawnIntoExistingTab(services, self, fleet, settingsFile, settings, existing, space, placement.workspace, backend, names, groupLayout);
   }
-  assertTabCapacity(settings, settings.label, 0, names.length);
+  const label = settings.tab ?? freeTabLabel(liveTabLabels(backend, views, presence));
+  assertTabCapacity(settings, label, 0, names.length);
   const groupHome = backend.groupHome;
   const prepared = prepareAgents(services.orchDir, settings, adapter, names, spawnerIdentityOf(self));
-  const { group, workspace } = await seatFleet(services, backend, groupHome, placement, settings, prepared);
+  const { group, workspace } = await seatFleet(services, backend, groupHome, placement, settings, label, prepared);
   placeRemainingAgents(services.logger, backend, prepared, group.id, workspace, settings.tiling.first_split);
   const created = await launchPrepared(services, prepared, { settings, settingsFile, backend, adapter, space, workspace, groupId: group.id, self, fleet });
   if (created.length === 0) {
     try { groupHome.close(group.id); } catch { /* best effort */ }
     die("all spawns failed");
   }
-  await reportSpawnResults(services, self, services.logger, settingsFile, settings, group.id, group.label ?? settings.label, created, backend);
+  await reportSpawnResults(services, self, services.logger, settingsFile, settings, group.label ?? label, created);
 }
 
 export async function cmdSpawn(services: Services, args: string[]) {
@@ -326,7 +321,8 @@ export async function cmdSpawn(services: Services, args: string[]) {
 }
 
 export async function cmdTile(services: Services, args: string[]) {
-  const { flags, positional } = parseCommand("tile", args);
+  const invocation = parseCommand("tile", args);
+  const { flags, positional } = invocation;
   const json = flags.has("--json");
   const launch = agentFlags(flags);
   const settingsFile = services.settings.current();
@@ -345,7 +341,7 @@ export async function cmdTile(services: Services, args: string[]) {
   const requestedName = positional[1];
   // Tile CREATES an agent, so it names one too. An agent
   // called `tile-3` says nothing about the slice it holds.
-  if (!target || !requestedName) die("usage: orch tile <target> <name> [--cmd <command>] [--dir <path>] [--model <model[:thinking]>]");
+  if (!target || !requestedName) throw usageError(invocation);
 
   await registerSpawner(services);
   const self = await whoAmI(services);

@@ -11,7 +11,7 @@ describe("commands/daemon", () => {
   test("parses governance and validates daemon status", () => {
     const directory = tempOrchDir("orch-command-daemon-");
     try {
-      const { flags, positional } = parseCommand("steer", ["--steal", "x", "--cross-space"]);
+      const { flags, positional } = parseCommand("steer", ["--steal", "x", "--space", "other"]);
       expect(governanceFlags(flags)).toEqual({ steal: true, crossSpace: true });
       expect(positional).toEqual(["x"]);
       expect(RPC_RESULTS["daemon-status"].safeParse({

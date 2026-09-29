@@ -3,6 +3,8 @@ import { askDaemon, callDaemon } from "./daemon.ts";
 import { homeLabel, openHome } from "./home.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
+import { usageError } from "../cli/usage.ts";
+import { requiredWord } from "./panes.ts";
 import { errorMessage } from "../util.ts";
 import type { SpaceHomeRole } from "../types/backend.ts";
 import type { SpaceEnvironment } from "../types/command.ts";
@@ -70,7 +72,6 @@ async function listSpaces(env: SpaceEnvironment, json: boolean): Promise<void> {
 }
 
 async function createSpace(env: SpaceEnvironment, name: string, json: boolean): Promise<void> {
-  if (!name) throw new Error("usage: orch space create <name> [--json]");
   // The spaces row lands FIRST: the home row's foreign key names it. The home is
   // part of what was asked for, so its failure fails the whole create.
   const space = await callDaemon(env.services, "space-create", { name });
@@ -81,8 +82,7 @@ async function createSpace(env: SpaceEnvironment, name: string, json: boolean): 
   emit({ space, home: role === null ? "none" : "created" }, `Created space "${name}".`, json);
 }
 
-async function renameSpace(env: SpaceEnvironment, target: string | undefined, name: string | undefined, json: boolean): Promise<void> {
-  if (target === undefined || name === undefined) throw new Error("usage: orch space rename <space> <name> [--json]");
+async function renameSpace(env: SpaceEnvironment, target: string, name: string, json: boolean): Promise<void> {
   // orch's name is orch's own write and commits first; plexer chrome is a
   // separate action whose failure never rewrites whether the rename happened.
   const renamed = await callDaemon(env.services, "space-rename", { target, name, plexerId: env.plexerId });
@@ -97,8 +97,7 @@ async function renameSpace(env: SpaceEnvironment, target: string | undefined, na
   );
 }
 
-async function deleteSpace(env: SpaceEnvironment, target: string | undefined, json: boolean): Promise<void> {
-  if (target === undefined) throw new Error("usage: orch space delete <space> [--json]");
+async function deleteSpace(env: SpaceEnvironment, target: string, json: boolean): Promise<void> {
   // orchd refuses an occupied space before any plexer window closes.
   const deleted = await callDaemon(env.services, "space-delete", { target, plexerId: env.plexerId });
   const home = drivableHome(env, deleted);
@@ -110,8 +109,7 @@ async function deleteSpace(env: SpaceEnvironment, target: string | undefined, js
   );
 }
 
-async function focusSpace(env: SpaceEnvironment, target: string | undefined, json: boolean): Promise<void> {
-  if (target === undefined) throw new Error("usage: orch space focus <space> [--json]");
+async function focusSpace(env: SpaceEnvironment, target: string, json: boolean): Promise<void> {
   const space = await askDaemon(env.services, "space", { target, plexerId: env.plexerId });
   const home = drivableHome(env, space);
   if (home === null) {
@@ -122,21 +120,18 @@ async function focusSpace(env: SpaceEnvironment, target: string | undefined, jso
   emit({ space: { id: space.id, name: space.name }, focused: true }, `Focused space "${space.name}".`, json);
 }
 
-const USAGE = "usage: orch space list|create <name>|rename <space> <name>|delete <space>|focus <space> [--json]";
-
 /** Run one `orch space` subcommand against a resolved environment. Refusals throw;
  *  the CLI entry point below is the single place that turns one into an exit code. */
 export async function runSpace(env: SpaceEnvironment, args: string[]): Promise<void> {
-  const { command, flags, positional } = parseCommand("space", args);
-  const json = flags.has("--json");
-  switch (command.name) {
-    case "create": return createSpace(env, positional[0] ?? "", json);
-    case "rename": return renameSpace(env, positional[0], positional[1], json);
-    case "delete": return deleteSpace(env, positional[0], json);
-    case "focus": return focusSpace(env, positional[0], json);
-    case "list": return listSpaces(env, json);
+  const invocation = parseCommand("space", args);
+  const json = invocation.flags.has("--json");
+  switch (invocation.command.name) {
+    case "create": return createSpace(env, requiredWord(invocation, 0), json);
+    case "rename": return renameSpace(env, requiredWord(invocation, 0), requiredWord(invocation, 1), json);
+    case "delete": return deleteSpace(env, requiredWord(invocation, 0), json);
+    case "focus": return focusSpace(env, requiredWord(invocation, 0), json);
     default:
-      if (positional.length) throw new Error(USAGE);
+      if (invocation.positional.length) throw usageError(invocation);
       return listSpaces(env, json);
   }
 }

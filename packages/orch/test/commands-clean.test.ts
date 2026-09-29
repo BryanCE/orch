@@ -34,7 +34,7 @@ describe("commands/clean", () => {
       seedLiveProcess(root, "liveagent1");
       seedStatus(root, "liveagent1", {});
       ensurePresenceAgentDir("liveagent1", root);
-      await cmdClean(await servedServices({ orchDir: root, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers), ["--force", "--json"]);
+      await cmdClean(await servedServices({ orchDir: root, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers), ["--all", "--json"]);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
       expect(loadPresence(root).has("deadagent1")).toBe(false);
@@ -69,7 +69,7 @@ describe("commands/clean", () => {
     } finally { while (servers.length) await servers.pop()!.close(); closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 
-  test("--force reaps the ended agent and closes its queued writes", async () => {
+  test("--all reaps the ended agent and closes its queued writes", async () => {
     const root = tempOrchDir("orch-command-clean-force-");
     const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
@@ -77,7 +77,7 @@ describe("commands/clean", () => {
       ensurePresenceAgentDir("deadagent1", root);
       insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
 
-      await cmdClean(await servedServices({ orchDir: root, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers), ["--force", "--json"]);
+      await cmdClean(await servedServices({ orchDir: root, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers), ["--all", "--json"]);
 
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(selectOutboxMessage(root, "to-dead")?.state).toBe("undeliverable");

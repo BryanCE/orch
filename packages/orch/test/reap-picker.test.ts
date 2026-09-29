@@ -107,7 +107,7 @@ describe("cmdReap", () => {
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true, writable: true });
     try {
       const refusal = await cmdReap(testServices({ orchDir: orchDirAt(process.env.ORCH_DIR ?? "."), settings: null }), []).then(() => null, (error: unknown) => errorMessage(error));
-      expect(refusal).toBe("usage: orch reap <target> | --dead [--json]");
+      expect(refusal).toBe("usage: orch reap [<target>] [--dead]");
     } finally {
       if (original) Object.defineProperty(process.stdin, "isTTY", original);
     }

@@ -43,7 +43,7 @@ export function callerMayResolveFor(root: OrchDir, credential: CallerCredential,
 }
 
 export function refuseForeignTarget(target: string): never {
-  die(`No target matches "${target}". Run 'orch panes' to list.`);
+  die(`No target matches "${target}". Run 'orch pane list' to list.`);
 }
 
 /**
@@ -121,6 +121,6 @@ export function resolveTargetFor(
       if (!decision.allowed) die(decision.reason ?? "space-wall denied the write");
     }
   }
-  die(`No target matches "${target}". Run 'orch panes' to list.`);
+  die(`No target matches "${target}". Run 'orch pane list' to list.`);
 }
 

@@ -231,7 +231,7 @@ export function findGroupInSpace(backend: Backend, workspace: string | undefined
 }
 /**
  * Where the fleet runs is placement, never identity (Rule 11). Inside a plexer the
- * fleet lands beside the caller. A plexer the human chose — `--backend`,
+ * fleet lands beside the caller. A plexer the human chose — `--plexer`,
  * `ORCH_BACKEND` or `settings.json` — opens its own home, and that opening is
  * what the human grants. Outside every plexer, with none chosen, the default is
  * headless: a plexer orch only probed is a window nobody asked for.
@@ -247,8 +247,8 @@ export function spawnBackend(logger: Logger, settings: Pick<SpawnSettings, "back
   logger.warn("spawn.headless-fallback", { backend: backend.id, chosen: settings.backendChosen });
   process.stdout.write(
     `orch is not running inside ${backend.id} and ${reason} - spawning headless. `
-    + `Pass --backend ${backend.id} or set defaults.backend to open a ${backend.id} home for these agents (the user grants it),`
-    + ` or --space <id> to place them in an open space.\n`,
+    + `Pass --plexer ${backend.id} or set defaults.backend to open a ${backend.id} home for these agents (the user grants it),`
+    + ` or --space <space> to place them in an open space.\n`,
   );
   return headlessBackend;
 }

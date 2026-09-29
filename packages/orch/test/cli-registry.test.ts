@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { COMMANDS, GLOBAL_FLAGS, commandSpec } from "../src/commands/registry.ts";
+import { usageLine } from "../src/cli/usage.ts";
 import type { CommandSpec, FlagSpec } from "../src/cli/spec.ts";
 
 const HELP_DIR = join(import.meta.dirname, "..", "help");
@@ -21,11 +22,48 @@ function spellings(flag: FlagSpec): string[] {
 }
 
 describe("command registry", () => {
-  test("every spec has a usage line that starts with its path, and a summary", () => {
+  test("every spec has a generated usage line that starts with its path, and a summary", () => {
     for (const { path, spec } of EVERY) {
-      expect(spec.usage, path).toMatch(new RegExp(`^orch ${path}( |$)`));
+      expect(usageLine(spec, path.split(" ")), path).toMatch(new RegExp(`^orch ${path}( |$)`));
       expect(spec.summary.length, path).toBeGreaterThan(0);
     }
+  });
+
+  test("--json is global and never declared per command", () => {
+    expect(GLOBAL_FLAGS.flatMap(spellings)).toContain("--json");
+  });
+
+  test("no spec declares a retired flag spelling", () => {
+    const retired = ["--adapter", "--backend", "--agent-id", "--force", "--all-panes", "--space-wide", "--cross-space", "--filter", "--list", "--workspace", "--install", "--on","--off", "--toggle"];
+    for (const { path, spec } of EVERY) {
+      if (path === "settings notify add") continue;
+      for (const spelling of spec.flags.flatMap(spellings)) expect(retired.includes(spelling), `${path} ${spelling}`).toBe(false);
+    }
+  });
+
+  test("one flag has one placeholder across every command", () => {
+    const placeholders = new Map<string, Set<string>>();
+    for (const { spec } of EVERY) {
+      for (const flag of spec.flags) {
+        if (flag.placeholder === undefined) continue;
+        const seen = placeholders.get(flag.name) ?? new Set<string>();
+        seen.add(flag.placeholder);
+        placeholders.set(flag.name, seen);
+      }
+    }
+    expect(placeholders.get("--agent")).toEqual(new Set(["<target>"]));
+    expect(placeholders.get("-n")).toEqual(new Set(["<count>"]));
+    expect(placeholders.get("--space")).toEqual(new Set(["<space>"]));
+    expect(placeholders.get("--tab")).toEqual(new Set(["<tab>"]));
+    expect(placeholders.get("--since")).toEqual(new Set(["<duration>"]));
+    expect(placeholders.get("--timeout")).toEqual(new Set(["<duration>"]));
+  });
+
+  test("lists are 'orch <noun> list'", () => {
+    for (const noun of ["tab", "pane", "grant", "queue", "review", "space"]) {
+      expect(commandSpec(noun)?.subcommands?.some((child) => child.name === "list"), noun).toBe(true);
+    }
+    for (const retired of ["tabs", "panes", "run"]) expect(commandSpec(retired), retired).toBeUndefined();
   });
 
   test("every flag has a help line, and a placeholder when it takes a value", () => {

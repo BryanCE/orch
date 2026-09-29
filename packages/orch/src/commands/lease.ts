@@ -4,6 +4,8 @@ import { launchCredential } from "../identity/launch.ts";
 import { promptMultiselect } from "../setup/io.ts";
 import { parseCommand } from "./registry.ts";
 import { writeRpc } from "./daemon.ts";
+import { usageError } from "../cli/usage.ts";
+import type { Invocation } from "../cli/spec.ts";
 import type { ReapCandidate } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -15,15 +17,16 @@ async function resolveSelfOrchId(directory: OrchDir, logger: Services["logger"])
 }
 
 /** The one target a lease verb names. */
-function oneTarget(positional: readonly string[], usage: string): string {
-  const target = positional[0];
-  if (target === undefined || positional.length !== 1) throw new Error(usage);
+function oneTarget(invocation: Invocation): string {
+  const target = invocation.positional[0];
+  if (target === undefined || invocation.positional.length !== 1) throw usageError(invocation);
   return target;
 }
 
 export async function cmdDetach(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("detach", args);
-  const target = oneTarget(positional, "usage: orch detach <target> [--steal] [--json]");
+  const invocation = parseCommand("detach", args);
+  const target = oneTarget(invocation);
+  const { flags } = invocation;
   const json = flags.has("--json");
   const actor = await resolveSelfOrchId(services.orchDir, services.logger);
   const result = await writeRpc(services, "detach", { target, actor }, { steal: flags.has("--steal") });
@@ -32,11 +35,12 @@ export async function cmdDetach(services: Services, args: string[]): Promise<voi
 }
 
 export async function cmdAdopt(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("adopt", args);
+  const invocation = parseCommand("adopt", args);
+  const { flags, positional } = invocation;
   const json = flags.has("--json");
   const all = flags.has("--all");
   const steal = flags.has("--steal");
-  if ((!all && positional.length !== 1) || (all && positional.length)) throw new Error("usage: orch adopt <target> | --all [--steal] [--json]");
+  if ((!all && positional.length !== 1) || (all && positional.length)) throw usageError(invocation);
   // C4: --steal takes ONE agent from ONE live orch, deliberately. A sweep that
   // silently took every live orch's fleet would be the opposite of deliberate.
   if (all && steal) throw new Error("orch adopt --all never steals; name the agent to take it from a live orch.");
@@ -77,10 +81,11 @@ async function reapInteractive(services: Services, actor: string): Promise<void>
 }
 
 export async function cmdReap(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("reap", args);
+  const invocation = parseCommand("reap", args);
+  const { flags, positional } = invocation;
   const json = flags.has("--json");
   if (flags.has("--dead")) {
-    if (positional.length) throw new Error("usage: orch reap <target> | --dead [--json]");
+    if (positional.length) throw usageError(invocation);
     const actor = await resolveSelfOrchId(services.orchDir, services.logger);
     const { reaped } = await writeRpc(services, "reap", { dead: true, actor });
     if (json) process.stdout.write(JSON.stringify(reaped.map((result) => ({ target: result.id, name: result.name }))) + "\n");
@@ -89,12 +94,12 @@ export async function cmdReap(services: Services, args: string[]): Promise<void>
   }
 
   if (positional.length === 0) {
-    if (process.stdin.isTTY !== true) throw new Error("usage: orch reap <target> | --dead [--json]");
+    if (process.stdin.isTTY !== true) throw usageError(invocation);
     await reapInteractive(services, await resolveSelfOrchId(services.orchDir, services.logger));
     return;
   }
 
-  const target = oneTarget(positional, "usage: orch reap <target> [--json]");
+  const target = oneTarget(invocation);
   const { reaped } = await writeRpc(services, "reap", { target });
   const result = reaped[0]!;
   if (json) process.stdout.write(JSON.stringify({ target: result.id, name: result.name, reaped: true }) + "\n");

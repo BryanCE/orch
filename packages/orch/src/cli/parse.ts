@@ -1,4 +1,5 @@
-import { UsageError } from "./spec.ts";
+import { usageError } from "./usage.ts";
+import type { CommandAt } from "./usage.ts";
 import type { CommandSpec, FlagSpec, Invocation, ParsedFlags } from "./spec.ts";
 
 type FlagStore = Map<string, true | string | string[]>;
@@ -26,20 +27,20 @@ function findSubcommand(spec: CommandSpec, word: string | undefined): CommandSpe
 }
 
 /** The value a one- or many-value flag takes: the assignment, else the next token. */
-function takeValue(flag: FlagSpec, assigned: string | undefined, argv: readonly string[], index: number, usage: string): { readonly value: string; readonly consumed: number } {
+function takeValue(flag: FlagSpec, assigned: string | undefined, argv: readonly string[], index: number, at: CommandAt): { readonly value: string; readonly consumed: number } {
   if (assigned !== undefined) return { value: assigned, consumed: 0 };
   const next = argv[index + 1];
-  if (next === undefined) throw new UsageError(`${flag.name} needs a value ${flag.placeholder ?? ""}\nusage: ${usage}`.trimEnd());
+  if (next === undefined) throw usageError(at, `${flag.name} needs a value ${flag.placeholder ?? ""}`.trimEnd());
   return { value: next, consumed: 1 };
 }
 
-function recordDeclared(store: FlagStore, flag: FlagSpec, assigned: string | undefined, argv: readonly string[], index: number, usage: string): number {
+function recordDeclared(store: FlagStore, flag: FlagSpec, assigned: string | undefined, argv: readonly string[], index: number, at: CommandAt): number {
   if (flag.arity === "none") {
-    if (assigned !== undefined) throw new UsageError(`${flag.name} takes no value\nusage: ${usage}`);
+    if (assigned !== undefined) throw usageError(at, `${flag.name} takes no value`);
     store.set(flag.name, true);
     return 0;
   }
-  const taken = takeValue(flag, assigned, argv, index, usage);
+  const taken = takeValue(flag, assigned, argv, index, at);
   if (flag.arity === "one") {
     store.set(flag.name, taken.value);
     return taken.consumed;
@@ -79,7 +80,7 @@ function parsedFlags(store: FlagStore): ParsedFlags {
   };
 }
 
-function readFlags(spec: CommandSpec, declared: readonly FlagSpec[], argv: readonly string[]): Omit<Invocation, "command" | "path"> {
+function readFlags(at: CommandAt, declared: readonly FlagSpec[], argv: readonly string[]): Omit<Invocation, "command" | "path"> {
   const store: FlagStore = new Map();
   const undeclared = new Map<string, string | true>();
   const positional: string[] = [];
@@ -91,11 +92,18 @@ function readFlags(spec: CommandSpec, declared: readonly FlagSpec[], argv: reado
     }
     const { name, assigned } = splitAssignment(token);
     const flag = findFlag(declared, name);
-    if (flag !== undefined) index += recordDeclared(store, flag, assigned, argv, index, spec.usage);
-    else if (spec.openFlags) index += recordUndeclared(undeclared, name, assigned, argv, index);
-    else throw new UsageError(`unknown flag ${name}\nusage: ${spec.usage}`);
+    if (flag !== undefined) index += recordDeclared(store, flag, assigned, argv, index, at);
+    else if (at.command.openFlags) index += recordUndeclared(undeclared, name, assigned, argv, index);
+    else throw usageError(at, `unknown flag ${name}`);
   }
   return { flags: parsedFlags(store), positional, undeclared };
+}
+
+function parseAt(spec: CommandSpec, argv: readonly string[], globals: readonly FlagSpec[], path: readonly string[]): Invocation {
+  const child = findSubcommand(spec, argv[0]);
+  if (child !== undefined) return parseAt(child, argv.slice(1), globals, [...path, child.name]);
+  const at: CommandAt = { command: spec, path };
+  return { ...at, ...readFlags(at, [...spec.flags, ...globals], argv) };
 }
 
 /**
@@ -103,11 +111,5 @@ function readFlags(spec: CommandSpec, declared: readonly FlagSpec[], argv: reado
  * routes to that child. `globals` are accepted on every command.
  */
 export function parseInvocation(spec: CommandSpec, argv: readonly string[], globals: readonly FlagSpec[] = []): Invocation {
-  const child = findSubcommand(spec, argv[0]);
-  if (child !== undefined) {
-    const inner = parseInvocation(child, argv.slice(1), globals);
-    return { ...inner, path: [spec.name, ...inner.path] };
-  }
-  const read = readFlags(spec, [...spec.flags, ...globals], argv);
-  return { command: spec, path: [spec.name], ...read };
+  return parseAt(spec, argv, globals, [spec.name]);
 }

@@ -73,7 +73,7 @@ describe("session agent visibility", () => {
     try {
       let failure: unknown;
       try { await cmdNew(served, ["foreign"]); } catch (error: unknown) { failure = error; }
-      expect(failure instanceof Error ? failure.message : String(failure)).toBe("No target matches \"foreign\". Run 'orch panes' to list.");
+      expect(failure instanceof Error ? failure.message : String(failure)).toBe("No target matches \"foreign\". Run 'orch pane list' to list.");
     } finally {
       while (servers.length) await servers.pop()!.close();
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
@@ -102,7 +102,7 @@ describe("session agent visibility", () => {
     try {
       const served = await servedServices({ orchDir: root, settings: SETTINGS }, servers);
       const refusal = await cmdRuns(served, ["foreignaaa", "--json"]).then(() => null, (error: unknown) => errorMessage(error));
-      expect(refusal).toBe("No target matches \"foreignaaa\". Run 'orch panes' to list.");
+      expect(refusal).toBe("No target matches \"foreignaaa\". Run 'orch pane list' to list.");
     } finally {
       while (servers.length) await servers.pop()!.close();
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
@@ -112,7 +112,7 @@ describe("session agent visibility", () => {
     }
   });
 
-  test.serial("a session cannot widen status with --space-wide", async () => {
+  test.serial("a session cannot widen status with --all", async () => {
     const root = tempOrchDir("orch-session-status-");
     const oldMarker = process.env.PI_CODING_AGENT;
     const oldSession = process.env.PI_SESSION_ID;
@@ -121,12 +121,12 @@ describe("session agent visibility", () => {
     try {
       let failure: unknown;
       try {
-        await cmdStatus(services(root), parseStatusOptions(["--offline", "--space-wide"]));
+        await cmdStatus(services(root), parseStatusOptions(["--offline", "--all"]));
       } catch (error: unknown) {
         failure = error;
       }
       expect(failure instanceof Error ? failure.message : String(failure)).toBe(
-        "--space-wide is operator-only: a driving session may only touch agents it holds.",
+        "--all is operator-only: a driving session may only touch agents it holds.",
       );
     } finally {
       if (oldMarker === undefined) delete process.env.PI_CODING_AGENT; else process.env.PI_CODING_AGENT = oldMarker;
@@ -155,7 +155,7 @@ describe("session agent visibility", () => {
     try {
       const credential = callerCredential();
       expect(resolveTargetFor(root, services(root).settings.current(), credential, "held-one").key).toBe("heldagent1");
-      expect(() => resolveTargetFor(root, services(root).settings.current(), credential, "foreign")).toThrow("No target matches \"foreign\". Run 'orch panes' to list.");
+      expect(() => resolveTargetFor(root, services(root).settings.current(), credential, "foreign")).toThrow("No target matches \"foreign\". Run 'orch pane list' to list.");
     } finally {
       if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
       if (oldMarker === undefined) delete process.env.PI_CODING_AGENT; else process.env.PI_CODING_AGENT = oldMarker;

@@ -281,8 +281,8 @@ describe("fleet ownership scoping", () => {
     expect(refused.output).toContain("other-orchestrator");
     expect(refused.output).not.toContain("other session's answer");
 
-    const forced = await runVerb(dir, ["result", key, "--force"]);
-    expect(forced.output).toContain("other session's answer");
+    const stolen = await runVerb(dir, ["result", key, "--steal"]);
+    expect(stolen.output).toContain("other session's answer");
   });
 
   // Other pane mutations remain gated; ending is intentionally ungated.
@@ -373,7 +373,7 @@ describe("a spawned agent touches only what it spawned", () => {
     }
   });
 
-  test("--cross-space from a spawned agent is refused", async () => {
+  test("--space outside its own from a spawned agent is refused", async () => {
     const dir = makeDir();
     const key = "kwbvictim1";
     mkdirSync(join(dir, "agents", key), { recursive: true });
@@ -386,7 +386,7 @@ describe("a spawned agent touches only what it spawned", () => {
     expect(claimAgent(dir, agentKey, sessionToken, 1_000)).toEqual({ kind: "stamped" });
     seedAgent(key, { backend: "headless", adapter: "pi", space: "wB", handle: key }, dir);
 
-    const result = await runVerb(dir, ["dispatch", key, "hi", "--cross-space"], {
+    const result = await runVerb(dir, ["dispatch", key, "hi", "--space", "wB"], {
       [LAUNCH_ENV]: agentKey,
       PI_CODING_AGENT: "1",
       PI_SESSION_ID: sessionToken,

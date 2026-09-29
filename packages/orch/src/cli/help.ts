@@ -1,5 +1,6 @@
 import type { CommandSpec, FlagSpec, HelpSection } from "./spec.ts";
 import type { HelpDoc } from "./doc.ts";
+import { synopsis, unnamedFlags, usageLine } from "./usage.ts";
 
 export const HELP_HEADER = "orch - the single controller for coding agents, in any plexer.";
 const HELP_POINTER = "'orch help <command>' (or 'orch <command> -h') prints usage, doctrine, and every flag.";
@@ -20,9 +21,15 @@ const SECTION_ORDER: readonly HelpSection[] = ["observe", "dispatch", "collect",
 const MAP_COLUMN = 48;
 const FLAG_COLUMN = 28;
 
+/** `orch spawn <name>... [flags]`: the map shows the grammar; the topic lists the flags. */
+export function mapSynopsis(spec: CommandSpec): string {
+  const line = synopsis(spec, [spec.name]);
+  return unnamedFlags(spec).length > 0 ? `${line} [flags]` : line;
+}
+
 /** A usage that fits shares its line with the summary; a long one puts the summary beneath it. */
 function mapLine(spec: CommandSpec): string {
-  const usage = `  ${spec.usage}`;
+  const usage = `  ${mapSynopsis(spec)}`;
   if (usage.length < MAP_COLUMN) return `${usage.padEnd(MAP_COLUMN)}${spec.summary}\n`;
   return `${usage}\n${" ".repeat(MAP_COLUMN)}${spec.summary}\n`;
 }
@@ -65,9 +72,10 @@ function flagTable(title: string, flags: readonly FlagSpec[]): string {
 }
 
 /** A subcommand's usage, summary, and flags; its own subcommands nest one level deeper. */
-function subcommandBlock(child: CommandSpec, indent: string): string {
-  const nested = (child.subcommands ?? []).map((grandchild) => subcommandBlock(grandchild, `${indent}  `)).join("");
-  return `${indent}${child.usage}\n${indent}    ${child.summary}\n${flagRows(child.flags, `${indent}    `)}${nested}`;
+function subcommandBlock(child: CommandSpec, parentPath: readonly string[], indent: string): string {
+  const path = [...parentPath, child.name];
+  const nested = (child.subcommands ?? []).map((grandchild) => subcommandBlock(grandchild, path, `${indent}  `)).join("");
+  return `${indent}${usageLine(child, path)}\n${indent}    ${child.summary}\n${flagRows(child.flags, `${indent}    `)}${nested}`;
 }
 
 function docBlock(doc: HelpDoc): string {
@@ -75,9 +83,10 @@ function docBlock(doc: HelpDoc): string {
   return `(no doctrine: ${doc.missing} is missing; 'orch doctor' reports it)\n`;
 }
 
-function subcommandTable(subcommands: readonly CommandSpec[]): string {
+function subcommandTable(spec: CommandSpec): string {
+  const subcommands = spec.subcommands ?? [];
   if (subcommands.length === 0) return "";
-  return `Subcommands:\n${subcommands.map((child) => subcommandBlock(child, "  ")).join("\n")}`;
+  return `Subcommands:\n${subcommands.map((child) => subcommandBlock(child, [spec.name], "  ")).join("\n")}`;
 }
 
 /** One command's help: usage, its doc, its flags, each subcommand, then the global flags. */
@@ -85,8 +94,8 @@ export function renderTopic(spec: CommandSpec, doc: HelpDoc, globals: readonly F
   const sections = [
     docBlock(doc),
     flagTable("Flags:", spec.flags),
-    subcommandTable(spec.subcommands ?? []),
+    subcommandTable(spec),
     flagTable("Global:", globals),
   ].filter((section) => section.length > 0);
-  return `${spec.usage}\n\n${sections.join("\n")}`;
+  return `${usageLine(spec, [spec.name])}\n\n${sections.join("\n")}`;
 }

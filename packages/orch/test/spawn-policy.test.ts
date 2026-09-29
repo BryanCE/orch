@@ -239,7 +239,7 @@ describe("spawn policy caps", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(await servedServices({ orchDir: dir, settings: cappedSettings }, servers), ["capped", "--agent", "pi", "--backend", "headless", "--prompt", "work", "--json"]);
+      await cmdSpawn(await servedServices({ orchDir: dir, settings: cappedSettings }, servers), ["capped", "--harness", "pi", "--plexer", "headless", "--prompt", "work", "--json"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {

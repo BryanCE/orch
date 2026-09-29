@@ -247,11 +247,11 @@ export async function resolveSetupComposition(settings: OrchSettings | null, cat
   const backendIds = allBackends().map((entry) => entry.id);
   const runtime = await resolveRuntime(options.runtimeFlag, options.interactive);
   if (runtime === null) return null;
-  const adapters = await resolveProviderSet("adapter", "--agent", options.adapterFlag, adapterIds, options.interactive, selectAdapters);
+  const adapters = await resolveProviderSet("adapter", "--harness",options.adapterFlag, adapterIds, options.interactive, selectAdapters);
   if (adapters === null) return null;
   const defaultAdapter = await resolveActiveDefault(adapters, options.adapterFlag !== undefined, options.interactive, selectDefaultAdapter);
   if (defaultAdapter === null) return null;
-  const backends = await resolveProviderSet("backend", "--backend", options.backendFlag, backendIds, options.interactive, selectBackends);
+  const backends = await resolveProviderSet("backend", "--plexer",options.backendFlag, backendIds, options.interactive, selectBackends);
   if (backends === null) return null;
   const defaultBackend = await resolveActiveDefault(backends, options.backendFlag !== undefined, options.interactive, selectDefaultBackend);
   if (defaultBackend === null) return null;

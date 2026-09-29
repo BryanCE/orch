@@ -5,6 +5,7 @@ import { renderGrantRequest } from "../policy/grant-sentence.ts";
 import { readRpc, writeRpc } from "./daemon.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
+import { usageError } from "../cli/usage.ts";
 import type { GrantRequest } from "../types/store.ts";
 
 /**
@@ -41,14 +42,16 @@ async function reviewRequest(services: Services, request: GrantRequest): Promise
 }
 
 export async function cmdGrant(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("grant", args);
+  const invocation = parseCommand("grant", args);
+  const { command, positional } = invocation;
+  if (positional.length > (command.name === "list" ? 0 : 1)) throw usageError(invocation);
   const requested = positional[0];
   const requests = (await readRpc(services, "grants", undefined)).requests;
   if (requests.length === 0) {
     writeLine("No requests are awaiting approval.");
     return;
   }
-  if (flags.has("--list")) {
+  if (command.name === "list") {
     listRequests(requests);
     return;
   }
@@ -57,6 +60,6 @@ export async function cmdGrant(services: Services, args: string[]): Promise<void
     die("approving needs a terminal: open one and run 'orch grant <id>' yourself. No flag answers this prompt.");
   }
   const named = requested ? requests.find((request) => request.id === requested) ?? null : null;
-  if (requested && !named) die(`no pending request ${requested}; 'orch grant --list' shows what is waiting.`);
+  if (requested && !named) die(`no pending request ${requested}; 'orch grant list' shows what is waiting.`);
   for (const request of named ? [named] : requests) await reviewRequest(services, request);
 }

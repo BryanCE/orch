@@ -47,7 +47,7 @@ async function readFleet(settings: OrchSettings | null, services: DaemonClient, 
 
 async function localStatus(settings: OrchSettings | null, services: DaemonClient, options: StatusOptions, caller?: CallerScope): Promise<FleetSnapshot> {
   const fleet = await readFleet(settings, services, options.offline);
-  const scoped = scopeFleetRows(fleet.rows, { ...options, states: options.filter.states, caller });
+  const scoped = scopeFleetRows(fleet.rows, { ...options, hide: options.hide.states, caller });
   return { ...fleet, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
 

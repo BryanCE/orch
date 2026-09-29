@@ -94,15 +94,14 @@ export async function cmdStatusLive(services: Services, options: StatusOptions):
   await registerCallerSession(services);
   const self = await whoAmI(services);
   const caller = callerScope(self);
-  if (options.spaceWide) refuseNonOperatorOverride(caller, "--space-wide");
-  if (options.allPanes) refuseNonOperatorOverride(caller, "--all-panes");
+  if (options.all) refuseNonOperatorOverride(caller, "--all");
 
   let stopped = false;
   let resolveDone: (() => void) | undefined;
   const done = new Promise<void>((resolve) => { resolveDone = resolve; });
   let fleet: FleetStatus = { names: { agents: {}, spaces: {} }, rows: [] };
   let host = false;
-  const tableOptions = (): StatusTableOptions => ({ spaceWide: options.spaceWide, host, human: options.human, columns: options.filter.columns });
+  const tableOptions = (): StatusTableOptions => ({ spaceWide: options.all, host, human: options.human, columns: options.hide.columns });
   const refreshController = createRefreshController(async () => {
     if (stopped) return;
     try {

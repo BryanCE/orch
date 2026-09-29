@@ -17,7 +17,7 @@ export function stampGovernance<P extends Governance>(state: DaemonState, params
   const directory = state.directory;
   const kind = callerKindOf(directory, credential);
   if (params.steal === true && kind !== "operator") throw operatorOnly("--steal");
-  if (params.crossSpace === true && kind !== "operator") throw operatorOnly("--cross-space");
+  if (params.crossSpace === true && kind !== "operator") throw operatorOnly("--space");
   const stamped: P = { ...params };
   delete stamped.actor;
   delete stamped.actorSpace;

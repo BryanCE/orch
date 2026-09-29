@@ -15,12 +15,16 @@ import type { ContextReference } from "../../types/core.ts";
 import { adapterCommand } from "./models.ts";
 import { resolveSpawnNames } from "./names.ts";
 import { contextReference, readPromptFile } from "../prompt-file.ts";
+import { usageError, type CommandAt } from "../../cli/usage.ts";
 import { taskWithReferences } from "../../worker-prompt.ts";
 
 
 export type SpawnFlags = AgentFlags & {
+  /** Where the invocation was parsed, so a refusal prints the spec's usage. */
+  at: CommandAt;
   json: boolean;
-  tabLabel: string | null;
+  /** The tab `--tab` named, or null for a generated label. */
+  tab: string | null;
   /** The directory the agent starts in: the spawner's own unless `--dir` names another. */
   cwd: string;
   /** The harness command `--cmd` named, or null for the adapter's own. */
@@ -40,12 +44,14 @@ export type SpawnFlags = AgentFlags & {
 };
 
 export function parseSpawnFlags(args: string[]): SpawnFlags {
-  const { flags, positional } = parseCommand("spawn", args);
+  const invocation = parseCommand("spawn", args);
+  const { flags, positional } = invocation;
   const tasksFile = flags.value("--tasks");
   return {
     ...agentFlags(flags),
+    at: invocation,
     json: flags.has("--json"),
-    tabLabel: flags.value("--tab") ?? null,
+    tab: flags.value("--tab") ?? null,
     cwd: flags.value("--dir") ?? process.cwd(),
     cmd: flags.value("--cmd") ?? null,
     space: flags.value("--space") ?? null,
@@ -71,10 +77,9 @@ export type SpawnSettings = Omit<AgentSettings, "model" | "thinking"> & {
   tools: string | undefined;
   workers: WorkerPolicy;
   json: boolean;
-  label: string;
-  /** True when --tab named a tab: an existing match is joined, not recreated. */
-  tabExplicit: boolean;
-  /** True when the human chose the plexer: `--backend`, `ORCH_BACKEND`, or the
+  /** The tab --tab named: an existing match is joined, not recreated. Null rolls a free label. */
+  tab: string | null;
+  /** True when the human chose the plexer: `--plexer`, `ORCH_BACKEND`, or the
    *  default in `settings.json`. A chosen plexer is one orch may open a home in.
    *  A plexer orch only probed is not. */
   backendChosen: boolean;
@@ -172,7 +177,7 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
   let names: string[];
   try { names = resolveSpawnNames(flags.positional); }
   catch (error: unknown) {
-    die(`${errorMessage(error)}\nusage: orch spawn <name> [<name>...] [--tab <label>] [--dir <path>] [--cmd <command>] [--model <model[:thinking]>] [--thinking <level>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--file <path>|-] [--with [<name>=]<path>]... [--worktree]`);
+    throw usageError(flags.at, errorMessage(error));
   }
   const n = names.length;
   const references = referencesByAgent(flags.withPaths, names);
@@ -192,11 +197,8 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
   const firstAgent = agents[0];
   if (firstAgent === undefined) die("spawn requires at least one agent");
   const cmd = flags.cmd ?? adapterCommand(adapter, settings, { model: firstAgent.model, thinking: firstAgent.thinking, preferredModels });
-  // --tab names the TAB; the positionals name the AGENTS. A tab left unnamed
-  // borrows the first agent's name, but the two are never conflated.
-  const tabLabel = flags.tabLabel ?? firstAgent.name;
   const backendChosen = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? settings.defaults.backend ?? null) !== null;
-  return { adapter, backend: backend.id, preferredModels, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendChosen, cwd: flags.cwd, cmd, commandFlag: flags.cmd !== null, space: flags.space, prefix: firstAgent.name, agents, worktree, fleet: settings.fleet, tiling: settings.tiling };
+  return { adapter, backend: backend.id, preferredModels, tools, workers, json: flags.json, tab: flags.tab, backendChosen, cwd: flags.cwd, cmd, commandFlag: flags.cmd !== null, space: flags.space, prefix: firstAgent.name, agents, worktree, fleet: settings.fleet, tiling: settings.tiling };
 }
 
 /** Live agents per space. Both maps are keyed by the minted id: a space is an

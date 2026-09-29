@@ -2,7 +2,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { retryingAsync, retryingSync } from "../retry.ts";
 import { clearCatalogues, readCatalogues, writeCatalogue } from "../store/catalogue-rows.ts";
-import { binaryOnPath, errorMessage } from "../util.ts";
+import { binaryStamp, errorMessage } from "../util.ts";
 import type { StoredCatalogue } from "../types/store.ts";
 import type { ModelCatalogue } from "../types/adapter.ts";
 import type { OrchDir, RetryPolicy } from "../types/core.ts";
@@ -30,10 +30,23 @@ const CATALOGUE_EXEC = { encoding: "utf8", timeout: CATALOGUE_TIMEOUT_MS, maxBuf
 
 const execFileAsync = promisify(execFile);
 
+/** One harness listing command and the binary that answers it. */
+interface CatalogueQuery {
+  readonly command: string;
+  readonly binary: string | null;
+  readonly bin: string;
+  readonly argv: readonly string[];
+  readonly stdin: string | undefined;
+}
+
+function catalogueQuery(bin: string, argv: readonly string[], stdin: string | undefined): CatalogueQuery {
+  return { command: `${bin} ${argv.join(" ")}`, binary: binaryStamp(bin), bin, argv, stdin };
+}
+
 /** Run a listing command, closing its stdin after `stdin` so a request-answering harness exits. */
-function queryAsync(bin: string, argv: readonly string[], stdin: string | undefined): Promise<{ stdout: string }> {
-  const pending = execFileAsync(bin, [...argv], CATALOGUE_EXEC);
-  pending.child.stdin?.end(stdin);
+function queryAsync(query: CatalogueQuery): Promise<{ stdout: string }> {
+  const pending = execFileAsync(query.bin, [...query.argv], CATALOGUE_EXEC);
+  pending.child.stdin?.end(query.stdin);
   return pending;
 }
 
@@ -49,53 +62,50 @@ export function createModelCatalogue(orchDir: OrchDir, logger: Logger): ModelCat
     return stored;
   }
 
-  function commandLine(bin: string, argv: readonly string[]): string {
-    return `${bin} ${argv.join(" ")}`;
-  }
-
   function isStale(entry: StoredCatalogue): boolean {
     return Date.now() - entry.at >= (entry.stdout ? CATALOGUE_REFRESH_MS : CATALOGUE_RETRY_MS);
   }
 
-  function record(command: string, stdout: string): void {
-    const entry = { at: Date.now(), stdout };
+  function record(command: string, binary: string | null, stdout: string): void {
+    const entry = { binary, at: Date.now(), stdout };
     catalogues().set(command, entry);
     writeCatalogue(orchDir, command, entry);
   }
 
   /** An unanswerable harness lists nothing rather than failing the caller; the reason goes to stdout. */
-  function recordFailure(command: string, bin: string, error: unknown): void {
-    logger.warn("models.catalogue-failed", { command, bin, error: errorMessage(error) });
-    process.stdout.write(`  warning: ${command} failed; ${bin} lists no models (${errorMessage(error)})\n`);
-    record(command, "");
+  function recordFailure(query: CatalogueQuery, error: unknown): void {
+    logger.warn("models.catalogue-failed", { command: query.command, bin: query.bin, error: errorMessage(error) });
+    process.stdout.write(`  warning: ${query.command} failed; ${query.bin} lists no models (${errorMessage(error)})\n`);
+    record(query.command, query.binary, "");
   }
 
   /** Re-stamp what the last successful query returned, so a failed refresh costs one cycle
-   * rather than making every read re-query. */
-  function keepLastAnswer(command: string): void {
-    record(command, catalogues().get(command)?.stdout ?? "");
+   * rather than making every read re-query. The old binary stamp stays, so a new binary still
+   * counts as unasked. */
+  function keepLastAnswer(query: CatalogueQuery): void {
+    const last = catalogues().get(query.command);
+    record(query.command, last ? last.binary : query.binary, last?.stdout ?? "");
   }
 
   /** Ask the harness off the main path; concurrent callers join the one query. Failure is silent:
    *  nobody asked for this answer yet, and the last good one still stands. */
-  function queryInBackground(command: string, bin: string, argv: readonly string[], stdin: string | undefined): Promise<void> {
-    const running = querying.get(command);
+  function queryInBackground(query: CatalogueQuery): Promise<void> {
+    const running = querying.get(query.command);
     if (running) return running;
-    const query = retryingAsync(command, () => queryAsync(bin, argv, stdin), CATALOGUE_RETRY)
-      .then(({ stdout }) => { record(command, stdout); })
-      .catch(() => { keepLastAnswer(command); })
-      .finally(() => { querying.delete(command); });
-    querying.set(command, query);
-    return query;
+    const pending = retryingAsync(query.command, () => queryAsync(query), CATALOGUE_RETRY)
+      .then(({ stdout }) => { record(query.command, query.binary, stdout); })
+      .catch(() => { keepLastAnswer(query); })
+      .finally(() => { querying.delete(query.command); });
+    querying.set(query.command, pending);
+    return pending;
   }
 
-  function refreshStaleCatalogue(answer: StoredCatalogue, command: string, bin: string, argv: readonly string[], stdin: string | undefined): void {
-    if (isStale(answer)) void queryInBackground(command, bin, argv, stdin);
-  }
-
-  function readCachedCatalogue(command: string, bin: string, argv: readonly string[], stdin: string | undefined): StoredCatalogue | undefined {
-    const answer = catalogues().get(command);
-    if (answer) refreshStaleCatalogue(answer, command, bin, argv, stdin);
+  /** The stored answer from this same binary, refreshed in the background once stale. An answer
+   *  from another binary is no answer: an updated harness can list models the old one did not. */
+  function readCachedCatalogue(query: CatalogueQuery): StoredCatalogue | undefined {
+    const answer = catalogues().get(query.command);
+    if (answer?.binary !== query.binary) return undefined;
+    if (isStale(answer)) void queryInBackground(query);
     return answer;
   }
 
@@ -103,15 +113,15 @@ export function createModelCatalogue(orchDir: OrchDir, logger: Logger): ModelCat
    * the background once stale, so only a harness never asked before makes the caller wait.
    * Empty string when it cannot answer, reason on stdout. */
   function read(bin: string, argv: readonly string[], stdin?: string): string {
-    const command = commandLine(bin, argv);
-    const answer = readCachedCatalogue(command, bin, argv, stdin);
+    const query = catalogueQuery(bin, argv, stdin);
+    const answer = readCachedCatalogue(query);
     if (answer) return answer.stdout;
     try {
-      const stdout = retryingSync(command, () => execFileSync(bin, [...argv], { ...CATALOGUE_EXEC, input: stdin, stdio: ["pipe", "pipe", "ignore"] }), CATALOGUE_RETRY);
-      record(command, stdout);
+      const stdout = retryingSync(query.command, () => execFileSync(bin, [...argv], { ...CATALOGUE_EXEC, input: stdin, stdio: ["pipe", "pipe", "ignore"] }), CATALOGUE_RETRY);
+      record(query.command, query.binary, stdout);
       return stdout;
     } catch (error: unknown) {
-      recordFailure(command, bin, error);
+      recordFailure(query, error);
       return "";
     }
   }
@@ -120,11 +130,10 @@ export function createModelCatalogue(orchDir: OrchDir, logger: Logger): ModelCat
    * already there when something asks. Speculative, so a harness whose binary is absent is
    * skipped silently — orch warms every harness it knows of, selected or not. */
   function warm(bin: string, argv: readonly string[], stdin?: string): Promise<void> {
-    const command = commandLine(bin, argv);
-    const answer = readCachedCatalogue(command, bin, argv, stdin);
-    if (answer) return Promise.resolve();
-    if (!binaryOnPath(bin)) return Promise.resolve();
-    return queryInBackground(command, bin, argv, stdin);
+    const query = catalogueQuery(bin, argv, stdin);
+    if (query.binary === null) return Promise.resolve();
+    if (readCachedCatalogue(query)) return Promise.resolve();
+    return queryInBackground(query);
   }
 
   /** Forget every answer, in memory and on disk, so the next read asks the harnesses again. For

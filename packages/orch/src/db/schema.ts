@@ -54,6 +54,7 @@ export const questions = sqliteTable("questions", {
 
 export const catalogues = sqliteTable("catalogues", {
   command: text("command").notNull().primaryKey(),
+  binary: text("binary"),
   at: integer("at").notNull(),
   stdout: text("stdout").notNull(),
 });

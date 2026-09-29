@@ -129,6 +129,8 @@ export interface AgentView {
 }
 
 export interface StoredCatalogue {
+  /** `binaryStamp` of the harness that answered; a different stamp means a new binary. */
+  binary: string | null;
   at: number;
   stdout: string;
 }

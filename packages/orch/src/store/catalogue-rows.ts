@@ -6,7 +6,7 @@ import type { StoredCatalogue } from "../types/store.ts";
 
 export function readCatalogues(orchDir: OrchDir): Map<string, StoredCatalogue> {
   const rows = orm(orchDir).select().from(catalogues).orderBy(asc(catalogues.command)).all();
-  return new Map(rows.map((row) => [row.command, { at: row.at, stdout: row.stdout }]));
+  return new Map(rows.map((row) => [row.command, { binary: row.binary, at: row.at, stdout: row.stdout }]));
 }
 
 export function writeCatalogue(orchDir: OrchDir, command: string, entry: StoredCatalogue): void {

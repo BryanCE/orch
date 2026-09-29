@@ -67,6 +67,15 @@ export function binaryPath(bin: string): string | null {
   return null;
 }
 
+/** The real path and modified time of `bin` on PATH, or null when absent. An update or a
+ *  reinstall changes it, so it stands in for the version without running the binary. */
+export function binaryStamp(bin: string): string | null {
+  const found = binaryPath(bin);
+  if (!found) return null;
+  const real = realpathSync(found);
+  return `${real}@${statSync(real).mtimeMs}`;
+}
+
 /** True when an executable named `bin` is found on PATH (node-compatible). */
 export function binaryOnPath(bin: string): boolean {
   return binaryPath(bin) !== null;

@@ -1,0 +1,1 @@
+ALTER TABLE `catalogues` ADD `binary` text;

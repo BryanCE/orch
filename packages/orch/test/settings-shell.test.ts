@@ -10,7 +10,6 @@ import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/regis
 import { createEditorState, editorReducer } from "../src/settings/editor.ts";
 import { commitAndFlush, loadEntries, toggleAgentGrant, type Session } from "../src/settings/shell/state.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import type { EditorSetting, SettingSpec } from "../src/types/settings.ts";
 
 const dirs: OrchDir[] = [];
 
@@ -24,38 +23,11 @@ afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop() ?? "");
 });
 
-function setting(key: string, value: unknown, env?: string): EditorSetting {
-  const spec: SettingSpec = {
-    key,
-    group: key.split(".")[0] ?? "settings",
-    help: key,
-    type: { kind: "text" },
-    read: () => value,
-    write: () => undefined,
-    ...(env === undefined ? {} : { env }),
-  };
-  return { spec, value, agentWritable: false };
-}
-
 describe("settings shell decisions", () => {
   test("non-TTY takes the print path", () => {
     expect(shouldLaunchSettingsEditor([], false)).toBe(false);
     expect(shouldLaunchSettingsEditor(["--json"], true)).toBe(false);
     expect(shouldLaunchSettingsEditor([], true)).toBe(true);
-  });
-
-  test("an overridden setting is refused with the winner named", () => {
-    const previous = process.env.ORCH_TEST_OVERRIDE;
-    process.env.ORCH_TEST_OVERRIDE = "winning";
-    try {
-      const state = createEditorState([setting("defaults.adapter", "pi", "ORCH_TEST_OVERRIDE")]);
-      const refused = editorReducer(state, { type: "open" });
-      expect(refused.mode).toBe("browsing");
-      expect(refused.reason).toContain("ORCH_TEST_OVERRIDE");
-    } finally {
-      if (previous === undefined) delete process.env.ORCH_TEST_OVERRIDE;
-      else process.env.ORCH_TEST_OVERRIDE = previous;
-    }
   });
 
   test("registered writes use the registry entry", () => {

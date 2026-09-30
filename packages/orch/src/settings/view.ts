@@ -81,8 +81,7 @@ function fit(text: string, width: number): string {
 /** The row's tags: where its value came from, then who may write it. */
 function sourceTag(entry: EditorSetting): string {
   const tags: string[] = [];
-  if (entry.override !== undefined) tags.push(`[env: ${entry.override}]`);
-  else if (entry.spec.write === undefined) tags.push("[read-only]");
+  if (entry.spec.write === undefined) tags.push("[read-only]");
   else if (entry.source !== undefined && entry.source !== "settings.json") tags.push(`[${entry.source}]`);
   if (entry.agentWritable) tags.push("[agent]");
   return tags.join(" ");

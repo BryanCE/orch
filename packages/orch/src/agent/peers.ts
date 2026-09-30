@@ -1,17 +1,13 @@
 import type { OrchDir } from "../types/core.ts";
-// Peer discovery: everything this agent knows about the OTHER agents sharing
-// $ORCH_DIR/agents/. Reads sibling presence directories, resolves a target key,
-// and registers the pi surface built on top of that
-// (`/peers`, `/tell`, `orch_agents`, `orch_send`, `orch_read`).
-//
-// The counterpart module presence.ts owns THIS agent's own record; the split is
-// by subject, not by mechanism. All filesystem access goes through the shared
-// presence writer (src/presence/history.ts) per CLAUDE.md Rule 10.
+// Peer discovery asks orchd for visible agents, resolves target keys, and
+// registers the pi surface built on top of that (`/peers`, `/tell`, `orch_agents`,
+// `orch_send`, `orch_read`).
 import { Type } from "typebox";
 import { term } from "../policy/vocabulary.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { recipientLabel } from "../recipient.ts";
-import { agentProcessLive } from "../store/interval-rows.ts";
+import { callerCredential } from "../identity/credential.ts";
+import { launchCredential } from "../identity/launch.ts";
 import { presenceAgentDir } from "../presence/history.ts";
 import { isRecord, optionalString, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
@@ -45,6 +41,9 @@ export function isPeerView(value: unknown): value is PeerView {
     && typeof peer.name === "string"
     && typeof peer.harness === "string"
     && (peer.spawnedBy === null || typeof peer.spawnedBy === "string")
+    && (peer.spawnedByName === null || typeof peer.spawnedByName === "string")
+    && (peer.worktree === null || typeof peer.worktree === "string")
+    && (peer.branch === null || typeof peer.branch === "string")
     && (peer.status === null || isRecord(peer.status))
     && (peer.result === null || typeof peer.result === "string")))
     && value.visible.every((key) => typeof key === "string")
@@ -71,6 +70,9 @@ async function livePeers(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, a
         name: peer.name,
         harness: peer.harness,
         spawnedBy: peer.spawnedBy,
+        spawnedByName: peer.spawnedByName,
+        worktree: peer.worktree,
+        branch: peer.branch,
         status: peer.status,
         result: peer.result,
       }))
@@ -93,10 +95,20 @@ async function livePeers(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, a
  */
 const UNREACHABLE_SPAWNER_ADVICE = " Write your result and end the turn; it is collected from your result file.";
 
-/** Resolve the stamped spawner from the daemon's live peer view. */
-async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonLink, ownKey: string): Promise<Peer | undefined> {
-  const key = optionalString(process.env.ORCH_SPAWNER);
-  if (!key) return undefined;
+interface Spawner {
+  key: string;
+  name: string | null;
+}
+
+/** This agent's spawner, from orch's record of its provenance. */
+async function ownSpawner(daemon: DaemonLink): Promise<Spawner | undefined> {
+  const view = (await daemon.ask("self", { caller: callerCredential() }))?.view;
+  if (!view?.spawnedBy) return undefined;
+  return { key: view.spawnedBy, name: view.spawnedByName };
+}
+
+/** The spawner as a peer, when the daemon's live peer view holds it. */
+async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, key: string): Promise<Peer | undefined> {
   const view = await peerViewFor(daemon, ownKey, [key], true);
   const peer = (view?.peers ?? []).find((candidate) => candidate.key === key);
   return peer === undefined ? undefined : {
@@ -105,27 +117,29 @@ async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonLink, ownKey: str
     name: peer.name,
     harness: peer.harness,
     spawnedBy: peer.spawnedBy,
+    spawnedByName: peer.spawnedByName,
+    worktree: peer.worktree,
+    branch: peer.branch,
     status: peer.status,
     result: peer.result,
   };
 }
 
-/** The caller's own orchestrator, resolved by the address its launch stamped.
- *  The fleet wall never applies here: the spawner handed this worker its own
- *  address at launch, and replying to it is the one always-valid cross-scope edge. */
+/** The caller's own orchestrator, resolved from orch's provenance record.
+ *  The fleet wall never applies here: replying to the spawner is the one
+ *  always-valid cross-scope edge. */
 async function resolveSpawnerPeer(orchDir: OrchDir, daemon: DaemonLink, ownKey: string): Promise<PeerResolution> {
-  const key = optionalString(process.env.ORCH_SPAWNER);
-  const label = optionalString(process.env.ORCH_SPAWNER_LABEL);
-  if (!key) return { error: `error: no spawner address recorded for this agent${label ? ` (spawned by ${label})` : ""}.${UNREACHABLE_SPAWNER_ADVICE}` };
-  const peer = await liveSpawnerPeer(orchDir, daemon, ownKey);
+  const spawner = await ownSpawner(daemon);
+  if (!spawner) return { error: `error: no spawner address recorded for this agent.${UNREACHABLE_SPAWNER_ADVICE}` };
+  const peer = await liveSpawnerPeer(orchDir, daemon, ownKey, spawner.key);
   if (!peer) {
-    return { error: `error: spawner ${label ?? key} (${key}) has no live status record to reply to.${UNREACHABLE_SPAWNER_ADVICE}` };
+    return { error: `error: spawner ${spawner.name ?? spawner.key} (${spawner.key}) has no live status record to reply to.${UNREACHABLE_SPAWNER_ADVICE}` };
   }
   return { peer };
 }
 
 export async function resolvePeer(orchDir: OrchDir, daemon: DaemonLink, target: string, ownKey: string, allRequested = false): Promise<PeerResolution> {
-  if (target === "spawner" || (target.length > 0 && target === optionalString(process.env.ORCH_SPAWNER))) return await resolveSpawnerPeer(orchDir, daemon, ownKey);
+  if (target === "spawner") return await resolveSpawnerPeer(orchDir, daemon, ownKey);
   const live = await livePeers(orchDir, daemon, ownKey, allRequested);
   if (!live) return { error: "error: peer view unavailable" };
   const exact = live.peers.find((peer) => peer.key === target);
@@ -146,9 +160,9 @@ function summarizePeer(peer: Peer, view: PeerView, spawnerKey: string | undefine
     drive: view.drive[peer.key] ?? { kind: "unleased", owner: "unleased", mine: false },
     isSpawner: peer.key === spawnerKey ? true : undefined,
     spawnedBy: peer.spawnedBy ?? undefined,
-    spawnedByLabel: optionalString(status.spawnedByLabel),
-    worktree: optionalString(status.worktree),
-    branch: optionalString(status.branch),
+    spawnedByLabel: peer.spawnedByName ?? undefined,
+    worktree: peer.worktree ?? undefined,
+    branch: peer.branch ?? undefined,
     model: peerModel(status),
     task: optionalString(status.task),
     lastText: truncate(typeof status.lastText === "string" ? status.lastText : "", 120),
@@ -159,11 +173,10 @@ function summarizePeer(peer: Peer, view: PeerView, spawnerKey: string | undefine
 
 /** The caller's spawner as a listable row, when fleet scoping hid it. A worker
  *  must always see who orchestrates it, whatever space shape that session has. */
-async function hiddenSpawnerSummary(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, rows: PeerSummary[], view: PeerView, spawnerKey: string | undefined): Promise<PeerSummary | null> {
-  if (!spawnerKey || rows.some((row) => row.key === spawnerKey)) return null;
-  const resolved = await resolveSpawnerPeer(orchDir, daemon, ownKey);
-  if ("error" in resolved) return null;
-  return summarizePeer(resolved.peer, view, spawnerKey);
+async function hiddenSpawnerSummary(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, rows: PeerSummary[], view: PeerView, spawner: Spawner | undefined): Promise<PeerSummary | null> {
+  if (!spawner || rows.some((row) => row.key === spawner.key)) return null;
+  const peer = await liveSpawnerPeer(orchDir, daemon, ownKey, spawner.key);
+  return peer === undefined ? null : summarizePeer(peer, view, spawner.key);
 }
 
 /** The caller's own agents.id, so "held by you" is answered by the lease table
@@ -175,10 +188,10 @@ async function hiddenSpawnerSummary(orchDir: OrchDir, daemon: DaemonLink, ownKey
 export async function peerSummaries(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, allSpaces = false): Promise<PeerSummary[]> {
   const live = await livePeers(orchDir, daemon, ownKey, allSpaces);
   if (!live) return [];
-  const spawnerKey = optionalString(process.env.ORCH_SPAWNER);
-  const rows = live.peers.map((peer) => summarizePeer(peer, live.view, spawnerKey));
-  const spawner = await hiddenSpawnerSummary(orchDir, daemon, ownKey, rows, live.view, spawnerKey);
-  return spawner ? [spawner, ...rows] : rows;
+  const spawner = await ownSpawner(daemon);
+  const rows = live.peers.map((peer) => summarizePeer(peer, live.view, spawner?.key));
+  const hidden = await hiddenSpawnerSummary(orchDir, daemon, ownKey, rows, live.view, spawner);
+  return hidden ? [hidden, ...rows] : rows;
 }
 
 export async function sendPeerMessage(orchDir: OrchDir, daemon: DaemonLink, target: string, text: string, ownKey: string, allSpaces = false): Promise<string> {
@@ -318,8 +331,8 @@ export function registerPeerTools(orchDir: OrchDir, harness: HarnessApi, presenc
     },
   });
 
-  const spawnerKey = optionalString(process.env.ORCH_SPAWNER);
-  if (spawnerKey && agentProcessLive(orchDir, spawnerKey)) {
+  // A spawned agent may reply; whether its spawner is live is the daemon's answer at send time.
+  if (launchCredential() !== null) {
     harness.registerTool({
       name: "orch_send",
       label: `Send to ${term("orch")} Agent`,

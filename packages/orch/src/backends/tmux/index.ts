@@ -1,8 +1,10 @@
-import { createBackendCaptureRole, createInteractiveCommand, homeLabel } from "../backend.ts";
+import { createInteractiveCommand, homeLabel } from "../backend.ts";
+import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { isAgentId } from "../identity.ts";
 import { binaryOnPath } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { environmentStamp } from "../../agent/environment.ts";
+import { callerTmuxPane, insideTmux } from "./detect.ts";
 
 /** tmux has panes but orch composes no HUD role for them yet: nothing to read,
  *  nothing to relay. Adding one means editing this stamp and nothing else. */
@@ -122,7 +124,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   };
   readonly placementInventory: PlacementInventoryRole<TmuxHandle> = {
     current: () => {
-      const handle = process.env.TMUX_PANE;
+      const handle = callerTmuxPane();
       return handle ? { handle, workspace: this.sessionOf(handle), group: null } : null;
     },
     // Every orch pane with its workspace, group, name and presence status (D1, D2).
@@ -215,7 +217,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   }
 
   isInsideSession(): boolean {
-    return !!process.env.TMUX;
+    return insideTmux();
   }
 
   /** Resolve the session owning a pane. Kept protected for hermetic tests. */
@@ -230,7 +232,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
 
   /** Identity of the calling pane, resolved from the explicit orch id. */
   private ownIdentity(id: string | null): string | null {
-    const handle = process.env.TMUX_PANE;
+    const handle = callerTmuxPane();
     if (!handle) return null;
     // See the herdr backend: identity is minted by orch and arrives as an
     // explicit argument. A pane this process merely happens to occupy is not one.

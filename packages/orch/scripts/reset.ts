@@ -3,7 +3,7 @@ import { lstatSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSy
 import { homedir } from "node:os";
 import { dirname, join, sep, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { envOrchDir } from "../src/services.ts";
+import { envOrchDir } from "../src/orch-dir.ts";
 import { EXTENSION_NAMES } from "../src/bridge-bundles/metadata.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { provenDaemonPid, terminateDaemon } from "../src/daemon/client/process.ts";

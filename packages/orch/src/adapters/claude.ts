@@ -80,7 +80,8 @@ function pruneStaleShimHooks(list: unknown[], command: string): { list: unknown[
   const kept = list.map((entry) => {
     if (!isRecord(entry) || !Array.isArray(entry.hooks)) return entry;
     const hooks = entry.hooks.filter((hook: unknown) => {
-      const stale = isOrchShimHook(hook) && (hook as Record<string, unknown>).command !== command;
+      const stale = isOrchShimHook(hook) && isRecord(hook)
+        && typeof hook.command === "string" && hook.command !== command;
       if (stale) pruned = true;
       return !stale;
     });

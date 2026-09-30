@@ -79,8 +79,8 @@ export type SpawnSettings = Omit<AgentSettings, "model" | "thinking"> & {
   json: boolean;
   /** The tab --tab named: an existing match is joined, not recreated. Null rolls a free label. */
   tab: string | null;
-  /** True when the human chose the plexer: `--plexer`, `ORCH_BACKEND`, or the
-   *  default in `settings.json`. A chosen plexer is one orch may open a home in.
+  /** True when the human chose the plexer: `--plexer` or the default in
+   *  `settings.json`. A chosen plexer is one orch may open a home in.
    *  A plexer orch only probed is not. */
   backendChosen: boolean;
   cwd: string;
@@ -146,7 +146,7 @@ function referencesByAgent(withPaths: readonly string[], names: readonly string[
 function resolveSpawnBackend(flags: AgentFlags, settings: OrchSettings): Backend {
   try {
     return resolveBackend({
-      explicit: flags.backendFlag ?? process.env.ORCH_BACKEND ?? null,
+      explicit: flags.backendFlag ?? null,
       configured: settings.defaults.backend ?? null,
     });
   } catch (error: unknown) {
@@ -170,7 +170,7 @@ export function resolveSpawnAgentSettings(flags: AgentFlags, settings: OrchSetti
 export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings): SpawnSettings {
   const adapter = pickAdapter(flags, settings);
   const backend = resolveSpawnBackend(flags, settings);
-  const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", settings: settings.defaults.worktree, fallback: settings.defaults.worktree });
+  const worktree = resolveSetting({ flag: flags.worktreeFlag, settings: settings.defaults.worktree, fallback: settings.defaults.worktree });
   const names = resolveSpawnNames(flags.at, flags.positional);
   const n = names.length;
   const references = referencesByAgent(flags.withPaths, names);
@@ -190,7 +190,7 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
   const firstAgent = agents[0];
   if (firstAgent === undefined) die("spawn requires at least one agent");
   const cmd = flags.cmd ?? adapterCommand(adapter, settings, { model: firstAgent.model, thinking: firstAgent.thinking, preferredModels });
-  const backendChosen = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? settings.defaults.backend ?? null) !== null;
+  const backendChosen = (flags.backendFlag ?? settings.defaults.backend ?? null) !== null;
   return { adapter, backend: backend.id, preferredModels, tools, workers, json: flags.json, tab: flags.tab, backendChosen, cwd: flags.cwd, cmd, commandFlag: flags.cmd !== null, space: flags.space, prefix: firstAgent.name, agents, worktree, fleet: settings.fleet, tiling: settings.tiling };
 }
 

@@ -2,7 +2,7 @@ import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverWrite } from "../src/daemon/server/handlers/write.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { createCaptureRole } from "../src/presence/roles.ts";

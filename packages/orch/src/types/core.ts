@@ -6,7 +6,7 @@ import type { PresenceEntry } from "./presence.ts";
 
 /** `$ORCH_DIR`: the directory holding settings.json, orch.db, agents/ and the orchd runtime
  *  files. Branded so a settings file, a project root, a cwd or any other string cannot be
- *  handed to code that expects the orch dir. Minted only by `orchDirAt` in src/services.ts. */
+ *  handed to code that expects the orch dir. Minted only by `orchDirAt` in src/orch-dir.ts. */
 export type OrchDir = string & { readonly __brand: "OrchDir" };
 
 /** Ordered lowest severity last: an index into this array IS the verbosity. */

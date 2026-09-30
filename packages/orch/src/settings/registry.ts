@@ -137,7 +137,7 @@ function readerFor(key: string): ((settings: OrchSettings) => unknown) | undefin
   return undefined;
 }
 
-function setting(key: string, group: string, help: string, env?: string, writable = true, writer?: SettingWriter): SettingSpec {
+function setting(key: string, group: string, help: string, writable = true, writer?: SettingWriter): SettingSpec {
   return {
     key,
     group,
@@ -145,7 +145,6 @@ function setting(key: string, group: string, help: string, env?: string, writabl
     type: kindFor(key),
     read: readerFor(key) ?? ((settings) => readAt(settings, key)),
     ...(writable ? { write: writer ?? ((settings: SettingsManager, value: unknown) => writeSettingsValue(settings, key, value)) } : {}),
-    ...(env === undefined ? {} : { env }),
   };
 }
 
@@ -229,7 +228,7 @@ const HELP: Readonly<Record<string, string>> = {
   "daemon.liveness_poll_ms": "How often the daemon checks each live agent's recorded process and publishes `exited` for a dead one, in milliseconds.",
   "daemon.bridge_reconnect_ms": "How long an agent's bridge waits before it redials the daemon after the link drops, in milliseconds.",
   "daemon.outbox_max_attempts": "How many delivery attempts a queued write gets before the daemon closes it as undeliverable.",
-  "daemon.report_timeout_ms": "How long a harness waits for orchd to accept a status or result report before dropping it, in milliseconds. Stamped into every agent's launch env as ORCH_REPORT_TIMEOUT_MS.",
+  "daemon.report_timeout_ms": "How long a harness waits for orchd to accept a status or result report before dropping it, in milliseconds.",
   "doctor.unclaimed_after_ms": "How long after spawn an agent may stay unclaimed before doctor reports it. Milliseconds.",
   "tiling.first_split": "Direction used for the first pane split.",
   "counts.tail": "How many session entries orch tail shows without -n.",
@@ -239,21 +238,12 @@ const HELP: Readonly<Record<string, string>> = {
   "skills.link": "Harness skill directories orch symlinks into the store.",
 };
 
-/** Env var that overrides a setting, for the few that take one. */
-const ENV_OVERRIDES: Readonly<Record<string, string>> = {
-  "defaults.worktree": "ORCH_WORKTREE",
-  "defaults.thinking": "ORCH_THINKING",
-  "defaults.adapter": "ORCH_ADAPTER",
-  "defaults.backend": "ORCH_BACKEND",
-  "daemon.tcp_port": "ORCH_DAEMON_PORT",
-};
-
 /** `runtime` is the one declared setting orch will not rewrite: it names how orch
  *  itself is executed, so changing it from inside a running orch is not honourable. */
 const READ_ONLY_KEYS: readonly string[] = ["runtime"];
 
 export const SETTINGS_REGISTRY: readonly SettingSpec[] = Object.entries(HELP).map(([key, help]) =>
-  setting(key, key.split(".")[0] ?? key, help, ENV_OVERRIDES[key], !READ_ONLY_KEYS.includes(key), writerFor(key)));
+  setting(key, key.split(".")[0] ?? key, help, !READ_ONLY_KEYS.includes(key), writerFor(key)));
 
 /** Find one declared setting or throw a plain settings error. */
 export function registeredSetting(key: string): SettingSpec {

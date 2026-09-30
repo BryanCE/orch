@@ -172,7 +172,7 @@ export function registerAgentTools(
   // ---- lifecycle ----
   harness.on("session_start", (_event, ctx: HarnessContext) => {
     presence.setLastCtx(ctx);
-    presence.initPresence(ctx.hasUI);
+    presence.initPresence(ctx);
     presence.updateSessionRef(ctx);
     presence.updateModel(ctx);
     presence.writeStatus();
@@ -190,6 +190,7 @@ export function registerAgentTools(
           presence.updateModel(lastCtx);
           presence.updateContextUsage(lastCtx);
         }
+        if (presence.state.label === null && presence.state.key !== "") void presence.loadName();
         if (heartbeatTicks % 10 === 0) void refreshLabels().catch(() => {
           /* noop */
         });
@@ -229,7 +230,7 @@ export function registerAgentTools(
 
   harness.on("agent_start", (_event, ctx: HarnessContext) => {
     presence.setLastCtx(ctx);
-    presence.initPresence(ctx.hasUI);
+    presence.initPresence(ctx);
     state.state = "working";
     state.startedAt = Date.now();
     state.finishedAt = undefined;

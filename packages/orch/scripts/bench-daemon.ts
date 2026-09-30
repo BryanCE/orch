@@ -27,7 +27,7 @@ import { encodeRequest } from "../src/daemon/client/wire.ts";
 import { openJsonLineLink, readPortFile, type JsonLineLink } from "../src/presence/socket-client.ts";
 import { ORCH_ENV_VARS } from "../src/policy/spawner.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { binaryPath, isRecord } from "../src/util.ts";

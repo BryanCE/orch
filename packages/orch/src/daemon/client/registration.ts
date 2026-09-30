@@ -2,9 +2,9 @@ import type { OrchDir } from "../../types/core.ts";
 import { hostname } from "node:os";
 import { readFileSync } from "node:fs";
 import { callerSession } from "../../adapters/session-env.ts";
-import { OPERATOR_HARNESS_ID } from "../../policy/caller.ts";
+import { OPERATOR_HARNESS_ID } from "../../identity/operator.ts";
 import { sessionProcessPid } from "../../identity/credential.ts";
-import { allBackends } from "../../backends/registry.ts";
+import { detectPlexer } from "../../backends/detect.ts";
 import { endpointPaths } from "./wire.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";
 import { RPC_RESULTS, type SessionClaim } from "./protocol.ts";
@@ -41,19 +41,17 @@ export function announceUnleasedAgents(
  * should have held.
  */
 function callerEnvironment(): { plexer: string | undefined; plexerVersion: string | undefined; handle: string | undefined } {
-  const here = allBackends().find((backend) => backend.isInsideSession());
-  if (here === undefined) return { plexer: undefined, plexerVersion: undefined, handle: undefined };
-  const place = here.placementInventory?.current() ?? null;
-  return { plexer: here.id, plexerVersion: here.versionInfo?.installed() ?? undefined, handle: place === null ? undefined : String(place.handle) };
+  const here = detectPlexer();
+  return { plexer: here?.plexer, plexerVersion: here?.plexerVersion, handle: here?.handle };
 }
 
 /** Build the authenticated caller facts for session registration. */
-export function sessionClaim(orchDir: OrchDir, label?: string): SessionClaim {
+export function sessionClaim(orchDir: OrchDir, label?: string, harnessSession?: { harness: string; sessionToken: string | undefined }): SessionClaim {
   const token = readFileSync(endpointPaths(orchDir).token, "utf8").trim();
   const session = callerSession();
   const configuredHarness = nonEmpty(process.env.ORCH_HARNESS?.trim());
-  const harness = configuredHarness ?? session?.harnessId ?? OPERATOR_HARNESS_ID;
-  const sessionToken = session?.sessionId ?? null;
+  const harness = harnessSession?.harness ?? configuredHarness ?? session?.harnessId ?? OPERATOR_HARNESS_ID;
+  const sessionToken = harnessSession?.sessionToken ?? session?.sessionId ?? null;
   const environment = callerEnvironment();
   return {
     token,

@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  callerPaneHandle,
-  HerdrBackend,
-  herdrEnvironmentPresent,
-} from "../src/backends/herdr/index.ts";
+import { HerdrBackend } from "../src/backends/herdr/index.ts";
+import { callerPaneHandle, herdrEnvironmentPresent } from "../src/backends/herdr/detect.ts";
 
 interface PredicateCase {
   name: string;

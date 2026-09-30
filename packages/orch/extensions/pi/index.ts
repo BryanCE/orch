@@ -6,7 +6,8 @@
 // appearing in src/agent/**, is the pair code CLAUDE.md Rule 9 forbids.
 import { fileURLToPath } from "node:url";
 import { hashExtensionFile, registerHarnessBridge } from "orch/core/agent/harness-bridge.ts";
-import { createServices } from "orch/core/services.ts";
+import { envOrchDir } from "orch/core/orch-dir.ts";
+import { fileSettingsManager } from "orch/core/settings/manager.ts";
 import { registerOrchSeat } from "./seat/index.ts";
 import type { HarnessApi, HarnessIdentity } from "orch/core/types/agent.ts";
 
@@ -16,18 +17,13 @@ const PI_IDENTITY: HarnessIdentity = { agentId: "pi", settleEvent: "agent_settle
 const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 
 function piExtension(harness: HarnessApi): void {
-  const services = createServices();
-  const bridge = registerHarnessBridge(harness, PI_IDENTITY, EXTENSION_HASH, {
-    orchDir: services.orchDir,
-    settings: services.settings,
-  });
+  const orchDir = envOrchDir();
+  const settings = fileSettingsManager(orchDir);
+  const bridge = registerHarnessBridge(harness, PI_IDENTITY, EXTENSION_HASH, { orchDir, settings });
   // The shared bridge exposes only the common harness surface; the orchestrator
   // seat (status line, /orch dashboard, per-agent views) needs pi's richer UI,
   // which is available in this harness-specific composition root.
-  registerOrchSeat(harness, services.settings, {
-    orchDir: services.orchDir,
-    ownKey: bridge.ownKey,
-  });
+  registerOrchSeat(harness, settings, { orchDir, ownKey: bridge.ownKey });
 }
 
 export default piExtension;

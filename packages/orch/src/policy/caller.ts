@@ -5,10 +5,6 @@ import type { CallerKind } from "../types/policy.ts";
 
 export type { CallerKind };
 
-/** The harness id an operator registers under: a bare shell driving orch, with no
- *  adapter, no bridge and no shim. Doctor never asks it for one. */
-export const OPERATOR_HARNESS_ID = "cli";
-
 /** Classify the caller from its harness marker and, for workers, its claim. */
 export function callerKindOf(orchDir: OrchDir, credential: CallerCredential): CallerKind {
   const session = credential.session;

@@ -1,5 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";

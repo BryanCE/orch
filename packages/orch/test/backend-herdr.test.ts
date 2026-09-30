@@ -1,5 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { afterAll, describe, expect, test } from "bun:test";

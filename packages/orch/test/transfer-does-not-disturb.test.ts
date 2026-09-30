@@ -13,7 +13,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { eq, sql } from "drizzle-orm";
 import { outbox } from "../src/db/schema.ts";
 
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 /**
  * A transfer must not disturb the agent or its attached link. Ownership is a

@@ -11,7 +11,7 @@ import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { LocalProcessRole, signalOtherProcess } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
-import { createBackendCaptureRole } from "../backend.ts";
+import { createBackendCaptureRole } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
@@ -214,8 +214,6 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);
     const handle = makeHeadlessHandle(pid, key);
-    const worktreePath = opts.env?.ORCH_AGENT_WORKTREE;
-    const worktreeBranch = opts.env?.ORCH_AGENT_BRANCH;
     const now = Date.now();
     registerSpawnedAgent(directory, {
       key,
@@ -228,11 +226,11 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
       placed: false,
       handle: JSON.stringify(handle),
       cwd: opts.cwd ?? process.cwd(),
-      name: opts.name ?? opts.env?.ORCH_AGENT_NAME ?? key,
+      name: opts.name ?? key,
       model: opts.model ?? "",
       thinking: opts.thinking,
-      spawner: opts.env?.ORCH_SPAWNER_AGENT_ID ?? null,
-      worktree: worktreePath && worktreeBranch ? { path: worktreePath, branch: worktreeBranch } : undefined,
+      spawner: opts.spawner ?? null,
+      worktree: opts.worktree,
       process: this.process.running(handle),
       now,
     });

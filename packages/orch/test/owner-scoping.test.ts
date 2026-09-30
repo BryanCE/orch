@@ -207,7 +207,7 @@ describe("fleet ownership scoping", () => {
       model: "openai/gpt-5.6",
       thinking: "medium",
       preferredModels: [],
-      spawner: { key: orchId, label: "operator" }, owner: orchId,
+      spawner: orchId, owner: orchId,
     });
 
     expect(spawnedRecords(dir).get(agent.key)?.heldBy?.orchId).toBe(orchId);

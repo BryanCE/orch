@@ -32,12 +32,6 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       {
         const focused = state.settings[state.focusedIndex];
         if (focused === undefined) return { ...state, reason: "No settings available" };
-        if (focused.override !== undefined) {
-          return { ...state, reason: `${focused.spec.key} is overridden by ${focused.override}` };
-        }
-        if (focused.spec.env !== undefined && process.env[focused.spec.env] !== undefined) {
-          return { ...state, reason: `${focused.spec.key} is overridden by ${focused.spec.env}` };
-        }
         if (focused.spec.write === undefined) {
           return { ...state, reason: `${focused.spec.key} is read-only` };
         }

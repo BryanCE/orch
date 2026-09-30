@@ -6,7 +6,6 @@ import { indexPresenceById } from "../../entities/lookup.ts";
 import { liveViews, agentViewIndex } from "../../store/agent-view.ts";
 import { pendingQuestion } from "../../store/question-rows.ts";
 import { loadPresence, spawnedRecords } from "../../presence/store.ts";
-import { spawnerIdentity } from "../../policy/spawner.ts";
 import { selfId, spaceOfAgent } from "../../identity/self.ts";
 import { callerKind } from "../../policy/caller.ts";
 import { fleetNames, statusRowFromEntity } from "./rows.ts";
@@ -18,7 +17,7 @@ import type { OrchDir } from "../../types/core.ts";
 import type { FleetStatus } from "../../types/daemon.ts";
 
 export function currentOrchId(orchDir: OrchDir): string | null {
-  return spawnerIdentity(orchDir).key;
+  return selfId(orchDir) ?? null;
 }
 
 interface FleetStatusOptions {

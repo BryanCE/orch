@@ -6,7 +6,7 @@ import { errorMessage } from "../util.ts";
 import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
-import { OPERATOR_HARNESS_ID } from "../policy/caller.ts";
+import { OPERATOR_HARNESS_ID } from "../identity/operator.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
 import { describeBackendEnvironments, checkBackendVersions } from "./backends.ts";
 import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";

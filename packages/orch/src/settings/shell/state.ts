@@ -17,13 +17,8 @@ function rawValue(root: unknown, key: string): unknown {
   return current;
 }
 
-function sourceFor(spec: SettingSpec, raw: Record<string, unknown>): { source: SettingSource; override?: string } {
-  if (spec.env !== undefined && process.env[spec.env] !== undefined) {
-    return { source: "env", override: spec.env };
-  }
-  return rawValue(raw, spec.key) === undefined
-    ? { source: "default" }
-    : { source: "settings.json" };
+function sourceFor(spec: SettingSpec, raw: Record<string, unknown>): SettingSource {
+  return rawValue(raw, spec.key) === undefined ? "default" : "settings.json";
 }
 
 /** Rebuild every row from disk so value and provenance always show what settings.json holds.
@@ -38,7 +33,7 @@ export function loadEntries(manager: SettingsManager): EditorSetting[] {
   }
   const settings = manager.current();
   return SETTINGS_REGISTRY.map((spec) => ({
-    spec, value: spec.read(settings), ...sourceFor(spec, raw), agentWritable: agentMayWriteSetting(settings, spec.key),
+    spec, value: spec.read(settings), source: sourceFor(spec, raw), agentWritable: agentMayWriteSetting(settings, spec.key),
   }));
 }
 
@@ -122,10 +117,6 @@ export function resetFocused(session: Session, manager: SettingsManager): void {
   const entry = focusedEntry(session);
   if (entry === undefined) return;
   const key = entry.spec.key;
-  if (entry.override !== undefined) {
-    session.status = `${key} is overridden by ${entry.override}`;
-    return;
-  }
   if (entry.spec.write === undefined) {
     session.status = `${key} is read-only`;
     return;

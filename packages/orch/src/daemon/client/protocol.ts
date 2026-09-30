@@ -270,6 +270,9 @@ export const RPC_PARAMS = {
   lifecycle: GOVERNANCE.extend({ target: nonBlank, verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
   "spawn-headless": GOVERNANCE.extend({
     key: nonBlank,
+    name: nonBlank,
+    spawner: z.string().nullable(),
+    worktree: z.object({ path: z.string(), branch: z.string() }).optional(),
     adapter: nonBlank,
     model: nonBlank,
     thinking: z.custom<ThinkingLevel>(isThinkingLevel),

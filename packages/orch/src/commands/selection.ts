@@ -44,7 +44,7 @@ export function resolveAdapterOrDie(id: string): AgentAdapter {
 }
 
 export function pickAdapter(flags: AgentFlags, settings: OrchSettings): AdapterId {
-  const selected = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", settings: settings.defaults.adapter, fallback: "" });
+  const selected = resolveSetting({ flag: flags.adapterFlag, settings: settings.defaults.adapter, fallback: "" });
   if (!selected) die("no harness selected - pass --harness <harness> or run `orch setup` to pick one");
   // Validate the id here, at the boundary, so everything downstream carries AdapterId.
   return resolveAdapterOrDie(selected).id;
@@ -54,7 +54,7 @@ export function pickAdapter(flags: AgentFlags, settings: OrchSettings): AdapterI
  *  configured default: only a launch may apply that. A dispatch that fell back to
  *  it re-pinned every agent to the default and erased the model it spawned on. */
 export function requestedModel(flags: AgentFlags): string | null {
-  return resolveSetting({ flag: flags.modelFlag, env: "ORCH_MODEL", fallback: "" }) || null;
+  return flags.modelFlag ?? null;
 }
 
 /** Resolve the one model/effort pair every tuning-aware command applies: the

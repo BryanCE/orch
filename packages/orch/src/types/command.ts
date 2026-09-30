@@ -1,6 +1,6 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
-import type { SpawnerIdentity, ThinkingLevel, WorkerPolicy } from "./policy.ts";
+import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentView } from "./store.ts";
 import type { Entity, LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
@@ -166,8 +166,6 @@ export interface TabSpawnSpec {
    *  letting the launch mint a second one. */
   key?: string;
   env?: Readonly<Record<string, string>>;
-  /** How long the harness waits for orchd to accept a report, in milliseconds. */
-  reportTimeoutMs?: number;
   tools?: string;
   /** What this worker may load; absent lets the adapter apply no policy. */
   workers?: WorkerPolicy;
@@ -175,8 +173,8 @@ export interface TabSpawnSpec {
   cmd?: string;
   worktree?: string;
   branch?: string;
-  /** Identity of the session performing this launch. */
-  spawner: SpawnerIdentity;
+  /** The launching agent's id; null for an unregistered caller. */
+  spawner: string | null;
   /** Owner lease for the launched agent. */
   owner: string | undefined;
 }
@@ -292,8 +290,6 @@ export interface SpawnPlacement {
 export interface SpawnPlacementRequest {
   readonly services: DaemonClient;
   readonly backend: Backend;
-  /** Identity of the session performing this placement. */
-  readonly spawner?: SpawnerIdentity;
   /** The space the caller named, or null. Never invented here. */
   readonly space: string | null;
   /** The agent at the root of this fleet's provenance tree — what

@@ -26,6 +26,7 @@ import { mintAgentId } from "../src/backends/identity.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
 
 type StatusReportParams = ParamsOf<"report-status">;
 type ResultReportParams = ParamsOf<"report-result">;
@@ -143,6 +144,7 @@ describe("CodexAdapter", () => {
 
   test("notify shim reports done presence and result over orchd", async () => {
     const orchDir: OrchDir = tempOrchDir("orch-codex-notify-");
+    writeSettingsFixture(orchDir, { daemon: { report_timeout_ms: 2000 } });
     const capture = await startReportServer(orchDir);
     try {
       // The shim parses launch env through the one identity boundary, so the fixture
@@ -152,7 +154,7 @@ describe("CodexAdapter", () => {
       const payload = JSON.stringify({ type: CODEX_TURN_COMPLETE, "last-assistant-message": "finished" });
       const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "..", "extensions", "codex", "index.ts"), payload], {
         cwd: path.join(import.meta.dir, ".."),
-        env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: key, ORCH_REPORT_TIMEOUT_MS: "2000" },
+        env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: key },
         stdout: "ignore",
         stderr: "ignore",
       });

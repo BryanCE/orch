@@ -40,7 +40,7 @@ function harnessContext(): HarnessContext {
     hasUI: false,
     sessionManager: {
       getSessionFile: () => undefined,
-      getSessionId: () => undefined,
+      getSessionId: () => "session-terminal-test",
       getBranch: () => [],
     },
     modelRegistry: { find: () => undefined },
@@ -123,6 +123,8 @@ describe("bridge terminal turn seam", () => {
     }, root, testServices({ orchDir: root, settings: null }).settings);
     const ctx = harnessContext();
     harness.fire("session_start", {}, ctx);
+    await Promise.resolve();
+    expect(presence.state.key).toBe(key);
     harness.fire("agent_start", {}, ctx);
     if (text !== undefined) harness.fire("message_end", { message: { role: "assistant", content: text } }, ctx);
     harness.fire(signal, event, signal === "agent_settled" ? undefined : ctx);

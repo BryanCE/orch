@@ -26,7 +26,7 @@ import { SETTINGS_REGISTRY, writeNotifyEntries, writeRegisteredSetting } from ".
 import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell/index.ts";
 import type { NotifierChoice } from "../types/notify.ts";
-import type { NotifyEntry, NotifyState, OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
+import type { NotifyEntry, NotifyState, OrchSettings, SettingSpec } from "../types/settings.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
 
@@ -53,15 +53,6 @@ function rawSetting(orchDirPath: OrchDir, ...keys: string[]): unknown {
     // Absent or invalid — loadSettings already surfaced any real error before this ran.
     return undefined;
   }
-}
-
-/** Switch the active default adapter/backend through its registry declaration. */
-/** Read an env override according to the setting's DECLARED kind, never by
- *  sniffing whatever the fallback happened to be. */
-function envSettingValue(environment: string, type: SettingKind): unknown {
-  if (type.kind === "boolean") return environment === "true" || environment === "1";
-  if (type.kind === "integer") return Number(environment);
-  return environment;
 }
 
 function formatValue(value: unknown): string {
@@ -131,9 +122,6 @@ function settingsRevoke(services: Pick<Services, "settings" | "orchDir">, invoca
 function setSingleSetting(services: Pick<Services, "settings" | "orchDir">, key: string, input: string): void {
   const spec = writableSpec(key);
   refuseUngrantedAgentWrite(services, key);
-  if (spec.env !== undefined && process.env[spec.env] !== undefined) {
-    die(`${key} is overridden by ${spec.env}; remove the override before writing it.`);
-  }
   const parsed = parseSettingValue(spec, input);
   if (!parsed.ok) die(`${key}: ${parsed.reason}.`);
   try { writeRegisteredSetting(services.settings, key, parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
@@ -392,9 +380,8 @@ function collectSettingsProvenance(services: Pick<Services, "orchDir">, settings
   for (const spec of SETTINGS_REGISTRY) {
     const configured = spec.read(settings);
     const raw = rawSetting(services.orchDir, ...spec.key.split("."));
-    const environment = spec.env === undefined ? undefined : process.env[spec.env];
-    const value = environment !== undefined ? envSettingValue(environment, spec.type) : configured ?? null;
-    const source = environment !== undefined ? "env" : raw !== undefined ? "settings.json" : "default";
+    const value = configured ?? null;
+    const source = raw !== undefined ? "settings.json" : "default";
     provenance.push({
       key: spec.key, value, source,
       display: value === null ? "(none)" : displaySetting(value, spec.type),

@@ -28,7 +28,7 @@ import type { PresenceEntry } from "../../types/presence.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import type { TaskState } from "../../types/queue.ts";
 import type { WorkOptions } from "../../types/daemon.ts";
-import { orchDirAt } from "../../services.ts";
+import { orchDirAt } from "../../orch-dir.ts";
 export type { WorkOptions };
 
 function agentIdle(entry: PresenceEntry): boolean {

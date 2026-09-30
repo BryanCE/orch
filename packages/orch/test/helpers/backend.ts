@@ -1,5 +1,5 @@
 import { LocalProcessRole } from "../../src/backends/process.ts";
-import { envOrchDir } from "../../src/services.ts";
+import { envOrchDir } from "../../src/orch-dir.ts";
 import { createCaptureRole } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
 import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, Placement, PlacementRequest, EnvironmentIdentityRole, ForegroundRole, GroupHomeRole, PlacementRole, PlacementInventoryRole, LabelRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";

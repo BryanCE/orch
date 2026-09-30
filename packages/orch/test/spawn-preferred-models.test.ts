@@ -46,7 +46,7 @@ afterEach(async () => {
 });
 
 const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"];
-const HEADLESS_BASE = { key: "agent-a", adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go" };
+const HEADLESS_BASE = { key: "agent-a", name: "agent-a", spawner: null, adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go" };
 
 const settings = (preferred: string[]): OrchSettings => ({
   ...SETTINGS_DEFAULTS,
@@ -111,7 +111,7 @@ describe("the preferred quicklist reaches every launch route", () => {
       adapter: piAdapter,
       adapterId: "pi",
       name: "quick-1",
-      spawner: { key: null, label: "operator" }, owner: undefined,
+      spawner: null, owner: undefined,
       cwd: "/tmp",
       space: "wsA",
       group: "tab1",
@@ -136,7 +136,7 @@ describe("the preferred quicklist reaches every launch route", () => {
         adapter: piAdapter,
         adapterId: "pi",
         name,
-        spawner: { key: null, label: "operator" }, owner: undefined,
+        spawner: null, owner: undefined,
         cwd: "/tmp",
         space: "wsA",
         group: "tab1",
@@ -162,7 +162,7 @@ describe("the preferred quicklist reaches every launch route", () => {
       adapter: piAdapter,
       adapterId: "pi",
       name: "quick-2",
-      spawner: { key: null, label: "operator" }, owner: undefined,
+      spawner: null, owner: undefined,
       cwd: "/tmp",
       space: "wsA",
       group: "tab1",

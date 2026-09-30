@@ -88,7 +88,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       model: "openai/gpt-5.6",
       thinking: "medium",
       preferredModels: [],
-      spawner: { key: owner, label: "operator" }, owner,
+      spawner: owner, owner,
     });
 
     const view = agentView(dir, agent.key);
@@ -119,7 +119,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       model: "openai/gpt-5.6",
       preferredModels: [],
       placement: { split: "right", targetHandle: "fake-pane-0" },
-      spawner: { key: null, label: "operator" }, owner: undefined,
+      spawner: null, owner: undefined,
     });
 
     const view = agentView(dir, agent.key);

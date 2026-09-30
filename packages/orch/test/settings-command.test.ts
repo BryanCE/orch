@@ -32,21 +32,21 @@ afterEach(() => {
   while (directories.length) removeTempDir(directories.pop()!);
 });
 
-/** Every var that would make the runner an agent or override a setting; cleared unless the test sets it. */
-const OVERRIDE_VARS = ["ORCH_ADAPTER", "ORCH_BACKEND", "ORCH_MODEL", "ORCH_WORKTREE", LAUNCH_ENV];
+/** The var that would make the runner an agent; cleared unless the test sets it. */
+const CALLER_VARS = [LAUNCH_ENV];
 
 /** Run one `orch settings` in-process with the CLI's environment: this dir, the
- *  runner's env minus every override, plus what the test sets on purpose. A fresh
+ *  runner's env minus the caller var, plus what the test sets on purpose. A fresh
  *  Services per run reads the file the way a fresh CLI process does. */
 async function runSettingsCli(orchDir: OrchDir, extraEnv: Record<string, string>, args: readonly string[]): Promise<string> {
-  const saved = Object.fromEntries(OVERRIDE_VARS.map((name) => [name, process.env[name]]));
-  for (const name of OVERRIDE_VARS) delete process.env[name];
+  const saved = Object.fromEntries(CALLER_VARS.map((name) => [name, process.env[name]]));
+  for (const name of CALLER_VARS) delete process.env[name];
   process.env.ORCH_DIR = orchDir;
   Object.assign(process.env, extraEnv);
   try {
     return await captureStdout(() => cmdSettings(createServices({ orchDir }), [...args]));
   } finally {
-    for (const name of OVERRIDE_VARS) {
+    for (const name of CALLER_VARS) {
       if (saved[name] === undefined) delete process.env[name];
       else process.env[name] = saved[name];
     }
@@ -126,17 +126,6 @@ describe("orch settings", () => {
     expect(report["model (claude)"]!.source).toBe("default");
     expect(report["fleet.max_depth"]).toEqual({ value: 1, source: "default", agentWritable: false });
     expect(report.enabled!.value).toEqual({ adapters: ["pi", "claude"], backends: ["headless"] });
-  });
-
-  test("--json reports env as the winning source over settings.json", async () => {
-    const directory = tempDir();
-    writeSettingsFixture(directory, {
-      enabled: { adapters: ["pi"], backends: [] },
-      defaults: { adapter: "pi" },
-    });
-
-    const report = settingsReport(await runSettings(directory, { ORCH_ADAPTER: "claude" }, "--json"));
-    expect(report["defaults.adapter"]).toEqual({ value: "claude", source: "env", agentWritable: false });
   });
 
   test("--harness switches defaults.adapter between enabled ids and rejects a non-enabled id", async () => {

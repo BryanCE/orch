@@ -7,7 +7,7 @@ import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 
 const originalTmux = process.env.TMUX;
 const originalHerdrEnv = process.env.HERDR_ENV;

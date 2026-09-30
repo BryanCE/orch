@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { resolvePeer } from "../src/agent/peers.ts";
-import { stubDaemonLink } from "./helpers/daemon-client.ts";
+import { askFrom, stubDaemonLink } from "./helpers/daemon-client.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
@@ -12,7 +12,7 @@ import type { OrchDir } from "../src/types/core.ts";
  *
  * Reproduced live: two of four research agents spent their entire turn on
  * `orch_send` to each other and returned relay chatter instead of their report.
- * `ORCH_SPAWNER` was unset, so `target "spawner"` refused, and nothing told
+ * orch had no spawner provenance, so `target "spawner"` refused, and nothing told
  * them what to do instead — so they improvised, and improvised badly.
  *
  * Two things have to hold. The refusal must SAY what to do (write the result
@@ -71,13 +71,23 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
     }
   });
 
-  test("a spawner that is stamped but has no live status record refuses by NAME and still says to report", async () => {
+  test("a spawner recorded by orch but with no live status refuses by NAME and still says to report", async () => {
     const d = fixture();
-    process.env.ORCH_SPAWNER = "deadorch01";
-    process.env.ORCH_SPAWNER_LABEL = "claude session";
     seedStatus(d, "worker0001", { agent: "pi", label: "research-1", pid: process.pid, state: "working" });
+    const daemon = stubDaemonLink();
+    daemon.ask = askFrom({
+      self: () => ({
+        id: "worker0001", kind: "agent", space: null, depth: 1,
+        view: {
+          id: "worker0001", name: "worker", label: null, harnessId: "pi", cwd: "/w", createdAt: 1,
+          spawnedBy: "deadorch01", spawnedByName: "claude session", rootAgentId: "deadorch01", heldBy: null,
+          environment: { plexer: null, handle: null, space: null, worktree: null, branch: null },
+          tuning: { model: null, thinking: null }, endedAt: null,
+        },
+      }),
+    });
 
-    const resolved = await resolvePeer(d, stubDaemonLink(), "spawner", "worker0001");
+    const resolved = await resolvePeer(d, daemon, "spawner", "worker0001");
     const error = "error" in resolved ? resolved.error : "";
     expect(error).toContain("claude session");
     expect(error.toLowerCase()).toContain("result");

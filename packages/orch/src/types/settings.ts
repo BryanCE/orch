@@ -81,7 +81,7 @@ export interface SettingsWatch {
 };
 
 /** Where a resolved setting's winning value came from. */
-export type SettingSource = "flag" | "env" | "settings.json" | "default";
+export type SettingSource = "flag" | "settings.json" | "default";
 
 /**
  * The declared shape of one setting is the contract.
@@ -124,8 +124,6 @@ export interface SettingSpec {
   readonly read: (config: OrchSettings) => unknown;
   /** Absent means read-only BY DECLARATION — never by omission. */
   readonly write?: (settings: SettingsManager, value: unknown) => void;
-  /** The env var that overrides this setting, if any. */
-  readonly env?: string;
 }
 
 /** A declared setting together with the value currently shown by the editor. */
@@ -134,8 +132,6 @@ export interface EditorSetting {
   readonly value: unknown;
   /** Provenance used by the shell when rendering the row. */
   readonly source?: string;
-  /** A flag or environment value that wins over settings.json, making this row read-only. */
-  readonly override?: string;
   /** Whether `agents.writable_settings` lets an agent write this row. */
   readonly agentWritable: boolean;
 }

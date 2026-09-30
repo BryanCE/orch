@@ -1,5 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { acceptMail } from "../src/daemon/server/mail.ts";
 import { deliverTaskResult } from "../src/daemon/server/result-delivery.ts";

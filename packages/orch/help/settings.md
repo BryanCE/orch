@@ -1,5 +1,5 @@
 Read or change orch's configuration. Bare `orch settings` prints every effective setting and
-where its value came from (flag, env, settings.json, default); on a terminal it opens the
+where its value came from (settings.json or default); on a terminal it opens the
 editor. Two words set one key:
 
     orch settings fleet.max_agents_per_tab 6

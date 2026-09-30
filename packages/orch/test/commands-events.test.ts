@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { eventAcceptor, formatEventGap, isNotifyEvent, onMonitor, parseEventsOptions, passesStates, renderEvent, sinkLabel } from "../src/commands/events.ts";

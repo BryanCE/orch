@@ -16,7 +16,7 @@ import { retryingAsync, retryingSync } from "../../retry.ts";
 import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, packageRoot } from "../../util.ts";
 import { hostOs, isHostOs } from "../../host.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
-import { orchDirAt } from "../../services.ts";
+import { orchDirAt } from "../../orch-dir.ts";
 import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, LockRecord, OsExecutor, OsSideExecution, SocketProbe } from "../../types/daemon.ts";
 import type { HostOs } from "../../types/host.ts";
 
@@ -200,20 +200,18 @@ export function provenDaemonPid(orchDir: OrchDir): number | undefined {
   return registration?.pid;
 }
 
+function isLockRecord(value: unknown): value is LockRecord {
+  return isRecord(value)
+    && typeof value.pid === "number" && Number.isInteger(value.pid) && value.pid > 0
+    && typeof value.codeHash === "string"
+    && typeof value.startedAt === "string"
+    && (value.startToken === undefined || typeof value.startToken === "string");
+}
+
 function readLock(file: string): LockRecord | undefined {
   try {
     const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
-    const record = parsed as Partial<LockRecord>;
-    if (
-      typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0 ||
-      typeof record.codeHash !== "string" ||
-      typeof record.startedAt !== "string" ||
-      (record.startToken !== undefined && typeof record.startToken !== "string")
-    ) {
-      return undefined;
-    }
-    return record as LockRecord;
+    return isLockRecord(parsed) ? parsed : undefined;
   } catch {
     return undefined;
   }

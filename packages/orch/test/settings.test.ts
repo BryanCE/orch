@@ -11,8 +11,6 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
 
 const directories: OrchDir[] = [];
-const originalConfigTest = process.env.ORCH_CONFIG_TEST;
-const originalConfigPrecedence = process.env.ORCH_CONFIG_PRECEDENCE;
 
 function tempDir(): OrchDir {
   const directory = tempOrchDir("orch-settings-");
@@ -28,10 +26,6 @@ function readSettingsRecord(directory: OrchDir): Record<string, unknown> {
 
 afterEach(() => {
   while (directories.length) removeTempDir(directories.pop()!);
-  if (originalConfigTest === undefined) delete process.env.ORCH_CONFIG_TEST;
-  else process.env.ORCH_CONFIG_TEST = originalConfigTest;
-  if (originalConfigPrecedence === undefined) delete process.env.ORCH_CONFIG_PRECEDENCE;
-  else process.env.ORCH_CONFIG_PRECEDENCE = originalConfigPrecedence;
 });
 
 describe("loadSettings", () => {
@@ -466,69 +460,36 @@ describe("writeSettingsFullTree", () => {
 });
 
 describe("settings precedence", () => {
-  test("uses the fallback when env and settings.json omit a setting", () => {
-    delete process.env.ORCH_CONFIG_PRECEDENCE;
+  test("uses the fallback when settings.json omits a setting", () => {
     const directory = tempDir();
     writeSettingsFixture(directory);
     const settings = fileSettingsManager(directory).current();
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", settings: settings.fleet.max_agents_total, fallback: 2 })).toBe(2);
+    expect(resolveSetting<number>({ settings: settings.fleet.max_agents_total, fallback: 2 })).toBe(2);
   });
 
   test("uses the settings.json value over the fallback", () => {
-    delete process.env.ORCH_CONFIG_PRECEDENCE;
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { max_depth: 4 } });
     const settings = fileSettingsManager(directory).current();
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", settings: settings.fleet.max_depth, fallback: 2 })).toBe(4);
+    expect(resolveSetting<number>({ settings: settings.fleet.max_depth, fallback: 2 })).toBe(4);
   });
 
-  test("uses the ORCH_* environment value over settings.json", () => {
-    const directory = tempDir();
-    writeSettingsFixture(directory, { fleet: { max_depth: 4 } });
-    process.env.ORCH_CONFIG_PRECEDENCE = "7";
-    const settings = fileSettingsManager(directory).current();
-
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", settings: settings.fleet.max_depth, fallback: 2 })).toBe(7);
-  });
-
-  test("uses an explicit flag override over the environment", () => {
-    process.env.ORCH_CONFIG_PRECEDENCE = "7";
-
-    expect(resolveSetting({ flag: 9, env: "ORCH_CONFIG_PRECEDENCE", settings: 4, fallback: 2 })).toBe(9);
-  });
-});
-
-describe("resolveSetting", () => {
-  test("uses flag, environment coercion, settings, then fallback in precedence order", () => {
-    process.env.ORCH_CONFIG_TEST = "7";
-    expect(resolveSetting({ flag: 9, env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toBe(9);
-    expect(resolveSetting({ env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toBe(7);
-
-    process.env.ORCH_CONFIG_TEST = "false";
-    expect(resolveSetting({ env: "ORCH_CONFIG_TEST", settings: true, fallback: true })).toBe(false);
-
-    delete process.env.ORCH_CONFIG_TEST;
-    expect(resolveSetting({ env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toBe(3);
-    expect(resolveSetting({ env: "ORCH_CONFIG_TEST", fallback: "pi" })).toBe("pi");
+  test("uses an explicit flag over settings.json", () => {
+    expect(resolveSetting({ flag: 9, settings: 4, fallback: 2 })).toBe(9);
   });
 });
 
 describe("resolveWithSource", () => {
-  test("rejects an environment value with the wrong shape", () => {
-    process.env.ORCH_CONFIG_TEST = "not-an-object";
-    expect(() => resolveWithSource({ env: "ORCH_CONFIG_TEST", fallback: { enabled: true } })).toThrow(/expected object/);
+  test("ignores a settings.json value with the wrong shape", () => {
+    expect(resolveWithSource({ settings: "not-an-object", fallback: { enabled: true } })).toEqual({ value: { enabled: true }, source: "default" });
   });
 
   test("reports the winning source at each precedence level", () => {
-    process.env.ORCH_CONFIG_TEST = "7";
-    expect(resolveWithSource({ flag: 9, env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toEqual({ value: 9, source: "flag" });
-    expect(resolveWithSource({ env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toEqual({ value: 7, source: "env" });
-
-    delete process.env.ORCH_CONFIG_TEST;
-    expect(resolveWithSource({ env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toEqual({ value: 3, source: "settings.json" });
-    expect(resolveWithSource({ env: "ORCH_CONFIG_TEST", fallback: 1 })).toEqual({ value: 1, source: "default" });
+    expect(resolveWithSource({ flag: 9, settings: 3, fallback: 1 })).toEqual({ value: 9, source: "flag" });
+    expect(resolveWithSource({ settings: 3, fallback: 1 })).toEqual({ value: 3, source: "settings.json" });
+    expect(resolveWithSource({ fallback: 1 })).toEqual({ value: 1, source: "default" });
   });
 });
 

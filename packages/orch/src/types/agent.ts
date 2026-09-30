@@ -122,7 +122,7 @@ export interface HarnessIdentity {
 
 /** What a composition root gets back: this session's own orch identity for its seat. */
 export interface HarnessBridge {
-  /** This session's presence key, once minted; the orchestrator seat keys its
+  /** This session's presence key, once issued by orchd; the orchestrator seat keys its
    *  identity wall on this. */
   ownKey: () => string | undefined;
 }
@@ -160,6 +160,9 @@ export interface Peer {
   name: string;
   harness: string;
   spawnedBy: string | null;
+  spawnedByName: string | null;
+  worktree: string | null;
+  branch: string | null;
   status: JsonRecord | null;
   result: string | null;
 }
@@ -265,6 +268,7 @@ export interface ControlOutcomeReport extends ControlOutcome {
 export interface DaemonLink {
   isAcked(id: string): boolean;
   markAcked(id: string): void;
+  identify(harness: string, sessionToken?: string): Promise<string | undefined>;
   /** Asks orchd a question; `undefined` when the daemon is absent, unreachable,
    *  or refused the call. */
   ask<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined>;

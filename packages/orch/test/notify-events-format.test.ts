@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { transitionEventFromRow } from "../src/daemon/server/status-events.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";

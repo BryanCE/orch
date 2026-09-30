@@ -136,7 +136,7 @@ describe("outside every plexer, spawn is headless unless the human chose one", (
     });
   });
 
-  // `--plexer`, `ORCH_BACKEND` and `defaults.backend` are all the human's
+  // `--plexer` and `defaults.backend` are both the human's
   // choice: a plexer set up in settings.json is one orch may open a home in.
   test("a chosen plexer stays selected and its home is what the human grants", async () => {
     const { logger } = await fixture();

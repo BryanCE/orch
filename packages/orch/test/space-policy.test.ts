@@ -15,7 +15,7 @@ import { checkWall, sameSpace, scopeToSpace, spaceName, spaceOf, spaceOfIn } fro
 import { seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 /**

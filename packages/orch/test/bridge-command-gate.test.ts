@@ -16,7 +16,7 @@ afterEach(() => {
 function harnessContext(): HarnessContext {
   return {
     hasUI: false,
-    sessionManager: { getSessionFile: () => undefined, getSessionId: () => undefined, getBranch: () => [] },
+    sessionManager: { getSessionFile: () => undefined, getSessionId: () => "test-session", getBranch: () => [] },
     modelRegistry: { find: () => undefined },
     ui: { notify: () => undefined, setStatus: () => undefined, setWidget: () => undefined },
     isIdle: () => true,

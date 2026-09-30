@@ -17,7 +17,6 @@ import type { SettingsScreen } from "../src/settings/view.ts";
 function entry(key: string, value: unknown, options?: {
   readonly kind?: SettingKind;
   readonly source?: string;
-  readonly override?: string;
   readonly writable?: boolean;
   readonly agentWritable?: boolean;
 }): EditorSetting {
@@ -33,7 +32,6 @@ function entry(key: string, value: unknown, options?: {
     spec,
     value,
     ...(options?.source === undefined ? {} : { source: options.source }),
-    ...(options?.override === undefined ? {} : { override: options.override }),
     agentWritable: options?.agentWritable === true,
   };
 }
@@ -79,7 +77,6 @@ describe("settings view", () => {
     const frame = stripAnsi(settingsFrame(
       screen([
         entry("daemon.tcp_port", 3716, { source: "default" }),
-        entry("fleet.max_depth", 1, { override: "ORCH_DEPTH" }),
         entry("runtime", "bun", { writable: false }),
         entry("locked_commands.commands", [], { source: "default", agentWritable: true }),
       ]),
@@ -92,7 +89,6 @@ describe("settings view", () => {
     expect(frame).toContain("daemon.tcp_port");
     expect(frame).toContain("3716");
     expect(frame).toContain("[default]");
-    expect(frame).toContain("[env: ORCH_DEPTH]");
     expect(frame).toContain("[read-only]");
     expect(frame).toContain("[default] [agent]");
     expect(frame).toContain("Help for daemon.tcp_port");

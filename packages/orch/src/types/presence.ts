@@ -47,15 +47,6 @@ export interface AgentFacts {
 /** A presence protocol record. Domain name for the shared JSON record shape. */
 export type PresenceRecord = JsonRecord;
 
-export interface LaunchEnvFacts {
-  label: string | null;
-  spawnedBy: string | null;
-  spawnedByLabel: string | null;
-  worktree: string | null;
-  branch: string | null;
-  tabLabel: string | null;
-}
-
 /**
  * What a harness reports about its own current state, over the daemon socket.
  * A PATCH: an absent field keeps the stored value, `null` clears it. Instants

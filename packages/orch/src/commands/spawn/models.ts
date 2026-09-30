@@ -80,8 +80,6 @@ export async function pinModels(
   return warnings;
 }
 
-/** The harness this command runs: flag, then ORCH_ADAPTER, then the configured default. */
-
 /** Enforce orch's model policy at the command's side-effect gate and return the spec
  *  the launch runs on: a short name comes back expanded, a full spec comes back as is. */
 export function admitLaunchModel(settings: OrchSettings, adapterId: AdapterId, catalogue: ModelCatalogue, model: string): string {

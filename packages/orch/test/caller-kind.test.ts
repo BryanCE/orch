@@ -1,5 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";

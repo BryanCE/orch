@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { registerSpawnedAgent } from "../../src/store/spawn-registration.ts";
 import { agentById, ensureHarness, ensureHost, ensurePlexer, getOrCreateSessionAgent, insertAgent } from "../../src/store/agent-rows.ts";
 import { hostOs } from "../../src/host.ts";
-import { OPERATOR_HARNESS_ID } from "../../src/policy/caller.ts";
+import { OPERATOR_HARNESS_ID } from "../../src/identity/operator.ts";
 import { sessionProcessPid } from "../../src/identity/credential.ts";
 import { processStartToken } from "../../src/process-identity.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace } from "../../src/store/interval-rows.ts";

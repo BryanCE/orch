@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 
 const packageRoot = join(import.meta.dirname, "..");
@@ -393,17 +393,15 @@ export function checkDispatcherCallLine(line: string, relPath: string): string |
   return undefined;
 }
 
-/** Rule: process composition happens at a root. Only src/services.ts reads ORCH_DIR, and
+/** Rule: process composition happens at a root. Only src/orch-dir.ts reads ORCH_DIR, and
  * only the roots call createServices(): the CLI (src/commands/index.ts, src/commands/setup.ts
- * for the first-run wizard), the daemon (src/daemon/server/orchd.ts), the extensions
- * (extensions/pi/index.ts, extensions/omp/index.ts), and build tooling under scripts/, where
- * every script is its own process. Everything else receives values. */
+ * for the first-run wizard), the daemon (src/daemon/server/orchd.ts), and build tooling under
+ * scripts/, where every script is its own process. A harness extension composes only an orch
+ * dir and a settings manager, because Services carries the store-backed model catalogue. */
 const COMPOSITION_ROOTS = new Set([
   "src/commands/index.ts",
   "src/commands/setup.ts",
   "src/daemon/server/orchd.ts",
-  "extensions/pi/index.ts",
-  "extensions/omp/index.ts",
 ]);
 
 function isCompositionRoot(normalizedPath: string): boolean {
@@ -413,8 +411,8 @@ const COMPOSITION_IMPORT = /\bimport\b[^;\n]*\b(?:loadSettings|loadSettingsOrNul
 
 export function checkCompositionRootLine(line: string, relPath: string): string | undefined {
   const normalizedPath = relPath.replace(/\\/g, "/");
-  if (line.includes("process.env.ORCH_DIR") && normalizedPath !== "src/services.ts") {
-    return "process.env.ORCH_DIR may only be read in src/services.ts; pass orchDir from the composition root";
+  if (line.includes("process.env.ORCH_DIR") && normalizedPath !== "src/orch-dir.ts") {
+    return "process.env.ORCH_DIR may only be read in src/orch-dir.ts; pass orchDir from the composition root";
   }
   if (/\bcreateServices\s*\(/.test(line) && !isCompositionRoot(normalizedPath)) {
     // The function declaration is the composition seam itself, not a call site.
@@ -701,6 +699,78 @@ function scanCoreScope(): number {
   return count;
 }
 
+export type BundleFileReader = (file: string) => string | undefined;
+
+export function bundleEntries(scripts: Readonly<Record<string, string>>): string[] {
+  return Object.entries(scripts)
+    .filter(([name]) => name.startsWith("build:"))
+    .flatMap(([, script]) => [...script.matchAll(/\bbun\s+build\s+([^\s]+\.ts)\b/g)].map((match) => match[1]!));
+}
+
+function bundleImportSpecifiers(source: string): string[] {
+  const specs: string[] = [];
+  const pattern = /^\s*(import|export)\s+(?!type\b)(?:[^;]*?\s+from\s+)?["']([^"']+)["']\s*;?/gm;
+  for (const match of source.matchAll(pattern)) specs.push(match[2]!);
+  return specs;
+}
+
+function resolveBundleImport(from: string, specifier: string): string | undefined {
+  if (specifier.startsWith("orch/core/")) return resolve(packageRoot, "src", specifier.slice("orch/core/".length));
+  if (!specifier.startsWith(".")) return undefined;
+  return resolve(dirname(from), specifier);
+}
+
+function sourceFile(file: string, readFile: BundleFileReader): string | undefined {
+  for (const candidate of [file, `${file}.ts`, join(file, "index.ts")]) {
+    const contents = readFile(candidate);
+    if (contents !== undefined) return candidate;
+  }
+  return undefined;
+}
+
+export function findStoreImportChains(entry: string, readFile: BundleFileReader): string[][] {
+  const absoluteEntry = resolve(packageRoot, entry);
+  const foundEntry = sourceFile(absoluteEntry, readFile);
+  if (!foundEntry) return [];
+  const parent = new Map<string, string | undefined>([[foundEntry, undefined]]);
+  const queue = [foundEntry];
+  const chains: string[][] = [];
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    const source = readFile(file);
+    if (source === undefined) continue;
+    for (const specifier of bundleImportSpecifiers(source)) {
+      const target = resolveBundleImport(file, specifier);
+      const resolvedTarget = target && sourceFile(target, readFile);
+      if (!resolvedTarget || parent.has(resolvedTarget)) continue;
+      parent.set(resolvedTarget, file);
+      if (/[/\\]src[/\\](?:store|db)[/\\]/.test(resolvedTarget)) {
+        const chain = [resolvedTarget];
+        for (let at: string | undefined = file; at; at = parent.get(at)) chain.unshift(at);
+        chains.push(chain.map((path) => relative(packageRoot, path).replace(/\\/g, "/")));
+      } else queue.push(resolvedTarget);
+    }
+  }
+  return chains;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return typeof value === "object" && value !== null && Object.values(value).every((item) => typeof item === "string");
+}
+
+function checkBundleStoreBoundary(): void {
+  const parsed: unknown = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+  if (typeof parsed !== "object" || parsed === null || !("scripts" in parsed) || !isStringRecord(parsed.scripts)) {
+    throw new Error("check-bridge: package.json has no scripts object");
+  }
+  const entries = bundleEntries(parsed.scripts).filter((entry) => entry.startsWith("extensions/"));
+  const violations = entries.flatMap((entry) => findStoreImportChains(entry, (file) => {
+    if (!existsSync(file)) return undefined;
+    return readFileSync(file, "utf8");
+  }).map((chain) => `${entry}: ${chain.join(" -> ")}`));
+  if (violations.length > 0) throw new Error(`check:bridge FAIL harness bundles reach the store:\n${violations.join("\n")}`);
+}
+
 function runAllChecks(): void {
   /**
    * The presence filenames have exactly one definition site: src/presence/schema.ts.
@@ -843,6 +913,7 @@ function runAllChecks(): void {
     bridgeSourceFiles + extensionFiles + scriptFiles + adapterFiles + backendFiles +
     coreScopeFiles + packageFiles + dispatcherScopeFiles + spawnerReplyFiles +
     identityConstructionFiles + commandParserFiles + leaseProvenanceFiles;
+  checkBundleStoreBoundary();
   console.log(`check:bridge OK (${scanned} files scanned)`);
 }
 

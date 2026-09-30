@@ -5,6 +5,13 @@ import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentId } from "../backends/identity.ts";
 import type { Logger, OrchDir } from "./core.ts";
 
+/** Facts detected about the plexer containing the current process. */
+export interface DetectedPlexer {
+  readonly plexer: string;
+  readonly handle: string | undefined;
+  readonly plexerVersion?: string;
+}
+
 /** Where a placed agent sits, as the environment reports it. */
 export interface PlacementCoordinate {
   readonly handle: BackendHandle;
@@ -264,8 +271,10 @@ export interface BackendSpawnOpts {
   readonly orchDir: OrchDir;
   /** Extra environment passed to the adapter process. */
   readonly env?: Readonly<Record<string, string>>;
-  /** How long the harness waits for orchd to accept a report, in milliseconds. */
-  readonly reportTimeoutMs?: number;
+  /** The launching agent's id, recorded as provenance by a backend that registers its own agents. */
+  readonly spawner?: string | null;
+  /** The git worktree the agent runs in, recorded by a backend that registers its own agents. */
+  readonly worktree?: { readonly path: string; readonly branch: string };
   /** Explicit worker tool allowlist, when the launcher applies one. */
   readonly tools?: string;
   /** What this worker may load; the adapter maps it onto its harness's flags. */

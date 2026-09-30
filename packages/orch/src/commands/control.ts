@@ -4,7 +4,7 @@ import { collapse, errorMessage, isRecord, truncate } from "../util.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { modelSpec } from "../policy/thinking.ts";
-import { spawnerIdentityOf, workerHeaderContextOf } from "../policy/spawner.ts";
+import { workerHeaderContextOf } from "../policy/spawner.ts";
 import { callDaemon, governanceFlags, readRpc, writeRpc } from "./daemon.ts";
 import { parseCommand } from "./registry.ts";
 import type { Invocation } from "../cli/spec.ts";
@@ -315,7 +315,7 @@ async function recordAdoptedAgent(services: Services, self: CallerSelf, key: str
     // may still carry its `:effort` suffix.
     model: tuning.model,
     thinking: tuning.thinking,
-    spawner: spawnerIdentityOf(self).key,
+    spawner: self.id,
     owner: self.id ?? undefined,
     process: adoptedProcess(dispatchSettings.ent),
   });

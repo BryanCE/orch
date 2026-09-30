@@ -1,4 +1,6 @@
 import type { OrchDir } from "../types/core.ts";
+import { launchCredential } from "../identity/launch.ts";
+import { nonEmpty, sessionClaim } from "../daemon/client/registration.ts";
 // The running agent's orchd socket client: the only channel by which a bundled
 // harness asks orchd anything or reports anything. It knows no plexer and no store.
 //
@@ -62,6 +64,18 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
         if (result !== undefined) return result;
       }
       return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function identify(harness: string, sessionToken?: string): Promise<string | undefined> {
+    const token = nonEmpty(sessionToken);
+    try {
+      const credential = launchCredential();
+      if (credential === null) return (await ask("register-session", sessionClaim(orchDir, undefined, { harness, sessionToken: token })))?.id;
+      if (token === undefined) return credential;
+      return (await ask("claim-identity", { ...sessionClaim(orchDir, undefined, { harness, sessionToken: token }), id: credential, sessionToken: token }))?.id;
     } catch {
       return undefined;
     }
@@ -213,6 +227,7 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
       ackedMessageIds.add(id);
     },
     ask,
+    identify,
     attach,
     detach,
     attached: (): boolean => linkAttached,

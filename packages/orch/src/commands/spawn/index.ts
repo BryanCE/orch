@@ -1,4 +1,3 @@
-import { agentIdentityEnv, spawnerIdentityOf, worktreeEnv } from "../../policy/spawner.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { workerPrompt, workerRules } from "../../worker-prompt.ts";
 import { agentFlags, resolveAdapterOrDie } from "../selection.ts";
@@ -39,9 +38,9 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
   // A headless agent has no TTY to idle on: it runs its prompt and exits, so work
   // dispatched after launch would arrive at a dead process.
   if (settings.agents.some((agent) => !agent.prompt?.trim())) die(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" or --file <path> (a headless agent runs it and exits)`);
-  // Headless agents mint their identity under the backend's own grouping (headless → "local"),
-  // never the caller's herdr identity; the cap check must match that same bucket, not callerSpace().
-  const space = settings.space ?? "local";
+  // Headless agents have no placement environment; without an explicit space, use NULL
+  // rather than inventing a space that the caller's environment does not belong to.
+  const space = settings.space ?? null;
   const { views, presence } = admissionFleet(fleet);
   assertSpawnPolicy(settingsFile, space, settings.agents.length, views, presence, self.id);
   assertSpawnCapacity(settingsFile, space, settings.agents.length, views, presence);
@@ -60,26 +59,22 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
       // The backend records the OS pid separately for close ownership; the key
       // never encodes it, and the backend never re-mints a second identity.
       const key = mintAgentId();
-      const spawner = spawnerIdentityOf(self);
       // orchd launches a real harness process inside this call, so it gets the adapter-command
       // budget, not the 5s default meant for a question orchd answers from memory.
       await callDaemon(services, "spawn-headless", {
         key,
+        name,
+        // The daemon launches the process, but the spawner is this CLI's caller.
+        spawner: self.id,
+        worktree: settings.worktree ? { path: cwd, branch: `orch/${name}` } : undefined,
         adapter: settings.adapter,
         cwd,
-        // The daemon launches the process, but the IDENTITY of the spawner is
-        // this CLI's: orchd's own env knows nothing about the calling session.
-        env: {
-          ...agentIdentityEnv(name, spawner),
-          ...worktreeEnv(settings.worktree ? cwd : undefined, settings.worktree ? `orch/${name}` : undefined),
-          ...(self.id ? { ORCH_SPAWNER_AGENT_ID: self.id } : {}),
-        },
         model: plan.model,
         thinking: plan.thinking,
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
         preferredModels: [...settings.preferredModels],
-        prompt: workerPrompt(plan.prompt ?? "", false, adapter, { maySpawn, cwd, spawnerRepliable: spawner.key !== null, ...workerRules(settingsFile) }),
+        prompt: workerPrompt(plan.prompt ?? "", false, adapter, { maySpawn, cwd, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) }),
         tools: settings.tools,
         workers: settings.workers,
       }, {}, settingsFile.timeouts.adapter_command_ms);
@@ -129,17 +124,13 @@ function answerNoGroupLayout(json: boolean): void {
 }
 
 /** Mint every identity, worktree and environment up front, before a tab exists. */
-function prepareAgents(orchDir: OrchDir, settings: SpawnSettings, adapter: AgentAdapter, names: readonly string[], spawner: ReturnType<typeof spawnerIdentityOf>): PreparedAgent[] {
+function prepareAgents(orchDir: OrchDir, settings: SpawnSettings, adapter: AgentAdapter, names: readonly string[]): PreparedAgent[] {
   return names.map((name) => {
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
     adapter.workspaceTrust?.preTrustWorkspace(cwd, settings.cmd);
     const key = mintAgentId();
     const branch = settings.worktree ? `orch/${name}` : undefined;
-    const env = {
-      ...agentIdentityEnv(name, spawner),
-      ...worktreeEnv(settings.worktree ? cwd : undefined, branch),
-      [LAUNCH_ENV]: key, ORCH_DIR: orchDir,
-    };
+    const env = { [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
     return { name, cwd, key, env, branch, handle: undefined };
   });
 }
@@ -193,9 +184,9 @@ function placeRemainingAgents(
 async function launchPrepared(
   services: DaemonClient,
   prepared: readonly PreparedAgent[],
-  context: { settings: SpawnSettings; settingsFile: OrchSettings; backend: Backend; adapter: AgentAdapter; space: string | null; workspace: string | undefined; groupId: string; self: CallerSelf; fleet: FleetSnapshot },
+  context: { settings: SpawnSettings; backend: Backend; adapter: AgentAdapter; space: string | null; workspace: string | undefined; groupId: string; self: CallerSelf; fleet: FleetSnapshot },
 ): Promise<CreatedAgent[]> {
-  const { settings, settingsFile, backend, adapter, space, workspace, groupId, self, fleet } = context;
+  const { settings, backend, adapter, space, workspace, groupId, self, fleet } = context;
   const created: CreatedAgent[] = [];
   for (const [index, item] of prepared.entries()) {
     if (item.handle === undefined) continue;
@@ -205,10 +196,9 @@ async function launchPrepared(
       created.push(await spawnOneIntoTab(services, {
         backend, adapter, adapterId: settings.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         model: plan.model, thinking: plan.thinking, preferredModels: settings.preferredModels,
-        reportTimeoutMs: settingsFile.daemon.report_timeout_ms,
         tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? settings.cmd : undefined,
         worktree: settings.worktree ? item.cwd : undefined, branch: item.branch,
-        spawner: spawnerIdentityOf(self), owner: self.id ?? undefined,
+        spawner: self.id, owner: self.id ?? undefined,
         intoHandle: item.handle, key: item.key, env: item.env,
       }, fleet));
     } catch (error: unknown) {
@@ -235,9 +225,8 @@ async function placeSpawn(
 ): Promise<SpawnPlacement> {
   const environment = self.view?.environment;
   if (environment === undefined) die(`spawner ${self.id} has no agent row`);
-  const spawner = spawnerIdentityOf(self);
   const placement = await resolveSpawnPlacement({
-    services, backend, spawner, space: settings.space ?? self.space,
+    services, backend, space: settings.space ?? self.space,
     packRootId: self.view?.rootAgentId ?? null,
     callerPlexer: environment.plexer,
     callerHandle: environment.handle,
@@ -304,10 +293,10 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
   const label = settings.tab ?? freeTabLabel(liveTabLabels(backend, views, presence));
   assertTabCapacity(settings, label, 0, names.length);
   const groupHome = backend.groupHome;
-  const prepared = prepareAgents(services.orchDir, settings, adapter, names, spawnerIdentityOf(self));
+  const prepared = prepareAgents(services.orchDir, settings, adapter, names);
   const { group, workspace } = await seatFleet(services, backend, groupHome, placement, settings, label, prepared);
   placeRemainingAgents(services.logger, backend, prepared, group.id, workspace, settings.tiling.first_split);
-  const created = await launchPrepared(services, prepared, { settings, settingsFile, backend, adapter, space, workspace, groupId: group.id, self, fleet });
+  const created = await launchPrepared(services, prepared, { settings, backend, adapter, space, workspace, groupId: group.id, self, fleet });
   if (created.length === 0) {
     try { groupHome.close(group.id); } catch { /* best effort */ }
     die("all spawns failed");
@@ -381,8 +370,7 @@ export async function cmdTile(services: Services, args: string[]) {
       model,
       thinking,
       preferredModels,
-      reportTimeoutMs: settingsFile.daemon.report_timeout_ms,
-      spawner: spawnerIdentityOf(self),
+      spawner: self.id,
       owner: self.id ?? undefined,
     }, fleet);
   } catch (e: unknown) {

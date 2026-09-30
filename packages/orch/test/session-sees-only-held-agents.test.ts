@@ -45,13 +45,13 @@ function services(root: OrchDir) {
 describe("session agent visibility", () => {
   test("shows only agents held by the current session, not its provenance children", () => {
     const rows = [row("held-1", "session-a"), row("held-2", "session-a"), row("foreign", "session-b")];
-    expect(scopeFleetRows(rows, { spaceWide: false, allPanes: false, caller: session }).map((item) => item.key)).toEqual(["held-1", "held-2"]);
+    expect(scopeFleetRows(rows, { all: false, caller: session }).map((item) => item.key)).toEqual(["held-1", "held-2"]);
   });
 
   test("an operator sees every agent in every space", () => {
     const operator: CallerScope = { id: null, ceiling: null, kind: "operator" };
     const rows = [row("held-1", "session-a"), row("held-2", "session-a"), row("foreign", "other-space")];
-    expect(scopeFleetRows(rows, { spaceWide: false, allPanes: false, caller: operator }).map((item) => item.key)).toEqual(["held-1", "held-2", "foreign"]);
+    expect(scopeFleetRows(rows, { all: false, caller: operator }).map((item) => item.key)).toEqual(["held-1", "held-2", "foreign"]);
   });
 
   test.serial("a session cannot reset a foreign-held agent", async () => {

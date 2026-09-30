@@ -7,6 +7,7 @@ import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { askDaemon, callDaemon } from "./daemon.ts";
+import { resolveEntity } from "./resolve.ts";
 import { die, remoteWrite } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
@@ -15,6 +16,7 @@ import type { QueueScopeFlags } from "../types/command.ts";
 import type { DaemonClient } from "../types/services.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
+import type { AgentView } from "../types/store.ts";
 
 export function renderQueueTasks(tasks: TaskRec[]): void {
   if (tasks.length === 0) {
@@ -53,6 +55,13 @@ async function withQueueCaller(
   }
 }
 
+/** The orch agent a target names, through the one resolver. A pane orch did not spawn has no queue. */
+async function orchAgent(services: DaemonClient, target: string): Promise<AgentView> {
+  const { view } = await resolveEntity(services, target);
+  if (view === null) die(`Target "${target}" is not an agent orch spawned.`);
+  return view;
+}
+
 /**
  * Cq2: one of the three scopes, chosen at enqueue. A pack is named by its root
  * agent, so `--pack` accepts any member and resolves to the root — the scope is
@@ -64,8 +73,8 @@ async function withQueueCaller(
 export async function scopeFromFlags(services: DaemonClient, flags: QueueScopeFlags): Promise<TaskScopeSelection> {
   const chosen = [flags.agent, flags.pack, flags.space].filter((value) => value !== undefined);
   if (chosen.length > 1) die("Choose exactly one of --agent, --pack or --space");
-  if (flags.agent !== undefined) return { agentId: (await askDaemon(services, "resolve-agent", { target: flags.agent })).id };
-  if (flags.pack !== undefined) return { packId: (await askDaemon(services, "resolve-agent", { target: flags.pack })).rootAgentId };
+  if (flags.agent !== undefined) return { agentId: (await orchAgent(services, flags.agent)).id };
+  if (flags.pack !== undefined) return { packId: (await orchAgent(services, flags.pack)).rootAgentId };
   if (flags.space !== undefined) return { spaceId: flags.space };
   return {};
 }
@@ -143,7 +152,8 @@ async function queueTakeOn(services: DaemonClient, invocation: Invocation): Prom
   const id = oneTaskId(invocation);
   const agent = flags.value("--agent");
   await withQueueCaller(services, async (callerId) => {
-    const { task } = await callDaemon(services, "queue-take-on", { target: id, taker: agent ?? callerId });
+    const taker = agent === undefined ? callerId : (await orchAgent(services, agent)).id;
+    const { task } = await callDaemon(services, "queue-take-on", { target: id, taker });
     writeQueueTask(task, flags.has("--json"), `Took on ${task.id}`);
   });
 }
@@ -166,11 +176,12 @@ async function queueIntake(services: DaemonClient, invocation: Invocation): Prom
   const close = flags.has("--close");
   if (positional.length > 1) throw usageError(invocation);
   if (!space && close) throw usageError(invocation, "--close needs the <space> it closes");
+  const agent = flags.value("--agent");
   await withQueueCaller(services, async (callerId) => {
     const { intakes } = await callDaemon(services, "queue-intake", {
       by: callerId,
       close,
-      ...(flags.value("--agent") === undefined ? {} : { agent: flags.value("--agent") }),
+      ...(agent === undefined ? {} : { agent: (await orchAgent(services, agent)).id }),
       ...(space === undefined ? {} : { space }),
     });
     if (flags.has("--json")) process.stdout.write(JSON.stringify(intakes, null, 2) + "\n");

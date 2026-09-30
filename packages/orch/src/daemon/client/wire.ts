@@ -190,7 +190,6 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "grants": return parseOne(method, RPC_PARAMS[method], id, value);
     case "grant": return parseOne(method, RPC_PARAMS[method], id, value);
     case "admit-home": return parseOne(method, RPC_PARAMS[method], id, value);
-    case "resolve-agent": return parseOne(method, RPC_PARAMS[method], id, value);
     case "queue-list": return parseOne(method, RPC_PARAMS[method], id, value);
     case "queue-cancel": return parseOne(method, RPC_PARAMS[method], id, value);
     case "queue-edit": return parseOne(method, RPC_PARAMS[method], id, value);

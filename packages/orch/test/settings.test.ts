@@ -96,6 +96,7 @@ describe("loadSettings", () => {
       daemon: { tcp_port: 4321, work_tick_ms: 7_000 },
       doctor: { unclaimed_after_ms: 123_456 },
       tiling: { first_split: "columns" },
+      counts: { tail: 40 },
       logging: { slow_tool_ms: 250, stall_ms: 100, stall_poll_ms: 250 },
     });
 
@@ -132,6 +133,7 @@ describe("loadSettings", () => {
       daemon: { tcp_port: 4321, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 7_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       doctor: { unclaimed_after_ms: 123_456 },
       tiling: { first_split: "columns" },
+      counts: { tail: 40, peek: 25 },
       logging: { level: "info", slow_tool_ms: 250, stall_ms: 100, stall_poll_ms: 250 },
       skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
     });
@@ -242,6 +244,7 @@ describe("loadSettings", () => {
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       doctor: { unclaimed_after_ms: 120_000 },
       tiling: { first_split: "rows" },
+      counts: { tail: 20, peek: 25 },
       logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
       skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
     });

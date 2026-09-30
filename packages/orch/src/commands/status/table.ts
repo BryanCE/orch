@@ -31,16 +31,17 @@ export interface TableFlags {
 }
 
 export interface StatusTableOptions {
-  spaceWide: boolean;
+  /** `--all`: the table may span spaces, so it shows SPACE when the rows do. */
+  all: boolean;
   host: boolean;
   human?: boolean;
   /** Columns `--hide` removed. */
   columns: ReadonlySet<string>;
 }
 
-function tableFlags(fleet: FleetStatus, spaceWide: boolean, human: boolean): TableFlags {
+function tableFlags(fleet: FleetStatus, all: boolean, human: boolean): TableFlags {
   return {
-    showSpace: spaceWide && new Set(fleet.rows.map((row) => row.spaceId ?? "-")).size > 1,
+    showSpace: all && new Set(fleet.rows.map((row) => row.spaceId ?? "-")).size > 1,
     showOwner: new Set(fleet.rows.map((row) => ownerLabel(row, fleet.names) ?? "-")).size > 1,
     showBranch: fleet.rows.some((row) => row.branch),
     human,
@@ -155,9 +156,9 @@ export function renderStatusTable(fleet: FleetStatus, flags: TableFlags, options
 }
 
 export function formatStatusTable(fleet: FleetStatus, options: StatusTableOptions): string {
-  return renderStatusTable(fleet, tableFlags(fleet, options.spaceWide, options.human === true), { host: options.host, columns: options.columns });
+  return renderStatusTable(fleet, tableFlags(fleet, options.all, options.human === true), { host: options.host, columns: options.columns });
 }
 
-export function localStatusTable(fleet: FleetStatus, spaceWide: boolean): string {
-  return formatStatusTable(fleet, { spaceWide, host: false, columns: NO_STATUS_HIDE.columns });
+export function localStatusTable(fleet: FleetStatus, all: boolean): string {
+  return formatStatusTable(fleet, { all, host: false, columns: NO_STATUS_HIDE.columns });
 }

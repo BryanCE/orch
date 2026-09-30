@@ -24,7 +24,7 @@ const servers: RpcServer[] = [];
 /** Capture what a refusal wrote, and put the real stream back afterwards. */
 
 describe("commands/clean", () => {
-  test("the forced sweep reaps dead agent dirs but preserves live processes", async () => {
+  test("the --all sweep reaps dead agent dirs but preserves live processes", async () => {
     const root: OrchDir = tempOrchDir("orch-command-clean-");
     const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
@@ -70,7 +70,7 @@ describe("commands/clean", () => {
   });
 
   test("--all reaps the ended agent and closes its queued writes", async () => {
-    const root = tempOrchDir("orch-command-clean-force-");
+    const root = tempOrchDir("orch-command-clean-all-");
     const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});

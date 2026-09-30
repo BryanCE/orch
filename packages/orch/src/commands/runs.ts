@@ -5,7 +5,7 @@ import { parseCommand } from "./registry.ts";
 import { readRpc } from "./daemon.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { usageError } from "../cli/usage.ts";
-import type { Invocation } from "../cli/spec.ts";
+import { readCount } from "../cli/count.ts";
 import type { RunRecord } from "../types/store.ts";
 import type { Services } from "../types/services.ts";
 
@@ -47,21 +47,13 @@ export function renderRuns(runs: readonly RunRecord[]): string {
   return renderTable(["STARTED", "DURATION", "AGENT", "MODEL", "STATE", "COST", "TOKENS", "TASK"], rows, [19, 10, 30, 28, 12, 10, 14, 60]);
 }
 
-/** The `-n` row cap, or undefined when absent. Anything but a safe whole number is a usage error. */
-function readLimit(invocation: Invocation): number | undefined {
-  const count = invocation.flags.value("-n");
-  if (count === undefined) return undefined;
-  if (!/^\d+$/.test(count) || !Number.isSafeInteger(Number(count))) throw usageError(invocation, `-n needs a whole number, got "${count}"`);
-  return Number(count);
-}
-
 /** List durable dispatch history, optionally narrowed to one resolved agent. */
 export async function cmdRuns(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("runs", args);
   const { flags, positional } = invocation;
   if (positional.length > 1) throw usageError(invocation);
   const target = positional[0];
-  const limit = readLimit(invocation);
+  const limit = readCount(invocation);
   const json = flags.has("--json");
   const { runs } = await readRpc(services, "runs", { caller: callerCredential(), ...(target === undefined ? {} : { target }), ...(limit === undefined ? {} : { limit }) });
   if (json) {

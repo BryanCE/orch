@@ -30,25 +30,20 @@ function printInstallHints(missing: readonly { bin: string; cmd: string }[]): vo
   for (const { bin, cmd } of missing) process.stdout.write(`  install ${bin}: ${cmd}\n`);
 }
 
-/** Decide which missing prerequisites to install: multiselect when interactive, all with -y, none otherwise. Null on cancel. */
+/** Decide which missing prerequisites to install: all with --install, none with --no-install, else the multiselect on a TTY. Null on cancel. */
 async function resolveInstallTargets(
   missing: readonly { bin: string; cmd: string }[],
   interactive: boolean,
-  yes: boolean,
-  noInstall: boolean,
+  install: boolean | undefined,
 ): Promise<string[] | null> {
-  if (!missing.length || noInstall) {
-    printInstallHints(missing);
-    return [];
-  }
-  if (interactive) {
+  if (install === true) return missing.map(({ bin }) => bin);
+  if (missing.length && install === undefined && interactive) {
     const picked = await chooseInstalls(missing);
     if (picked === null) return null;
     for (const { bin, cmd } of missing)
       if (!picked.includes(bin)) process.stdout.write(`  skipped ${bin} - install later with: ${cmd}\n`);
     return picked;
   }
-  if (yes) return missing.map(({ bin }) => bin);
   printInstallHints(missing);
   return [];
 }
@@ -124,10 +119,9 @@ async function installSelectedPrerequisites(
   logger: Logger,
   missing: readonly MissingPrerequisite[],
   interactive: boolean,
-  yes: boolean,
-  noInstall: boolean,
+  install: boolean | undefined,
 ): Promise<boolean> {
-  const toInstall = await resolveInstallTargets(missing, interactive, yes, noInstall);
+  const toInstall = await resolveInstallTargets(missing, interactive, install);
   if (toInstall === null) return false;
   // Install in the queued order so a provider's `needs` (e.g. bun before pi) land first.
   for (const { bin, cmd } of missing.filter((candidate) => toInstall.includes(candidate.bin))) {
@@ -147,8 +141,7 @@ export async function installPrerequisites(
   adapters: readonly AdapterId[],
   backends: readonly BackendId[],
   interactive: boolean,
-  yes: boolean,
-  noInstall: boolean,
+  install: boolean | undefined,
 ): Promise<boolean> {
   // Prerequisites are scoped to the selected providers only. Each selected provider id is
   // probed under the id-is-binary invariant; install-only dependencies are resolved from
@@ -175,7 +168,7 @@ export async function installPrerequisites(
   reportAdapterPrerequisites(adapters, bins, queueInstall);
   reportBackendPrerequisites(backends, bins, queueInstall);
   for (const { id, url } of manual) process.stdout.write(`  install ${id} manually: ${url}\n`);
-  return installSelectedPrerequisites(logger, missing, interactive, yes, noInstall);
+  return installSelectedPrerequisites(logger, missing, interactive, install);
 }
 
 export function planShimInstall(adapter: AgentAdapter): ShimBoundaryPlan {

@@ -1,30 +1,19 @@
-Start one agent per name, all in one tab. Name each agent for its part of the job.
+Start one agent per name, all in one tab. Spawn when no idle agent can take the task through
+`orch dispatch`. Name each agent for its part of the job.
 
-    orch spawn api-types api-routes api-guards --tab api \
-      --file specs/types.md --file specs/routes.md --file specs/guards.md \
-      --model luna:high --model luna:low --model luna:high
+    orch spawn api-types api-routes --tab api \
+      --file specs/types.md --file specs/routes.md --model luna:high
 
-Per-agent values
-  --prompt, --file, and --model take one value for every agent, or one per name in order.
-  --with <path> reaches every agent. --with <name>=<path> reaches that agent only.
+Spawn returns once every agent is connected to orchd; dispatch or monitor right away.
 
-Where the agents land
-  --tab is one area of work (server, client). A tab that already has the label gets the new panes.
-  --dir sets the working directory. A path written in the prompt does not move the agent.
-  --space files the fleet in an orch space from 'orch space list'.
-  --backend <plexer> opens that plexer's home. A human approves it with 'orch grant'.
-  Outside a plexer, the agents run headless. Headless needs --prompt or --file.
-
-Before you spawn
-  An idle agent takes a new task through 'orch dispatch'. Spawn when that dispatch fails.
-  Use --worktree when agents edit the same files. Collect with 'orch review'.
-  'orch status --capacity' shows the limits. A refused spawn creates nothing and names the setting.
-
-Output
-  Spawn returns once every agent is connected to orchd. Dispatch right away.
-
-    ok      <handle>  <name>
-    STALLED <handle>  <name> - bridge never attached; try: orch restart <name>
-
-  A stall exits 1. The stalled agent still gets its task when it connects.
-  Its model is not set. Run 'orch model <name> <model>' after it connects.
+Traps:
+- `--prompt`, `--file`, and `--model` take one value for all, or one per name in order.
+- Without `--tab`, the agents land in a new tab with a random label like `elk-glacier-01`.
+  Name the tab after the area of work; an existing label gets the new panes.
+- A path written in the prompt does not move the agent. Reach for `--dir`.
+- Give edits to the same files to one agent. Reach for `--worktree` when parallel agents
+  might touch the same files by accident, then collect with `orch review`.
+- Outside a plexer the agents run headless and need `--prompt` or `--file`.
+- A refused spawn creates nothing and names the setting. `orch status --capacity` shows room.
+- `STALLED <handle> <name>` exits 1: its bridge never attached. The task still arrives once
+  it connects, but the model is unset: run `orch model <name> <model>` then, or `orch restart <name>`.

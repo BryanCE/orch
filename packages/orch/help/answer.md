@@ -1,6 +1,7 @@
-Answer the question the agent is asking. Refused by name when it is not asking. There is no
-force flag. `orch questions` lists who is asking.
+Answer an agent that is blocked on a question. `orch questions` lists who is asking; an
+agent that is not asking refuses the answer.
 
-A question from a worker gets a scope grant, not a discussion. When it asks whether it may
-touch a caller outside its named files, answer in one line: yes, these three files, this
-one change, name them in your done line.
+    orch answer api-routes "Yes: edit src/types.ts too, only the Route type. Name it in your done line."
+
+When an agent asks whether it may go beyond its task, answer in one line: yes or no, which
+files, and which change.

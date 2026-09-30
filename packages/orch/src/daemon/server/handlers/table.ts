@@ -8,7 +8,7 @@ import { adopt, detach, reap, reapCandidateList, rename } from "./lease.ts";
 import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
 import { admitHome, decideGrant, listGrants } from "./grant.ts";
 import { lockCommand, unlockCommand } from "./command-lock.ts";
-import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, resolveAgentTarget, takeOnQueued } from "./queue.ts";
+import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, takeOnQueued } from "./queue.ts";
 import { cleanStore } from "./clean.ts";
 import { agentStatusOf, capacityOf, fleetSnapshot, processLive, runOf, runsOf } from "./fleet.ts";
 import { resolveLifecycleEntity, resolveTargetEntity } from "./resolve.ts";
@@ -123,7 +123,6 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     grants: () => listGrants(directory),
     grant: governed(state, (params) => decideGrant(directory, params)),
     "admit-home": governed(state, (params) => admitHome(directory, params)),
-    "resolve-agent": (params) => resolveAgentTarget(directory, params),
     "queue-list": (params) => listQueued(directory, params),
     "queue-cancel": governed(state, (params) => cancelQueued(directory, params)),
     "queue-edit": governed(state, (params) => editQueued(directory, params)),

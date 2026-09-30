@@ -96,22 +96,22 @@ export type SpawnSettings = Omit<AgentSettings, "model" | "thinking"> & {
 };
 
 /** "One value for every agent, or exactly one per agent." Zero values yields a row of undefined. */
-function perAgent<T>(flag: string, values: readonly T[], n: number): (T | undefined)[] {
+function perAgent<T>(at: CommandAt, flag: string, values: readonly T[], n: number): (T | undefined)[] {
   if (values.length === 0) return Array.from({ length: n }, () => undefined);
   if (values.length === 1) return Array.from({ length: n }, () => values[0]);
   if (values.length === n) return [...values];
-  die(`${flag} accepts one value for all agents or exactly ${n} values`);
+  throw usageError(at, `${flag} accepts one value for all agents or exactly ${n} values`);
 }
 
 /** One task per agent, from `--tasks`, or one `--file`, or the `--prompt` values. */
 function resolveSpawnPrompts(flags: SpawnFlags, n: number): (string | null)[] {
   const sources = [flags.tasksFile !== undefined, flags.promptFiles.length > 0, flags.promptFlags.length > 0].filter(Boolean);
-  if (sources.length > 1) die("give the task as --prompt, --file or --tasks, not more than one");
+  if (sources.length > 1) throw usageError(flags.at, "give the task as --prompt, --file or --tasks, not more than one");
   if (flags.tasksFile !== undefined) return readTasksFile(flags.tasksFile, n);
   if (flags.promptFiles.length > 0) {
-    if (flags.promptFiles.filter((file) => file === "-").length > 1) die("--file - reads stdin once; name it at most once");
+    if (flags.promptFiles.filter((file) => file === "-").length > 1) throw usageError(flags.at, "--file - reads stdin once; name it at most once");
     const cache = new Map<string, string>();
-    return perAgent("--file", flags.promptFiles, n).map((file) => {
+    return perAgent(flags.at, "--file", flags.promptFiles, n).map((file) => {
       if (file === undefined) return null;
       const cached = cache.get(file);
       if (cached !== undefined) return cached;
@@ -120,7 +120,7 @@ function resolveSpawnPrompts(flags: SpawnFlags, n: number): (string | null)[] {
       return text;
     });
   }
-  return perAgent("--prompt", flags.promptFlags, n).map((prompt) => prompt ?? null);
+  return perAgent(flags.at, "--prompt", flags.promptFlags, n).map((prompt) => prompt ?? null);
 }
 
 function readTasksFile(source: string, n: number): string[] {
@@ -171,18 +171,11 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
   const adapter = pickAdapter(flags, settings);
   const backend = resolveSpawnBackend(flags, settings);
   const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", settings: settings.defaults.worktree, fallback: settings.defaults.worktree });
-  // The names ARE the positional arguments, and how many you give is how many
-  // agents you get. Resolving here means a nameless or malformed spawn is refused
-  // before a group, a place, or a worktree exists.
-  let names: string[];
-  try { names = resolveSpawnNames(flags.positional); }
-  catch (error: unknown) {
-    throw usageError(flags.at, errorMessage(error));
-  }
+  const names = resolveSpawnNames(flags.at, flags.positional);
   const n = names.length;
   const references = referencesByAgent(flags.withPaths, names);
   const prompts = resolveSpawnPrompts(flags, n).map((prompt, index) => prompt === null ? null : taskWithReferences(prompt, references[index] ?? []));
-  const models = perAgent("--model", flags.modelFlags, n);
+  const models = perAgent(flags.at, "--model", flags.modelFlags, n);
   const tunings = models.map((model) => resolveTuningOrDie({ ...flags, modelFlag: model }, settings, adapter, null));
   const agents = names.map((name, index) => {
     const tuning = tunings[index];

@@ -1,6 +1,7 @@
 // fallow-ignore-file code-duplication -- declarative command table; similar flag lists are data, not logic.
 /** Every orch command, declared once. The parser reads the flags; `orch help` and every usage line read all of it. */
 
+import { DURATION_FORMS } from "../cli/duration.ts";
 import { parseInvocation } from "../cli/parse.ts";
 import type { CommandSpec, FlagSpec, Invocation } from "../cli/spec.ts";
 
@@ -24,7 +25,7 @@ const HIDE: FlagSpec = { name: "--hide", arity: "one", placeholder: "<state,...>
 
 const STREAM_FLAGS: readonly FlagSpec[] = [
   { name: "--agent", arity: "many", placeholder: "<target>", help: "Watch one agent. Repeatable." },
-  { ...ALL, help: "Also the other orchs' agents in your space. Never past it." },
+  { ...ALL, help: "Operator-only. Also the other orchs' agents in your space. Never past it." },
   ONLY,
   HIDE,
   { name: "--since-seq", arity: "one", placeholder: "<seq>", help: "Resume after this durable sequence. A pruned range is reported as a gap." },
@@ -45,7 +46,7 @@ const OBSERVE: readonly CommandSpec[] = [
     flags: [
       { name: "--capacity", arity: "none", help: "Print only the capacity line." },
       { name: "--human", arity: "none", help: "Render harness and directory details for a person." },
-      { ...ALL, help: "Also the other orchs' agents in your space, and panes orch did not spawn." },
+      { ...ALL, help: "Operator-only. Also the other orchs' agents in your space, and panes orch did not spawn." },
       { ...SPACE, help: "Read one named space." },
       { name: "--agent", arity: "one", placeholder: "<target>", help: "Show one agent, whatever its state." },
       ONLY,
@@ -71,7 +72,7 @@ const OBSERVE: readonly CommandSpec[] = [
     name: "logs", section: "observe",
     summary: "Structured diagnosis records. --json emits raw records.",
     flags: [
-      { name: "--since", arity: "one", placeholder: "<duration>", help: "Milliseconds since epoch, a date/time, or an age like 30s, 10m, 2h, 1d." },
+      { name: "--since", arity: "one", placeholder: "<duration>", help: `Records from then on: ${DURATION_FORMS}. Milliseconds count from the epoch.` },
       { name: "--level", arity: "one", placeholder: "<level>", help: "Exact severity to include." },
       { name: "--agent", arity: "one", placeholder: "<target>", help: "Only that agent's records." },
       { name: "--dispatch", arity: "one", placeholder: "<id>", help: "Only that dispatch's records." },
@@ -112,7 +113,7 @@ const DISPATCH: readonly CommandSpec[] = [
     summary: "Block until one agent reaches a state.",
     flags: [
       { name: "--status", arity: "one", placeholder: "<state>", help: "The state to wait for: done, idle, working, blocked. Default done." },
-      { name: "--timeout", arity: "one", placeholder: "<duration>", help: "Give up after this long: milliseconds, an age like 30s, or a date/time." },
+      { name: "--timeout", arity: "one", placeholder: "<duration>", help: `Give up after this long: ${DURATION_FORMS}. A date/time gives up at that instant.` },
     ],
   },
 ];
@@ -123,8 +124,8 @@ const COLLECT: readonly CommandSpec[] = [
     summary: "Each target's result. --json prints one array, one entry per target.",
     flags: [{ ...STEAL, help: "Read an agent a live foreign holder leases." }],
   },
-  { name: "tail", section: "collect", args: "<target>", summary: "Last session entries.", flags: [{ ...COUNT, help: "How many entries. Default 20." }] },
-  { name: "peek", section: "collect", args: "<target>", summary: "What is on the pane screen now.", flags: [{ ...COUNT, help: "How many screen lines. Default 25." }] },
+  { name: "tail", section: "collect", args: "<target>", summary: "Last session entries.", flags: [{ ...COUNT, help: "How many entries. Default: the counts.tail setting." }] },
+  { name: "peek", section: "collect", args: "<target>", summary: "What is on the pane screen now.", flags: [{ ...COUNT, help: "How many screen lines. Default: the counts.peek setting." }] },
   { name: "session", section: "collect", args: "<target>", summary: "Session path and stats.", flags: [] },
 ];
 
@@ -193,7 +194,7 @@ const AGENTS: readonly CommandSpec[] = [
     name: "spawn", section: "agents", args: "<name>...",
     summary: "One fleet, one command. The names are the agents.",
     flags: [
-      { name: "--tab", arity: "one", placeholder: "<tab>", help: "The tab label. Default: the first name." },
+      { name: "--tab", arity: "one", placeholder: "<tab>", help: "The tab label. Default: a random label like elk-glacier-01." },
       { ...MODEL, arity: "many", help: "The model. One, or one per name." },
       ...AGENT_LAUNCH,
       { ...SPACE, help: "The orch space the agents join." },
@@ -234,7 +235,7 @@ const AGENTS: readonly CommandSpec[] = [
     flags: [{ name: "--dead", arity: "none", help: "Sweep every provably dead agent without asking." }],
   },
   {
-    name: "grant", section: "agents", args: "[<hash>]",
+    name: "grant", section: "agents", args: "[<id>]",
     summary: "Approve an action an agent was refused.",
     flags: [],
     subcommands: [{ name: "list", summary: "What is waiting for approval.", flags: [] }],
@@ -262,7 +263,7 @@ const AGENTS: readonly CommandSpec[] = [
     name: "pane", section: "agents",
     summary: "Raw panes, for scripts.",
     flags: [],
-    subcommands: [{ name: "list", summary: "List panes.", flags: [{ ...ALL, help: "Also panes orch did not spawn." }] }],
+    subcommands: [{ name: "list", summary: "List panes.", flags: [{ ...ALL, help: "Operator-only. Also panes orch did not spawn." }] }],
   },
 ];
 
@@ -272,7 +273,7 @@ const TABS: readonly CommandSpec[] = [
     summary: "Tab management.",
     flags: [],
     subcommands: [
-      { name: "list", summary: "List tabs.", flags: [{ ...ALL, help: "Also tabs orch did not create." }] },
+      { name: "list", summary: "List tabs.", flags: [{ ...ALL, help: "Also tabs outside the plexer grouping your pane is in." }] },
       {
         name: "new",
         summary: "Create a tab. Prints the root pane id. Never steals focus.",
@@ -341,7 +342,8 @@ const MAINTENANCE: readonly CommandSpec[] = [
       { ...PLEXER, placeholder: "<plexer,...>", help: "The plexers to enable. The first is the default." },
       { ...MODEL, arity: "many", placeholder: "<harness>=<model[:thinking]>", help: "Launch model per harness. A bare model applies only where that harness lists it." },
       { name: "--runtime", arity: "one", placeholder: "<runtime>", help: "The JS runtime orch runs under." },
-      { name: "--yes", aliases: ["-y"], arity: "none", help: "Install missing dependencies without asking." },
+      { name: "--yes", aliases: ["-y"], arity: "none", help: "Never prompt. Missing dependencies are reported unless --install." },
+      { name: "--install", arity: "none", help: "Install every missing dependency without asking." },
       { name: "--no-install", arity: "none", help: "Report what is missing without installing." },
       { name: "--copy", arity: "none", help: "Copy shims instead of symlinking." },
       { name: "--skills", arity: "none", help: "Install orch's packaged skills without asking." },
@@ -360,7 +362,7 @@ const MAINTENANCE: readonly CommandSpec[] = [
         summary: "Re-pick, per harness: launch model, picker quicklist, and the launchable set.",
         flags: [
           { ...HARNESS, help: "One harness instead of every enabled one." },
-          MODEL,
+          { ...MODEL, placeholder: "<harness>=<model[:thinking]>" },
           { name: "--refresh", arity: "none", help: "Ask the harnesses again instead of using the stored catalogues." },
         ],
       },
@@ -391,7 +393,7 @@ const MAINTENANCE: readonly CommandSpec[] = [
           {
             name: "add", args: "<sink> [--<field>=<value>]...",
             summary: "Record one sink. A sink already configured is replaced, keeping fields this call does not name.",
-            flags: [{ name: "--on", arity: "one", placeholder: "<state,...>", help: "States it fires on. Default blocked,error,done." }],
+            flags: [{ ...ONLY, help: "States it fires on. Default blocked,error,done." }],
             openFlags: true,
           },
           { name: "remove", args: "<sink>", summary: "Stop delivering through that sink.", flags: [] },

@@ -1,144 +1,95 @@
 # Fleet shape and cadence
 
-## Tabs are domains, panes are workers
+## Tabs
 
-A tab holds one domain (`server`, `client`). A pane is a named worker on one slice of that
-domain. A tab holds at most `fleet.max_agents_per_tab` panes, and orch refuses a spawn or
-tile that would overfill it before anything opens. The human watches panes by eye, and a
-crammed tab shows nothing.
+One tab per area of work (`server`, `client`), one agent per task inside it. The human watches
+the panes by eye, and a crammed tab shows nothing.
 
-```bash
-orch spawn slice-1 slice-2 --tab <domain> --with tasks/W1.md \
-  --prompt "Do section T1 of tasks/W1.md. Only that section." \
-  --prompt "Do section T2 of tasks/W1.md. Only that section."
-```
+Pass `--tab <tab>` on every spawn. A tab that already carries the label gets the new agents.
+A spawn without `--tab` opens a tab with a random label like `elk-glacier-01`.
 
-`--tab <label>` fills the tab that already carries that label, so a second spawn for a domain
-lands in its tab. `orch tile <tab|pane> <name>` adds one named pane. `orch move <target> --tab
-<tab_id|label>` fixes a pane in the wrong tab. Pass the tab id from `orch tabs` when the label
-is not unique, and leave `--split` off so the pane lands balanced. Move skips the tab cap, so
-move only into a tab with room.
+A tab holds at most `fleet.max_agents_per_tab` agents, and orch refuses a spawn or tile that
+would overfill it before anything opens. Fill a tab before you open another. Overflow goes to
+`<label>-02`, then `-03`, so split a spawn that is too big across `--tab api` and
+`--tab api-02`. `orch tile <tab> <name>` adds one agent. `orch move <target> --tab <tab>` fixes
+an agent in the wrong tab. Move skips the cap, so move only into a tab with room.
 
-Fill a tab before you open another. A domain that outgrows its tab gets an overflow tab named
-`<domain>-02`, then `-03`. A spawn that would overfill is refused whole, so split it yourself
-across `--tab api` and `--tab api-02`. Give every tab a unique label, and open a new tab for a
-new domain.
+## Fleet size
 
-## Size the fleet to the slices
+Run one agent per task that touches its own files, up to `fleet.max_agents_per_pack` live
+agents under one root orchestrator. Edits to the same files go to one agent, in order. Reach
+for `--worktree` when parallel agents might touch the same files by accident, then collect
+with `orch review`.
 
-Scale panes to the number of slices that touch different files, up to
-`fleet.max_agents_per_pack`. Fewer panes than slices makes you the bottleneck. A handful of
-related edits in the same files is one worker doing them in order, and that beats three
-workers plus the coordination.
+Read `orch status --capacity` before each wave. It names the free slots and the orchestrators
+that hold the rest. Each orchestrator counts only its own agents, so two orchestrators at 5 and
+8 are both under a cap of 10.
 
-Read the capacity line before each spawn wave. Bare `orch status` ends with it,
-`orch status --capacity` prints it alone, and `orch help status` explains each entry. It names
-the free slots and the orchestrators that hold the rest. Packs never sum: two orchestrators at
-5 and 8 are both under a cap of 10.
+## Small tasks, fast refill
 
-## Slice small, refill fast
+You do the design. Each task is one to three related edits with the approach decided. An agent
+that has to design the change got an underspecified task, and the fix is a sharper task.
+Lookups hand out well too ("list every caller of Y") when the task names the answer shape.
+Split by role as well: moving a file, fixing its callers and checking the result are three
+agents on three sets of files.
 
-You do the thinking. Each dispatch hands a worker one small, exact change, usually one to
-three related edits. A worker that has to design the approach got an under-specced task, and
-the fix is a sharper task. Lookups hand out well too ("list every caller of Y", "which table
-holds Z") when the task names the topic and the answer shape.
+## Reuse the agent
 
-Split by role as well as by size. Moving a file, changing its consumers, and checking the
-result are three workers at once, each on its own files.
+`orch dispatch` gives an agent a fresh session with its name and model intact. Spawn a
+replacement only after a dispatch to the idle agent errors, then close the one it replaces.
+Close a tab when its work is done.
 
-The loop is small change, land, check, next dispatch. The moment a worker lands, its pane gets
-the next slice. A big fleet of fast small tasks beats a small fleet of big ones. A worker whose
-slice is too big reports that, and you split it.
+Name each agent for its task (`mcp-types`, `mcp-tools`) and `orch rename` it when the task
+changes. The monitor keeps following a renamed agent.
 
-## Keep the pane, rename the work
+## Another orchestrator's agents
 
-Reuse an agent between tasks: `orch dispatch` gives it fresh context with its name and model
-intact. Spawn a replacement only after a dispatch to the idle agent errors, then close the one
-it replaces. `orch reset <target>` clears the context without new work. Close a tab when its
-domain is done. A close-and-respawn cycle each round costs time and leaves dead panes that look
-idle.
+Their lease is not yours. Verbs that drive an agent refuse one with a live foreign holder, and
+the refusal names the owner. `orch result --steal <target>` reads one. `orch adopt` takes an
+agent with no lease, and `orch detach` releases your own.
 
-Name each pane for its slice (`mcp-types`, `mcp-tools`, `mcp-guards`) and rename it when the
-slice changes, in the same message as the dispatch. `orch rename <target> <name>` sets the NAME
-column and the pane border together (`--pane` sets only the border) and leaves pane, context
-and model alone. A stale name lies, and an ordinal like `worker-2` says nothing. Renaming keeps
-the watch, since the monitor scope filters on `spawnedBy`.
-
-## Another session's agents
-
-Their lease is not yours. Every verb that drives or reads an agent (`dispatch`, `steer`,
-`answer`, `model`, `reset`, `reload`, `restart`, `rename`, `result`, `broadcast`, `move`,
-`zoom`, `focus`, `keys`) refuses a live foreign holder. From a harness session a foreign agent
-does not resolve at all (`No target matches "<t>"`), and `close` refuses with
-`cannot close <name>: it belongs to <owner>`. `orch detach` releases your own lease, and
-`orch adopt` takes an unleased agent.
-
-Their orchestrator can close them at any moment, so plan only on your own agents. When the
-pack cap blocks a spawn, spawn what fits now, hold the rest, and retry on any event that frees
-capacity.
+Their orchestrator can close them at any moment, so plan only on your own agents. When the cap
+blocks a spawn, spawn what fits now and retry on the next event that frees a slot.
 
 ## The cadence
 
-The fleet idles when you read, write one task, dispatch one pane, and repeat. What keeps it
-busy, in order of effect:
-
-- One command per wave. Write the whole wave first, then one `orch spawn` with N `--file`
-  flags (or the wave file in `--with` and N `--prompt` pointers) and N `--model` flags. On the
-  next wave, send all the renames in one message and all the dispatches in the next.
-- Review as diffs land. Do it yourself, or keep a reviewer pane on a stronger model when the
-  volume outruns you. Each finding goes into the task list as a task: file:line and the
-  smallest fix.
-- Report before a wide change. When a change crosses many files and you lack the map, one
-  read-only pane can list every consumer, call site and fixture into a report file. Later tasks
-  point `--with` at it.
-- Verify at stopping points. Idle panes run the verify commands over their own slice's files.
-  Gated commands stay with the user.
+- One command per wave. Write the whole wave, then send one `orch spawn` with a `--file` or
+  `--prompt` and a `--model` per agent. On a refill wave, send every rename and dispatch
+  together.
+- Review as diffs land. Each finding goes into the task list as file:line and the smallest fix.
+- Before a wide change, one read-only agent lists every caller and fixture into a report file.
+  Later tasks point `--with` at it.
+- At a stopping point, idle agents run the verify commands over their own files.
 
 ## The task list
 
-The task list lives in a scratch directory for the job: one index file, plus one file per task
-or one file per wave with a section per task. Each task carries everything the worker needs.
-Write it once, then append as findings come back.
-
-```bash
-orch dispatch w1 --file tasks/T1.md --with notes/readers.md
-orch dispatch w2 "Do section T2 of tasks/W1.md. Only that section." --with tasks/W1.md
-```
-
-The index:
+Keep the task list in a scratch directory for the job: one index file, plus one file per task
+or one file per wave with a `## T<n> <title>` section per task. Send a task file with
+`--file`, or a wave section with a one-line `--prompt` and the wave file in `--with`.
 
 ```markdown
 # <job>  (notes: notes/readers.md)
 
-## Wave 1: tasks/W1.md  (files: src/a.ts | src/b.ts | test/a.test.ts)
-- T1   owner: src/a.ts     <one-line title>
-- T2   owner: src/b.ts     <one-line title>
+## Wave 1: tasks/W1.md
+- T1   src/a.ts     <one-line title>
+- T2   src/b.ts     <one-line title>
 
 ## CHECKPOINT 1
 verify: src/a.ts src/b.ts test/a.test.ts
-user: report progress, do what the user asked for at checkpoints.
 ```
 
-One task, as `tasks/T1.md` or as a section of `tasks/W1.md`:
+One task:
 
 ```markdown
 ## T1 Rename foo to bar
 Edit src/a.ts:
-- L42 `export function foo(x: string): Foo` → rename to `bar`, same signature.
+- L42 `export function foo(x: string): Foo`: rename to `bar`, same signature.
 - Remove the import of `oldThing` at L3.
 Verify: src/a.ts test/a.test.ts
 Report: one line. "done: <files>, verify clean", "pending: <files>", or "blocked: <exact error>".
 ```
 
-A task dispatches cleanly when it is:
-
-- Exact. Paths, line numbers, the current and target signatures, the names to use.
-- Small. One to three edits, 1 to 3 minutes of work.
-- Owned. No other task in the wave touches its files. You decide ownership here, and the
-  worker never has to.
-- Self-checking. The task names the files to verify. The worker header carries the commands.
-- Answerable in one line. The report shape is in the task, so you refill without reading a
-  page.
-
-A read-only task has the same shape with no edits: a topic, an answer shape, one report file,
-and the reply "report written".
+A task dispatches cleanly when it names paths, lines and the target signature, takes 1 to 3
+minutes, owns files no other task in the wave touches, names the files to verify, and asks for
+a one-line report. A read-only task has the same shape with a topic and an answer shape in
+place of the edits, and writes one report file.

@@ -1,4 +1,6 @@
-Review done worktree agents. With `--worktree` at spawn, each agent commits on its own
-branch. `list` shows done agents with commits ahead of their base, `approve` merges and
-removes the worktree, `reject -m` re-dispatches feedback into the same worktree. With no
-subcommand, review walks it interactively.
+Review the commits of agents spawned with `--worktree` once they are done. Each one committed
+on its own branch. `approve` merges it; `reject` sends feedback back into the same worktree.
+
+    orch review reject api-routes -m "Keep the old route names."
+
+Bare `orch review` walks every pending one interactively.

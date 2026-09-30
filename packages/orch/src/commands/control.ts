@@ -92,7 +92,7 @@ function forwardTextToHost(hosts: OrchSettings["hosts"], verb: "steer" | "answer
 
 /** A target a drive verb may take from a live holder with --steal. */
 function resolveDriveTarget(services: Services, self: CallerSelf, target: string, gov: WriteGovernance): Promise<ResolvedTarget> {
-  return resolveOwnedTarget(services, self, target, { crossSpace: gov.crossSpace, override: gov.steal, overrideFlag: "--steal" });
+  return resolveOwnedTarget(services, self, target, { crossSpace: gov.crossSpace, override: gov.steal });
 }
 
 export async function cmdSteer(services: Services, args: string[]): Promise<void> {

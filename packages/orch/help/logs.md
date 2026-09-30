@@ -1,5 +1,6 @@
-Read structured diagnosis records. Malformed JSONL lines are skipped. `--json` emits the
-raw records.
+Read orch's diagnosis records when a command, an agent, or the daemon misbehaves. Narrow to
+one agent with `--agent`, or to one task with `--dispatch`.
 
-`--since <when>` takes epoch milliseconds (`1700000000000`), a date/time (`2026-09-21T10:00`),
-or an age counted back from now: `30s`, `10m`, `2h`, `1d`.
+    orch logs --since 10m --level error
+
+`--json` prints the raw records for a script.

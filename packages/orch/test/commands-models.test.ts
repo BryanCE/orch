@@ -37,6 +37,7 @@ const settings = (): OrchSettings => ({
   hosts: {},
   spaces: {},
   tiling: { first_split: "rows" },
+  counts: { tail: 20, peek: 25 },
   skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
   agents: { writable_settings: [] },
 });

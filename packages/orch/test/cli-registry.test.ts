@@ -34,9 +34,8 @@ describe("command registry", () => {
   });
 
   test("no spec declares a retired flag spelling", () => {
-    const retired = ["--adapter", "--backend", "--agent-id", "--force", "--all-panes", "--space-wide", "--cross-space", "--filter", "--list", "--workspace", "--install", "--on","--off", "--toggle"];
+    const retired = ["--adapter", "--backend", "--agent-id", "--force", "--all-panes", "--space-wide", "--cross-space", "--filter", "--list", "--workspace", "--on", "--off", "--toggle"];
     for (const { path, spec } of EVERY) {
-      if (path === "settings notify add") continue;
       for (const spelling of spec.flags.flatMap(spellings)) expect(retired.includes(spelling), `${path} ${spelling}`).toBe(false);
     }
   });

@@ -1,8 +1,9 @@
-A space is orch's own grouping of related work, created by you and named by you. It is
-never a plexer's own grouping id. `list`, `create`, `rename`, and `delete` are orch's own and
-work in every environment. `focus` needs a plexer holding a home for the space and answers
-plainly when none does. A home coordinate belongs to the plexer and is never displayed.
+Group related work under a name you choose. `list`, `create`, `rename`, and `delete` work
+with any plexer. `focus` needs a plexer that keeps a home for the space and says so when
+none does.
 
-Reads default to your space. A wall error on housekeeping means "not from here". Skip it;
-do not chase it with `--space-wide` or `--all`. A human at a raw terminal sits in no space
-and alone sees the whole machine.
+    orch space create billing
+
+Reads and drive verbs stay inside your own space. A refusal on another space's agent means
+that agent is not yours to touch from here: leave it and carry on in your space. A person at
+a plain terminal sits in no space and sees the whole machine.

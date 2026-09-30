@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { orchDirAt } from "../src/services.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { eventAcceptor, formatEventGap, isNotifyEvent, onMonitor, parseEventsOptions, passesStateFilter, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { eventAcceptor, formatEventGap, isNotifyEvent, onMonitor, parseEventsOptions, passesStates, renderEvent, sinkLabel } from "../src/commands/events.ts";
 import { MONITOR_DEFAULT_ON } from "../src/settings/schema.ts";
 import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
@@ -30,16 +30,28 @@ describe("commands/events", () => {
   // line per transition, scoped to the agents this session currently leases. Every flag
   // widens or reshapes that. A default that streamed every session's agents as raw JSON made
   // the caller pass three flags and a jq filter to get back to what it wanted in the first place.
-  test("bare events is scoped to this session's agents and renders readable lines", () => expect(parseEventsOptions([])).toEqual({ json: false, sinceSeq: undefined, once: false, scope: "auto", filter: null, targets: [] }));
-  test("parses the scope flags", () => expect(parseEventsOptions(["--space-wide", "agent"])).toEqual({ json: false, sinceSeq: undefined, once: false, scope: "any", filter: null, targets: ["agent"] }));
-  test("parses the wake-up flags", () => expect(parseEventsOptions(["--once", "--since-seq", "42", "--json"])).toEqual({ json: true, sinceSeq: 42, once: true, scope: "auto", filter: null, targets: [] }));
-  test("--filter names the states to drop and is never the default", () => {
-    expect(parseEventsOptions(["--filter=working,idle"]).filter).toEqual(new Set(["working", "idle"]));
-    expect(parseEventsOptions([]).filter).toBeNull();
-    const shows = passesStateFilter(new Set(["working"]));
+  test("bare events is scoped to this session's agents and renders readable lines", () => expect(parseEventsOptions([])).toEqual({ json: false, sinceSeq: undefined, once: false, scope: "auto", only: null, hide: null, targets: [] }));
+  test("parses the scope flags", () => expect(parseEventsOptions(["--all", "--agent", "agent"])).toEqual({ json: false, sinceSeq: undefined, once: false, scope: "any", only: null, hide: null, targets: ["agent"] }));
+  test("parses the wake-up flags", () => expect(parseEventsOptions(["--once", "--since-seq", "42", "--json"])).toEqual({ json: true, sinceSeq: 42, once: true, scope: "auto", only: null, hide: null, targets: [] }));
+  test("a target is named with --agent, never as a bare word", () => {
+    expect(() => parseEventsOptions(["agent"])).toThrow("usage: orch events");
+  });
+  test("--hide names the states to drop and is never the default", () => {
+    expect(parseEventsOptions(["--hide=working,idle"]).hide).toEqual(new Set(["working", "idle"]));
+    expect(parseEventsOptions([]).hide).toBeNull();
+    const shows = passesStates({ only: null, hide: new Set(["working"]) });
     expect(shows(transition("idle", "working"))).toBe(false);
     expect(shows(transition("working", "done"))).toBe(true);
-    expect(passesStateFilter(null)(transition("idle", "working"))).toBe(true);
+    expect(passesStates({ only: null, hide: null })(transition("idle", "working"))).toBe(true);
+  });
+  test("--only keeps just the states it names", () => {
+    expect(parseEventsOptions(["--only=done,error"]).only).toEqual(new Set(["done", "error"]));
+    const shows = passesStates(parseEventsOptions(["--only=done"]));
+    expect(shows(transition("working", "done"))).toBe(true);
+    expect(shows(transition("idle", "working"))).toBe(false);
+  });
+  test("a state list that names nothing is refused", () => {
+    expect(() => parseEventsOptions(["--hide=,"])).toThrow("--hide names nothing");
   });
 
   // `orch monitor` is the orchestrator's watch: the same stream, kept to what it acts on.
@@ -67,7 +79,7 @@ describe("commands/events", () => {
     expect(shows(transition("waiting", "working"))).toBe(false);
   });
   test("the monitor parses the same flags as events under its own usage", () => {
-    expect(parseEventsOptions(["--space-wide", "--json"], "monitor")).toEqual({ json: true, sinceSeq: undefined, once: false, scope: "any", filter: null, targets: [] });
+    expect(parseEventsOptions(["--all", "--json"], "monitor")).toEqual({ json: true, sinceSeq: undefined, once: false, scope: "any", only: null, hide: null, targets: [] });
     expect(helpTopic("monitor")).toContain("monitor.on");
   });
   test("includes an adopted agent whose open lease is mine", () => {
@@ -85,7 +97,7 @@ describe("commands/events", () => {
     const event = { mineAddress: "me", leaseOwner: null, recordSpawnedBy: "other" };
     expect(agentInMineScope(event)).toBe(false);
   });
-  test("--space-wide passes agents from both sessions", () => {
+  test("--all passes agents from both sessions", () => {
     const mine = { spaceWide: true, mineAddress: "me", leaseOwner: null, recordSpawnedBy: "me" };
     const other = { spaceWide: true, mineAddress: "me", leaseOwner: "other", recordSpawnedBy: "other" };
     expect(agentInScope(mine)).toBe(true);
@@ -100,9 +112,8 @@ describe("commands/events", () => {
     expect(helpTopic("events")).toContain("events retention window");
     expect(formatEventGap(12)).toContain("replay resumes at sequence 12");
   });
-  test("names one agent by name or by identity key", () => {
-    expect(parseEventsOptions(["--agent=api-1"]).targets).toEqual(["api-1"]);
-    expect(parseEventsOptions(["--agent-id=abcagent01"]).targets).toEqual(["abcagent01"]);
+  test("names agents by any target form with one repeatable --agent", () => {
+    expect(parseEventsOptions(["--agent=api-1", "--agent", "abcagent01"]).targets).toEqual(["api-1", "abcagent01"]);
   });
   test("a subscription with no daemon keeps redialing instead of exiting", () => {
     // One subscription must cover a whole session: a daemon restart drops the

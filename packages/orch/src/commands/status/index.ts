@@ -4,7 +4,7 @@ import { ensureDaemonOrWarn } from "../../daemon/client/reach.ts";
 import { readRpc } from "../daemon.ts";
 import { filterRowKeys, formatNoRowsMessage, callerScope } from "./options.ts";
 import type { CallerScope, StatusOptions } from "./options.ts";
-import { readStatusResult } from "./fetch.ts";
+import { readStatusResult, resolveStatusAgent } from "./fetch.ts";
 import { formatStatusTable } from "./table.ts";
 import { currentOrchId, offlineCallerScope, offlineCapacityFleet } from "./offline.ts";
 import type { FleetCapacity } from "../../policy/capacity.ts";
@@ -48,7 +48,7 @@ export async function cmdStatus(services: Services, options: StatusOptions): Pro
     }
     return;
   }
-  const result = await readStatusResult(services, options, caller);
+  const result = await readStatusResult(services, options, caller, await resolveStatusAgent(services, options));
   const settings = options.json ? null : services.settings.currentOrNull();
   if (options.json) {
     const rows = result.rows.map((row) => filterRowKeys(row, options.hide.columns));
@@ -64,6 +64,6 @@ export async function cmdStatus(services: Services, options: StatusOptions): Pro
     if (footer !== null) process.stdout.write(footer + "\n");
     return;
   }
-  process.stdout.write(formatStatusTable(result, { spaceWide: options.all, host: result.host, human: options.human, columns: options.hide.columns }) + "\n");
+  process.stdout.write(formatStatusTable(result, { all: options.all, host: result.host, human: options.human, columns: options.hide.columns }) + "\n");
   if (footer !== null) process.stdout.write(footer + "\n");
 }

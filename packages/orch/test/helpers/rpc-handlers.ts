@@ -39,7 +39,6 @@ export function stubRpcHandlers(overrides: Partial<RpcHandlers> = {}): RpcHandle
     grants: notStubbed,
     grant: notStubbed,
     "admit-home": notStubbed,
-    "resolve-agent": notStubbed,
     "queue-list": notStubbed,
     "queue-cancel": notStubbed,
     "queue-edit": notStubbed,

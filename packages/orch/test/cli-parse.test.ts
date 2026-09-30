@@ -25,7 +25,7 @@ const PARENT: CommandSpec = {
       summary: "Sinks.",
       flags: [],
       subcommands: [
-        { name: "add", args: "<sink>", summary: "Add.", flags: [{ name: "--on", arity: "one", placeholder: "<state,...>", help: "States." }], openFlags: true },
+        { name: "add", args: "<sink>", summary: "Add.", flags: [{ name: "--only", arity: "one", placeholder: "<state,...>", help: "States." }], openFlags: true },
       ],
     },
   ],
@@ -88,19 +88,19 @@ describe("parseInvocation", () => {
   });
 
   test("a subcommand word routes to the child and the path records the route", () => {
-    const parsed = parseInvocation(PARENT, ["notify", "add", "webhook", "--on=done", "--url=http://x"]);
+    const parsed = parseInvocation(PARENT, ["notify", "add", "webhook", "--only=done", "--url=http://x"]);
     expect(parsed.path).toEqual(["settings", "notify", "add"]);
     expect(parsed.command.name).toBe("add");
     expect(parsed.positional).toEqual(["webhook"]);
-    expect(parsed.flags.value("--on")).toBe("done");
+    expect(parsed.flags.value("--only")).toBe("done");
     expect(parsed.undeclared.get("--url")).toBe("http://x");
   });
 
   test("openFlags keeps an undeclared flag as bare, assigned, or with the next token", () => {
-    const parsed = parseInvocation(PARENT, ["notify", "add", "cmd", "--command", "say hi", "--quiet", "--on", "done"]);
+    const parsed = parseInvocation(PARENT, ["notify", "add", "cmd", "--command", "say hi", "--quiet", "--only", "done"]);
     expect(parsed.undeclared.get("--command")).toBe("say hi");
     expect(parsed.undeclared.get("--quiet")).toBe(true);
-    expect(parsed.flags.value("--on")).toBe("done");
+    expect(parsed.flags.value("--only")).toBe("done");
   });
 
   test("a closed spec refuses an undeclared flag and reports nothing undeclared", () => {

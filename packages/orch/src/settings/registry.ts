@@ -232,6 +232,8 @@ const HELP: Readonly<Record<string, string>> = {
   "daemon.report_timeout_ms": "How long a harness waits for orchd to accept a status or result report before dropping it, in milliseconds. Stamped into every agent's launch env as ORCH_REPORT_TIMEOUT_MS.",
   "doctor.unclaimed_after_ms": "How long after spawn an agent may stay unclaimed before doctor reports it. Milliseconds.",
   "tiling.first_split": "Direction used for the first pane split.",
+  "counts.tail": "How many session entries orch tail shows without -n.",
+  "counts.peek": "How many screen lines orch peek shows without -n.",
   "skills.install": "Whether orch installs packaged skills.",
   "skills.store": "Directory holding the real skill files. The cross-harness standard is ~/.agents/skills.",
   "skills.link": "Harness skill directories orch symlinks into the store.",

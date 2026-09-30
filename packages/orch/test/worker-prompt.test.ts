@@ -33,7 +33,7 @@ describe("worker prompt capability composition", () => {
     expect(stripWorkerHeader(may)).toBe("bare task");
   });
 
-  test("orch run composition selects the same header per adapter", () => {
+  test("orch dispatch composition selects the same header per harness", () => {
     expect(workerPrompt("task", false, getAdapter("codex"))).toBe(`${workerHeaderFor(getAdapter("codex"))}\n\ntask`);
     expect(workerPrompt("task", false, getAdapter("pi"))).toBe(`${workerHeaderFor(getAdapter("pi"))}\n\ntask`);
   });

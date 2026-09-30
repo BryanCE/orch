@@ -242,6 +242,10 @@ const settingsValueExtractors = {
     unclaimed_after_ms: root.doctor?.unclaimed_after_ms ?? SETTINGS_DEFAULTS.doctor.unclaimed_after_ms,
   }),
   tiling: (root: Partial<SettingsFile>) => ({ first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split }),
+  counts: (root: Partial<SettingsFile>) => ({
+    tail: root.counts?.tail ?? SETTINGS_DEFAULTS.counts.tail,
+    peek: root.counts?.peek ?? SETTINGS_DEFAULTS.counts.peek,
+  }),
   skills: (root: Partial<SettingsFile>) => ({
     install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
     store: root.skills?.store ?? SETTINGS_DEFAULTS.skills.store,
@@ -276,6 +280,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
     daemon: settingsValueExtractors.daemon(root),
     doctor: settingsValueExtractors.doctor(root),
     tiling: settingsValueExtractors.tiling(root),
+    counts: settingsValueExtractors.counts(root),
     skills: settingsValueExtractors.skills(root),
   };
 }

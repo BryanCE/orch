@@ -7,7 +7,7 @@ export const TAB_FIRST_WORDS: readonly string[] = [
   "elk", "snake", "otter", "fox", "wolf", "bear", "hawk", "owl", "lynx", "crow",
   "heron", "moose", "bison", "badger", "beaver", "raven", "falcon", "eagle", "gecko", "newt",
   "toad", "frog", "hare", "mole", "vole", "wren", "finch", "lark", "swan", "crane",
-  "stork", "orca", "seal", "whale", "shark", "squid", "crab", "eel", "pike", "trout",
+  "stork", "narwhal", "seal", "whale", "shark", "squid", "crab", "eel", "pike", "trout",
   "yak", "ibis", "puma", "tiger", "lion", "panda", "koala", "llama", "camel", "zebra",
 ];
 
@@ -28,15 +28,20 @@ export const TAB_LABEL_ATTEMPTS = 100;
 /** A number in [0, 1), as `Math.random` returns. Tests pass a fixed sequence. */
 export type RandomSource = () => number;
 
+/** An index in [0, size), clamped so a source that returns 1 still lands on the last slot. */
+function rollIndex(size: number, random: RandomSource): number {
+  return Math.min(Math.floor(random() * size), size - 1);
+}
+
 function pick(words: readonly string[], random: RandomSource): string {
-  return words[Math.floor(random() * words.length)] ?? "";
+  return words[rollIndex(words.length, random)] ?? "";
 }
 
 /** One `<first>-<second>-<NN>` label, as `elk-glacier-01`. */
 export function rollTabLabel(random: RandomSource): string {
   const first = pick(TAB_FIRST_WORDS, random);
   const second = pick(TAB_SECOND_WORDS, random);
-  const number = Math.floor(random() * TAB_NUMBER_MAX) + 1;
+  const number = rollIndex(TAB_NUMBER_MAX, random) + 1;
   return `${first}-${second}-${String(number).padStart(2, "0")}`;
 }
 

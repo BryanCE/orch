@@ -1,6 +1,8 @@
-Read each live agent's pending question. Answer one with `orch answer <target> "<text>"`.
+List each live agent's pending question, then answer each one within seconds. A blocked agent
+does no work and refuses a steer.
 
-An unanswered question is re-asked by the daemon every `questions.renag_ms`, up to
-`questions.renag_limit` times. Each re-ask is an `asking` event with `askCount`, and the
-last sets `gaveUp`. A blocked agent is the most expensive idle, and a steer aimed at one is
-accepted and then lost. Answer within seconds.
+    orch questions
+    orch answer api-routes "Use the v2 schema."
+
+The daemon re-asks an unanswered question every `questions.renag_ms`, up to
+`questions.renag_limit` times.

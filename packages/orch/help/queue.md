@@ -1,16 +1,11 @@
-Durable task queue, stored in the orch store and assigned by `orch work`. For fan-out where
-you do not care which agent takes which task: `orch queue add` per task, then `orch work`.
+A durable task list that `orch work` hands to idle agents. Use it for fan-out where any agent
+may take any task: one `add` per task, and the daemon assigns them the moment an agent is idle.
 
-`add` enqueues through orchd, so it needs the daemon like every other write. The enqueue
-wakes the work loop at once, and so does every status report, result, answer, and bridge
-attach: an idle agent takes a queued task the moment either exists, never on a poll.
-Claimed tasks dispatch in parallel, `queue.dispatch_concurrency` at a time. With nothing to
-wake it the loop ticks every `daemon.work_tick_ms` for retention and question re-asks only.
+    orch queue add "Port the billing tests to bun:test."
 
-A task has one scope, chosen at enqueue: `--agent`, `--pack`, or `--space`. No flag means
-the enqueuer's own pack. `--pack` accepts any member and resolves to the root.
+With no scope flag, a task goes to your own fleet: you and the agents you spawned. `--agent`
+narrows it to one agent, `--space` widens it to a space.
 
-Failed tasks retry up to `queue.max_retries`. Check `orch queue list` before you reuse
-fleet names: a stale claimed task retries into a new agent of the same name.
-
-Subcommands: `add`, `list`, `history`, `cancel`, `edit`, `take-on`, `reap`, `intake`.
+A failed task retries up to `queue.max_retries` times. A task still claimed by a closed agent
+retries into the next agent with that name, so check `orch queue list` before you reuse
+fleet names.

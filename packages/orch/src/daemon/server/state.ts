@@ -101,7 +101,6 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     grants: touchHandler(state, handlers.grants),
     grant: touchHandler(state, handlers.grant),
     "admit-home": touchHandler(state, handlers["admit-home"]),
-    "resolve-agent": touchHandler(state, handlers["resolve-agent"]),
     "queue-list": touchHandler(state, handlers["queue-list"]),
     "queue-cancel": touchHandler(state, handlers["queue-cancel"]),
     "queue-edit": touchHandler(state, handlers["queue-edit"]),

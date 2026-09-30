@@ -36,7 +36,8 @@ export interface FleetScope {
   only?: ReadonlySet<string> | null;
   /** `--hide`: the states whose rows are dropped. */
   hide?: ReadonlySet<string>;
-  agent?: string;
+  /** The row key `--agent` resolved to; undefined means the fleet. */
+  agentKey?: string;
   space?: string;
   caller?: CallerScope;
 }
@@ -52,7 +53,7 @@ export function scopeFleetRows(rows: readonly StatusRow[], opts: FleetScope): St
   const caller: CallerScope = opts.caller ?? { id: null, ceiling: null, kind: "operator" };
   return rows.filter((row) => {
     if (opts.space !== undefined && row.spaceId !== opts.space) return false;
-    if (opts.agent !== undefined && !statusRowMatches(row, opts.agent)) return false;
+    if (opts.agentKey !== undefined && row.key !== opts.agentKey) return false;
     if (!opts.all && !row.managed) return false;
     if (!withinSpaceCeiling(row.spaceId, caller.ceiling)) return false;
     if (caller.kind !== "operator" && !opts.all && (caller.id === null || row.lease?.holderId !== caller.id)) return false;
@@ -61,13 +62,8 @@ export function scopeFleetRows(rows: readonly StatusRow[], opts: FleetScope): St
     // `orch result` and `orch tail` still read it — and keeping every dead one
     // that ever recorded a line buried ten working agents under thirty corpses.
     // Naming one agent in `--agent` is how you ask for it back.
-    return opts.agent !== undefined || (row.alive && !row.exited);
+    return opts.agentKey !== undefined || (row.alive && !row.exited);
   });
-}
-
-/** `--agent=<target>`: the row's minted id, presence key, name, or current handle. */
-export function statusRowMatches(row: StatusRow, target: string): boolean {
-  return row.agentId === target || row.key === target || row.name === target || row.paneId === target;
 }
 
 export function formatNoRowsMessage(info: { agentsSeen: number; alive: number; backendAnswered: boolean }): string {
@@ -133,11 +129,12 @@ export function filterRowKeys(row: StatusRow, columns: ReadonlySet<string>): Par
   return visible;
 }
 
-/** `--agent=<target>`: one agent to show, whatever its state. */
-function readAgentTarget(invocation: CommandAt, given: string | undefined): string | undefined {
+/** `--agent=<target>`: one agent to show, whatever its state. orchd resolves it, so `--offline` cannot. */
+function readAgentTarget(invocation: CommandAt, given: string | undefined, offline: boolean): string | undefined {
   const target = given?.trim();
   if (target === undefined) return undefined;
   if (target.length === 0) throw usageError(invocation, "--agent needs a target, e.g. --agent=ctx-edges");
+  if (offline) throw usageError(invocation, "--agent resolves through orchd; drop --offline");
   return target;
 }
 
@@ -150,7 +147,7 @@ export interface StatusOptions {
   only: ReadonlySet<string> | null;
   /** The columns and states `--hide` removes; both empty by default. */
   hide: StatusHide;
-  /** The one agent named with `--agent`; undefined means the fleet. */
+  /** The target named with `--agent`, still unresolved; undefined means the fleet. */
   agent?: string;
   local: boolean;
   offline: boolean;
@@ -163,7 +160,7 @@ export function parseStatusOptions(args: readonly string[]): StatusOptions {
   const invocation = parseCommand("status", args);
   const { flags, positional } = invocation;
   if (positional.length) throw usageError(invocation);
-  const agent = readAgentTarget(invocation, flags.value("--agent"));
+  const agent = readAgentTarget(invocation, flags.value("--agent"), flags.has("--offline"));
   const only = readNameList(invocation, "--only", flags.value("--only"));
   const space = flags.value("--space");
   return {

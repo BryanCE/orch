@@ -65,6 +65,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
     doctor: { unclaimed_after_ms: 120_000 },
     tiling: { first_split: "rows" },
+    counts: { tail: 20, peek: 25 },
     skills: { install: true, store: "~/.agents/skills", link: [] },
   };
 }

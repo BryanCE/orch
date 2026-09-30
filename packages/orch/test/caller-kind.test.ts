@@ -107,14 +107,14 @@ describe("caller kind", () => {
 
   test("override flags are allowed only for the operator", () => {
     setupOperator();
-    expect(() => refuseNonOperatorOverride({ kind: "operator" }, "--force")).not.toThrow();
+    expect(() => refuseNonOperatorOverride({ kind: "operator" }, "--steal")).not.toThrow();
   });
 
   test("override flags refuse a driving session", () => {
     setupClaimedAgent("session-a");
     delete process.env[LAUNCH_ENV];
-    expect(() => refuseNonOperatorOverride({ kind: "session" }, "--force")).toThrow(
-      "--force is operator-only: a driving session may only touch agents it holds.",
+    expect(() => refuseNonOperatorOverride({ kind: "session" }, "--space")).toThrow(
+      "--space is operator-only: a driving session may only touch agents it holds.",
     );
   });
 

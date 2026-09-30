@@ -1,28 +1,14 @@
-Bare `orch status` is the normal use: every agent this session owns, with cost and context.
-A human at a raw terminal owns none and sees the whole machine.
+One look at your fleet: every agent you spawned or lease, with state, cost, and context. A
+person at a plain terminal leases nothing and sees the whole machine.
 
-The table ends with one capacity line:
-`pack you 5/10 - pack <other> 2/10 - space <name> 4/6 - machine 7/unlimited`.
-One pack per orch, yours first, each against `fleet.max_agents_per_pack`. Packs never sum.
-`machine` is the live total against `fleet.max_agents_total`; `unlimited` means that setting
-is absent. Read it before every spawn wave. It names the free slots and who holds the rest.
+    orch status --hide cost,done
 
-`state` is what the agent says about itself. `backendStatus` (`--json`) is what the plexer
-says about the pane, and it lags. Read `state` for completion.
+Read `state` for completion; it is what the agent reports about itself. `--hide` takes
+column headers and states in one list; any word that is not a column drops rows in that
+state.
 
-`--json` is an object `{names, rows}`; filter rows with `.rows[]`. Ids resolve to display
-names through `.names.agents` and `.names.spaces`. Row fields: key agentId rootAgentId
-paneId managed name tab agent lease leaseKnown spawnedBy worktree branch cwd focused model
-state stateFallback exited alive cost ctxPercent task dispatchId lastText backendStatus
-backend bridgeAttached tokens spaceId host warning.
+The last line is capacity: your fleet, other orchestrators' fleets, the space, and the
+machine, each against its limit. Read it before every spawn wave.
 
-Three fields settle arguments. `cwd` is the repo the worker is confined to. `dispatchId`,
-against the id `orch dispatch` printed, proves the pane runs the prompt you sent.
-`bridgeAttached` says whether a dispatch will deliver or queue.
-
-`--filter` drops columns and rows in one list, e.g. `--filter=owner,env,done`. Columns: host
-id env name owner branch tab agent model state cost ctx task last (`--human` adds harness,
-cwd, worktree). Any other word drops rows in that state.
-
-Never wrap `orch status` in a loop. `orch monitor` pushes transitions the instant they
-happen. Status is for one look.
+To follow changes, arm `orch monitor`. It pushes each change the moment it happens, so
+status stays a single look, never a loop.

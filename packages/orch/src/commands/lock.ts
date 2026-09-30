@@ -6,10 +6,10 @@ import { sleep } from "../util.ts";
 import { askDaemon, readRpc } from "./daemon.ts";
 import { whoAmI } from "./self.ts";
 import { die } from "./target.ts";
+import { parseCommand } from "./registry.ts";
+import { usageError } from "../cli/usage.ts";
 import type { Services } from "../types/services.ts";
 import type { ParamsOf } from "../daemon/client/protocol.ts";
-
-const USAGE = "usage: orch lock -- '<command>'";
 
 /** Ask orchd until the command may run; returns the patterns this process now holds. */
 async function awaitLock(services: Services, params: ParamsOf<"command-lock">): Promise<string[]> {
@@ -52,10 +52,12 @@ function runShell(command: string, held: readonly string[]): Promise<number> {
   });
 }
 
+/** The spec parses only what precedes `--`; everything after it is the command, verbatim. */
 export async function cmdLock(services: Services, args: string[]): Promise<void> {
   const separator = args.indexOf("--");
+  const invocation = parseCommand("lock", separator === -1 ? args : args.slice(0, separator));
   const command = separator === -1 ? "" : args.slice(separator + 1).join(" ");
-  if (!command.trim()) die(USAGE);
+  if (invocation.positional.length || !command.trim()) throw usageError(invocation);
   const self = await whoAmI(services);
   const startToken = processStartToken(process.pid) ?? null;
   const held = heldPatterns(process.env);

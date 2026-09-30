@@ -1,11 +1,9 @@
-Tab management. `new` prints the root pane id and never steals focus; `focus` does. A tab
-resolves by id or unique label.
+Manage tabs. A tab resolves by id or by a label no other tab carries. Keep one area of work
+per tab (server, client), and relabel it with `rename` when that work changes.
 
-A tab is one domain (`server`, `client`). A pane is a named worker on one subtask of that
-domain. The cap is `fleet.max_agents_per_tab` panes per tab, and orch refuses a spawn or
-tile that would overfill it before anything opens. Fill a tab to its cap before you create
-another. When a domain needs more, the overflow tab is `<domain>-02`, then `-03`. Never
-scatter one domain across misc tabs. Never label two tabs the same.
+    orch tab new --label api --space billing
 
-Rename a tab when its domain changes between waves. A tab spawned as `recon` that now holds
-`api` workers lies about what is in it.
+- `list` prints id, label, number, pane count, and state. Pass the id wherever two tabs
+  share a label.
+- `new` prints the root pane id and leaves the user's view where it is.
+- `focus` moves the user's view to the tab.

@@ -342,6 +342,7 @@ export async function cmdTile(services: Services, args: string[]) {
   // Tile CREATES an agent, so it names one too. An agent
   // called `tile-3` says nothing about the slice it holds.
   if (!target || !requestedName) throw usageError(invocation);
+  const autoName = resolveSpawnNames(invocation, [requestedName])[0]!;
 
   await registerSpawner(services);
   const self = await whoAmI(services);
@@ -352,7 +353,6 @@ export async function cmdTile(services: Services, args: string[]) {
   if (!role) return;
   const layout = readGroupLayout(role, tab.id);
   if (!layout) die(`Could not read layout for group "${tab.id}".`);
-  const autoName = resolveSpawnNames([requestedName])[0]!;
 
   // E10: `tab.workspace` is the plexer's coordinate; orch's space is the caller's
   // own (A7: optional), and the two are never interchanged.

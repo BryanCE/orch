@@ -7,6 +7,7 @@ import { die } from "./target.ts";
 import { addressOf, indexPresenceById } from "../entities/lookup.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
+import { readCount } from "../cli/count.ts";
 import type { Invocation, ParsedFlags } from "../cli/spec.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { openingPlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
@@ -46,10 +47,6 @@ export function writeEmptyOrJson<T>(items: readonly T[], json: boolean, emptyTex
   if (!json) return false;
   process.stdout.write(JSON.stringify(jsonValue, null, 2) + "\n");
   return true;
-}
-
-export function parseCount(value: string | undefined, fallback: number): number {
-  return parseInt(value ?? "", 10) || fallback;
 }
 
 /** The flags every single-pane verb reads, and its one required target. */
@@ -108,7 +105,7 @@ async function requirePaneTarget(services: Services, target: string): Promise<{ 
 /** Resolve a pane a command is about to mutate: a foreign-owned agent refuses without --steal. */
 async function requireOwnedPaneTarget(services: Services, self: CallerSelf, target: string, steal: boolean): Promise<{ backend: Backend; handle: BackendHandle; key: string; entity: Entity }> {
   const resolved = await resolveLifecycle(services, target);
-  refuseForeignHolder(self, target, resolved, steal, "--steal");
+  refuseForeignHolder(self, target, resolved, steal);
   return { backend: resolved.backend, handle: resolved.handle, key: resolved.key, entity: resolved.entity };
 }
 
@@ -133,7 +130,7 @@ export async function cmdKeys(services: Services, args: string[]): Promise<void>
 export async function cmdPeek(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("peek", args);
   const { json, target } = readPaneOptions(invocation);
-  const n = parseCount(invocation.flags.value("-n"), 25);
+  const n = readCount(invocation) ?? services.settings.current().counts.peek;
   const { backend, handle, entity } = await requirePaneTarget(services, target);
   const plan = paneBoundary(target, "peek", backend.screen, !!entity.paneId);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
@@ -181,25 +178,23 @@ function listTabs(services: Services, flags: ParsedFlags): void {
   const all = flags.has("--all");
   const json = flags.has("--json");
   const { backend, groups } = selectedGroups(services);
-  // A tab is the PLEXER's grouping, so the grouping to filter by is the plexer's
-  // own answer for the calling pane — never read off an identity, which carries
-  // no environment (A1). Outside a pane there is no grouping, and `null` is that
-  // answer: every tab is listed rather than an invented one being matched.
-  const workspace = backend.placementInventory?.current()?.workspace ?? null;
-  const tabs = groups.filter((tab) => all || workspace === null || tab.workspace === workspace);
+  // The home to filter by is the plexer's answer for the calling pane, never an
+  // identity's (A1). Outside a pane it is null, and every tab is listed.
+  const home = backend.placementInventory?.current()?.workspace ?? null;
+  const tabs = groups.filter((tab) => all || home === null || tab.workspace === home);
   if (writeEmptyOrJson(tabs, json, "No groups available.")) return;
-  // The plexer's own grouping, echoed verbatim: its word, never orch's.
-  const showWorkspace = all && new Set(tabs.map((t) => t.workspace ?? "-")).size > 1;
-  const headers = showWorkspace ? ["TAB", "LABEL", "NUM", "PANES", "STATUS", "WS"] : ["TAB", "LABEL", "NUM", "PANES", "STATUS"];
+  // The plexer coordinate each tab sits in: a space's home, in orch's words.
+  const showHome = all && new Set(tabs.map((t) => t.workspace ?? "-")).size > 1;
+  const headers = showHome ? ["TAB", "LABEL", "NUM", "PANES", "STATUS", "HOME"] : ["TAB", "LABEL", "NUM", "PANES", "STATUS"];
   const rows = tabs.map((t) => [
     t.id + (t.focused ? "*" : ""),
     t.label ?? "-",
     String(t.number ?? "-"),
     String(t.placementCount ?? "-"),
     t.status ?? "-",
-    ...(showWorkspace ? [t.workspace ?? "-"] : []),
+    ...(showHome ? [t.workspace ?? "-"] : []),
   ]);
-  process.stdout.write(renderTable(headers, rows, showWorkspace ? [12, 20, 4, 5, 10, 12] : [12, 20, 4, 5, 10]) + "\n");
+  process.stdout.write(renderTable(headers, rows, showHome ? [12, 20, 4, 5, 10, 12] : [12, 20, 4, 5, 10]) + "\n");
 }
 
 /** Refuse a group-wide mutation while any pane in the group belongs to another orchestrator. */
@@ -240,31 +235,37 @@ async function tabCoordinate(services: Services, backend: Backend, space: string
 async function cmdTabNew(services: Services, flags: ParsedFlags, json: boolean, backend: Backend): Promise<void> {
   const label = flags.value("--label") ?? null;
   const cwd = flags.value("--dir") ?? process.cwd();
-  const workspace = await tabCoordinate(services, backend, flags.value("--space"));
-  const created = backend.groupHome!.create({ workspace, cwd, label });
+  const home = await tabCoordinate(services, backend, flags.value("--space"));
+  const created = backend.groupHome!.create({ workspace: home, cwd, label });
   if (json) process.stdout.write(JSON.stringify(created) + "\n");
   else process.stdout.write(`Created group ${created.group.id} "${created.group.label}" - root handle ${String(created.rootHandle)}\n`);
   if (backend.placement) backend.placement.close(created.rootHandle);
 }
 
-async function cmdTabRename(services: Services, target: string, label: string, json: boolean, backend: Backend): Promise<void> {
+/** Resolve a tab a command is about to mutate: a foreign-owned agent in it refuses without --steal. */
+async function resolveOwnedTab(services: Services, target: string, steal: boolean, backend: Backend): Promise<BackendGroup> {
+  const self = await whoAmI(services);
   const tab = await resolveTab(services, target);
+  await assertGroupAgentsOwned(services, self, backend, tab.id, steal);
+  return tab;
+}
+
+async function cmdTabRename(services: Services, target: string, label: string, steal: boolean, json: boolean, backend: Backend): Promise<void> {
+  const tab = await resolveOwnedTab(services, target, steal, backend);
   backend.groupHome!.rename(tab.id, label);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, label, renamed: true }) + "\n");
   else process.stdout.write(`${tab.id}: "${tab.label}" -> "${label}"\n`);
 }
 
 async function cmdTabClose(services: Services, target: string, steal: boolean, json: boolean, backend: Backend): Promise<void> {
-  const self = await whoAmI(services);
-  const tab = await resolveTab(services, target);
-  await assertGroupAgentsOwned(services, self, backend, tab.id, steal);
+  const tab = await resolveOwnedTab(services, target, steal, backend);
   backend.groupHome!.close(tab.id);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, closed: true }) + "\n");
   else process.stdout.write(`Closed group ${tab.id} "${tab.label}".\n`);
 }
 
-async function cmdTabFocus(services: Services, target: string, json: boolean, backend: Backend): Promise<void> {
-  const tab = await resolveTab(services, target);
+async function cmdTabFocus(services: Services, target: string, steal: boolean, json: boolean, backend: Backend): Promise<void> {
+  const tab = await resolveOwnedTab(services, target, steal, backend);
   backend.groupHome!.focus(tab.id);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, focused: true }) + "\n");
   else process.stdout.write(`Focused group ${tab.id} "${tab.label}".\n`);
@@ -281,15 +282,16 @@ export async function cmdTab(services: Services, args: string[]): Promise<void> 
   const invocation = parseCommand("tab", args);
   const { command, flags } = invocation;
   const json = flags.has("--json");
+  const steal = flags.has("--steal");
   const { backend } = selectedGroups(services);
   const role = backend.groupHome;
   if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide groups" }, json); return; }
   switch (command.name) {
     case "list": listTabs(services, flags); return;
     case "new": await cmdTabNew(services, flags, json, backend); return;
-    case "rename": await cmdTabRename(services, requiredWord(invocation, 0), requiredWord(invocation, 1), json, backend); return;
-    case "close": await cmdTabClose(services, requiredWord(invocation, 0), flags.has("--steal"), json, backend); return;
-    case "focus": await cmdTabFocus(services, requiredWord(invocation, 0), json, backend); return;
+    case "rename": await cmdTabRename(services, requiredWord(invocation, 0), requiredWord(invocation, 1), steal, json, backend); return;
+    case "close": await cmdTabClose(services, requiredWord(invocation, 0), steal, json, backend); return;
+    case "focus": await cmdTabFocus(services, requiredWord(invocation, 0), steal, json, backend); return;
     default: throw usageError(invocation);
   }
 }

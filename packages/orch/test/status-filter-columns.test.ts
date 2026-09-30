@@ -18,10 +18,10 @@ function headerLine(table: string): string {
   return table.split("\n")[0] ?? "";
 }
 
-describe("orch status --filter on columns", () => {
+describe("orch status --hide on columns", () => {
   test("drops the named columns from the default table", () => {
     const rows = [statusRow({}), statusRow({ key: "agent00002", agentId: "agent00002", paneId: "%8", lease: { holderId: "orch00002", holderAlive: true } })];
-    const table = formatStatusTable(fleetFixture(rows, NAMES), { spaceWide: false, host: false, columns: new Set(["owner", "env"]) });
+    const table = formatStatusTable(fleetFixture(rows, NAMES), { all: false, host: false, columns: new Set(["owner", "env"]) });
     const headers = headerLine(table).split(/\s+/);
     expect(headers).not.toContain("OWNER");
     expect(headers).not.toContain("ENV");
@@ -31,13 +31,13 @@ describe("orch status --filter on columns", () => {
     expect(table).not.toContain("Orchestrator");
   });
 
-  test("a filtered owner column leaves no shared-owner footer", () => {
-    const table = formatStatusTable(fleetFixture([statusRow({})], NAMES), { spaceWide: false, host: false, columns: new Set(["owner"]) });
+  test("a hidden owner column leaves no shared-owner footer", () => {
+    const table = formatStatusTable(fleetFixture([statusRow({})], NAMES), { all: false, host: false, columns: new Set(["owner"]) });
     expect(table).not.toContain("owner: Orchestrator");
   });
 
   test("drops the named columns from the human table", () => {
-    const table = formatStatusTable(fleetFixture([statusRow({})], NAMES), { spaceWide: false, host: false, human: true, columns: new Set(["cwd", "harness"]) });
+    const table = formatStatusTable(fleetFixture([statusRow({})], NAMES), { all: false, host: false, human: true, columns: new Set(["cwd", "harness"]) });
     const headers = headerLine(table).split(/\s+/);
     expect(headers).not.toContain("CWD");
     expect(headers).not.toContain("HARNESS");

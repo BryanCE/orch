@@ -104,7 +104,7 @@ export function assertSpawnPolicy(
 export function assertTabCapacity(settings: Pick<OrchSettings, "fleet">, tab: string, occupied: number, requested: number): void {
   const cap = settings.fleet.max_agents_per_tab;
   if (occupied + requested <= cap) return;
-  throw new SpawnRefusalError(`spawn refused: would put tab ${tab} at ${occupied + requested}/${cap} agents (${occupied} placed + ${requested} requested; fleet.max_agents_per_tab). Open another tab: orch spawn <names> --tab <new-name>.`);
+  throw new SpawnRefusalError(`spawn refused: would put tab ${tab} at ${occupied + requested}/${cap} agents (${occupied} placed + ${requested} requested; fleet.max_agents_per_tab). Open another tab: orch spawn <name>... --tab <tab>.`);
 }
 
 export function assertSpawnCapacity(

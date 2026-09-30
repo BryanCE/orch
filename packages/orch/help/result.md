@@ -1,8 +1,8 @@
-Print each target's result: `results.jsonl`, else the session's last assistant text.
-Several targets print under `== <target>` headers, or as one JSON array with `--json`.
+Print what each agent reported when it finished: its reported result, else the session's
+last reply. Collect this way once monitor says `done`.
 
-`done` is a claim, not a verification. Read the diff before you build on it.
+    orch result api-types api-routes
 
-Closing does not discard the work. `orch close` ends the process and keeps the agent's row
-and its history, so `orch result` and `orch tail` still answer afterwards. Only `orch reap`
-deletes.
+`done` is the agent's claim. Read the diff before you build on it. To read an agent another
+orchestrator leases, add `--steal`. `orch close` keeps the result readable; only `orch reap`
+deletes it.

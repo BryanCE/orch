@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isLogLevel, isLogRecord, logFile } from "../log.ts";
 import { parseCommand } from "./registry.ts";
-import { askDaemon } from "./daemon.ts";
+import { resolveEntity } from "./resolve.ts";
 import { durationInstant } from "../cli/duration.ts";
 import { usageError } from "../cli/usage.ts";
 import type { CommandAt } from "../cli/usage.ts";
@@ -61,8 +61,8 @@ function render(record: LogRecord): string {
 /** `--agent` names a target; the records carry the minted id orchd resolves it to. */
 async function resolveLogAgent(services: Services, options: LogOptions): Promise<LogOptions> {
   if (options.agent === undefined) return options;
-  const { id } = await askDaemon(services, "resolve-agent", { target: options.agent });
-  return { ...options, agent: id };
+  const { entity } = await resolveEntity(services, options.agent);
+  return { ...options, agent: entity.key };
 }
 
 export async function cmdLogs(services: Services, args: string[]): Promise<void> {

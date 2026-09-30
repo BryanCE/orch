@@ -58,13 +58,16 @@ afterEach(() => {
 
 describe("commands/setup", () => {
   test("reads the setup flags in either spelling, with every --model kept in order", () => {
-    const options = parseSetupOptions(parseCommand("setup", ["--harness", "pi", "--plexer=headless", "--model", "pi=a", "--model=claude=b", "-y", "--no-skills"]).flags);
+    const options = parseSetupOptions(parseCommand("setup", ["--harness", "pi", "--plexer=headless", "--model", "pi=a", "--model=claude=b", "-y", "--no-install", "--no-skills"]).flags);
     expect(options.adapterFlag).toBe("pi");
     expect(options.backendFlag).toBe("headless");
     expect(options.modelFlags).toEqual(["pi=a", "claude=b"]);
-    expect(options.yes).toBe(true);
+    expect(options.interactive).toBe(false);
+    expect(options.install).toBe(false);
     expect(options.skills).toBe(false);
-    expect(parseSetupOptions(parseCommand("setup", []).flags).adapterFlag).toBeUndefined();
+    const bare = parseSetupOptions(parseCommand("setup", []).flags);
+    expect(bare.adapterFlag).toBeUndefined();
+    expect(bare.install).toBeUndefined();
   });
   test("resolves noninteractive provider sets and defaults", async () => {
     expect(await resolveProviderSet("adapter", "--harness", "pi,claude", ["pi", "claude"], false, () => Promise.resolve(null))).toEqual(["pi", "claude"]);

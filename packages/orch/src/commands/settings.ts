@@ -246,7 +246,7 @@ function pickDeclaredFields(
 function rejectUndeclaredFlags(given: ReadonlyMap<string, string | true>, fields: NotifierChoice["requiredFields"]): void {
   const declared = fields.map((field) => `--${field.name}`);
   const undeclared = [...given.keys()].filter((name) => !declared.includes(name));
-  if (undeclared.length) die(`Unknown flag ${undeclared.join(", ")}. This sink takes: ${["--on", ...declared].join(" ")}.`);
+  if (undeclared.length) die(`Unknown flag ${undeclared.join(", ")}. This sink takes: ${["--only", ...declared].join(" ")}.`);
 }
 
 /** The value of one sink field flag, or undefined when it was not given. A bare flag is no value. */
@@ -255,13 +255,13 @@ function sinkFieldValue(given: ReadonlyMap<string, string | true>, name: string)
   return held === true ? undefined : held;
 }
 
-/** Read `--on=<state,...>` as the states this sink fires on, or exit naming the supported set. */
+/** Read `--only=<state,...>` as the states this sink fires on, or exit naming the supported set. */
 function readNotifyStates(flag: string | undefined): NotifyState[] | undefined {
   if (flag === undefined) return undefined;
   const states = flag.split(",").map((state) => state.trim()).filter(Boolean);
   const isNotifyState = (state: string): state is NotifyState => NOTIFY_STATES.some((known) => known === state);
   const unsupported = states.filter((state) => !isNotifyState(state));
-  if (!states.length || unsupported.length) die(`--on takes a comma-separated list of: ${NOTIFY_STATES.join(", ")}.`);
+  if (!states.length || unsupported.length) die(`--only takes a comma-separated list of: ${NOTIFY_STATES.join(", ")}.`);
   return states.filter(isNotifyState);
 }
 
@@ -308,7 +308,7 @@ async function addNotifyEntry(services: Services, invocation: Invocation): Promi
   const config = {
     ...pickDeclaredFields(choice.requiredFields, (name) => recordedFields[name]),
     ...pickDeclaredFields(choice.requiredFields, (name) => sinkFieldValue(undeclared, name)),
-    on: readNotifyStates(flags.value("--on")) ?? recorded?.on,
+    on: readNotifyStates(flags.value("--only")) ?? recorded?.on,
   };
 
   const written = await buildSelectedNotifyEntries([{ id, config }]);

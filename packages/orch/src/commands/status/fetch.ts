@@ -1,10 +1,11 @@
 import { runRemoteAsync } from "../../remote.ts";
 import { readRpc } from "../daemon.ts";
+import { resolveEntity } from "../resolve.ts";
 import { isFleetStatus } from "../../daemon/client/protocol.ts";
 import { warningStatusRow } from "./rows.ts";
 import { buildFleetStatus } from "./offline.ts";
-import { scopeFleetRows, statusRowMatches, displayStatusState } from "./options.ts";
-import type { CallerScope, StatusOptions } from "./options.ts";
+import { scopeFleetRows, displayStatusState } from "./options.ts";
+import type { CallerScope, FleetScope, StatusOptions } from "./options.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { FleetNames, FleetStatus } from "../../types/daemon.ts";
@@ -45,9 +46,15 @@ async function readFleet(settings: OrchSettings | null, services: DaemonClient, 
   return snapshot(await readRpc(services, "status", undefined));
 }
 
-async function localStatus(settings: OrchSettings | null, services: DaemonClient, options: StatusOptions, caller?: CallerScope): Promise<FleetSnapshot> {
+/** The row key `--agent` names, resolved once by orchd; undefined when no agent was named. */
+export async function resolveStatusAgent(services: DaemonClient, options: StatusOptions): Promise<string | undefined> {
+  if (options.agent === undefined) return undefined;
+  return (await resolveEntity(services, options.agent, { all: options.all })).entity.key;
+}
+
+async function localStatus(settings: OrchSettings | null, services: DaemonClient, options: StatusOptions, scope: FleetScope): Promise<FleetSnapshot> {
   const fleet = await readFleet(settings, services, options.offline);
-  const scoped = scopeFleetRows(fleet.rows, { ...options, hide: options.hide.states, caller });
+  const scoped = scopeFleetRows(fleet.rows, scope);
   return { ...fleet, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
 
@@ -75,22 +82,17 @@ function remoteFleet(result: RemoteStatusResult): FleetStatus | null {
   return result.ok && isFleetStatus(result.value) ? result.value : null;
 }
 
-interface RemoteNarrowing {
-  space?: string;
-  agent?: string;
-}
-
-function remoteRowsFromResult(name: string, result: RemoteStatusResult, narrowing: RemoteNarrowing): StatusRow[] {
+function remoteRowsFromResult(name: string, result: RemoteStatusResult, narrowing: FleetScope): StatusRow[] {
   if (!result.ok) return [warningStatusRow(name, result.failure.message)];
   const fleet = remoteFleet(result);
   if (fleet === null) return [warningStatusRow(name, `Host "${name}" returned an invalid status payload.`)];
   return fleet.rows.map((value) => normalizeStatusRow(value))
     .filter((row) => narrowing.space === undefined || row.spaceId === narrowing.space)
-    .filter((row) => narrowing.agent === undefined || statusRowMatches(row, narrowing.agent))
+    .filter((row) => narrowing.agentKey === undefined || row.key === narrowing.agentKey)
     .map((row) => ({ ...row, host: name }));
 }
 
-function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: readonly { name: string; result: RemoteStatusResult }[], narrowing: RemoteNarrowing): StatusRow[] {
+function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: readonly { name: string; result: RemoteStatusResult }[], narrowing: FleetScope): StatusRow[] {
   return [...local, ...remoteResults.flatMap(({ name, result }) => remoteRowsFromResult(name, result, narrowing))];
 }
 
@@ -100,20 +102,34 @@ function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[])
   return { names: mergeNames(fleets.map((fleet) => fleet.names)), rows, alive: rows.filter((row) => row.alive).length, backendAnswered: rows.some((row) => row.backend != null) };
 }
 
+/** The rows `status` keeps, from its flags, its caller, and the key `--agent` resolved to. */
+function statusScope(options: StatusOptions, caller: CallerScope, agentKey: string | undefined): FleetScope {
+  return {
+    all: options.all,
+    only: options.only,
+    hide: options.hide.states,
+    caller,
+    ...(agentKey === undefined ? {} : { agentKey }),
+    ...(options.space === undefined ? {} : { space: options.space }),
+  };
+}
+
 export async function readStatusResult(
   services: DaemonClient,
   options: StatusOptions,
   caller: CallerScope,
+  agentKey?: string,
 ): Promise<StatusResult> {
   const settings = services.settings.currentOrNull();
   const hosts = settings === null ? {} : settings.hosts;
+  const scope = statusScope(options, caller, agentKey);
   if (options.local || caller.kind !== "operator" || Object.keys(hosts).length === 0) {
-    const local = await localStatus(settings, services, options, caller);
+    const local = await localStatus(settings, services, options, scope);
     return { ...local, host: false };
   }
-  const localSnapshot = await localStatus(settings, services, options, caller);
+  const localSnapshot = await localStatus(settings, services, options, scope);
   const remoteResults = await remoteStatusResults(hosts, options.offline);
-  const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, { space: options.space, agent: options.agent });
+  const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, scope);
   const remote = remoteSummary(remoteResults);
   return {
     names: mergeNames([localSnapshot.names, remote.names]),

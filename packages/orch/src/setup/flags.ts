@@ -17,8 +17,8 @@ export class SetupFlagError extends Error {
 
 export interface SetupOptions {
   copy: boolean;
-  yes: boolean;
-  noInstall: boolean;
+  /** `--install` is true, `--no-install` is false, neither leaves it to the prompt, or reports only. */
+  install: boolean | undefined;
   interactive: boolean;
   runtimeFlag: string | undefined;
   adapterFlag: string | undefined;
@@ -32,12 +32,10 @@ export interface SetupOptions {
 }
 
 export function parseSetupOptions(flags: ParsedFlags): SetupOptions {
-  const yes = flags.has("--yes");
   return {
     copy: flags.has("--copy"),
-    yes,
-    noInstall: flags.has("--no-install"),
-    interactive: process.stdin.isTTY && !yes,
+    install: flags.has("--install") ? true : flags.has("--no-install") ? false : undefined,
+    interactive: process.stdin.isTTY === true && !flags.has("--yes"),
     runtimeFlag: flags.value("--runtime"),
     adapterFlag: flags.value("--harness"),
     backendFlag: flags.value("--plexer"),

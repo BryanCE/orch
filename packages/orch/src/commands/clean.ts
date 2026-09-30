@@ -25,7 +25,7 @@ export function liveWorktreeOwner(worktreePath: string, liveWorktrees: readonly 
   return liveWorktrees.includes(path.resolve(worktreePath));
 }
 
-function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: string, force: boolean, logger: Logger, json = false): boolean {
+function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: string, all: boolean, logger: Logger, json = false): boolean {
   try {
     const branch = worktreeBranch(worktreePath);
     const hasCommitsAhead = worktreeHasCommitsAheadOf(repoRoot, worktreePath, baseBranch);
@@ -35,7 +35,7 @@ function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: st
     if (!hasCommitsAhead && !hasChanges) {
       removeMergedWorktree(repoRoot, worktreePath, branch);
       if (!json) process.stdout.write(`Removed orphan worktree ${worktreePath} (${branch}; empty or merged).\n`);
-    } else if (!force) {
+    } else if (!all) {
       if (!json) process.stdout.write(`Kept orphan worktree ${worktreePath} (${branch}; ${discardReason}). Re-run with --all to discard it.\n`);
     } else {
       removeDiscardedWorktree(repoRoot, worktreePath, branch);
@@ -49,7 +49,7 @@ function cleanOneWorktree(repoRoot: string, baseBranch: string, worktreePath: st
   return true;
 }
 
-function cleanWorktrees(liveWorktrees: readonly string[], logger: Logger, force: boolean, json = false): number {
+function cleanWorktrees(liveWorktrees: readonly string[], logger: Logger, all: boolean, json = false): number {
   let repoRoot: string;
   try {
     repoRoot = repositoryCommonRoot(process.cwd());
@@ -61,7 +61,7 @@ function cleanWorktrees(liveWorktrees: readonly string[], logger: Logger, force:
   let reported = false;
   for (const worktreePath of worktrees) {
     if (liveWorktreeOwner(worktreePath, liveWorktrees)) continue;
-    reported = cleanOneWorktree(repoRoot, baseBranch, worktreePath, force, logger, json) || reported;
+    reported = cleanOneWorktree(repoRoot, baseBranch, worktreePath, all, logger, json) || reported;
   }
   if (!reported && !json) process.stdout.write("No orphan worktrees to clean.\n");
   return worktrees.length;
@@ -82,14 +82,14 @@ function closeDeadAgentWrites(json: boolean, closed: number): number {
   return closed;
 }
 
-/** Explain why a forced sweep found no dead agents. */
+/** Explain why a `--all` sweep found no dead agents. */
 function nothingToReapMessage(liveHolders: readonly string[]): string {
   if (liveHolders.length === 0) return "Nothing to clean - no agent dirs exist.\n";
   return `Nothing to clean - ${liveHolders.length} agent${liveHolders.length === 1 ? " is" : "s are"} live: ${liveHolders.join(", ")}. `
     + `--all reaps DEAD agents only; close them first ('orch close --all'), then retry.\n`;
 }
 
-/** Print the forced sweep performed by orchd. */
+/** Print the `--all` sweep performed by orchd. */
 function removeDeadAgentDirs(json: boolean, swept: ResultOf<"clean">): string[] {
   if (!json) {
     if (swept.reaped.length) process.stdout.write("Reaped dead agents:\n" + swept.reaped.map((r) => "  " + r).join("\n") + "\n");
@@ -111,12 +111,12 @@ export async function cmdClean(services: Services, args: string[]): Promise<void
   const { flags } = invocation;
   if (invocation.positional.length > 0) throw usageError(invocation);
   const json = flags.has("--json");
-  const force = flags.has("--all");
-  const swept = await writeRpc(services, "clean", { force });
+  const all = flags.has("--all");
+  const swept = await writeRpc(services, "clean", { all });
   const malformed = removeMalformedAgentDirs(json, swept.malformed);
   const closed = closeDeadAgentWrites(json, swept.closed);
-  const removed = force ? removeDeadAgentDirs(json, swept) : [];
-  const worktrees = flags.has("--worktrees") ? cleanWorktrees(swept.liveWorktrees, services.logger, force, json) : 0;
+  const removed = all ? removeDeadAgentDirs(json, swept) : [];
+  const worktrees = flags.has("--worktrees") ? cleanWorktrees(swept.liveWorktrees, services.logger, all, json) : 0;
   if (json) process.stdout.write(JSON.stringify({ malformed, closed, removed, worktrees }) + "\n");
 }
 

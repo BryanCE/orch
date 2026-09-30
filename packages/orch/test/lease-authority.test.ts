@@ -12,6 +12,7 @@ import { presenceAgentDir } from "../src/presence/history.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { adoptAgent, detachAgent, leasedAgents, renameTarget, resolveTarget } from "../src/daemon/server/handlers/lease.ts";
 import { resolveSpawnNames } from "../src/commands/spawn/names.ts";
+import { parseCommand } from "../src/commands/registry.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
@@ -209,7 +210,7 @@ describe("C4c/C4d name resolution", () => {
 // C4e - spawning requires a name; a self-registering session mints its own.
 describe("C4e naming at creation", () => {
   test("a nameless spawn is refused", () => {
-    expect(() => resolveSpawnNames([])).toThrow(/must be named at creation/);
+    expect(() => resolveSpawnNames(parseCommand("spawn", []), [])).toThrow(/must be named at creation/);
   });
 
   test("a self-registering session gets <harness>-<first 8 of its id>", () => {

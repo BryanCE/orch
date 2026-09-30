@@ -1,9 +1,6 @@
-Escape twice, 500ms apart, to dismiss and cancel the target's current turn. Never gated by
-a lease.
-
-With text, the abort is followed by a steer with that text, through orchd like `orch steer`.
-The turn a stuck agent was in is gone; the text is what it does instead. One command, so a
-worker stuck in one slow tool call is freed and redirected without a gap it could fill on
-its own.
+Use abort when an agent is stuck in a slow or wrong step and a steer would wait behind it.
+It presses Escape twice to cancel the current turn, then steers with the text, so the agent
+moves to the new instruction with no gap. That turn's work is lost; put what to keep in the
+text. Any caller may abort any agent, whoever holds its lease.
 
     orch abort orca-cli "Stop the repo-wide grep. Write cli.ts from what you have read."

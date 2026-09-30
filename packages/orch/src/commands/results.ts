@@ -17,7 +17,8 @@ import type { Entity, Logger, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
 import { CommandRefusal } from "../refusal.ts";
-import { parseCount, writeEmptyOrJson } from "./panes.ts";
+import { writeEmptyOrJson } from "./panes.ts";
+import { readCount } from "../cli/count.ts";
 
 function resultLogger(logger: Logger, key?: string) {
   return key !== undefined && isAgentId(key) ? logger.forAgent(key) : logger;
@@ -365,7 +366,7 @@ export async function cmdTail(services: Services, args: string[]): Promise<void>
   const invocation = parseCommand("tail", args);
   const { flags } = invocation;
   const target = requireSessionTarget(invocation);
-  const lines = parseCount(flags.value("-n"), 20);
+  const lines = readCount(invocation) ?? services.settings.current().counts.tail;
   const resolved = await resolveEntity(services, target);
   const ent = resolved.entity;
   const adapter = resolveSessionTailAdapter(resolved, target);

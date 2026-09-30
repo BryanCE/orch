@@ -1,2 +1,4 @@
-List durable dispatch history, newest first. Without a target, every agent. A target is an
-agent name, key, pane handle, or unique suffix. `--json` prints the RunRecord array.
+List past dispatches, newest first, to see what an agent was sent and when. With no target,
+every agent.
+
+    orch runs api-routes -n 5

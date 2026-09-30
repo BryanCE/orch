@@ -1,6 +1,7 @@
 // The caller, as orchd sees it. A command asks once and reads fields; it never opens the store to learn who it is.
 import { readRpc } from "./daemon.ts";
 import { rpcRegisterSession } from "../daemon/client/reach.ts";
+import { announceUnleasedAgents } from "../daemon/client/registration.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { die } from "../refusal.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
@@ -12,11 +13,11 @@ export function whoAmI(services: DaemonClient): Promise<CallerSelf> {
   return readRpc(services, "self", { caller: callerCredential() });
 }
 
-/** Register a driving session when orchd has no identity row for it.
+/** Register a driving session when orchd has no identity row for it, and print its unleased list.
  * Operators and spawned agents never register themselves. */
 export async function registerCallerSession(services: Pick<Services, "orchDir" | "logger"> & DaemonClient): Promise<void> {
   const self = await whoAmI(services);
-  if (self.kind === "session" && self.id === null) await rpcRegisterSession(services.orchDir, services.logger);
+  if (self.kind === "session" && self.id === null) announceUnleasedAgents(await rpcRegisterSession(services.orchDir, services.logger));
 }
 
 /** Owner-gate overrides are operator-only. A spawned agent or a driving session may touch exactly what it holds. */

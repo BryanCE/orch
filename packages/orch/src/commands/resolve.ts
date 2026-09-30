@@ -28,13 +28,12 @@ export function refuseForeignHolder(
   target: string,
   resolved: Pick<ResolvedTarget, "holder" | "callerOwns">,
   override = false,
-  overrideFlag = "--force",
 ): void {
   if (override) {
-    refuseNonOperatorOverride(self, overrideFlag);
+    refuseNonOperatorOverride(self, "--steal");
     return;
   }
-  if (resolved.holder !== null && !resolved.callerOwns) die(`Target "${target}" is owned by ${resolved.holder}. Use --force to override.`);
+  if (resolved.holder !== null && !resolved.callerOwns) die(`Target "${target}" is owned by ${resolved.holder}. Use --steal to override.`);
 }
 
 export function resolveEntity(services: DaemonClient, target: string, options: ResolveOptions = {}): Promise<ResolvedTarget> {
@@ -46,16 +45,16 @@ export function resolveEntity(services: DaemonClient, target: string, options: R
   });
 }
 
-/** Resolve, then refuse a target a live foreign holder owns unless the caller overrides.
- *  An override or a space crossing is operator-only, refused before resolution so the message names the flag. */
+/** Resolve, then refuse a target a live foreign holder owns unless the caller passed --steal.
+ *  A steal or a space crossing is operator-only, refused before resolution so the message names the flag. */
 export async function resolveOwnedTarget(
   services: DaemonClient,
   self: CallerSelf,
   target: string,
-  options: ResolveOptions & { readonly override?: boolean; readonly overrideFlag?: string } = {},
+  options: ResolveOptions & { readonly override?: boolean } = {},
 ): Promise<ResolvedTarget> {
-  if (options.crossSpace === true) refuseNonOperatorOverride(self, "--cross-space");
-  if (options.override === true) refuseNonOperatorOverride(self, options.overrideFlag ?? "--force");
+  if (options.crossSpace === true) refuseNonOperatorOverride(self, "--space");
+  if (options.override === true) refuseNonOperatorOverride(self, "--steal");
   const resolved = await resolveEntity(services, target, options);
   if (options.override !== true) refuseForeignHolder(self, target, resolved);
   return resolved;

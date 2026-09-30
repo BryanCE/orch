@@ -16,12 +16,12 @@ function liveWorktreePaths(directory: OrchDir): string[] {
 }
 
 /** Bare clean removes what names no agent and closes writes nobody will read.
- *  `force` is the operator's "now": every dead agent's rows and history go at once. */
+ *  `all` is the operator's "now": every dead agent's rows and history go at once. */
 export function cleanStore(directory: OrchDir, params: ParamsOf<"clean">): ResultOf<"clean"> {
   const malformed = reapMalformedPresenceDirs(directory);
   const closed = closeOutboxForDeadTargets(directory);
-  const reaped = params.force ? reapDeadAgentRecords(directory) : [];
-  const removed = params.force ? reapExpiredPresenceDirs(directory, new Date()) : [];
+  const reaped = params.all ? reapDeadAgentRecords(directory) : [];
+  const removed = params.all ? reapExpiredPresenceDirs(directory, new Date()) : [];
   const live = livePresenceHolders(directory);
   return { malformed, closed, reaped, removed, liveHolders: [...live.workers, ...live.sessions], liveWorktrees: liveWorktreePaths(directory) };
 }

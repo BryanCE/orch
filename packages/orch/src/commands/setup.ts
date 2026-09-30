@@ -112,7 +112,7 @@ async function installSetupComposition(
   options: SetupOptions,
 ): Promise<string[] | null> {
   recordComposition(services.settings, composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
-  if (!(await installPrerequisites(services.logger, composition.adapters, composition.backends, options.interactive, options.yes, options.noInstall))) return null;
+  if (!(await installPrerequisites(services.logger, composition.adapters, composition.backends, options.interactive, options.install))) return null;
   process.stdout.write("Presence dir:\n");
   files.mkdirSync(presenceRoot(services.orchDir), { recursive: true });
   process.stdout.write(`  ${presenceRoot(services.orchDir)}\n`);
@@ -160,7 +160,7 @@ async function finishSetup(services: Services, options: SetupOptions, gaps: read
       await runSetupSmoke(services, process.cwd());
     }
   }
-  const doneMessage = "Done. Open a plexer workspace and try: orch spawn 2 --tab Team1";
+  const doneMessage = "Done. Try: orch spawn <name>... --tab <tab>";
   if (options.interactive) setupOutro(doneMessage);
   else process.stdout.write(`${doneMessage}\n`);
 }

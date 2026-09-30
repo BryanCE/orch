@@ -45,11 +45,12 @@ describe("Cq2: all three scopes are choosable at enqueue", () => {
     expect(await scopeFromFlags(services, {})).toEqual({});
   });
 
-  test("a name resolves to one id, and an ambiguous name asks for the id", async () => {
+  test("a name resolves through the one target resolver, which asks for the key when ambiguous", async () => {
     const services = await fixture();
     expect(await scopeFromFlags(services, { agent: "alpha" })).toEqual({ agentId: "orch-a" });
-    expect(await scopeFromFlags(services, { agent: "worker" }).then(() => null, (error: unknown) => errorMessage(error))).toMatch(/Ambiguous agent/);
-    expect(await scopeFromFlags(services, { agent: "nobody" }).then(() => null, (error: unknown) => errorMessage(error))).toMatch(/Unknown agent/);
+    expect(await scopeFromFlags(services, { pack: "beta" })).toEqual({ packId: "orch-b" });
+    expect(await scopeFromFlags(services, { agent: "worker" }).then(() => null, (error: unknown) => errorMessage(error))).toMatch(/Ambiguous target "worker"/);
+    expect(await scopeFromFlags(services, { agent: "nobody" }).then(() => null, (error: unknown) => errorMessage(error))).toMatch(/No target matches "nobody"/);
   });
 
   test("two scope flags at once are refused", async () => {

@@ -31,6 +31,10 @@ describe("spawn rolls a tab label when --tab names none", () => {
     expect(rollTabLabel(draws([0.999, 0.999, 0.999]))).toBe("zebra-monsoon-99");
   });
 
+  test("a source that returns 1 still lands on the last word and number", () => {
+    expect(rollTabLabel(draws([1]))).toBe("zebra-monsoon-99");
+  });
+
   test("a label a live tab carries is rerolled", () => {
     expect(freeTabLabel(new Set(["elk-glacier-01"]), draws([0, 0, 0, 0, 0, 0.02]))).toBe("elk-glacier-02");
   });

@@ -3,7 +3,7 @@ import { orchDirAt } from "../src/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { displayStatusState, formatNoRowsMessage, formatSpace, parseStatusOptions, scopeFleetRows } from "../src/commands/status/options.ts";
-import { normalizeStatusRow, readStatusResult } from "../src/commands/status/fetch.ts";
+import { normalizeStatusRow, readStatusResult, resolveStatusAgent } from "../src/commands/status/fetch.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
 import { fleetNames, statusRowFromEntity, warningStatusRow } from "../src/commands/status/rows.ts";
 import { ownerLabel } from "../src/commands/status/table.ts";
@@ -83,20 +83,47 @@ describe("commands/status", () => {
   });
   test("a human at a terminal has no identity to narrow by and no space to be held inside", () => {
     const row = (key: string, spaceId: string): StatusRow => statusRowFixture({ key, spaceId });
-    expect(scopeFleetRows([row("a", "w1"), row("b", "w2")], { spaceWide: false,allPanes: false }).map((r) => r.key)).toEqual(["a", "b"]);
+    expect(scopeFleetRows([row("a", "w1"), row("b", "w2")], { all: false }).map((r) => r.key)).toEqual(["a", "b"]);
   });
-  test("--agent narrows to one row by id, key, or name, exited or not", () => {
+  test("the key --agent resolved to narrows to its one row, exited or not", () => {
     const rows = [
-      statusRowFixture({ key: "k1", agentId: "id1", name: "ctx-edges", paneId: "%1" }),
-      statusRowFixture({ key: "k2", agentId: "id2", name: "gone", paneId: "%2", alive: false, exited: true }),
+      statusRowFixture({ key: "k1", agentId: "k1", name: "ctx-edges", paneId: "%1" }),
+      statusRowFixture({ key: "k2", agentId: "k2", name: "gone", paneId: "%2", alive: false, exited: true }),
     ];
-    const keys = (agent: string): string[] => scopeFleetRows(rows, { spaceWide: false, allPanes: false, agent }).map((r) => r.key);
-    expect(keys("ctx-edges")).toEqual(["k1"]);
-    expect(keys("id1")).toEqual(["k1"]);
+    const keys = (agentKey: string): string[] => scopeFleetRows(rows, { all: false, agentKey }).map((r) => r.key);
+    expect(keys("k1")).toEqual(["k1"]);
     expect(keys("k2")).toEqual(["k2"]);
-    expect(keys("gone")).toEqual(["k2"]);
-    expect(keys("nobody")).toEqual([]);
-    expect(scopeFleetRows(rows, { spaceWide: false, allPanes: false, agent: "gone", states: new Set(["exited"]) })).toEqual([]);
+    expect(keys("gone")).toEqual([]);
+    expect(scopeFleetRows(rows, { all: false, agentKey: "k2", hide: new Set(["exited"]) })).toEqual([]);
+  });
+  test("--agent resolves a name through orchd to the agent's key", async () => {
+    const directory = tempOrchDir("orch-status-agent-");
+    const servers: RpcServer[] = [];
+    try {
+      const db = orm(directory);
+      db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
+      db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('agentbee01',NULL,'agentbee01','pi','/repo','bee',1)`);
+      const services = await servedServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
+      expect(await resolveStatusAgent(services, parseStatusOptions(["--agent=bee"]))).toBe("agentbee01");
+      expect(await resolveStatusAgent(services, parseStatusOptions([]))).toBeUndefined();
+    } finally {
+      while (servers.length) await servers.pop()!.close();
+      removeTempDir(directory);
+    }
+  });
+  test("--agent with --offline is a usage error: only orchd resolves a target", () => {
+    expect(() => parseStatusOptions(["--agent=bee", "--offline"])).toThrow("--agent resolves through orchd; drop --offline");
+  });
+  test("--hide splits column names from states; --only keeps just its states", () => {
+    const options = parseStatusOptions(["--hide=owner,done", "--only=working,idle", "--all"]);
+    expect(options.hide).toEqual({ columns: new Set(["owner"]), states: new Set(["done"]) });
+    expect(options.only).toEqual(new Set(["working", "idle"]));
+    expect(options.all).toBe(true);
+    const rows = [statusRowFixture({ key: "busy", state: "working" }), statusRowFixture({ key: "asked", state: "blocked" })];
+    expect(scopeFleetRows(rows, { all: false, only: options.only }).map((r) => r.key)).toEqual(["busy"]);
+  });
+  test("a stray word is a usage error built from the spec", () => {
+    expect(() => parseStatusOptions(["extra"])).toThrow("usage: orch status");
   });
 
   describe("an agent sees what it spawned, and never past its own space", () => {
@@ -108,15 +135,15 @@ describe("commands/status", () => {
     ];
 
     test("the default is the agents this caller spawned", () => {
-      expect(scopeFleetRows(rows, { spaceWide: false,allPanes: false, caller: orch }).map((r) => r.key)).toEqual(["mine"]);
+      expect(scopeFleetRows(rows, { all: false, caller: orch }).map((r) => r.key)).toEqual(["mine"]);
     });
 
-    test("--space-wide widens to the caller's space, which is the wall", () => {
-      expect(scopeFleetRows(rows, { spaceWide: true,allPanes: false, caller: orch }).map((r) => r.key)).toEqual(["mine", "sibling"]);
+    test("--all widens to the caller's space, which is the wall", () => {
+      expect(scopeFleetRows(rows, { all: true, caller: orch }).map((r) => r.key)).toEqual(["mine", "sibling"]);
     });
 
     test("a human widening sees every space, including the one the agent could not", () => {
-      expect(scopeFleetRows(rows, { spaceWide: true,allPanes: false }).map((r) => r.key)).toEqual(["mine", "sibling", "elsewhere"]);
+      expect(scopeFleetRows(rows, { all: true }).map((r) => r.key)).toEqual(["mine", "sibling", "elsewhere"]);
     });
   });
   test("derives status row fields from seeded presence", () => {
@@ -207,7 +234,7 @@ describe("commands/status", () => {
     const table = formatStatusTable(fleetFixture([
       statusRowFixture({ key: "headless-id", agentId: "headless-id", paneId: null, name: "headless" }),
       statusRowFixture({ key: "leased-id", agentId: "leased-id", paneId: "%7", name: "leased", lease: { holderId: "orch", holderAlive: true } }),
-    ], { agents: { orch: "Orchestrator" } }), { spaceWide: false, host: false, columns: new Set() });
+    ], { agents: { orch: "Orchestrator" } }), { all: false, host: false, columns: new Set() });
     expect(table).toContain("ID");
     expect(table).toContain("ENV");
     expect(table).toContain("headless-id");
@@ -218,7 +245,7 @@ describe("commands/status", () => {
   });
 
   test("human table shows harness and working directory facts", () => {
-    const table = formatStatusTable(fleetFixture([statusRowFixture({ name: "worker", agent: "claude", cwd: "/repo", worktree: "feature", branch: "main", lease: { holderId: "orch", holderAlive: true } })], { agents: { orch: "Orchestrator" } }), { spaceWide: false, host: false, human: true, columns: new Set() });
+    const table = formatStatusTable(fleetFixture([statusRowFixture({ name: "worker", agent: "claude", cwd: "/repo", worktree: "feature", branch: "main", lease: { holderId: "orch", holderAlive: true } })], { agents: { orch: "Orchestrator" } }), { all: false, host: false, human: true, columns: new Set() });
     expect(table).toContain("HARNESS");
     expect(table).toContain("CWD");
     expect(table).toContain("WORKTREE");

@@ -1,5 +1,6 @@
 import { formatTimestamp } from "../format.ts";
 import { rpcRegisterSession } from "../daemon/client/reach.ts";
+import { announceUnleasedAgents } from "../daemon/client/registration.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { promptMultiselect } from "../setup/io.ts";
 import { parseCommand } from "./registry.ts";
@@ -11,9 +12,13 @@ import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 
-/** Resolve the caller's orch identity in one seam for every lease command. */
+/** Resolve the caller's orch identity in one seam for every lease command. A first registration prints its unleased list. */
 async function resolveSelfOrchId(directory: OrchDir, logger: Services["logger"]): Promise<string> {
-  return launchCredential() ?? (await rpcRegisterSession(directory, logger)).id;
+  const credential = launchCredential();
+  if (credential !== null) return credential;
+  const identity = await rpcRegisterSession(directory, logger);
+  announceUnleasedAgents(identity);
+  return identity.id;
 }
 
 /** The one target a lease verb names. */

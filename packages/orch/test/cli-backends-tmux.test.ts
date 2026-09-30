@@ -143,7 +143,7 @@ describe("tmux backend registry and capabilities", () => {
     }
   });
 
-  test("refuses cross-session tmux steer without --cross-space", async () => {
+  test("refuses a tmux steer into another space without --space", async () => {
     const { checkWall } = await import("../src/policy/space.ts");
     const { seedAgent } = await import("./helpers/agent.ts");
     const orchDir: OrchDir = tempOrchDir("orch-tmux-wall-");

@@ -116,6 +116,7 @@ function completeSettings(): Record<string, unknown> {
     spaces: { main: "/tmp/main" },
     daemon: { tcp_port: 3716, idle_shutdown_minutes: 0 },
     tiling: { first_split: "rows" },
+    counts: { tail: 20, peek: 25 },
     skills: { install: false, store: "/tmp/skills", link: ["/tmp/claude-skills"] },
   };
 }

@@ -101,6 +101,7 @@ export const SETTINGS_DEFAULTS = {
   // the project's own commands, which the orchestrator knows and the human need not type.
   agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
   tiling: { first_split: "rows" },
+  counts: { tail: 20, peek: 25 },
   // `.agents/skills` is the cross-harness standard, so the real files live there once and
   // a harness that reads its own directory instead gets a link into the store.
   skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
@@ -272,6 +273,11 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
    * every split after it halves the biggest pane's longer side regardless. */
   tiling: z.strictObject({
     first_split: z.enum(TILE_FIRST_SPLITS).optional(),
+  }).optional(),
+  /** What `-n <count>` shows when a command is given none. */
+  counts: z.strictObject({
+    tail: PositiveInt.optional(),
+    peek: PositiveInt.optional(),
   }).optional(),
   /** Whether orch may install its packaged skills, the one store holding the real files,
    * and the harness directories linked into it. Setup asks before the first install and

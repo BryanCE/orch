@@ -227,17 +227,15 @@ describe("runDoctor", () => {
     });
   });
 
-  test("reports a dead presence pid", async () => {
+  test("reports a dead presence pid and leaves its history alone", async () => {
     const directory = tempDir();
     seedStatus(directory, "formeragt1", { pid: 99999999 });
     const results = await runTestDoctor(directory);
-    const stale = check(results, "stale-presence");
+    const dead = check(results, "dead-agents");
 
-    expect(stale.status).toBe("warn");
-    expect(stale.detail).toContain("formeragt1");
-    expect(stale.fix).toBeDefined();
-    expect(applyFixes([stale])).toEqual({ applied: [stale.fix!.description] });
-    expect(fs.existsSync(path.join(directory, "agents", "formeragt1"))).toBe(false);
+    expect(dead.status).toBe("warn");
+    expect(dead.detail).toContain("formeragt1");
+    expect(dead.fix).toBeUndefined();
   }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("bins check is driven by the enabled set and offers no fix", async () => {

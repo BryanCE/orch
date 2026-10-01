@@ -13,6 +13,7 @@ import type { OrchSettings } from "../types/settings.ts";
 /** One agent a close may end, as orchd answers it: the backend by id, the handle, the recorded process. */
 export interface CloseTargetWire {
   readonly key: string;
+  readonly name: string;
   readonly backendId: string | null;
   readonly handle: string | null;
   readonly recorded: RecordedProcess | null;
@@ -69,6 +70,7 @@ function sweptCloseTargets(
       backendId,
       handle,
       key: address,
+      name: view.name ?? address,
       recorded: recordedProcess(orchDir, address),
       // Unknown inventory still permits a real recorded handle to be handed to
       // the plexer; a null handle is never replaced with the agent id.
@@ -93,6 +95,7 @@ function namedCloseTargets(
       backendId: resolved.backendId,
       handle,
       key: resolved.key,
+      name: resolved.view?.name ?? resolved.entity.name ?? resolved.key,
       recorded: recordedProcess(orchDir, resolved.key),
       // A pane-capable backend's stale registry row may outlive its pane. Do
       // not invoke a provider with an opaque identity handle in that case.

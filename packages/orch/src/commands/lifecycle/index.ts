@@ -4,7 +4,7 @@ import { readRpc } from "../daemon.ts";
 import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
 import { die } from "../target.ts";
-import { resolveLifecycle } from "../resolve.ts";
+import { resolveLifecycle, targetName } from "../resolve.ts";
 import { refuseNonOperatorOverride, type CallerSelf } from "../self.ts";
 import { durationSpan } from "../../cli/duration.ts";
 import { usageError } from "../../cli/usage.ts";
@@ -26,7 +26,9 @@ export async function cmdWait(services: Services, args: string[]): Promise<void>
   const json = flags.has("--json");
   const target = positional[0];
   if (!target) throw usageError(invocation);
-  const { backend, handle, entity } = await resolveLifecycle(services, target);
+  const resolved = await resolveLifecycle(services, target);
+  const { backend, handle, entity } = resolved;
+  const name = targetName(resolved);
   if (!entity.paneId) {
     if (json) process.stdout.write(JSON.stringify({ outcome: "answer", reason: "no-pane", text: `${target} has no pane; wait does not apply.` }) + "\n");
     else process.stdout.write(`${target} has no pane; wait does not apply.\n`);
@@ -40,12 +42,13 @@ export async function cmdWait(services: Services, args: string[]): Promise<void>
   }
   role.wait(handle, status, timeout);
   if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), status, reached: true }) + "\n");
-  else process.stdout.write(`${describeHandle(handle)} reached "${status}".\n`);
+  else process.stdout.write(`${name} reached "${status}".\n`);
 }
 
 /** Block until the agent's own presence status reports idle from a write newer than
  *  the one we replaced. A stale idle is the pre-reset session answering for the new one. */
 export async function awaitIdleAfter(services: DaemonClient, presenceKey: string, beforeUpdated: number | undefined, sentAt: number): Promise<boolean> {
+  const { reset_ready_ms, reset_poll_ms } = services.settings.current().timeouts;
   return retryingAsync(
     "await idle presence",
     async () => {
@@ -55,7 +58,7 @@ export async function awaitIdleAfter(services: DaemonClient, presenceKey: string
         && status.updatedAt >= sentAt - 1000;
       return advanced && status.state === "idle";
     },
-    { attempts: 300, delayMs: 250, backoff: 1 },
+    { attempts: Math.ceil(reset_ready_ms / reset_poll_ms), delayMs: reset_poll_ms, backoff: 1 },
     { retryOnResult: (value) => !value },
   );
 }

@@ -6,7 +6,7 @@ import { runRemoteAsync, runSSH } from "../remote.ts";
 import { die, remoteCommandArgs, resultText, targetHost } from "./target.ts";
 import { readRpc } from "./daemon.ts";
 import { callerCredential } from "../identity/credential.ts";
-import { resolveEntity, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
+import { displayName, resolveEntity, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
 import { refuseNonOperatorOverride, type CallerSelf, whoAmI } from "./self.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
@@ -88,7 +88,7 @@ async function lookupResolvedResult(services: Services, self: CallerSelf, target
   if (dispatchId) {
     const run = (await readRpc(services, "run", { dispatchId })).run;
     if (run?.result === undefined) {
-      die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${ent.name ?? ent.key}\`.`);
+      die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${displayName(ent.name, ent.key)}\`.`);
     }
     resultLogger(services.logger, ent.key).info("result.current-dispatch", { dispatchId });
     return { kind: "found", source: "dispatch", payload: run.result };

@@ -50,21 +50,36 @@ function keepsState(row: StatusRow, only: ReadonlySet<string> | null | undefined
   return hide?.has(state) !== true;
 }
 
+function matchesRequestedRow(row: StatusRow, opts: FleetScope): boolean {
+  return (opts.space === undefined || row.spaceId === opts.space)
+    && (opts.agentKey === undefined || row.key === opts.agentKey);
+}
+
+function belongsToCallerFleet(row: StatusRow, opts: FleetScope, caller: CallerScope): boolean {
+  return (opts.all || row.managed)
+    && withinSpaceCeiling(row.spaceId, caller.ceiling)
+    && (opts.all || row.owned);
+}
+
+function isCurrentFleetRow(row: StatusRow, opts: FleetScope, caller: CallerScope): boolean {
+  // The table is the fleet as it is NOW. An agent that has exited is history —
+  // `orch result` and `orch tail` still read it — and keeping every dead one
+  // that ever recorded a line buried ten working agents under thirty corpses.
+  // Naming one agent in `--agent` is how you ask for it back.
+  return opts.agentKey !== undefined || row.key === caller.id || (row.alive && !row.exited);
+}
+
+function keepsFleetRow(row: StatusRow, opts: FleetScope, caller: CallerScope): boolean {
+  return matchesRequestedRow(row, opts)
+    && belongsToCallerFleet(row, opts, caller)
+    && keepsState(row, opts.only, opts.hide)
+    && isCurrentFleetRow(row, opts, caller);
+}
+
 export function scopeFleetRows(rows: readonly StatusRow[], opts: FleetScope): StatusRow[] {
   const caller: CallerScope = opts.caller ?? { id: null, ceiling: null, kind: "operator" };
-  return rows.filter((row) => {
-    if (opts.space !== undefined && row.spaceId !== opts.space) return false;
-    if (opts.agentKey !== undefined && row.key !== opts.agentKey) return false;
-    if (!opts.all && !row.managed) return false;
-    if (!withinSpaceCeiling(row.spaceId, caller.ceiling)) return false;
-    if (!opts.all && !row.owned) return false;
-    if (!keepsState(row, opts.only, opts.hide)) return false;
-    // The table is the fleet as it is NOW. An agent that has exited is history —
-    // `orch result` and `orch tail` still read it — and keeping every dead one
-    // that ever recorded a line buried ten working agents under thirty corpses.
-    // Naming one agent in `--agent` is how you ask for it back.
-    return opts.agentKey !== undefined || row.key === caller.id || (row.alive && !row.exited);
-  }).sort((left, right) => Number(right.key === caller.id) - Number(left.key === caller.id));
+  return rows.filter((row) => keepsFleetRow(row, opts, caller))
+    .sort((left, right) => Number(right.key === caller.id) - Number(left.key === caller.id));
 }
 
 export function ownsLiveWorker(rows: readonly StatusRow[], callerId: string | null): boolean {

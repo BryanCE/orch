@@ -186,6 +186,8 @@ export function allTasks(dir: OrchDir): (TaskRow & { state: TaskState })[] {
     });
 }
 
+const SETTLED_STATES: TaskState[] = ["done", "failed", "cancelled"];
+
 /** Retention is based on the last settlement clock. Queued and open attempts
  * are never age-reaped. Cancellation has its own settlement clock. */
 export function deleteSettledTasksBefore(dir: OrchDir, cutoff: number): number {
@@ -196,10 +198,23 @@ export function deleteSettledTasksBefore(dir: OrchDir, cutoff: number): number {
   const ids = db.select({ id: tasks.id }).from(tasks)
     .innerJoin(taskStates, eq(taskStates.taskId, tasks.id))
     .leftJoin(taskCancellations, eq(taskCancellations.taskId, tasks.id))
-    .where(and(inArray(taskStates.state, ["done", "failed", "cancelled"]), sql`${settledAt} < ${cutoff}`))
+    .where(and(inArray(taskStates.state, SETTLED_STATES), sql`${settledAt} < ${cutoff}`))
     .all().map((row) => row.id);
   if (ids.length > 0) db.delete(tasks).where(inArray(tasks.id, ids)).run();
   return ids.length;
+}
+
+/** Delete every settled task that names a gone agent. A task still in flight keeps its agents. */
+export function deleteSettledTasksOf(dir: OrchDir, agentId: string): void {
+  const db = orm(dir);
+  const attempted = db.select({ id: taskAttempts.taskId }).from(taskAttempts).where(eq(taskAttempts.agentId, agentId));
+  const cancelled = db.select({ id: taskCancellations.taskId }).from(taskCancellations).where(eq(taskCancellations.cancelledBy, agentId));
+  const settled = db.select({ id: taskStates.taskId }).from(taskStates).where(inArray(taskStates.state, SETTLED_STATES));
+  db.delete(tasks).where(and(
+    or(eq(tasks.enqueuedBy, agentId), eq(tasks.scopeAgentId, agentId), eq(tasks.scopePackId, agentId),
+      inArray(tasks.id, attempted), inArray(tasks.id, cancelled)),
+    inArray(tasks.id, settled),
+  )).run();
 }
 
 export function attemptsOf(dir: OrchDir, taskId: string): AttemptRow[] {

@@ -1,15 +1,12 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { declaredRuntime } from "../settings/read.ts";
 
-import type { OrchRuntime } from "../runtime.ts";
 import { presenceEntry } from "../presence/store.ts";
-import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand } from "../util.ts";
-import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath } from "./claude-hooks.ts";
+import { isRecord, packageRoot, reinstallCommand, textValue } from "../util.ts";
+import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath } from "./claude-hooks.ts";
 import { agentStateFrom } from "../agent-state.ts";
 import { buildHeadlessArgv, buildInteractiveArgv, shimRole, type AgentState } from "./adapter.ts";
-import { textValue } from "../util.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, HarnessModel, ModelCatalogue, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
@@ -35,8 +32,6 @@ function readTextFile(file: string | undefined): string | undefined {
     return undefined;
   }
 }
-
-const HOME = os.homedir();
 
 /** Claude Code lists its models in the answer to the stream-json `initialize` control request.
  *  No setting sources and no persistence, so the query fires no hook and writes no session. */
@@ -69,89 +64,71 @@ function parseClaudeModelsOutput(stdout: string): readonly HarnessModel[] {
   return [];
 }
 
-function isOrchShimHook(hook: unknown): boolean {
-  return isRecord(hook) && hook.type === "command"
-    && typeof hook.command === "string" && hook.command.includes("claude-hooks");
-}
-
-/** Drop orch shim hooks that don't match `command` so the shim never fires twice; keep everything else. */
-function pruneStaleShimHooks(list: unknown[], command: string): { list: unknown[]; pruned: boolean } {
-  let pruned = false;
-  const kept = list.map((entry) => {
-    if (!isRecord(entry) || !Array.isArray(entry.hooks)) return entry;
-    const hooks = entry.hooks.filter((hook: unknown) => {
-      const stale = isOrchShimHook(hook) && isRecord(hook)
-        && typeof hook.command === "string" && hook.command !== command;
-      if (stale) pruned = true;
-      return !stale;
-    });
-    return hooks.length === entry.hooks.length ? entry : { ...entry, hooks };
-  }).filter((entry) => !isRecord(entry) || !Array.isArray(entry.hooks) || entry.hooks.length > 0);
-  return { list: kept, pruned };
-}
-
-/** Wire the presence hook shim into ~/.claude/settings.json without disturbing unrelated hooks. */
-function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Logger, pkgRoot: string): void {
-  const claudeDir = path.join(HOME, ".claude");
-  const claudeSettingsPath = path.join(claudeDir, "settings.json");
-  let fileSettings: Record<string, unknown>;
-  if (!fs.existsSync(claudeSettingsPath)) {
-    fileSettings = {};
-  } else {
-    try {
-      const parsed: unknown = JSON.parse(fs.readFileSync(claudeSettingsPath, "utf8"));
-      if (!isRecord(parsed)) throw new Error("settings root is not an object");
-      fileSettings = parsed;
-    } catch (error: unknown) {
-      logger.warn("claude.hooks-parse-failed", { path: claudeSettingsPath, error: errorMessage(error) });
-      process.stdout.write(`  warning: could not parse ${claudeSettingsPath}; Claude hooks not changed (${errorMessage(error)})\n`);
-      return;
-    }
-  }
-  const shim = claudeHookShimPath(pkgRoot);
-  // The shim is plain ESM JS; wire it to the runtime DECLARED in settings.json.
-  // orch never probes PATH to pick one — the declaration is the only source.
+function claudeHookSettings(root: string, orchDir: OrchDir, settings: OrchSettings): Record<string, unknown> {
+  const shim = claudeHookShimPath(root);
   const runtime = declaredRuntime(settings);
-  const added: string[] = [];
-  let prunedStale = false;
-  const hooks = isRecord(fileSettings.hooks) ? fileSettings.hooks : (fileSettings.hooks === undefined ? {} : null);
-  if (!hooks) {
-    logger.warn("claude.hooks-invalid", { path: claudeSettingsPath });
-    process.stdout.write(`  warning: ${claudeSettingsPath} has a non-object hooks value; Claude hooks not changed\n`);
-    return;
-  }
-  fileSettings.hooks = hooks;
-  for (const event of CLAUDE_HOOK_EVENTS) {
-    const command = claudeHookCommand(shim, event, runtime, orchDir);
-    const entries = hooks[event];
-    if (entries !== undefined && !Array.isArray(entries)) {
-      logger.warn("claude.hook-event-invalid", { path: claudeSettingsPath, event });
-      process.stdout.write(`  warning: ${claudeSettingsPath} has a non-array ${event} hook value; skipped\n`);
-      continue;
-    }
-    const { list, pruned } = pruneStaleShimHooks(Array.isArray(entries) ? entries : [], command);
-    if (pruned) prunedStale = true;
-    const alreadyPresent = list.some((entry) => isRecord(entry) && Array.isArray(entry.hooks)
-      && entry.hooks.some((hook: unknown) => isRecord(hook) && hook.type === "command" && hook.command === command));
-    if (!alreadyPresent) {
-      list.push({ hooks: [{ type: "command", command }] });
-      added.push(event);
-    }
-    hooks[event] = list;
-  }
-  if (added.length || prunedStale) {
-    fs.mkdirSync(claudeDir, { recursive: true });
-    fs.writeFileSync(claudeSettingsPath, JSON.stringify(fileSettings, null, 2) + "\n");
-  }
-  const summary = [
-    added.length ? `added ${added.join(", ")} (${runtime}) in ${claudeSettingsPath}` : "",
-    prunedStale ? "pruned stale orch entries" : "",
-  ].filter(Boolean).join("; ") || "already configured";
-  process.stdout.write(`Claude Code hooks: ${summary}\n`);
+  return {
+    hooks: Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => [
+      event,
+      [{ hooks: [{ type: "command", command: claudeHookCommand(shim, event, runtime, orchDir) }] }],
+    ])),
+  };
+}
+
+/** Load orch's hooks into a session orch spawns, and into no other session. */
+function settingsArgv(opts: SpawnOpts): string[] {
+  return opts.orchDir ? ["--settings", claudeSettingsPath(opts.orchDir)] : [];
+}
+
+/** Write orch's complete, private Claude settings file. */
+function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Logger, pkgRoot: string): void {
+  const settingsPath = claudeSettingsPath(orchDir);
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, `${JSON.stringify(claudeHookSettings(pkgRoot, orchDir, settings), null, 2)}\n`);
+  process.stdout.write(`Claude Code hooks: wrote ${settingsPath}\n`);
+  const shim = claudeHookShimPath(pkgRoot);
   if (!fs.existsSync(shim)) {
     logger.warn("claude.shim-missing", { path: shim });
     process.stdout.write(`  warning: ${shim} is missing from the install; fix: ${reinstallCommand()}\n`);
   }
+}
+
+/** Check orch's private Claude settings file against what setup would write. */
+export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult {
+  const settingsPath = claudeSettingsPath(orchDir);
+  const id = "claude-hooks";
+  const label = "Claude hooks shim";
+  const rewrite = (detail: string): CheckResult => ({
+    id, label, status: "warn", detail,
+    fix: { description: "rewrite orch's Claude settings", apply: () => { installClaudeHooks(orchDir, settings, logger, root); } },
+  });
+  let raw: string;
+  try {
+    raw = fs.readFileSync(settingsPath, "utf8");
+  } catch {
+    return rewrite(`missing ${settingsPath}; fix: run orch setup`);
+  }
+  let fileSettings: unknown;
+  try {
+    fileSettings = JSON.parse(raw);
+  } catch {
+    return rewrite(`malformed ${settingsPath}; fix: run orch setup`);
+  }
+  if (!isRecord(fileSettings)) return rewrite(`malformed ${settingsPath}; fix: run orch setup`);
+
+  const shim = claudeHookShimPath(root);
+  if (!fs.existsSync(shim)) {
+    return { id, label, status: "warn", detail: `${shim} is missing; fix: run orch setup` };
+  }
+  let expected: Record<string, unknown>;
+  try {
+    expected = claudeHookSettings(root, orchDir, settings);
+  } catch {
+    return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
+  }
+  return JSON.stringify(fileSettings) === JSON.stringify(expected)
+    ? { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` }
+    : rewrite(`missing or stale orch Claude hooks in ${settingsPath}`);
 }
 
 /**
@@ -162,64 +139,6 @@ function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Lo
  * them. State and session-tail data are supplied by extensions/claude/index.ts.
  * PreToolUse reports nothing; it routes locked and gated Bash commands through `orch lock`.
  */
-/** Every command string registered under one Claude hook event, ignoring malformed entries. */
-function registeredHookCommands(settings: Record<string, unknown>, event: string): string[] {
-  const entries = isRecord(settings.hooks) ? settings.hooks[event] : undefined;
-  if (!Array.isArray(entries)) return [];
-  const hooks = entries.flatMap((entry): unknown[] => (isRecord(entry) && Array.isArray(entry.hooks) ? entry.hooks : []));
-  return hooks.flatMap((hook) =>
-    isRecord(hook) && hook.type === "command" && typeof hook.command === "string" ? [hook.command] : []);
-}
-
-/** Events whose orch hook is unregistered or left over from a build under another runtime. */
-function staleHookEvents(settings: Record<string, unknown>, shim: string, runtime: OrchRuntime, orchDir: OrchDir): string[] {
-  return CLAUDE_HOOK_EVENTS.filter((event) =>
-    !registeredHookCommands(settings, event).includes(claudeHookCommand(shim, event, runtime, orchDir)));
-}
-
-export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult {
-  const settingsPath = path.join(HOME, ".claude", "settings.json");
-  const id = "claude-hooks";
-  const label = "Claude hooks shim";
-  let raw: string;
-  try {
-    raw = fs.readFileSync(settingsPath, "utf8");
-  } catch (error: unknown) {
-    if (errnoCode(error) === "ENOENT") {
-      return { id, label, status: "ok", detail: "Claude is not set up (no settings.json)" };
-    }
-    return { id, label, status: "warn", detail: `could not read ${settingsPath}; fix: run orch setup` };
-  }
-  let fileSettings: unknown;
-  try {
-    fileSettings = JSON.parse(raw);
-  } catch {
-    return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
-  }
-  if (!isRecord(fileSettings)) return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
-
-  const shim = claudeHookShimPath(root);
-  if (!fs.existsSync(shim)) {
-    return { id, label, status: "warn", detail: `${shim} is missing; fix: run orch setup` };
-  }
-  let runtime: OrchRuntime;
-  try {
-    runtime = declaredRuntime(settings);
-  } catch {
-    return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
-  }
-  const missing = staleHookEvents(fileSettings, shim, runtime, orchDir);
-  return missing.length
-    ? {
-        id,
-        label,
-        status: "warn",
-        detail: `missing or stale orch hook${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
-        fix: { description: `reinstall orch's Claude hooks (${missing.join(", ")})`, apply: () => { installClaudeHooks(orchDir, settings, logger, root); } },
-      }
-    : { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` };
-}
-
 class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
 
@@ -255,12 +174,12 @@ class ClaudeAdapter implements AgentAdapter {
   }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return buildInteractiveArgv("claude", opts);
+    return [...buildInteractiveArgv("claude", opts), ...settingsArgv(opts)];
   }
 
   /** Run Claude Code's print mode for detached workers. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return buildHeadlessArgv("claude", ["-p"], opts, prompt);
+    return buildHeadlessArgv("claude", ["-p", ...settingsArgv(opts)], opts, prompt);
   }
 
   /** Read the status written by Claude's SessionStart/Stop/Notification hooks. */
@@ -305,7 +224,7 @@ class ClaudeAdapter implements AgentAdapter {
     return text === undefined ? undefined : { lastText: text };
   }
 
-  /** Install the settings.json presence hooks. orch ships no Claude subagent
+  /** Write orch's private Claude settings file. orch ships no Claude subagent
    *  definitions — every dispatch goes through orch itself. Skills are not installed
    *  here either: they are read by every harness, so setup writes them once into the
    *  configured roots rather than once per adapter. */

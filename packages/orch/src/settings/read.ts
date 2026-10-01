@@ -201,14 +201,8 @@ const settingsValueExtractors = {
   }),
   monitor: (root: Partial<SettingsFile>) => ({ on: root.monitor?.on ?? SETTINGS_DEFAULTS.monitor.on }),
   timeouts: (root: Partial<SettingsFile>) => ({
-    dispatch_ack_ms: root.timeouts?.dispatch_ack_ms ?? SETTINGS_DEFAULTS.timeouts.dispatch_ack_ms,
-    wait_ms: root.timeouts?.wait_ms ?? SETTINGS_DEFAULTS.timeouts.wait_ms,
-    adapter_command_ms: root.timeouts?.adapter_command_ms ?? SETTINGS_DEFAULTS.timeouts.adapter_command_ms,
-    notify_ms: root.timeouts?.notify_ms ?? SETTINGS_DEFAULTS.timeouts.notify_ms,
-    spawn_attach_ms: root.timeouts?.spawn_attach_ms ?? SETTINGS_DEFAULTS.timeouts.spawn_attach_ms,
-    spawn_attach_poll_ms: root.timeouts?.spawn_attach_poll_ms ?? SETTINGS_DEFAULTS.timeouts.spawn_attach_poll_ms,
-    lock_wait_ms: root.timeouts?.lock_wait_ms ?? SETTINGS_DEFAULTS.timeouts.lock_wait_ms,
-    lock_poll_ms: root.timeouts?.lock_poll_ms ?? SETTINGS_DEFAULTS.timeouts.lock_poll_ms,
+    ...SETTINGS_DEFAULTS.timeouts,
+    ...root.timeouts,
   }),
   notify: (root: Partial<SettingsFile>) => root.notify ?? [],
   notification: (root: Partial<SettingsFile>) => ({

@@ -2,7 +2,6 @@ import type { OrchDir } from "../types/core.ts";
 import * as filesystem from "node:fs";
 import { basename } from "node:path";
 import { loadPresence, malformedPresenceDirs, presenceDir } from "../presence/store.ts";
-import { presenceAgentDir } from "../presence/history.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
 import { truncate } from "../util.ts";
 import { agentView } from "../store/agent-view.ts";
@@ -79,48 +78,29 @@ export function checkUnscopedTasks(orchDir: OrchDir): CheckResult {
   };
 }
 
-export async function checkStalePresence(orchDir: OrchDir): Promise<CheckResult> {
+/** One dead agent as a human reads it: name, project, last report. */
+function describeDeadAgent(orchDir: OrchDir, entry: PresenceEntry): string {
+  const view = agentView(orchDir, entry.key);
+  const name = view === null ? entry.key : view.name;
+  const statusProject = entry.status?.project;
+  const project = typeof statusProject === "string"
+    ? statusProject
+    : view === null ? "unknown" : basename(view.cwd);
+  const updatedAt = entry.status?.updatedAt;
+  const seen = updatedAt === undefined || updatedAt === null ? "unknown" : humanAge(Date.now() - updatedAt);
+  return `${name} | project ${project} | last seen ${seen}`;
+}
+
+/** Dead agents whose rows are still in the store. orchd reaps them on its
+ *  liveness tick; a row that stays is held by a task or grant still in flight. */
+export async function checkDeadAgents(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
-  const malformed = malformedPresenceDirs(orchDir);
-  if (malformed.length) {
-    return {
-      id: "stale-presence",
-      label: "Stale presence dirs",
-      status: "fail",
-      detail: `${malformed.length} malformed agent dir${malformed.length === 1 ? "" : "s"} (not a minted id; orch clean reaps them):\n    ${malformed.map((entry) => entry.name).join("\n    ")}`,
-    };
-  }
-  const entries = loadPresence(orchDir);
-  if (!entries.size) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no agent dirs" };
-  const stale: PresenceEntry[] = [];
-  for (const entry of entries.values()) {
-    if (!entry.alive) stale.push(entry);
-  }
-  if (!stale.length) return { id: "stale-presence", label: "Stale presence dirs", status: "ok", detail: "no dead agent dirs" };
-  const descriptions = stale.map((entry) => {
-    const view = agentView(orchDir, entry.key);
-    const name = view === null ? entry.key : view.name;
-    const statusProject = entry.status?.project;
-    const project = typeof statusProject === "string"
-      ? statusProject
-      : view === null ? "unknown" : basename(view.cwd);
-    const updatedAt = entry.status?.updatedAt;
-    const seen = updatedAt === undefined || updatedAt === null ? "unknown" : humanAge(Date.now() - updatedAt);
-    return `${name} | project ${project} | last seen ${seen}`;
-  });
+  const dead = [...loadPresence(orchDir).values()].filter((entry) => !entry.alive);
+  if (!dead.length) return { id: "dead-agents", label: "Dead agent rows", status: "ok", detail: "no dead agents in the store" };
   return {
-    id: "stale-presence",
-    label: "Stale presence dirs",
+    id: "dead-agents",
+    label: "Dead agent rows",
     status: "warn",
-    detail: `${stale.length} dead agent dir${stale.length === 1 ? "" : "s"} (verify before removing):\n    ${descriptions.join("\n    ")}`,
-    fix: {
-      description: `Delete ${stale.length} dead presence dir${stale.length === 1 ? "" : "s"}: ${descriptions.join("; ")}`,
-      destructive: true,
-      apply() {
-        for (const entry of stale) {
-          filesystem.rmSync(presenceAgentDir(entry.key, orchDir), { recursive: true, force: true });
-        }
-      },
-    },
+    detail: `${dead.length} dead agent${dead.length === 1 ? "" : "s"} still in the store; orchd reaps each one once no queued task or open grant holds it:\n    ${dead.map((entry) => describeDeadAgent(orchDir, entry)).join("\n    ")}`,
   };
 }

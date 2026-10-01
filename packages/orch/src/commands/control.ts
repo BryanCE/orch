@@ -1,9 +1,8 @@
 import { ARROW, collapse, errorMessage, isRecord, truncate } from "../util.ts";
 import { writeDelivery, type Delivery } from "./delivery.ts";
-import { resolveEntity, resolveLifecycle, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
+import { displayName, resolveEntity, resolveLifecycle, resolveOwnedTarget, targetName, type ResolvedTarget } from "./resolve.ts";
 import { renameAgent, renamedLine, type ChromeOutcome } from "./lifecycle/rename.ts";
 import { isAgentId } from "../backends/identity.ts";
-import { abstractAgentLabel } from "../notify/format.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { workerHeaderContextOf } from "../policy/spawner.ts";
@@ -109,16 +108,7 @@ export async function cmdSteer(services: Services, args: string[]): Promise<void
   if (forwardTextToHost(hosts, "steer", command)) return;
   const resolved = await resolveDriveTarget(services, self, target, gov);
   const result = await writeRpc(services, "steer", { target: resolved.entity.key, text }, gov);
-  const delivery = deliveryResult(result, {
-    target: resolved.entity.key,
-    name: agentName(resolved.view?.name ?? resolved.entity.name, resolved.entity.space, resolved.entity.key),
-    action: "steer",
-  });
-  writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms, suffix: ` ${ARROW} ${truncate(collapse(text), 60)}` });
-}
-
-function agentName(name: string | null | undefined, space: string | null | undefined, key: string): string {
-  return name ?? abstractAgentLabel(space ?? "space", key);
+  reportDelivery(services, result, { target: resolved.entity.key, name: targetName(resolved), action: "steer" }, { json, suffix: ` ${ARROW} ${truncate(collapse(text), 60)}` });
 }
 
 export function pipedText(sourceName: string, instruction: string, result: string): string {
@@ -130,6 +120,10 @@ function deliveryResult(result: unknown, identity: Pick<Delivery, "target" | "na
     die("Daemon response missing delivery acknowledgement.");
   }
   return { ...identity, id: result.id, ack: result.ack };
+}
+
+function reportDelivery(services: Pick<Services, "settings">, result: unknown, identity: Pick<Delivery, "target" | "name" | "action">, options: { json: boolean; suffix?: string }): void {
+  writeDelivery(deliveryResult(result, identity), { ...options, ackMs: services.settings.current().timeouts.dispatch_ack_ms });
 }
 
 export async function cmdBroadcast(services: Services, args: string[]) {
@@ -164,9 +158,19 @@ export async function cmdBroadcast(services: Services, args: string[]) {
     destinations.set(resolved.entity.presence.key, resolved.entity.presence);
   }
   if (!destinations.size) die("No live agent dirs to broadcast to.");
-  // Per target, never Promise.all + die: one agent refusing (one awaiting an
-  // answer refuses a steer) must not hide which of its siblings did receive the text.
-  const outcomes = await Promise.all([...destinations.values()].map(async (pres): Promise<BroadcastOutcome> => {
+  const outcomes = await steerEach(services, [...destinations.values()], text);
+  const nameOf = (key: string): string => {
+    const resolved = resolvedByKey.get(key);
+    const view = resolved?.view ?? fleet?.views.find((entry) => entry.id === key);
+    return displayName(view?.name ?? resolved?.entity.name, key);
+  };
+  reportBroadcast(services, outcomes, nameOf, json);
+}
+
+/** Per target, never Promise.all + die: one agent refusing (one awaiting an
+ *  answer refuses a steer) must not hide which of its siblings did receive the text. */
+function steerEach(services: Services, destinations: readonly PresenceEntry[], text: string): Promise<BroadcastOutcome[]> {
+  return Promise.all(destinations.map(async (pres): Promise<BroadcastOutcome> => {
     try {
       const result = await callDaemon(services, "steer", { target: pres.key, text });
       return { kind: "delivered", key: pres.key, result };
@@ -174,15 +178,14 @@ export async function cmdBroadcast(services: Services, args: string[]) {
       return { kind: "refused", key: pres.key, reason: errorMessage(error) };
     }
   }));
+}
+
+function reportBroadcast(services: Services, outcomes: readonly BroadcastOutcome[], nameOf: (key: string) => string, json: boolean): void {
   const refusals: { name: string; reason: string }[] = [];
-  const ackMs = services.settings.current().timeouts.dispatch_ack_ms;
   for (const outcome of outcomes) {
-    const resolved = resolvedByKey.get(outcome.key);
-    const view = resolved?.view ?? fleet?.views.find((entry) => entry.id === outcome.key);
-    const name = agentName(view?.name ?? resolved?.entity.name, resolved?.entity.space ?? view?.environment.space, outcome.key);
+    const name = nameOf(outcome.key);
     if (outcome.kind === "delivered") {
-      const delivery = deliveryResult(outcome.result, { target: outcome.key, name, action: "broadcast" });
-      writeDelivery(delivery, { json, ackMs });
+      reportDelivery(services, outcome.result, { target: outcome.key, name, action: "broadcast" }, { json });
       continue;
     }
     const log = isAgentId(outcome.key) ? services.logger.forAgent(outcome.key) : services.logger;
@@ -214,15 +217,10 @@ export async function cmdPipe(services: Services, args: string[]) {
   const resolvedDestination = await resolveEntity(services, dst);
   const destination = resolvedDestination.entity;
   if (!destination.presence) die(`Target "${dst}" has no agent dir.`);
-  const sourceName = agentName(source.name, source.space, source.presence.key);
+  const sourceName = displayName(source.name, source.presence.key);
   const text = pipedText(sourceName, instruction, resultTextValue);
   const result = await writeRpc(services, "steer", { target: destination.presence.key, text });
-  const delivery = deliveryResult(result, {
-    target: destination.presence.key,
-    name: agentName(destination.name, destination.space, destination.presence.key),
-    action: "pipe",
-  });
-  writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms, suffix: ` from ${sourceName}` });
+  reportDelivery(services, result, { target: destination.presence.key, name: displayName(destination.name, destination.presence.key), action: "pipe" }, { json, suffix: ` from ${sourceName}` });
 }
 
 export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
@@ -236,12 +234,7 @@ export async function cmdAnswer(services: Services, args: string[]): Promise<voi
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
   // the CLI never invokes the adapter's answer strategy directly.
   const result = await writeRpc(services, "answer", { target: resolved.entity.presence.key, text }, gov);
-  const delivery = deliveryResult(result, {
-    target: resolved.entity.presence.key,
-    name: agentName(resolved.view?.name ?? resolved.entity.name, resolved.entity.space, resolved.entity.key),
-    action: "answer",
-  });
-  writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms });
+  reportDelivery(services, result, { target: resolved.entity.presence.key, name: targetName(resolved), action: "answer" }, { json });
 }
 
 export async function cmdModel(services: Services, args: string[]): Promise<void> {
@@ -264,7 +257,7 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
   // spec this command reports back is the one the agent was actually pinned to.
   const spec = modelSpec(admitLaunchModel(services.settings.current(), adapter.id, services.models, tuning.model), tuning.thinking);
   const result = await setAgentModel(services, ent.key, spec, gov);
-  const label = agentName(resolved.view?.name ?? ent.name, ent.space, ent.key);
+  const label = targetName(resolved);
   if (json) process.stdout.write(JSON.stringify({ target: handle, name: label, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`Kept ${label} on ${result.now}; no change.\n`);
   else process.stdout.write(`Changed ${label}'s model: ${result.old ?? "(unknown)"} ${ARROW} ${result.now}.\n`);
@@ -344,8 +337,37 @@ async function recordAdoptedAgent(services: Services, self: CallerSelf, key: str
  *  can watch, and adopting it would register a row that reads as dead at once. */
 function adoptedProcess(ent: Entity): RecordedProcess {
   const backend = ent.backend === null ? undefined : getBackend(ent.backend);
-  if (backend === undefined || ent.paneId === null) die(`cannot adopt ${agentName(ent.name, ent.space, ent.key)}: it sits in no pane orch can read, so orch cannot watch it. Spawn it with orch instead.`);
+  if (backend === undefined || ent.paneId === null) die(`cannot adopt ${displayName(ent.name, ent.key)}: it sits in no pane orch can read, so orch cannot watch it. Spawn it with orch instead.`);
   return backend.process.running(ent.paneId);
+}
+
+/** `dispatch --rename`: the same rename `orch rename` does, before the task is sent. */
+async function renameBeforeDispatch(services: Services, dispatchSettings: DispatchSettings, currentName: string, newName: string): Promise<void> {
+  let outcome: ChromeOutcome | null;
+  try {
+    const lifecycle = await resolveLifecycle(services, dispatchSettings.ent.key);
+    outcome = await renameAgent(services, lifecycle.backend, lifecycle.handle, lifecycle.key, newName, lifecycle.view);
+  } catch (error: unknown) {
+    die(`orch dispatch: ${errorMessage(error)}`);
+  }
+  if (!outcome) die(`Could not rename ${currentName}.`);
+  if (!dispatchSettings.json) process.stdout.write(`${renamedLine(currentName, newName, outcome)}\n`);
+}
+
+/** New work lands on a clean session unless the caller asked to keep the old one.
+ *  The model is pinned AFTER the clear, because a clear drops it. The pin is the
+ *  one the agent already holds unless this dispatch names another: a clear
+ *  resets the session, never the tuning the orchestrator chose. */
+async function prepareSession(services: Services, dispatchSettings: DispatchSettings, flags: DispatchFlags, target: { key: string; name: string; steal: boolean }) {
+  const settings = services.settings.current();
+  const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
+  const tuning = resolveTuningOrDie(flags, settings, adapter.id, dispatchSettings.view?.tuning ?? NO_TUNING);
+  const { thinking } = tuning;
+  const model = admitLaunchModel(settings, adapter.id, services.models, tuning.model);
+  if (!dispatchSettings.keepContext) await clearSession(services, target.key, target.steal);
+  const pinWarnings = await pinModels(services, services.logger, [{ key: target.key, handle: dispatchSettings.handle, name: target.name, model, thinking }]);
+  if (pinWarnings.length > 0) process.exitCode = 1;
+  return { model, thinking };
 }
 
 export async function cmdDispatch(services: Services, args: string[]) {
@@ -356,48 +378,21 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const settings = services.settings.current();
   if (forwardedToTargetHost(settings.hosts, args, flags.positional[0])) return;
   const dispatchSettings = await resolveDispatchSettings(services, self, invocation, flags, gov);
-  const currentName = agentName(dispatchSettings.view?.name ?? dispatchSettings.ent.name, dispatchSettings.ent.space, dispatchSettings.ent.key);
+  const currentName = targetName({ view: dispatchSettings.view, entity: dispatchSettings.ent });
   const effectiveName = flags.rename ?? currentName;
-  if (flags.rename !== undefined) {
-    let outcome: ChromeOutcome | null;
-    try {
-      const lifecycle = await resolveLifecycle(services, dispatchSettings.ent.key);
-      outcome = await renameAgent(services, lifecycle.backend, lifecycle.handle, lifecycle.key, flags.rename, lifecycle.view);
-    } catch (error: unknown) {
-      die(`orch dispatch: ${errorMessage(error)}`);
-    }
-    if (!outcome) die(`Could not rename ${currentName}.`);
-    if (!dispatchSettings.json) {
-      process.stdout.write(`${renamedLine(currentName, flags.rename, outcome)}\n`);
-    }
-  }
+  if (flags.rename !== undefined) await renameBeforeDispatch(services, dispatchSettings, currentName, flags.rename);
   // Address the daemon by the one canonical identity, never the handle: a second
   // registry row keyed by handle forks the agent and makes every later control
   // target ambiguous (dispatch/steer/reset all fail post-first-run).
   const key = dispatchSettings.ent.key;
-  // New work lands on a clean session unless the caller asked to keep the old one.
-  // The model is pinned AFTER the clear, because a clear drops it. The pin is the
-  // one the agent already holds unless this dispatch names another: a clear
-  // resets the session, never the tuning the orchestrator chose.
-  const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
-  const tuning = resolveTuningOrDie(flags, settings, adapter.id, dispatchSettings.view?.tuning ?? NO_TUNING);
-  const { thinking } = tuning;
-  const model = admitLaunchModel(settings, adapter.id, services.models, tuning.model);
-  if (!dispatchSettings.keepContext) await clearSession(services, key, gov.steal === true);
-  const pinWarnings = await pinModels(services, services.logger, [{ key, handle: dispatchSettings.handle, name: effectiveName, model, thinking }]);
-  if (pinWarnings.length > 0) process.exitCode = 1;
+  const { model, thinking } = await prepareSession(services, dispatchSettings, flags, { key, name: effectiveName, steal: gov.steal === true });
   const headerContext = workerHeaderContextOf(self, settings, dispatchSettings.view?.cwd);
   const agentAdapter = getAdapter(dispatchSettings.view?.harnessId ?? dispatchSettings.ent.agent ?? "");
   const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: agentAdapter, context: headerContext, gov });
   if (dispatchSettings.view === null) await recordAdoptedAgent(services, self, key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the agent runs the prompt this command sent, not some other delivery.
-  const delivery = deliveryResult(result, {
-    target: key,
-    name: effectiveName,
-    action: "dispatch",
-  });
-  writeDelivery(delivery, { json: dispatchSettings.json, ackMs: settings.timeouts.dispatch_ack_ms });
+  reportDelivery(services, result, { target: key, name: effectiveName, action: "dispatch" }, { json: dispatchSettings.json });
 }
 
 /** The dispatch spec's flags as the resolvers read them. Exported for tests. */

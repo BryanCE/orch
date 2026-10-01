@@ -216,6 +216,8 @@ const HELP: Readonly<Record<string, string>> = {
   "settings_file.typo_max_edits": "An unknown key in settings.json this many edits from a real key is a typo, and orch refuses the file. Any other unknown key is one a newer orch added, and this orch ignores it.",
   "timeouts.lock_wait_ms": "How long an agent waits for a locked command's lock before it gives up, in milliseconds. The agent then does its other work and runs the command again later.",
   "timeouts.lock_poll_ms": "How often orch lock asks orchd whether the lock is free, in milliseconds.",
+  "timeouts.reset_ready_ms": "How long reset waits for an agent to become ready, in milliseconds.",
+  "timeouts.reset_poll_ms": "How often reset checks whether an agent is ready, in milliseconds.",
   hosts: "Named remote hosts.",
   spaces: "Named space paths.",
   "daemon.tcp_port": "TCP port used by the daemon.",

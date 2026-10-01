@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { dispatchFlags, pipedText, promptBody } from "../src/commands/control.ts";
+import { displayName } from "../src/commands/resolve.ts";
 import { parseCommand } from "../src/commands/registry.ts";
 import { workerPrompt } from "../src/worker-prompt.ts";
 
 describe("commands/control", () => {
+  test("display names fall back to the agent key", () => {
+    expect(displayName("named-agent", "agent-key")).toBe("named-agent");
+    expect(displayName(null, "agent-key")).toBe("agent-key");
+    expect(displayName(undefined, "agent-key")).toBe("agent-key");
+  });
   test("parses dispatch flags without losing prompt words", () => {
     expect(dispatchFlags(parseCommand("dispatch", ["--raw", "agent", "do", "it", "--harness", "pi"]))).toMatchObject({ raw: true, positional: ["agent", "do", "it"], adapterFlag: "pi" });
   });

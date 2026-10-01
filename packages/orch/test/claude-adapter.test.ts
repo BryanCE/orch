@@ -24,6 +24,7 @@ import "../src/adapters/registry.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { claudeSettingsPath } from "../src/adapters/claude-hooks.ts";
 
 const orchDir: OrchDir = tempOrchDir("orch-claude-adapter-");
 writeSettingsFixture(orchDir, { daemon: { report_timeout_ms: 2000 } });
@@ -133,6 +134,12 @@ describe("Claude adapter", () => {
 
   test("builds the interactive Claude launch command", () => {
     expect(claudeAdapter.interactiveCmd({})).toBe("claude");
+  });
+
+  test("loads orch-owned settings in interactive and headless launches", () => {
+    const settingsPath = claudeSettingsPath(orchDir);
+    expect(claudeAdapter.interactiveArgv({ orchDir })).toEqual(["claude", "--settings", settingsPath]);
+    expect(claudeAdapter.headlessCmd("reply", { orchDir })).toEqual(["claude", "-p", "--settings", settingsPath, "reply"]);
   });
 
   test("pins headless print mode to the hook-driven presence path", () => {

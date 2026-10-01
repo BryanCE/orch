@@ -109,6 +109,7 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     // This is what the flag is FOR, and the reason it stays a status flag rather
     // than moving to doctor: a person on a machine with no daemon still gets the
     // fleet, and orch does not start one behind their back to answer.
-    expect(source).toMatch(/if \(!options\.offline\) \{\s*await ensureDaemonOrWarn/);
+    expect(source).toMatch(/resolveCaller\(services, options\.offline\)/);
+    expect(source).toMatch(/if \(!offline\) \{\s*await ensureDaemonOrWarn/);
   });
 });

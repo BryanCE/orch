@@ -1,6 +1,6 @@
 import type { OrchDir } from "../types/core.ts";
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, gt, type SQL } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, notInArray, or, type SQL } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
 import { grantApprovals, grantDenials, grantRequestParams, grantRequests, grantSpends, grantStates } from "../db/schema.ts";
 import type { GrantAction, GrantRequest } from "../types/store.ts";
@@ -151,6 +151,18 @@ function approvedRequestId(orchDir: OrchDir, action: GrantAction): string | unde
     .orderBy(desc(grantStates.requestedAt))
     .limit(1)
     .get()?.requestId;
+}
+
+/** Delete a gone agent's grant rows. An unspent, unexpired approval stays: any agent can still spend it. */
+export function deleteGrantsOf(orchDir: OrchDir, agentId: string): void {
+  const db = orm(orchDir);
+  const spendable = db.select({ id: grantStates.requestId }).from(grantStates)
+    .where(and(eq(grantStates.state, "approved"), gt(grantStates.expiresAt, Date.now())));
+  const touched = db.select({ id: grantRequests.id }).from(grantRequests)
+    .leftJoin(grantSpends, eq(grantSpends.requestId, grantRequests.id))
+    .where(or(eq(grantRequests.requestedBy, agentId), eq(grantSpends.spentBy, agentId)));
+  db.delete(grantRequests)
+    .where(and(inArray(grantRequests.id, touched), notInArray(grantRequests.id, spendable))).run();
 }
 
 /** Whether a human approved exactly this action and the approval is still unspent. */

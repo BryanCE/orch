@@ -7,7 +7,7 @@ import { readRpc, writeRpc } from "../daemon.ts";
 import { parseCommand } from "../registry.ts";
 import { usageError } from "../../cli/usage.ts";
 import { die } from "../target.ts";
-import { resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
+import { resolveLifecycle, refuseForeignHolder, targetName } from "../resolve.ts";
 import { whoAmI } from "../self.ts";
 import { lifecycleTargets, awaitIdleAfter } from "./index.ts";
 import { describeHandle } from "../../backends/backend.ts";
@@ -23,7 +23,7 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
   refuseForeignHolder(self, target, resolved, steal);
   const label = describeHandle(resolved.handle);
   const ent = resolved.entity;
-  const name = ent.name ?? label;
+  const name = targetName(resolved);
   const { status } = await readRpc(services, "agent-status", { target: ent.key });
   const beforeUpdated = status?.updatedAt;
   const sentAt = Date.now();
@@ -31,7 +31,8 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
   // text, an agent with none is refused. Neither is the CLI's to choose.
   await writeRpc(services, "reclaim", { target: ent.key });
   await writeRpc(services, "lifecycle", { target: ent.key, verb: "reset" });
-  if (!await awaitIdleAfter(services, ent.key, beforeUpdated, sentAt)) die(`Reset ${name} failed: it did not become ready within 75s.`);
+  const readyMs = services.settings.current().timeouts.reset_ready_ms;
+  if (!await awaitIdleAfter(services, ent.key, beforeUpdated, sentAt)) die(`Reset ${name} failed: it did not become ready within ${Math.round(readyMs / 1000)}s.`);
   return { key: ent.key, handle: label, name };
 }
 

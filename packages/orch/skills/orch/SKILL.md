@@ -37,7 +37,7 @@ directory, so a `cd`, a pipe or a `grep` added to it only hides the events you a
 Refill an agent the moment it lands, renamed for the new task:
 
 ```bash
-orch rename api-types api-auth && orch dispatch api-auth "Do section T4 of tasks/W2-api.md. Only that section." --with tasks/W2-api.md
+orch dispatch api-types --rename api-auth "Do section T4 of tasks/W2-api.md. Only that section." --with tasks/W2-api.md
 ```
 
 Dispatch clears the agent's context first. Close an agent when the task list has nothing left

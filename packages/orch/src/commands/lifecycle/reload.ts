@@ -9,7 +9,7 @@ import { adapterCommand, admitLaunchModel } from "../spawn/models.ts";
 import { resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { readRpc, writeRpc } from "../daemon.ts";
 import { die } from "../target.ts";
-import { resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
+import { resolveLifecycle, refuseForeignHolder, targetName } from "../resolve.ts";
 import { NO_TUNING } from "../../policy/tuning.ts";
 import { whoAmI, type CallerSelf } from "../self.ts";
 import { lifecycleLogger, lifecycleTargets } from "./index.ts";
@@ -232,6 +232,7 @@ async function restartOneTarget(services: LifecycleServices, self: CallerSelf, t
   const resolved = await resolveLifecycle(services, target);
   refuseForeignHolder(self, target, resolved, flags.steal);
   const { entity: ent, backend, handle } = resolved;
+  const name = targetName(resolved);
   const harness = resolved.view?.harnessId;
   if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
   const adapter = resolveAdapterOrDie(harness);
@@ -242,18 +243,18 @@ async function restartOneTarget(services: LifecycleServices, self: CallerSelf, t
   if (!backend.agentInput) {
     const restarted = await lifecycleThroughDaemon(services, "restart", ent.key, describeHandle(handle));
     if (restarted.ok) {
-      if (!flags.json) process.stdout.write(`${restarted.handle}: bridge live.\n`);
+      if (!flags.json) process.stdout.write(`${name}: bridge live.\n`);
       return true;
     }
     const reason = restarted.reason ?? "restart failed";
     lifecycleLogger(logger, ent.key).error("lifecycle.restart-failed", { handle: String(restarted.handle), error: reason });
-    process.stdout.write(`${restarted.handle}: ${reason}\n`);
+    process.stdout.write(`${name}: ${reason}\n`);
     return false;
   }
   const launch = restartLaunchCommand(resolved, cmd, harness, adapter, settings, services.models);
-  if (!flags.json) process.stdout.write(`Restarting ${describeHandle(handle)} (${launch})...\n`);
+  if (!flags.json) process.stdout.write(`Restarting ${name} (${launch})...\n`);
   if (!await restartAgentAndAwaitBridge(services, logger, backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
-  if (!flags.json) process.stdout.write(`${describeHandle(handle)}: bridge live.\n`);
+  if (!flags.json) process.stdout.write(`${name}: bridge live.\n`);
   return true;
 }
 export async function cmdRestart(services: Services, args: string[]): Promise<void> {

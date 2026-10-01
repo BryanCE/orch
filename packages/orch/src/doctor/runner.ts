@@ -9,7 +9,7 @@ import { resolveAdapter } from "../adapters/registry.ts";
 import { OPERATOR_HARNESS_ID } from "../identity/operator.ts";
 import { binaryStatus, checkBins } from "./bins.ts";
 import { describeBackendEnvironments, checkBackendVersions } from "./backends.ts";
-import { checkMalformedPresenceRecords, checkStalePresence, checkUnscopedTasks } from "./presence.ts";
+import { checkDeadAgents, checkMalformedPresenceRecords, checkUnscopedTasks } from "./presence.ts";
 import { checkDeclaredVsReality } from "./declared-vs-reality.ts";
 import { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
 import { checkExtensionStaleness } from "./extensions.ts";
@@ -127,7 +127,7 @@ export async function runDoctor(services: Pick<Services, "orchDir" | "logger" | 
     isolated("backend-versions", "Backend versions", checkBackendVersions),
     isolated("declared-vs-reality", "Declared vs reality", () => checkDeclaredVsReality(orchDir)),
     isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
-    isolated("stale-presence", "Stale presence dirs", () => checkStalePresence(orchDir)),
+    isolated("dead-agents", "Dead agent rows", () => checkDeadAgents(orchDir)),
     isolated("store", "Store", () => checkStore(orchDir)),
     isolated("unscoped-tasks", "Unscoped queue tasks", () => checkUnscopedTasks(orchDir)),
     isolated("unrunnable-tasks", "Unrunnable queue tasks", () => checkUnrunnableTasks(orchDir)),

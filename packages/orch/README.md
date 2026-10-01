@@ -305,8 +305,9 @@ npm uninstall -g @bryance/orch
 rm -rf ~/.orch
 ```
 
-`orch setup` also added orch's hook to `~/.claude/settings.json` (for Claude Code) and the
-orch skill to `~/.agents/skills`. Remove those by hand if you want them gone.
+`orch setup` also added the orch skill to `~/.agents/skills`. Remove it by hand if you want it
+gone. orch's Claude Code hooks live in `~/.orch/claude/settings.json`, and only the Claude
+sessions orch spawns load them.
 
 ## License
 

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { deliverControl } from "../../control/dispatch.ts";
 import { ARROW, errorMessage, mapWithLimit } from "../../util.ts";
 import { writeDelivery } from "../../commands/delivery.ts";
+import { displayName } from "../../commands/resolve.ts";
 import {
   claimTask,
   listTasks,
@@ -92,20 +93,23 @@ async function waitForWorking(options: WorkOptions, entry: PresenceEntry, task: 
   } while (true);
 }
 
-async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec): Promise<void> {
-  const orchDir = orchDirAt(options.orchDir);
-  // The key is the identity; everything else about the agent is COMPOSED from
-  // the tables that own each fact, never decoded out of the address.
-  const runnerId = currentAttempt(task)?.agentId ?? (isAgentId(entry.key) ? entry.key : undefined);
-  const view = runnerId === undefined ? null : agentView(orchDir, runnerId);
-  const adapterId = view?.harnessId;
-  const rules = workerRules(options.settings.current());
+function buildTaskHeader(orchDir: OrchDir, view: ReturnType<typeof agentView>, options: WorkOptions): string {
   // The daemon is not this agent's spawner; provenance names it. Only a spawner
   // still writing live presence can receive the reply the clause instructs, and
   // a presence key is that spawner's minted id.
   const spawnerKey = view?.spawnedBy;
   const spawnerRepliable = typeof spawnerKey === "string" && agentProcessLive(orchDir, spawnerKey);
-  const header = workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...(view === null ? {} : { cwd: view.cwd }), ...rules });
+  const adapterId = view?.harnessId;
+  const rules = workerRules(options.settings.current());
+  return workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...(view === null ? {} : { cwd: view.cwd }), ...rules });
+}
+
+function prepareTaskDispatch(options: WorkOptions, entry: PresenceEntry, task: TaskRec, orchDir: OrchDir) {
+  // The key is the identity; everything else about the agent is COMPOSED from
+  // the tables that own each fact, never decoded out of the address.
+  const runnerId = currentAttempt(task)?.agentId ?? (isAgentId(entry.key) ? entry.key : undefined);
+  const view = runnerId === undefined ? null : agentView(orchDir, runnerId);
+  const header = buildTaskHeader(orchDir, view, options);
   const prompt = `${header}\n\n${task.text}`;
   // The claim's dispatch id rides every attempt: the bridge acks per id, so a
   // retry of the same id can never deliver the prompt twice, and the agent's
@@ -113,6 +117,26 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const dispatchId = currentAttempt(task)?.dispatchId ?? randomUUID();
   const correlated = options.logger.forCorrelation(dispatchId);
   const log = runnerId === undefined ? correlated : correlated.forAgent(runnerId);
+  return { prompt, dispatchId, log };
+}
+
+function reportTaskDelivery(options: WorkOptions, entry: PresenceEntry, task: TaskRec, status: string | null, retried: boolean, ackMs: number, orchDir: OrchDir): void {
+  writeDelivery({
+    target: entry.key,
+    name: displayName(agentView(orchDir, entry.key)?.name, entry.key),
+    action: "task",
+    id: task.id,
+    ack: status === "working" ? "acknowledged" : "unavailable",
+  }, {
+    json: options.json === true,
+    ackMs,
+    suffix: ` ${ARROW} status: ${status ?? "unknown"}${retried ? " (retried)" : ""}`,
+  });
+}
+
+async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: TaskRec): Promise<void> {
+  const orchDir = orchDirAt(options.orchDir);
+  const { prompt, dispatchId, log } = prepareTaskDispatch(options, entry, task, orchDir);
   const sendPrompt = async (): Promise<void> => {
     log.info("dispatch.delivering", { target: entry.key, handle: entry.key });
     const outcome = await deliverControl(orchDir, options.settings.current(), options.models, entry.key, { kind: "run", text: prompt, id: dispatchId });
@@ -131,17 +155,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
       await sendPrompt();
       status = await waitForWorking(options, entry, task, dispatchAckTimeoutMs);
     }
-    writeDelivery({
-      target: entry.key,
-      name: agentView(orchDir, entry.key)?.name ?? entry.key,
-      action: "task",
-      id: task.id,
-      ack: status === "working" ? "acknowledged" : "unavailable",
-    }, {
-      json: options.json === true,
-      ackMs: dispatchAckTimeoutMs,
-      suffix: ` ${ARROW} status: ${status ?? "unknown"}${retried ? " (retried)" : ""}`,
-    });
+    reportTaskDelivery(options, entry, task, status, retried, dispatchAckTimeoutMs, orchDir);
   } catch (error) {
     log.error("dispatch.failed", { target: entry.key, error: errorMessage(error) });
   }

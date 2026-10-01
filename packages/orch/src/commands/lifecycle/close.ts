@@ -10,7 +10,7 @@ import { lifecycleLogger } from "./index.ts";
 import { callDaemon, readRpc } from "../daemon.ts";
 import { cmdSteer } from "../control.ts";
 import { die } from "../target.ts";
-import { resolveLifecycle } from "../resolve.ts";
+import { resolveLifecycle, targetName } from "../resolve.ts";
 import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
 import { usageError } from "../../cli/usage.ts";
@@ -55,6 +55,7 @@ interface CloseOutcome {
 /** One agent a close was asked to end, with everything needed to end it. */
 interface CloseTarget {
   readonly backend: Backend | null;
+  readonly name: string;
   /** The current environment handle, or null when the pane interval is closed. */
   readonly handle: BackendHandle | null;
   readonly key: string;
@@ -184,9 +185,7 @@ async function closeEachTarget(services: CloseServices, targets: readonly CloseT
     if (seen.has(target.key)) continue;
     seen.add(target.key);
     const handle = target.handle === null ? null : describeHandle(target.handle);
-    const name = json
-      ? target.key
-      : await resolveLifecycle(services, target.key).then((resolved) => resolved.view?.name ?? resolved.entity.name ?? target.key);
+    const name = target.name;
     const { failure: processFailure, signalled, closedByBackend } = attemptClose(target);
     const failure = processFailure ?? await endClosedAgent(services, target.key);
     if (failure !== null) {
@@ -254,7 +253,7 @@ export async function cmdAbort(services: Services, args: string[]): Promise<void
   // driving session by its open lease; the operator remains unscoped.
   const resolved = await resolveLifecycle(services, target);
   const { backend, handle, entity } = resolved;
-  const name = resolved.view?.name ?? entity.name ?? target;
+  const name = targetName(resolved);
   const input = backend.agentInput;
   if (!entity.paneId || !input) {
     const reason = !entity.paneId ? "no-pane" : "no-environment-role";

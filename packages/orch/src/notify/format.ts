@@ -149,7 +149,7 @@ function notificationDetails(event: NotifyEvent, title: string, space: string, c
 
 /** `STATE [space] agent:` — the part of a title that names the event, with no summary.
  *  An agent in no space gets no bracket: `[]` on every line said nothing. */
-export function notificationHeading(event: NotifyEvent, options: { colorize?: boolean } = {}): string {
+function notificationHeading(event: NotifyEvent, options: { colorize?: boolean } = {}): string {
   const space = eventSpace(event);
   const agent = eventAgent(event, space);
   const state = oneLine(textValue(event.newState) ?? "unknown").toUpperCase();

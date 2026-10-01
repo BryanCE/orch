@@ -118,7 +118,7 @@ async function queueAdd(services: DaemonClient, invocation: Invocation, args: st
   const callerId = await resolveSelfId(directory, services.logger);
   const scope = await scopeFromFlags(services, scopeFlags(flags));
   const { task } = await rpcCall(directory, "enqueue", { enqueuedBy: callerId, text, opts: worktreeOptions(flags.has("--worktree")), scope });
-  writeQueueTask(task, flags.has("--json"), task.id);
+  writeQueueTask(task, flags.has("--json"), `Added task ${task.id}.`);
 }
 
 async function queueCollection(services: DaemonClient, invocation: Invocation): Promise<void> {
@@ -136,7 +136,7 @@ async function queueEdit(services: DaemonClient, invocation: Invocation): Promis
   if (!id || !text) throw usageError(invocation);
   await withQueueCaller(services, async (callerId) => {
     const { task } = await callDaemon(services, "queue-edit", { target: id, by: callerId, text });
-    writeQueueTask(task, flags.has("--json"), `Edited ${task.id}`);
+    writeQueueTask(task, flags.has("--json"), `Edited task ${task.id}.`);
   });
 }
 
@@ -154,7 +154,7 @@ async function queueTakeOn(services: DaemonClient, invocation: Invocation): Prom
   await withQueueCaller(services, async (callerId) => {
     const taker = agent === undefined ? callerId : (await orchAgent(services, agent)).id;
     const { task } = await callDaemon(services, "queue-take-on", { target: id, taker });
-    writeQueueTask(task, flags.has("--json"), `Took on ${task.id}`);
+    writeQueueTask(task, flags.has("--json"), `Took on task ${task.id}.`);
   });
 }
 
@@ -164,7 +164,7 @@ async function queueReap(services: DaemonClient, invocation: Invocation): Promis
   await withQueueCaller(services, async (callerId) => {
     await callDaemon(services, "queue-reap", { target: id, by: callerId });
     if (flags.has("--json")) process.stdout.write(JSON.stringify({ id, state: "reaped" }) + "\n");
-    else process.stdout.write(`Reaped ${id}\n`);
+    else process.stdout.write(`Reaped task ${id}.\n`);
   });
 }
 
@@ -195,7 +195,7 @@ async function queueCancel(services: DaemonClient, invocation: Invocation): Prom
   const id = oneTaskId(invocation);
   await withQueueCaller(services, async (callerId) => {
     const { task } = await callDaemon(services, "queue-cancel", { target: id, by: callerId });
-    writeQueueTask(task, flags.has("--json"), `Cancelled ${task.id}`);
+    writeQueueTask(task, flags.has("--json"), `Cancelled task ${task.id}.`);
   });
 }
 

@@ -23,47 +23,47 @@ async function capacityLine(services: Services, orchId: string | null, settings:
   return { capacity, line: formatCapacityLine(capacity, orchId ?? undefined) };
 }
 
-export async function cmdStatus(services: Services, options: StatusOptions): Promise<void> {
-  let caller: CallerScope;
-  let orchId: string | null;
-  if (!options.offline) {
+async function resolveCaller(services: Services, offline: boolean): Promise<{ caller: CallerScope; orchId: string | null }> {
+  if (!offline) {
     await ensureDaemonOrWarn(services.orchDir, services.logger);
     await registerCallerSession(services);
     const self = await whoAmI(services);
-    caller = callerScope(self);
-    orchId = self.id;
-  } else {
-    caller = offlineCallerScope(services.orchDir);
-    orchId = currentOrchId(services.orchDir);
+    return { caller: callerScope(self), orchId: self.id };
   }
-  if (options.all) refuseNonOperatorOverride(caller, "--all");
-  if (options.capacity) {
-    const settings = services.settings.currentOrNull();
-    if (settings === null) throw new Error("capacity unavailable: settings.json does not exist");
-    const output = await capacityLine(services, orchId, settings, options.offline);
-    if (options.json) {
-      process.stdout.write(JSON.stringify({ capacity: output.capacity }, null, 2) + "\n");
-    } else {
-      process.stdout.write(output.line + "\n");
-    }
-    return;
-  }
+  return { caller: offlineCallerScope(services.orchDir), orchId: currentOrchId(services.orchDir) };
+}
+
+async function writeCapacityStatus(services: Services, options: StatusOptions, orchId: string | null): Promise<void> {
+  const settings = services.settings.currentOrNull();
+  if (settings === null) throw new Error("capacity unavailable: settings.json does not exist");
+  const output = await capacityLine(services, orchId, settings, options.offline);
+  process.stdout.write(options.json ? JSON.stringify({ capacity: output.capacity }, null, 2) + "\n" : output.line + "\n");
+}
+
+async function writeStatusRows(services: Services, options: StatusOptions, caller: CallerScope, orchId: string | null): Promise<void> {
   const result = await readStatusResult(services, options, caller, await resolveStatusAgent(services, options));
-  const settings = options.json ? null : services.settings.currentOrNull();
   if (options.json) {
     const rows = result.rows.map((row) => filterRowKeys(row, options.hide.columns));
     process.stdout.write(JSON.stringify({ names: result.names, rows }, null, 2) + "\n");
     return;
   }
-  let footer: string | null = null;
-  if (settings !== null) {
-    footer = (await capacityLine(services, orchId, settings, options.offline)).line;
-  }
-  if ((options.agent === undefined && !options.all && !ownsLiveWorker(result.rows, caller.id)) || result.rows.length === 0) {
+  const settings = services.settings.currentOrNull();
+  const footer = settings === null ? null : (await capacityLine(services, orchId, settings, options.offline)).line;
+  if (shouldShowNoRows(options, result.rows, caller.id)) {
     process.stdout.write(formatNoRowsMessage({ otherLive: result.otherLive }));
-    if (footer !== null) process.stdout.write(footer + "\n");
-    return;
+  } else {
+    process.stdout.write(formatStatusTable(result, { all: options.all, host: result.host, callerId: caller.id, human: options.human, columns: options.hide.columns }) + "\n");
   }
-  process.stdout.write(formatStatusTable(result, { all: options.all, host: result.host, callerId: caller.id, human: options.human, columns: options.hide.columns }) + "\n");
   if (footer !== null) process.stdout.write(footer + "\n");
+}
+
+function shouldShowNoRows(options: StatusOptions, rows: Parameters<typeof ownsLiveWorker>[0], callerId: string | null): boolean {
+  return (options.agent === undefined && !options.all && !ownsLiveWorker(rows, callerId)) || rows.length === 0;
+}
+
+export async function cmdStatus(services: Services, options: StatusOptions): Promise<void> {
+  const { caller, orchId } = await resolveCaller(services, options.offline);
+  if (options.all) refuseNonOperatorOverride(caller, "--all");
+  if (options.capacity) return writeCapacityStatus(services, options, orchId);
+  return writeStatusRows(services, options, caller, orchId);
 }

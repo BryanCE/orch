@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { diagnoseClaudeShim } from "../src/adapters/claude.ts";
-import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath } from "../src/adapters/claude-hooks.ts";
+import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath } from "../src/adapters/claude-hooks.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createLogger } from "../src/log.ts";
@@ -11,11 +11,7 @@ import { fileSettingsManager } from "../src/settings/manager.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
 const directories: string[] = [];
-const settingsFile = path.join(os.homedir(), ".claude", "settings.json");
-const originalSettings = fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile) : undefined;
-
-// diagnoseShim compares the enabled hook against the DECLARED runtime, so these tests need
-// an orch dir they control rather than whatever this machine happens to have configured.
+// diagnoseShim checks only orch's private settings file; tests never touch HOME.
 const orchHome: OrchDir = tempOrchDir("orch-doctor-claude-hooks-orchdir-");
 const originalOrchDir = process.env.ORCH_DIR;
 process.env.ORCH_DIR = orchHome;
@@ -36,7 +32,7 @@ function tempDir(): string {
 }
 
 function settingsPath(): string {
-  const file = settingsFile;
+  const file = claudeSettingsPath(orchHome);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   return file;
 }
@@ -70,8 +66,7 @@ function currentSettings() {
 afterAll(() => removeTempDir(packageRoot));
 
 afterEach(() => {
-  fs.rmSync(settingsFile, { force: true });
-  if (originalSettings !== undefined) fs.writeFileSync(settingsFile, originalSettings);
+  fs.rmSync(claudeSettingsPath(orchHome), { force: true });
   while (directories.length) removeTempDir(directories.pop()!);
 });
 
@@ -106,7 +101,7 @@ describe("doctor Claude hooks shim check", () => {
     const result = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
-    expect(result.detail).toContain("missing or stale orch hooks");
+    expect(result.detail).toContain("missing or stale orch Claude hooks");
   });
 
   test("warns when orch hooks are missing with setup fix hint", () => {
@@ -116,8 +111,8 @@ describe("doctor Claude hooks shim check", () => {
     const result = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
-    expect(result.detail).toContain("missing or stale orch hooks");
-    expect(result.fix?.description).toContain("reinstall orch's Claude hooks");
+    expect(result.detail).toContain("missing or stale orch Claude hooks");
+    expect(result.fix?.description).toContain("rewrite orch's Claude settings");
   });
 
   test("warns on the legacy ungated bun command form", () => {
@@ -128,7 +123,7 @@ describe("doctor Claude hooks shim check", () => {
     const result = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
-    expect(result.detail).toContain("missing or stale orch hooks");
+    expect(result.detail).toContain("missing or stale orch Claude hooks");
   });
 
   test("warns when hooks point at a stale shim", () => {
@@ -138,17 +133,18 @@ describe("doctor Claude hooks shim check", () => {
     const result = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
 
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
-    expect(result.detail).toContain("missing or stale orch hooks");
+    expect(result.detail).toContain("missing or stale orch Claude hooks");
   });
 
-  test("treats an absent settings file as not configured", () => {
-    settingsPath();
-    fs.rmSync(settingsFile, { force: true });
+  test("warns when orch's settings file is missing and offers a rewrite", () => {
+    fs.rmSync(settingsPath(), { force: true });
 
     const result = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
 
-    expect(result).toMatchObject({ id: "claude-hooks", status: "ok" });
-    expect(result.detail).toContain("not set up");
+    expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
+    expect(result.fix?.description).toContain("rewrite orch's Claude settings");
+    result.fix?.apply();
+    expect(JSON.parse(fs.readFileSync(settingsPath(), "utf8"))).toEqual({ hooks: hooksFor(currentShim) });
   });
 
   test("handles malformed settings gracefully", () => {

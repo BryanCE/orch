@@ -12,6 +12,15 @@ export type ResolvedTarget = ResultOf<"resolve-target">;
 export type ResolvedLifecycle = ResultOf<"resolve-lifecycle">;
 export type HeldLifecycleTarget = LifecycleTarget & Pick<ResolvedLifecycle, "holder" | "callerOwns">;
 
+export function displayName(name: string | null | undefined, key: string): string {
+  return name ?? key;
+}
+
+/** A resolved target's name: its agent row's, else the entity's, else its key. */
+export function targetName(resolved: { readonly view?: { readonly name: string | null } | null; readonly entity: { readonly name?: string | null; readonly key: string } }): string {
+  return displayName(resolved.view?.name ?? resolved.entity.name, resolved.entity.key);
+}
+
 /** The lifecycle resolver, answered by orchd, with the Backend object attached. */
 export async function resolveLifecycle(services: DaemonClient, target: string): Promise<HeldLifecycleTarget> {
   const resolution = await readRpc(services, "resolve-lifecycle", { caller: callerCredential(), target });

@@ -50,7 +50,7 @@ export interface OrchSettings {
   questions?: { renag_ms: number; renag_limit: number };
   monitor: { on: readonly NotifyState[] };
   logging: { level: LogLevel; slow_tool_ms: number; stall_ms: number; stall_poll_ms: number };
-  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number };
+  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number; reset_ready_ms: number; reset_poll_ms: number };
   notify: NotifyEntry[];
   notification: { position: NotificationPosition };
   locked_commands: { commands: string[]; applies_to: readonly Role[] };

@@ -39,8 +39,9 @@ agents on three sets of files.
 replacement only after a dispatch to the idle agent errors, then close the one it replaces.
 Close a tab when its work is done.
 
-Name each agent for its task (`mcp-types`, `mcp-tools`) and `orch rename` it when the task
-changes. The monitor keeps following a renamed agent.
+Name each agent for its task (`mcp-types`, `mcp-tools`) and rename it when the task changes:
+`orch dispatch <agent> --rename <new-name> "<task>"` renames and refills in one command. The
+monitor keeps following a renamed agent.
 
 ## Another orchestrator's agents
 

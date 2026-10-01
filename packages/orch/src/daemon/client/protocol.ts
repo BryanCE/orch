@@ -149,6 +149,7 @@ const LEASE_RESULT = z.object({ id: z.string(), name: z.string() });
 
 const CLOSE_TARGET = z.object({
   key: z.string(),
+  name: z.string(),
   backendId: z.string().nullable(),
   handle: z.string().nullable(),
   recorded: z.object({ pid: z.number().int(), startToken: z.string().nullable() }).nullable(),

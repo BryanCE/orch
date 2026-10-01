@@ -16,7 +16,7 @@ import { askDaemon, writeRpc } from "./daemon.ts";
 import { ambiguousTargetRefusal } from "../refusal.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSplit, BackendZoomMode, TilePlacement } from "../types/backend.ts";
 import { readFleet } from "./fleet.ts";
-import { resolveLifecycle, refuseForeignHolder } from "./resolve.ts";
+import { displayName, resolveLifecycle, refuseForeignHolder } from "./resolve.ts";
 import { refuseNonOperatorOverride, whoAmI, type CallerSelf } from "./self.ts";
 import { sameSpace, spaceName } from "../policy/space.ts";
 import { describeHandle } from "../backends/backend.ts";
@@ -109,9 +109,9 @@ async function requireOwnedPaneTarget(services: Services, self: CallerSelf, targ
   return { backend: resolved.backend, handle: resolved.handle, key: resolved.key, entity: resolved.entity };
 }
 
-async function planOwnedPaneRole<T>(services: Services, self: CallerSelf, target: string, steal: boolean, command: string, selectRole: (backend: Backend) => T | null): Promise<{ handle: BackendHandle; plan: BoundaryPlan<T> }> {
+async function planOwnedPaneRole<T>(services: Services, self: CallerSelf, target: string, steal: boolean, command: string, selectRole: (backend: Backend) => T | null): Promise<{ handle: BackendHandle; entity: Entity; plan: BoundaryPlan<T> }> {
   const { backend, handle, entity } = await requireOwnedPaneTarget(services, self, target, steal);
-  return { handle, plan: paneBoundary(target, command, selectRole(backend), !!entity.paneId) };
+  return { handle, entity, plan: paneBoundary(target, command, selectRole(backend), !!entity.paneId) };
 }
 
 export async function cmdKeys(services: Services, args: string[]): Promise<void> {
@@ -120,11 +120,11 @@ export async function cmdKeys(services: Services, args: string[]): Promise<void>
   const keys = invocation.positional.slice(1);
   if (!keys.length) throw usageError(invocation);
   const self = await whoAmI(services);
-  const { handle, plan } = await planOwnedPaneRole(services, self, target, steal, "keys", (backend) => backend.agentInput);
+  const { handle, entity, plan } = await planOwnedPaneRole(services, self, target, steal, "keys", (backend) => backend.agentInput);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.sendKeys(handle, keys);
   if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), keys, sent: true }) + "\n");
-  else process.stdout.write(`Sent keys to ${describeHandle(handle)}: ${keys.join(" ")}\n`);
+  else process.stdout.write(`Sent keys to ${displayName(entity.name, entity.key)}: ${keys.join(" ")}\n`);
 }
 
 export async function cmdPeek(services: Services, args: string[]): Promise<void> {
@@ -238,7 +238,7 @@ async function cmdTabNew(services: Services, flags: ParsedFlags, json: boolean, 
   const home = await tabCoordinate(services, backend, flags.value("--space"));
   const created = backend.groupHome!.create({ workspace: home, cwd, label });
   if (json) process.stdout.write(JSON.stringify(created) + "\n");
-  else process.stdout.write(`Created group ${created.group.id} "${created.group.label}" - root handle ${String(created.rootHandle)}\n`);
+  else process.stdout.write(`Created group "${created.group.label}".\n`);
   if (backend.placement) backend.placement.close(created.rootHandle);
 }
 
@@ -254,21 +254,21 @@ async function cmdTabRename(services: Services, target: string, label: string, s
   const tab = await resolveOwnedTab(services, target, steal, backend);
   backend.groupHome!.rename(tab.id, label);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, label, renamed: true }) + "\n");
-  else process.stdout.write(`${tab.id}: "${tab.label}" ${ARROW} "${label}"\n`);
+  else process.stdout.write(`Renamed group "${tab.label}" ${ARROW} "${label}".\n`);
 }
 
 async function cmdTabClose(services: Services, target: string, steal: boolean, json: boolean, backend: Backend): Promise<void> {
   const tab = await resolveOwnedTab(services, target, steal, backend);
   backend.groupHome!.close(tab.id);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, closed: true }) + "\n");
-  else process.stdout.write(`Closed group ${tab.id} "${tab.label}".\n`);
+  else process.stdout.write(`Closed group "${tab.label}".\n`);
 }
 
 async function cmdTabFocus(services: Services, target: string, steal: boolean, json: boolean, backend: Backend): Promise<void> {
   const tab = await resolveOwnedTab(services, target, steal, backend);
   backend.groupHome!.focus(tab.id);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, focused: true }) + "\n");
-  else process.stdout.write(`Focused group ${tab.id} "${tab.label}".\n`);
+  else process.stdout.write(`Focused group "${tab.label}".\n`);
 }
 
 /** The positional word at `index` the command's grammar requires, or the usage line. */
@@ -299,11 +299,11 @@ export async function cmdTab(services: Services, args: string[]): Promise<void> 
 export async function cmdFocus(services: Services, args: string[]): Promise<void> {
   const { json, steal, target } = readPaneOptions(parseCommand("focus", args));
   const self = await whoAmI(services);
-  const { handle, plan } = await planOwnedPaneRole(services, self, target, steal, "focus", (backend) => backend.agentInput);
+  const { handle, entity, plan } = await planOwnedPaneRole(services, self, target, steal, "focus", (backend) => backend.agentInput);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.focus(handle);
   if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), focused: true }) + "\n");
-  else process.stdout.write(`Focused ${describeHandle(handle)}.\n`);
+  else process.stdout.write(`Focused ${displayName(entity.name, entity.key)}.\n`);
 }
 
 /** `--zoom` zooms in, `--no-zoom` zooms out, neither flips. */
@@ -320,11 +320,11 @@ export async function cmdZoom(services: Services, args: string[]): Promise<void>
   const { json, steal, target } = readPaneOptions(invocation);
   const zoomMode = readZoomMode(invocation);
   const self = await whoAmI(services);
-  const { handle, plan } = await planOwnedPaneRole(services, self, target, steal, "zoom", (backend) => backend.zooming);
+  const { handle, entity, plan } = await planOwnedPaneRole(services, self, target, steal, "zoom", (backend) => backend.zooming);
   if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
   plan.role.setZoom(handle, zoomMode);
   if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), mode: zoomMode, zoomed: true }) + "\n");
-  else process.stdout.write(`Zoom ${zoomMode} on ${describeHandle(handle)}.\n`);
+  else process.stdout.write(`Set zoom ${zoomMode} on ${displayName(entity.name, entity.key)}.\n`);
 }
 
 /** Where a pane should land in a group, ignoring the pane itself — a pane
@@ -359,7 +359,7 @@ export async function cmdMove(services: Services, args: string[]): Promise<void>
   if (tab === undefined && !newTab) throw usageError(invocation);
   let split: BackendSplit = given ?? "right";
   const self = await whoAmI(services);
-  const { backend, handle, key } = await requireOwnedPaneTarget(services, self, target, steal);
+  const { backend, handle, key, entity } = await requireOwnedPaneTarget(services, self, target, steal);
   const role = backend.groupHome;
   if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide group move" }, json); return; }
   try {
@@ -378,7 +378,7 @@ export async function cmdMove(services: Services, args: string[]): Promise<void>
     // one opens — identity is untouched.
     if (isAgentId(key)) await writeRpc(services, "set-handle", { target: key, handle: String(handle) });
     if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: groupId }) + "\n");
-    else process.stdout.write(`Moved ${String(handle)} ${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
+    else process.stdout.write(`Moved ${displayName(entity.name, entity.key)}${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
   } catch (e: unknown) {
     die(`move failed: ${errorMessage(e)}`);
   }

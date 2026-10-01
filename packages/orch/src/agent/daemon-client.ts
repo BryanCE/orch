@@ -73,9 +73,11 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
     const token = nonEmpty(sessionToken);
     try {
       const credential = launchCredential();
-      if (credential === null) return (await ask("register-session", sessionClaim(orchDir, undefined, { harness, sessionToken: token })))?.id;
+      // The bridge runs inside the harness, so this process IS the session's process.
+      const session = { harness, sessionToken: token, pid: process.pid };
+      if (credential === null) return (await ask("register-session", sessionClaim(orchDir, undefined, session)))?.id;
       if (token === undefined) return credential;
-      return (await ask("claim-identity", { ...sessionClaim(orchDir, undefined, { harness, sessionToken: token }), id: credential, sessionToken: token }))?.id;
+      return (await ask("claim-identity", { ...sessionClaim(orchDir, undefined, session), id: credential, sessionToken: token }))?.id;
     } catch {
       return undefined;
     }

@@ -30,16 +30,18 @@ export function normalizeStatusRow(row: StatusRow): StatusRow {
   return { ...row, state: displayStatusState(row) };
 }
 
+/** The counts a status run reports about rows, local or remote. */
+function rowCounts(rows: readonly StatusRow[]): { alive: number; otherLive: number; backendAnswered: boolean } {
+  return {
+    alive: rows.filter((row) => row.alive).length,
+    otherLive: rows.filter((row) => row.managed && row.alive && !row.owned).length,
+    backendAnswered: rows.some((row) => row.backend != null),
+  };
+}
+
 function snapshot(fleet: FleetStatus): FleetSnapshot {
   const normalized = fleet.rows.map(normalizeStatusRow);
-  return {
-    names: fleet.names,
-    rows: normalized,
-    agentsSeen: normalized.length,
-    alive: normalized.filter((row) => row.alive).length,
-    otherLive: normalized.filter((row) => row.managed && row.alive && !row.owned).length,
-    backendAnswered: normalized.some((row) => row.backend != null),
-  };
+  return { names: fleet.names, rows: normalized, agentsSeen: normalized.length, ...rowCounts(normalized) };
 }
 
 async function readFleet(settings: OrchSettings | null, services: DaemonClient, offline: boolean, caller: string | null): Promise<FleetSnapshot> {
@@ -101,7 +103,7 @@ function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: reado
 function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[]): { names: FleetNames; rows: StatusRow[]; alive: number; otherLive: number; backendAnswered: boolean } {
   const fleets = remoteResults.map(({ result }) => remoteFleet(result)).filter((fleet): fleet is FleetStatus => fleet !== null);
   const rows = fleets.flatMap((fleet) => fleet.rows);
-  return { names: mergeNames(fleets.map((fleet) => fleet.names)), rows, alive: rows.filter((row) => row.alive).length, otherLive: rows.filter((row) => row.managed && row.alive && !row.owned).length, backendAnswered: rows.some((row) => row.backend != null) };
+  return { names: mergeNames(fleets.map((fleet) => fleet.names)), rows, ...rowCounts(rows) };
 }
 
 /** The rows `status` keeps, from its flags, its caller, and the key `--agent` resolved to. */

@@ -11,7 +11,7 @@ import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { ORCH_DING_BIN } from "../notify/ding.ts";
 import { withSpinner } from "./io.ts";
 import { chooseInstalls } from "./wizard.ts";
-import { ARROW, binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
+import { ARROW, binaryOnPath, binaryPath, errorMessage } from "../util.ts";
 import type { Logger } from "../types/core.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
@@ -230,9 +230,8 @@ export function alignEntrypointToRuntime(runtime: OrchRuntime): void {
 
 /** Wire the `orch`/`orch-ding` bins onto PATH (repo-clone case; `bun add -g` already
  * links bins). A bin already resolving into this package is left alone; a stale one is repointed. */
-export function wireBinaries(copy: boolean): void {
+export function wireBinaries(pkgRoot: string, copy: boolean): void {
   process.stdout.write("bins:\n");
-  const pkgRoot = packageRoot();
   const binDir = path.join(home(), ".local", "bin");
   for (const [name, rel] of [
     ["orch", path.join("dist", "bin", "orch.js")],

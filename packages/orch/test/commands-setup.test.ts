@@ -3,11 +3,11 @@ import { createServices } from "../src/services.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { allAdapters } from "../src/adapters/registry.ts";
-import { cmdSetup } from "../src/commands/setup.ts";
+import { runSetup } from "../src/commands/setup.ts";
 import { parseSetupOptions } from "../src/setup/flags.ts";
 import { parseCommand } from "../src/commands/registry.ts";
 import { resolveActiveDefault, resolveProviderSet, resolveRuntime } from "../src/setup/composition.ts";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
@@ -85,6 +85,13 @@ describe("commands/setup", () => {
     tempHomeDirs.push(home);
     const binDir = join(home, ".local", "bin");
     mkdirSync(binDir, { recursive: true });
+    const root = mkdtempSync(join(tmpdir(), "orch-setup-package-"));
+    tempHomeDirs.push(root);
+    const packageBinDir = join(root, "dist", "bin");
+    mkdirSync(packageBinDir, { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "orch-test" }));
+    writeFileSync(join(packageBinDir, "orch.js"), "");
+    writeFileSync(join(packageBinDir, "orch-ding.js"), "");
     process.env.HOME = home;
     process.env.PATH = binDir;
     const adapter = allAdapters().find((candidate) => candidate.id === "pi");
@@ -107,7 +114,7 @@ describe("commands/setup", () => {
     });
     try {
       const services = createServices({ orchDir, settings: fileSettingsManager(orchDir) });
-      await cmdSetup(services, ["--yes", "--no-install", "--no-skills", "--harness=pi", "--plexer=headless", "--runtime=node"]);
+      await runSetup(services, ["--yes", "--no-install", "--no-skills", "--harness=pi", "--plexer=headless", "--runtime=node"], root);
     } finally {
       Object.defineProperties(adapter, {
         modelWarm: { value: original.modelWarm, configurable: true, enumerable: true, writable: true },

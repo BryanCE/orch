@@ -177,6 +177,49 @@ function staleHookEvents(settings: Record<string, unknown>, shim: string, runtim
     !registeredHookCommands(settings, event).includes(claudeHookCommand(shim, event, runtime, orchDir)));
 }
 
+export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult {
+  const settingsPath = path.join(HOME, ".claude", "settings.json");
+  const id = "claude-hooks";
+  const label = "Claude hooks shim";
+  let raw: string;
+  try {
+    raw = fs.readFileSync(settingsPath, "utf8");
+  } catch (error: unknown) {
+    if (errnoCode(error) === "ENOENT") {
+      return { id, label, status: "ok", detail: "Claude is not set up (no settings.json)" };
+    }
+    return { id, label, status: "warn", detail: `could not read ${settingsPath}; fix: run orch setup` };
+  }
+  let fileSettings: unknown;
+  try {
+    fileSettings = JSON.parse(raw);
+  } catch {
+    return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
+  }
+  if (!isRecord(fileSettings)) return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
+
+  const shim = claudeHookShimPath(root);
+  if (!fs.existsSync(shim)) {
+    return { id, label, status: "warn", detail: `${shim} is missing; fix: run orch setup` };
+  }
+  let runtime: OrchRuntime;
+  try {
+    runtime = declaredRuntime(settings);
+  } catch {
+    return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
+  }
+  const missing = staleHookEvents(fileSettings, shim, runtime, orchDir);
+  return missing.length
+    ? {
+        id,
+        label,
+        status: "warn",
+        detail: `missing or stale orch hook${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
+        fix: { description: `reinstall orch's Claude hooks (${missing.join(", ")})`, apply: () => { installClaudeHooks(orchDir, settings, logger, root); } },
+      }
+    : { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` };
+}
+
 class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
 
@@ -272,57 +315,7 @@ class ClaudeAdapter implements AgentAdapter {
 
   /** Verify the same Claude hook entries written by installShim. */
   diagnoseShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult {
-    const settingsPath = path.join(HOME, ".claude", "settings.json");
-    const id = "claude-hooks";
-    const label = "Claude hooks shim";
-    let raw: string;
-    try {
-      raw = fs.readFileSync(settingsPath, "utf8");
-    } catch (error: unknown) {
-      if (errnoCode(error) === "ENOENT") {
-        return { id, label, status: "ok", detail: "Claude is not set up (no settings.json)" };
-      }
-      return { id, label, status: "warn", detail: `could not read ${settingsPath}; fix: run orch setup` };
-    }
-    let fileSettings: unknown;
-    try {
-      fileSettings = JSON.parse(raw);
-    } catch {
-      return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
-    }
-    if (!isRecord(fileSettings)) return { id, label, status: "warn", detail: `malformed ${settingsPath}; fix: run orch setup` };
-
-    const shim = claudeHookShimPath(packageRoot());
-    // Registration in ~/.claude/settings.json is necessary but NOT sufficient:
-    // the hook command names a file, and claude will fail at agent runtime if
-    // that file is absent. Never report a path as evidence of health without
-    // confirming it exists (design D7).
-    if (!fs.existsSync(shim)) {
-      return { id, label, status: "warn", detail: `${shim} is missing; fix: run orch setup` };
-    }
-    // Expect the hook installed under the DECLARED runtime, not "any runtime orch
-    // recognizes". Accepting all of ORCH_RUNTIMES here made the declaration
-    // unenforced: a hook left behind under a different runtime read as current,
-    // which is the exact drift the runtime key exists to surface.
-    let runtime: OrchRuntime;
-    try {
-      runtime = declaredRuntime(settings);
-    } catch {
-      // checkSettingsFile owns the malformed-settings detail; a broken settings file must not
-      // crash an unrelated diagnostic.
-      return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
-    }
-    const missing = staleHookEvents(fileSettings, shim, runtime, orchDir);
-    // Repairing drift IS reinstalling: installShim is idempotent and additive.
-    return missing.length
-      ? {
-          id,
-          label,
-          status: "warn",
-          detail: `missing or stale orch hook${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
-          fix: { description: `reinstall orch's Claude hooks (${missing.join(", ")})`, apply: () => { this.installShim(orchDir, settings, logger); } },
-        }
-      : { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` };
+    return diagnoseClaudeShim(packageRoot(), orchDir, settings, logger);
   }
 }
 

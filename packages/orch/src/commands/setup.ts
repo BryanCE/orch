@@ -21,6 +21,7 @@ import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { SetupOptions } from "../setup/flags.ts";
 import { installPrerequisites, installAdapterShims, wireBinaries, alignEntrypointToRuntime } from "../setup/install.ts";
+import { packageRoot } from "../util.ts";
 import { runSetupSmoke, smokeBlocker } from "../setup/smoke.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -110,6 +111,7 @@ async function installSetupComposition(
   services: Pick<Services, "orchDir" | "settings" | "logger">,
   composition: SetupComposition,
   options: SetupOptions,
+  root: string,
 ): Promise<string[] | null> {
   recordComposition(services.settings, composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
   if (!(await installPrerequisites(services.logger, composition.adapters, composition.backends, options.interactive, options.install))) return null;
@@ -120,7 +122,7 @@ async function installSetupComposition(
   await offerSkills(services, options.skills, options.interactive);
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
   if (options.interactive) await configureNotifiers(services);
-  wireBinaries(options.copy);
+  wireBinaries(root, options.copy);
   alignEntrypointToRuntime(composition.runtime);
   await diagnoseAdapters(services.orchDir, services.settings.current(), services.logger, composition.adapters);
   return gaps;
@@ -167,7 +169,7 @@ async function finishSetup(services: Services, options: SetupOptions, gaps: read
 
 /** Onboarding wizard: record the composition, install prerequisites and adapter shims, wire bins,
  * then run a closing doctor pass. Each step is a single-purpose helper; this orchestrates them. */
-export async function cmdSetup(services: Services, args: string[]) {
+export async function runSetup(services: Services, args: string[], root: string) {
   const invocation = parseCommand("setup", args);
   if (invocation.positional.length) throw usageError(invocation, `orch setup takes no arguments, got ${invocation.positional.join(" ")}`);
   const options = parseSetupOptions(invocation.flags);
@@ -177,11 +179,15 @@ export async function cmdSetup(services: Services, args: string[]) {
   // normal first-run state here, never a refusal.
   const composition = await resolveSetupComposition(services.settings.currentOrNull(), services.models, options);
   if (composition === null) return;
-  const gaps = await installSetupComposition(services, composition, options);
+  const gaps = await installSetupComposition(services, composition, options, root);
   if (gaps === null) return;
 
   await runDoctorPass(services, options.interactive);
   await finishSetup(services, options, gaps);
+}
+
+export async function cmdSetup(services: Services, args: string[]) {
+  await runSetup(services, args, packageRoot());
 }
 
 /** Interactive notifier onboarding: probe all notifiers, pick a set, collect each one's

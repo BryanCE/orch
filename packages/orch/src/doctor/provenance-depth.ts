@@ -24,7 +24,7 @@ export function checkProvenanceDepth(orchDir: OrchDir, settings: OrchSettings | 
     label: "Provenance depth",
     status: "warn",
     detail: violations
-      .map(({ agent, depth }) => `${agent.name} (${agent.id}) is at depth ${depth}; fleet.max_depth (${maxDepth})`)
+      .map(({ agent, depth }) => `${agent.name} is at depth ${depth}; fleet.max_depth (${maxDepth})`)
       .join("\n    "),
   };
 }

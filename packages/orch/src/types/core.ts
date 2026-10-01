@@ -286,6 +286,7 @@ export interface CallerCredential {
 /** One candidate an ambiguous target matched, and what distinguishes it. */
 export interface AmbiguousCandidate {
   readonly key: string;
-  /** Whatever tells a human these apart — a tab label, a harness, both. */
+  readonly name: string | null;
+  /** Whatever else tells a human these apart — a tab label, a harness, both. */
   readonly detail: string | null;
 }

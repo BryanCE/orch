@@ -88,7 +88,7 @@ async function lookupResolvedResult(services: Services, self: CallerSelf, target
   if (dispatchId) {
     const run = (await readRpc(services, "run", { dispatchId })).run;
     if (run?.result === undefined) {
-      die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${ent.key}\`.`);
+      die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${ent.name ?? ent.key}\`.`);
     }
     resultLogger(services.logger, ent.key).info("result.current-dispatch", { dispatchId });
     return { kind: "found", source: "dispatch", payload: run.result };
@@ -241,7 +241,7 @@ async function cmdQuestionsLocal(services: Services, { all, json }: QuestionOpti
         const label = view.name ?? "-";
         const spaceLabel = spaceOf(orchDir, view.key) ?? "-";
         const name = showSpace ? `${spaceLabel} / ${label}` : label;
-        return `${view.key}  ${name}  ${formatAge(view.askedAt)}\n${view.question}`;
+        return `${name}  ${formatAge(view.askedAt)}\n${view.question}`;
       })
       .join("\n\n") + "\n"
   );

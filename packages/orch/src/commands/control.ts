@@ -45,6 +45,10 @@ type DispatchFlags = AgentFlags & {
   rename?: string;
 };
 
+type BroadcastOutcome =
+  | { readonly kind: "delivered"; readonly key: string; readonly result: Pick<Delivery, "id" | "ack"> }
+  | { readonly kind: "refused"; readonly key: string; readonly reason: string };
+
 interface DispatchSettings {
   adapter: AdapterId;
   /** Set only when this dispatch named a model; null leaves the agent on the one it spawned with. */
@@ -117,6 +121,10 @@ function agentName(name: string | null | undefined, space: string | null | undef
   return name ?? abstractAgentLabel(space ?? "space", key);
 }
 
+export function pipedText(sourceName: string, instruction: string, result: string): string {
+  return `[piped from ${sourceName}] ${instruction ? instruction + "\n" : ""}${result}`;
+}
+
 function deliveryResult(result: unknown, identity: Pick<Delivery, "target" | "name" | "action">): Delivery {
   if (!isRecord(result) || typeof result.id !== "string" || (result.ack !== "acknowledged" && result.ack !== "unavailable")) {
     die("Daemon response missing delivery acknowledgement.");
@@ -158,28 +166,32 @@ export async function cmdBroadcast(services: Services, args: string[]) {
   if (!destinations.size) die("No live agent dirs to broadcast to.");
   // Per target, never Promise.all + die: one agent refusing (one awaiting an
   // answer refuses a steer) must not hide which of its siblings did receive the text.
-  const refusals: { key: string; reason: string }[] = [];
-  await Promise.all([...destinations.values()].map(async (pres) => {
+  const outcomes = await Promise.all([...destinations.values()].map(async (pres): Promise<BroadcastOutcome> => {
     try {
-      await callDaemon(services, "steer", { target: pres.key, text });
+      const result = await callDaemon(services, "steer", { target: pres.key, text });
+      return { kind: "delivered", key: pres.key, result };
     } catch (error: unknown) {
-      refusals.push({ key: pres.key, reason: errorMessage(error) });
+      return { kind: "refused", key: pres.key, reason: errorMessage(error) };
     }
   }));
-  const delivered = destinations.size - refusals.length;
-  if (json) process.stdout.write(JSON.stringify({ count: delivered, refused: refusals, broadcast: true }) + "\n");
-  else {
-    process.stdout.write(`Broadcast to ${delivered} of ${destinations.size} agent(s).\n`);
-    for (const refusal of refusals) {
-      const log = isAgentId(refusal.key) ? services.logger.forAgent(refusal.key) : services.logger;
-      log.warn("broadcast.refused", { reason: refusal.reason, target: refusal.key });
-      const resolved = resolvedByKey.get(refusal.key);
-      const view = resolved?.view ?? fleet?.views.find((entry) => entry.id === refusal.key);
-      const name = agentName(view?.name ?? resolved?.entity.name, resolved?.entity.space ?? view?.environment.space, refusal.key);
-      process.stdout.write(`  refused ${name}: ${refusal.reason}\n`);
+  const refusals: { name: string; reason: string }[] = [];
+  const ackMs = services.settings.current().timeouts.dispatch_ack_ms;
+  for (const outcome of outcomes) {
+    const resolved = resolvedByKey.get(outcome.key);
+    const view = resolved?.view ?? fleet?.views.find((entry) => entry.id === outcome.key);
+    const name = agentName(view?.name ?? resolved?.entity.name, resolved?.entity.space ?? view?.environment.space, outcome.key);
+    if (outcome.kind === "delivered") {
+      const delivery = deliveryResult(outcome.result, { target: outcome.key, name, action: "broadcast" });
+      writeDelivery(delivery, { json, ackMs });
+      continue;
     }
+    const log = isAgentId(outcome.key) ? services.logger.forAgent(outcome.key) : services.logger;
+    log.warn("broadcast.refused", { reason: outcome.reason, target: outcome.key });
+    refusals.push({ name, reason: outcome.reason });
+    if (!json) process.stdout.write(`Refused ${name}: ${outcome.reason}\n`);
   }
-  if (delivered === 0) process.exitCode = 1;
+  if (json) process.stdout.write(JSON.stringify({ refused: refusals }) + "\n");
+  if (outcomes.every((outcome) => outcome.kind === "refused")) process.exitCode = 1;
 }
 
 export async function cmdPipe(services: Services, args: string[]) {
@@ -202,14 +214,15 @@ export async function cmdPipe(services: Services, args: string[]) {
   const resolvedDestination = await resolveEntity(services, dst);
   const destination = resolvedDestination.entity;
   if (!destination.presence) die(`Target "${dst}" has no agent dir.`);
-  const text = `[piped from ${source.presence.key}] ${instruction ? instruction + "\n" : ""}${resultTextValue}`;
+  const sourceName = agentName(source.name, source.space, source.presence.key);
+  const text = pipedText(sourceName, instruction, resultTextValue);
   const result = await writeRpc(services, "steer", { target: destination.presence.key, text });
   const delivery = deliveryResult(result, {
     target: destination.presence.key,
     name: agentName(destination.name, destination.space, destination.presence.key),
     action: "pipe",
   });
-  writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms, suffix: ` from ${agentName(source.name, source.space, source.presence.key)}` });
+  writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms, suffix: ` from ${sourceName}` });
 }
 
 export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
@@ -253,8 +266,8 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
   const result = await setAgentModel(services, ent.key, spec, gov);
   const label = agentName(resolved.view?.name ?? ent.name, ent.space, ent.key);
   if (json) process.stdout.write(JSON.stringify({ target: handle, name: label, requested: modelArg, ...result }) + "\n");
-  else if (result.unchanged) process.stdout.write(`${label}: already ${modelArg} (no-op)\n`);
-  else process.stdout.write(`${label}: ${result.old ?? "(unknown)"} ${ARROW} ${result.now} (accepted)\n`);
+  else if (result.unchanged) process.stdout.write(`Kept ${label} on ${result.now}; no change.\n`);
+  else process.stdout.write(`Changed ${label}'s model: ${result.old ?? "(unknown)"} ${ARROW} ${result.now}.\n`);
 }
 
 /** Retarget an agent's model. Throws with the agent's own reason when it refuses —
@@ -331,7 +344,7 @@ async function recordAdoptedAgent(services: Services, self: CallerSelf, key: str
  *  can watch, and adopting it would register a row that reads as dead at once. */
 function adoptedProcess(ent: Entity): RecordedProcess {
   const backend = ent.backend === null ? undefined : getBackend(ent.backend);
-  if (backend === undefined || ent.paneId === null) die(`cannot adopt ${ent.key}: it sits in no pane orch can read, so orch cannot watch it. Spawn it with orch instead.`);
+  if (backend === undefined || ent.paneId === null) die(`cannot adopt ${agentName(ent.name, ent.space, ent.key)}: it sits in no pane orch can read, so orch cannot watch it. Spawn it with orch instead.`);
   return backend.process.running(ent.paneId);
 }
 
@@ -353,7 +366,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
     } catch (error: unknown) {
       die(`orch dispatch: ${errorMessage(error)}`);
     }
-    if (!outcome) die(`Could not rename ${dispatchSettings.ent.key}.`);
+    if (!outcome) die(`Could not rename ${currentName}.`);
     if (!dispatchSettings.json) {
       process.stdout.write(`${renamedLine(currentName, flags.rename, outcome)}\n`);
     }

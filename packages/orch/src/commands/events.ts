@@ -8,7 +8,7 @@ import { deliver } from "../notify/router.ts";
 import { eventState, isNotifyEvent } from "../notify/event.ts";
 
 export { isNotifyEvent };
-import { notificationHeading, notificationText, oneLine } from "../notify/format.ts";
+import { notificationText, oneLine, spaceTag } from "../notify/format.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
@@ -319,8 +319,8 @@ function renderEventLine(event: NotifyEvent, coordinate: string | null): string 
   // The plexer coordinate is opaque: echo it verbatim and never resolve it to a
   // configured label that could make the coordinate look like an orch-chosen name.
   const textEvent: NotifyEvent = { ...event, space: coordinate ?? "" };
-  // Mail is its own summary: the heading, then the whole text once.
-  if (event.type === "message") return `${notificationHeading(textEvent, { colorize: true })} ${oneLine(event.mail.text)}`;
+  // Mail is keyed by its recipient, so its line names the event, not that recipient.
+  if (event.type === "message") return `MESSAGE${coordinate === null ? "" : ` ${spaceTag(coordinate, true)}`} ${oneLine(event.mail.text)}`;
   return `${notificationText(textEvent, { colorize: true }).title}  ${eventStateChange(event)}`;
 }
 

@@ -1,6 +1,6 @@
 import type { JsonRecord } from "../types/core.ts";
 
-export type DeliveryAction = "dispatch" | "steer" | "answer" | "pipe" | "task";
+export type DeliveryAction = "dispatch" | "steer" | "answer" | "pipe" | "task" | "broadcast";
 
 export interface Delivery {
   readonly target: string;

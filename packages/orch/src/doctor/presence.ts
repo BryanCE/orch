@@ -106,7 +106,7 @@ export async function checkStalePresence(orchDir: OrchDir): Promise<CheckResult>
       : view === null ? "unknown" : basename(view.cwd);
     const updatedAt = entry.status?.updatedAt;
     const seen = updatedAt === undefined || updatedAt === null ? "unknown" : humanAge(Date.now() - updatedAt);
-    return `${name} (${entry.key}) | project ${project} | last seen ${seen}`;
+    return `${name} | project ${project} | last seen ${seen}`;
   });
   return {
     id: "stale-presence",

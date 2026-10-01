@@ -357,20 +357,31 @@ export function createAgentPresence(options: AgentPresenceOptions) {
   }
 
   function initPresence(ctx: HarnessContext): void {
+    lastCtx = ctx;
     if (state.key !== "" || identifying) return;
     if (launchCredential() === null && !ctx.hasUI) return;
     identifying = true;
-    void daemon.identify(options.identity.agentId, ctx.sessionManager.getSessionId()).then((key) => {
-      identifying = false;
-      if (key === undefined || state.key !== "") return;
-      state.key = key;
-      void loadName();
-      daemon.attach(key, (delivery) => {
-        void routeDelivery(delivery).catch(() => {
-          /* A failed apply remains unacked for daemon redelivery. */
+    void (async () => {
+      try {
+        const key = await daemon.identify(options.identity.agentId, ctx.sessionManager.getSessionId());
+        if (key === undefined || state.key !== "") return;
+        state.key = key;
+        void loadName();
+        daemon.attach(key, (delivery) => {
+          void routeDelivery(delivery).catch(() => {
+            /* A failed apply remains unacked for daemon redelivery. */
+          });
         });
-      });
-    });
+      } catch {
+        // A later heartbeat retries when orchd is ready.
+      } finally {
+        identifying = false;
+      }
+    })();
+  }
+
+  function retryIdentity(): void {
+    if (lastCtx) initPresence(lastCtx);
   }
 
   function ownPresenceKey(ctx: HarnessContext): string {
@@ -393,6 +404,7 @@ export function createAgentPresence(options: AgentPresenceOptions) {
       lastCtx = ctx;
     },
     initPresence,
+    retryIdentity,
     ownPresenceKey,
     loadName,
     /** Id of the dispatch whose delivered text is this prompt, or undefined for a human-typed run. */

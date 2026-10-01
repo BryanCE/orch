@@ -84,6 +84,7 @@ export async function cmdRename(services: Services, args: string[]): Promise<voi
   if (!target || !name) throw usageError(invocation);
   const self = await whoAmI(services);
   const resolved = await resolveLifecycle(services, target);
+  const targetName = resolved.view === null ? describeHandle(resolved.handle) : resolved.view.name ?? resolved.key;
   refuseForeignHolder(self, target, resolved, steal);
   const { backend, handle, key } = resolved;
   // Renaming an agent moves a label only: orch's registry owns the name, the
@@ -101,7 +102,9 @@ export async function cmdRename(services: Services, args: string[]): Promise<voi
   } catch (error: unknown) {
     die(`orch rename: ${errorMessage(error)}`);
   }
-  if (!outcome) die(`Could not rename ${describeHandle(handle)}.`);
+  if (!outcome) {
+    die(`Could not rename ${targetName}.`);
+  }
   if (json) {
     process.stdout.write(JSON.stringify({
       target: describeHandle(handle), key, name, paneLabel, renamed: true,
@@ -109,10 +112,12 @@ export async function cmdRename(services: Services, args: string[]): Promise<voi
     }) + "\n");
   } else {
     if (!paneLabel && resolved.view !== null) {
-      process.stdout.write(`${renamedLine(resolved.view.name ?? key, name, outcome)}\n`);
+      process.stdout.write(`${renamedLine(targetName, name, outcome)}\n`);
     } else {
       const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
-      process.stdout.write(`${describeHandle(handle)} ${ARROW} ${paneLabel ? "pane label" : "named"} "${name}"${chrome}.\n`);
+      process.stdout.write(paneLabel
+        ? `Set ${targetName}'s pane label to "${name}"${chrome}.\n`
+        : `${describeHandle(handle)} ${ARROW} named "${name}"${chrome}.\n`);
     }
   }
 }

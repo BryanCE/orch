@@ -190,6 +190,7 @@ export function registerAgentTools(
           presence.updateModel(lastCtx);
           presence.updateContextUsage(lastCtx);
         }
+        if (presence.state.key === "") presence.retryIdentity();
         if (presence.state.label === null && presence.state.key !== "") void presence.loadName();
         if (heartbeatTicks % 10 === 0) void refreshLabels().catch(() => {
           /* noop */

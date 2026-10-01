@@ -100,10 +100,12 @@ describe("worker prompt capability composition", () => {
     expect(header).toContain("NEVER route a report through another agent");
   });
 
-  test("reachable spawner permits replying to the spawner only", () => {
+  test("reachable spawner receives the final reply; orch_send is for mid-task needs", () => {
     const header = workerHeaderFor(getAdapter("pi"), { spawnerRepliable: true });
-    expect(header).toContain("reply or report to it with orch_send target \"spawner\" ONLY");
-    expect(header).toContain("never relay via siblings or other agents");
+    expect(header).toContain("End your turn with your final report as your last reply");
+    expect(header).toContain("orch delivers it to the orch");
+    expect(header).toContain('Use orch_send target "spawner" (or its name) only for a question, blocker, or finding');
+    expect(header).toContain("Never relay through siblings");
   });
 
   test("a reachable spawner still earns no clause when the worker has no bridge", () => {

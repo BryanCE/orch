@@ -138,6 +138,13 @@ describe("commands/results", () => {
       });
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live" })]);
+      const text = await captureStdoutAsync(async () => {
+        await withQuestionsServer(root, [
+          { questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
+        ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--all"]); });
+      });
+      expect(text).toMatch(/^-  \S+\nlive\n$/);
+      expect(text).not.toContain("liveques01");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);

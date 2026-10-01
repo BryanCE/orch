@@ -111,7 +111,18 @@ describe("fleet capacity", () => {
     });
 
     expect(formatCapacityLine(capacity, "root")).toBe(
-      "pack you 2/10 - pack claude-skgrlw9n 1/10 - space main 2/6 - space other 1/unlimited - machine 3/7",
+      "pack you 2/10 - space main 2/6 - space other 1/unlimited - machine 3/7",
     );
+  });
+
+  test("keeps the caller's single-agent pack and omits other single-agent packs", () => {
+    const views = new Map([
+      ["root", view("root", "you", "root", "main")],
+      ["other", view("other", "session", "other", "main")],
+    ]);
+    const presence = new Map([["root", livePresence("root")], ["other", livePresence("other")]]);
+    const capacity = computeFleetCapacity(views, presence, settings);
+
+    expect(formatCapacityLine(capacity, "root")).toBe("pack you 1/10 - space main 2/6 - machine 2/unlimited");
   });
 });

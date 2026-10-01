@@ -75,7 +75,7 @@ describe("orch bridge links and capture roles", () => {
     seedAgent(key, {}, orchDir);
     seedLiveProcess(orchDir, key);
     const id = "steer-session-1";
-    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w (wkey)] hi" } });
+    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w] hi" } });
 
     await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir));
 
@@ -90,7 +90,7 @@ describe("orch bridge links and capture roles", () => {
     seedAgent(key, { spawnedBy: "orch1" }, orchDir);
     seedLiveProcess(orchDir, key);
     const id = "steer-spawned-1";
-    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w (wkey)] hi" } });
+    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w] hi" } });
 
     await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir));
 

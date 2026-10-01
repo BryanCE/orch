@@ -20,6 +20,7 @@ function ambiguous(target: string, entities: Entity[]): never {
   // an ambiguous `orch dispatch` hits, and it used to print a bare list.
   throw ambiguousTargetRefusal(target, entities.map((entity) => ({
     key: entity.key,
+    name: entity.name,
     detail: [entity.tabLabel, entity.agent].filter(Boolean).join(" ") || null,
   })));
 }

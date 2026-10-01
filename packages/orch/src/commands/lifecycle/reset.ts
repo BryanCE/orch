@@ -23,6 +23,7 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
   refuseForeignHolder(self, target, resolved, steal);
   const label = describeHandle(resolved.handle);
   const ent = resolved.entity;
+  const name = ent.name ?? label;
   const { status } = await readRpc(services, "agent-status", { target: ent.key });
   const beforeUpdated = status?.updatedAt;
   const sentAt = Date.now();
@@ -30,8 +31,8 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
   // text, an agent with none is refused. Neither is the CLI's to choose.
   await writeRpc(services, "reclaim", { target: ent.key });
   await writeRpc(services, "lifecycle", { target: ent.key, verb: "reset" });
-  if (!await awaitIdleAfter(services, ent.key, beforeUpdated, sentAt)) die(`${label}: reset did not become ready within 75s.`);
-  return { key: ent.key, handle: label, name: ent.name ?? label };
+  if (!await awaitIdleAfter(services, ent.key, beforeUpdated, sentAt)) die(`Reset ${name} failed: it did not become ready within 75s.`);
+  return { key: ent.key, handle: label, name };
 }
 
 export async function cmdNew(services: Services, args: string[]): Promise<void> {
@@ -61,12 +62,12 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   for (const plan of plans) {
     const agent = await clearSession(services, plan.target, steal);
     cleared.push({ ...agent, ...plan.tuning });
-    if (!json) process.stdout.write(`Cleared session on ${agent.handle}; ready.\n`);
+    if (!json) process.stdout.write(`Cleared ${agent.name}'s session; ready.\n`);
   }
   // A reset that could not re-pin its model left the agent on the wrong one, and
   // re-running reset is idempotent — unlike a spawn, nothing duplicates on retry.
   if ((await pinModels(services, services.logger, cleared)).length) process.exitCode = 1;
   const results = cleared.map((agent) => ({ target: agent.handle, cleared: true, ready: true }));
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
-  else for (const agent of cleared) process.stdout.write(`Pinned ${agent.handle} to ${modelSpec(agent.model, agent.thinking)}.\n`);
+  else for (const agent of cleared) process.stdout.write(`Pinned ${agent.name} to ${modelSpec(agent.model, agent.thinking)}.\n`);
 }

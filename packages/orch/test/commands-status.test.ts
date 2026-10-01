@@ -251,6 +251,15 @@ describe("commands/status", () => {
     expect(table).toContain("boss (you, orch)");
   });
 
+  test("status omits owner details when every other row is held by the caller", () => {
+    const table = formatStatusTable(fleetFixture([
+      statusRowFixture({ key: "caller", name: "boss", owned: true }),
+      statusRowFixture({ key: "worker", name: "worker", owned: true, lease: { holderId: "caller", holderAlive: true } }),
+    ], { agents: { caller: "boss" } }), { all: false, host: false, callerId: "caller", columns: new Set() });
+    expect(table).not.toContain("OWNER");
+    expect(table).not.toContain("owner:");
+  });
+
   test("human table shows harness and working directory facts", () => {
     const table = formatStatusTable(fleetFixture([statusRowFixture({ name: "worker", agent: "claude", cwd: "/repo", worktree: "feature", branch: "main", lease: { holderId: "orch", holderAlive: true } })], { agents: { orch: "Orchestrator" } }), { all: false, host: false, human: true, columns: new Set() });
     expect(table).toContain("HARNESS");
@@ -280,7 +289,7 @@ describe("commands/status", () => {
       { root: { id: "other", name: "other" }, used: 1, cap: 10 },
       { root: { id: "root", name: "root" }, used: 2, cap: 10 },
     ]);
-    expect(formatCapacityLine(capacity, "root")).toBe("pack you 2/10 - pack other 1/10 - space main 3/6 - machine 3/10");
+    expect(formatCapacityLine(capacity, "root")).toBe("pack you 2/10 - space main 3/6 - machine 3/10");
   });
 
   test("formats workspace labels and warnings", () => {

@@ -71,7 +71,8 @@ describe("doctor provenance-depth checks", () => {
     const result = checkProvenanceDepth(directory, settingsOf(directory));
 
     expect(result.status).toBe("warn");
-    expect(result.detail).toContain("deep-worker (deep000001)");
+    expect(result.detail).toContain("deep-worker");
+    expect(result.detail).not.toContain("deep000001");
     expect(result.detail).toContain("depth 2");
     expect(result.detail).toContain("fleet.max_depth (1)");
   });
@@ -104,7 +105,8 @@ describe("doctor unclaimed-agent checks", () => {
     const result = checkUnclaimedAgents(directory, settingsOf(directory), now);
 
     expect(result).toMatchObject({ id: "unclaimed-agents", label: "Unclaimed agents", status: "warn" });
-    expect(result.detail).toContain("stuck-worker (unclaim001)");
+    expect(result.detail).toContain("stuck-worker");
+    expect(result.detail).not.toContain("unclaim001");
     expect(result.detail).toContain("3 min ago");
   });
 

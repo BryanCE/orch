@@ -50,7 +50,7 @@ describe("doctor stale presence safety", () => {
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("docs-2");
     expect(result.detail).toContain("project orch");
-    expect(result.detail).toContain(DEAD_KEY);
+    expect(result.detail).not.toContain(DEAD_KEY);
   });
 
   test("the removal fix is marked destructive so UIs never pre-select it", async () => {

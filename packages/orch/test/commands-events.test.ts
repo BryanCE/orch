@@ -3,6 +3,7 @@ import { orchDirAt } from "../src/orch-dir.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { eventAcceptor, formatEventGap, isNotifyEvent, onMonitor, parseEventsOptions, passesStates, renderEvent, sinkLabel } from "../src/commands/events.ts";
+import { spaceTag } from "../src/notify/format.ts";
 import { MONITOR_DEFAULT_ON } from "../src/settings/schema.ts";
 import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
@@ -146,9 +147,10 @@ describe("commands/events", () => {
   // Cost and pack capacity are `orch status` columns. On a stream they made every
   // transition read like a status row and buried what the line exists to say.
   test("message events render the full delivered mail text once", () => {
-    const mail = "[from worker (worker-key)] hello orchestrator, this report runs well past the sixty characters a notification title keeps";
+    const mail = "[from worker] hello orchestrator, this report runs well past the sixty characters a notification title keeps";
     const line = renderEvent({ type: "message", key: "agent", space: "wF", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "dispatch-message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4);
-    expect(line).toEndWith(mail);
+    expect(line).toBe(`MESSAGE ${spaceTag("wF", true)} ${mail}`);
+    expect(line).not.toContain("pi:");
     expect(line.split("[from worker").length).toBe(2);
     expect(line).not.toContain("message→message");
   });

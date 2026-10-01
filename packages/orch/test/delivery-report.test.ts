@@ -25,6 +25,13 @@ describe("delivery report", () => {
     expect(deliveryLine(acknowledged, 250, " from source")).toBe("Delivered to api-types (dispatch dispatch-id) from source");
   });
 
+  test("writes a broadcast delivery record", async () => {
+    const { text } = await captureCommand(() => Promise.resolve().then(() => {
+      writeDelivery({ ...acknowledged, action: "broadcast" }, { json: false, ackMs: 250 });
+    }));
+    expect(text).toBe("Delivered to api-types (broadcast dispatch-id)\n");
+  });
+
   test("writes one json line", async () => {
     const { text } = await captureCommand(() => Promise.resolve().then(() => {
       writeDelivery(acknowledged, { json: true, ackMs: 250 });

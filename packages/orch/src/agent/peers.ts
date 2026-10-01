@@ -133,9 +133,21 @@ async function resolveSpawnerPeer(orchDir: OrchDir, daemon: DaemonLink, ownKey: 
   if (!spawner) return { error: `error: no spawner address recorded for this agent.${UNREACHABLE_SPAWNER_ADVICE}` };
   const peer = await liveSpawnerPeer(orchDir, daemon, ownKey, spawner.key);
   if (!peer) {
-    return { error: `error: spawner ${spawner.name ?? spawner.key} (${spawner.key}) has no live status record to reply to.${UNREACHABLE_SPAWNER_ADVICE}` };
+    return { error: `error: spawner ${spawner.name ?? spawner.key} has no live status record to reply to.${UNREACHABLE_SPAWNER_ADVICE}` };
   }
   return { peer };
+}
+
+function peerCandidateLabels(peers: Peer[]): string[] {
+  const names = new Map<string, number>();
+  for (const peer of peers) {
+    const name = peer.name || peer.key;
+    names.set(name, (names.get(name) ?? 0) + 1);
+  }
+  return peers.map((peer) => {
+    const name = peer.name || peer.key;
+    return names.get(name) === 1 ? name : `${name} (${peer.key})`;
+  });
 }
 
 export async function resolvePeer(orchDir: OrchDir, daemon: DaemonLink, target: string, ownKey: string, allRequested = false): Promise<PeerResolution> {
@@ -145,8 +157,11 @@ export async function resolvePeer(orchDir: OrchDir, daemon: DaemonLink, target: 
   const exact = live.peers.find((peer) => peer.key === target);
   const matches = exact ? [exact] : live.peers.filter((peer) => peer.key.endsWith(target) || peer.name === target);
   if (matches.length === 1 && matches[0]) return { peer: matches[0] };
-  if (matches.length > 1) return { error: `error: ambiguous target. Candidates: ${matches.map((peer) => peer.key).join(", ")}` };
-  return { error: `error: target not found. Candidates: ${live.peers.map((peer) => peer.key).join(", ")}` };
+  if (matches.length > 1) return { error: `error: ambiguous target. Candidates: ${peerCandidateLabels(matches).join(", ")}` };
+  if (matches.length === 0 && (await ownSpawner(daemon))?.name === target) {
+    return await resolveSpawnerPeer(orchDir, daemon, ownKey);
+  }
+  return { error: `error: target not found. Candidates: ${peerCandidateLabels(live.peers).join(", ")}` };
 }
 
 function summarizePeer(peer: Peer, view: PeerView, spawnerKey: string | undefined): PeerSummary {
@@ -338,7 +353,7 @@ export function registerPeerTools(orchDir: OrchDir, harness: HarnessApi, presenc
       label: `Send to ${term("orch")} Agent`,
       description: "Send a coordination message to a live peer agent.",
       promptSnippet: `Send a finding or request to a live ${term("orch")} peer agent`,
-      promptGuidelines: ["Use orch_send to hand findings, requests, or coordination notes to another agent. Target \"spawner\" reaches the session that spawned you."],
+      promptGuidelines: ["Use orch_send to hand findings, requests, or coordination notes to another agent. Target \"spawner\" or the spawner's name reaches the session that spawned you."],
       parameters: Type.Object({
         target: Type.String({ description: "Peer name, key, unique key suffix, or \"spawner\" (the session that spawned this agent)" }),
         text: Type.String({ description: "Message to send" }),

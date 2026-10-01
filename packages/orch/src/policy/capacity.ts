@@ -137,7 +137,7 @@ export function computeFleetCapacity(
 
 /** Render the compact capacity summary used by command output: one entry per pack, the caller's first. */
 export function formatCapacityLine(capacity: FleetCapacity, selfId: string | undefined): string {
-  const packs = [...capacity.packs];
+  const packs = capacity.packs.filter((pack) => pack.root.id === selfId || pack.used > 1);
   packs.sort((left, right) => {
     const leftSelf = left.root.id === selfId;
     const rightSelf = right.root.id === selfId;

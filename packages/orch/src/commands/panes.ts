@@ -160,7 +160,7 @@ export async function resolveTab(services: Pick<Services, "orchDir" | "settings"
     // ONE wording for "that matched more than one thing" (U3), and a refusal is
     // thrown, never exited: `process.exit` from the middle of a resolver leaves
     // the caller nothing to recover from and truncates what it already wrote.
-    throw ambiguousTargetRefusal(target, candidates.map((group) => ({ key: group.id, detail: group.label ?? null })));
+    throw ambiguousTargetRefusal(target, candidates.map((group) => ({ key: group.id, name: group.label ?? group.id, detail: null })));
   }
   const resolved = await resolveLifecycle(services, target);
   const plexer = resolved.view?.environment.plexer ?? resolved.entity.backend;

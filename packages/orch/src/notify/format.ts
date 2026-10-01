@@ -154,9 +154,12 @@ export function notificationHeading(event: NotifyEvent, options: { colorize?: bo
   const agent = eventAgent(event, space);
   const state = oneLine(textValue(event.newState) ?? "unknown").toUpperCase();
   if (space.length === 0) return `${state} ${agent}:`;
-  const spaceLabel = `[${space}]`;
-  const coloredSpace = options.colorize ? `${spaceAnsi(space)}${spaceLabel}\u001b[0m` : spaceLabel;
-  return `${state} ${coloredSpace} ${agent}:`;
+  return `${state} ${spaceTag(space, options.colorize === true)} ${agent}:`;
+}
+
+/** `[space]`, colored per space when asked. */
+export function spaceTag(space: string, colorize: boolean): string {
+  return colorize ? `${spaceAnsi(space)}[${space}]\u001b[0m` : `[${space}]`;
 }
 
 export function notificationText(event: NotifyEvent, options: { colorize?: boolean } = {}): { title: string; body: string } {

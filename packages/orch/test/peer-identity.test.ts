@@ -26,6 +26,7 @@ function noPeersDaemon(directory: OrchDir) {
 function daemonWithSpawner(directory: OrchDir, key: string, name: string) {
   const daemon = noPeersDaemon(directory);
   daemon.ask = askFrom({
+    "peer-view": (params) => peerView(directory, params.ownKey, params.keys ?? [], params.allSpaces === true, params.projectRoot),
     self: () => ({
       id: "worker0001", kind: "agent", space: null, depth: 1,
       view: {
@@ -199,6 +200,30 @@ describe("peer identity in messaging", () => {
     expect(result).toBe("error: daemon unreachable; message not sent");
   });
 
+  test("peer resolution errors list names and disambiguate duplicate names", async () => {
+    const orchDir = tempOrchDir();
+    const ownKey = "sender0001";
+    const firstKey = "worker0001";
+    const secondKey = "worker0002";
+    const thirdKey = "worker0003";
+    const seeds: readonly (readonly [string, string])[] = [[firstKey, "same-name"], [secondKey, "same-name"], [thirdKey, "other-name"]];
+    for (const [key, name] of seeds) {
+      seedAgent(key, { adapter: "pi", name }, orchDir);
+      seedLiveProcess(orchDir, key);
+    }
+    const daemon = daemonClientForPeers(orchDir, [firstKey, secondKey, thirdKey]);
+
+    const ambiguous = await resolvePeer(orchDir, daemon, "same-name", ownKey);
+    expect(ambiguous).toEqual({
+      error: `error: ambiguous target. Candidates: same-name (${firstKey}), same-name (${secondKey})`,
+    });
+
+    const missing = await resolvePeer(orchDir, daemon, "missing", ownKey);
+    expect(missing).toEqual({
+      error: `error: target not found. Candidates: same-name (${firstKey}), same-name (${secondKey}), other-name`,
+    });
+  });
+
   test("peers resolve by display name exactly like by key", async () => {
     const orchDir = tempOrchDir();
     const ownKey = "sender0001";
@@ -238,11 +263,23 @@ describe("peer identity in messaging", () => {
     expect(summaries.find((peer) => peer.key === "session777")?.isSpawner).toBe(true);
   });
 
+  test("the spawner resolves by its recorded name", async () => {
+    const orchDir = tempOrchDir();
+    seedAgent("operator01", { adapter: "pi", name: "claude session" }, orchDir);
+    seedLiveProcess(orchDir, "operator01");
+    seedStatus(orchDir, "operator01", { agent: "pi", pid: process.pid, state: "idle" });
+
+    const resolved = await resolvePeer(orchDir, daemonWithSpawner(orchDir, "operator01", "claude session"), "claude session", "worker0005");
+    expect("peer" in resolved && resolved.peer.key).toBe("operator01");
+  });
+
   test("a spawner with no live status record is refused BY NAME, not with a bare key", async () => {
     const orchDir = tempOrchDir();
     seedAgent("operator01", { adapter: "pi", name: "claude session" }, orchDir);
 
     const resolved = await resolvePeer(orchDir, daemonWithSpawner(orchDir, "operator01", "claude session"), "spawner", "worker0005");
-    expect("error" in resolved && resolved.error).toContain("claude session");
+    expect(resolved).toEqual({
+      error: "error: spawner claude session has no live status record to reply to. Write your result and end the turn; it is collected from your result file.",
+    });
   });
 });

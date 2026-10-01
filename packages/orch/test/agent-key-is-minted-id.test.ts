@@ -120,6 +120,27 @@ describe("presence uses the identity orchd returns", () => {
     presence.stopPresence();
   });
 
+  test("retries identity after orchd does not know the agent yet", async () => {
+    tempOrchDir();
+    delete process.env[LAUNCH_ENV];
+    const id = mintAgentId();
+    let calls = 0;
+    const daemon = {
+      ...stubDaemonLink(),
+      identify: () => Promise.resolve(++calls === 1 ? undefined : id),
+    };
+    const presence = presenceFor(daemon);
+    presence.initPresence(fakeContext());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(presence.state.key).toBe("");
+
+    presence.retryIdentity();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(presence.state.key).toBe(id);
+    expect(calls).toBe(2);
+    presence.stopPresence();
+  });
+
   test("a spawned agent uses its launch credential", async () => {
     tempOrchDir();
     const id = mintAgentId();

@@ -184,17 +184,20 @@ async function closeEachTarget(services: CloseServices, targets: readonly CloseT
     if (seen.has(target.key)) continue;
     seen.add(target.key);
     const handle = target.handle === null ? null : describeHandle(target.handle);
+    const name = json
+      ? target.key
+      : await resolveLifecycle(services, target.key).then((resolved) => resolved.view?.name ?? resolved.entity.name ?? target.key);
     const { failure: processFailure, signalled, closedByBackend } = attemptClose(target);
     const failure = processFailure ?? await endClosedAgent(services, target.key);
     if (failure !== null) {
       lifecycleLogger(logger, target.key).error("close.failed", { handle, error: failure });
       results.push({ target: target.key, handle, outcome: "error", error: failure });
-      process.stdout.write(`Could not close ${target.key}: ${failure}\n`);
+      if (!json) process.stdout.write(`Could not close ${name}: ${failure}\n`);
       continue;
     }
     closed.push(target.key);
     results.push({ target: target.key, handle, outcome: "done", error: null });
-    if (!json) process.stdout.write(`Closed ${target.key}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
+    if (!json) process.stdout.write(`Closed ${name}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
   }
   return { results, closed, ok: closed.length };
 }
@@ -249,7 +252,9 @@ export async function cmdAbort(services: Services, args: string[]): Promise<void
   if (!target) throw usageError(invocation);
   // Abort itself has no close-authority gate. Lifecycle resolution still scopes a
   // driving session by its open lease; the operator remains unscoped.
-  const { backend, handle, entity } = await resolveLifecycle(services, target);
+  const resolved = await resolveLifecycle(services, target);
+  const { backend, handle, entity } = resolved;
+  const name = resolved.view?.name ?? entity.name ?? target;
   const input = backend.agentInput;
   if (!entity.paneId || !input) {
     const reason = !entity.paneId ? "no-pane" : "no-environment-role";
@@ -262,7 +267,7 @@ export async function cmdAbort(services: Services, args: string[]): Promise<void
   sleepMs(500);
   input.sendKeys(handle, ["Escape"]);
   if (json) process.stdout.write(JSON.stringify({ target: handle, aborted: true }) + "\n");
-  else process.stdout.write(`Aborted ${describeHandle(handle)}.\n`);
+  else process.stdout.write(`Aborted ${name}.\n`);
   // The text is a steer: the cancelled turn is gone, and this is what runs instead.
   if (text) await cmdSteer(services, [target, text, ...(json ? ["--json"] : [])]);
 }

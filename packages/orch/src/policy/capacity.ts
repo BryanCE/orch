@@ -45,7 +45,7 @@ function presenceAliveViews(
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
 ): readonly AgentView[] {
-  return [...views.values()].filter((view) => presence.get(view.id)?.alive === true);
+  return [...views.values()].filter((view) => view.endedAt === null && presence.get(view.id)?.alive === true);
 }
 
 /** Live agents grouped by orch space. Agents without a space are not in a space. */

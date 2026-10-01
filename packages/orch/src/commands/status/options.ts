@@ -56,19 +56,18 @@ export function scopeFleetRows(rows: readonly StatusRow[], opts: FleetScope): St
     if (opts.agentKey !== undefined && row.key !== opts.agentKey) return false;
     if (!opts.all && !row.managed) return false;
     if (!withinSpaceCeiling(row.spaceId, caller.ceiling)) return false;
-    if (caller.kind !== "operator" && !opts.all && (caller.id === null || row.lease?.holderId !== caller.id)) return false;
+    if (!opts.all && !row.owned) return false;
     if (!keepsState(row, opts.only, opts.hide)) return false;
     // The table is the fleet as it is NOW. An agent that has exited is history —
     // `orch result` and `orch tail` still read it — and keeping every dead one
     // that ever recorded a line buried ten working agents under thirty corpses.
     // Naming one agent in `--agent` is how you ask for it back.
-    return opts.agentKey !== undefined || (row.alive && !row.exited);
-  });
+    return opts.agentKey !== undefined || row.key === caller.id || (row.alive && !row.exited);
+  }).sort((left, right) => Number(right.key === caller.id) - Number(left.key === caller.id));
 }
 
-export function formatNoRowsMessage(info: { agentsSeen: number; alive: number; backendAnswered: boolean }): string {
-  const backend = info.backendAnswered ? "; backend answered: yes" : "";
-  return `No agents found (agent records seen: ${info.agentsSeen}; alive: ${info.alive}${backend}).\n`;
+export function formatNoRowsMessage(info: { otherLive: number }): string {
+  return `you hold 0; ${info.otherLive} live agents belong to other orchestrators\n`;
 }
 
 export function displayStatusState(row: Pick<StatusRow, "state" | "alive" | "exited">): string {

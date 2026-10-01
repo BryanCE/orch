@@ -26,6 +26,7 @@ interface FleetStatusOptions {
   leaseFacts?: LeaseFacts;
   /** Resolve the store root once per fleet build (injectable for cost tests). */
   directory: OrchDir;
+  caller: string | null;
 }
 
 export function buildFleetStatus(settings: OrchSettings, options: FleetStatusOptions): FleetStatus {
@@ -34,7 +35,7 @@ export function buildFleetStatus(settings: OrchSettings, options: FleetStatusOpt
   const views = liveViews(fleet);
   const leaseFacts = options.leaseFacts ?? fleetLeaseFacts(directory, fleet);
   const rows = sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }))
-    .map((entity) => statusRowFromEntity(entity, views, leaseFacts, (id) => pendingQuestion(directory, id)?.question));
+    .map((entity) => statusRowFromEntity(entity, views, leaseFacts, (id) => pendingQuestion(directory, id)?.question, directory, options.caller));
   // Names come off the whole index: an ended spawner or holder is still named.
   return { names: fleetNames(rows, fleet, settings.spaces), rows };
 }

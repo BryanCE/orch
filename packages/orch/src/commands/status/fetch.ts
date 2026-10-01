@@ -14,6 +14,7 @@ import type { DaemonClient } from "../../types/services.ts";
 interface FleetSnapshot extends FleetStatus {
   agentsSeen: number;
   alive: number;
+  otherLive: number;
   /** Whether a backend inventory actually contributed rows to this snapshot. */
   backendAnswered: boolean;
 }
@@ -36,14 +37,15 @@ function snapshot(fleet: FleetStatus): FleetSnapshot {
     rows: normalized,
     agentsSeen: normalized.length,
     alive: normalized.filter((row) => row.alive).length,
+    otherLive: normalized.filter((row) => row.managed && row.alive && !row.owned).length,
     backendAnswered: normalized.some((row) => row.backend != null),
   };
 }
 
-async function readFleet(settings: OrchSettings | null, services: DaemonClient, offline: boolean): Promise<FleetSnapshot> {
+async function readFleet(settings: OrchSettings | null, services: DaemonClient, offline: boolean, caller: string | null): Promise<FleetSnapshot> {
   if (settings === null) return snapshot({ names: NO_NAMES, rows: [] });
-  if (offline) return snapshot(buildFleetStatus(settings, { offline: true, directory: services.orchDir }));
-  return snapshot(await readRpc(services, "status", undefined));
+  if (offline) return snapshot(buildFleetStatus(settings, { offline: true, directory: services.orchDir, caller }));
+  return snapshot(await readRpc(services, "status", { caller }));
 }
 
 /** The row key `--agent` names, resolved once by orchd; undefined when no agent was named. */
@@ -53,7 +55,7 @@ export async function resolveStatusAgent(services: DaemonClient, options: Status
 }
 
 async function localStatus(settings: OrchSettings | null, services: DaemonClient, options: StatusOptions, scope: FleetScope): Promise<FleetSnapshot> {
-  const fleet = await readFleet(settings, services, options.offline);
+  const fleet = await readFleet(settings, services, options.offline, scope.caller.id);
   const scoped = scopeFleetRows(fleet.rows, scope);
   return { ...fleet, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
@@ -96,10 +98,10 @@ function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: reado
   return [...local, ...remoteResults.flatMap(({ name, result }) => remoteRowsFromResult(name, result, narrowing))];
 }
 
-function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[]): { names: FleetNames; rows: StatusRow[]; alive: number; backendAnswered: boolean } {
+function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[]): { names: FleetNames; rows: StatusRow[]; alive: number; otherLive: number; backendAnswered: boolean } {
   const fleets = remoteResults.map(({ result }) => remoteFleet(result)).filter((fleet): fleet is FleetStatus => fleet !== null);
   const rows = fleets.flatMap((fleet) => fleet.rows);
-  return { names: mergeNames(fleets.map((fleet) => fleet.names)), rows, alive: rows.filter((row) => row.alive).length, backendAnswered: rows.some((row) => row.backend != null) };
+  return { names: mergeNames(fleets.map((fleet) => fleet.names)), rows, alive: rows.filter((row) => row.alive).length, otherLive: rows.filter((row) => row.managed && row.alive && !row.owned).length, backendAnswered: rows.some((row) => row.backend != null) };
 }
 
 /** The rows `status` keeps, from its flags, its caller, and the key `--agent` resolved to. */

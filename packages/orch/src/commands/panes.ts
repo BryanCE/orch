@@ -2,7 +2,7 @@ import type { Entity } from "../types/core.ts";
 import type { Services, SettingsService } from "../types/services.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
-import { errorMessage } from "../util.ts";
+import { ARROW, errorMessage } from "../util.ts";
 import { die } from "./target.ts";
 import { addressOf, indexPresenceById } from "../entities/lookup.ts";
 import { parseCommand } from "./registry.ts";
@@ -254,7 +254,7 @@ async function cmdTabRename(services: Services, target: string, label: string, s
   const tab = await resolveOwnedTab(services, target, steal, backend);
   backend.groupHome!.rename(tab.id, label);
   if (json) process.stdout.write(JSON.stringify({ tab: tab.id, label, renamed: true }) + "\n");
-  else process.stdout.write(`${tab.id}: "${tab.label}" -> "${label}"\n`);
+  else process.stdout.write(`${tab.id}: "${tab.label}" ${ARROW} "${label}"\n`);
 }
 
 async function cmdTabClose(services: Services, target: string, steal: boolean, json: boolean, backend: Backend): Promise<void> {

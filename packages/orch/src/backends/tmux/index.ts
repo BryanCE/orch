@@ -1,7 +1,7 @@
 import { createInteractiveCommand, homeLabel } from "../backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { isAgentId } from "../identity.ts";
-import { binaryOnPath } from "../../util.ts";
+import { ARROW, binaryOnPath } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { environmentStamp } from "../../agent/environment.ts";
 import { callerTmuxPane, insideTmux } from "./detect.ts";
@@ -148,7 +148,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly labeling: LabelRole<TmuxHandle> = { setLabel: (handle, name) => { if (bestEffortTmux(["select-pane", "-t", handle, "-T", name]) === null) throw new Error(`tmux failed to rename pane ${handle}`); } };
   /** The agent shown for a pane (the `@orch_agent_name` pane option). */
   readonly agentNaming: AgentNamingRole<TmuxHandle> = { renameAgent: (handle, name) => { if (bestEffortTmux(["set-option", "-p", "-t", handle, "@orch_agent_name", name]) === null) throw new Error(`tmux failed to rename agent ${handle}`); } };
-  readonly agentStatus: AgentStatusRole<TmuxHandle> = { wait: (handle, status, timeoutMs) => { if (!this.awaitStatus(handle, status, timeoutMs)) throw new Error(`wait for ${handle} -> "${status}" timed out`); } };
+  readonly agentStatus: AgentStatusRole<TmuxHandle> = { wait: (handle, status, timeoutMs) => { if (!this.awaitStatus(handle, status, timeoutMs)) throw new Error(`wait for ${handle} ${ARROW} "${status}" timed out`); } };
   readonly groupHome: GroupHomeRole<TmuxHandle> = {
     list: () => {
       const byWindow = groupPanesBy(orchPanes(), (pane) => pane.windowId);

@@ -34,6 +34,7 @@ export interface StatusTableOptions {
   /** `--all`: the table may span spaces, so it shows SPACE when the rows do. */
   all: boolean;
   host: boolean;
+  callerId?: string | null;
   human?: boolean;
   /** Columns `--hide` removed. */
   columns: ReadonlySet<string>;
@@ -67,8 +68,9 @@ function environmentCell(row: StatusRow): string {
   return handle;
 }
 
-function localNameCell(row: StatusRow, names: FleetNames, flags: TableFlags): string {
-  const name = row.name ?? (row.warning ? "WARNING" : "");
+function localNameCell(row: StatusRow, names: FleetNames, flags: TableFlags, callerId: string | null, ownsOthers: boolean): string {
+  const baseName = row.name ?? (row.warning ? "WARNING" : "");
+  const name = row.key === callerId ? `${baseName} (you${ownsOthers ? ", orchestrator" : ""})` : baseName;
   return flags.showSpace ? `${formatSpace(row.spaceId, row.spaceId ? names.spaces[row.spaceId] : null)} / ${name}` : name;
 }
 
@@ -84,17 +86,19 @@ function tableContextCell(row: StatusRow): string {
   return row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "";
 }
 
-function tableRow(row: StatusRow, names: FleetNames, flags: TableFlags, host: boolean): string[] {
+function tableRow(row: StatusRow, names: FleetNames, flags: TableFlags, host: boolean, callerId: string | null, ownsOthers: boolean): string[] {
+  const baseName = row.name ?? (row.warning ? "WARNING" : "-");
+  const name = row.key === callerId ? `${baseName} (you${ownsOthers ? ", orchestrator" : ""})` : baseName;
   if (flags.human) {
     return [
-      ...(host ? [row.host ?? "local"] : []), row.name ?? (row.warning ? "WARNING" : "-"),
+      ...(host ? [row.host ?? "local"] : []), name,
       row.agent ?? "-", truncate(row.cwd ?? "-", 30), truncate(row.worktree ?? "-", 24),
       truncate(row.branch ?? "-", 20), formatOwnerCell(row, names), tableStateCell(row, true),
     ];
   }
   const prefix = host
     ? [row.host ?? "local", localIdCell(row), environmentCell(row), localNameCell(row, names, flags)]
-    : [localIdCell(row), environmentCell(row), localNameCell(row, names, flags)];
+    : [localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)];
   return [
     ...prefix, ...tableOptionalCells(row, names, flags), row.tab ?? "-", row.agent ?? "-",
     modelShort(row.model) || "-", tableStateCell(row, true), tableCostCell(row),
@@ -139,11 +143,12 @@ function visibleColumns<T>(cells: readonly T[], headers: readonly string[], colu
   return cells.filter((_, index) => !columns.has((headers[index] ?? "").toLowerCase()));
 }
 
-export function renderStatusTable(fleet: FleetStatus, flags: TableFlags, options: { host: boolean; columns: ReadonlySet<string> }): string {
+export function renderStatusTable(fleet: FleetStatus, flags: TableFlags, options: { host: boolean; columns: ReadonlySet<string>; callerId?: string | null }): string {
   const { names, rows } = fleet;
   if (!rows.length) return "";
   const { headers, caps } = tableColumns(flags, options.host);
-  const cells = rows.map((row) => visibleColumns(tableRow(row, names, flags, options.host), headers, options.columns));
+  const ownsOthers = rows.some((row) => row.owned && row.key !== options.callerId && row.alive && !row.exited);
+  const cells = rows.map((row) => visibleColumns(tableRow(row, names, flags, options.host, options.callerId ?? null, ownsOthers), headers, options.columns));
   const rendered = renderTable(visibleColumns(headers, headers, options.columns), cells, visibleColumns(caps, headers, options.columns)).split("\n");
   const out: string[] = [rendered[0] ?? "", rendered[1] ?? ""];
   for (let index = 0; index < rows.length; index++) {
@@ -151,12 +156,12 @@ export function renderStatusTable(fleet: FleetStatus, flags: TableFlags, options
     out.push(rows[index]?.exited ? (isTTY ? dim(line) : line) : line);
   }
   const shared = sharedOwner(fleet);
-  if (!flags.showOwner && !options.columns.has("owner") && shared !== null) out.push(`owner: ${shared}`);
+  if (!flags.showOwner && !options.columns.has("owner") && shared !== null && !rows.every((row) => row.owned)) out.push(`owner: ${shared}`);
   return out.join("\n");
 }
 
 export function formatStatusTable(fleet: FleetStatus, options: StatusTableOptions): string {
-  return renderStatusTable(fleet, tableFlags(fleet, options.all, options.human === true), { host: options.host, columns: options.columns });
+  return renderStatusTable(fleet, tableFlags(fleet, options.all, options.human === true), { host: options.host, columns: options.columns, callerId: options.callerId });
 }
 
 export function localStatusTable(fleet: FleetStatus, all: boolean): string {

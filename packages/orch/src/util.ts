@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { hostOs } from "./host.ts";
 import { isRecord } from "./json.ts";
 
+export const ARROW = "→";
+
 /** The installed package directory. Resolved through the real path first: the
  *  harness extension bundles are symlinked into `~/.pi/agent/extensions` and the
  *  like, and `import.meta.url` names the link, not the file it points at. */

@@ -4,7 +4,7 @@ import type { FleetNames, FleetStatus } from "../../src/types/daemon.ts";
 /** One complete status row; a test overrides only the facts it is about. */
 export function statusRowFixture(overrides: Partial<StatusRow> = {}): StatusRow {
   return {
-    key: "row", paneId: null, managed: true, name: null, tab: null, agent: null,
+    key: "row", paneId: null, managed: true, owned: true, name: null, tab: null, agent: null,
     lease: null, leaseKnown: true,
     spawnedBy: null, worktree: null, branch: null, cwd: null, focused: false,
     model: "-", state: "unknown", stateFallback: false, exited: false, alive: true,

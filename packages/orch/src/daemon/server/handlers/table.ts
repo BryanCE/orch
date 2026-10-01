@@ -87,7 +87,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     },
     "command-lock": (params) => lockCommand(directory, services.settings.current(), params, publish),
     "command-unlock": (params) => unlockCommand(directory, params),
-    status: () => fleetStatus(state),
+    status: (params) => fleetStatus(state, params.caller),
     attach: (params) => {
       const key = params.key;
       return { attached: true, open: selectOpenOutboxForTarget(directory, key).length };

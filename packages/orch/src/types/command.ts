@@ -199,6 +199,7 @@ export interface StatusRow extends LeaseStatusPayload {
   paneId: string | null;
   /** False for panes orch did not spawn (the orchestrator's own, the user's). */
   managed: boolean;
+  readonly owned: boolean;
   name: string | null;
   tab: string | null;
   agent: string | null;

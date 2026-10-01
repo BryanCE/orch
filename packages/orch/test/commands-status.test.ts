@@ -49,7 +49,7 @@ function composedRow(
   views: Parameters<typeof statusRowFromEntity>[1],
   questionOf: (agentId: string) => string | undefined = () => undefined,
 ): StatusRow {
-  return statusRowFromEntity(entity, views, fleetLeaseFacts(syntheticOrchDir, views), questionOf);
+  return statusRowFromEntity(entity, views, fleetLeaseFacts(syntheticOrchDir, views), questionOf, syntheticOrchDir, null);
 }
 
 describe("commands/status", () => {

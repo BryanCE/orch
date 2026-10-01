@@ -1,7 +1,7 @@
 import type { OrchDir } from "../../types/core.ts";
 import { randomUUID } from "node:crypto";
 import { deliverControl } from "../../control/dispatch.ts";
-import { errorMessage, mapWithLimit } from "../../util.ts";
+import { ARROW, errorMessage, mapWithLimit } from "../../util.ts";
 import {
   claimTask,
   listTasks,
@@ -130,7 +130,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
       await sendPrompt();
       status = await waitForWorking(options, entry, task, dispatchAckTimeoutMs);
     }
-    if (!options.json) process.stdout.write(`Dispatched to ${entry.key} -> status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
+    if (!options.json) process.stdout.write(`Dispatched to ${entry.key} ${ARROW} status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
   } catch (error) {
     log.error("dispatch.failed", { target: entry.key, error: errorMessage(error) });
   }

@@ -1,6 +1,7 @@
-import { recipientOf } from "../entities/lookup.ts";
-import { recipientLabel } from "../recipient.ts";
-import { collapse, errorMessage, isRecord, truncate } from "../util.ts";
+import { ARROW, collapse, errorMessage, isRecord, truncate } from "../util.ts";
+import { writeDelivery, type Delivery } from "./delivery.ts";
+import { resolveEntity, resolveLifecycle, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
+import { renameAgent } from "./lifecycle/rename.ts";
 import { isAgentId } from "../backends/identity.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { modelSpec } from "../policy/thinking.ts";
@@ -10,7 +11,6 @@ import { parseCommand } from "./registry.ts";
 import type { Invocation } from "../cli/spec.ts";
 import { usageError } from "../cli/usage.ts";
 import { die, remoteWrite, resultText, targetHost } from "./target.ts";
-import { resolveEntity, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
 import { readFleet, type FleetSnapshot } from "./fleet.ts";
 import { whoAmI, refuseNonOperatorOverride, type CallerSelf } from "./self.ts";
 import { callerCredential } from "../identity/credential.ts";
@@ -27,7 +27,7 @@ import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
-import type { Entity, Recipient } from "../types/core.ts";
+import type { Entity } from "../types/core.ts";
 import type { AgentView } from "../types/store.ts";
 import { NO_TUNING } from "../policy/tuning.ts";
 
@@ -41,6 +41,7 @@ type DispatchFlags = AgentFlags & {
   /** Send the work onto the session the agent already has, instead of a clean one. */
   keepContext: boolean;
   positional: readonly string[];
+  rename?: string;
 };
 
 interface DispatchSettings {
@@ -103,27 +104,19 @@ export async function cmdSteer(services: Services, args: string[]): Promise<void
   if (forwardTextToHost(hosts, "steer", command)) return;
   const resolved = await resolveDriveTarget(services, self, target, gov);
   const result = await writeRpc(services, "steer", { target: resolved.entity.key, text }, gov);
-  const recipient = recipientOf(resolved.view ?? undefined, resolved.entity.space ?? "space", resolved.entity.key);
-  reportControlDelivery(recipient, "steered", resolved.entity.key, result, json, ` -> ${truncate(collapse(text), 60)}`);
+  const delivery = deliveryResult(result, {
+    target: resolved.entity.key,
+    name: resolved.view?.name ?? resolved.entity.name ?? resolved.entity.key,
+    action: "steer",
+  });
+  writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms, suffix: ` ${ARROW} ${truncate(collapse(text), 60)}` });
 }
 
-function reportControlDelivery(recipient: Recipient, action: "steered" | "answered" | "dispatched", key: string, result: unknown, json: boolean, suffix: string, dispatchAckMs?: number): void {
-  if (!isRecord(result) || (result.ack !== "acknowledged" && result.ack !== "unavailable")) die("Daemon response missing delivery acknowledgement.");
-  const confirmed = result.ack === "acknowledged";
-  if (json) {
-    process.stdout.write(JSON.stringify({ target: key, recipient, [action]: confirmed, ...result }) + "\n");
-    return;
+function deliveryResult(result: unknown, identity: Pick<Delivery, "target" | "name" | "action">): Delivery {
+  if (!isRecord(result) || typeof result.id !== "string" || (result.ack !== "acknowledged" && result.ack !== "unavailable")) {
+    die("Daemon response missing delivery acknowledgement.");
   }
-  if (action === "dispatched") {
-    if (typeof result.id !== "string" || dispatchAckMs === undefined) die("Daemon response missing dispatch acknowledgement details.");
-    const status = confirmed ? "Delivered" : "Queued";
-    const detail = confirmed ? "" : `: no bridge ack within ${dispatchAckMs}ms`;
-    process.stdout.write(`${status} to ${recipientLabel(recipient)} (dispatch ${result.id})${detail}\n`);
-    return;
-  }
-  const verb = confirmed ? (action === "steered" ? "Steered" : "Answered") : "Sent to";
-  const ack = confirmed ? "acknowledged" : "ack unavailable; consumption unconfirmed";
-  process.stdout.write(`${verb} ${recipientLabel(recipient)} (${ack})${suffix}\n`);
+  return { ...identity, id: result.id, ack: result.ack };
 }
 
 export async function cmdBroadcast(services: Services, args: string[]) {
@@ -178,7 +171,7 @@ export async function cmdBroadcast(services: Services, args: string[]) {
       const resolved = resolvedByKey.get(refusal.key);
       const view = resolved?.view ?? fleet?.views.find((entry) => entry.id === refusal.key);
       const space = resolved?.entity.space ?? view?.environment.space ?? "space";
-      process.stdout.write(`  refused ${recipientLabel(recipientOf(view, space, refusal.key))}: ${refusal.reason}\n`);
+      process.stdout.write(`  refused ${view?.name ?? refusal.key}: ${refusal.reason}\n`);
     }
   }
   if (delivered === 0) process.exitCode = 1;
@@ -205,9 +198,13 @@ export async function cmdPipe(services: Services, args: string[]) {
   const destination = resolvedDestination.entity;
   if (!destination.presence) die(`Target "${dst}" has no agent dir.`);
   const text = `[piped from ${source.presence.key}] ${instruction ? instruction + "\n" : ""}${resultTextValue}`;
-  await writeRpc(services, "steer", { target: destination.presence.key, text });
-  if (json) process.stdout.write(JSON.stringify({ source: source.presence.key, destination: destination.presence.key, piped: true }) + "\n");
-  else process.stdout.write(`Piped ${source.presence.key} -> ${destination.presence.key}.\n`);
+  const result = await writeRpc(services, "steer", { target: destination.presence.key, text });
+  const delivery = deliveryResult(result, {
+    target: destination.presence.key,
+    name: destination.name ?? destination.presence.key,
+    action: "pipe",
+  });
+  writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms, suffix: ` from ${source.name ?? source.presence.key}` });
 }
 
 export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
@@ -221,8 +218,12 @@ export async function cmdAnswer(services: Services, args: string[]): Promise<voi
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
   // the CLI never invokes the adapter's answer strategy directly.
   const result = await writeRpc(services, "answer", { target: resolved.entity.presence.key, text }, gov);
-  const recipient = recipientOf(resolved.view ?? undefined, resolved.entity.space ?? "space", resolved.entity.key);
-  reportControlDelivery(recipient, "answered", resolved.entity.presence.key, result, json, ".");
+  const delivery = deliveryResult(result, {
+    target: resolved.entity.presence.key,
+    name: resolved.view?.name ?? resolved.entity.name ?? resolved.entity.key,
+    action: "answer",
+  });
+  writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms });
 }
 
 export async function cmdModel(services: Services, args: string[]): Promise<void> {
@@ -245,11 +246,10 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
   // spec this command reports back is the one the agent was actually pinned to.
   const spec = modelSpec(admitLaunchModel(services.settings.current(), adapter.id, services.models, tuning.model), tuning.thinking);
   const result = await setAgentModel(services, ent.key, spec, gov);
-  const recipient = recipientOf(resolved.view ?? undefined, ent.space ?? "space", ent.key);
-  const label = recipientLabel(recipient);
+  const label = resolved.view?.name ?? ent.name ?? ent.key;
   if (json) process.stdout.write(JSON.stringify({ target: handle, recipient, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`${label}: already ${modelArg} (no-op)\n`);
-  else process.stdout.write(`${label}: ${result.old ?? "(unknown)"} -> ${result.now} (accepted)\n`);
+  else process.stdout.write(`${label}: ${result.old ?? "(unknown)"} ${ARROW} ${result.now} (accepted)\n`);
 }
 
 /** Retarget an agent's model. Throws with the agent's own reason when it refuses —
@@ -338,6 +338,14 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const settings = services.settings.current();
   if (forwardedToTargetHost(settings.hosts, args, flags.positional[0])) return;
   const dispatchSettings = await resolveDispatchSettings(services, self, invocation, flags, gov);
+  if (flags.rename !== undefined) {
+    const oldName = dispatchSettings.view?.name ?? dispatchSettings.ent.name ?? dispatchSettings.ent.key;
+    const lifecycle = await resolveLifecycle(services, dispatchSettings.ent.key);
+    const outcome = await renameAgent(services, lifecycle.backend, lifecycle.handle, lifecycle.key, flags.rename, lifecycle.view);
+    if (!outcome) die(`Could not rename ${lifecycle.key}.`);
+    dispatchSettings.ent.name = flags.rename;
+    process.stdout.write(`Renamed ${oldName} ${ARROW} ${flags.rename}${outcome.chrome === "failed" ? " (pane border NOT updated)" : ""}.\n`);
+  }
   // Address the daemon by the one canonical identity, never the handle: a second
   // registry row keyed by handle forks the agent and makes every later control
   // target ambiguous (dispatch/steer/reset all fail post-first-run).
@@ -359,8 +367,12 @@ export async function cmdDispatch(services: Services, args: string[]) {
   if (dispatchSettings.view === null) await recordAdoptedAgent(services, self, key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the agent runs the prompt this command sent, not some other delivery.
-  const recipient = recipientOf(dispatchSettings.view ?? undefined, dispatchSettings.ent.space ?? "space", key);
-  reportControlDelivery(recipient, "dispatched", key, result, dispatchSettings.json, "", settings.timeouts.dispatch_ack_ms);
+  const delivery = deliveryResult(result, {
+    target: key,
+    name: dispatchSettings.ent.name ?? key,
+    action: "dispatch",
+  });
+  writeDelivery(delivery, { json: dispatchSettings.json, ackMs: settings.timeouts.dispatch_ack_ms });
 }
 
 /** The dispatch spec's flags as the resolvers read them. Exported for tests. */
@@ -375,6 +387,8 @@ export function dispatchFlags({ flags, positional }: Invocation): DispatchFlags 
   };
   const promptFile = flags.value("--file");
   if (promptFile !== undefined) read.promptFile = promptFile;
+  const rename = flags.value("--rename");
+  if (rename !== undefined) read.rename = rename;
   return read;
 }
 

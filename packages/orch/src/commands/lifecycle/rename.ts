@@ -1,6 +1,6 @@
 import { isAgentId } from "../../backends/identity.ts";
 import { assertNameFree } from "../../policy/name.ts";
-import { errorMessage } from "../../util.ts";
+import { ARROW, errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
 import { readFleet } from "../fleet.ts";
 import { admissionFleet } from "../spawn/admission.ts";
@@ -104,6 +104,6 @@ export async function cmdRename(services: Services, args: string[]): Promise<voi
     }) + "\n");
   } else {
     const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
-    process.stdout.write(`${describeHandle(handle)} -> ${paneLabel ? "pane label" : "named"} "${name}"${chrome}.\n`);
+    process.stdout.write(`${describeHandle(handle)} ${ARROW} ${paneLabel ? "pane label" : "named"} "${name}"${chrome}.\n`);
   }
 }

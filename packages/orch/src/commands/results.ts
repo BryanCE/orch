@@ -1,6 +1,6 @@
 import { isAgentId } from "../backends/identity.ts";
 import { spaceOf } from "../policy/space.ts";
-import { collapse, isRecord, truncate } from "../util.ts";
+import { ARROW, collapse, isRecord, truncate } from "../util.ts";
 import { renderTable } from "../table.ts";
 import { runRemoteAsync, runSSH } from "../remote.ts";
 import { die, remoteCommandArgs, resultText, targetHost } from "./target.ts";
@@ -334,7 +334,7 @@ function renderViewEntry(entry: SessionViewEntry): string | undefined {
     return undefined;
   }
   const mark = entry.isError ? " [err]" : "";
-  return `${time} tool      | ${entry.tool ?? "tool"}${mark} -> ${truncate(collapse(entry.text ?? ""), 120)}`;
+  return `${time} tool      | ${entry.tool ?? "tool"}${mark} ${ARROW} ${truncate(collapse(entry.text ?? ""), 120)}`;
 }
 
 /** The last-N rendered per-turn rows of a session view, or the "(no entries)" marker. */

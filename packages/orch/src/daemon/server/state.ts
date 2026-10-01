@@ -129,10 +129,10 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
 
 /** The fleet as the daemon sees it, in orch's one status-row shape. Serving a reduced
  *  second shape here is what left the method unusable and every client reading files. */
-export function fleetStatus(state: DaemonState): FleetStatus {
+export function fleetStatus(state: DaemonState, caller: string | null): FleetStatus {
   const directory = state.directory;
   const facts = fleetLeaseFacts(directory, agentViewIndex(directory));
-  const fleet = buildFleetStatus(state.services.settings.current(), { directory, leaseFacts: facts });
+  const fleet = buildFleetStatus(state.services.settings.current(), { directory, leaseFacts: facts, caller });
   return { names: fleet.names, rows: fleet.rows.map((row) => ({ ...row, bridgeAttached: bridgeAttached(row.key) })) };
 }
 

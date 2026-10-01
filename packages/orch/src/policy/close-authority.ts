@@ -15,14 +15,15 @@ export function callerAuthority(self: SelfIdentity | null): CloseAuthority {
  * `null` when the caller may end this agent; otherwise the refusal to print.
  * A refusal names the owner so the caller knows who to ask.
  */
+export function ownsAgent(orchDir: OrchDir, ownerId: string, agentId: string): boolean {
+  return ownerId === agentId
+    || isDescendantOf((id) => agentView(orchDir, id), agentId, ownerId)
+    || holdsLease(orchDir, agentId, ownerId);
+}
+
 export function refuseClose(orchDir: OrchDir, authority: CloseAuthority, agentId: string): string | null {
   if (authority.kind === "human") return null;
-  // Acting on yourself is not driving anyone else's fleet.
-  if (authority.agentId === agentId) return null;
-  // Spawning an agent is owning it, at any depth.
-  if (isDescendantOf((id) => agentView(orchDir, id), agentId, authority.agentId)) return null;
-  // Adopting an agent is owning it.
-  if (holdsLease(orchDir, agentId, authority.agentId)) return null;
+  if (ownsAgent(orchDir, authority.agentId, agentId)) return null;
   const view = agentView(orchDir, agentId);
   const name = view?.name ?? agentId;
   const owner = view?.spawnedByName ?? view?.spawnedBy;

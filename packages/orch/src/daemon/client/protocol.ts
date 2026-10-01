@@ -260,7 +260,7 @@ export const RPC_PARAMS = {
     opts: z.custom<TaskOptions>(isTaskOptions),
     scope: z.object({ agentId: nonBlank.optional(), packId: nonBlank.optional(), spaceId: nonBlank.optional() }),
   }),
-  status: z.undefined(),
+  status: z.object({ caller: z.string().nullable() }),
   attach: z.object({ key: nonBlank }),
   dispatch: GOVERNANCE.extend({ target: nonBlank, text: nonBlank }),
   steer: GOVERNANCE.extend({ target: nonBlank, text: nonBlank }),

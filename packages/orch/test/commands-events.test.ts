@@ -150,7 +150,7 @@ describe("commands/events", () => {
     const line = renderEvent({ type: "message", key: "agent", space: "wF", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "dispatch-message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4);
     expect(line).toEndWith(mail);
     expect(line.split("[from worker").length).toBe(2);
-    expect(line).not.toContain("message->message");
+    expect(line).not.toContain("message→message");
   });
 
   test("an agent in no space gets no empty bracket on its line", () => {
@@ -162,7 +162,7 @@ describe("commands/events", () => {
   test("an event line says what happened, never the fleet's books", () => {
     const event: NotifyEvent = { type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now" };
     const line = renderEvent(event, false, 4);
-    expect(line).toEndWith("working->done");
+    expect(line).toEndWith("working→done");
     expect(line).not.toContain("pack");
     expect(line).not.toContain("$");
   });

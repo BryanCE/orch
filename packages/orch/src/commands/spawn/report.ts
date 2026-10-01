@@ -4,6 +4,7 @@ import { workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { readGroupLayout } from "../../backends/tiling.ts";
 import { dispatchToAgent } from "../control.ts";
+import { writeDelivery } from "../delivery.ts";
 import { errorMessage, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/client/reach.ts";
 import type { CallerSelf } from "../self.ts";
@@ -36,7 +37,7 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
   while (pending.size && Date.now() < deadline) {
     let answer: ResultOf<"status"> | null = null;
     try {
-      answer = await rpcCall(orchDir, "status", undefined);
+      answer = await rpcCall(orchDir, "status", { caller: null });
     } catch {
       // The daemon may be briefly unavailable while a bridge starts; keep polling until the deadline.
     }
@@ -45,7 +46,7 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
       if (keys.has(key)) {
         pending.delete(key);
         attached.set(key, agent);
-        if (!json) process.stdout.write(`ok      ${agent.handle}  ${agent.name}\n`);
+        if (!json) process.stdout.write(`Spawned ${agent.name}\n`);
       }
     }
     if (pending.size) await sleep(timeouts.spawn_attach_poll_ms);
@@ -132,20 +133,22 @@ function buildSpawnPinEntries(registeredAgents: readonly CreatedAgent[] | null, 
 /** Hand every launch prompt to orchd. The outbox holds a write whose bridge is not
  *  attached yet and re-pushes it on attach, so a stalled agent still gets its prompt:
  *  skipping it here is what turned a slow attach into a dropped dispatch. */
-async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[]): Promise<{ name: string; key: string; dispatchId: string }[]> {
-  const dispatches: { name: string; key: string; dispatchId: string }[] = [];
+async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[]): Promise<{ name: string; key: string; id: string; ack: "acknowledged" | "unavailable" }[]> {
+  const dispatches: { name: string; key: string; id: string; ack: "acknowledged" | "unavailable" }[] = [];
   const maySpawn = maySpawnBelow(self, settingsFile.fleet.max_depth);
   for (const [index, agent] of created.entries()) {
     const text = settings.agents[index]?.prompt;
     if (text === undefined || text === null) continue;
     try {
-      const { id: dispatchId, ack } = await dispatchToAgent(services, logger, agent.key, text, {
+      const { id, ack } = await dispatchToAgent(services, logger, agent.key, text, {
         adapter: resolveAdapterOrDie(settings.adapter),
         context: { maySpawn, cwd: settings.cwd, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
       });
-      dispatches.push({ name: agent.name, key: agent.key, dispatchId });
-      const verb = ack === "acknowledged" ? "dispatched" : "queued";
-      if (!settings.json) process.stdout.write(`${verb} ${agent.name} ${dispatchId}\n`);
+      dispatches.push({ name: agent.name, key: agent.key, id, ack });
+      if (!settings.json) writeDelivery({ target: agent.key, name: agent.name, action: "dispatch", id, ack }, {
+        json: false,
+        ackMs: settingsFile.timeouts.dispatch_ack_ms,
+      });
     } catch (error: unknown) {
       const message = errorMessage(error);
       spawnLogger(logger, agent.key).error("spawn.dispatch-failed", { name: agent.name, error: message });

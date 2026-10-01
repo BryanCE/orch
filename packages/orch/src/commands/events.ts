@@ -24,6 +24,7 @@ import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts"
 import type { PendingQuestionView } from "../types/daemon.ts";
 import type { AgentView } from "../types/store.ts";
 import { isAgentState, type AgentState } from "../agent-state.ts";
+import { ARROW } from "../util.ts";
 
 /** The verbs that hold a stream open; `close --stream` kills any of them. */
 export const STREAM_VERBS = ["events", "monitor"] as const;
@@ -326,11 +327,11 @@ function renderEventLine(event: NotifyEvent, coordinate: string | null): string 
 function eventStateChange(event: Exclude<NotifyEvent, { type: "message" }>): string {
   switch (event.type) {
     case "asking":
-      return `${event.oldState}->asking (asked ${event.askCount}x${event.gaveUp ? "; gave up" : ""})`;
+      return `${event.oldState}${ARROW}asking (asked ${event.askCount}x${event.gaveUp ? "; gave up" : ""})`;
     case "transition":
     case "closed":
     case "task":
-      return `${event.oldState}->${event.newState}`;
+      return `${event.oldState}${ARROW}${event.newState}`;
     default: {
       const exhaustive: never = event;
       return exhaustive;

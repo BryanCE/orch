@@ -373,7 +373,7 @@ describe("commands/results", () => {
     expect(joined).toContain("user      | first task");
     expect(joined).toContain("assistant | working on it");
     expect(joined).toContain("assistant | [tools] bash(ls -la)");
-    expect(joined).toContain("tool      | bash -> file listing");
+    expect(joined).toContain("tool      | bash → file listing");
     expect(joined).toContain("assistant | final answer");
   });
 

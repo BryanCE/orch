@@ -41,7 +41,7 @@ describe("status rendering has one row shape and one table renderer", () => {
   test("task and last text use the same spelling in the row and table cell", () => {
     const directory = tempOrchDir("orch-status-row-shape-");
     tempDirs.push(directory);
-    const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), fleetLeaseFacts(directory, new Map()), () => undefined);
+    const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), fleetLeaseFacts(directory, new Map()), () => undefined, directory, null);
     const table = renderStatusTable(fleetFixture([statusRow]), { showSpace: false, showOwner: false, showBranch: false }, { host: false, columns: new Set() });
     expect(statusRow.task).toBe("Q: approve");
     expect(table).toContain("Q: approve");
@@ -68,7 +68,7 @@ describe("status rendering has one row shape and one table renderer", () => {
       seedStatus(root, key, { agent: "pi", state: "idle" });
     }
     const settings = testServices({ orchDir: root, settings: {} }).settings.current();
-    const fleet = buildFleetStatus(settings, { directory: root });
+    const fleet = buildFleetStatus(settings, { directory: root, caller: null });
     expect(fleet.rows).toHaveLength(3);
     expect(fleet.names).toEqual({
       agents: { fleet00001: "fleet00001", fleet00002: "fleet00002", fleet00003: "fleet00003" },

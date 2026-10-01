@@ -1,4 +1,5 @@
 import { dim } from "../tui/screen.ts";
+import { ARROW } from "../util.ts";
 import { displaySetting, displayValue } from "./display.ts";
 import { repairChoicesFor } from "./repair.ts";
 import type { EditorSetting, RepairChoice, SettingsDefect } from "../types/settings.ts";
@@ -181,7 +182,7 @@ const REPAIR_KEYBAR = "up/down move | r rename | s set | d drop | l leave | ente
 
 /** What one standing choice will do to the file, in the words of the thing it does. */
 export function repairActionLabel(defect: SettingsDefect, choice: RepairChoice): string {
-  if (choice === "rename") return `rename -> ${defect.suggestion ?? ""}`;
+  if (choice === "rename") return `rename ${ARROW} ${defect.suggestion ?? ""}`;
   if (choice === "set") return `set ${displayValue(defect.expected)}`;
   if (choice === "drop") return "drop";
   return "leave";

@@ -11,7 +11,7 @@ import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { ORCH_DING_BIN } from "../notify/ding.ts";
 import { withSpinner } from "./io.ts";
 import { chooseInstalls } from "./wizard.ts";
-import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
+import { ARROW, binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
 import type { Logger } from "../types/core.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
@@ -84,7 +84,7 @@ function linkBin(src: string, dest: string, copy: boolean): void {
   files.mkdirSync(path.dirname(dest), { recursive: true });
   files.rmSync(dest, { recursive: true, force: true });
   const wired = copy ? copyBin(src, dest) : symlinkOrCopyBin(src, dest);
-  process.stdout.write(`  ${dest} ${wired === "copy" ? "(copy)" : "-> " + src}\n`);
+  process.stdout.write(`  ${dest} ${wired === "copy" ? "(copy)" : ARROW + " " + src}\n`);
 }
 
 interface MissingPrerequisite { bin: string; cmd: string }

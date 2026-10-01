@@ -4,13 +4,14 @@ import { rpcRegisterSession } from "../daemon/client/reach.ts";
 import { announceUnleasedAgents } from "../daemon/client/registration.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { die } from "../refusal.ts";
+import type { CallerCredential } from "../types/core.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { DaemonClient, Services } from "../types/services.ts";
 
 export type CallerSelf = ResultOf<"self">;
 
-export function whoAmI(services: DaemonClient): Promise<CallerSelf> {
-  return readRpc(services, "self", { caller: callerCredential() });
+export function whoAmI(services: DaemonClient, caller: CallerCredential = callerCredential()): Promise<CallerSelf> {
+  return readRpc(services, "self", { caller });
 }
 
 /** Register a driving session when orchd has no identity row for it, and print its unleased list.

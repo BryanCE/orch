@@ -40,6 +40,20 @@ const CALLER = z.object({
   process: z.object({ pid: z.number().int(), startToken: z.string().nullable() }),
 }) satisfies z.ZodType<CallerCredential>;
 
+/** What orchd stored when it registered the caller's row: the process it keys
+ *  liveness and token-less identity on, and the session token it matches. */
+const STORED_IDENTITY = z.object({
+  process: z.object({
+    pid: z.number().int(),
+    startToken: z.string().nullable(),
+    since: z.number(),
+    host: z.object({ id: z.string(), name: z.string(), os: z.enum(HOST_OS_VALUES) }).nullable(),
+    alive: z.boolean(),
+  }).nullable(),
+  sessionToken: z.string().nullable(),
+  claimedAt: z.number().nullable(),
+});
+
 /** Fields on every governed write. `callDaemon` sends `caller`; orchd stamps the actor fields from it before the handler runs (`stampGovernance`); `governWrite` reads them. */
 const GOVERNANCE = z.object({
   caller: CALLER.optional(),
@@ -411,7 +425,7 @@ export const RPC_RESULTS = {
   "agent-status": z.object({ status: AGENT_STATUS_ROW.nullable() }),
   "process-live": z.object({ live: z.boolean() }),
   "resolve-target": z.object({ entity: ENTITY, view: AGENT_VIEW.nullable(), holder: z.string().nullable(), callerOwns: z.boolean() }),
-  self: z.object({ id: z.string().nullable(), kind: z.enum(["operator", "session", "agent"]), space: z.string().nullable(), view: AGENT_VIEW.nullable(), depth: z.number().int().nonnegative() }),
+  self: z.object({ id: z.string().nullable(), kind: z.enum(["operator", "session", "agent"]), space: z.string().nullable(), view: AGENT_VIEW.nullable(), depth: z.number().int().nonnegative(), stored: STORED_IDENTITY.nullable() }),
   "resolve-lifecycle": z.object({ entity: ENTITY, key: z.string(), view: AGENT_VIEW.nullable(), backendId: z.string().nullable(), handle: z.string(), holder: z.string().nullable(), callerOwns: z.boolean() }),
   "close-targets": z.object({ targets: z.array(CLOSE_TARGET), refusal: z.string().nullable() }),
   "owned-agents": z.object({ keys: z.array(z.string()) }),

@@ -28,7 +28,7 @@ function daemonWithSpawner(directory: OrchDir, key: string, name: string) {
   daemon.ask = askFrom({
     "peer-view": (params) => peerView(directory, params.ownKey, params.keys ?? [], params.allSpaces === true, params.projectRoot),
     self: () => ({
-      id: "worker0001", kind: "agent", space: null, depth: 1,
+      id: "worker0001", kind: "agent", space: null, depth: 1, stored: null,
       view: {
         id: "worker0001", name: "worker", label: "worker", harnessId: "pi", cwd: "/w", createdAt: 1,
         spawnedBy: key, spawnedByName: name, rootAgentId: key, heldBy: null,
@@ -246,7 +246,7 @@ describe("peer identity in messaging", () => {
     daemon.ask = askFrom({
       "peer-view": (params) => peerView(orchDir, params.ownKey, params.keys?.length ? params.keys : ["session777"], params.allSpaces === true, params.projectRoot),
       self: () => ({
-        id: ownKey, kind: "agent", space: null, depth: 1,
+        id: ownKey, kind: "agent", space: null, depth: 1, stored: null,
         view: {
           id: ownKey, name: "worker", label: null, harnessId: "pi", cwd: "/w", createdAt: 1,
           spawnedBy: "session777", spawnedByName: "pi session", rootAgentId: "session777", heldBy: null,

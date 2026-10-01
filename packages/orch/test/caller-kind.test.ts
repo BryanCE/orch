@@ -1,4 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
+import { hostname } from "node:os";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/backends/identity.ts";
@@ -103,6 +104,24 @@ describe("caller kind", () => {
     const self = await whoAmI(services);
     expect(self.kind).toBe("session");
     expect(self.id).toBe(agentIdBySessionToken(directory, "fresh-session"));
+  });
+
+  test("self answers with the process and token orchd stored at registration", async () => {
+    isolateOrchEnv();
+    restoreHarnessSession = isolateHarnessSession("pi");
+    const directory = tempOrchDir("orch-caller-stored-");
+    directories.push(directory);
+    process.env.ORCH_DIR = directory;
+    process.env[sessionEnv.marker] = "1";
+    process.env[sessionEnv.sessionId] = "stored-session";
+    const services = await servedServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
+    await registerCallerSession(services);
+    const self = await whoAmI(services);
+    expect(self.stored).toMatchObject({
+      process: { pid: process.ppid, host: { name: hostname() }, alive: true },
+      sessionToken: "stored-session",
+      claimedAt: null,
+    });
   });
 
   test("override flags are allowed only for the operator", () => {

@@ -118,7 +118,7 @@ describe("spawn policy caps", () => {
   });
   describe("worker prompt depth", () => {
     test("root worker maySpawn follows max_depth", () => {
-      const self: ResultOf<"self"> = { id: "root", kind: "agent", space: null, view: null, depth: 0 };
+      const self: ResultOf<"self"> = { id: "root", kind: "agent", space: null, view: null, depth: 0, stored: null };
       expect(maySpawnBelow(self, 1)).toBe(false);
       expect(maySpawnBelow(self, 2)).toBe(true);
     });

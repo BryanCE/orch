@@ -9,6 +9,7 @@ import { currentProcess, recordProcessIn, setAgentPlexer, setHandle, setSpace } 
 import { closeOutboxForTarget } from "./outbox-rows.ts";
 import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
 import type { HostOs } from "../types/host.ts";
+import { isHostOs } from "../host.ts";
 
 /** An agent joined to the ending it may not have. The join is left, so `ending`
  *  is null for every live agent and carries the instant for a closed one. */
@@ -290,6 +291,14 @@ export function ensurePlexer(orchDir: OrchDir, id: string, name: string, enabled
 }
 export function ensureHost(orchDir: OrchDir, id: string, name: string, os: HostOs, createdAt: number): void {
   orm(orchDir).insert(hosts).values({ id, name, os, createdAt }).onConflictDoNothing().run();
+}
+
+/** One registered host. The `hosts_os` check holds `os` to the known values; a row that breaks it is refused. */
+export function hostById(orchDir: OrchDir, id: string): { id: string; name: string; os: HostOs } | null {
+  const row = orm(orchDir).select().from(hosts).where(eq(hosts.id, id)).get();
+  if (!row) return null;
+  if (!isHostOs(row.os)) throw new Error(`host ${id} has an unknown os ${row.os}`);
+  return { id: row.id, name: row.name, os: row.os };
 }
 
 /** Record the currently installed version for one host/plexer pair. Upgrading

@@ -56,6 +56,7 @@ const OBSERVE: readonly CommandSpec[] = [
       { name: "--live", arity: "none", help: "Full-screen table redrawn on every daemon event. TTY only; q or esc quits." },
     ],
   },
+  { name: "whoami", section: "observe", summary: "Who orch sees as the caller in this terminal. Registers nothing.", flags: [] },
   { name: "monitor", section: "observe", summary: "Push stream of the states an orch acts on. Arm it as a Monitor.", flags: STREAM_FLAGS },
   { name: "events", section: "observe", summary: "Every state transition, mid-turn flips included.", flags: STREAM_FLAGS },
   {

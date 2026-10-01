@@ -23,6 +23,7 @@ help disagree, help is right.
 | Tabs and panes for a script | `orch help tab`, `orch help pane` |
 | A setting name, mail routing, notifications | `orch help settings` |
 | What a target is | `orch help help` |
+| Who orch thinks you are, a refusal that names the wrong owner | `orch help whoami` |
 
 ## Steering and layout
 

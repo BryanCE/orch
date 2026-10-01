@@ -26,6 +26,7 @@ import { cmdSettings } from "./settings.ts";
 import { cmdModels } from "./models.ts";
 import { cmdDoctor } from "./doctor.ts";
 import { cmdDetach, cmdAdopt, cmdReap } from "./lease.ts";
+import { cmdWhoami } from "./whoami.ts";
 import { COMMANDS, GLOBAL_FLAGS, commandSpec } from "./registry.ts";
 import { renderMap, renderTopic } from "../cli/help.ts";
 import { readHelpDoc } from "../cli/doc.ts";
@@ -118,6 +119,7 @@ export const commandHandlers: Record<string, Handler> = {
   logs: cmdLogs,
   notify: cmdNotify,
   questions: cmdQuestions,
+  whoami: cmdWhoami,
   runs: cmdRuns,
   queue: cmdQueue,
   daemon: cmdDaemon,

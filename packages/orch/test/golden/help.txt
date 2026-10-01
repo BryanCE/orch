@@ -3,6 +3,7 @@ orch - the single controller for coding agents, in any plexer.
 
 OBSERVE
   orch status [flags]                           Fleet table with cost and context. The default command.
+  orch whoami                                   Who orch sees as the caller in this terminal. Registers nothing.
   orch monitor [flags]                          Push stream of the states an orch acts on. Arm it as a Monitor.
   orch events [flags]                           Every state transition, mid-turn flips included.
   orch questions [flags]                        Agents blocked on a question.

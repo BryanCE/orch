@@ -97,7 +97,7 @@ async function captureStdoutAsync(run: () => Promise<void>): Promise<string> {
 async function withQuestionsServer(root: OrchDir, questions: PendingQuestionView[], run: () => Promise<void>): Promise<void> {
   const server = await startRpcServer(root, stubRpcHandlers({
     questions: () => ({ questions }),
-    self: () => ({ id: null, kind: "operator", space: null, view: null, depth: 0 }),
+    self: () => ({ id: null, kind: "operator", space: null, view: null, depth: 0, stored: null }),
   }), { logger: recordingLogger().logger });
   try { await run(); } finally { await server.close(); }
 }

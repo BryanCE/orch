@@ -1,5 +1,3 @@
-import type { Recipient } from "../types/core.ts";
-import { abstractAgentLabel } from "../notify/format.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 
@@ -24,18 +22,3 @@ export function indexPresenceById(presence: Iterable<PresenceEntry>): Map<string
   return byId;
 }
 
-function recipientName(view: AgentView | undefined, space: string, key: string): string {
-  return view?.label ?? view?.name ?? abstractAgentLabel(space, key);
-}
-
-export function recipientOf(view: AgentView | undefined, space: string, key: string): Recipient {
-  return {
-    name: recipientName(view, space, key),
-    // The harness is the agent's own, never the plexer it happens to sit in.
-    harness: view?.harnessId ?? null,
-    multiplexer: view?.environment.plexer ?? null,
-    // A missing handle is a missing shortcut, not an unreachable agent: orch's
-    // own link is addressed by the key either way.
-    transportId: view?.environment.handle ?? key,
-  };
-}

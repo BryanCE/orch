@@ -391,7 +391,7 @@ async function phaseDaemonStatus(fleet: Fleet, options: BenchOptions): Promise<P
 
 async function phaseFleetStatus(fleet: Fleet, options: BenchOptions): Promise<PhaseResult> {
   return runPhase("rpc status (fleet rows)", options, async () => {
-    await rpcCall(fleet.orchDir, "status", undefined, RPC_TIMEOUT_MS);
+    await rpcCall(fleet.orchDir, "status", { caller: null }, RPC_TIMEOUT_MS);
   });
 }
 

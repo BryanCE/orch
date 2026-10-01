@@ -2,6 +2,7 @@ import type { OrchDir } from "../../types/core.ts";
 import { randomUUID } from "node:crypto";
 import { deliverControl } from "../../control/dispatch.ts";
 import { ARROW, errorMessage, mapWithLimit } from "../../util.ts";
+import { writeDelivery } from "../../commands/delivery.ts";
 import {
   claimTask,
   listTasks,
@@ -130,7 +131,17 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
       await sendPrompt();
       status = await waitForWorking(options, entry, task, dispatchAckTimeoutMs);
     }
-    if (!options.json) process.stdout.write(`Dispatched to ${entry.key} ${ARROW} status: ${status ?? "unknown"}${retried ? " (retried)" : ""}\n`);
+    writeDelivery({
+      target: entry.key,
+      name: agentView(orchDir, entry.key)?.name ?? entry.key,
+      action: "task",
+      id: task.id,
+      ack: status === "working" ? "acknowledged" : "unavailable",
+    }, {
+      json: options.json === true,
+      ackMs: dispatchAckTimeoutMs,
+      suffix: ` ${ARROW} status: ${status ?? "unknown"}${retried ? " (retried)" : ""}`,
+    });
   } catch (error) {
     log.error("dispatch.failed", { target: entry.key, error: errorMessage(error) });
   }

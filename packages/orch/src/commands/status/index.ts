@@ -2,7 +2,7 @@ import { computeFleetCapacity, formatCapacityLine } from "../../policy/capacity.
 import { registerCallerSession, whoAmI, refuseNonOperatorOverride } from "../self.ts";
 import { ensureDaemonOrWarn } from "../../daemon/client/reach.ts";
 import { readRpc } from "../daemon.ts";
-import { filterRowKeys, formatNoRowsMessage, callerScope } from "./options.ts";
+import { filterRowKeys, formatNoRowsMessage, callerScope, ownsLiveWorker } from "./options.ts";
 import type { CallerScope, StatusOptions } from "./options.ts";
 import { readStatusResult, resolveStatusAgent } from "./fetch.ts";
 import { formatStatusTable } from "./table.ts";
@@ -59,11 +59,11 @@ export async function cmdStatus(services: Services, options: StatusOptions): Pro
   if (settings !== null) {
     footer = (await capacityLine(services, orchId, settings, options.offline)).line;
   }
-  if (!result.rows.length) {
-    process.stdout.write(formatNoRowsMessage(result));
+  if ((options.agent === undefined && !options.all && !ownsLiveWorker(result.rows, caller.id)) || result.rows.length === 0) {
+    process.stdout.write(formatNoRowsMessage({ otherLive: result.otherLive }));
     if (footer !== null) process.stdout.write(footer + "\n");
     return;
   }
-  process.stdout.write(formatStatusTable(result, { all: options.all, host: result.host, human: options.human, columns: options.hide.columns }) + "\n");
+  process.stdout.write(formatStatusTable(result, { all: options.all, host: result.host, callerId: caller.id, human: options.human, columns: options.hide.columns }) + "\n");
   if (footer !== null) process.stdout.write(footer + "\n");
 }

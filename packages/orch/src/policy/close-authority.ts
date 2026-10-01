@@ -11,16 +11,17 @@ export function callerAuthority(self: SelfIdentity | null): CloseAuthority {
   return self === null ? { kind: "human" } : { kind: "agent", agentId: self.id };
 }
 
-/**
- * `null` when the caller may end this agent; otherwise the refusal to print.
- * A refusal names the owner so the caller knows who to ask.
- */
+/** Whether ownerId owns agentId: itself, a provenance descendant at any depth, or an agent it holds an open lease on. */
 export function ownsAgent(orchDir: OrchDir, ownerId: string, agentId: string): boolean {
   return ownerId === agentId
     || isDescendantOf((id) => agentView(orchDir, id), agentId, ownerId)
     || holdsLease(orchDir, agentId, ownerId);
 }
 
+/**
+ * `null` when the caller may end this agent; otherwise the refusal to print.
+ * A refusal names the owner so the caller knows who to ask.
+ */
 export function refuseClose(orchDir: OrchDir, authority: CloseAuthority, agentId: string): string | null {
   if (authority.kind === "human") return null;
   if (ownsAgent(orchDir, authority.agentId, agentId)) return null;

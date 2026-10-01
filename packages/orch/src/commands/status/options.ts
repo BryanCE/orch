@@ -6,6 +6,7 @@ import type { CommandAt } from "../../cli/usage.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { CallerKind } from "../../types/policy.ts";
+import { term } from "../../policy/vocabulary.ts";
 
 export const isTTY = process.stdout.isTTY;
 
@@ -66,8 +67,19 @@ export function scopeFleetRows(rows: readonly StatusRow[], opts: FleetScope): St
   }).sort((left, right) => Number(right.key === caller.id) - Number(left.key === caller.id));
 }
 
+export function ownsLiveWorker(rows: readonly StatusRow[], callerId: string | null): boolean {
+  return rows.some((row) => row.owned && row.key !== callerId && row.alive && !row.exited);
+}
+
+export function callerNameLabel(name: string, row: StatusRow, callerId: string | null, ownsOthers: boolean): string {
+  return row.key === callerId ? `${name} (you${ownsOthers ? `, ${term("orch")}` : ""})` : name;
+}
+
 export function formatNoRowsMessage(info: { otherLive: number }): string {
-  return `you hold 0; ${info.otherLive} live agents belong to other orchestrators\n`;
+  const singular = info.otherLive === 1;
+  const noun = singular ? "live agent" : "live agents";
+  const verb = singular ? "belongs" : "belong";
+  return `you hold 0; ${info.otherLive} ${noun} ${verb} to other ${term("orch")}s\n`;
 }
 
 export function displayStatusState(row: Pick<StatusRow, "state" | "alive" | "exited">): string {

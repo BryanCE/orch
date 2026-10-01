@@ -30,6 +30,7 @@ const servers: RpcServer[] = [];
 function row(key: string, holderId: string | null, spaceId = "space"): StatusRow {
   return statusRowFixture({
     key, agentId: key, name: key, agent: "pi", spawnedBy: "different-provenance",
+    owned: holderId === "session-a",
     lease: holderId === null ? null : { holderId, holderAlive: true },
     model: "pi/model", state: "working", spaceId,
   });
@@ -43,14 +44,14 @@ function services(root: OrchDir) {
 }
 
 describe("session agent visibility", () => {
-  test("shows only agents held by the current session, not its provenance children", () => {
+  test("shows the rows marked owned by the current session", () => {
     const rows = [row("held-1", "session-a"), row("held-2", "session-a"), row("foreign", "session-b")];
     expect(scopeFleetRows(rows, { all: false, caller: session }).map((item) => item.key)).toEqual(["held-1", "held-2"]);
   });
 
   test("an operator sees every agent in every space", () => {
     const operator: CallerScope = { id: null, ceiling: null, kind: "operator" };
-    const rows = [row("held-1", "session-a"), row("held-2", "session-a"), row("foreign", "other-space")];
+    const rows = [row("held-1", "session-a"), row("held-2", "session-a"), { ...row("foreign", "other-space"), owned: true }];
     expect(scopeFleetRows(rows, { all: false, caller: operator }).map((item) => item.key)).toEqual(["held-1", "held-2", "foreign"]);
   });
 

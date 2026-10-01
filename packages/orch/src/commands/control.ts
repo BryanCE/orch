@@ -1,8 +1,9 @@
 import { ARROW, collapse, errorMessage, isRecord, truncate } from "../util.ts";
 import { writeDelivery, type Delivery } from "./delivery.ts";
 import { resolveEntity, resolveLifecycle, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
-import { renameAgent } from "./lifecycle/rename.ts";
+import { renameAgent, renamedLine, type ChromeOutcome } from "./lifecycle/rename.ts";
 import { isAgentId } from "../backends/identity.ts";
+import { abstractAgentLabel } from "../notify/format.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { workerHeaderContextOf } from "../policy/spawner.ts";
@@ -106,10 +107,14 @@ export async function cmdSteer(services: Services, args: string[]): Promise<void
   const result = await writeRpc(services, "steer", { target: resolved.entity.key, text }, gov);
   const delivery = deliveryResult(result, {
     target: resolved.entity.key,
-    name: resolved.view?.name ?? resolved.entity.name ?? resolved.entity.key,
+    name: agentName(resolved.view?.name ?? resolved.entity.name, resolved.entity.space, resolved.entity.key),
     action: "steer",
   });
   writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms, suffix: ` ${ARROW} ${truncate(collapse(text), 60)}` });
+}
+
+function agentName(name: string | null | undefined, space: string | null | undefined, key: string): string {
+  return name ?? abstractAgentLabel(space ?? "space", key);
 }
 
 function deliveryResult(result: unknown, identity: Pick<Delivery, "target" | "name" | "action">): Delivery {
@@ -170,8 +175,8 @@ export async function cmdBroadcast(services: Services, args: string[]) {
       log.warn("broadcast.refused", { reason: refusal.reason, target: refusal.key });
       const resolved = resolvedByKey.get(refusal.key);
       const view = resolved?.view ?? fleet?.views.find((entry) => entry.id === refusal.key);
-      const space = resolved?.entity.space ?? view?.environment.space ?? "space";
-      process.stdout.write(`  refused ${view?.name ?? refusal.key}: ${refusal.reason}\n`);
+      const name = agentName(view?.name ?? resolved?.entity.name, resolved?.entity.space ?? view?.environment.space, refusal.key);
+      process.stdout.write(`  refused ${name}: ${refusal.reason}\n`);
     }
   }
   if (delivered === 0) process.exitCode = 1;
@@ -201,10 +206,10 @@ export async function cmdPipe(services: Services, args: string[]) {
   const result = await writeRpc(services, "steer", { target: destination.presence.key, text });
   const delivery = deliveryResult(result, {
     target: destination.presence.key,
-    name: destination.name ?? destination.presence.key,
+    name: agentName(destination.name, destination.space, destination.presence.key),
     action: "pipe",
   });
-  writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms, suffix: ` from ${source.name ?? source.presence.key}` });
+  writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms, suffix: ` from ${agentName(source.name, source.space, source.presence.key)}` });
 }
 
 export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
@@ -220,7 +225,7 @@ export async function cmdAnswer(services: Services, args: string[]): Promise<voi
   const result = await writeRpc(services, "answer", { target: resolved.entity.presence.key, text }, gov);
   const delivery = deliveryResult(result, {
     target: resolved.entity.presence.key,
-    name: resolved.view?.name ?? resolved.entity.name ?? resolved.entity.key,
+    name: agentName(resolved.view?.name ?? resolved.entity.name, resolved.entity.space, resolved.entity.key),
     action: "answer",
   });
   writeDelivery(delivery, { json, ackMs: services.settings.current().timeouts.dispatch_ack_ms });
@@ -246,8 +251,8 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
   // spec this command reports back is the one the agent was actually pinned to.
   const spec = modelSpec(admitLaunchModel(services.settings.current(), adapter.id, services.models, tuning.model), tuning.thinking);
   const result = await setAgentModel(services, ent.key, spec, gov);
-  const label = resolved.view?.name ?? ent.name ?? ent.key;
-  if (json) process.stdout.write(JSON.stringify({ target: handle, recipient, requested: modelArg, ...result }) + "\n");
+  const label = agentName(resolved.view?.name ?? ent.name, ent.space, ent.key);
+  if (json) process.stdout.write(JSON.stringify({ target: handle, name: label, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`${label}: already ${modelArg} (no-op)\n`);
   else process.stdout.write(`${label}: ${result.old ?? "(unknown)"} ${ARROW} ${result.now} (accepted)\n`);
 }
@@ -338,13 +343,20 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const settings = services.settings.current();
   if (forwardedToTargetHost(settings.hosts, args, flags.positional[0])) return;
   const dispatchSettings = await resolveDispatchSettings(services, self, invocation, flags, gov);
+  const currentName = agentName(dispatchSettings.view?.name ?? dispatchSettings.ent.name, dispatchSettings.ent.space, dispatchSettings.ent.key);
+  const effectiveName = flags.rename ?? currentName;
   if (flags.rename !== undefined) {
-    const oldName = dispatchSettings.view?.name ?? dispatchSettings.ent.name ?? dispatchSettings.ent.key;
-    const lifecycle = await resolveLifecycle(services, dispatchSettings.ent.key);
-    const outcome = await renameAgent(services, lifecycle.backend, lifecycle.handle, lifecycle.key, flags.rename, lifecycle.view);
-    if (!outcome) die(`Could not rename ${lifecycle.key}.`);
-    dispatchSettings.ent.name = flags.rename;
-    process.stdout.write(`Renamed ${oldName} ${ARROW} ${flags.rename}${outcome.chrome === "failed" ? " (pane border NOT updated)" : ""}.\n`);
+    let outcome: ChromeOutcome | null;
+    try {
+      const lifecycle = await resolveLifecycle(services, dispatchSettings.ent.key);
+      outcome = await renameAgent(services, lifecycle.backend, lifecycle.handle, lifecycle.key, flags.rename, lifecycle.view);
+    } catch (error: unknown) {
+      die(`orch dispatch: ${errorMessage(error)}`);
+    }
+    if (!outcome) die(`Could not rename ${dispatchSettings.ent.key}.`);
+    if (!dispatchSettings.json) {
+      process.stdout.write(`${renamedLine(currentName, flags.rename, outcome)}\n`);
+    }
   }
   // Address the daemon by the one canonical identity, never the handle: a second
   // registry row keyed by handle forks the agent and makes every later control
@@ -359,7 +371,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const { thinking } = tuning;
   const model = admitLaunchModel(settings, adapter.id, services.models, tuning.model);
   if (!dispatchSettings.keepContext) await clearSession(services, key, gov.steal === true);
-  const pinWarnings = await pinModels(services, services.logger, [{ key, handle: dispatchSettings.handle, name: dispatchSettings.ent.name ?? dispatchSettings.handle, model, thinking }]);
+  const pinWarnings = await pinModels(services, services.logger, [{ key, handle: dispatchSettings.handle, name: effectiveName, model, thinking }]);
   if (pinWarnings.length > 0) process.exitCode = 1;
   const headerContext = workerHeaderContextOf(self, settings, dispatchSettings.view?.cwd);
   const agentAdapter = getAdapter(dispatchSettings.view?.harnessId ?? dispatchSettings.ent.agent ?? "");
@@ -369,7 +381,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   // proves the agent runs the prompt this command sent, not some other delivery.
   const delivery = deliveryResult(result, {
     target: key,
-    name: dispatchSettings.ent.name ?? key,
+    name: effectiveName,
     action: "dispatch",
   });
   writeDelivery(delivery, { json: dispatchSettings.json, ackMs: settings.timeouts.dispatch_ack_ms });

@@ -15,9 +15,14 @@ import type { Backend, BackendHandle } from "../../types/backend.ts";
 import type { AgentView } from "../../types/store.ts";
 import type { Services } from "../../types/services.ts";
 
-interface ChromeOutcome {
+export interface ChromeOutcome {
   readonly chrome: "renamed" | "none" | "failed";
   readonly chromeError: string | null;
+}
+
+export function renamedLine(oldName: string, newName: string, outcome: ChromeOutcome): string {
+  const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
+  return `Renamed ${oldName} ${ARROW} ${newName}${chrome}.`;
 }
 
 /**
@@ -33,7 +38,7 @@ interface ChromeOutcome {
  * whose failure is reported and never rewrites whether the rename happened
  * The response states the two outcomes separately.
  */
-async function renameAgent(
+export async function renameAgent(
   services: Pick<Services, "orchDir" | "settings" | "logger">,
   backend: Backend,
   handle: BackendHandle,
@@ -103,7 +108,11 @@ export async function cmdRename(services: Services, args: string[]): Promise<voi
       chrome: outcome.chrome, chromeError: outcome.chromeError,
     }) + "\n");
   } else {
-    const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
-    process.stdout.write(`${describeHandle(handle)} ${ARROW} ${paneLabel ? "pane label" : "named"} "${name}"${chrome}.\n`);
+    if (!paneLabel && resolved.view !== null) {
+      process.stdout.write(`${renamedLine(resolved.view.name ?? key, name, outcome)}\n`);
+    } else {
+      const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
+      process.stdout.write(`${describeHandle(handle)} ${ARROW} ${paneLabel ? "pane label" : "named"} "${name}"${chrome}.\n`);
+    }
   }
 }

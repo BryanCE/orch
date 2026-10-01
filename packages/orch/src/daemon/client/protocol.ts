@@ -204,6 +204,7 @@ const statusRow = z.object({
   agentId: z.string().nullable().optional(),
   paneId: z.string().nullable(),
   managed: z.boolean(),
+  owned: z.boolean(),
   name: z.string().nullable(),
   tab: z.string().nullable(),
   agent: z.string().nullable(),

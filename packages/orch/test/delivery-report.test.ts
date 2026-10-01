@@ -26,7 +26,9 @@ describe("delivery report", () => {
   });
 
   test("writes one json line", async () => {
-    const { text } = await captureCommand(() => writeDelivery(acknowledged, { json: true, ackMs: 250 }));
+    const { text } = await captureCommand(() => Promise.resolve().then(() => {
+      writeDelivery(acknowledged, { json: true, ackMs: 250 });
+    }));
     expect(text).toBe('{"target":"agent-key","name":"api-types","action":"dispatch","id":"dispatch-id","ack":"acknowledged"}\n');
   });
 });

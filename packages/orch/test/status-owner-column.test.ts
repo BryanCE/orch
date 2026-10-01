@@ -58,7 +58,7 @@ describe("the rendered status table carries the owner column", () => {
 
   test("a dead holder reads as unleased under a table that all shares one owner", () => {
     const table = localStatusTable(fleetFixture([
-      statusRow({ name: "orphan", lease: { holderId: "orch00001", holderAlive: false } }),
+      statusRow({ name: "orphan", owned: false, lease: { holderId: "orch00001", holderAlive: false } }),
     ]), false);
 
     // One owner for every row is a fact about the table, not about a row: it is

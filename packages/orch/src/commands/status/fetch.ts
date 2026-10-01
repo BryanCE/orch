@@ -55,7 +55,7 @@ export async function resolveStatusAgent(services: DaemonClient, options: Status
 }
 
 async function localStatus(settings: OrchSettings | null, services: DaemonClient, options: StatusOptions, scope: FleetScope): Promise<FleetSnapshot> {
-  const fleet = await readFleet(settings, services, options.offline, scope.caller.id);
+  const fleet = await readFleet(settings, services, options.offline, scope.caller?.id ?? null);
   const scoped = scopeFleetRows(fleet.rows, scope);
   return { ...fleet, rows: scoped.map((row) => ({ ...row, host: "local" })) };
 }
@@ -138,6 +138,7 @@ export async function readStatusResult(
     rows,
     agentsSeen: localSnapshot.agentsSeen + remote.rows.length,
     alive: localSnapshot.alive + remote.alive,
+    otherLive: localSnapshot.otherLive + remote.otherLive,
     backendAnswered: localSnapshot.backendAnswered || remote.backendAnswered,
     host: true,
   };

@@ -4,7 +4,7 @@ import { statusRowFixture } from "./helpers/status-row.ts";
 import type { StatusRow } from "../src/types/command.ts";
 
 function statusRow(overrides: Partial<StatusRow> = {}): StatusRow {
-  return statusRowFixture({ key: "agent00001", name: "worker", agent: "pi", model: "pi/model", state: "working", ...overrides });
+  return statusRowFixture({ key: "agent00001", name: "worker", agent: "pi", model: "pi/model", state: "working", owned: true, ...overrides });
 }
 
 const defaultOptions = { all: false };
@@ -44,10 +44,7 @@ describe("headless status visibility", () => {
     expect(scopeFleetRows([row], { all: true })).toEqual([]);
   });
 
-  test("uses agent language without backend details when no backend was asked", () => {
-    const message = formatNoRowsMessage({ agentsSeen: 1, alive: 0, backendAnswered: false });
-    expect(message).toContain("No agents found");
-    expect(message.toLowerCase()).not.toContain("pane");
-    expect(message.toLowerCase()).not.toContain("backend");
+  test("reports the number of live agents outside the caller's ownership", () => {
+    expect(formatNoRowsMessage({ otherLive: 2 })).toBe("you hold 0; 2 live agents belong to other orchs\n");
   });
 });

@@ -67,10 +67,9 @@ describe("commands/status", () => {
     }
   });
 
-  test("zero-row message reports gathered counts and backend response", () => {
-    expect(formatNoRowsMessage({ agentsSeen: 3, alive: 1, backendAnswered: true })).toBe(
-      "No agents found (agent records seen: 3; alive: 1; backend answered: yes).\n",
-    );
+  test("empty message reports the live agents outside the caller's ownership", () => {
+    expect(formatNoRowsMessage({ otherLive: 3 })).toBe("you hold 0; 3 live agents belong to other orchs\n");
+    expect(formatNoRowsMessage({ otherLive: 1 })).toBe("you hold 0; 1 live agent belongs to other orchs\n");
   });
 
   test("dead rows never display stale live state", () => {
@@ -126,24 +125,24 @@ describe("commands/status", () => {
     expect(() => parseStatusOptions(["extra"])).toThrow("usage: orch status");
   });
 
-  describe("an agent sees what it spawned, and never past its own space", () => {
+  describe("an agent sees its live owned agents", () => {
     const orch: CallerScope = { id: "orch1", ceiling: "w1", kind: "session" };
     const rows = [
-      statusRowFixture({ key: "mine", spaceId: "w1", spawnedBy: "orch1", lease: { holderId: "orch1", holderAlive: true } }),
-      statusRowFixture({ key: "sibling", spaceId: "w1", spawnedBy: "orch2", lease: { holderId: "orch2", holderAlive: true } }),
-      statusRowFixture({ key: "elsewhere", spaceId: "w2", spawnedBy: "orch1", lease: { holderId: "orch1", holderAlive: true } }),
+      statusRowFixture({ key: "orch1", name: "orchestrator", spaceId: "w1", owned: true }),
+      statusRowFixture({ key: "child", spaceId: "w1", spawnedBy: "orch1", owned: true }),
+      statusRowFixture({ key: "grandchild", spaceId: "w1", spawnedBy: "child", owned: true }),
+      statusRowFixture({ key: "adopted", spaceId: "w1", lease: { holderId: "orch1", holderAlive: true }, owned: true }),
+      statusRowFixture({ key: "foreign", spaceId: "w1", spawnedBy: "orch2", owned: false }),
+      statusRowFixture({ key: "dead", spaceId: "w1", owned: true, alive: false, exited: true }),
+      statusRowFixture({ key: "elsewhere", spaceId: "w2", owned: true }),
     ];
 
-    test("the default is the agents this caller spawned", () => {
-      expect(scopeFleetRows(rows, { all: false, caller: orch }).map((r) => r.key)).toEqual(["mine"]);
+    test("the caller appears first, followed by its live descendants and adopted agents", () => {
+      expect(scopeFleetRows(rows, { all: false, caller: orch }).map((r) => r.key)).toEqual(["orch1", "child", "grandchild", "adopted"]);
     });
 
-    test("--all widens to the caller's space, which is the wall", () => {
-      expect(scopeFleetRows(rows, { all: true, caller: orch }).map((r) => r.key)).toEqual(["mine", "sibling"]);
-    });
-
-    test("a human widening sees every space, including the one the agent could not", () => {
-      expect(scopeFleetRows(rows, { all: true }).map((r) => r.key)).toEqual(["mine", "sibling", "elsewhere"]);
+    test("--all keeps the existing space ceiling", () => {
+      expect(scopeFleetRows(rows, { all: true, caller: orch }).map((r) => r.key)).toEqual(["orch1", "child", "grandchild", "adopted", "foreign"]);
     });
   });
   test("derives status row fields from seeded presence", () => {
@@ -242,6 +241,14 @@ describe("commands/status", () => {
     expect(table).toContain("headless");
     expect(table).toContain("%7");
     expect(table).not.toContain("%7  leased-id");
+  });
+
+  test("marks the caller as orchestrator when it owns another live row", () => {
+    const table = formatStatusTable(fleetFixture([
+      statusRowFixture({ key: "caller", name: "boss", owned: true }),
+      statusRowFixture({ key: "worker", name: "worker", owned: true }),
+    ]), { all: false, host: false, callerId: "caller", columns: new Set() });
+    expect(table).toContain("boss (you, orch)");
   });
 
   test("human table shows harness and working directory facts", () => {

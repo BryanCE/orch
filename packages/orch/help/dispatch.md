@@ -3,6 +3,7 @@ every task starts clean with no `orch reset` before it. Reach for `--keep-contex
 to work already in flight.
 
     orch dispatch api-types 'keep $ORCH_DIR and `backticks` literal; say "done" when finished'
+    orch dispatch api-types --rename api-worker 'keep $ORCH_DIR and `backticks` literal; say "done" when finished'
 
 Single-quote the prompt: bash, zsh, and PowerShell keep everything inside single quotes
 literal. Write an apostrophe as `'\''` in bash and zsh, `''` in PowerShell. Use `--file` for a

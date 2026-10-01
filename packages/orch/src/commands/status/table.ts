@@ -2,7 +2,7 @@ import { renderTable } from "../../table.ts";
 import { collapse, truncate } from "../../util.ts";
 import { dim } from "../../tui/screen.ts";
 import { DEAD_HOLDER_DRIVER, NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
-import { formatSpace, displayStatusState, NO_STATUS_HIDE, isTTY } from "./options.ts";
+import { formatSpace, displayStatusState, NO_STATUS_HIDE, isTTY, callerNameLabel, ownsLiveWorker } from "./options.ts";
 import { modelShort } from "../../policy/thinking.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { FleetNames, FleetStatus } from "../../types/daemon.ts";
@@ -70,7 +70,7 @@ function environmentCell(row: StatusRow): string {
 
 function localNameCell(row: StatusRow, names: FleetNames, flags: TableFlags, callerId: string | null, ownsOthers: boolean): string {
   const baseName = row.name ?? (row.warning ? "WARNING" : "");
-  const name = row.key === callerId ? `${baseName} (you${ownsOthers ? ", orchestrator" : ""})` : baseName;
+  const name = callerNameLabel(baseName, row, callerId, ownsOthers);
   return flags.showSpace ? `${formatSpace(row.spaceId, row.spaceId ? names.spaces[row.spaceId] : null)} / ${name}` : name;
 }
 
@@ -88,7 +88,7 @@ function tableContextCell(row: StatusRow): string {
 
 function tableRow(row: StatusRow, names: FleetNames, flags: TableFlags, host: boolean, callerId: string | null, ownsOthers: boolean): string[] {
   const baseName = row.name ?? (row.warning ? "WARNING" : "-");
-  const name = row.key === callerId ? `${baseName} (you${ownsOthers ? ", orchestrator" : ""})` : baseName;
+  const name = callerNameLabel(baseName, row, callerId, ownsOthers);
   if (flags.human) {
     return [
       ...(host ? [row.host ?? "local"] : []), name,
@@ -97,7 +97,7 @@ function tableRow(row: StatusRow, names: FleetNames, flags: TableFlags, host: bo
     ];
   }
   const prefix = host
-    ? [row.host ?? "local", localIdCell(row), environmentCell(row), localNameCell(row, names, flags)]
+    ? [row.host ?? "local", localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)]
     : [localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)];
   return [
     ...prefix, ...tableOptionalCells(row, names, flags), row.tab ?? "-", row.agent ?? "-",
@@ -130,12 +130,12 @@ function tableColumns(flags: TableFlags, host: boolean): { headers: string[]; ca
   if (flags.human) {
     return {
       headers: [...(host ? ["HOST"] : []), "NAME", "HARNESS", "CWD", "WORKTREE", "BRANCH", "OWNER", "STATE"],
-      caps: [...(host ? [10] : []), 20, 10, 30, 24, 20, 32, 12],
+      caps: [...(host ? [10] : []), 32, 10, 30, 24, 20, 32, 12],
     };
   }
   return {
     headers: [...(host ? ["HOST"] : []), "ID", "ENV", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
-    caps: [...(host ? [10] : []), 12, 10, 14, ...ownerBranchCaps(flags), 8, 6, 20, 10, 6, 4, 24, 34],
+    caps: [...(host ? [10] : []), 12, 10, 32, ...ownerBranchCaps(flags), 8, 6, 20, 10, 6, 4, 24, 34],
   };
 }
 
@@ -147,7 +147,7 @@ export function renderStatusTable(fleet: FleetStatus, flags: TableFlags, options
   const { names, rows } = fleet;
   if (!rows.length) return "";
   const { headers, caps } = tableColumns(flags, options.host);
-  const ownsOthers = rows.some((row) => row.owned && row.key !== options.callerId && row.alive && !row.exited);
+  const ownsOthers = ownsLiveWorker(rows, options.callerId ?? null);
   const cells = rows.map((row) => visibleColumns(tableRow(row, names, flags, options.host, options.callerId ?? null, ownsOthers), headers, options.columns));
   const rendered = renderTable(visibleColumns(headers, headers, options.columns), cells, visibleColumns(caps, headers, options.columns)).split("\n");
   const out: string[] = [rendered[0] ?? "", rendered[1] ?? ""];

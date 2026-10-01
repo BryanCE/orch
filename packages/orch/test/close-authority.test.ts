@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { callerAuthority, refuseClose } from "../src/policy/close-authority.ts";
+import { callerAuthority, ownsAgent, refuseClose } from "../src/policy/close-authority.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
@@ -29,6 +29,15 @@ function fixture(): OrchDir {
 }
 
 describe("who may end an agent (D7)", () => {
+  test("ownership is self, provenance descendants, or an open lease", () => {
+    const d = fixture();
+    expect(ownsAgent(d, "orchA", "orchA")).toBe(true);
+    expect(ownsAgent(d, "orchA", "grandA")).toBe(true);
+    expect(ownsAgent(d, "orchA", "slaveB")).toBe(false);
+    acquireLease(d, "slaveB", "orchA", 10);
+    expect(ownsAgent(d, "orchA", "slaveB")).toBe(true);
+  });
+
   test("the human may close anything", () => {
     const d = fixture();
     const human = callerAuthority(null);

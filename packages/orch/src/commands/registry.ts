@@ -88,6 +88,7 @@ const DISPATCH: readonly CommandSpec[] = [
       { name: "--file", arity: "one", placeholder: "<path>|-", help: "Read the prompt from a file, or from stdin with '-'." },
       { name: "--with", arity: "many", placeholder: "<path>", help: "A file or directory the agent opens for context. Must exist." },
       { name: "--keep-context", arity: "none", help: "Send onto the session the agent already has, without clearing it." },
+      { name: "--rename", arity: "one", placeholder: "<name>", help: "Rename the agent before sending the task." },
       RAW,
       MODEL,
       THINKING,

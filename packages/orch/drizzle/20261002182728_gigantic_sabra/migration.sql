@@ -62,6 +62,37 @@ CREATE TABLE `agent_spaces` (
 	CONSTRAINT "agent_spaces_interval" CHECK("until" IS NULL OR "until" > "since")
 );
 --> statement-breakpoint
+CREATE TABLE `agent_status` (
+	`agent_id` text PRIMARY KEY,
+	`state` text NOT NULL,
+	`last_error` text,
+	`model_provider` text,
+	`model_id` text,
+	`thinking` text,
+	`task` text,
+	`dispatch_id` text,
+	`last_text` text,
+	`current_file` text,
+	`files_touched` text,
+	`tokens_in` integer,
+	`tokens_out` integer,
+	`cache_read` integer,
+	`cache_write` integer,
+	`cost` real,
+	`context_tokens` integer,
+	`context_percent` real,
+	`turns` integer,
+	`session_path` text,
+	`session_id` text,
+	`project` text,
+	`extension_hash` text,
+	`started_at` integer,
+	`finished_at` integer,
+	`updated_at` integer NOT NULL,
+	`blocked_message` text,
+	CONSTRAINT `fk_agent_status_agent_id_agents_id_fk` FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON DELETE CASCADE
+);
+--> statement-breakpoint
 CREATE TABLE `agent_tunings` (
 	`agent_id` text NOT NULL,
 	`since` integer NOT NULL,
@@ -88,6 +119,7 @@ CREATE TABLE `agents` (
 	`cwd` text NOT NULL,
 	`name` text NOT NULL,
 	`label` text,
+	`kind` text NOT NULL,
 	`session_token` text,
 	`claimed_at` integer,
 	`created_at` integer NOT NULL,
@@ -95,13 +127,25 @@ CREATE TABLE `agents` (
 	CONSTRAINT `fk_agents_root_agent_id_agents_id_fk` FOREIGN KEY (`root_agent_id`) REFERENCES `agents`(`id`),
 	CONSTRAINT `fk_agents_harness_id_harnesses_id_fk` FOREIGN KEY (`harness_id`) REFERENCES `harnesses`(`id`),
 	CONSTRAINT "agents_not_self_spawned" CHECK("spawned_by" IS NULL OR "spawned_by" <> "id"),
-	CONSTRAINT "agents_root_is_self" CHECK("spawned_by" IS NOT NULL OR "root_agent_id" = "id")
+	CONSTRAINT "agents_root_is_self" CHECK("spawned_by" IS NOT NULL OR "root_agent_id" = "id"),
+	CONSTRAINT "agents_kind" CHECK("kind" IN ('operator','session','agent'))
 );
 --> statement-breakpoint
 CREATE TABLE `catalogues` (
 	`command` text PRIMARY KEY,
+	`binary` text,
 	`at` integer NOT NULL,
 	`stdout` text NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `command_locks` (
+	`pattern` text PRIMARY KEY,
+	`pid` integer NOT NULL,
+	`start_token` text,
+	`agent_id` text,
+	`command` text NOT NULL,
+	`acquired_at` integer NOT NULL,
+	CONSTRAINT `fk_command_locks_agent_id_agents_id_fk` FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON DELETE CASCADE
 );
 --> statement-breakpoint
 CREATE TABLE `control_outcomes` (

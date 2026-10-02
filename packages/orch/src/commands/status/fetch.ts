@@ -58,8 +58,7 @@ export async function resolveStatusAgent(services: DaemonClient, options: Status
 
 async function localStatus(settings: OrchSettings | null, services: DaemonClient, options: StatusOptions, scope: FleetScope): Promise<FleetSnapshot> {
   const fleet = await readFleet(settings, services, options.offline, scope.caller?.id ?? null);
-  const scoped = scopeFleetRows(fleet.rows, scope);
-  return { ...fleet, rows: scoped.map((row) => ({ ...row, host: "local" })) };
+  return { ...fleet, rows: scopeFleetRows(fleet.rows, scope) };
 }
 
 /** Ids are minted, so two hosts never share one: the maps union without collision. */

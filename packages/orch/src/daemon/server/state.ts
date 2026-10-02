@@ -119,6 +119,7 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     "resolve-lifecycle": touchHandler(state, handlers["resolve-lifecycle"]),
     "close-targets": touchHandler(state, handlers["close-targets"]),
     "owned-agents": touchHandler(state, handlers["owned-agents"]),
+    orphans: touchHandler(state, handlers.orphans),
     question: touchHandler(state, handlers.question),
     questions: touchHandler(state, handlers.questions),
     ack: touchHandler(state, handlers.ack),

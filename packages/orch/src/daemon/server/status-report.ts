@@ -1,4 +1,7 @@
-import type { Logger, OrchDir } from "../../types/core.ts";
+import type { JsonRecord, Logger, OrchDir } from "../../types/core.ts";
+import { registerMemoReset, storeReplaced } from "../../store/connection.ts";
+import { reopenReplacedStore } from "./store-recovery.ts";
+import { pendingQuestion } from "../../store/question-rows.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import type { ResultReport, StatusPatch } from "../../types/presence.ts";
 import type { RunRecord } from "../../types/store.ts";
@@ -12,6 +15,34 @@ import { askingEventFromRow, transitionEventFromRow } from "./status-events.ts";
 import { forgetCapacity } from "./capacity.ts";
 
 const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited"]);
+
+/** Row fields a history line never repeats: the line's `ts` and its directory already say them. */
+const UNLOGGED_FIELDS = new Set(["agentId", "updatedAt"]);
+
+/** The row each agent's last history line described, so the next line holds only what moved. */
+const loggedRows = new Map<OrchDir, Map<string, AgentStatusRow>>();
+registerMemoReset(() => loggedRows.clear());
+
+function changedFields(before: AgentStatusRow | undefined, after: AgentStatusRow): JsonRecord {
+  const old = new Map<string, unknown>(before === undefined ? [] : Object.entries(before));
+  const changed: JsonRecord = {};
+  for (const [field, value] of Object.entries(after)) {
+    if (UNLOGGED_FIELDS.has(field) || (old.has(field) && JSON.stringify(old.get(field)) === JSON.stringify(value))) continue;
+    changed[field] = value;
+  }
+  return changed;
+}
+
+/** Append one history line when the agent's state changes: what moved since the last line, and the open question. */
+function logStateChange(orchDir: OrchDir, row: AgentStatusRow, now: number): void {
+  const rows = loggedRows.get(orchDir) ?? new Map<string, AgentStatusRow>();
+  loggedRows.set(orchDir, rows);
+  const logged = rows.get(row.agentId);
+  if (logged?.state === row.state) return;
+  rows.set(row.agentId, row);
+  const question = row.state === "asking" ? pendingQuestion(orchDir, row.agentId)?.question : undefined;
+  appendStatusHistory(row.agentId, orchDir, { ts: now, ...changedFields(logged, row), ...(question === undefined ? {} : { question }) });
+}
 
 function runFromRow(orchDir: OrchDir, row: AgentStatusRow, now: number): RunRecord | undefined {
   if (row.dispatchId === null || row.state === "idle") return undefined;
@@ -52,7 +83,7 @@ export function acceptStatusReport(
 ): { ok: true } {
   if (agentView(orchDir, key) === null) throw new Error(`agent ${key} does not exist`);
   const { previous, current } = recordAgentStatus(orchDir, key, lockWaitKept(orchDir, key, patch), now);
-  appendStatusHistory(key, orchDir, { ts: now, key, ...patch });
+  logStateChange(orchDir, current, now);
   try {
     const run = runFromRow(orchDir, current, now);
     if (run !== undefined && !runIsSettled(orchDir, run.dispatchId)) upsertRun(orchDir, run);
@@ -115,6 +146,7 @@ export function startLivenessTick(
   // what it did.
   const tick = (): void => {
     const startedAt = Date.now();
+    if (storeReplaced(orchDir)) reopenReplacedStore(orchDir, logger);
     if (probeAllProcesses(orchDir)) forgetCapacity(orchDir);
     let exited = 0;
     for (const entry of loadPresence(orchDir).values()) {
@@ -123,6 +155,7 @@ export function startLivenessTick(
       if (entry.alive) continue;
       const now = Date.now();
       const { current: updated } = recordAgentStatus(orchDir, row.agentId, { state: "exited", finishedAt: now }, now);
+      logStateChange(orchDir, updated, now);
       exited += 1;
       publish(transitionEventFromRow(orchDir, updated, row.state, "exited", new Date(now)));
     }

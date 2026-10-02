@@ -18,19 +18,25 @@ import {
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import type { ControlOutcomeReport, DaemonLink } from "../types/agent.ts";
 import type { ResultReport, StatusPatch } from "../types/presence.ts";
-import { daemonResult, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/client/protocol.ts";
+import { daemonResult, type ParamsOf, type ResultOf, type RpcErrorCode, type RpcMethod } from "../daemon/client/protocol.ts";
 import { parseRpcLine } from "../daemon/client/wire.ts";
 import type { SettingsManager } from "../types/services.ts";
+
+/** What one request on the bridge link came back with: orchd's reply, or its refusal code (none when the link dropped). */
+type LinkAnswer = { readonly result: unknown } | { readonly refused: RpcErrorCode | undefined };
+
+const NO_ANSWER: LinkAnswer = { refused: undefined };
 
 export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): DaemonLink {
   const ackedMessageIds = new Set<string>();
 
-  const pending = new Map<number, (result: unknown) => void>();
+  const pending = new Map<number, (answer: LinkAnswer) => void>();
   let nextRequestId = 1;
   let link: JsonLineLink | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let attachWanted = false;
   let attachedKey: string | undefined;
+  let onUnknownKey: (() => void) | undefined;
   let linkAttached = false;
   let reconnectMs: number = SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
 
@@ -83,12 +89,17 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
     }
   }
 
-  function resolvePending(id: unknown, result: unknown): void {
+  function resolvePending(id: unknown, answer: LinkAnswer): void {
     if (typeof id !== "number") return;
     const resolve = pending.get(id);
     if (resolve === undefined) return;
     pending.delete(id);
-    resolve(result);
+    resolve(answer);
+  }
+
+  function abandonPending(): void {
+    for (const resolve of pending.values()) resolve(NO_ANSWER);
+    pending.clear();
   }
 
   function handleLine(line: string, onDelivery: (delivery: BridgeDelivery) => void): void {
@@ -102,10 +113,10 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
     if (parsed === null) return;
     switch (parsed.kind) {
       case "reply":
-        resolvePending(parsed.id, parsed.result);
+        resolvePending(parsed.id, { result: parsed.result });
         return;
       case "error":
-        resolvePending(parsed.id, undefined);
+        resolvePending(parsed.id, { refused: parsed.error.code });
         return;
       case "delivery":
         onDelivery(parsed.delivery);
@@ -116,16 +127,15 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
     }
   }
 
-  function sendLinkRequest<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined> | undefined {
-    if (link === undefined) return undefined;
+  function requestOnLink<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<LinkAnswer> {
     const requestId = nextRequestId++;
     return new Promise((resolve) => {
       pending.set(requestId, resolve);
       if (!link?.send({ id: requestId, method, params })) {
         pending.delete(requestId);
-        resolve(undefined);
+        resolve(NO_ANSWER);
       }
-    }).then((result) => result === undefined ? undefined : daemonResult(method, result));
+    });
   }
 
   function clearReconnectTimer(): void {
@@ -152,19 +162,24 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
     scheduleRetry(() => void dial(onDelivery));
   }
 
-  // orchd refuses an attach for a key it has not registered yet: the harness can
-  // start before spawn's register-agent lands. The link is fine, so re-send the
-  // attach on it until orchd knows the key.
+  // orchd refuses an attach for a key it does not know. A spawned harness can start
+  // before spawn's register-agent lands, so it re-sends the attach on the same link.
+  // A caller that passed `onUnknownKey` lost its row to a store reset: it identifies again.
   function sendAttach(connected: JsonLineLink): void {
     if (link !== connected || attachedKey === undefined) return;
     linkAttached = false;
-    void sendLinkRequest("attach", { key: attachedKey })?.then((result) => {
+    void requestOnLink("attach", { key: attachedKey }).then((answer) => {
       if (link !== connected) return;
-      if (result === undefined) {
-        scheduleRetry(() => sendAttach(connected));
+      if ("result" in answer && daemonResult("attach", answer.result) !== undefined) {
+        linkAttached = true;
         return;
       }
-      linkAttached = true;
+      const forget = onUnknownKey;
+      if ("refused" in answer && answer.refused === "UNKNOWN_AGENT" && forget !== undefined) {
+        forget();
+        return;
+      }
+      scheduleRetry(() => sendAttach(connected));
     });
   }
 
@@ -179,8 +194,7 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
           if (link !== connected) return;
           link = undefined;
           linkAttached = false;
-          for (const resolve of pending.values()) resolve(undefined);
-          pending.clear();
+          abandonPending();
           // A pending attach retry belongs to the dead link; the reconnect replaces it.
           clearReconnectTimer();
           scheduleReconnect(onDelivery);
@@ -196,22 +210,23 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
     sendAttach(connected);
   }
 
-  function attach(key: string, onDelivery: (delivery: BridgeDelivery) => void): void {
+  function attach(key: string, onDelivery: (delivery: BridgeDelivery) => void, unknownKey?: () => void): void {
     detach();
     attachWanted = true;
     attachedKey = key;
+    onUnknownKey = unknownKey;
     void dial(onDelivery);
   }
 
   function detach(): void {
     attachWanted = false;
     attachedKey = undefined;
+    onUnknownKey = undefined;
     linkAttached = false;
     clearReconnectTimer();
     const activeLink = link;
     link = undefined;
-    for (const resolve of pending.values()) resolve(undefined);
-    pending.clear();
+    abandonPending();
     activeLink?.close();
   }
 

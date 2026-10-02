@@ -73,7 +73,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
 function seedQueueTask(dir: OrchDir, text: string, state: "queued" | "claimed" | "done", ts: string): void {
   const db = orm(dir);
   db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT OR IGNORE INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('queue-agent','queue-agent','pi','/tmp','queue-agent',${NOW.getTime()})`);
+  db.run(sql`INSERT OR IGNORE INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('queue-agent','queue-agent','pi','/tmp','queue-agent',${NOW.getTime()},'session')`);
   const task = addTask(dir, text, {}, "queue-agent");
   db.run(sql`UPDATE tasks SET created_at=${Date.parse(ts)} WHERE id=${task.id}`);
   if (state !== "queued") {
@@ -194,9 +194,9 @@ describe("retention sweep", () => {
     const db = orm(orchDir);
     db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
     db.run(sql`INSERT OR IGNORE INTO plexers(id,name) VALUES ('headless','headless')`);
-    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${holder},${holder},${"pi"},${"/tmp"},${holder},${Date.parse(old)})`);
+    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${holder},${holder},${"pi"},${"/tmp"},${holder},${Date.parse(old)},${"session"})`);
     seedLiveProcess(orchDir, holder);
-    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${agentId},${agentId},${"pi"},${"/tmp"},${"reserved-agent"},${Date.parse(old)})`);
+    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${agentId},${agentId},${"pi"},${"/tmp"},${"reserved-agent"},${Date.parse(old)},${"session"})`);
     db.run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${agentId},${Date.parse(old)},NULL)`);
     db.run(sql`INSERT INTO agent_worktrees(agent_id,path,branch) VALUES (${agentId},${"/tmp/worktree"},${"orch/expired"})`);
     db.run(sql`INSERT INTO agent_plexers(agent_id,plexer_id) VALUES (${agentId},${"headless"})`);

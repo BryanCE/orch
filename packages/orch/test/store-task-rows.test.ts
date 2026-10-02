@@ -27,9 +27,9 @@ function fixture() { const d = tempOrchDir("orch-task-rows-"); dirs.push(d); ret
 function seed(d: OrchDir) {
   const db = orm(d);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"a"},${"a"},${"pi"},${"/tmp"},${"a"},${1})`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,spawned_by) VALUES (${"b"},${"a"},${"pi"},${"/tmp"},${"b"},${1},${"a"})`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"c"},${"c"},${"pi"},${"/tmp"},${"c"},${1})`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${"a"},${"a"},${"pi"},${"/tmp"},${"a"},${1},${"session"})`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,spawned_by,kind) VALUES (${"b"},${"a"},${"pi"},${"/tmp"},${"b"},${1},${"a"},${"agent"})`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${"c"},${"c"},${"pi"},${"/tmp"},${"c"},${1},${"session"})`);
   db.run(sql`INSERT INTO spaces(id,name,created_at) VALUES (${"s"},${"S"},${1})`);
 }
 

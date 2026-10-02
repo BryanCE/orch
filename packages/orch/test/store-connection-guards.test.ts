@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { claimAgent, ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
-import { assertStoreRecreatable, closeAllStores, orm } from "../src/store/connection.ts";
+import { claimAgent, ensureHarness, getOrCreateSessionAgent, insertAgent } from "../src/store/agent-rows.ts";
+import { assertStoreRecreatable, closeAllStores, livePresenceHolders, orm, storeFiles, storeReplaced } from "../src/store/connection.ts";
+import { processStartToken } from "../src/process-identity.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess, seedOperator } from "./helpers/agent.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const dirs: OrchDir[] = [];
@@ -61,7 +62,7 @@ function seedUnmigratedLiveProcess(path: string): void {
   const database = new Database(path);
   database.exec("INSERT INTO harnesses(id,name) VALUES ('pi','pi')");
   database.exec("INSERT INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)");
-  database.exec("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('herdr~w1~p1','herdr~w1~p1','pi','/tmp','herdr~w1~p1',1)");
+  database.exec("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('herdr~w1~p1','herdr~w1~p1','pi','/tmp','herdr~w1~p1',1,'agent')");
   database.exec(`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES ('herdr~w1~p1',1,'test-host',${process.pid},NULL)`);
   database.close();
 }
@@ -78,15 +79,35 @@ describe("store migration guards", () => {
     expect(existsSync(join(dir, "orch.db-wal"))).toBe(false);
   });
 
-  test("names live presence as the thing to close before rebuilding", () => {
+  test("names live workers as the thing to close before rebuilding", () => {
     const dir = fixture();
     const path = unmigrated(dir);
     seedUnmigratedLiveProcess(path);
     const before = readFileSync(path);
 
-    expect(() => orm(dir)).toThrow(/live agents/i);
+    expect(() => orm(dir)).toThrow(/live workers/i);
     expect(readFileSync(path)).toEqual(before);
     expect(existsSync(join(dir, "orch.db-wal"))).toBe(false);
+  });
+});
+
+describe("a store replaced under an open connection", () => {
+  test("a store nobody opened, or one left in place, is not replaced", () => {
+    const dir = fixture();
+    expect(storeReplaced(dir)).toBe(false);
+    orm(dir);
+    expect(storeReplaced(dir)).toBe(false);
+  });
+
+  // Windows refuses to delete a file SQLite holds open, so only POSIX can replace it in place.
+  test.skipIf(process.platform === "win32")("a deleted or rebuilt file is replaced, and reopening reads the new one", () => {
+    const dir = fixture();
+    orm(dir);
+    for (const file of storeFiles(dir)) rmSync(file, { force: true });
+    expect(storeReplaced(dir)).toBe(true);
+    closeAllStores();
+    orm(dir);
+    expect(storeReplaced(dir)).toBe(false);
   });
 });
 
@@ -152,20 +173,20 @@ describe("a slave never reaps or recreates the store", () => {
     expect(message).toContain("herdr~w1~p1");
   });
 
-  test("a live driving session is refused without --with-sessions and allowed with it", () => {
+  test("a live terminal or harness session never blocks a recreate: it registers again", () => {
     const dir = fixture();
-    orm(dir);
-    closeAllStores();
-    ensureHarness(dir, "pi", "pi", 1);
-    insertAgent(dir, { id: "herdr~w1~p1", harnessId: "pi", cwd: process.cwd(), name: "herdr~w1~p1", createdAt: 1 });
-    seedLiveProcess(dir, "herdr~w1~p1");
+    const operator = seedOperator(dir);
+    const token = processStartToken(process.pid);
+    if (token === undefined) throw new Error("test process has no start token");
+    const session = getOrCreateSessionAgent(dir, {
+      pid: process.pid, startToken: token, sessionToken: "guard-session", harnessId: "pi", cwd: process.cwd(),
+      label: "pi session", hostId: "test-host", hostName: "test-host", hostOs: "linux", now: 1,
+    }).id;
 
-    const message = refusalMessage(() => assertStoreRecreatable(dir));
-
-    expect(message).toContain("driving session");
-    expect(message).toContain("--with-sessions");
-    expect(message).toContain("herdr~w1~p1");
-    expect(() => assertStoreRecreatable(dir, { withSessions: true })).not.toThrow();
+    const holders = livePresenceHolders(dir);
+    expect(holders.workers).toEqual([]);
+    expect([...holders.registered].sort()).toEqual([operator, session].sort());
+    expect(() => assertStoreRecreatable(dir)).not.toThrow();
   });
 
   test("the user may recreate once nothing is live", () => {

@@ -14,7 +14,7 @@ import { errorMessage } from "../util.ts";
 import type { SettingsManager } from "../types/services.ts";
 import { gatedPatterns, lockedCommandLine } from "../policy/command-gate.ts";
 import { registerPeerTools, toolResult } from "./peers.ts";
-import { extractText, isAssistantMessageLike, HEARTBEAT_MS, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
+import { extractText, isAssistantMessageLike, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
 import { sessionUsageCost } from "../session.ts";
 import { isRecord, isUnknownArray, optionalString, truncate } from "../util.ts";
 import { prepareWorkerTask } from "../worker-prompt.ts";
@@ -108,7 +108,6 @@ export function registerAgentTools(
 
   let askingPreviousState: typeof state.state | undefined;
   let blockedNotified = false;
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
 
   registerPeerTools(orchDir, harness, presence, daemon);
 
@@ -180,25 +179,6 @@ export function registerAgentTools(
     void refreshLabels().catch(() => {
       /* noop */
     });
-    let heartbeatTicks = 0;
-    heartbeat = setInterval(() => {
-      try {
-        heartbeatTicks += 1;
-        const lastCtx = presence.lastCtx();
-        if (lastCtx) {
-          presence.updateSessionRef(lastCtx);
-          presence.updateModel(lastCtx);
-          presence.updateContextUsage(lastCtx);
-        }
-        if (presence.state.key === "") presence.retryIdentity();
-        if (presence.state.label === null && presence.state.key !== "") void presence.loadName();
-        if (heartbeatTicks % 10 === 0) void refreshLabels().catch(() => {
-          /* noop */
-        });
-        presence.writeStatus();
-      } catch {}
-    }, HEARTBEAT_MS);
-    heartbeat.unref?.();
   });
 
   harness.on("model_select", (event: unknown) => {
@@ -242,6 +222,9 @@ export function registerAgentTools(
     presence.updateSessionRef(ctx);
     presence.updateModel(ctx);
     presence.writeStatus();
+    void refreshLabels().catch(() => {
+      /* noop */
+    });
   });
 
   harness.on("turn_end", (_event, ctx: HarnessContext) => {
@@ -439,7 +422,6 @@ export function registerAgentTools(
   }
 
   harness.on("session_shutdown", () => {
-    if (heartbeat) clearInterval(heartbeat);
     presence.stopPresence();
     // Not `exited`: a session shutdown is also what `/new` fires, and the
     // process is still here. Exit is the daemon's finding from the recorded

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { callerAuthority, ownsAgent, refuseClose, type CloseAuthority } from "../src/policy/close-authority.ts";
+import { callerAuthority, ownsAgent, refuseClose, sweeps, type CloseAuthority } from "../src/policy/close-authority.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
@@ -90,6 +90,16 @@ describe("who may end an agent (D7)", () => {
     acquireLease(d, "slaveA", "orchB", 10);
     expect(refuseClose(d, agentAuthority("orchB"), "slaveA")).toBeNull();
     expect(refuseClose(d, agentAuthority("orchA"), "slaveA")).toBeNull();
+  });
+
+  test("a sweep takes the caller's tree and adoptions, never the caller or another tree", () => {
+    const d = fixture();
+    acquireLease(d, "slaveB", "orchA", 10);
+    expect(sweeps(d, "orchA", "slaveA")).toBe(true);
+    expect(sweeps(d, "orchA", "grandA")).toBe(true);
+    expect(sweeps(d, "orchA", "slaveB")).toBe(true);
+    expect(sweeps(d, "orchA", "orchA")).toBe(false);
+    expect(sweeps(d, "orchA", "orchB")).toBe(false);
   });
 
   test("a provenance cycle terminates instead of hanging", () => {

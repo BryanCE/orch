@@ -7,7 +7,7 @@ import { envOrchDir } from "../src/orch-dir.ts";
 import { EXTENSION_NAMES } from "../src/bridge-bundles/metadata.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { provenDaemonPid, terminateDaemon } from "../src/daemon/client/process.ts";
-import { loadPresence } from "../src/presence/store.ts";
+import { assertStoreRecreatable } from "../src/store/connection.ts";
 import { pidAlive } from "../src/util.ts";
 import { packagedSkillNames, resolveSkillRoot } from "../src/setup/skills.ts";
 
@@ -228,14 +228,9 @@ function nonNull<T>(step: T | null): step is T {
   return step !== null;
 }
 
-function liveStorePresent(): boolean {
+function orchdAlive(): boolean {
   const lock = readJsonFile(join(ORCH_DIR, "orchd.lock"));
-  if (lock && typeof lock.pid === "number" && Number.isInteger(lock.pid) && pidAlive(lock.pid)) return true;
-  try {
-    return [...loadPresence(ORCH_DIR).values()].some((entry) => entry.alive);
-  } catch {
-    return false;
-  }
+  return lock !== null && typeof lock.pid === "number" && Number.isInteger(lock.pid) && pidAlive(lock.pid);
 }
 
 function storeRemoval(): WipeStep | null {
@@ -245,7 +240,8 @@ function storeRemoval(): WipeStep | null {
   return {
     describe: step.describe,
     execute: async () => {
-      if (liveStorePresent()) throw new Error(`refusing to remove live orch store ${ORCH_DIR}; stop agents and retry`);
+      if (orchdAlive()) throw new Error(`refusing to remove ${ORCH_DIR} while orchd still runs; stop it and retry`);
+      assertStoreRecreatable(ORCH_DIR);
       await step.execute();
     },
   };

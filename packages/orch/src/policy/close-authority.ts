@@ -20,6 +20,11 @@ export function ownsAgent(orchDir: OrchDir, ownerId: string, agentId: string): b
     || holdsLease(orchDir, agentId, ownerId);
 }
 
+/** Whether a `close --all` from callerId takes agentId: the caller's own tree, never the caller. */
+export function sweeps(orchDir: OrchDir, callerId: string, agentId: string): boolean {
+  return callerId !== agentId && ownsAgent(orchDir, callerId, agentId);
+}
+
 /**
  * `null` when the caller may end this agent; otherwise the refusal to print.
  * A refusal names the owner so the caller knows who to ask.

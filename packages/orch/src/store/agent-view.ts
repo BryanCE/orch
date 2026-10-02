@@ -199,6 +199,7 @@ function composeView(hub: HubRow, facts: FleetFacts): AgentView {
     harnessId: hub.harnessId,
     cwd: hub.cwd,
     createdAt: hub.createdAt,
+    kind: hub.kind,
     spawnedBy: hub.spawnedBy,
     spawnedByName: hub.spawnedBy === null ? null : facts.names.get(hub.spawnedBy) ?? null,
     rootAgentId: hub.rootAgentId,

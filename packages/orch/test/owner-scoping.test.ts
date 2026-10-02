@@ -85,7 +85,7 @@ function recordProcess(dir: OrchDir, key: string, pid: number, startToken: strin
   const db = orm(dir);
   db.run(sql`INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)`);
   db.run(sql`INSERT OR IGNORE INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${key},${key},${"pi"},${dir},${key},${1})`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${key},${key},${"pi"},${dir},${key},${1},${"session"})`);
   db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
 }
 
@@ -213,7 +213,7 @@ describe("fleet ownership scoping", () => {
     expect(spawnedRecords(dir).get(agent.key)?.heldBy?.orchId).toBe(orchId);
   });
 
-  test("close --all works from an unregistered shell", async () => {
+  test("close --all from an unregistered shell sweeps nothing: it has no tree", async () => {
     const dir = makeDir();
     delete process.env.HERDR_PANE_ID;
     delete process.env.TMUX_PANE;
@@ -221,35 +221,37 @@ describe("fleet ownership scoping", () => {
     seedAgent("kunowned01", { adapter: "pi", backend: "headless", space: "local", handle: "unowned", owner: "other" }, dir);
     const result = await runVerb(dir, ["close", "--all", "--json"]);
     expect(result.status).toBe(0);
-    expect(spawnedRecords(dir).has("kunowned01")).toBe(false);
+    expect(spawnedRecords(dir).has("kunowned01")).toBe(true);
   });
 
-  test("close --all from a raw terminal with an orch row still sweeps every managed spawn", async () => {
+  test("close --all from a raw terminal sweeps its own tree, never itself or another tree", async () => {
     const dir = makeDir();
     delete process.env.HERDR_PANE_ID;
     delete process.env.TMUX_PANE;
-    seedOperator(dir);
+    const terminal = seedOperator(dir);
     seedSpace(dir, "local");
-    seedAgent("kunowned02", { adapter: "pi", backend: "headless", space: "local", handle: "unowned", owner: "other" }, dir);
+    seedAgent("kmine00001", { adapter: "pi", backend: "headless", space: "local", handle: "mine", spawnedBy: terminal }, dir);
+    seedAgent("ktheirs001", { adapter: "pi", backend: "headless", space: "local", handle: "theirs", owner: "other" }, dir);
     const result = await runVerb(dir, ["close", "--all", "--json"]);
     expect(result.status).toBe(0);
-    expect(spawnedRecords(dir).has("kunowned02")).toBe(false);
+    expect(spawnedRecords(dir).has("kmine00001")).toBe(false);
+    expect(spawnedRecords(dir).has("ktheirs001")).toBe(true);
+    expect(spawnedRecords(dir).has(terminal)).toBe(true);
   });
 
-  test("close --all closes all managed records regardless of owner", async () => {
+  test("close --all closes only the caller's panes, never a foreign one or the user's own", async () => {
     const dir = makeDir();
+    const terminal = seedOperator(dir);
     seedSpace(dir, "local");
-    seedAgent("klmine0001", { adapter: "pi", backend: "headless", space: "local", handle: "mine", owner: "caller" }, dir);
+    seedAgent("klmine0001", { adapter: "pi", backend: "headless", space: "local", handle: "mine", spawnedBy: terminal }, dir);
     seedAgent("klforeign1", { adapter: "pi", backend: "headless", space: "local", handle: "foreign", owner: "other" }, dir);
     const services = await commandServices(dir);
 
-    // `user-pane` is listed but never orch-spawned: `close --all` sweeps only
-    // panes orch owns records for, never the user's own.
+    // `user-pane` is listed but never orch-spawned, and `foreign` is in another tree.
     const backend = new FakePanedBackend({ panes: ["mine", "foreign", "user-pane"].map((handle) => fakePane(handle, { space: "local" })) });
     await withExitCodeAsync(() => withRegisteredBackendAsync(backend, () => cmdClose(services, ["--all", "--json"])));
 
-    // Sweep order is not part of the contract.
-    expect([...backend.closed].sort()).toEqual(["foreign", "mine"]);
+    expect(backend.closed).toEqual(["mine"]);
   });
 
   test("driving verbs remain gated against a live foreign holder", async () => {
@@ -421,20 +423,24 @@ describe("a spawned agent touches only what it spawned", () => {
     // Another orch's slave survives a sibling's sweep. A `--all` that reached it
     // would let any agent on the machine wipe every other fleet.
     expect(spawnedRecords(dir).has("kwftheirs1")).toBe(true);
+    // A sweep never closes the caller itself.
+    expect(spawnedRecords(dir).has(agentKey)).toBe(true);
   });
 
-  test("close --all from the HUMAN sweeps every managed spawn, whoever spawned it", async () => {
+  test("the HUMAN sweeps only its own tree, and closes another tree's agent by name", async () => {
     const dir = makeDir();
+    const terminal = seedOperator(dir);
     seedSpace(dir, "wF");
     seedAgent(agentKey, { adapter: "pi", backend: "headless", space: "wF", handle: agentKey }, dir);
-    seedAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: agentKey }, dir);
-    seedAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: "kwfoperato" }, dir);
+    seedAgent("kwfmine001", { adapter: "pi", backend: "headless", space: "wF", handle: "mine", spawnedBy: terminal }, dir);
+    seedAgent("kwftheirs1", { adapter: "pi", backend: "headless", space: "wF", handle: "theirs", spawnedBy: agentKey }, dir);
 
     // No [LAUNCH_ENV]: the caller is a person at a terminal. Rule 11 - the
-    // human must ALWAYS be able to stop a runaway agent, so nothing gates this.
-    const result = await runVerb(dir, ["close", "--all", "--json"]);
-    expect(result.status).toBe(0);
+    // human can ALWAYS stop a runaway agent by name; `--all` stays inside its tree.
+    expect((await runVerb(dir, ["close", "--all", "--json"])).status).toBe(0);
     expect(spawnedRecords(dir).has("kwfmine001")).toBe(false);
+    expect(spawnedRecords(dir).has("kwftheirs1")).toBe(true);
+    expect((await runVerb(dir, ["close", "kwftheirs1"])).status).toBe(0);
     expect(spawnedRecords(dir).has("kwftheirs1")).toBe(false);
   });
 

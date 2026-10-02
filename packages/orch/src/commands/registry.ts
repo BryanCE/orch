@@ -56,7 +56,7 @@ const OBSERVE: readonly CommandSpec[] = [
       { name: "--live", arity: "none", help: "Full-screen table redrawn on every daemon event. TTY only; q or esc quits." },
     ],
   },
-  { name: "whoami", section: "observe", summary: "Who orch sees as the caller in this terminal. Registers nothing.", flags: [] },
+  { name: "whoami", section: "observe", summary: "Who orch sees as the caller in this terminal.", flags: [] },
   { name: "monitor", section: "observe", summary: "Push stream of the states an orch acts on. Arm it as a Monitor.", flags: STREAM_FLAGS },
   { name: "events", section: "observe", summary: "Every state transition, mid-turn flips included.", flags: STREAM_FLAGS },
   {
@@ -224,13 +224,13 @@ const AGENTS: readonly CommandSpec[] = [
     name: "close", aliases: ["kill"], section: "agents", args: "<target>... | --all",
     summary: "Close (alias: kill).",
     flags: [
-      { ...ALL, help: "Every agent orch spawned that you may close. Never a pane orch did not spawn." },
+      { ...ALL, help: "Your own tree: every agent you spawned or adopted, at any depth. Never you." },
       { name: "--stream", arity: "none", help: "Also kill your 'orch monitor' or 'orch events' stream." },
     ],
   },
   { name: "abort", section: "agents", args: "<target> [<text...>]", summary: "Cancel the current turn, then steer with the text.", flags: [] },
   { name: "detach", section: "agents", args: "<target>", summary: "Release the lease. The agent keeps running.", flags: [STEAL_LEASE] },
-  { name: "adopt", section: "agents", args: "<target> | --all", summary: "Take an unleased agent.", flags: [{ ...ALL, help: "Every unleased agent." }, STEAL_LEASE] },
+  { name: "adopt", section: "agents", args: "[<target>...] | --all", summary: "List orphans, or take the named ones.", flags: [{ ...ALL, help: "Every orphan." }, STEAL_LEASE] },
   {
     name: "reap", section: "agents", args: "[<target>]",
     summary: "Delete an agent record.",

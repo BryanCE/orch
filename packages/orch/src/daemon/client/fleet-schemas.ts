@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AgentEnvironment, AgentHolder, AgentTuning, AgentView, RunRecord } from "../../types/store.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
+import { CALLER_KINDS } from "../../types/policy.ts";
 import type { AgentStatusRow } from "../../store/status-rows.ts";
 import type { Entity } from "../../types/core.ts";
 
@@ -68,6 +69,7 @@ export const AGENT_VIEW = z.object({
   harnessId: z.string(),
   cwd: z.string(),
   createdAt: z.number(),
+  kind: z.enum(CALLER_KINDS),
   spawnedBy: z.string().nullable(),
   spawnedByName: z.string().nullable(),
   rootAgentId: z.string(),

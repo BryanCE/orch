@@ -92,7 +92,7 @@ function tableContextCell(row: StatusRow): string {
 
 function humanTableCells(row: StatusRow, names: FleetNames, host: boolean, callerId: string | null, name: string): string[] {
   return [
-    ...(host ? [row.host ?? "local"] : []), name,
+    ...(host ? [row.host ?? "-"] : []), name,
     row.agent ?? "-", truncate(row.cwd ?? "-", 30), truncate(row.worktree ?? "-", 24),
     truncate(row.branch ?? "-", 20), formatOwnerCell(row, names, callerId), tableStateCell(row, true, callerId),
   ];
@@ -100,7 +100,7 @@ function humanTableCells(row: StatusRow, names: FleetNames, host: boolean, calle
 
 function standardTableCells(row: StatusRow, names: FleetNames, flags: TableFlags, host: boolean, callerId: string | null, ownsOthers: boolean): string[] {
   const prefix = host
-    ? [row.host ?? "local", localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)]
+    ? [row.host ?? "-", localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)]
     : [localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)];
   return [
     ...prefix, ...tableOptionalCells(row, names, flags, callerId), row.tab ?? "-", row.agent ?? "-",

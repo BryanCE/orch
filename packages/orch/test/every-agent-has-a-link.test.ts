@@ -29,7 +29,7 @@ function agent(directory: OrchDir, facts: Parameters<typeof seedAgent>[1] = {}):
   seedLiveProcess(directory, key);
   seedStatus(directory, key, { key, agent: "pi", pid: process.pid, state: "idle" });
   const deliveries: BridgeDelivery[] = [];
-  const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
+  const link: BridgeLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
   attachBridge(directory, key, link);
   links.push({ key, link });
   return { key, deliveries };

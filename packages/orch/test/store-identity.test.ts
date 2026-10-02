@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores } from "../src/store/connection.ts";
-import { agentById, getOrCreateSessionAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
+import { agentById, getOrCreateSessionAgent, insertAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
+import { OPERATOR_HARNESS_ID } from "../src/identity/operator.ts";
 import { currentProcess } from "../src/store/interval-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
@@ -49,5 +50,20 @@ describe("hello agent identity rows", () => {
     expect(currentProcess(orchDir, identity.id)).toMatchObject({ pid: 42, startToken: "start-a", hostId: "host", until: null });
     expect(isLiveAgentIdentity(orchDir, identity)).toBe(true);
     expect(isLiveAgentIdentity(orchDir, { id: "missing", label: "lead", kind: "session" })).toBe(false);
+  });
+
+  test("each path that makes a row stores its kind", () => {
+    const orchDir = fixture();
+    const terminal = getOrCreateSessionAgent(orchDir, {
+      pid: 41, startToken: "start-t", harnessId: OPERATOR_HARNESS_ID, cwd: "/repo", label: "shell", hostId: "host", hostName: "Host", hostOs: "linux", now: 1_000,
+    });
+    const session = getOrCreateSessionAgent(orchDir, {
+      pid: 42, startToken: "start-s", harnessId: "pi", cwd: "/repo", label: "pi", hostId: "host", hostName: "Host", hostOs: "linux", now: 1_000,
+    });
+    insertAgent(orchDir, { id: "spawned001", spawnedBy: session.id, harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2_000 });
+
+    expect(agentById(orchDir, terminal.id)?.kind).toBe("operator");
+    expect(agentById(orchDir, session.id)?.kind).toBe("session");
+    expect(agentById(orchDir, "spawned001")?.kind).toBe("agent");
   });
 });

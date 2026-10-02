@@ -47,7 +47,7 @@ function fixture() {
   const dir = tempOrchDir("orch-store-leases-"); dirs.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  for (const id of ["a", "b", "o1", "o2"]) db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${id},${"pi"},${"/tmp"},${id},${1})`);
+  for (const id of ["a", "b", "o1", "o2"]) db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${id},${"pi"},${"/tmp"},${id},${1},${"session"})`);
   return dir;
 }
 

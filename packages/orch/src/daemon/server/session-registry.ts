@@ -1,32 +1,23 @@
 import type { OrchDir } from "../../types/core.ts";
 import { hostname } from "node:os";
-import { claimAgent, getOrCreateSessionAgent } from "../../store/agent-rows.ts";
-import { freshStartToken } from "../../process-identity.ts";
+import { agentIdByProcess, claimAgent, getOrCreateSessionAgent, liveProcessPids } from "../../store/agent-rows.ts";
+import { orphanAgents } from "../../policy/orphan.ts";
+import { ancestorPids, freshStartToken, processStartToken } from "../../process-identity.ts";
 import { versionInRange } from "../../backends/versions.ts";
 import { getBackend } from "../../backends/registry.ts";
 import { isHostOs } from "../../host.ts";
 import type { HostOs } from "../../types/host.ts";
 import type { Logger } from "../../types/core.ts";
-import type { ClaimIdentityResponse, RegisterSessionResponse, UnleasedAgent } from "../../types/daemon.ts";
+import type { ClaimIdentityResponse, RegisterSessionResponse } from "../../types/daemon.ts";
 import type { ParamsOf, SessionClaim } from "../client/protocol.ts";
-import { and, asc, eq, isNull, ne, notInArray } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { orm } from "../../store/connection.ts";
-import { agentEndings, agentLeases, agentProcesses, agents } from "../../db/schema.ts";
+import { agentEndings, agentProcesses, agents } from "../../db/schema.ts";
 import { RpcError } from "../client/wire.ts";
 
 function claimedHostOs(claim: SessionClaim): HostOs {
   if (!isHostOs(claim.hostOs)) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration requires the caller's host OS");
   return claim.hostOs;
-}
-
-export function unleasedAgents(orchDir: OrchDir, excludeId: string): UnleasedAgent[] {
-  const held = orm(orchDir).select({ agentId: agentLeases.agentId }).from(agentLeases)
-    .where(isNull(agentLeases.until)).all().map((row) => row.agentId);
-  return orm(orchDir).select({ id: agents.id, name: agents.name }).from(agents)
-    .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
-    .where(and(ne(agents.id, excludeId), isNull(agents.sessionToken), isNull(agentEndings.agentId),
-      held.length === 0 ? undefined : notInArray(agents.id, held)))
-    .orderBy(asc(agents.id)).all();
 }
 
 function verifiedSessionProcess(claim: SessionClaim): { pid: number; startToken: string; harness: string; cwd: string } {
@@ -74,6 +65,20 @@ function callerFacts<C extends SessionClaim>(claim: C, daemonToken: string): Cal
   return { claim, pid, startToken, harness, cwd, environment: claimedEnvironment(claim), hostOs: claimedHostOs(claim) };
 }
 
+/** The nearest ancestor process with a live row: the terminal a harness was typed into. */
+function startedInside(orchDir: OrchDir, pid: number): string | null {
+  const rowed = liveProcessPids(orchDir);
+  rowed.delete(pid);
+  if (rowed.size === 0) return null;
+  for (const ancestor of ancestorPids(pid)) {
+    if (!rowed.has(ancestor)) continue;
+    const startToken = processStartToken(ancestor);
+    const id = startToken === undefined ? null : agentIdByProcess(orchDir, ancestor, startToken);
+    if (id !== null) return id;
+  }
+  return null;
+}
+
 export function registerSession(orchDir: OrchDir, params: ParamsOf<"register-session">, daemonToken: string, logger?: Logger): RegisterSessionResponse {
   const facts = callerFacts(params, daemonToken);
   const alreadyRegistered = sessionAlreadyRegistered(orchDir, facts.pid, facts.startToken);
@@ -82,11 +87,11 @@ export function registerSession(orchDir: OrchDir, params: ParamsOf<"register-ses
     harnessId: facts.harness, cwd: facts.cwd, label: facts.environment.label || `${facts.harness} session ${facts.pid}`,
     hostId: facts.environment.host, hostName: facts.environment.host, hostOs: facts.hostOs,
     plexerId: facts.environment.plexerId, plexerVersion: facts.environment.plexerVersion, handle: facts.environment.handle,
-    space: facts.environment.space, now: Date.now(),
+    space: facts.environment.space, spawnedBy: alreadyRegistered ? null : startedInside(orchDir, facts.pid), now: Date.now(),
   });
   if (identity.repointed) logger?.info("session.repointed", { agentId: identity.id, harnessId: facts.harness });
   const registrationWarning = plexerRegistrationWarning(facts.environment.plexerId, facts.environment.plexerVersion);
-  return { id: identity.id, label: identity.label, kind: identity.kind, ...(registrationWarning ? { registrationWarning } : {}), unleased: alreadyRegistered ? [] : unleasedAgents(orchDir, identity.id) };
+  return { id: identity.id, label: identity.label, kind: identity.kind, ...(registrationWarning ? { registrationWarning } : {}), unleased: alreadyRegistered ? [] : orphanAgents(orchDir) };
 }
 
 export function claimIdentity(orchDir: OrchDir, params: ParamsOf<"claim-identity">, daemonToken: string): ClaimIdentityResponse {

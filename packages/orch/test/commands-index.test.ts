@@ -29,7 +29,7 @@ describe("commands/index", () => {
     } satisfies RegisterSessionResponse;
     announceUnleasedAgents(identity, (text) => output.push(text));
     announceUnleasedAgents({ ...identity, unleased: [] }, (text) => output.push(text));
-    expect(output).toEqual(["1 unleased agent(s) exist - orch adopt worker to take one, orch status to see them.\n"]);
+    expect(output).toEqual(["1 orphan agent(s) exist - orch adopt to list them.\n"]);
   });
   test("dispatches representative commands and reports unknown commands", () => {
     const directory: OrchDir = tempOrchDir("orch-command-seam-");

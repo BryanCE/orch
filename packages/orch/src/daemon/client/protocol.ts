@@ -7,7 +7,7 @@ import { isLifecycleVerb } from "../../adapters/adapter.ts";
 import { isThinkingLevel } from "../../policy/thinking.ts";
 import { AGENT_STATES } from "../../agent-state.ts";
 import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
-import type { ThinkingLevel, WorkerPolicy } from "../../types/policy.ts";
+import { CALLER_KINDS, type ThinkingLevel, type WorkerPolicy } from "../../types/policy.ts";
 import type { CallerCredential, CallerSession, TokenTotals } from "../../types/core.ts";
 import type { FleetCapacity } from "../../policy/capacity.ts";
 import { isAgentNotice, type AgentNotice } from "../../control/bridge-message.ts";
@@ -199,11 +199,13 @@ const ACCEPTED = z.object({
 });
 const SUBSYSTEM = z.enum(["running", "stopped"]);
 
+const ORPHAN = z.object({ id: z.string(), name: z.string() });
+
 const registerSessionResponse = z.object({
   id: z.string().min(1),
   label: z.string(),
   kind: z.literal("session"),
-  unleased: z.array(z.object({ id: z.string(), name: z.string() })),
+  unleased: z.array(ORPHAN),
   registrationWarning: z.string().optional(),
 });
 
@@ -220,6 +222,9 @@ const statusRow = z.object({
   paneId: z.string().nullable(),
   managed: z.boolean(),
   owned: z.boolean(),
+  kind: z.enum(CALLER_KINDS).nullable(),
+  createdAt: z.number().nullable(),
+  pid: z.number().nullable(),
   name: z.string().nullable(),
   tab: z.string().nullable(),
   agent: z.string().nullable(),
@@ -302,7 +307,7 @@ export const RPC_PARAMS = {
   "agent-closed": GOVERNANCE.extend({ key: nonBlank }),
   "register-agent": SPAWN_REGISTRATION.extend(GOVERNANCE.shape),
   detach: GOVERNANCE.extend({ target: nonBlank }),
-  adopt: GOVERNANCE.extend({ target: nonBlank.optional(), all: z.boolean().optional() }),
+  adopt: GOVERNANCE.extend({ targets: z.array(nonBlank).optional(), all: z.boolean().optional() }),
   rename: GOVERNANCE.extend({ target: nonBlank, name: nonBlank }),
   reap: GOVERNANCE.extend({ target: nonBlank.optional(), dead: z.boolean().optional() }),
   "reap-candidates": GOVERNANCE,
@@ -337,6 +342,7 @@ export const RPC_PARAMS = {
   "resolve-lifecycle": z.object({ caller: CALLER, target: nonBlank }),
   "close-targets": z.object({ caller: CALLER, targets: z.array(nonBlank), all: z.boolean() }),
   "owned-agents": z.object({ caller: CALLER }),
+  orphans: z.object({}),
   question: z.custom<AgentNotice>(isAgentNotice),
   questions: z.object({ caller: CALLER, all: z.boolean().optional() }),
   ack: z.object({ id: nonBlank }),
@@ -425,10 +431,11 @@ export const RPC_RESULTS = {
   "agent-status": z.object({ status: AGENT_STATUS_ROW.nullable() }),
   "process-live": z.object({ live: z.boolean() }),
   "resolve-target": z.object({ entity: ENTITY, view: AGENT_VIEW.nullable(), holder: z.string().nullable(), callerOwns: z.boolean() }),
-  self: z.object({ id: z.string().nullable(), kind: z.enum(["operator", "session", "agent"]), space: z.string().nullable(), view: AGENT_VIEW.nullable(), depth: z.number().int().nonnegative(), stored: STORED_IDENTITY.nullable() }),
+  self: z.object({ id: z.string().nullable(), kind: z.enum(CALLER_KINDS), space: z.string().nullable(), view: AGENT_VIEW.nullable(), depth: z.number().int().nonnegative(), stored: STORED_IDENTITY.nullable() }),
   "resolve-lifecycle": z.object({ entity: ENTITY, key: z.string(), view: AGENT_VIEW.nullable(), backendId: z.string().nullable(), handle: z.string(), holder: z.string().nullable(), callerOwns: z.boolean() }),
   "close-targets": z.object({ targets: z.array(CLOSE_TARGET), refusal: z.string().nullable() }),
   "owned-agents": z.object({ keys: z.array(z.string()) }),
+  orphans: z.object({ agents: z.array(ORPHAN) }),
   question: OK,
   ack: OK,
   "control-outcome": OK,

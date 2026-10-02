@@ -4,6 +4,8 @@ exited succeeds. Between tasks, keep the agent and send the next one with `orch 
 
     orch close api-types api-routes
 
-Close ignores leases: the human can always kill. `--all` from a plain shell sweeps every
-agent orch spawned. From an agent or a harness session it sweeps that caller, what it
-spawned, and what it adopted; a named agent outside that set is refused with its owner.
+Close ignores leases: the human can always kill. From a plain shell, a named agent always
+closes. `--all` sweeps only your own tree, from any caller: what you spawned or adopted, at
+any depth, and never you. An agent or a harness session that names an agent outside its
+tree is refused with the owner. To close another terminal's workers, name them, or
+`orch adopt` them first.

@@ -54,7 +54,7 @@ describe("orch bridge links and capture roles", () => {
     seedLiveProcess(orchDir, key);
     seedStatus(orchDir, key, { key, agent: "pi", state: "working" });
     const deliveries: BridgeDelivery[] = [];
-    const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
+    const link: BridgeLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
     attachBridge(orchDir, key, link);
     links.push({ key, link });
     const id = "dispatch-1";

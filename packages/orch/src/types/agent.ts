@@ -273,8 +273,9 @@ export interface DaemonLink {
    *  or refused the call. */
   ask<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined>;
   /** Open the persistent link and announce this agent. Deliveries arrive on onDelivery
-   *  until detach(). Reconnects on its own; never throws. */
-  attach(key: string, onDelivery: (delivery: BridgeDelivery) => void): void;
+   *  until detach(). Reconnects on its own; never throws. When orchd does not know the
+   *  key, it calls onUnknownKey if given, and otherwise re-sends the attach. */
+  attach(key: string, onDelivery: (delivery: BridgeDelivery) => void, onUnknownKey?: () => void): void;
   /** Close the link and stop reconnecting. */
   detach(): void;
   /** True while a link is open and attached. */

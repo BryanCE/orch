@@ -1,7 +1,7 @@
 import { getBackend } from "../backends/registry.ts";
 import { lifecycleResolutionFor } from "./lifecycle.ts";
 import { addressOf, indexPresenceById } from "./lookup.ts";
-import { callerAuthority, refuseClose } from "../policy/close-authority.ts";
+import { callerAuthority, refuseClose, sweeps } from "../policy/close-authority.ts";
 import { callerKindOf } from "../policy/caller.ts";
 import { selfIdentityOf } from "../identity/self.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
@@ -114,17 +114,17 @@ export function closeTargetsFor(
   all: boolean,
   warn: (address: string, backendId: string | null) => void,
 ): { targets: CloseTargetWire[]; refusal: string | null } {
-  const authority = callerAuthority(callerKindOf(orchDir, credential), selfIdentityOf(orchDir, credential));
+  const self = selfIdentityOf(orchDir, credential);
+  const authority = callerAuthority(callerKindOf(orchDir, credential), self);
   if (authority === null) return { targets: [], refusal: "cannot close: this caller is not the human and has no orch row. Run orch whoami to register it, then retry." };
   const named = namedCloseTargets(orchDir, settings, credential, positional);
   const refusal = named
     .map((target) => refuseClose(orchDir, authority, target.key))
     .find((reason) => reason !== null) ?? null;
   if (refusal !== null) return { targets: [], refusal };
-  // A sweep skips what is not the caller's; a named target is refused.
-  const swept = all
-    ? sweptCloseTargets(orchDir, settings, credential, warn)
-      .filter((target) => refuseClose(orchDir, authority, target.key) === null)
+  // A sweep takes only the caller's own tree, the human's too; a named target is refused when not the caller's.
+  const swept = all && self !== null
+    ? sweptCloseTargets(orchDir, settings, credential, warn).filter((target) => sweeps(orchDir, self.id, target.key))
     : [];
   return { targets: [...swept, ...named], refusal: null };
 }

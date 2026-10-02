@@ -13,7 +13,7 @@ function fixture(): OrchDir {
   const dir = tempOrchDir("orch-store-tasks-"); dirs.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('a','a','pi','/tmp','a',1)`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('a','a','pi','/tmp','a',1,'session')`);
   return dir;
 }
 
@@ -65,7 +65,7 @@ describe("queue facade storage", () => {
 
   test("a dead orch does not make a pack task unrunnable while a member lives", () => {
     const dir = fixture();
-    orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,spawned_by) VALUES ('b','a','pi','/tmp','b',1,'a')`);
+    orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,spawned_by,kind) VALUES ('b','a','pi','/tmp','b',1,'a','agent')`);
     const task = addTask(dir, "pack work", {}, "a");
     orm(dir).run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES ('a',2,NULL)`);
     expect(listTasks(dir)[0]).toMatchObject({ id: task.id, state: "queued" });

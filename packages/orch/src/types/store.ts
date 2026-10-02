@@ -3,7 +3,7 @@
 import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
 import type { RecordedProcess } from "./backend.ts";
 import type { OutboxPayload } from "../control/bridge-message.ts";
-import type { ThinkingLevel } from "./policy.ts";
+import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { HostOs } from "./host.ts";
 
 export interface AgentInput {
@@ -45,6 +45,9 @@ export interface SessionAgentInput {
   /** The space the caller registered in. Optional (A7): a session in no space
    *  records no row, which is an answer and not a missing value. */
   space?: string | null;
+  /** The live agent this session started inside, such as the terminal a harness was typed
+   *  into. Written once, when the row is minted; provenance never changes after. */
+  spawnedBy?: string | null;
   now: number;
 }
 
@@ -56,6 +59,7 @@ export interface AgentRow {
   cwd: string;
   name: string;
   label: string | null;
+  kind: CallerKind;
   claimedAt: number | null;
   sessionToken: string | null;
   createdAt: number;
@@ -112,7 +116,8 @@ export interface AgentView {
   readonly harnessId: string;
   readonly cwd: string;
   readonly createdAt: number;
-  /** Provenance — who spawned it, immutable. */
+  /** Provenance — how the row came to be, and who spawned it. Both immutable. */
+  readonly kind: CallerKind;
   readonly spawnedBy: string | null;
   /** The spawner's CURRENT name, read as a join. Never stored beside the child:
    *  a copy goes stale the moment the spawner is renamed, and a name is mutable

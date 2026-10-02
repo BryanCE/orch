@@ -19,7 +19,6 @@ import type { BridgeDelivery, BridgeMessage } from "../control/bridge-message.ts
 export const LAST_TEXT_MAX = 400;
 /** Maximum stored task length after the worker header is removed. */
 export const TASK_MAX = 200;
-export const HEARTBEAT_MS = 3000;
 
 interface TextBlockLike {
   type: unknown;
@@ -210,11 +209,8 @@ export function createAgentPresence(options: AgentPresenceOptions) {
       }
     } catch {}
 
-    // Do not rely only on the message and settle events. The harness persists the
-    // assistant message before (or independently of) delivering those events,
-    // and an event handler can be delayed behind another extension handler while
-    // the heartbeat continues to run. The session branch is the durable source
-    // of truth, so reconcile it here on every heartbeat/context refresh.
+    // The session branch is the durable source of truth: the harness persists the
+    // assistant message before, or apart from, the message events. Reconcile it here.
     try {
       const branch = ctx.sessionManager.getBranch();
       let input = 0;
@@ -367,20 +363,25 @@ export function createAgentPresence(options: AgentPresenceOptions) {
         if (key === undefined || state.key !== "") return;
         state.key = key;
         void loadName();
+        // Only a session identifies again; a spawned agent's id is its launch credential.
         daemon.attach(key, (delivery) => {
           void routeDelivery(delivery).catch(() => {
             /* A failed apply remains unacked for daemon redelivery. */
           });
-        });
+        }, launchCredential() === null ? forgetKey : undefined);
+        writeStatus();
       } catch {
-        // A later heartbeat retries when orchd is ready.
+        // The next agent_start retries when orchd is ready.
       } finally {
         identifying = false;
       }
     })();
   }
 
-  function retryIdentity(): void {
+  /** orchd no longer knows this session's id, as after a store reset: drop it and identify again. */
+  function forgetKey(): void {
+    daemon.detach();
+    state.key = "";
     if (lastCtx) initPresence(lastCtx);
   }
 
@@ -399,12 +400,10 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     text,
     answers,
     modelControl,
-    lastCtx: (): HarnessContext | undefined => lastCtx,
     setLastCtx: (ctx: HarnessContext): void => {
       lastCtx = ctx;
     },
     initPresence,
-    retryIdentity,
     ownPresenceKey,
     loadName,
     /** Id of the dispatch whose delivered text is this prompt, or undefined for a human-typed run. */

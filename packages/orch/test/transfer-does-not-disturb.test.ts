@@ -101,7 +101,7 @@ describe("a transfer touches the lease and nothing else", () => {
     const { directory, worker } = workingAgent();
     const statusBefore = statusBytes(directory);
     const deliveries: BridgeDelivery[] = [];
-    const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
+    const link: BridgeLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
     attachBridge(directory, worker, link);
     links.push({ key: worker, link });
 

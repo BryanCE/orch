@@ -20,15 +20,14 @@ export function nonEmpty(value: string | undefined): string | undefined {
   return value === "" ? undefined : value;
 }
 
-/** Print the daemon's once-per-session unleased list. The daemon sends it only on the
- * session's first registration, so this never decides anything itself. */
+/** Print the daemon's once-per-session orphan list to stderr, so a command's own stdout stays
+ * clean. The daemon sends it only on the session's first registration. */
 export function announceUnleasedAgents(
   identity: RegisterSessionResponse,
-  write: (text: string) => void = (text) => { process.stdout.write(text); },
+  write: (text: string) => void = (text) => { process.stderr.write(text); },
 ): void {
-  const [first] = identity.unleased;
-  if (first === undefined) return;
-  write(`${identity.unleased.length} unleased agent(s) exist - orch adopt ${first.name} to take one, orch status to see them.\n`);
+  if (identity.unleased.length === 0) return;
+  write(`${identity.unleased.length} orphan agent(s) exist - orch adopt to list them.\n`);
 }
 
 /**

@@ -8,7 +8,9 @@ import { pendingQuestion } from "../../store/question-rows.ts";
 import { loadPresence, spawnedRecords } from "../../presence/store.ts";
 import { selfId, spaceOfAgent } from "../../identity/self.ts";
 import { callerKind } from "../../policy/caller.ts";
-import { fleetNames, statusRowFromEntity } from "./rows.ts";
+import { currentProcesses, type ProcessRow } from "../../store/interval-rows.ts";
+import { hostById } from "../../store/agent-rows.ts";
+import { fleetNames, statusRowFromEntity, type RowProcess } from "./rows.ts";
 import type { CallerScope } from "./options.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { AgentView } from "../../types/store.ts";
@@ -29,13 +31,25 @@ interface FleetStatusOptions {
   caller: string | null;
 }
 
+/** Each agent row's open process, read once on the first row that has one, so a fleet with no rows opens no store. */
+function processLookup(directory: OrchDir, views: ReadonlyMap<string, AgentView>): (agentId: string) => RowProcess | undefined {
+  let processes: ReadonlyMap<string, ProcessRow> | undefined;
+  return (agentId) => {
+    if (!views.has(agentId)) return undefined;
+    processes ??= currentProcesses(directory);
+    const process = processes.get(agentId);
+    return process && { pid: process.pid, host: hostById(directory, process.hostId)?.name };
+  };
+}
+
 export function buildFleetStatus(settings: OrchSettings, options: FleetStatusOptions): FleetStatus {
   const directory = options.directory;
   const fleet = agentViewIndex(directory);
   const views = liveViews(fleet);
   const leaseFacts = options.leaseFacts ?? fleetLeaseFacts(directory, fleet);
+  const processOf = processLookup(directory, views);
   const rows = sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }))
-    .map((entity) => statusRowFromEntity(entity, views, leaseFacts, (id) => pendingQuestion(directory, id)?.question, directory, options.caller));
+    .map((entity) => statusRowFromEntity(entity, views, leaseFacts, (id) => pendingQuestion(directory, id)?.question, processOf, directory, options.caller));
   // Names come off the whole index: an ended spawner or holder is still named.
   return { names: fleetNames(rows, fleet, settings.spaces), rows };
 }

@@ -1,6 +1,6 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
-import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
+import type { CallerKind, ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentView } from "./store.ts";
 import type { Entity, LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
@@ -200,6 +200,12 @@ export interface StatusRow extends LeaseStatusPayload {
   /** False for panes orch did not spawn (the orchestrator's own, the user's). */
   managed: boolean;
   readonly owned: boolean;
+  /** How the agent row came to be; null for a pane orch holds no row for. */
+  kind: CallerKind | null;
+  /** When orch made the agent row; null for a pane orch holds no row for. */
+  createdAt: number | null;
+  /** The process orch keys the agent's liveness on, from the store. */
+  pid: number | null;
   name: string | null;
   tab: string | null;
   agent: string | null;

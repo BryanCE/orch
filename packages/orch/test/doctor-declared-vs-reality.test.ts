@@ -21,7 +21,7 @@ function fixture(): OrchDir {
   return dir;
 }
 function agent(dir: OrchDir, id: string, spawnedBy: string | null = null): void {
-  orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,spawned_by,created_at) VALUES (${id},${spawnedBy ?? id},${"pi"},${dir},${id},${spawnedBy},${1})`);
+  orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,spawned_by,created_at,kind) VALUES (${id},${spawnedBy ?? id},${"pi"},${dir},${id},${spawnedBy},${1},${"agent"})`);
 }
 function recordProcess(dir: OrchDir, id: string, pid: number, token: string | null): void {
   orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${pid},${token})`);

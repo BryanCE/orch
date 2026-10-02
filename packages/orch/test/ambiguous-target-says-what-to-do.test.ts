@@ -26,7 +26,7 @@ const presence = (key: string, alive: boolean): PresenceEntry => ({ key, status:
 
 function view(id: string, name: string): AgentView {
   return {
-    id, name, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
+    id, name, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1, kind: "agent",
     spawnedBy: null, spawnedByName: null, rootAgentId: id, heldBy: null,
     environment: { plexer: null, handle: null, space: null, worktree: null, branch: null },
     tuning: { model: null, thinking: null },

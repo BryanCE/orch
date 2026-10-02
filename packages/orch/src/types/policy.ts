@@ -94,7 +94,9 @@ export interface ProvenanceNode {
 /** Resolve one agent's provenance facts, or nothing when the id is unknown. */
 export type ProvenanceLookup = (id: string) => ProvenanceNode | null | undefined;
 
-export type CallerKind = "operator" | "session" | "agent";
+/** How an agent row came to be: a raw terminal, a harness typed into one, or an `orch spawn`. */
+export const CALLER_KINDS = ["operator", "session", "agent"] as const;
+export type CallerKind = (typeof CALLER_KINDS)[number];
 
 export type CloseAuthority =
   | { readonly kind: "human" }

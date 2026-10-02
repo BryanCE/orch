@@ -134,7 +134,7 @@ describe("presence uses the identity orchd returns", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(presence.state.key).toBe("");
 
-    presence.retryIdentity();
+    presence.initPresence(fakeContext());
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(presence.state.key).toBe(id);
     expect(calls).toBe(2);

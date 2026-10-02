@@ -23,5 +23,5 @@ export function cleanStore(directory: OrchDir, params: ParamsOf<"clean">): Resul
   const reaped = params.all ? reapDeadAgentRecords(directory) : [];
   const removed = params.all ? reapExpiredPresenceDirs(directory, new Date()) : [];
   const live = livePresenceHolders(directory);
-  return { malformed, closed, reaped, removed, liveHolders: [...live.workers, ...live.sessions], liveWorktrees: liveWorktreePaths(directory) };
+  return { malformed, closed, reaped, removed, liveHolders: [...live.workers, ...live.registered], liveWorktrees: liveWorktreePaths(directory) };
 }

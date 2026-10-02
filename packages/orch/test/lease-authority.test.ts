@@ -64,7 +64,7 @@ describe("C3 foreign agents are untouchable", () => {
     const dir = fixture();
     live(dir, "orch-a");
     agent(dir, "caller-orch");
-    agent(dir, "worker", "worker");
+    agent(dir, "worker", "worker", "orch-a");
     acquireLease(dir, "worker", "orch-a", 2);
     // dispatch / steer / model / reset all reach the same daemon gate.
     expect(() => governWrite(daemonState(dir), "worker", { actor: "caller-orch" }))
@@ -80,7 +80,7 @@ describe("C3 foreign agents are untouchable", () => {
     const dir = fixture();
     dead(dir, "zombie-orch");
     agent(dir, "caller-orch");
-    agent(dir, "worker", "worker");
+    agent(dir, "worker", "worker", "zombie-orch");
     acquireLease(dir, "worker", "zombie-orch", 2);
     expect(() => governWrite(daemonState(dir), "worker", { actor: "caller-orch" })).not.toThrow();
     expect(adoptAgent(dir, "worker", "caller-orch")).toMatchObject({ adopted: true });
@@ -112,7 +112,7 @@ describe("C4 steal", () => {
     const dir = fixture();
     live(dir, "live-orch");
     agent(dir, "new-orch");
-    agent(dir, "worker", "worker");
+    agent(dir, "worker", "worker", "live-orch");
     acquireLease(dir, "worker", "live-orch", 2);
     expect(() => adoptAgent(dir, "worker", "new-orch")).toThrow(/leased by live orch/);
     expect(adoptAgent(dir, "worker", "new-orch", { steal: true, now: 3 })).toMatchObject({ adopted: true });
@@ -260,7 +260,7 @@ describe("C5 a transfer does not disturb the agent", () => {
     process.env.ORCH_DIR = dir;
     dead(dir, "old-orch");
     agent(dir, "new-orch");
-    agent(dir, "worker", "worker");
+    agent(dir, "worker", "worker", "old-orch");
     orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"worker"},${1},${"host"},${424242},${"worker-token"})`);
     const statusPath = join(presenceAgentDir("worker", dir), "status.json");
     mkdirSync(presenceAgentDir("worker", dir), { recursive: true });

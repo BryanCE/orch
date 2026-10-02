@@ -298,14 +298,14 @@ describe("daemon RPC", () => {
     }
   }, 30_000);
 
-  test("hello returns live agents whose newest lease is closed or absent", async () => {
+  test("hello returns live spawned agents with no live holder, never a root", async () => {
     const dir = tempOrchDir();
     ensureHarness(dir, "pi", "pi", 1);
-    insertAgent(dir, { id: "closed", name: "closed-worker", harnessId: "pi", cwd: dir, createdAt: 1 });
-    insertAgent(dir, { id: "free", name: "free-worker", harnessId: "pi", cwd: dir, createdAt: 1 });
     insertAgent(dir, { id: "holder", name: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
-    insertAgent(dir, { id: "leased", name: "leased-worker", harnessId: "pi", cwd: dir, createdAt: 1 });
-    insertAgent(dir, { id: "ended", name: "ended-worker", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { id: "closed", name: "closed-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { id: "free", name: "free-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { id: "leased", name: "leased-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { id: "ended", name: "ended-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
     acquireLease(dir, "closed", "holder", 2);
     releaseLease(dir, "closed", "holder", 3);
     acquireLease(dir, "leased", "holder", 2);
@@ -318,7 +318,7 @@ describe("daemon RPC", () => {
       unleased: [
         { id: "closed", name: "closed-worker" },
         { id: "free", name: "free-worker" },
-        { id: "holder", name: "holder" },
+        { id: "leased", name: "leased-worker" },
       ],
     });
     const repeat = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs() });

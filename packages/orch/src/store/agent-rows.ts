@@ -7,9 +7,12 @@ import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPl
 import { environmentOf, refreshAgent } from "./agent-view.ts";
 import { currentProcess, recordProcessIn, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
+import { acquireLease } from "./lease-rows.ts";
 import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
 import type { HostOs } from "../types/host.ts";
+import type { CallerKind } from "../types/policy.ts";
 import { isHostOs } from "../host.ts";
+import { OPERATOR_HARNESS_ID } from "../identity/operator.ts";
 
 /** An agent joined to the ending it may not have. The join is left, so `ending`
  *  is null for every live agent and carries the instant for a closed one. */
@@ -22,7 +25,7 @@ function mapAgent({ agent, ending }: JoinedAgent): AgentRow {
   return {
     id: agent.id, spawnedBy: agent.spawnedBy, rootAgentId: agent.rootAgentId,
     harnessId: agent.harnessId, cwd: agent.cwd, name: agent.name,
-    label: agent.label, claimedAt: agent.claimedAt, sessionToken: agent.sessionToken, createdAt: agent.createdAt,
+    label: agent.label, kind: agent.kind, claimedAt: agent.claimedAt, sessionToken: agent.sessionToken, createdAt: agent.createdAt,
     ending: ending === null ? null : { endedAt: ending.endedAt, closedBy: ending.closedBy },
   };
 }
@@ -47,9 +50,9 @@ export function insertAgent(orchDir: OrchDir, input: AgentInput): AgentRow {
   if (harness === undefined) throw new Error(`unknown harness: ${input.harnessId}`);
   const existing = db.select({ id: agents.id }).from(agents).where(eq(agents.id, input.id)).get();
   if (existing !== undefined) throw new Error(`agent already exists: ${input.id}`);
-  const row = {
+  const row: Omit<AgentRow, "ending"> = {
     id: input.id, spawnedBy, rootAgentId: root, harnessId: input.harnessId,
-    cwd: input.cwd, name: input.name, label: input.label ?? null,
+    cwd: input.cwd, name: input.name, label: input.label ?? null, kind: "agent",
     claimedAt: null, sessionToken: null, createdAt: input.createdAt,
   };
   db.insert(agents).values(row).run();
@@ -157,6 +160,13 @@ function liveProcessAgentId(orchDir: OrchDir, pid: number, startToken: string, e
   return row?.id ?? null;
 }
 
+/** Every pid an un-ended agent row runs as now. */
+export function liveProcessPids(orchDir: OrchDir): Set<number> {
+  return new Set(orm(orchDir).select({ pid: agentProcesses.pid }).from(agentProcesses)
+    .leftJoin(agentEndings, eq(agentEndings.agentId, agentProcesses.agentId))
+    .where(and(isNull(agentProcesses.until), isNull(agentEndings.agentId))).all().map((row) => row.pid));
+}
+
 /** The live agent registered as this process instance, or null. */
 export function agentIdByProcess(orchDir: OrchDir, pid: number, startToken: string): string | null {
   return liveProcessAgentId(orchDir, pid, startToken, undefined);
@@ -235,6 +245,11 @@ function recordPlexer(orchDir: OrchDir, input: SessionAgentInput): void {
   if (input.plexerVersion) ensureHostPlexer(orchDir, input.hostId, input.plexerId, input.plexerVersion, input.now);
 }
 
+/** A registering caller with no harness is a raw terminal: the operator. */
+function registeredKind(harnessId: string): Exclude<CallerKind, "agent"> {
+  return harnessId === OPERATOR_HARNESS_ID ? "operator" : "session";
+}
+
 export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInput): SessionAgentIdentity & { readonly repointed: boolean; readonly agent: SessionAgentIdentity } {
   ensureHarness(orchDir, input.harnessId, input.harnessId, input.now);
   ensureHost(orchDir, input.hostId, input.hostName, input.hostOs, input.now);
@@ -266,13 +281,17 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
     }
 
     const id = mintAgentId();
+    const parent = input.spawnedBy ? agentById(orchDir, input.spawnedBy) : null;
     db.insert(agents).values({
-      id, spawnedBy: null, rootAgentId: id, harnessId: input.harnessId, cwd: input.cwd,
-      name: `${input.harnessId}-${id.slice(0, 8)}`, label: input.label, sessionToken: token, createdAt: input.now,
+      id, spawnedBy: parent?.id ?? null, rootAgentId: parent?.rootAgentId ?? id, harnessId: input.harnessId, cwd: input.cwd,
+      name: `${input.harnessId}-${id.slice(0, 8)}`, label: input.label, kind: registeredKind(input.harnessId),
+      sessionToken: token, createdAt: input.now,
     }).run();
     db.insert(agentProcesses).values({
       agentId: id, since: input.now, until: null, hostId: input.hostId, pid: input.pid, startToken: input.startToken,
     }).run();
+    // Whoever started it holds it, as a spawner holds its spawn.
+    if (parent) acquireLease(orchDir, id, parent.id, input.now);
     return { id, label: input.label, kind: "session" };
   });
   refreshAgent(orchDir, identity.id);

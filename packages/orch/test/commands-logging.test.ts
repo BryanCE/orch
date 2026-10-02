@@ -83,7 +83,7 @@ describe("orch logs", () => {
     seedLogs(directory);
     const db = orm(directory);
     db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('agentbbb02',NULL,'agentbbb02','pi','/repo','bee',1)`);
+    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('agentbbb02',NULL,'agentbbb02','pi','/repo','bee',1,'session')`);
     const services = await servedServices({ orchDir: directory, settings: { notify: [] } }, servers);
     const lines = (await captureStdout(() => cmdLogs(services, ["--agent", "bee"]))).trim().split("\n");
     expect(lines).toHaveLength(1);

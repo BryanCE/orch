@@ -37,7 +37,7 @@ function fixture(): OrchDir {
     ["orch-a", "orch-a", null], ["a1", "orch-a", "orch-a"], ["a2", "orch-a", "orch-a"],
     ["orch-b", "orch-b", null], ["b1", "orch-b", "orch-b"],
   ] as const) {
-    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1)`);
+    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1,${"agent"})`);
   }
   db.run(sql`INSERT INTO spaces(id,name,created_by,created_at) VALUES ('space-1','One','orch-a',1)`);
   return dir;

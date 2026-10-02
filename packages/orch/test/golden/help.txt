@@ -3,7 +3,7 @@ orch - the single controller for coding agents, in any plexer.
 
 OBSERVE
   orch status [flags]                           Fleet table with cost and context. The default command.
-  orch whoami                                   Who orch sees as the caller in this terminal. Registers nothing.
+  orch whoami                                   Who orch sees as the caller in this terminal.
   orch monitor [flags]                          Push stream of the states an orch acts on. Arm it as a Monitor.
   orch events [flags]                           Every state transition, mid-turn flips included.
   orch questions [flags]                        Agents blocked on a question.
@@ -46,7 +46,7 @@ AGENTS (never steals focus except 'focus')
   orch close <target>... | --all [flags]        Close (alias: kill).
   orch abort <target> [<text...>]               Cancel the current turn, then steer with the text.
   orch detach <target> [flags]                  Release the lease. The agent keeps running.
-  orch adopt <target> | --all [flags]           Take an unleased agent.
+  orch adopt [<target>...] | --all [flags]      List orphans, or take the named ones.
   orch reap [<target>] [flags]                  Delete an agent record.
   orch grant [<id>]                             Approve an action an agent was refused.
   orch lock -- '<command>'                      Run a locked or gated command once orchd allows it.

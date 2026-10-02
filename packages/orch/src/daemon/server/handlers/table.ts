@@ -4,7 +4,7 @@ import { bootCodeHash, startedAt, fleetStatus } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import { answer, dispatch, message, steer } from "./write.ts";
 import { applyLifecycle, closeAgent, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
-import { adopt, detach, reap, reapCandidateList, rename } from "./lease.ts";
+import { adopt, detach, orphans, reap, reapCandidateList, rename } from "./lease.ts";
 import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
 import { admitHome, decideGrant, listGrants } from "./grant.ts";
 import { lockCommand, unlockCommand } from "./command-lock.ts";
@@ -141,6 +141,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "resolve-lifecycle": (params) => resolveLifecycleEntity(state, params),
     "close-targets": (params) => closeTargets(state, params),
     "owned-agents": (params) => ownedAgents(state, params),
+    orphans: () => orphans(state),
     question: (params) => recordAgentQuestion(directory, params),
     questions: (params) => listPendingQuestions(directory, params),
     answer: governed(state, (params) => {

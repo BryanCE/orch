@@ -41,7 +41,7 @@ describe("status rendering has one row shape and one table renderer", () => {
   test("task and last text use the same spelling in the row and table cell", () => {
     const directory = tempOrchDir("orch-status-row-shape-");
     tempDirs.push(directory);
-    const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), fleetLeaseFacts(directory, new Map()), () => undefined, directory, null);
+    const statusRow = statusRowFromEntity(entityWithQuestion(), new Map(), fleetLeaseFacts(directory, new Map()), () => undefined, () => undefined, directory, null);
     const table = renderStatusTable(fleetFixture([statusRow]), { showSpace: false, showOwner: false, showBranch: false }, { host: false, columns: new Set() });
     expect(statusRow.task).toBe("Q: approve");
     expect(table).toContain("Q: approve");

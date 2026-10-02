@@ -49,7 +49,7 @@ function composedRow(
   views: Parameters<typeof statusRowFromEntity>[1],
   questionOf: (agentId: string) => string | undefined = () => undefined,
 ): StatusRow {
-  return statusRowFromEntity(entity, views, fleetLeaseFacts(syntheticOrchDir, views), questionOf, syntheticOrchDir, null);
+  return statusRowFromEntity(entity, views, fleetLeaseFacts(syntheticOrchDir, views), questionOf, () => undefined, syntheticOrchDir, null);
 }
 
 describe("commands/status", () => {
@@ -101,7 +101,7 @@ describe("commands/status", () => {
     try {
       const db = orm(directory);
       db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-      db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('agentbee01',NULL,'agentbee01','pi','/repo','bee',1)`);
+      db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('agentbee01',NULL,'agentbee01','pi','/repo','bee',1,'session')`);
       const services = await servedServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
       expect(await resolveStatusAgent(services, parseStatusOptions(["--agent=bee"]))).toBe("agentbee01");
       expect(await resolveStatusAgent(services, parseStatusOptions([]))).toBeUndefined();
@@ -269,11 +269,15 @@ describe("commands/status", () => {
     expect(table).toContain("/repo");
   });
 
-  test("json branch and local table branch derive identical rows apart from host", () => {
-    const jsonRow = composedRow(seededEntity, new Map()); // cmdStatusLocal json branch shape
-    const localRow = { ...composedRow(seededEntity, new Map()), host: "local" }; // localStatusRows table shape
-    expect(localRow).toEqual({ ...jsonRow, host: "local" });
-    expect(jsonRow.host).toBeUndefined();
+  test("a row with no stored process names no host", () => {
+    expect(composedRow(seededEntity, new Map()).host).toBeUndefined();
+  });
+
+  test("a row carries its kind, creation instant, and the stored process and host", () => {
+    const views = new Map([[seededEntity.key, agentViewFixture(seededEntity.key, { kind: "session", createdAt: 42 })]]);
+    const row = statusRowFromEntity(seededEntity, views, fleetLeaseFacts(syntheticOrchDir, views), () => undefined,
+      () => ({ pid: 4242, host: "BRYAN-SWE" }), syntheticOrchDir, null);
+    expect(row).toMatchObject({ kind: "session", createdAt: 42, pid: 4242, host: "BRYAN-SWE" });
   });
   test("capacity footer uses configured caps and shows one pack per root", () => {
     const root = agentViewFixture("root", { name: "root", rootAgentId: "root", environment: { space: "main" } });

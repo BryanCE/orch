@@ -141,11 +141,28 @@ export function fleetNames(rows: readonly StatusRow[], views: ReadonlyMap<string
   return { agents, spaces: spaceNames };
 }
 
+/** The stored process an agent row runs as, and the host it runs on. */
+export interface RowProcess {
+  readonly pid: number;
+  readonly host: string | undefined;
+}
+
+/** What orch stored when it made the row: its kind, its creation instant, and the process it runs as. */
+function storedFacts(agent: AgentView | undefined, process: RowProcess | undefined): Pick<StatusRow, "kind" | "createdAt" | "pid" | "host"> {
+  return {
+    kind: agent?.kind ?? null,
+    createdAt: agent?.createdAt ?? null,
+    pid: process?.pid ?? null,
+    ...(process?.host === undefined ? {} : { host: process.host }),
+  };
+}
+
 export function statusRowFromEntity(
   entity: Entity,
   views: ReadonlyMap<string, AgentView>,
   leaseFacts: LeaseFacts,
   questionOf: (agentId: string) => string | undefined,
+  processOf: (agentId: string) => RowProcess | undefined,
   orchDir: OrchDir,
   caller: string | null,
 ): StatusRow {
@@ -163,6 +180,7 @@ export function statusRowFromEntity(
     paneId: entity.paneId,
     managed: entity.managed,
     owned: caller === null ? entity.managed : ownsAgent(orchDir, caller, entity.key),
+    ...storedFacts(agent, processOf(entity.key)),
     name: agent?.name ?? (entity.managed === false ? null : entity.name),
     tab: entity.tabLabel,
     agent: entity.agent,
@@ -189,7 +207,7 @@ export function statusRowFromEntity(
 
 export function warningStatusRow(host: string, warning: string): StatusRow {
   return {
-    key: `warning:${host}`, paneId: null, managed: false, owned: false, name: "WARNING", lease: null, leaseKnown: false,
+    key: `warning:${host}`, paneId: null, managed: false, owned: false, kind: null, createdAt: null, pid: null, name: "WARNING", lease: null, leaseKnown: false,
     spawnedBy: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
     focused: false, model: "", state: "warning", stateFallback: false,
     exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,

@@ -20,7 +20,7 @@ describe("commands/queue", () => {
     try {
       const db = orm(dir);
       db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-      db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch','orch','pi','/tmp','orch',1)`);
+      db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('orch','orch','pi','/tmp','orch',1,'session')`);
       const task = addTask(dir, "seam task", {}, "orch");
       const servers: RpcServer[] = [];
       const services = await servedServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
@@ -39,7 +39,7 @@ describe("commands/queue", () => {
     try {
       const db = orm(dir);
       db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-      db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch','orch','pi','/tmp','orch',1)`);
+      db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('orch','orch','pi','/tmp','orch',1,'session')`);
       const task = addTask(dir, "compile", { agent: "pi" }, "orch");
       expect(listTasks(dir)).toHaveLength(1);
       expect(cancelTask(dir, task.id, "orch")).toMatchObject({ id: task.id, state: "cancelled" });

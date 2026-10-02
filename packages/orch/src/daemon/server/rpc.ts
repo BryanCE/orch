@@ -60,6 +60,7 @@ function attachRequest(
   detachConnectionBridge(orchDir, state);
   const link: BridgeLink = {
     push: (delivery: BridgeDelivery) => lineResponse(socket, { kind: "delivery", delivery }),
+    close: () => socket.destroy(),
   };
   // A bridge for an agent this store does not know is refused on its own socket; it never ends the daemon.
   try {

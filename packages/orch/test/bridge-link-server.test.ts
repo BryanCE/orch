@@ -2,7 +2,9 @@ import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createConnection, type Socket } from "node:net";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
-import { attachBridge, attachedBridgeKeys, detachBridge, pushToBridge } from "../src/control/bridge-links.ts";
+import { attachBridge, attachedBridgeKeys, detachBridge, dropBridges, pushToBridge } from "../src/control/bridge-links.ts";
+import { createDaemonLink } from "../src/agent/daemon-client.ts";
+import { testServices } from "./helpers/services.ts";
 import type { BridgeLink } from "../src/control/bridge-links.ts";
 import { isBridgeDelivery } from "../src/control/bridge-message.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
@@ -82,7 +84,7 @@ beforeEach(() => {
 afterEach(async () => {
   while (servers.length) await servers.pop()!.close();
   for (const key of attachedBridgeKeys()) {
-    const link: BridgeLink = { push: () => undefined };
+    const link: BridgeLink = { push: () => undefined, close: () => undefined };
     const directory = directories[0];
     if (directory !== undefined) {
       attachBridge(directory, key, link);
@@ -194,5 +196,31 @@ describe("daemon bridge links", () => {
     await server.close();
     expect(server.attachedBridgeCount()).toBe(0);
     socket.destroy();
+  });
+
+  test("dropping bridges closes each bridge socket, so the bridge redials", async () => {
+    const key = liveKey(directories[0]!);
+    const server = await start();
+    const socket = await connected(server);
+    const lines = observe(socket);
+    let closed = false;
+    socket.once("close", () => { closed = true; });
+    socket.write(`${JSON.stringify({ id: 1, method: "attach", params: { key } })}\n`);
+    await lineAt(lines, 0);
+
+    expect(dropBridges()).toBe(1);
+    await until(() => closed);
+    expect(server.attachedBridgeCount()).toBe(0);
+  });
+
+  test("a bridge link hears when orchd does not know its key", async () => {
+    await start();
+    const directory = directories[0]!;
+    const link = createDaemonLink(directory, testServices({ orchDir: directory, settings: {} }).settings);
+    let unknown = 0;
+    link.attach(mintAgentId(), () => undefined, () => { unknown += 1; });
+    await until(() => unknown === 1);
+    expect(link.attached()).toBe(false);
+    link.detach();
   });
 });

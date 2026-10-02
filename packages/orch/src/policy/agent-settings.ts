@@ -1,11 +1,11 @@
 import type { OrchSettings } from "../types/settings.ts";
 
-/** The setting that grants a registered caller write access to other settings.
+/** The setting that grants an agent write access to other settings.
  *  It never grants itself: only the human widens what an agent may change. */
 export const AGENT_SETTINGS_GRANT = "agents.writable_settings";
 
-/** Whether a REGISTERED caller (a spawned agent or a harness session) may write `key`.
- *  An UNREGISTERED caller is the human and is never asked. */
+/** Whether a spawned agent or a harness session may write `key`.
+ *  The operator, a raw terminal, is the human and is never asked. */
 export function agentMayWriteSetting(settings: OrchSettings, key: string): boolean {
   if (key === AGENT_SETTINGS_GRANT) return false;
   return settings.agents.writable_settings.includes(key);

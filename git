@@ -1,0 +1,11 @@
+First run - no harness/backend recorded yet, walking through setup.
+
+orch: C:\Users\Bryan\.orch\orch.db does not match orch's migrations (Failed query: CREATE TABLE `agent_endings` (
+	`agent_id` text PRIMARY KEY,
+	`ended_at` integer NOT NULL,
+	`closed_by` text,
+	CONSTRAINT `fk_agent_endings_agent_id_agents_id_fk` FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON DELETE CASCADE,
+	CONSTRAINT `fk_agent_endings_closed_by_agents_id_fk` FOREIGN KEY (`closed_by`) REFERENCES `agents`(`id`)
+);
+
+params: ). Rebuild it with 'bun db:reset', which first keeps a copy under C:\Users\Bryan\.orch\backups.

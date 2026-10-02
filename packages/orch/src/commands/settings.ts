@@ -19,7 +19,7 @@ import { BACKEND_IDS } from "../types/backend.ts";
 import { isThinkingLevel } from "../policy/thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
-import { selfIdentity } from "../identity/self.ts";
+import { callerKind } from "../policy/caller.ts";
 import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, agentSettingRefusal, grantAgentSetting, revokeAgentSetting } from "../policy/agent-settings.ts";
 import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
@@ -76,10 +76,10 @@ export function shouldLaunchSettingsEditor(args: readonly string[], isTTY = proc
   return isTTY && args.length === 0;
 }
 
-/** A REGISTERED caller (a spawned agent or a harness session) writes only what
- *  `agents.writable_settings` grants. An UNREGISTERED caller is the human. */
+/** A spawned agent or a harness session writes only what `agents.writable_settings` grants.
+ *  The operator, a raw terminal, is the human. */
 function refuseUngrantedAgentWrite(services: Pick<Services, "settings" | "orchDir">, key: string): void {
-  if (selfIdentity(services.orchDir) === null) return;
+  if (callerKind(services.orchDir) === "operator") return;
   const settings = currentSettings(services);
   if (!agentMayWriteSetting(settings, key)) die(agentSettingRefusal(settings, key));
 }

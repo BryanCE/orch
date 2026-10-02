@@ -8,10 +8,9 @@ import { nextTilePlacement, planTilePlacement, readGroupLayout } from "../../bac
 import { createAgentWorktree } from "../../worktree.ts";
 import { errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
-import { rpcRegisterSession } from "../../daemon/client/reach.ts";
 import { die } from "../target.ts";
 import { whoAmI, type CallerSelf } from "../self.ts";
-import { LAUNCH_ENV, launchCredential } from "../../identity/launch.ts";
+import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { resolveTab } from "../panes.ts";
 import type { Backend, BackendGroup, CreatedHome, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
@@ -261,13 +260,7 @@ async function seatFleet(services: DaemonClient, backend: Backend, groupHome: Gr
   return { group: seatFleetInHome(backend, groupHome, home, label, prepared), workspace: home.coordinate };
 }
 
-/** A spawned agent already carries its id; only a driving session registers. */
-async function registerSpawner(services: Pick<Services, "orchDir" | "logger">): Promise<void> {
-  if (launchCredential() === null) await rpcRegisterSession(services.orchDir, services.logger);
-}
-
 async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "settings" | "models">, settingsFile: OrchSettings, requested: SpawnSettings): Promise<void> {
-  await registerSpawner(services);
   const self = await whoAmI(services);
   const fleet = await readFleet(services, true);
   const settings = await admitSpawn(services, self, fleet, settingsFile, requested, services.logger, services.models);
@@ -333,7 +326,6 @@ export async function cmdTile(services: Services, args: string[]) {
   if (!target || !requestedName) throw usageError(invocation);
   const autoName = resolveSpawnNames(invocation, [requestedName])[0]!;
 
-  await registerSpawner(services);
   const self = await whoAmI(services);
   const fleet = await readFleet(services, true);
   const { views, presence } = admissionFleet(fleet);

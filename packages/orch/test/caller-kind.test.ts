@@ -7,7 +7,7 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { agentIdBySessionToken, claimAgent } from "../src/store/agent-rows.ts";
 import { callerKind as daemonCallerKind } from "../src/policy/caller.ts";
-import { registerCallerSession, refuseNonOperatorOverride, whoAmI } from "../src/commands/self.ts";
+import { registerCaller, refuseNonOperatorOverride, whoAmI } from "../src/commands/self.ts";
 import { isolateHarnessSession, isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -91,6 +91,22 @@ describe("caller kind", () => {
     expect(callerKind()).toBe("operator");
   });
 
+  test("a launch credential without a harness marker is never the operator", () => {
+    setupOperator();
+    process.env[LAUNCH_ENV] = mintAgentId();
+    expect(callerKind()).toBe("session");
+  });
+
+  test("a raw terminal registers a row and stays the operator", async () => {
+    setupOperator();
+    const services = await servedServices({ orchDir: currentOrchDir(), settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
+    await registerCaller(services);
+    const self = await whoAmI(services);
+    expect(self.kind).toBe("operator");
+    expect(self.id).not.toBeNull();
+    expect(self.stored).toMatchObject({ process: { pid: process.ppid, alive: true }, sessionToken: null });
+  });
+
   test("an unregistered session asks the daemon registration seam", async () => {
     isolateOrchEnv();
     restoreHarnessSession = isolateHarnessSession("pi");
@@ -100,7 +116,7 @@ describe("caller kind", () => {
     process.env[sessionEnv.marker] = "1";
     process.env[sessionEnv.sessionId] = "fresh-session";
     const services = await servedServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
-    await registerCallerSession(services);
+    await registerCaller(services);
     const self = await whoAmI(services);
     expect(self.kind).toBe("session");
     expect(self.id).toBe(agentIdBySessionToken(directory, "fresh-session"));
@@ -115,7 +131,7 @@ describe("caller kind", () => {
     process.env[sessionEnv.marker] = "1";
     process.env[sessionEnv.sessionId] = "stored-session";
     const services = await servedServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
-    await registerCallerSession(services);
+    await registerCaller(services);
     const self = await whoAmI(services);
     expect(self.stored).toMatchObject({
       process: { pid: process.ppid, host: { name: hostname() }, alive: true },

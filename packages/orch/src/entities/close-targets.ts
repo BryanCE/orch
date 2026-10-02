@@ -2,6 +2,7 @@ import { getBackend } from "../backends/registry.ts";
 import { lifecycleResolutionFor } from "./lifecycle.ts";
 import { addressOf, indexPresenceById } from "./lookup.ts";
 import { callerAuthority, refuseClose } from "../policy/close-authority.ts";
+import { callerKindOf } from "../policy/caller.ts";
 import { selfIdentityOf } from "../identity/self.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { currentProcess } from "../store/interval-rows.ts";
@@ -113,7 +114,8 @@ export function closeTargetsFor(
   all: boolean,
   warn: (address: string, backendId: string | null) => void,
 ): { targets: CloseTargetWire[]; refusal: string | null } {
-  const authority = callerAuthority(selfIdentityOf(orchDir, credential));
+  const authority = callerAuthority(callerKindOf(orchDir, credential), selfIdentityOf(orchDir, credential));
+  if (authority === null) return { targets: [], refusal: "cannot close: this caller is not the human and has no orch row. Run orch whoami to register it, then retry." };
   const named = namedCloseTargets(orchDir, settings, credential, positional);
   const refusal = named
     .map((target) => refuseClose(orchDir, authority, target.key))

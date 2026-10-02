@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { TaskRec, TaskScopeSelection } from "../queue.ts";
-import { ensureDaemon, rpcRegisterSession } from "../daemon/client/reach.ts";
 import { rpcCall } from "../daemon/client/rpc.ts";
-import { launchCredential } from "../identity/launch.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { createAgentWorktree } from "../worktree.ts";
 import { askDaemon, callDaemon } from "./daemon.ts";
 import { resolveEntity } from "./resolve.ts";
+import { callerId } from "./self.ts";
 import { die, remoteWrite } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
@@ -15,7 +14,6 @@ import type { Invocation, ParsedFlags } from "../cli/spec.ts";
 import type { QueueScopeFlags } from "../types/command.ts";
 import type { DaemonClient } from "../types/services.ts";
 import type { Services } from "../types/services.ts";
-import type { OrchDir } from "../types/core.ts";
 import type { AgentView } from "../types/store.ts";
 
 export function renderQueueTasks(tasks: TaskRec[]): void {
@@ -37,19 +35,13 @@ function writeQueueTask(task: TaskRec, json: boolean, plainText: string): void {
   else process.stdout.write(plainText + "\n");
 }
 
-async function resolveSelfId(directory: OrchDir, logger: Services["logger"]): Promise<string> {
-  return launchCredential() ?? (await rpcRegisterSession(directory, logger)).id;
-}
-
 /** Run a queue verb against the daemon as the registered caller; any failure is a refusal. */
 async function withQueueCaller(
   services: DaemonClient,
   run: (callerId: string) => void | Promise<void>,
 ): Promise<void> {
   try {
-    await ensureDaemon(services.orchDir, services.logger);
-    const callerId = await resolveSelfId(services.orchDir, services.logger);
-    await run(callerId);
+    await run(await callerId(services));
   } catch (error: unknown) {
     die(errorMessage(error));
   }
@@ -113,11 +105,9 @@ async function queueAdd(services: DaemonClient, invocation: Invocation, args: st
     remoteWrite(services.settings.current().hosts, host, "queue", ["add", ...withoutHostFlag(args.slice(1), host)]);
     return;
   }
-  const directory = services.orchDir;
-  await ensureDaemon(directory, services.logger);
-  const callerId = await resolveSelfId(directory, services.logger);
+  const enqueuedBy = await callerId(services);
   const scope = await scopeFromFlags(services, scopeFlags(flags));
-  const { task } = await rpcCall(directory, "enqueue", { enqueuedBy: callerId, text, opts: worktreeOptions(flags.has("--worktree")), scope });
+  const { task } = await rpcCall(services.orchDir, "enqueue", { enqueuedBy, text, opts: worktreeOptions(flags.has("--worktree")), scope });
   writeQueueTask(task, flags.has("--json"), `Added task ${task.id}.`);
 }
 

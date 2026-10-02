@@ -27,6 +27,7 @@ import { cmdModels } from "./models.ts";
 import { cmdDoctor } from "./doctor.ts";
 import { cmdDetach, cmdAdopt, cmdReap } from "./lease.ts";
 import { cmdWhoami } from "./whoami.ts";
+import { registerCaller } from "./self.ts";
 import { COMMANDS, GLOBAL_FLAGS, commandSpec } from "./registry.ts";
 import { renderMap, renderTopic } from "../cli/help.ts";
 import { readHelpDoc } from "../cli/doc.ts";
@@ -53,6 +54,18 @@ const STALE_GUARD_COMMANDS = new Set([
   "spawn", "dispatch", "steer", "answer", "close", "kill", "reset", "new", "reload", "restart",
   "queue", "work", "model", "broadcast", "detach", "adopt", "reap", "space",
 ]);
+
+/** Commands that never dial orchd, plus `status`, which registers itself unless `--offline`. */
+const REGISTRATION_EXEMPT = new Set([
+  "setup", "doctor", "settings", "daemon", "logs", "models", "status",
+  "help", "-h", "--help", "version", "-V", "--version",
+]);
+
+/** Every other command records its caller first: a raw terminal gets a row like any session. */
+async function runAsCaller(services: Services, cmd: string, handler: Handler, args: string[]): Promise<void> {
+  if (!REGISTRATION_EXEMPT.has(cmd)) await registerCaller(services);
+  await handler(services, args);
+}
 
 /** Refuse writes sent to a live daemon from a stale installed CLI. */
 function preflightSkew(directory: OrchDir, argv: string[]): string[] {
@@ -198,7 +211,7 @@ export function runCommand(argv: string[]): void {
     }
     const handler = commandHandlers[cmd];
     if (handler !== undefined) {
-      dispatchAsync(services.logger, Promise.resolve(handler(services, rest)));
+      dispatchAsync(services.logger, runAsCaller(services, cmd, handler, rest));
       return;
     }
     if (cmd.startsWith("--")) dispatchAsync(services.logger, cmdStatusVerb(services, argv));

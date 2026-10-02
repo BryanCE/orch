@@ -6,7 +6,7 @@ import type { OrchDir } from "../../src/types/core.ts";
 let saved: Record<string, string | undefined> = {};
 let isolatedDir: OrchDir | undefined;
 
-const HARNESS_SESSION_VARS: readonly string[] = Object.values(HARNESS_SESSION_ENV).flatMap((vars) => Object.values(vars));
+export const HARNESS_SESSION_VARS: readonly string[] = Object.values(HARNESS_SESSION_ENV).flatMap((vars) => Object.values(vars));
 /** Every variable that makes the test runner look like an agent or a driving session. */
 const ISOLATED_VARS: readonly string[] = [...ORCH_ENV_VARS, ...HARNESS_SESSION_VARS];
 

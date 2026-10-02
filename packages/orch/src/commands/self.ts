@@ -14,11 +14,21 @@ export function whoAmI(services: DaemonClient, caller: CallerCredential = caller
   return readRpc(services, "self", { caller });
 }
 
-/** Register a driving session when orchd has no identity row for it, and print its unleased list.
- * Operators and spawned agents never register themselves. */
-export async function registerCallerSession(services: Pick<Services, "orchDir" | "logger"> & DaemonClient): Promise<void> {
+/** Register the caller when orchd has no row for it, and print its unleased list.
+ * A raw terminal registers like a harness session; a spawned agent already has its row. */
+export async function registerCaller(services: Pick<Services, "orchDir" | "logger"> & DaemonClient): Promise<void> {
   const self = await whoAmI(services);
-  if (self.kind === "session" && self.id === null) announceUnleasedAgents(await rpcRegisterSession(services.orchDir, services.logger));
+  if (self.id === null) announceUnleasedAgents(await rpcRegisterSession(services.orchDir, services.logger));
+}
+
+/** The caller's orch id, which {@link registerCaller} recorded before the command ran. */
+export function registeredId(self: Pick<CallerSelf, "id">): string {
+  if (self.id === null) die("orch has no row for this caller; run orch whoami to register it.");
+  return self.id;
+}
+
+export async function callerId(services: DaemonClient): Promise<string> {
+  return registeredId(await whoAmI(services));
 }
 
 /** Owner-gate overrides are operator-only. A spawned agent or a driving session may touch exactly what it holds. */

@@ -224,6 +224,18 @@ describe("fleet ownership scoping", () => {
     expect(spawnedRecords(dir).has("kunowned01")).toBe(false);
   });
 
+  test("close --all from a raw terminal with an orch row still sweeps every managed spawn", async () => {
+    const dir = makeDir();
+    delete process.env.HERDR_PANE_ID;
+    delete process.env.TMUX_PANE;
+    seedOperator(dir);
+    seedSpace(dir, "local");
+    seedAgent("kunowned02", { adapter: "pi", backend: "headless", space: "local", handle: "unowned", owner: "other" }, dir);
+    const result = await runVerb(dir, ["close", "--all", "--json"]);
+    expect(result.status).toBe(0);
+    expect(spawnedRecords(dir).has("kunowned02")).toBe(false);
+  });
+
   test("close --all closes all managed records regardless of owner", async () => {
     const dir = makeDir();
     seedSpace(dir, "local");
@@ -435,9 +447,9 @@ describe("a spawned agent touches only what it spawned", () => {
     seedAgent(key, { backend: "headless", adapter: "pi", space: "wF", handle: key, spawnedBy: "kwfoperato" }, dir);
 
     const result = await runVerb(dir, ["close", key], { [LAUNCH_ENV]: agentKey });
-    // An agent may not close what it neither spawned nor adopted; the refusal says who to ask.
+    // A launched process is never the human, so an agent it does not hold is outside its resolve wall.
     expect(result.status).not.toBe(0);
-    expect(result.output).toContain("not yours to close");
+    expect(result.output).toContain(`No target matches "${key}"`);
     expect(spawnedRecords(dir).has(key)).toBe(true);
   });
 

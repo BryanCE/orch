@@ -2,13 +2,15 @@ import { agentView } from "../store/agent-view.ts";
 import { holdsLease } from "../store/lease-rows.ts";
 import { isDescendantOf } from "./provenance.ts";
 import type { OrchDir, SelfIdentity } from "../types/core.ts";
-import type { CloseAuthority } from "../types/policy.ts";
+import type { CallerKind, CloseAuthority } from "../types/policy.ts";
 
 /** Who may END an agent: the human, anything; an agent, what it owns: itself, what it spawned, what it adopted. */
 export type { CloseAuthority };
 
-export function callerAuthority(self: SelfIdentity | null): CloseAuthority {
-  return self === null ? { kind: "human" } : { kind: "agent", agentId: self.id };
+/** The operator is the human, registered or not. Any other caller without a row has no authority: null. */
+export function callerAuthority(kind: CallerKind, self: SelfIdentity | null): CloseAuthority | null {
+  if (kind === "operator") return { kind: "human" };
+  return self === null ? null : { kind: "agent", agentId: self.id };
 }
 
 /** Whether ownerId owns agentId: itself, a provenance descendant at any depth, or an agent it holds an open lease on. */

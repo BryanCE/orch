@@ -1,6 +1,6 @@
 import { subscribeEvents } from "../../daemon/client/rpc.ts";
 import { ensureDaemon } from "../../daemon/client/reach.ts";
-import { registerCallerSession, whoAmI, refuseNonOperatorOverride } from "../self.ts";
+import { registerCaller, whoAmI, refuseNonOperatorOverride } from "../self.ts";
 import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, dim } from "../../tui/screen.ts";
 import { die } from "../target.ts";
 import { formatStatusTable } from "./table.ts";
@@ -91,7 +91,7 @@ export async function cmdStatusLive(services: Services, options: StatusOptions):
   if (options.json) die("--live renders a terminal table; drop --json");
   if (process.stdout.isTTY !== true || process.stdin.isTTY !== true) die("--live needs a terminal");
   await ensureDaemon(services.orchDir, services.logger);
-  await registerCallerSession(services);
+  await registerCaller(services);
   const self = await whoAmI(services);
   const caller = callerScope(self);
   if (options.all) refuseNonOperatorOverride(caller, "--all");

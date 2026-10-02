@@ -12,7 +12,7 @@ import type { Invocation } from "../cli/spec.ts";
 import { usageError } from "../cli/usage.ts";
 import { die, remoteWrite, resultText, targetHost } from "./target.ts";
 import { readFleet, type FleetSnapshot } from "./fleet.ts";
-import { whoAmI, refuseNonOperatorOverride, type CallerSelf } from "./self.ts";
+import { registeredId, whoAmI, refuseNonOperatorOverride, type CallerSelf } from "./self.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { agentFlags, pickAdapter, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
@@ -142,7 +142,7 @@ export async function cmdBroadcast(services: Services, args: string[]) {
   const resolvedByKey = new Map<string, ResolvedTarget>();
   let fleet: FleetSnapshot | undefined;
   if (all) {
-    if (self.id === null) die("Bulk operation refused: this orch is not registered; spawn or adopt an agent first, or name the targets.");
+    registeredId(self);
     if (explicitAll) refuseNonOperatorOverride(self, "--all");
     fleet = await readFleet(services, true);
     const { keys } = await readRpc(services, "owned-agents", { caller: callerCredential() });

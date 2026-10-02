@@ -14,7 +14,8 @@ import { isRecord } from "../src/util.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { testServices } from "../test/helpers/services.ts";
 import { captureStdout } from "../test/helpers/stdout.ts";
-import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
+import { seedOperator } from "../test/helpers/agent.ts";
+import { HARNESS_SESSION_VARS, isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const directories: OrchDir[] = [];
@@ -32,11 +33,11 @@ afterEach(() => {
   while (directories.length) removeTempDir(directories.pop()!);
 });
 
-/** The var that would make the runner an agent; cleared unless the test sets it. */
-const CALLER_VARS = [LAUNCH_ENV];
+/** The vars that would make the runner an agent or a harness session; cleared unless the test sets them. */
+const CALLER_VARS = [LAUNCH_ENV, ...HARNESS_SESSION_VARS];
 
 /** Run one `orch settings` in-process with the CLI's environment: this dir, the
- *  runner's env minus the caller var, plus what the test sets on purpose. A fresh
+ *  runner's env minus the caller vars, plus what the test sets on purpose. A fresh
  *  Services per run reads the file the way a fresh CLI process does. */
 async function runSettingsCli(orchDir: OrchDir, extraEnv: Record<string, string>, args: readonly string[]): Promise<string> {
   const saved = Object.fromEntries(CALLER_VARS.map((name) => [name, process.env[name]]));
@@ -283,6 +284,13 @@ describe("orch settings from an agent", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, fixture);
     expect(await runSettings(directory, {}, "fleet.max_depth", "5")).toContain("fleet.max_depth = 5");
+  });
+
+  test("a raw terminal with an orch row is still the human", async () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, fixture);
+    seedOperator(directory);
+    expect(await runSettings(directory, {}, "grant", "fleet.max_depth")).toContain("fleet.max_depth");
   });
 
   test("an agent sets a granted key", async () => {

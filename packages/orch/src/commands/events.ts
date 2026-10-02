@@ -14,7 +14,7 @@ import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { Invocation } from "../cli/spec.ts";
 import { readNameList } from "./status/options.ts";
-import { registerCallerSession, whoAmI, refuseNonOperatorOverride } from "./self.ts";
+import { whoAmI, refuseNonOperatorOverride } from "./self.ts";
 import { readFleet } from "./fleet.ts";
 import { resolveEntity } from "./resolve.ts";
 import type { Services } from "../types/services.ts";
@@ -118,7 +118,6 @@ export async function cmdMonitor(services: Services, args: string[]) {
 
 async function streamEvents(services: Services, verb: StreamVerb, options: EventsOptions, shows: (event: NotifyEvent) => boolean) {
   await ensureDaemon(services.orchDir, services.logger);
-  await registerCallerSession(services);
   const self = await whoAmI(services);
   if (options.scope === "any") refuseNonOperatorOverride(self, "--all");
   const fleet = await readFleet(services, true);

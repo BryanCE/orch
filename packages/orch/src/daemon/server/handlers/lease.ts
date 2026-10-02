@@ -18,7 +18,7 @@ import type { DaemonState } from "../state.ts";
 
 /** The orch a lease verb acts as. A caller with no registered identity holds nothing. */
 function actorOrDie(params: Governance): string {
-  if (params.actor === undefined) throw new Error("this orch is not registered; spawn or adopt an agent first");
+  if (params.actor === undefined) throw new Error("orch has no row for this caller; run orch whoami to register it.");
   return params.actor;
 }
 

@@ -3,9 +3,8 @@ import { retryingAsync } from "../../retry.ts";
 import { readRpc } from "../daemon.ts";
 import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
-import { die } from "../target.ts";
 import { resolveLifecycle, targetName } from "../resolve.ts";
-import { refuseNonOperatorOverride, type CallerSelf } from "../self.ts";
+import { registeredId, refuseNonOperatorOverride, type CallerSelf } from "../self.ts";
 import { durationSpan } from "../../cli/duration.ts";
 import { usageError } from "../../cli/usage.ts";
 import type { Invocation } from "../../cli/spec.ts";
@@ -79,7 +78,7 @@ export async function lifecycleTargets(services: DaemonClient, self: CallerSelf,
   const targets = [...positional];
   if (all) {
     refuseNonOperatorOverride(self, "--all");
-    if (self.id === null) die("Bulk operation refused: this orch is not registered; spawn or adopt an agent first, or name the targets.");
+    registeredId(self);
     targets.push(...await ownedAgentKeys(services));
   }
   return { targets, all };

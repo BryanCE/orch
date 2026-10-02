@@ -4,6 +4,7 @@ import { presenceEntry } from "../presence/store.ts";
 import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
 import { cmdSpawn } from "../commands/spawn/index.ts";
+import { registerCaller } from "../commands/self.ts";
 
 import type { SmokeSteps } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
@@ -11,6 +12,7 @@ import type { OrchSettings } from "../types/settings.ts";
 
 /** Spawn one headless agent through the real `orch spawn` path and return the newly-recorded key. */
 async function spawnHeadlessSmokeAgent(services: Services, cwd: string, prompt: string): Promise<string> {
+  await registerCaller(services);
   const before = new Set(agentViews(services.orchDir).map((view) => view.id));
   await cmdSpawn(services, ["orch-smoke", "--plexer", "headless", "--dir", cwd, "--prompt", prompt]);
   const after = agentViews(services.orchDir);

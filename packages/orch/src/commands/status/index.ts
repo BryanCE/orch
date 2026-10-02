@@ -1,5 +1,5 @@
 import { computeFleetCapacity, formatCapacityLine } from "../../policy/capacity.ts";
-import { registerCallerSession, whoAmI, refuseNonOperatorOverride } from "../self.ts";
+import { registerCaller, whoAmI, refuseNonOperatorOverride } from "../self.ts";
 import { ensureDaemonOrWarn } from "../../daemon/client/reach.ts";
 import { readRpc } from "../daemon.ts";
 import { filterRowKeys, formatNoRowsMessage, callerScope, ownsLiveWorker } from "./options.ts";
@@ -26,7 +26,7 @@ async function capacityLine(services: Services, orchId: string | null, settings:
 async function resolveCaller(services: Services, offline: boolean): Promise<{ caller: CallerScope; orchId: string | null }> {
   if (!offline) {
     await ensureDaemonOrWarn(services.orchDir, services.logger);
-    await registerCallerSession(services);
+    await registerCaller(services);
     const self = await whoAmI(services);
     return { caller: callerScope(self), orchId: self.id };
   }

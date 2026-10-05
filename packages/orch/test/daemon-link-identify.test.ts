@@ -3,7 +3,8 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { createDaemonLink } from "../src/agent/daemon-client.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
-import type { RpcServer } from "../src/types/daemon.ts";
+import { agentById, claimAgent } from "../src/store/agent-rows.ts";
+import type { RpcHandlers, RpcServer } from "../src/types/daemon.ts";
 import type { DaemonLink } from "../src/types/agent.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -36,7 +37,17 @@ function tempDir(): OrchDir {
 }
 
 function linkFor(directory: OrchDir): DaemonLink {
-  return createDaemonLink(directory, testServices({ orchDir: directory, settings: { daemon: { report_timeout_ms: 5000 } } }).settings);
+  return createDaemonLink(directory, testServices({ orchDir: directory, settings: { daemon: { report_timeout_ms: 5000, bridge_reconnect_ms: 20 } } }).settings);
+}
+
+function attachingHandlers(): RpcHandlers {
+  return stubRpcHandlers({ attach: () => ({ attached: true, open: 0 }) });
+}
+
+async function until(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!predicate() && Date.now() < deadline) await Bun.sleep(5);
+  if (!predicate()) throw new Error("timed out waiting for the daemon link");
 }
 
 function observedMethods(records: ReturnType<typeof recordingLogger>["records"]): string[] {
@@ -82,10 +93,9 @@ describe("daemon link identity", () => {
     expect(observedMethods(capture.records)).toEqual(["register-session"]);
   });
 
-  test("claims the launch credential through RPC when a session token exists", async () => {
+  test("returns the launch credential without an RPC when a session token exists", async () => {
     const directory = tempDir();
     const credential = mintAgentId();
-    seedAgent(credential, {}, directory);
     process.env[LAUNCH_ENV] = credential;
     const capture = recordingLogger();
     servers.push(await startRpcServer(directory, stubRpcHandlers(), { logger: capture.logger }));
@@ -93,6 +103,41 @@ describe("daemon link identity", () => {
     const identity = await linkFor(directory).identify("pi", "session-claim");
 
     expect(identity).toBe(credential);
-    expect(observedMethods(capture.records)).toEqual(["claim-identity"]);
+    expect(observedMethods(capture.records)).toEqual([]);
+  });
+
+  test("claims the session once attached when spawn registers the row after the launch", async () => {
+    const directory = tempDir();
+    const credential = mintAgentId();
+    process.env[LAUNCH_ENV] = credential;
+    servers.push(await startRpcServer(directory, attachingHandlers(), { logger: recordingLogger().logger }));
+    const link = linkFor(directory);
+
+    expect(await link.identify("pi", "session-late")).toBe(credential);
+    link.attach(credential, () => undefined);
+    await Bun.sleep(50);
+    seedAgent(credential, {}, directory);
+    await until(() => agentById(directory, credential)?.sessionToken === "session-late");
+
+    expect(link.attached()).toBe(true);
+    link.detach();
+  });
+
+  test("lets go of the link when another session holds the id", async () => {
+    const directory = tempDir();
+    const credential = mintAgentId();
+    seedAgent(credential, {}, directory);
+    claimAgent(directory, credential, "session-other", Date.now());
+    process.env[LAUNCH_ENV] = credential;
+    const capture = recordingLogger();
+    servers.push(await startRpcServer(directory, attachingHandlers(), { logger: capture.logger }));
+    const link = linkFor(directory);
+
+    expect(await link.identify("pi", "session-mine")).toBe(credential);
+    link.attach(credential, () => undefined);
+    await until(() => observedMethods(capture.records).includes("claim-identity"));
+    await until(() => !link.attached());
+
+    expect(agentById(directory, credential)?.sessionToken).toBe("session-other");
   });
 });

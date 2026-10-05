@@ -37,6 +37,7 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
   let attachWanted = false;
   let attachedKey: string | undefined;
   let onUnknownKey: (() => void) | undefined;
+  let launchClaim: ParamsOf<"claim-identity"> | undefined;
   let linkAttached = false;
   let reconnectMs: number = SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
 
@@ -82,8 +83,9 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
       // The bridge runs inside the harness, so this process IS the session's process.
       const session = { harness, sessionToken: token, pid: process.pid };
       if (credential === null) return (await ask("register-session", sessionClaim(orchDir, undefined, session)))?.id;
-      if (token === undefined) return credential;
-      return (await ask("claim-identity", { ...sessionClaim(orchDir, undefined, session), id: credential, sessionToken: token }))?.id;
+      // Spawn registers the row after the launch, so the claim waits for an attach to prove the row exists.
+      if (token !== undefined) launchClaim = { ...sessionClaim(orchDir, undefined, session), id: credential, sessionToken: token };
+      return credential;
     } catch {
       return undefined;
     }
@@ -172,6 +174,7 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
       if (link !== connected) return;
       if ("result" in answer && daemonResult("attach", answer.result) !== undefined) {
         linkAttached = true;
+        sendLaunchClaim(connected);
         return;
       }
       const forget = onUnknownKey;
@@ -180,6 +183,14 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
         return;
       }
       scheduleRetry(() => sendAttach(connected));
+    });
+  }
+
+  /** Stamp this session on the spawned row. A refusal means another process holds the id, so this one lets go. */
+  function sendLaunchClaim(connected: JsonLineLink): void {
+    if (launchClaim === undefined) return;
+    void requestOnLink("claim-identity", launchClaim).then((answer) => {
+      if (link === connected && "refused" in answer && answer.refused !== undefined) detach();
     });
   }
 

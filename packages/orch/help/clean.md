@@ -1,11 +1,10 @@
-Remove agent dirs that name no agent and close queued writes to dead agents. Ended agents
-stay as history; the daemon reaps a gone agent's records on its next sweep and its JSONL
-history ages out under `retention.ended_agents_days`. `--force` does both now.
-`--worktrees` also removes orphaned worktrees that are empty or merged, and with `--force`
-discards unmerged work.
+Clear leftovers after a crash or a long session: agent directories that name no agent, and
+queued writes to agents that are gone. Ended agents stay as history until the daemon sweeps
+them. Reach for `--all` to delete dead agents' records now, and `--worktrees` to remove
+worktrees no agent runs in.
 
-Operator-only. A spawned agent never reaps records it does not own.
+    orch clean --worktrees
 
-`$ORCH_DIR/orch.db` is the store: liveness, leases, queue state, and outcomes are rows, and
-every decision reads them. `$ORCH_DIR/agents/` is readable history beside it. Deleting it
-mid-run costs you the history and nothing else.
+`--all` with `--worktrees` also discards unmerged commits. Run `orch review` first to keep
+that work. `--all` skips live agents; close them first. A spawned agent is refused and asks
+the human or its orch to run clean.

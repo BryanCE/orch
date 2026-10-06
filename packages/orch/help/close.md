@@ -1,12 +1,11 @@
-Close the pane. The process ends; the agent's row and its history stay, so `orch result`
-and `orch tail` still answer. Only `orch reap` deletes. Closing an agent that already
-exited, or one the reaper already deleted, is a no-op success.
+Close an agent when its part of the job is done. The process ends; `orch result` and
+`orch tail` still answer until `orch reap` deletes the record. Closing an agent that already
+exited succeeds. Between tasks, keep the agent and send the next one with `orch dispatch`.
 
-Close is never gated by a lease. The human can always kill. `--all` from an unregistered
-shell sweeps every agent orch spawned, whoever holds it, and never a pane orch did not
-spawn. `--all` from a registered caller (a spawned agent, a harness session, a registered
-shell) sweeps only itself, what it spawned at any depth, and what it adopted. A named target
-outside that set is refused, and the refusal names the owner.
+    orch close api-types api-routes
 
-Close a tab only when that domain is done. Close-and-respawn cycles per round waste time
-and leave dead panes that look idle. Between tasks reuse the agent with `orch dispatch`.
+Close ignores leases: the human can always kill. From a plain shell, a named agent always
+closes. `--all` sweeps only your own tree, from any caller: what you spawned or adopted, at
+any depth, and never you. An agent or a harness session that names an agent outside its
+tree is refused with the owner. To close another terminal's workers, name them, or
+`orch adopt` them first.

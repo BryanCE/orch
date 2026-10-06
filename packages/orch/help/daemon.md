@@ -1,12 +1,12 @@
-Manage the resident orch daemon (orchd). Write commands auto-start it when absent. orchd
-owns its lifecycle: with no live agents, no event subscribers, and no RPC traffic for
-`daemon.idle_shutdown_minutes` (0 = never), it exits on its own.
+orchd starts on its own when a command needs it, and exits after
+`daemon.idle_shutdown_minutes` with no agents, streams, or requests. Check it with
+`orch daemon status`. A timeout there means a busy machine, not a dead daemon: retry.
 
-Trust `orch daemon status`, the RPC answer, not the existence of a pid file. A hung daemon
-means stop, kill the pid, start. Bridges reconnect to a restarted daemon on their own.
-After any daemon stop or start: respawn the fleet, then smoke-test one trivial dispatch
-before you fan out.
+To restart it, run `orch daemon stop`, then `orch daemon start`. If stop times out, kill the
+pid it names, then start. Bridges reconnect on their own: keep the fleet and send one short
+dispatch to confirm delivery.
 
-A refusal reading `daemon hash=... differs from installed hash=...` is CLI/daemon skew
-after an update of orch. `orch daemon reload` re-execs the daemon on the new code. Never
-`--stale-ok` past it.
+    orch daemon status
+
+After an orch update, commands refuse with `daemon hash=... differs from installed hash=...`.
+Run `orch daemon reload` to put the daemon on the new code, rather than passing `--stale-ok`.

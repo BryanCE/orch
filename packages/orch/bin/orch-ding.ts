@@ -2,7 +2,7 @@
 // orch-ding - the worked example for the `command` notify sink. The `sound` sink is the same
 // noise with nothing to type; both play through src/notify/ding.ts.
 //
-//   orch settings notify add command --command="orch-ding" --on=blocked,error,done
+//   orch settings notify add command --command="orch-ding" --only=blocked,error,done
 //
 // orchd runs it with the notification JSON on stdin and discards its output.
 //

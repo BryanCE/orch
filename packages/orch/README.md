@@ -25,7 +25,7 @@ It runs them in one of these places (orch calls them **plexers**):
 
 - Node.js 22.13 or later (orch can also run under bun or deno; `orch setup` asks)
 - At least one harness from the list above, installed and signed in
-- For visible panes: `herdr` or `tmux`. For `--backend headless`, nothing else.
+- For visible panes: `herdr` or `tmux`. For `--plexer headless`, nothing else.
 - Linux, macOS, or Windows through WSL
 
 ## Install
@@ -55,7 +55,7 @@ It then installs what is missing, connects each harness to orch, and writes
 For a non-interactive install (CI, scripts):
 
 ```sh
-orch setup --yes --agent claude,pi --backend tmux,headless --runtime node
+orch setup --yes --install --harness claude,pi --plexer tmux,headless --runtime node
 ```
 
 Check the install at any time:
@@ -101,7 +101,7 @@ orch close --all
 With no plexer, run a detached agent. A headless spawn needs `--prompt`:
 
 ```sh
-orch spawn tests --backend headless --prompt "run the unit tests and report failures"
+orch spawn tests --plexer headless --prompt "run the unit tests and report failures"
 orch status
 orch result tests
 ```
@@ -124,7 +124,7 @@ and tells you to use `answer`.
 This is the main use of orch. Install the skill (setup asks; you can also do it later):
 
 ```sh
-orch settings skills --install
+orch settings skills --skills
 ```
 
 The skill files go to `~/.agents/skills/orch`. Each directory in `skills.link` (by default
@@ -234,10 +234,10 @@ Each harness names its models in its own way, so each model setting is per harne
 | `models.allowed.<harness>` | Globs. A spawn on any other model is refused. Empty allows every model. |
 
 ```sh
-orch models                             # every model each harness reports
-orch models --agent pi --search sonnet  # search one harness
-orch settings models                    # pick the defaults and the lists
-orch settings thinking high             # thinking effort for every harness
+orch models                               # every model each harness reports
+orch models --harness pi --search sonnet  # search one harness
+orch settings models                      # pick the defaults and the lists
+orch settings thinking high               # thinking effort for every harness
 orch settings thinking high --harness claude
 ```
 
@@ -262,7 +262,7 @@ are different: orchd sends them even when nobody watches.
 
 ```sh
 orch settings notify                                   # what is configured
-orch settings notify add desktop --on=blocked,error,done
+orch settings notify add desktop --only=blocked,error,done
 orch settings notify add webhook --url=https://example.org/hook
 orch settings notify add command --command="notify-send orch"
 orch settings notify remove webhook
@@ -305,8 +305,9 @@ npm uninstall -g @bryance/orch
 rm -rf ~/.orch
 ```
 
-`orch setup` also added orch's hook to `~/.claude/settings.json` (for Claude Code) and the
-orch skill to `~/.agents/skills`. Remove those by hand if you want them gone.
+`orch setup` also added the orch skill to `~/.agents/skills`. Remove it by hand if you want it
+gone. orch's Claude Code hooks live in `~/.orch/claude/settings.json`, and only the Claude
+sessions orch spawns load them.
 
 ## License
 

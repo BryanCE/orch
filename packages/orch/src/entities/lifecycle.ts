@@ -29,7 +29,7 @@ export function resolveAgentView(
   const live = candidates.filter((view) => presence.get(view.id)?.alive === true);
   const preferred = live.length > 0 ? live : candidates;
   if (preferred.length > 1) {
-    throw ambiguousTargetRefusal(target, preferred.map((view) => ({ key: view.id, detail: view.name })));
+    throw ambiguousTargetRefusal(target, preferred.map((view) => ({ key: view.id, name: view.name, detail: null })));
   }
   return preferred[0];
 }
@@ -49,7 +49,7 @@ function directEntity(entities: readonly Entity[], target: string): Entity | und
   const liveDirect = direct.filter((entity) => entity.presence?.alive === true);
   const matches = liveDirect.length > 0 ? liveDirect : direct;
   if (matches.length > 1) {
-    die(ambiguousTargetRefusal(target, matches.map((entity) => ({ key: entity.key, detail: entity.tabLabel }))).message);
+    die(ambiguousTargetRefusal(target, matches.map((entity) => ({ key: entity.key, name: entity.name, detail: entity.tabLabel }))).message);
   }
   return matches[0];
 }

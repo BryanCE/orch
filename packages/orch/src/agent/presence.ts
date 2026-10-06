@@ -5,10 +5,9 @@
 //
 // Nothing here is backend-aware: the status sink and daemon link are injected by
 // the composition root.
-import { mintAgentId } from "../backends/identity.ts";
 import { launchCredential } from "../identity/launch.ts";
-import { launchEnvFacts } from "../presence/history.ts";
-import { isRecord, isUnknownArray, optionalString, projectRoot, sessionFilePath } from "../util.ts";
+import { callerCredential } from "../identity/credential.ts";
+import { isRecord, isUnknownArray, projectRoot, sessionFilePath } from "../util.ts";
 import { createModelControl } from "./model-control.ts";
 import { isSessionUsage, sessionUsageCost } from "../session.ts";
 import type { AgentState } from "../adapters/adapter.ts";
@@ -20,7 +19,6 @@ import type { BridgeDelivery, BridgeMessage } from "../control/bridge-message.ts
 export const LAST_TEXT_MAX = 400;
 /** Maximum stored task length after the worker header is removed. */
 export const TASK_MAX = 200;
-export const HEARTBEAT_MS = 3000;
 
 interface TextBlockLike {
   type: unknown;
@@ -54,18 +52,11 @@ export function extractText(content: unknown): string {
 interface AgentPresenceState {
   agent: string;
   key: string;
-  /** The launch stamps the agent's display name and its spawner's identity into
-   *  env; a plexer HUD may later refine the label, but identity never depends on one. */
+  /** The display name orch recorded for this agent; a plexer HUD may refine it. */
   label: string | null;
-  spawnedBy: string | null;
-  spawnedByLabel: string | null;
   tabLabel: string | null;
   cwd: string;
   project: string | undefined;
-  /** Stamped by the launch when this agent got its own git worktree; absent for
-   *  an agent sharing the fleet's working tree. */
-  worktree: string | undefined;
-  branch: string | undefined;
   state: AgentState;
   lastError: string | undefined;
   model: { provider: string; id: string } | undefined;
@@ -96,18 +87,10 @@ export function createAgentPresence(options: AgentPresenceOptions) {
   const state: AgentPresenceState = {
     agent: options.identity.agentId,
     key: "",
-    // The launch stamps the agent's display name and its spawner's identity into
-    // env; a plexer HUD may later refine the label, but identity never depends on one.
     label: null,
-    spawnedBy: null,
-    spawnedByLabel: null,
     tabLabel: null,
     cwd: process.cwd(),
     project: projectRoot(),
-    // Stamped by the launch when this agent got its own git worktree; absent
-    // for an agent sharing the fleet's working tree.
-    worktree: optionalString(process.env.ORCH_AGENT_WORKTREE),
-    branch: optionalString(process.env.ORCH_AGENT_BRANCH),
     state: "idle",
     lastError: undefined,
     model: undefined,
@@ -131,42 +114,13 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     asking: undefined,
   };
 
-  function applyLaunchFacts(key: string): void {
-    const facts = launchEnvFacts();
-    state.label = facts.label;
-    state.spawnedBy = facts.spawnedBy;
-    state.spawnedByLabel = facts.spawnedByLabel;
-    state.worktree = facts.worktree ?? undefined;
-    state.branch = facts.branch ?? undefined;
-    state.key = key;
+  /** The name comes from orch's record; a pane label that landed first wins. */
+  async function loadName(): Promise<void> {
+    const self = await daemon.ask("self", { caller: callerCredential() });
+    if (self?.view && state.label === null) state.label = self.view.name;
   }
 
-  applyLaunchFacts("");
-
-  /** The key an interactive session orch did not spawn addresses itself by. A
-   *  session is an agent, so it mints an id like any other and holds it for the
-   *  life of the process; a pid is where it runs, and a key built from one reads
-   *  back as a malformed identity every reader then has to ignore.
-   *
-   *  The id is the WHOLE key. This session is inside no
-   *  plexer and in no space, and that is a missing value, not a place called
-   *  `headless~local~`: stamping those two sentinels into the key is what made the
-   *  web bucket every session into a fake space named "local". Where a session
-   *  runs is orch's to record as environment, never the agent's to claim here. */
-  let ownSessionKey: string | undefined;
-
-  function sessionKey(): string {
-    ownSessionKey ??= mintAgentId();
-    return ownSessionKey;
-  }
-
-  // Orch-spawned agents use the launch credential; an interactive session mints its
-  // own; a session with no UI has nobody to address and skips presence.
-  function computeKey(hasUI: boolean): string | undefined {
-    const credential = launchCredential();
-    if (credential !== null) return credential;
-    return hasUI ? sessionKey() : undefined;
-  }
+  let identifying = false;
 
   // Shared with the tool layer: the plexer's blocked signal raises and lowers
   // this count, and writeStatus reads it.
@@ -255,11 +209,8 @@ export function createAgentPresence(options: AgentPresenceOptions) {
       }
     } catch {}
 
-    // Do not rely only on the message and settle events. The harness persists the
-    // assistant message before (or independently of) delivering those events,
-    // and an event handler can be delayed behind another extension handler while
-    // the heartbeat continues to run. The session branch is the durable source
-    // of truth, so reconcile it here on every heartbeat/context refresh.
+    // The session branch is the durable source of truth: the harness persists the
+    // assistant message before, or apart from, the message events. Reconcile it here.
     try {
       const branch = ctx.sessionManager.getBranch();
       let input = 0;
@@ -401,25 +352,42 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     writeStatus();
   }
 
-  function initPresence(hasUI: boolean): void {
-    if (state.key !== "") return;
-    const key = computeKey(hasUI);
-    if (!key) return;
-    applyLaunchFacts(key);
-    daemon.attach(key, (delivery) => {
-      void routeDelivery(delivery).catch(() => {
-        /* A failed apply remains unacked for daemon redelivery. */
-      });
-    });
+  function initPresence(ctx: HarnessContext): void {
+    lastCtx = ctx;
+    if (state.key !== "" || identifying) return;
+    if (launchCredential() === null && !ctx.hasUI) return;
+    identifying = true;
+    void (async () => {
+      try {
+        const key = await daemon.identify(options.identity.agentId, ctx.sessionManager.getSessionId());
+        if (key === undefined || state.key !== "") return;
+        state.key = key;
+        void loadName();
+        // Only a session identifies again; a spawned agent's id is its launch credential.
+        daemon.attach(key, (delivery) => {
+          void routeDelivery(delivery).catch(() => {
+            /* A failed apply remains unacked for daemon redelivery. */
+          });
+        }, launchCredential() === null ? forgetKey : undefined);
+        writeStatus();
+      } catch {
+        // The next agent_start retries when orchd is ready.
+      } finally {
+        identifying = false;
+      }
+    })();
   }
 
-  function keyOrCompute(hasUI: boolean): string {
-    return state.key !== undefined && state.key !== "" ? state.key : computeKey(hasUI) ?? "";
+  /** orchd no longer knows this session's id, as after a store reset: drop it and identify again. */
+  function forgetKey(): void {
+    daemon.detach();
+    state.key = "";
+    if (lastCtx) initPresence(lastCtx);
   }
 
   function ownPresenceKey(ctx: HarnessContext): string {
-    initPresence(ctx.hasUI);
-    return keyOrCompute(ctx.hasUI);
+    initPresence(ctx);
+    return state.key;
   }
 
   function stopPresence(): void {
@@ -432,13 +400,12 @@ export function createAgentPresence(options: AgentPresenceOptions) {
     text,
     answers,
     modelControl,
-    lastCtx: (): HarnessContext | undefined => lastCtx,
     setLastCtx: (ctx: HarnessContext): void => {
       lastCtx = ctx;
     },
     initPresence,
-    keyOrCompute,
     ownPresenceKey,
+    loadName,
     /** Id of the dispatch whose delivered text is this prompt, or undefined for a human-typed run. */
     dispatchIdFor: (prompt: string): string | undefined =>
       delivered && delivered.text.trim() === prompt.trim() ? delivered.id : undefined,

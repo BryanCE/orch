@@ -78,7 +78,7 @@ describe("agent worktrees, inside a throwaway repository", () => {
     Object.defineProperty(headlessBackend, "spawn", { value: refusingSpawn, configurable: true, writable: true });
     const services = await servedServices({ orchDir: dir, settings: cappedSettings }, servers);
     try {
-      const refusal = await cmdSpawn(services, ["capped", "--dir", repo, "--agent", "pi", "--backend", "headless", "--prompt", "work", "--worktree", "--json"])
+      const refusal = await cmdSpawn(services, ["capped", "--dir", repo, "--harness", "pi", "--plexer", "headless", "--prompt", "work", "--worktree", "--json"])
         .then(() => null, (error: unknown) => (error instanceof Error ? error.message : String(error)));
       expect(refusal).toMatch(/spawn refused:.*pack cap 1/);
     } finally {

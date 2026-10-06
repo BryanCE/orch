@@ -2,7 +2,7 @@
  * What a command SELECTED: which harness it runs on and which model it named.
  *
  * A leaf on purpose. These sat in `spawn.ts`, so every command that merely reads
- * a `--agent`/`--model` flag had to import the whole launch path — and
+ * a `--harness`/`--model` flag had to import the whole launch path — and
  * `control.ts` importing them while `spawn.ts` imported `dispatchToAgent` back
  * was a cycle between two of the largest files in the repo. Nothing here starts
  * anything; the launch decisions that DO (`resolveTuning`, `assertLaunchModelAllowed`)
@@ -24,10 +24,10 @@ import type { AgentTuning } from "../types/store.ts";
 /** The harness, plexer, model, and thinking a command's parsed flags named. Absent flags stay absent. */
 export function agentFlags(flags: ParsedFlags): AgentFlags {
   const selected: AgentFlags = {};
-  const adapter = flags.value("--agent");
-  if (adapter !== undefined) selected.adapterFlag = adapter;
-  const backend = flags.value("--backend");
-  if (backend !== undefined) selected.backendFlag = backend;
+  const harness = flags.value("--harness");
+  if (harness !== undefined) selected.adapterFlag = harness;
+  const plexer = flags.value("--plexer");
+  if (plexer !== undefined) selected.backendFlag = plexer;
   const model = flags.value("--model");
   if (model !== undefined) selected.modelFlag = model;
   const thinking = flags.value("--thinking");
@@ -44,8 +44,8 @@ export function resolveAdapterOrDie(id: string): AgentAdapter {
 }
 
 export function pickAdapter(flags: AgentFlags, settings: OrchSettings): AdapterId {
-  const selected = resolveSetting({ flag: flags.adapterFlag, env: "ORCH_ADAPTER", settings: settings.defaults.adapter, fallback: "" });
-  if (!selected) die("no harness selected - pass --agent <id> or run `orch setup` to pick one");
+  const selected = resolveSetting({ flag: flags.adapterFlag, settings: settings.defaults.adapter, fallback: "" });
+  if (!selected) die("no harness selected - pass --harness <harness> or run `orch setup` to pick one");
   // Validate the id here, at the boundary, so everything downstream carries AdapterId.
   return resolveAdapterOrDie(selected).id;
 }
@@ -54,7 +54,7 @@ export function pickAdapter(flags: AgentFlags, settings: OrchSettings): AdapterI
  *  configured default: only a launch may apply that. A dispatch that fell back to
  *  it re-pinned every agent to the default and erased the model it spawned on. */
 export function requestedModel(flags: AgentFlags): string | null {
-  return resolveSetting({ flag: flags.modelFlag, env: "ORCH_MODEL", fallback: "" }) || null;
+  return flags.modelFlag ?? null;
 }
 
 /** Resolve the one model/effort pair every tuning-aware command applies: the

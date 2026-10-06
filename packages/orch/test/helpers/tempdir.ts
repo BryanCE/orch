@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { closeAllStores } from "../../src/store/connection.ts";
 import { flushPresenceHistory } from "../../src/presence/history.ts";
 import { provenDaemonPid } from "../../src/daemon/client/process.ts";
-import { orchDirAt } from "../../src/services.ts";
+import { orchDirAt } from "../../src/orch-dir.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 
 const undeleted: string[] = [];

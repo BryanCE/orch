@@ -101,7 +101,6 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     grants: touchHandler(state, handlers.grants),
     grant: touchHandler(state, handlers.grant),
     "admit-home": touchHandler(state, handlers["admit-home"]),
-    "resolve-agent": touchHandler(state, handlers["resolve-agent"]),
     "queue-list": touchHandler(state, handlers["queue-list"]),
     "queue-cancel": touchHandler(state, handlers["queue-cancel"]),
     "queue-edit": touchHandler(state, handlers["queue-edit"]),
@@ -120,6 +119,7 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     "resolve-lifecycle": touchHandler(state, handlers["resolve-lifecycle"]),
     "close-targets": touchHandler(state, handlers["close-targets"]),
     "owned-agents": touchHandler(state, handlers["owned-agents"]),
+    orphans: touchHandler(state, handlers.orphans),
     question: touchHandler(state, handlers.question),
     questions: touchHandler(state, handlers.questions),
     ack: touchHandler(state, handlers.ack),
@@ -130,10 +130,10 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
 
 /** The fleet as the daemon sees it, in orch's one status-row shape. Serving a reduced
  *  second shape here is what left the method unusable and every client reading files. */
-export function fleetStatus(state: DaemonState): FleetStatus {
+export function fleetStatus(state: DaemonState, caller: string | null): FleetStatus {
   const directory = state.directory;
   const facts = fleetLeaseFacts(directory, agentViewIndex(directory));
-  const fleet = buildFleetStatus(state.services.settings.current(), { directory, leaseFacts: facts });
+  const fleet = buildFleetStatus(state.services.settings.current(), { directory, leaseFacts: facts, caller });
   return { names: fleet.names, rows: fleet.rows.map((row) => ({ ...row, bridgeAttached: bridgeAttached(row.key) })) };
 }
 

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 
 import { closeAllStores } from "../src/store/connection.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { cmdReap } from "../src/commands/lease.ts";
@@ -107,7 +107,7 @@ describe("cmdReap", () => {
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true, writable: true });
     try {
       const refusal = await cmdReap(testServices({ orchDir: orchDirAt(process.env.ORCH_DIR ?? "."), settings: null }), []).then(() => null, (error: unknown) => errorMessage(error));
-      expect(refusal).toBe("usage: orch reap <target> | --dead [--json]");
+      expect(refusal).toBe("usage: orch reap [<target>] [--dead]");
     } finally {
       if (original) Object.defineProperty(process.stdin, "isTTY", original);
     }

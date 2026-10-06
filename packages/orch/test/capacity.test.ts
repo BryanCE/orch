@@ -50,6 +50,14 @@ describe("fleet capacity", () => {
     expect(packsUsed(capacity)).toBe(3);
   });
 
+  test("an ended agent with alive presence does not count toward capacity", () => {
+    const ended = agentViewFixture("ended", { endedAt: 10, environment: { space: "main" } });
+    const views = new Map([["ended", ended]]);
+    const presence = new Map([["ended", livePresence("ended")]]);
+
+    expect(computeFleetCapacity(views, presence, settings).total.used).toBe(0);
+  });
+
   test("a selected root scopes the packs to that one pack", () => {
     const views = new Map([
       ["root", view("root", "you", "root", "main")],
@@ -103,7 +111,18 @@ describe("fleet capacity", () => {
     });
 
     expect(formatCapacityLine(capacity, "root")).toBe(
-      "pack you 2/10 - pack claude-skgrlw9n 1/10 - space main 2/6 - space other 1/unlimited - machine 3/7",
+      "pack you 2/10 - space main 2/6 - space other 1/unlimited - machine 3/7",
     );
+  });
+
+  test("keeps the caller's single-agent pack and omits other single-agent packs", () => {
+    const views = new Map([
+      ["root", view("root", "you", "root", "main")],
+      ["other", view("other", "session", "other", "main")],
+    ]);
+    const presence = new Map([["root", livePresence("root")], ["other", livePresence("other")]]);
+    const capacity = computeFleetCapacity(views, presence, settings);
+
+    expect(formatCapacityLine(capacity, "root")).toBe("pack you 1/10 - space main 2/6 - machine 2/unlimited");
   });
 });

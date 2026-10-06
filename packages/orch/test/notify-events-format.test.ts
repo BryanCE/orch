@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { transitionEventFromRow } from "../src/daemon/server/status-events.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
@@ -138,10 +138,10 @@ describe("notification and presence event formatting", () => {
       type: "message",
       newState: "message",
       dispatchId: "dispatch-1",
-      mail: { id: "mail-1", text: "[from worker (worker-key)] hello orchestrator" },
+      mail: { id: "mail-1", text: "[from worker] hello orchestrator" },
       ts: "2026-01-01T00:00:00.000Z",
     }, { colorize: false }).title;
-    expect(title).toContain("[from worker (worker-key)] hello orchestrator");
+    expect(title).toContain("[from worker] hello orchestrator");
   });
 
   test("webhook payload includes space and spaceColor", async () => {

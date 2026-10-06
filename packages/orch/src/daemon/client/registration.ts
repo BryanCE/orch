@@ -2,9 +2,10 @@ import type { OrchDir } from "../../types/core.ts";
 import { hostname } from "node:os";
 import { readFileSync } from "node:fs";
 import { callerSession } from "../../adapters/session-env.ts";
-import { OPERATOR_HARNESS_ID } from "../../policy/caller.ts";
+import type { CallerSession } from "../../types/core.ts";
+import { OPERATOR_HARNESS_ID } from "../../identity/operator.ts";
 import { sessionProcessPid } from "../../identity/credential.ts";
-import { allBackends } from "../../backends/registry.ts";
+import { detectPlexer } from "../../backends/detect.ts";
 import { endpointPaths } from "./wire.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";
 import { RPC_RESULTS, type SessionClaim } from "./protocol.ts";
@@ -19,15 +20,14 @@ export function nonEmpty(value: string | undefined): string | undefined {
   return value === "" ? undefined : value;
 }
 
-/** Print the daemon's once-per-session unleased list. The daemon sends it only on the
- * session's first registration, so this never decides anything itself. */
+/** Print the daemon's once-per-session orphan list to stderr, so a command's own stdout stays
+ * clean. The daemon sends it only on the session's first registration. */
 export function announceUnleasedAgents(
   identity: RegisterSessionResponse,
-  write: (text: string) => void = (text) => { process.stdout.write(text); },
+  write: (text: string) => void = (text) => { process.stderr.write(text); },
 ): void {
-  const [first] = identity.unleased;
-  if (first === undefined) return;
-  write(`${identity.unleased.length} unleased agent(s) exist - orch adopt ${first.name} to take one, orch status to see them.\n`);
+  if (identity.unleased.length === 0) return;
+  write(`${identity.unleased.length} orphan agent(s) exist - orch adopt to list them.\n`);
 }
 
 /**
@@ -41,23 +41,30 @@ export function announceUnleasedAgents(
  * should have held.
  */
 function callerEnvironment(): { plexer: string | undefined; plexerVersion: string | undefined; handle: string | undefined } {
-  const here = allBackends().find((backend) => backend.isInsideSession());
-  if (here === undefined) return { plexer: undefined, plexerVersion: undefined, handle: undefined };
-  const place = here.placementInventory?.current() ?? null;
-  return { plexer: here.id, plexerVersion: here.versionInfo?.installed() ?? undefined, handle: place === null ? undefined : String(place.handle) };
+  const here = detectPlexer();
+  return { plexer: here?.plexer, plexerVersion: here?.plexerVersion, handle: here?.handle };
 }
 
-/** Build the authenticated caller facts for session registration. */
-export function sessionClaim(orchDir: OrchDir, label?: string): SessionClaim {
+/** A harness session that names neither itself nor its process. Filing it under the
+ *  parent pid would hand that session's identity to whatever process the parent is. */
+function refuseAnonymousSession(session: CallerSession): void {
+  if (session.sessionId !== null || session.pid !== null) return;
+  throw new Error(`${session.harnessId} session exported no session id and no session pid; orch cannot tell which process it is`);
+}
+
+/** Build the authenticated caller facts for session registration. A bridge running
+ *  inside its harness passes `harnessSession`, whose pid is the harness process itself. */
+export function sessionClaim(orchDir: OrchDir, label?: string, harnessSession?: { harness: string; sessionToken: string | undefined; pid: number }): SessionClaim {
   const token = readFileSync(endpointPaths(orchDir).token, "utf8").trim();
   const session = callerSession();
+  if (harnessSession === undefined && session !== null) refuseAnonymousSession(session);
   const configuredHarness = nonEmpty(process.env.ORCH_HARNESS?.trim());
-  const harness = configuredHarness ?? session?.harnessId ?? OPERATOR_HARNESS_ID;
-  const sessionToken = session?.sessionId ?? null;
+  const harness = harnessSession?.harness ?? configuredHarness ?? session?.harnessId ?? OPERATOR_HARNESS_ID;
+  const sessionToken = harnessSession?.sessionToken ?? session?.sessionId ?? null;
   const environment = callerEnvironment();
   return {
     token,
-    pid: sessionProcessPid(session),
+    pid: harnessSession?.pid ?? sessionProcessPid(session),
     sessionToken,
     harness,
     cwd: process.cwd(),

@@ -1,5 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -48,7 +48,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }, servers), ["Bad_Name", "ok-name", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
+      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }, servers), ["Bad_Name", "ok-name", "--harness", "pi", "--plexer", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -85,7 +85,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }, servers), ["--agent", "pi", "--backend", "headless", "--prompt", "work"]);
+      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }, servers), ["--harness", "pi", "--plexer", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -120,7 +120,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }, servers), ["worker", "--detached", "--agent", "pi", "--backend", "headless", "--prompt", "work"]);
+      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }, servers), ["worker", "--detached", "--harness", "pi", "--plexer", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -135,7 +135,16 @@ describe("commands/spawn", () => {
 
   // The positional arguments ARE the agent names, and how many you give is how
   // many panes you get. There is no --name flag to preserve.
-  test("the positionals are the agent names", () => expect(parseSpawnFlags(["worker", "checker", "--agent", "claude", "--backend", "headless", "--json"])).toMatchObject({ positional: ["worker", "checker"], adapterFlag: "claude", backendFlag: "headless", json: true }));
+  test("the positionals are the agent names", () => expect(parseSpawnFlags(["worker", "checker", "--harness", "claude", "--plexer", "headless", "--json"])).toMatchObject({ positional: ["worker", "checker"], adapterFlag: "claude", backendFlag: "headless", json: true }));
+  test("--tab names the tab, and no --tab leaves it to the rolled label", () => {
+    expect(parseSpawnFlags(["worker", "--tab", "review"]).tab).toBe("review");
+    expect(parseSpawnFlags(["worker"]).tab).toBeNull();
+  });
+  test("the removed harness and plexer spellings are unknown flags", () => {
+    expect(() => parseSpawnFlags(["worker", "--agent", "pi"])).toThrow("unknown flag --agent");
+    expect(() => parseSpawnFlags(["worker", "--adapter", "pi"])).toThrow("unknown flag --adapter");
+    expect(() => parseSpawnFlags(["worker", "--backend", "headless"])).toThrow("unknown flag --backend");
+  });
   test("collects repeated prompts in agent order", () => expect(parseSpawnFlags(["a", "b", "c", "--prompt", "one", "--prompt", "two", "--prompt", "three"]).promptFlags).toEqual(["one", "two", "three"]));
   test("collects repeated files and models in order", () => expect(parseSpawnFlags(["a", "b", "--file", "one", "--file", "two", "--model", "m1", "--model", "m2"]).promptFiles).toEqual(["one", "two"]));
   test("collects repeated models in order", () => expect(parseSpawnFlags(["a", "b", "--model", "m1", "--model", "m2"]).modelFlags).toEqual(["m1", "m2"]));

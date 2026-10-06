@@ -244,7 +244,7 @@ export async function message(state: DaemonState, params: ParamsOf<"message">): 
   const from = params.from;
   const target = params.target;
   const sender = agentView(directory, params.from);
-  const prefix = sender ? `[from ${sender.name} (${params.from})] ` : `[from ${params.from}] `;
+  const prefix = sender ? `[from ${sender.name}] ` : `[from ${params.from}] `;
   const accepted = acceptMail(directory, settings.currentOrNull(), from, target, prefix + params.text, state.services.logger);
   const timeoutMs = settings.current().timeouts.dispatch_ack_ms;
   let ack: "acknowledged" | "unavailable";

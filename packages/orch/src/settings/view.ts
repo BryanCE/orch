@@ -1,4 +1,5 @@
 import { dim } from "../tui/screen.ts";
+import { ARROW } from "../util.ts";
 import { displaySetting, displayValue } from "./display.ts";
 import { repairChoicesFor } from "./repair.ts";
 import type { EditorSetting, RepairChoice, SettingsDefect } from "../types/settings.ts";
@@ -81,8 +82,7 @@ function fit(text: string, width: number): string {
 /** The row's tags: where its value came from, then who may write it. */
 function sourceTag(entry: EditorSetting): string {
   const tags: string[] = [];
-  if (entry.override !== undefined) tags.push(`[env: ${entry.override}]`);
-  else if (entry.spec.write === undefined) tags.push("[read-only]");
+  if (entry.spec.write === undefined) tags.push("[read-only]");
   else if (entry.source !== undefined && entry.source !== "settings.json") tags.push(`[${entry.source}]`);
   if (entry.agentWritable) tags.push("[agent]");
   return tags.join(" ");
@@ -182,7 +182,7 @@ const REPAIR_KEYBAR = "up/down move | r rename | s set | d drop | l leave | ente
 
 /** What one standing choice will do to the file, in the words of the thing it does. */
 export function repairActionLabel(defect: SettingsDefect, choice: RepairChoice): string {
-  if (choice === "rename") return `rename -> ${defect.suggestion ?? ""}`;
+  if (choice === "rename") return `rename ${ARROW} ${defect.suggestion ?? ""}`;
   if (choice === "set") return `set ${displayValue(defect.expected)}`;
   if (choice === "drop") return "drop";
   return "leave";

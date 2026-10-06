@@ -1,6 +1,8 @@
-Check the install: runtime, composition, backends, daemon, presence, sinks, hosts. Doctor
-verifies what `settings.json` declares against what is on the machine.
+Run doctor after an install or an update, or when a command refuses because something is
+missing. It checks what `settings.json` declares against the machine: harnesses, plexers,
+the daemon, notification sinks, and hosts.
 
-On a TTY, plain `doctor` and `doctor --fix` open a menu to pick fixes when fixes exist.
-`-y` applies every fix unattended, which is how CI and non-TTY repairs run. A broken
-install is `orch doctor -y`.
+    orch doctor -y
+
+On a terminal, plain `orch doctor` opens a menu of fixes. `-y` applies them all without
+asking, which is how scripts and CI repair an install.

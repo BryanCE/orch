@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import * as files from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { packageRoot } from "../util.ts";
+import { ARROW, packageRoot } from "../util.ts";
 import { hostOs } from "../host.ts";
 
 const HOME = os.homedir();
@@ -108,5 +108,5 @@ export function skillDigest(dir: string): string {
 
 /** One line per placement, for the commands that report what an install wrote. */
 export function describeSkillPlacement(placement: SkillPlacement): string {
-  return placement.target === null ? placement.path : `${placement.path} -> ${placement.target}`;
+  return placement.target === null ? placement.path : `${placement.path} ${ARROW} ${placement.target}`;
 }

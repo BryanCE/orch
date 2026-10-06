@@ -46,7 +46,7 @@ export async function checkNotifiers(orchDir: OrchDir, settings: OrchSettings | 
     const adapter = entry.id;
     const effectiveOn = entry.on ?? NOTIFY_DEFAULT_ON;
     if (!effectiveOn.includes("done")) {
-      warnings.push(`${adapter}: effective "on" list omits "done"; fix: orch settings notify add ${adapter} --on=blocked,error,done`);
+      warnings.push(`${adapter}: effective "on" list omits "done"; fix: orch settings notify add ${adapter} --only=blocked,error,done`);
     }
     const errors = registry.validate(entry);
     if (errors.length) {

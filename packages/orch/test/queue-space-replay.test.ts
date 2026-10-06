@@ -17,7 +17,7 @@ describe("queue replay keeps typed scope", () => {
     const db = orm(dir);
     db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
     for (const [id, root, parent] of [["a","a",null],["a1","a","a"],["b","b",null]] as const) {
-      db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${parent},${root},${"pi"},${"/tmp"},${id},1)`);
+      db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${parent},${root},${"pi"},${"/tmp"},${id},1,${"agent"})`);
     }
     const task = addTask(dir, "do x", {}, "a");
     expect(listTasks(dir)[0]?.scopePackId).toBe("a");

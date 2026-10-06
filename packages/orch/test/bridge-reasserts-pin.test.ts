@@ -1,7 +1,7 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { LAUNCH_ENV, launchCredential } from "../src/identity/launch.ts";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerAgentTools } from "../src/agent/tools.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
@@ -28,7 +28,7 @@ function context(): HarnessContext {
     hasUI: true,
     sessionManager: {
       getSessionFile: () => undefined,
-      getSessionId: () => undefined,
+      getSessionId: () => "session-1",
       getBranch: () => [],
     },
     modelRegistry: {
@@ -93,6 +93,7 @@ function fakeDaemon(): {
       isAcked: (id) => acked.has(id),
       markAcked: (id) => acked.add(id),
       ask: () => Promise.resolve(undefined),
+      identify: () => Promise.resolve(launchCredential() ?? undefined),
       attach: (_key, callback) => { onDelivery = callback; },
       detach: () => { onDelivery = undefined; },
       attached: () => onDelivery !== undefined,
@@ -126,11 +127,11 @@ async function flush(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
-function setup(): {
+async function setup(): Promise<{
   harness: FakeHarness;
   daemon: ReturnType<typeof fakeDaemon>;
   presence: ReturnType<typeof createAgentPresence>;
-} {
+}> {
   const root = tempOrchDir(`orch-reassert-${randomUUID()}-`);
   roots.push(root);
   process.env.ORCH_DIR = root;
@@ -145,7 +146,8 @@ function setup(): {
   });
   const ctx = context();
   presence.setLastCtx(ctx);
-  presence.initPresence(true);
+  presence.initPresence(ctx);
+  await flush();
   const settings = testServices({ orchDir: root, settings: null }).settings;
   registerAgentTools(harness, {
     presence,
@@ -159,7 +161,7 @@ function setup(): {
 
 describe("bridge reasserts orch model pins", () => {
   test("reasserts after session_start and reports the applied pin", async () => {
-    const { harness, daemon, presence } = setup();
+    const { harness, daemon, presence } = await setup();
     daemon.deliver({ id: "model-1", message: { action: "model", model: "openai/gpt:medium" } });
     await flush();
     expect(harness.modelCalls).toEqual(["openai/gpt"]);
@@ -175,7 +177,7 @@ describe("bridge reasserts orch model pins", () => {
   });
 
   test("reasserts one time for a foreign level and ignores apply events", async () => {
-    const { harness, daemon, presence } = setup();
+    const { harness, daemon, presence } = await setup();
     daemon.deliver({ id: "model-1", message: { action: "model", model: "openai/gpt:medium" } });
     await flush();
     const modelCallsAfterPin = harness.modelCalls.length;
@@ -192,7 +194,7 @@ describe("bridge reasserts orch model pins", () => {
   });
 
   test("a harness clamp does not create a reassert loop", async () => {
-    const { harness, daemon, presence } = setup();
+    const { harness, daemon, presence } = await setup();
     daemon.deliver({ id: "model-1", message: { action: "model", model: "openai/gpt:medium" } });
     await flush();
     harness.clampThinking = true;

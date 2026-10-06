@@ -17,5 +17,13 @@ export function createCaptureRole(root: OrchDir): CaptureRole {
   };
 }
 
-
-
+/** A backend's capture role, bound to the orch dir the backend learns after construction. */
+export function createBackendCaptureRole(backend: string, orchDir: () => OrchDir | undefined): CaptureRole {
+  return {
+    read: (agentId, request) => {
+      const directory = orchDir();
+      if (directory === undefined) throw new Error(`${backend} capture requires an orch directory`);
+      return createCaptureRole(directory).read(agentId, request);
+    },
+  };
+}

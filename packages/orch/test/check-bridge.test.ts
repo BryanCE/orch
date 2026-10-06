@@ -20,6 +20,8 @@ import {
   checkStateFileLine,
   checkFsWatchLine,
   ENVIRONMENT_ROLE_NAMES,
+  bundleEntries,
+  findStoreImportChains,
 } from "../scripts/check-bridge.ts";
 
 // The static-enforcement rules added for group 10 of fix-audit-findings.
@@ -31,6 +33,47 @@ import {
 
 const repoRoot = join(import.meta.dir, "..");
 const monorepoRoot = join(import.meta.dir, "..", "..", "..");
+
+function fixtureReader(files: ReadonlyMap<string, string>): (file: string) => string | undefined {
+  return (file) => files.get(file.replace(/\\/g, "/"));
+}
+
+describe("harness bundles do not reach the store", () => {
+  const packagePath = (path: string) => join(repoRoot, path).replace(/\\/g, "/");
+
+  test("clean entry has no store chain", () => {
+    const files = new Map([[packagePath("extensions/clean/index.ts"), 'import { rpcCall } from "orch/core/daemon/client/rpc.ts";']]);
+    expect(findStoreImportChains("extensions/clean/index.ts", fixtureReader(files))).toEqual([]);
+  });
+
+  test("finds direct and transitive store imports with full chains", () => {
+    const entry = packagePath("extensions/fake/index.ts");
+    const store = packagePath("src/store/connection.ts");
+    expect(findStoreImportChains("extensions/fake/index.ts", fixtureReader(new Map([[entry, 'import "../../src/store/connection.ts";'], [store, ""]])))).toEqual([
+      ["extensions/fake/index.ts", "src/store/connection.ts"],
+    ]);
+    const middle = packagePath("extensions/fake/middle.ts");
+    expect(findStoreImportChains("extensions/fake/index.ts", fixtureReader(new Map([
+      [entry, 'import "./middle.ts";'], [middle, 'import "orch/core/store/connection.ts";'], [store, ""],
+    ])))).toEqual([["extensions/fake/index.ts", "extensions/fake/middle.ts", "src/store/connection.ts"]]);
+  });
+
+  test("ignores import type", () => {
+    const entry = packagePath("extensions/fake/index.ts");
+    expect(findStoreImportChains("extensions/fake/index.ts", fixtureReader(new Map([
+      [entry, 'import type { Store } from "../../src/store/types.ts";'],
+      [packagePath("src/store/types.ts"), ""],
+    ])))).toEqual([]);
+  });
+
+  test("parses only bun build entries from build scripts", () => {
+    expect(bundleEntries({
+      "build:one": "bun build extensions/pi/index.ts --outfile dist/a.js",
+      "build:two": "bun build src/daemon/server/orchd.ts --outfile dist/b.js",
+      test: "bun test",
+    })).toEqual(["extensions/pi/index.ts", "src/daemon/server/orchd.ts"]);
+  });
+});
 
 describe("presence filenames stay limited to the live protocol", () => {
   test("inbox.jsonl is no longer a presence-filename breach", () => {
@@ -94,11 +137,17 @@ describe("10.1 packages must not import concrete backends/adapters (checkPackage
 });
 
 describe("composition happens only at roots (checkCompositionRootLine)", () => {
-  test("flags ORCH_DIR reads outside src/services.ts", () => {
-    expect(checkCompositionRootLine("const dir = process.env.ORCH_DIR;", "src/commands/control.ts")).toContain("src/services.ts");
+  test("flags ORCH_DIR reads outside src/orch-dir.ts", () => {
+    expect(checkCompositionRootLine("const dir = process.env.ORCH_DIR;", "src/commands/control.ts")).toContain("src/orch-dir.ts");
   });
 
-  test("flags createServices calls outside the five roots", () => {
+  test("flags createServices calls in a harness extension", () => {
+    for (const relPath of ["extensions/pi/index.ts", "extensions/omp/index.ts"]) {
+      expect(checkCompositionRootLine("const services = createServices();", relPath)).toContain("composition root");
+    }
+  });
+
+  test("flags createServices calls outside the three roots", () => {
     expect(checkCompositionRootLine("const services = createServices();", "src/commands/control.ts")).toContain("composition root");
   });
 
@@ -113,8 +162,6 @@ describe("composition happens only at roots (checkCompositionRootLine)", () => {
       "src/commands/index.ts",
       "src/commands/setup.ts",
       "src/daemon/server/orchd.ts",
-      "extensions/pi/index.ts",
-      "extensions/omp/index.ts",
       "scripts/retire-daemon.ts",
       "scripts/db/migrate.ts",
     ]) {
@@ -122,8 +169,8 @@ describe("composition happens only at roots (checkCompositionRootLine)", () => {
     }
   });
 
-  test("allows the ORCH_DIR read and declaration in src/services.ts", () => {
-    expect(checkCompositionRootLine("const dir = process.env.ORCH_DIR;", "src/services.ts")).toBeUndefined();
+  test("allows the ORCH_DIR read in src/orch-dir.ts and the declaration in src/services.ts", () => {
+    expect(checkCompositionRootLine("const dir = process.env.ORCH_DIR;", "src/orch-dir.ts")).toBeUndefined();
     expect(checkCompositionRootLine("export function createServices(options: ServicesOptions = {}) {", "src/services.ts")).toBeUndefined();
   });
 });

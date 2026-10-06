@@ -1,3 +1,5 @@
-Add one named pane to an existing tab. It splits into the tab's largest cell and pins the
-model. Tile creates an agent, so it names one. The tab cap (`fleet.max_agents_per_tab`)
-applies; a tile that would overfill is refused before anything opens.
+Add one named agent to a tab that already exists, when a running fleet needs one more. It
+splits the tab's largest pane. A tab already at `fleet.max_agents_per_tab` refuses the tile
+before anything opens.
+
+    orch tile api api-guards --model luna:high

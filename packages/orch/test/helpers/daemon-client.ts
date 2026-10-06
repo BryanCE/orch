@@ -1,4 +1,5 @@
 import type { OrchDir } from "../../src/types/core.ts";
+import { launchCredential } from "../../src/identity/launch.ts";
 import { peerView } from "../../src/daemon/server/peer-view.ts";
 import type { PeerView } from "../../src/types/daemon.ts";
 import type { DaemonLink } from "../../src/types/agent.ts";
@@ -42,6 +43,7 @@ export function stubDaemonLink(): DaemonLink {
     isAcked: () => false,
     markAcked: () => undefined,
     ask: () => Promise.resolve(undefined),
+    identify: () => Promise.resolve(launchCredential() ?? undefined),
     attach: () => undefined,
     detach: () => undefined,
     attached: () => false,

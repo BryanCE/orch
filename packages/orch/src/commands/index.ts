@@ -3,12 +3,12 @@ import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/client/process.t
 import { cmdStatusVerb } from "./status/verb.ts";
 import { cmdSpawn, cmdTile } from "./spawn/index.ts";
 import { cmdAnswer, cmdBroadcast, cmdDispatch, cmdModel, cmdPipe, cmdSteer } from "./control.ts";
-import { cmdRun, cmdWait } from "./lifecycle/index.ts";
+import { cmdWait } from "./lifecycle/index.ts";
 import { cmdNew } from "./lifecycle/reset.ts";
 import { cmdReload, cmdRestart } from "./lifecycle/reload.ts";
 import { cmdRename } from "./lifecycle/rename.ts";
 import { cmdAbort, cmdClose } from "./lifecycle/close.ts";
-import { cmdFocus, cmdKeys, cmdMove, cmdPanes, cmdPeek, cmdTab, cmdTabs, cmdZoom } from "./panes.ts";
+import { cmdFocus, cmdKeys, cmdMove, cmdPane, cmdPeek, cmdTab, cmdZoom } from "./panes.ts";
 import { cmdSpace } from "./space.ts";
 import { cmdQuestions, cmdResult, cmdSession, cmdTail } from "./results.ts";
 import { cmdRuns } from "./runs.ts";
@@ -26,6 +26,8 @@ import { cmdSettings } from "./settings.ts";
 import { cmdModels } from "./models.ts";
 import { cmdDoctor } from "./doctor.ts";
 import { cmdDetach, cmdAdopt, cmdReap } from "./lease.ts";
+import { cmdWhoami } from "./whoami.ts";
+import { registerCaller } from "./self.ts";
 import { COMMANDS, GLOBAL_FLAGS, commandSpec } from "./registry.ts";
 import { renderMap, renderTopic } from "../cli/help.ts";
 import { readHelpDoc } from "../cli/doc.ts";
@@ -52,6 +54,18 @@ const STALE_GUARD_COMMANDS = new Set([
   "spawn", "dispatch", "steer", "answer", "close", "kill", "reset", "new", "reload", "restart",
   "queue", "work", "model", "broadcast", "detach", "adopt", "reap", "space",
 ]);
+
+/** Commands that never dial orchd, plus `status`, which registers itself unless `--offline`. */
+const REGISTRATION_EXEMPT = new Set([
+  "setup", "doctor", "settings", "daemon", "logs", "models", "status",
+  "help", "-h", "--help", "version", "-V", "--version",
+]);
+
+/** Every other command records its caller first: a raw terminal gets a row like any session. */
+async function runAsCaller(services: Services, cmd: string, handler: Handler, args: string[]): Promise<void> {
+  if (!REGISTRATION_EXEMPT.has(cmd)) await registerCaller(services);
+  await handler(services, args);
+}
 
 /** Refuse writes sent to a live daemon from a stale installed CLI. */
 function preflightSkew(directory: OrchDir, argv: string[]): string[] {
@@ -115,9 +129,10 @@ export const commandHandlers: Record<string, Handler> = {
   status: cmdStatusVerb,
   events: cmdEvents,
   monitor: cmdMonitor,
-  logs: (services, args) => cmdLogs(services, args),
+  logs: cmdLogs,
   notify: cmdNotify,
   questions: cmdQuestions,
+  whoami: cmdWhoami,
   runs: cmdRuns,
   queue: cmdQueue,
   daemon: cmdDaemon,
@@ -131,10 +146,9 @@ export const commandHandlers: Record<string, Handler> = {
   broadcast: cmdBroadcast,
   tail: (services, args) => cmdTail(services, args),
   session: (services, args) => cmdSession(services, args),
-  panes: (services, args) => cmdPanes(services, args),
+  pane: cmdPane,
   spawn: cmdSpawn,
   tile: cmdTile,
-  run: cmdRun,
   model: cmdModel,
   models: (services, args) => cmdModels(services, args),
   wait: (services, args) => cmdWait(services, args),
@@ -152,7 +166,6 @@ export const commandHandlers: Record<string, Handler> = {
   abort: cmdAbort,
   keys: (services, args) => cmdKeys(services, args),
   peek: (services, args) => cmdPeek(services, args),
-  tabs: (services, args) => cmdTabs(services, args),
   tab: (services, args) => cmdTab(services, args),
   focus: (services, args) => cmdFocus(services, args),
   zoom: (services, args) => cmdZoom(services, args),
@@ -198,7 +211,7 @@ export function runCommand(argv: string[]): void {
     }
     const handler = commandHandlers[cmd];
     if (handler !== undefined) {
-      dispatchAsync(services.logger, Promise.resolve(handler(services, rest)));
+      dispatchAsync(services.logger, runAsCaller(services, cmd, handler, rest));
       return;
     }
     if (cmd.startsWith("--")) dispatchAsync(services.logger, cmdStatusVerb(services, argv));

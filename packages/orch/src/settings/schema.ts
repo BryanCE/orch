@@ -92,7 +92,7 @@ export const SETTINGS_DEFAULTS = {
   denied_commands: { applies_to: ROLES.filter((role) => role !== "orch") },
   settings_file: { typo_max_edits: 2 },
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
-  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
   doctor: { unclaimed_after_ms: 120_000 },
@@ -101,6 +101,7 @@ export const SETTINGS_DEFAULTS = {
   // the project's own commands, which the orchestrator knows and the human need not type.
   agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
   tiling: { first_split: "rows" },
+  counts: { tail: 20, peek: 25 },
   // `.agents/skills` is the cross-harness standard, so the real files live there once and
   // a harness that reads its own directory instead gets a link into the store.
   skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
@@ -232,6 +233,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     spawn_attach_poll_ms: PositiveInt.optional(),
     lock_wait_ms: PositiveInt.optional(),
     lock_poll_ms: PositiveInt.optional(),
+    reset_ready_ms: PositiveInt.optional(),
+    reset_poll_ms: PositiveInt.optional(),
   }).optional(),
   notify: z.array(NotifyEntrySchema).optional(),
   notification: z.strictObject({
@@ -272,6 +275,11 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
    * every split after it halves the biggest pane's longer side regardless. */
   tiling: z.strictObject({
     first_split: z.enum(TILE_FIRST_SPLITS).optional(),
+  }).optional(),
+  /** What `-n <count>` shows when a command is given none. */
+  counts: z.strictObject({
+    tail: PositiveInt.optional(),
+    peek: PositiveInt.optional(),
   }).optional(),
   /** Whether orch may install its packaged skills, the one store holding the real files,
    * and the harness directories linked into it. Setup asks before the first install and

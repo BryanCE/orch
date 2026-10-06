@@ -5,7 +5,7 @@ import { packageRoot } from "../util.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
-const INSTALL_HINT = "fix: orch settings skills --install";
+const INSTALL_HINT = "fix: orch settings skills --skills";
 
 /** Why one harness entry fails to point at the store, or null when it points there. */
 function linkDefect(entry: string, stored: string): string | null {

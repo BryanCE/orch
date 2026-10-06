@@ -25,7 +25,7 @@ export function checkUnclaimedAgents(orchDir: OrchDir, settings: OrchSettings | 
     label: "Unclaimed agents",
     status: "warn",
     detail: violations
-      .map((agent) => `${agent.name} (${agent.id}) spawned ${Math.floor((now - agent.createdAt) / 60_000)} min ago, never claimed`)
+      .map((agent) => `${agent.name} spawned ${Math.floor((now - agent.createdAt) / 60_000)} min ago, never claimed`)
       .join("\n    "),
   };
 }

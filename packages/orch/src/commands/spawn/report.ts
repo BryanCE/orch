@@ -4,13 +4,11 @@ import { workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { readGroupLayout } from "../../backends/tiling.ts";
 import { dispatchToAgent } from "../control.ts";
+import { writeDelivery } from "../delivery.ts";
 import { errorMessage, sleep } from "../../util.ts";
 import { daemonOutage } from "../../daemon/client/reach.ts";
-import { readFleet, type FleetSnapshot } from "../fleet.ts";
-import { admissionFleet } from "./admission.ts";
 import type { CallerSelf } from "../self.ts";
 import { isAgentId } from "../../backends/identity.ts";
-import { computeFleetCapacity, formatCapacityLine, packsUsed } from "../../policy/capacity.ts";
 import type { Backend } from "../../types/backend.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { Services } from "../../types/services.ts";
@@ -36,11 +34,10 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
   const pending = new Map(created.map((c) => [c.key, c]));
   const attached = new Map<string, CreatedAgent>();
   const deadline = Date.now() + timeouts.spawn_attach_ms;
-  if (!json) process.stdout.write("\nWaiting for agents to attach:\n");
   while (pending.size && Date.now() < deadline) {
     let answer: ResultOf<"status"> | null = null;
     try {
-      answer = await rpcCall(orchDir, "status", undefined);
+      answer = await rpcCall(orchDir, "status", { caller: null });
     } catch {
       // The daemon may be briefly unavailable while a bridge starts; keep polling until the deadline.
     }
@@ -49,7 +46,7 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
       if (keys.has(key)) {
         pending.delete(key);
         attached.set(key, agent);
-        if (!json) process.stdout.write(`  ok      ${agent.handle}  ${agent.name}\n`);
+        if (!json) process.stdout.write(`Spawned ${agent.name}\n`);
       }
     }
     if (pending.size) await sleep(timeouts.spawn_attach_poll_ms);
@@ -59,7 +56,7 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
   // launch read as success and dispatch into agents that never came up.
   for (const agent of pending.values()) {
     spawnLogger(logger, agent.key).error("spawn.stalled", { handle: agent.handle, name: agent.name });
-    process.stdout.write(`  STALLED ${agent.handle}  ${agent.name} - bridge never attached; try: orch restart ${agent.name}\n`);
+    process.stdout.write(`STALLED ${agent.handle}  ${agent.name} - bridge never attached; try: orch restart ${agent.name}\n`);
   }
   if (pending.size) process.exitCode = 1;
   return [...attached.values()];
@@ -116,27 +113,6 @@ async function reportControlPlaneOutage(orchDir: OrchDir, logger: Logger, placem
   return outage;
 }
 
-function printSpawnAgentLines(settings: SpawnSettings, created: readonly CreatedAgent[], backend: Backend, group: string, tabLabel: string): void {
-  if (!settings.json) {
-    for (const agent of created) process.stdout.write(`${agent.handle}  ${agent.name}  [${tabLabel}]  ${settings.cmd}\n`);
-    printLayout(backend, group, "\nFinal tiling:");
-  }
-}
-
-async function printFleetCapacitySummary(services: Pick<Services, "settings" | "orchDir" | "logger">, self: CallerSelf, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], tabLabel: string): Promise<void> {
-  const fleet: FleetSnapshot = await readFleet(services, true);
-  const { views, presence } = admissionFleet(fleet);
-  if (!settings.json) {
-    const caller = self.id ?? undefined;
-    const callerRoot = caller === undefined
-      ? created.map((agent) => views.get(agent.key)?.rootAgentId).find((root): root is string => root !== undefined)
-      : views.get(caller)?.rootAgentId;
-    const capacity = computeFleetCapacity(views, presence, settingsFile, { packRootId: callerRoot });
-    process.stdout.write(`\nSpawned ${created.length} (pack now ${packsUsed(capacity)}/${settingsFile.fleet.max_agents_per_pack}) on tab "${tabLabel}" (no focus stolen).\n`);
-    process.stdout.write(`${formatCapacityLine(capacity, callerRoot)}\n`);
-  }
-}
-
 function warnUnregisteredAgents(logger: Logger, created: readonly CreatedAgent[], registeredAgents: readonly CreatedAgent[]): void {
   const registeredKeys = new Set(registeredAgents.map((agent) => agent.key));
   for (const agent of created) {
@@ -157,20 +133,22 @@ function buildSpawnPinEntries(registeredAgents: readonly CreatedAgent[] | null, 
 /** Hand every launch prompt to orchd. The outbox holds a write whose bridge is not
  *  attached yet and re-pushes it on attach, so a stalled agent still gets its prompt:
  *  skipping it here is what turned a slow attach into a dropped dispatch. */
-async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[]): Promise<{ name: string; key: string; dispatchId: string }[]> {
-  const dispatches: { name: string; key: string; dispatchId: string }[] = [];
+async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[]): Promise<{ name: string; key: string; id: string; ack: "acknowledged" | "unavailable" }[]> {
+  const dispatches: { name: string; key: string; id: string; ack: "acknowledged" | "unavailable" }[] = [];
   const maySpawn = maySpawnBelow(self, settingsFile.fleet.max_depth);
   for (const [index, agent] of created.entries()) {
     const text = settings.agents[index]?.prompt;
     if (text === undefined || text === null) continue;
     try {
-      const { id: dispatchId, ack } = await dispatchToAgent(services, logger, agent.key, text, {
+      const { id, ack } = await dispatchToAgent(services, logger, agent.key, text, {
         adapter: resolveAdapterOrDie(settings.adapter),
         context: { maySpawn, cwd: settings.cwd, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
       });
-      dispatches.push({ name: agent.name, key: agent.key, dispatchId });
-      const verb = ack === "acknowledged" ? "dispatched" : "queued";
-      if (!settings.json) process.stdout.write(`${verb} ${agent.name} ${dispatchId}\n`);
+      dispatches.push({ name: agent.name, key: agent.key, id, ack });
+      if (!settings.json) writeDelivery({ target: agent.key, name: agent.name, action: "dispatch", id, ack }, {
+        json: false,
+        ackMs: settingsFile.timeouts.dispatch_ack_ms,
+      });
     } catch (error: unknown) {
       const message = errorMessage(error);
       spawnLogger(logger, agent.key).error("spawn.dispatch-failed", { name: agent.name, error: message });
@@ -180,12 +158,10 @@ async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settin
   return dispatches;
 }
 
-export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, group: string, tabLabel: string, created: CreatedAgent[], backend: Backend): Promise<void> {
-  printSpawnAgentLines(settings, created, backend, group, tabLabel);
+export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, tabLabel: string, created: CreatedAgent[]): Promise<void> {
   reportShortfall(logger, settings.agents.length, created.length);
   const registeredAgents = await confirmAgentsCameUp(services.orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settingsFile.timeouts, settings.json);
   const registered = registeredAgents?.length ?? null;
-  await printFleetCapacitySummary(services, self, settingsFile, settings, created, tabLabel);
   if (registeredAgents) warnUnregisteredAgents(logger, created, registeredAgents);
   const pinEntries = buildSpawnPinEntries(registeredAgents, settings);
   const warnings = await pinModels(services, logger, pinEntries);
@@ -202,5 +178,4 @@ export async function reportSpawnResults(services: Pick<Services, "orchDir" | "s
     dispatches,
     daemon: outage ?? "ok",
   }) + "\n");
-  else process.stdout.write(`\n'orch status' shows the fleet.\n`);
 }

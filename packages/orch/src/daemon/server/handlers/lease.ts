@@ -11,6 +11,7 @@ import { recordedProcessIsLive } from "../../../store/interval-rows.ts";
 import { reapAgentRecord } from "../../../presence/store.ts";
 import { deriveDriveState, DEAD_HOLDER_DRIVER } from "../../../agent/drive-state.ts";
 import { assertValidAgentName } from "../../../policy/name.ts";
+import { isOrphan, orphanAgents } from "../../../policy/orphan.ts";
 import type { AgentRow } from "../../../types/store.ts";
 import type { LeaseOptions, ReapCandidate, ReapCandidateInput, ReapOwnership } from "../../../types/command.ts";
 import type { Governance, ParamsOf, ResultOf } from "../../client/protocol.ts";
@@ -18,7 +19,7 @@ import type { DaemonState } from "../state.ts";
 
 /** The orch a lease verb acts as. A caller with no registered identity holds nothing. */
 function actorOrDie(params: Governance): string {
-  if (params.actor === undefined) throw new Error("this orch is not registered; spawn or adopt an agent first");
+  if (params.actor === undefined) throw new Error("orch has no row for this caller; run orch whoami to register it.");
   return params.actor;
 }
 
@@ -104,6 +105,7 @@ export function adoptAgent(directory: OrchDir, target: string, orchId: string, o
   const agent = resolveTarget(directory, target);
   if (agent.ending) throw new Error(`${displayName(agent)} has ended and cannot be adopted.`);
   if (agent.id === orchId) throw new Error(`Cannot adopt the calling orch agent ${displayName(agent)}.`);
+  if (agent.spawnedBy === null) throw new Error(`${displayName(agent)} is a root (a terminal or a harness session); orch adopts only spawned agents.`);
   const lease = currentLease(directory, agent.id);
   if (lease?.orchId === orchId) return { id: agent.id, name: displayName(agent), adopted: false };
   if (lease) assertNotHeldByLiveForeignOrch(directory, agent, lease.orchId, orchId, opts);
@@ -205,25 +207,25 @@ export function detach(state: DaemonState, params: ParamsOf<"detach">): ResultOf
   return detachAgent(state.directory, params.target, actorOrDie(params), { steal: params.steal });
 }
 
-/** `--all` adopts every live agent no live orch holds, and skips the ones one
- *  does: a sweep that silently took every live orch's fleet would be the
- *  opposite of deliberate. */
+/** `--all` adopts every orphan. A live holder's agent and a root (a terminal, a harness
+ *  session) stay out: a sweep that took them would be the opposite of deliberate. */
 export function adopt(state: DaemonState, params: ParamsOf<"adopt">): ResultOf<"adopt"> {
   const directory = state.directory;
   const orchId = actorOrDie(params);
   if (params.all !== true) {
-    if (params.target === undefined) throw new Error("adopt names a target or asks for --all");
-    return { results: [adoptAgent(directory, params.target, orchId, { steal: params.steal })] };
+    if (!params.targets?.length) throw new Error("adopt names its targets or asks for --all");
+    return { results: params.targets.map((target) => adoptAgent(directory, target, orchId, { steal: params.steal })) };
   }
   const results: ResultOf<"adopt">["results"] = [];
   for (const agent of liveAgents(directory)) {
-    if (agent.id === orchId) continue;
-    try { results.push(adoptAgent(directory, agent.id, orchId)); } catch (error: unknown) {
-      if (error instanceof Error && error.message.toLowerCase().includes("leased by live orch")) continue;
-      throw error;
-    }
+    if (agent.id !== orchId && isOrphan(directory, agent)) results.push(adoptAgent(directory, agent.id, orchId));
   }
   return { results };
+}
+
+/** What `orch adopt` lists before the caller names any: every live orphan. */
+export function orphans(state: DaemonState): ResultOf<"orphans"> {
+  return { agents: orphanAgents(state.directory) };
 }
 
 export function rename(state: DaemonState, params: ParamsOf<"rename">): ResultOf<"rename"> {

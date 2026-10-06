@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { callerOrcaPaneKey, currentOrcaTerminal, ORCA_PANE_KEY } from "./detect.ts";
 import { AgentGoneError } from "../../control/agent-gone.ts";
 import { environmentStamp } from "../../agent/environment.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
@@ -7,7 +8,8 @@ import { LocalProcessRole, placedShellPid } from "../process.ts";
 import { binaryOnPath, shellQuote } from "../../util.ts";
 import { isAgentId } from "../identity.ts";
 import { OrcaCommandError, GONE_HANDLE_CODES, ORCA_INPUT_RETRY, createOrcaCli, orcaBinary, type OrcaCli } from "./cli.ts";
-import { createBackendCaptureRole, createInteractiveCommand } from "../backend.ts";
+import { createInteractiveCommand } from "../backend.ts";
+import { createBackendCaptureRole } from "../../presence/roles.ts";
 import type {
   AgentNamingRole,
   AgentStatusRole,
@@ -39,8 +41,6 @@ import type { OrcaBackendDeps, OrcaHandle, OrcaTerminal } from "../../types/plex
 const ORCA_BACKEND: BackendId = "orca";
 /** The oldest Orca this integration speaks to. */
 const SUPPORTED_ORCA = ">=1.4.0";
-/** Orca panes carry this key in every process environment. */
-const ORCA_PANE_KEY = "ORCA_PANE_KEY";
 /** Orca has no environment-specific blocked event to stamp. */
 const ORCA_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: null });
 
@@ -102,7 +102,7 @@ export class OrcaBackend implements Backend<OrcaHandle> {
   readonly capture: CaptureRole = createBackendCaptureRole("orca", () => this.orchDir);
   readonly identity: EnvironmentIdentityRole = {
     current: (id: string | null): string | null => {
-      if (!process.env[ORCA_PANE_KEY]) return null;
+      if (callerOrcaPaneKey() === undefined) return null;
       return isAgentId(id) ? id : null;
     },
   };
@@ -165,9 +165,7 @@ export class OrcaBackend implements Backend<OrcaHandle> {
 
   readonly placementInventory: PlacementInventoryRole<OrcaHandle> = {
     current: () => {
-      const key = process.env[ORCA_PANE_KEY];
-      if (!key) return null;
-      const row = this.cli.terminals().find((terminal) => `${terminal.tabId}:${terminal.leafId}` === key);
+      const row = currentOrcaTerminal(this.cli);
       return row ? { handle: row.handle, workspace: row.worktreeId, group: row.tabId } : null;
     },
     list: (): readonly BackendTarget<OrcaHandle>[] => this.cli.terminals().map((terminal) => ({
@@ -250,7 +248,7 @@ export class OrcaBackend implements Backend<OrcaHandle> {
   }
 
   isInsideSession(): boolean {
-    return !!process.env[ORCA_PANE_KEY];
+    return callerOrcaPaneKey() !== undefined;
   }
 
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): OrcaHandle {

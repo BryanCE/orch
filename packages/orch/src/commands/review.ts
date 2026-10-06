@@ -5,6 +5,7 @@ import { readFleet } from "./fleet.ts";
 import { addressOf, indexPresenceById } from "../entities/lookup.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
+import { usageError } from "../cli/usage.ts";
 import type { Invocation } from "../cli/spec.ts";
 import type { FleetSnapshot } from "./fleet.ts";
 import type { Services } from "../types/services.ts";
@@ -34,14 +35,15 @@ export async function cmdReview(services: Services, args: string[]): Promise<voi
     case "approve": return await reviewApprove(services, invocation);
     case "reject": return await reviewReject(services, invocation);
     default:
-      if (invocation.positional.length) die('usage: orch review list [--json] | approve <target> | reject <target> -m "feedback"');
+      if (invocation.positional.length) throw usageError(invocation);
       return await reviewInteractive(services);
   }
 }
 
-async function reviewList(services: Services, { flags, positional }: Invocation): Promise<void> {
+async function reviewList(services: Services, invocation: Invocation): Promise<void> {
+  const { flags, positional } = invocation;
+  if (positional.length) throw usageError(invocation);
   const fleet = await readFleet(services);
-  if (positional.length) die("usage: orch review list [--json]");
   const items = reviewItems(fleet);
   if (flags.has("--json")) {
     process.stdout.write(JSON.stringify(items.map(({ repoRoot: _repoRoot, ...item }) => item), null, 2) + "\n");
@@ -56,15 +58,16 @@ async function reviewList(services: Services, { flags, positional }: Invocation)
 }
 
 /** The one review target a subcommand names, or its usage line. */
-async function reviewedItem(services: Services, positional: readonly string[], usage: string): Promise<ReviewItem> {
-  const fleet = await readFleet(services);
+async function reviewedItem(services: Services, invocation: Invocation): Promise<ReviewItem> {
+  const { positional } = invocation;
   const target = positional[0];
-  if (!target || positional.length !== 1) die(usage);
-  return findReviewItem(fleet, target);
+  if (!target || positional.length !== 1) throw usageError(invocation);
+  return findReviewItem(await readFleet(services), target);
 }
 
-async function reviewApprove(services: Services, { flags, positional }: Invocation): Promise<void> {
-  const item = await reviewedItem(services, positional, "usage: orch review approve <target> [--json]");
+async function reviewApprove(services: Services, invocation: Invocation): Promise<void> {
+  const { flags } = invocation;
+  const item = await reviewedItem(services, invocation);
   try {
     const strategy = mergeReviewBranch(item.repoRoot, item.branch);
     removeMergedWorktree(item.repoRoot, item.worktree, item.branch);
@@ -75,12 +78,12 @@ async function reviewApprove(services: Services, { flags, positional }: Invocati
   }
 }
 
-async function reviewReject(services: Services, { flags, positional }: Invocation): Promise<void> {
-  const fleet = await readFleet(services);
-  const usage = 'usage: orch review reject <target> -m "feedback" [--json]';
-  const item = await reviewedItem(services, positional, usage);
+async function reviewReject(services: Services, invocation: Invocation): Promise<void> {
+  const { flags } = invocation;
   const feedback = flags.value("-m");
-  if (!feedback) die(usage);
+  if (!feedback) throw usageError(invocation, "-m needs the feedback to send");
+  const fleet = await readFleet(services);
+  const item = await reviewedItem(services, invocation);
   if (!indexPresenceById(fleet.presence).get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
   await writeRpc(services, "steer", { target: item.key, text: feedback });
   if (flags.has("--json")) process.stdout.write(JSON.stringify({ target: item.target, rejected: true }) + "\n");

@@ -42,7 +42,7 @@ function target(): string {
 
 function attach(directory: OrchDir, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
-  const link: BridgeLink = { push: (delivery): void => { deliveries.push(delivery); } };
+  const link: BridgeLink = { push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
   attachBridge(directory, key, link);
   links.push({ directory, key, link });
   return deliveries;

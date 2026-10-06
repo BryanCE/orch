@@ -2,87 +2,73 @@ orch - the single controller for coding agents, in any plexer.
 'orch help <command>' (or 'orch <command> -h') prints usage, doctrine, and every flag.
 
 OBSERVE
-  orch status [--json] [--capacity] [--live] [--agent <name|id>] [--filter <column|state,...>]
-                                                Fleet table with cost and context. The default command.
-  orch monitor [--agent <name>] [--space-wide] [--since-seq <n>] [--json]
-                                                Push stream of the states an orch acts on. Arm it as a Monitor.
-  orch events [--agent <name>] [--space-wide] [--filter <state,...>] [--since-seq <n>] [--json]
-                                                Every state transition, mid-turn flips included.
-  orch questions [--json] [--local]             Agents blocked on a question.
-  orch runs [<target>] [-n <count>] [--json]    Dispatch history, newest first.
-  orch logs [--since <when>] [--level <level>] [--agent <id>] [--dispatch <id>] [--json]
-                                                Structured diagnosis records.
+  orch status [flags]                           Fleet table with cost and context. The default command.
+  orch whoami                                   Who orch sees as the caller in this terminal.
+  orch monitor [flags]                          Push stream of the states an orch acts on. Arm it as a Monitor.
+  orch events [flags]                           Every state transition, mid-turn flips included.
+  orch questions [flags]                        Agents blocked on a question.
+  orch runs [<target>] [flags]                  Dispatch history, newest first.
+  orch logs [flags]                             Structured diagnosis records. --json emits raw records.
 
 DISPATCH
-  orch dispatch <target> "<prompt>" | --file <path>|- [--with <path>]... [--keep-context] [--raw] [--model <model>]
+  orch dispatch <target> "<prompt>" | --file <path>|- [flags]
                                                 Send a task onto a clean session. Durable.
-  orch run <target> "<prompt>" [--raw]          Queue a prompt with the worker header.
-  orch answer <target> "<text>"                 Answer the question the agent is asking.
-  orch steer <target> <text...>                 Mid-run instruction. The reply says if it applied.
-  orch broadcast "<text>" [<target>...|--all]   Steer several.
-  orch pipe <src> <dst> ["instruction"]         Hand one agent's result to another.
-  orch model <target> <model[:thinking]>        Change the model.
-  orch wait <target> [--status <state>] [--timeout <ms>]
-                                                Block until one agent reaches a state.
+  orch answer <target> "<text>" [flags]         Answer the question the agent is asking.
+  orch steer <target> <text...> [flags]         Mid-run instruction. The reply says if it applied.
+  orch broadcast "<text>" <target>... | --all [flags]
+                                                Steer several.
+  orch pipe <target> <target> ["<instruction>"] Hand the first agent's result to the second.
+  orch model <target> <model[:thinking]> [flags]
+                                                Change the model.
+  orch wait <target> [flags]                    Block until one agent reaches a state.
 
 COLLECT
-  orch result <target>... [--force] [--json]    Each target's result.
-  orch tail <target> [-n <count>]               Last N session entries.
-  orch peek <target> [-n <lines>]               What is on the pane screen now.
+  orch result <target>... [flags]               Each target's result. --json prints one array, one entry per target.
+  orch tail <target> [flags]                    Last session entries.
+  orch peek <target> [flags]                    What is on the pane screen now.
   orch session <target>                         Session path and stats.
 
 QUEUE
-  orch queue <add|list|history|cancel|edit|take-on|reap|intake> ...
+  orch queue <add|list|history|cancel|edit|take-on|reap|intake>
                                                 Durable task queue.
-  orch work [--once] [--json]                   Assign queued tasks to idle agents.
+  orch work [flags]                             Assign queued tasks to idle agents.
 
 REVIEW
-  orch review [list|approve <target>|reject <target> -m "feedback"]
-                                                Review done worktree agents.
+  orch review <list|approve|reject>             Review done worktree agents.
 
 AGENTS (never steals focus except 'focus')
-  orch spawn <name>... --tab <label> [--file <path>]... [--model <model>]... [--dir <path>] [--worktree]
-                                                One fleet, one command. The names are the agents.
-  orch tile <tab|pane> <name> [--model <model>] [--dir <path>]
-                                                Add one named agent to an existing tab.
-  orch rename <target> <name> [--pane]          Set the agent name. --pane sets the border label.
-  orch reset <target>... | --all [--model <model>]
-                                                Fresh session, same agent (alias: new).
-  orch reload <target>... | --all               Live-reload code after a rebuild.
-  orch restart <target>... | --all [--cmd <command>]
-                                                Relaunch the harness process.
-  orch close <target>... | --all [--stream]     Close (alias: kill).
+  orch spawn <name>... [flags]                  One fleet, one command. The names are the agents.
+  orch tile <tab> <name> [flags]                Add one named agent to an existing tab.
+  orch rename <target> <name> [flags]           Set the agent name. --pane sets the border label.
+  orch reset <target>... | --all [flags]        Fresh session, same agent (alias: new).
+  orch reload <target>... | --all [flags]       Live-reload code after a rebuild.
+  orch restart <target>... | --all [flags]      Relaunch the harness process.
+  orch close <target>... | --all [flags]        Close (alias: kill).
   orch abort <target> [<text...>]               Cancel the current turn, then steer with the text.
-  orch detach <target>                          Release the lease. The agent keeps running.
-  orch adopt <target> | --all                   Take an unleased agent.
-  orch reap [<target>] [--dead]                 Delete an agent record.
-  orch grant [<hash>|--list]                    Approve an action an agent was refused.
+  orch detach <target> [flags]                  Release the lease. The agent keeps running.
+  orch adopt [<target>...] | --all [flags]      List orphans, or take the named ones.
+  orch reap [<target>] [flags]                  Delete an agent record.
+  orch grant [<id>]                             Approve an action an agent was refused.
   orch lock -- '<command>'                      Run a locked or gated command once orchd allows it.
-  orch focus <target>                           Jump the user's view to that pane.
-  orch zoom <target> [--on|--off]               Zoom the pane full-tab.
-  orch move <target> --tab <tab_id|label> [--split right|down] | --new-tab [--label <label>]
+  orch focus <target> [flags]                   Jump the user's view to that pane.
+  orch zoom <target> [flags]                    Zoom the pane full-tab. Default: flip.
+  orch move <target> --tab <tab> | --new-tab [flags]
                                                 Move a pane to another tab.
-  orch keys <target> <key>...                   Send raw keys.
-  orch panes [--all] [--json]                   Raw pane list, for scripts.
+  orch keys <target> <key>... [flags]           Send raw keys.
+  orch pane <list>                              Raw panes, for scripts.
 
 TABS AND SPACES
-  orch tabs [--all] [--json]                    List tabs.
-  orch tab <new|rename|close|focus> ...         Tab management.
-  orch space <list|create <name>|rename <space> <name>|delete <space>|focus <space>>
-                                                orch's own grouping of related work.
+  orch tab <list|new|rename|close|focus>        Tab management.
+  orch space <list|create|rename|delete|focus>  orch's own grouping of related work.
 
 MAINTENANCE
-  orch daemon <start|stop|status|reload> [--json]
-                                                The resident daemon (orchd).
-  orch doctor [--fix] [-y] [--json]             Check the install and fix it.
-  orch clean [--force] [--worktrees] [--json]   Remove dead agent dirs and orphaned worktrees.
-  orch setup [--agent <id,...>] [--backend <id,...>] [--model <harness>=<model>]... [--yes] [--skills|--no-skills]
-                                                Onboarding wizard.
-  orch settings [<key> <value>] [--json] [--harness <id>] [--plexer <id>]
-                                                Every effective setting and its source.
-  orch models [--agent <id>] [--preferred] [--search <text>] [--pick <index|spec>] [--json]
-                                                Every model each harness can run.
-  orch notify test [--state <state>]            Fire every notification sink.
+  orch daemon <start|stop|status|reload>        The resident daemon (orchd).
+  orch doctor [flags]                           Check the install and fix it.
+  orch clean [flags]                            Remove dead agent dirs and orphaned worktrees.
+  orch setup [flags]                            Onboarding wizard.
+  orch settings [<key> <value>] [flags]         Every effective setting and its source.
+  orch models [flags]                           Every model each harness can run.
+  orch notify <test>                            Fire every notification sink.
   orch version                                  Installed version.
   orch help [<command>]                         This map, or one command's detail.
 

@@ -8,7 +8,8 @@ import { describeSkillPlacement, installSkills } from "../setup/skills.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { validateSetupFlag } from "../setup/flags.ts";
 import { parseCommand } from "./registry.ts";
-import type { Invocation, ParsedFlags } from "../cli/spec.ts";
+import type { Invocation } from "../cli/spec.ts";
+import { usageError } from "../cli/usage.ts";
 import { recordHarnessModels, resolveHarnessModels } from "../setup/composition.ts";
 import { refreshAdapterCatalogues } from "../adapters/registry.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
@@ -18,14 +19,14 @@ import { BACKEND_IDS } from "../types/backend.ts";
 import { isThinkingLevel } from "../policy/thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
-import { selfIdentity } from "../identity/self.ts";
+import { callerKind } from "../policy/caller.ts";
 import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, agentSettingRefusal, grantAgentSetting, revokeAgentSetting } from "../policy/agent-settings.ts";
 import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell/index.ts";
 import type { NotifierChoice } from "../types/notify.ts";
-import type { NotifyEntry, NotifyState, OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
+import type { NotifyEntry, NotifyState, OrchSettings, SettingSpec } from "../types/settings.ts";
 import type { Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
 
@@ -54,15 +55,6 @@ function rawSetting(orchDirPath: OrchDir, ...keys: string[]): unknown {
   }
 }
 
-/** Switch the active default adapter/backend through its registry declaration. */
-/** Read an env override according to the setting's DECLARED kind, never by
- *  sniffing whatever the fallback happened to be. */
-function envSettingValue(environment: string, type: SettingKind): unknown {
-  if (type.kind === "boolean") return environment === "true" || environment === "1";
-  if (type.kind === "integer") return Number(environment);
-  return environment;
-}
-
 function formatValue(value: unknown): string {
   // Rule 11: NULL is not-applicable. An unset setting is not the literal "null" — the one
   // way this printing differs from every other place a settings value is shown.
@@ -84,10 +76,10 @@ export function shouldLaunchSettingsEditor(args: readonly string[], isTTY = proc
   return isTTY && args.length === 0;
 }
 
-/** A REGISTERED caller (a spawned agent or a harness session) writes only what
- *  `agents.writable_settings` grants. An UNREGISTERED caller is the human. */
+/** A spawned agent or a harness session writes only what `agents.writable_settings` grants.
+ *  The operator, a raw terminal, is the human. */
 function refuseUngrantedAgentWrite(services: Pick<Services, "settings" | "orchDir">, key: string): void {
-  if (selfIdentity(services.orchDir) === null) return;
+  if (callerKind(services.orchDir) === "operator") return;
   const settings = currentSettings(services);
   if (!agentMayWriteSetting(settings, key)) die(agentSettingRefusal(settings, key));
 }
@@ -101,9 +93,9 @@ function writableSpec(key: string): SettingSpec {
 }
 
 /** The one key a grant verb names: registered, writable, not the grant itself, and the caller is the human. */
-function grantTarget(services: Pick<Services, "orchDir" | "settings">, { command, positional }: Invocation): string {
-  const key = positional[0];
-  if (key === undefined || positional.length !== 1) die(`usage: orch settings ${command.name} <key>`);
+function grantTarget(services: Pick<Services, "orchDir" | "settings">, invocation: Invocation): string {
+  const key = invocation.positional[0];
+  if (key === undefined || invocation.positional.length !== 1) throw usageError(invocation);
   writableSpec(key);
   if (key === AGENT_SETTINGS_GRANT) die(`${key} never grants itself.`);
   refuseUngrantedAgentWrite(services, AGENT_SETTINGS_GRANT);
@@ -130,9 +122,6 @@ function settingsRevoke(services: Pick<Services, "settings" | "orchDir">, invoca
 function setSingleSetting(services: Pick<Services, "settings" | "orchDir">, key: string, input: string): void {
   const spec = writableSpec(key);
   refuseUngrantedAgentWrite(services, key);
-  if (spec.env !== undefined && process.env[spec.env] !== undefined) {
-    die(`${key} is overridden by ${spec.env}; remove the override before writing it.`);
-  }
   const parsed = parseSettingValue(spec, input);
   if (!parsed.ok) die(`${key}: ${parsed.reason}.`);
   try { writeRegisteredSetting(services.settings, key, parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
@@ -186,14 +175,13 @@ async function settingsModels(services: Services, { flags }: Invocation): Promis
   }
 }
 
-function readSkillsFlags(flags: ParsedFlags): { readonly storeFlag: string | undefined; readonly install: boolean | undefined; readonly link: string[] | undefined } {
+function readSkillsFlags(invocation: Invocation): { readonly storeFlag: string | undefined; readonly install: boolean | undefined; readonly link: string[] | undefined } {
+  const { flags } = invocation;
   const storeFlag = flags.value("--store");
   const linkFlag = flags.value("--link");
-  const install = flags.has("--install") ? true : flags.has("--no-install") ? false : undefined;
+  const install = flags.has("--skills") ? true : flags.has("--no-skills") ? false : undefined;
   const link = linkFlag?.split(",").map((root) => root.trim()).filter(Boolean);
-  if (install === undefined && storeFlag === undefined && link === undefined) {
-    die("usage: orch settings skills [--install|--no-install] [--store=<dir>] [--link=<dir>[,<dir>...]]");
-  }
+  if (install === undefined && storeFlag === undefined && link === undefined) throw usageError(invocation);
   if (storeFlag !== undefined && !storeFlag.trim()) die("--store needs a directory.");
   if (linkFlag !== undefined && !link?.length) die("--link needs at least one directory.");
   return { storeFlag, install, link };
@@ -219,19 +207,15 @@ function printInstalledSkills(wanted: boolean, roots: { readonly store: string; 
 
 /**
  * Turn skill installation on or off, and re-point the store or the harness links.
- * `--install` writes every packaged skill straight away, so the setting and what is on
- * disk never disagree; `--no-install` records the refusal and leaves whatever the user
+ * `--skills` writes every packaged skill straight away, so the setting and what is on
+ * disk never disagree; `--no-skills` records the refusal and leaves whatever the user
  * has there alone, since those files are theirs to remove.
  */
-function settingsSkills(services: Services, { flags }: Invocation): void {
-  const { storeFlag, install, link } = readSkillsFlags(flags);
+function settingsSkills(services: Services, invocation: Invocation): void {
+  const { storeFlag, install, link } = readSkillsFlags(invocation);
   const { wanted, roots } = writeSkillsSettings(services, install, storeFlag, link);
   printInstalledSkills(wanted, roots);
 }
-
-const NOTIFY_USAGE = "usage: orch settings notify [list] [--json]\n"
-  + "       orch settings notify add <sink> [--<field>=<value>...] [--on=<state,...>]\n"
-  + "       orch settings notify remove <sink>";
 
 /** Every notifier declares the config fields it needs, so no sink's fields are named here. */
 function pickDeclaredFields(
@@ -250,7 +234,7 @@ function pickDeclaredFields(
 function rejectUndeclaredFlags(given: ReadonlyMap<string, string | true>, fields: NotifierChoice["requiredFields"]): void {
   const declared = fields.map((field) => `--${field.name}`);
   const undeclared = [...given.keys()].filter((name) => !declared.includes(name));
-  if (undeclared.length) die(`Unknown flag ${undeclared.join(", ")}. This sink takes: ${["--on", ...declared].join(" ")}.`);
+  if (undeclared.length) die(`Unknown flag ${undeclared.join(", ")}. This sink takes: ${["--only", ...declared].join(" ")}.`);
 }
 
 /** The value of one sink field flag, or undefined when it was not given. A bare flag is no value. */
@@ -259,13 +243,13 @@ function sinkFieldValue(given: ReadonlyMap<string, string | true>, name: string)
   return held === true ? undefined : held;
 }
 
-/** Read `--on=<state,...>` as the states this sink fires on, or exit naming the supported set. */
+/** Read `--only=<state,...>` as the states this sink fires on, or exit naming the supported set. */
 function readNotifyStates(flag: string | undefined): NotifyState[] | undefined {
   if (flag === undefined) return undefined;
   const states = flag.split(",").map((state) => state.trim()).filter(Boolean);
   const isNotifyState = (state: string): state is NotifyState => NOTIFY_STATES.some((known) => known === state);
   const unsupported = states.filter((state) => !isNotifyState(state));
-  if (!states.length || unsupported.length) die(`--on takes a comma-separated list of: ${NOTIFY_STATES.join(", ")}.`);
+  if (!states.length || unsupported.length) die(`--only takes a comma-separated list of: ${NOTIFY_STATES.join(", ")}.`);
   return states.filter(isNotifyState);
 }
 
@@ -295,9 +279,10 @@ function printNotifyEntries(services: Services, json: boolean): void {
 }
 
 /** Record one sink over whatever it already had, so a re-add changes only what the flags name. */
-async function addNotifyEntry(services: Services, { flags, positional, undeclared }: Invocation): Promise<void> {
+async function addNotifyEntry(services: Services, invocation: Invocation): Promise<void> {
+  const { flags, positional, undeclared } = invocation;
   const id = positional[0];
-  if (id === undefined || positional.length !== 1) die(NOTIFY_USAGE);
+  if (id === undefined || positional.length !== 1) throw usageError(invocation);
   const choices = await probeNotifiers(currentSettings(services));
   const choice = choices.find((notifier) => notifier.id === id);
   if (!choice) die(`Unknown notify sink "${id}". Supported: ${choices.map((notifier) => notifier.id).join(", ")}.`);
@@ -311,7 +296,7 @@ async function addNotifyEntry(services: Services, { flags, positional, undeclare
   const config = {
     ...pickDeclaredFields(choice.requiredFields, (name) => recordedFields[name]),
     ...pickDeclaredFields(choice.requiredFields, (name) => sinkFieldValue(undeclared, name)),
-    on: readNotifyStates(flags.value("--on")) ?? recorded?.on,
+    on: readNotifyStates(flags.value("--only")) ?? recorded?.on,
   };
 
   const written = await buildSelectedNotifyEntries([{ id, config }]);
@@ -331,9 +316,9 @@ async function addNotifyEntry(services: Services, { flags, positional, undeclare
   process.stdout.write("\nverify delivery with: orch doctor\n");
 }
 
-function removeNotifyEntry(services: Services, { positional }: Invocation): void {
-  const id = positional[0];
-  if (id === undefined || positional.length !== 1) die(NOTIFY_USAGE);
+function removeNotifyEntry(services: Services, invocation: Invocation): void {
+  const id = invocation.positional[0];
+  if (id === undefined || invocation.positional.length !== 1) throw usageError(invocation);
   const configured = currentSettings(services).notify;
   const entry = configured.find((candidate) => candidate.id === id);
   if (!entry) die(`No "${id}" notify sink is configured. Configured: ${configured.map((candidate) => candidate.id).join(", ") || "(none)"}.`);
@@ -347,7 +332,7 @@ async function settingsNotify(services: Services, invocation: Invocation): Promi
     case "add": return addNotifyEntry(services, invocation);
     case "remove": return removeNotifyEntry(services, invocation);
     default:
-      if (invocation.positional.length) die(NOTIFY_USAGE);
+      if (invocation.positional.length) throw usageError(invocation);
       printNotifyEntries(services, invocation.flags.has("--json"));
   }
 }
@@ -395,9 +380,8 @@ function collectSettingsProvenance(services: Pick<Services, "orchDir">, settings
   for (const spec of SETTINGS_REGISTRY) {
     const configured = spec.read(settings);
     const raw = rawSetting(services.orchDir, ...spec.key.split("."));
-    const environment = spec.env === undefined ? undefined : process.env[spec.env];
-    const value = environment !== undefined ? envSettingValue(environment, spec.type) : configured ?? null;
-    const source = environment !== undefined ? "env" : raw !== undefined ? "settings.json" : "default";
+    const value = configured ?? null;
+    const source = raw !== undefined ? "settings.json" : "default";
     provenance.push({
       key: spec.key, value, source,
       display: value === null ? "(none)" : displaySetting(value, spec.type),
@@ -444,10 +428,11 @@ function printSettingsOutput(services: Pick<Services, "settings">, settings: Orc
 }
 
 /** Print each resolvable setting with its winning source, set one, or switch the active default via --harness/--plexer. */
-function settingsRoot(services: Services, { flags, positional }: Invocation): void {
+function settingsRoot(services: Services, invocation: Invocation): void {
+  const { flags, positional } = invocation;
   const [key, input] = positional;
   if (key !== undefined && input !== undefined && positional.length === 2) return setSingleSetting(services, key, input);
-  if (positional.length) die("usage: orch settings [<key> <value>] [--json] [--harness <id>] [--plexer <id>]");
+  if (positional.length) throw usageError(invocation);
   const settings = currentSettings(services);
   if (switchSettingsDefaults(services, flags.value("--harness"), flags.value("--plexer"))) return;
   const provenance = collectSettingsProvenance(services, settings);
@@ -474,20 +459,21 @@ export async function cmdSettings(services: Services, args: string[]): Promise<v
  *
  * Thinking is its own axis, configurable through orch rather
  * than by hand-editing settings.json, and it applies to any model and any harness.
- * A bare level sets the global default; `--harness=<id>` sets that harness's override,
+ * A bare level sets the global default; `--harness <harness>` sets that harness's override,
  * and `--clear` with `--harness` removes it.
  */
-function settingsThinking(services: Services, { flags, positional }: Invocation): void {
+function settingsThinking(services: Services, invocation: Invocation): void {
+  const { flags, positional } = invocation;
   const harnessFlag = flags.value("--harness");
   const clear = flags.has("--clear");
   const level = positional[0];
-  if (positional.length > 1) die("usage: orch settings thinking [<level>] [--harness <id>] [--clear]");
+  if (positional.length > 1) throw usageError(invocation);
 
   if (harnessFlag !== undefined && !isAdapterId(harnessFlag)) {
     throw new Error(`unknown harness ${JSON.stringify(harnessFlag)}; known harnesses: ${ADAPTER_IDS.join(", ")}`);
   }
   if (clear) {
-    if (harnessFlag === undefined) throw new Error("--clear needs --harness=<id>: the global default always has a value");
+    if (harnessFlag === undefined) throw new Error("--clear needs --harness <harness>: the global default always has a value");
     const current = currentSettings(services).defaults.thinking_by_harness ?? {};
     const byHarness = { ...current };
     delete byHarness[harnessFlag];

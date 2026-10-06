@@ -40,7 +40,7 @@ export function die(message: string): never {
  */
 export function ambiguousTargetRefusal(target: string, candidates: readonly AmbiguousCandidate[]): CommandRefusal {
   const listed = candidates
-    .map((candidate) => `  ${candidate.key}${candidate.detail ? `  (${candidate.detail})` : ""}`)
+    .map((candidate) => `  ${candidate.name ?? candidate.key} (${candidate.key})${candidate.detail ? `  (${candidate.detail})` : ""}`)
     .join("\n");
   return new CommandRefusal(
     `Ambiguous target ${JSON.stringify(target)}: it matches ${candidates.length} agents, so nothing was done.\n`

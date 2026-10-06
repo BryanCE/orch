@@ -201,14 +201,8 @@ const settingsValueExtractors = {
   }),
   monitor: (root: Partial<SettingsFile>) => ({ on: root.monitor?.on ?? SETTINGS_DEFAULTS.monitor.on }),
   timeouts: (root: Partial<SettingsFile>) => ({
-    dispatch_ack_ms: root.timeouts?.dispatch_ack_ms ?? SETTINGS_DEFAULTS.timeouts.dispatch_ack_ms,
-    wait_ms: root.timeouts?.wait_ms ?? SETTINGS_DEFAULTS.timeouts.wait_ms,
-    adapter_command_ms: root.timeouts?.adapter_command_ms ?? SETTINGS_DEFAULTS.timeouts.adapter_command_ms,
-    notify_ms: root.timeouts?.notify_ms ?? SETTINGS_DEFAULTS.timeouts.notify_ms,
-    spawn_attach_ms: root.timeouts?.spawn_attach_ms ?? SETTINGS_DEFAULTS.timeouts.spawn_attach_ms,
-    spawn_attach_poll_ms: root.timeouts?.spawn_attach_poll_ms ?? SETTINGS_DEFAULTS.timeouts.spawn_attach_poll_ms,
-    lock_wait_ms: root.timeouts?.lock_wait_ms ?? SETTINGS_DEFAULTS.timeouts.lock_wait_ms,
-    lock_poll_ms: root.timeouts?.lock_poll_ms ?? SETTINGS_DEFAULTS.timeouts.lock_poll_ms,
+    ...SETTINGS_DEFAULTS.timeouts,
+    ...root.timeouts,
   }),
   notify: (root: Partial<SettingsFile>) => root.notify ?? [],
   notification: (root: Partial<SettingsFile>) => ({
@@ -242,6 +236,10 @@ const settingsValueExtractors = {
     unclaimed_after_ms: root.doctor?.unclaimed_after_ms ?? SETTINGS_DEFAULTS.doctor.unclaimed_after_ms,
   }),
   tiling: (root: Partial<SettingsFile>) => ({ first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split }),
+  counts: (root: Partial<SettingsFile>) => ({
+    tail: root.counts?.tail ?? SETTINGS_DEFAULTS.counts.tail,
+    peek: root.counts?.peek ?? SETTINGS_DEFAULTS.counts.peek,
+  }),
   skills: (root: Partial<SettingsFile>) => ({
     install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
     store: root.skills?.store ?? SETTINGS_DEFAULTS.skills.store,
@@ -276,6 +274,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
     daemon: settingsValueExtractors.daemon(root),
     doctor: settingsValueExtractors.doctor(root),
     tiling: settingsValueExtractors.tiling(root),
+    counts: settingsValueExtractors.counts(root),
     skills: settingsValueExtractors.skills(root),
   };
 }
@@ -312,39 +311,17 @@ function hasFallbackShape<T>(value: unknown, fallback: T): value is T {
   return isRecord(fallback) && isRecord(value);
 }
 
-function coerceEnvironment<T>(value: string, fallback: T, name: string): T {
-  let converted: unknown = value;
-  if (typeof fallback === "number") {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) throw new Error(`${name}: expected number, found ${JSON.stringify(value)}`);
-    converted = parsed;
-  } else if (typeof fallback === "boolean") {
-    if (value === "true" || value === "1") converted = true;
-    else if (value === "false" || value === "0") converted = false;
-    else throw new Error(`${name}: expected boolean, found ${JSON.stringify(value)}`);
-  }
-  if (!hasFallbackShape(converted, fallback)) {
-    const expected = fallback === null ? "null" : typeof fallback;
-    throw new Error(`${name}: expected ${expected}, found ${JSON.stringify(value)}`);
-  }
-  return converted;
-}
-
-/** Resolve a setting with its winning source. The ONE precedence order — flag > env > settings.json > default; `resolveSetting` delegates here so the two can never drift. */
-export function resolveWithSource<T>(opts: { flag?: T; env?: string; settings?: unknown; fallback: T }): { value: T; source: SettingSource } {
+/** Resolve a setting with its winning source. The ONE precedence order — flag > settings.json > default; `resolveSetting` delegates here so the two can never drift. */
+export function resolveWithSource<T>(opts: { flag?: T; settings?: unknown; fallback: T }): { value: T; source: SettingSource } {
   if (opts.flag !== undefined) return { value: opts.flag, source: "flag" };
-  if (opts.env) {
-    const value = process.env[opts.env];
-    if (value !== undefined) return { value: coerceEnvironment(value, opts.fallback, opts.env), source: "env" };
-  }
   if (opts.settings !== undefined && hasFallbackShape(opts.settings, opts.fallback)) {
     return { value: opts.settings, source: "settings.json" };
   }
   return { value: opts.fallback, source: "default" };
 }
 
-/** Resolve a setting with flag, ORCH_* environment, settings, and fallback precedence. */
-export function resolveSetting<T>(opts: { flag?: T; env?: string; settings?: T; fallback: T }): T {
+/** Resolve a setting with flag, settings, and fallback precedence. */
+export function resolveSetting<T>(opts: { flag?: T; settings?: T; fallback: T }): T {
   return resolveWithSource(opts).value;
 }
 

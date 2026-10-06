@@ -12,7 +12,7 @@ function fixture(): OrchDir {
   const dir = tempOrchDir("orch-task-scope-doctor-"); directories.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('a','a','pi','/tmp','a',1)`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('a','a','pi','/tmp','a',1,'session')`);
   return dir;
 }
 afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(directories.pop()!); });

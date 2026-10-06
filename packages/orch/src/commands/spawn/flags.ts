@@ -15,12 +15,16 @@ import type { ContextReference } from "../../types/core.ts";
 import { adapterCommand } from "./models.ts";
 import { resolveSpawnNames } from "./names.ts";
 import { contextReference, readPromptFile } from "../prompt-file.ts";
+import { usageError, type CommandAt } from "../../cli/usage.ts";
 import { taskWithReferences } from "../../worker-prompt.ts";
 
 
 export type SpawnFlags = AgentFlags & {
+  /** Where the invocation was parsed, so a refusal prints the spec's usage. */
+  at: CommandAt;
   json: boolean;
-  tabLabel: string | null;
+  /** The tab `--tab` named, or null for a generated label. */
+  tab: string | null;
   /** The directory the agent starts in: the spawner's own unless `--dir` names another. */
   cwd: string;
   /** The harness command `--cmd` named, or null for the adapter's own. */
@@ -40,12 +44,14 @@ export type SpawnFlags = AgentFlags & {
 };
 
 export function parseSpawnFlags(args: string[]): SpawnFlags {
-  const { flags, positional } = parseCommand("spawn", args);
+  const invocation = parseCommand("spawn", args);
+  const { flags, positional } = invocation;
   const tasksFile = flags.value("--tasks");
   return {
     ...agentFlags(flags),
+    at: invocation,
     json: flags.has("--json"),
-    tabLabel: flags.value("--tab") ?? null,
+    tab: flags.value("--tab") ?? null,
     cwd: flags.value("--dir") ?? process.cwd(),
     cmd: flags.value("--cmd") ?? null,
     space: flags.value("--space") ?? null,
@@ -71,11 +77,10 @@ export type SpawnSettings = Omit<AgentSettings, "model" | "thinking"> & {
   tools: string | undefined;
   workers: WorkerPolicy;
   json: boolean;
-  label: string;
-  /** True when --tab named a tab: an existing match is joined, not recreated. */
-  tabExplicit: boolean;
-  /** True when the human chose the plexer: `--backend`, `ORCH_BACKEND`, or the
-   *  default in `settings.json`. A chosen plexer is one orch may open a home in.
+  /** The tab --tab named: an existing match is joined, not recreated. Null rolls a free label. */
+  tab: string | null;
+  /** True when the human chose the plexer: `--plexer` or the default in
+   *  `settings.json`. A chosen plexer is one orch may open a home in.
    *  A plexer orch only probed is not. */
   backendChosen: boolean;
   cwd: string;
@@ -91,22 +96,22 @@ export type SpawnSettings = Omit<AgentSettings, "model" | "thinking"> & {
 };
 
 /** "One value for every agent, or exactly one per agent." Zero values yields a row of undefined. */
-function perAgent<T>(flag: string, values: readonly T[], n: number): (T | undefined)[] {
+function perAgent<T>(at: CommandAt, flag: string, values: readonly T[], n: number): (T | undefined)[] {
   if (values.length === 0) return Array.from({ length: n }, () => undefined);
   if (values.length === 1) return Array.from({ length: n }, () => values[0]);
   if (values.length === n) return [...values];
-  die(`${flag} accepts one value for all agents or exactly ${n} values`);
+  throw usageError(at, `${flag} accepts one value for all agents or exactly ${n} values`);
 }
 
 /** One task per agent, from `--tasks`, or one `--file`, or the `--prompt` values. */
 function resolveSpawnPrompts(flags: SpawnFlags, n: number): (string | null)[] {
   const sources = [flags.tasksFile !== undefined, flags.promptFiles.length > 0, flags.promptFlags.length > 0].filter(Boolean);
-  if (sources.length > 1) die("give the task as --prompt, --file or --tasks, not more than one");
+  if (sources.length > 1) throw usageError(flags.at, "give the task as --prompt, --file or --tasks, not more than one");
   if (flags.tasksFile !== undefined) return readTasksFile(flags.tasksFile, n);
   if (flags.promptFiles.length > 0) {
-    if (flags.promptFiles.filter((file) => file === "-").length > 1) die("--file - reads stdin once; name it at most once");
+    if (flags.promptFiles.filter((file) => file === "-").length > 1) throw usageError(flags.at, "--file - reads stdin once; name it at most once");
     const cache = new Map<string, string>();
-    return perAgent("--file", flags.promptFiles, n).map((file) => {
+    return perAgent(flags.at, "--file", flags.promptFiles, n).map((file) => {
       if (file === undefined) return null;
       const cached = cache.get(file);
       if (cached !== undefined) return cached;
@@ -115,7 +120,7 @@ function resolveSpawnPrompts(flags: SpawnFlags, n: number): (string | null)[] {
       return text;
     });
   }
-  return perAgent("--prompt", flags.promptFlags, n).map((prompt) => prompt ?? null);
+  return perAgent(flags.at, "--prompt", flags.promptFlags, n).map((prompt) => prompt ?? null);
 }
 
 function readTasksFile(source: string, n: number): string[] {
@@ -141,7 +146,7 @@ function referencesByAgent(withPaths: readonly string[], names: readonly string[
 function resolveSpawnBackend(flags: AgentFlags, settings: OrchSettings): Backend {
   try {
     return resolveBackend({
-      explicit: flags.backendFlag ?? process.env.ORCH_BACKEND ?? null,
+      explicit: flags.backendFlag ?? null,
       configured: settings.defaults.backend ?? null,
     });
   } catch (error: unknown) {
@@ -165,19 +170,12 @@ export function resolveSpawnAgentSettings(flags: AgentFlags, settings: OrchSetti
 export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings): SpawnSettings {
   const adapter = pickAdapter(flags, settings);
   const backend = resolveSpawnBackend(flags, settings);
-  const worktree = resolveSetting({ flag: flags.worktreeFlag, env: "ORCH_WORKTREE", settings: settings.defaults.worktree, fallback: settings.defaults.worktree });
-  // The names ARE the positional arguments, and how many you give is how many
-  // agents you get. Resolving here means a nameless or malformed spawn is refused
-  // before a group, a place, or a worktree exists.
-  let names: string[];
-  try { names = resolveSpawnNames(flags.positional); }
-  catch (error: unknown) {
-    die(`${errorMessage(error)}\nusage: orch spawn <name> [<name>...] [--tab <label>] [--dir <path>] [--cmd <command>] [--model <model[:thinking]>] [--thinking <level>] [--agent <adapter>] [--backend <backend>] [--prompt <text>] [--file <path>|-] [--with [<name>=]<path>]... [--worktree]`);
-  }
+  const worktree = resolveSetting({ flag: flags.worktreeFlag, settings: settings.defaults.worktree, fallback: settings.defaults.worktree });
+  const names = resolveSpawnNames(flags.at, flags.positional);
   const n = names.length;
   const references = referencesByAgent(flags.withPaths, names);
   const prompts = resolveSpawnPrompts(flags, n).map((prompt, index) => prompt === null ? null : taskWithReferences(prompt, references[index] ?? []));
-  const models = perAgent("--model", flags.modelFlags, n);
+  const models = perAgent(flags.at, "--model", flags.modelFlags, n);
   const tunings = models.map((model) => resolveTuningOrDie({ ...flags, modelFlag: model }, settings, adapter, null));
   const agents = names.map((name, index) => {
     const tuning = tunings[index];
@@ -192,11 +190,8 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
   const firstAgent = agents[0];
   if (firstAgent === undefined) die("spawn requires at least one agent");
   const cmd = flags.cmd ?? adapterCommand(adapter, settings, { model: firstAgent.model, thinking: firstAgent.thinking, preferredModels });
-  // --tab names the TAB; the positionals name the AGENTS. A tab left unnamed
-  // borrows the first agent's name, but the two are never conflated.
-  const tabLabel = flags.tabLabel ?? firstAgent.name;
-  const backendChosen = (flags.backendFlag ?? process.env.ORCH_BACKEND ?? settings.defaults.backend ?? null) !== null;
-  return { adapter, backend: backend.id, preferredModels, tools, workers, json: flags.json, label: tabLabel, tabExplicit: flags.tabLabel !== null, backendChosen, cwd: flags.cwd, cmd, commandFlag: flags.cmd !== null, space: flags.space, prefix: firstAgent.name, agents, worktree, fleet: settings.fleet, tiling: settings.tiling };
+  const backendChosen = (flags.backendFlag ?? settings.defaults.backend ?? null) !== null;
+  return { adapter, backend: backend.id, preferredModels, tools, workers, json: flags.json, tab: flags.tab, backendChosen, cwd: flags.cwd, cmd, commandFlag: flags.cmd !== null, space: flags.space, prefix: firstAgent.name, agents, worktree, fleet: settings.fleet, tiling: settings.tiling };
 }
 
 /** Live agents per space. Both maps are keyed by the minted id: a space is an

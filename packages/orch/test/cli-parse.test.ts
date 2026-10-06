@@ -5,30 +5,27 @@ import type { CommandSpec } from "../src/cli/spec.ts";
 
 const SPEC: CommandSpec = {
   name: "spawn",
-  usage: "orch spawn <name>... [--tab <label>]",
+  args: "<name>...",
   summary: "One fleet.",
   flags: [
-    { name: "--tab", arity: "one", placeholder: "<label>", help: "The tab." },
+    { name: "--tab", arity: "one", placeholder: "<tab>", help: "The tab." },
     { name: "--file", arity: "many", placeholder: "<path>", help: "A task file." },
     { name: "--json", arity: "none", help: "JSON." },
     { name: "--yes", aliases: ["-y"], arity: "none", help: "Yes." },
-    { name: "--agent", aliases: ["--adapter"], arity: "one", placeholder: "<id>", help: "Adapter." },
   ],
 };
 
 const PARENT: CommandSpec = {
   name: "settings",
-  usage: "orch settings",
   summary: "Settings.",
   flags: [{ name: "--json", arity: "none", help: "JSON." }],
   subcommands: [
     {
       name: "notify",
-      usage: "orch settings notify",
       summary: "Sinks.",
       flags: [],
       subcommands: [
-        { name: "add", usage: "orch settings notify add <sink>", summary: "Add.", flags: [{ name: "--on", arity: "one", placeholder: "<states>", help: "States." }], openFlags: true },
+        { name: "add", args: "<sink>", summary: "Add.", flags: [{ name: "--only", arity: "one", placeholder: "<state,...>", help: "States." }], openFlags: true },
       ],
     },
   ],
@@ -62,20 +59,23 @@ describe("parseInvocation", () => {
 
   test("an alias records under the long name", () => {
     expect(parseInvocation(SPEC, ["-y"]).flags.has("--yes")).toBe(true);
-    expect(parseInvocation(SPEC, ["--adapter", "pi"]).flags.value("--agent")).toBe("pi");
   });
 
   test("a repeated one-value flag keeps the last value", () => {
     expect(parseInvocation(SPEC, ["--tab", "a", "--tab", "b"]).flags.value("--tab")).toBe("b");
   });
 
-  test("an unknown flag is refused with the usage line", () => {
+  test("an unknown flag is refused with the usage line built from the spec", () => {
     expect(() => parseInvocation(SPEC, ["--nope"])).toThrow(UsageError);
-    expect(() => parseInvocation(SPEC, ["--nope"])).toThrow(/unknown flag --nope\nusage: orch spawn/);
+    expect(() => parseInvocation(SPEC, ["--nope"])).toThrow("unknown flag --nope\nusage: orch spawn <name>... [--tab <tab>] [--file <path>]... [--json] [--yes]");
+  });
+
+  test("a refusal inside a subcommand names the full command path", () => {
+    expect(() => parseInvocation(PARENT, ["notify", "--url=x"])).toThrow("unknown flag --url\nusage: orch settings notify <add>");
   });
 
   test("a one-value flag at the end of argv is refused", () => {
-    expect(() => parseInvocation(SPEC, ["--tab"])).toThrow(/--tab needs a value <label>/);
+    expect(() => parseInvocation(SPEC, ["--tab"])).toThrow(/--tab needs a value <tab>/);
   });
 
   test("a no-value flag with an assignment is refused", () => {
@@ -88,19 +88,19 @@ describe("parseInvocation", () => {
   });
 
   test("a subcommand word routes to the child and the path records the route", () => {
-    const parsed = parseInvocation(PARENT, ["notify", "add", "webhook", "--on=done", "--url=http://x"]);
+    const parsed = parseInvocation(PARENT, ["notify", "add", "webhook", "--only=done", "--url=http://x"]);
     expect(parsed.path).toEqual(["settings", "notify", "add"]);
     expect(parsed.command.name).toBe("add");
     expect(parsed.positional).toEqual(["webhook"]);
-    expect(parsed.flags.value("--on")).toBe("done");
+    expect(parsed.flags.value("--only")).toBe("done");
     expect(parsed.undeclared.get("--url")).toBe("http://x");
   });
 
   test("openFlags keeps an undeclared flag as bare, assigned, or with the next token", () => {
-    const parsed = parseInvocation(PARENT, ["notify", "add", "cmd", "--command", "say hi", "--quiet", "--on", "done"]);
+    const parsed = parseInvocation(PARENT, ["notify", "add", "cmd", "--command", "say hi", "--quiet", "--only", "done"]);
     expect(parsed.undeclared.get("--command")).toBe("say hi");
     expect(parsed.undeclared.get("--quiet")).toBe(true);
-    expect(parsed.flags.value("--on")).toBe("done");
+    expect(parsed.flags.value("--only")).toBe("done");
   });
 
   test("a closed spec refuses an undeclared flag and reports nothing undeclared", () => {

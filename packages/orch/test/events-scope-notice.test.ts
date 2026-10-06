@@ -14,7 +14,7 @@ describe("events scope notice", () => {
   });
 
   test("names the all-agent live scope and its history widener", () => {
-    expect(eventsScopeNotice(parseEventsOptions(["--space-wide"]), ANY, true)).toBe("watching all agents from now on");
+    expect(eventsScopeNotice(parseEventsOptions(["--all"]), ANY, true)).toBe("watching all agents from now on");
   });
 
   test("a redirected stream is a harness reading transitions, and gets no banner", () => {
@@ -72,7 +72,7 @@ describe("events scope notice", () => {
 
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("you own no agents");
-    expect(lines[0]).toContain("--space-wide");
+    expect(lines[0]).toContain("--all");
   });
 
   test("the empty notice names the verb that armed the stream", () => {
@@ -99,6 +99,6 @@ describe("events scope notice", () => {
   });
 
   test("does not announce when explicit targets were requested", () => {
-    expect(eventsScopeNotice(parseEventsOptions(["--agent-id=worker"]), MINE)).toBeNull();
+    expect(eventsScopeNotice(parseEventsOptions(["--agent=worker"]), MINE)).toBeNull();
   });
 });

@@ -4,7 +4,7 @@
  * extensions/subagents/src/backend.ts), reshaped for orch: instead of
  * spawning subagent processes, it taps orch's own machinery —
  *   events    → the daemon's push stream (self-healing across restarts)
- *   facts     → the presence store ($ORCH_DIR/agents/<KEY>/status.json)
+ *   facts     → the daemon's `agent-status` RPC
  *   send      → the daemon's `message` RPC (orch's delivery mechanism, needs no screen)
  *   abort     → the orch CLI, so control traffic stays on the one dispatcher
  */
@@ -15,7 +15,6 @@ import { subscribeEvents } from "orch/core/daemon/client/rpc.ts";
 import { presenceAgentDir } from "orch/core/presence/history.ts";
 import { sendPeerMessage } from "orch/core/agent/peers.ts";
 import { isNotifyEvent } from "orch/core/notify/event.ts";
-import { selectAgentStatus } from "orch/core/store/status-rows.ts";
 import { PackAbortError, PackSendError, transitionName } from "./domain.ts";
 import type { PackEnrichment, PackSourceConfig, PackSourceShape } from "./types.ts";
 import type { NotifyEvent } from "orch/core/types/notify.ts";
@@ -27,15 +26,15 @@ function makePackSource(config: PackSourceConfig): PackSourceShape {
     const subscription = subscribeEvents(config.orchDir, { since: 0 }, (event) => {
       if (!isNotifyEvent(event)) return;
       void emit.single({ ...event, name: transitionName(event) });
-    }, undefined, true);
+    });
     return Effect.sync(() => subscription.close());
   });
 
   return {
     transitions,
     ownKey: config.ownKey,
-    enrich(key: string): PackEnrichment {
-      const status = selectAgentStatus(config.orchDir, key);
+    async enrich(key: string): Promise<PackEnrichment> {
+      const status = (await config.daemon.ask("agent-status", { target: key }))?.status;
       if (!status) return {};
       return {
         sessionPath: status.sessionPath ?? undefined,

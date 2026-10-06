@@ -51,9 +51,9 @@ const WORKER_HEADER_ASK_CLAUSE =
  * had to reason their way out of.
  */
 const WORKER_HEADER_SPAWNER_CLAUSE =
-  " The session orchestrating you is named in your status record (spawnedByLabel);" +
-  " reply or report to it with orch_send target \"spawner\" ONLY;" +
-  " never relay via siblings or other agents.";
+  ` End your turn with your final report as your last reply; orch delivers it to the ${term("orch")}.` +
+  ` Use orch_send target "spawner" (or its name) only for a question, blocker, or finding the ${term("orch")} needs before the task ends.` +
+  " Never relay through siblings.";
 
 /** Appended when the spawner's inbox is not reachable: the result is collected from presence. */
 const WORKER_HEADER_NO_SPAWNER_CLAUSE =

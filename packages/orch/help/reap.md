@@ -1,5 +1,7 @@
-Delete an agent record. Its JSONL history stays until retention ages it out. Refuses while
-the process or any descendant is live. Ending is never gated by the lease.
+Delete an agent's record once you no longer need its result or transcript. Its history file
+stays until retention ages it out. Reap refuses while the agent's process or any child of it
+is still running; close it first.
 
-Bare `orch reap` on a TTY opens an interactive multiselect over live agents, with provably
-dead rows pre-checked. `--dead` is the non-interactive sweep of provably dead agents.
+    orch reap --dead
+
+Bare `orch reap` on a terminal opens a picker with the dead agents already checked.

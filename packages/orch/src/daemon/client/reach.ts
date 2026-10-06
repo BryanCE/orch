@@ -22,7 +22,7 @@ import {
   unprovenLockRefusal,
 } from "./process.ts";
 import { isLogRecord, logFile } from "../../log.ts";
-import { announceUnleasedAgents, sessionClaim } from "./registration.ts";
+import { sessionClaim } from "./registration.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./wire.ts";
 import { rpcCall } from "./rpc.ts";
 import { isLiveAgentIdentity } from "../../store/agent-rows.ts";
@@ -210,7 +210,6 @@ export async function rpcRegisterSession(orchDir: OrchDir, logger: Logger, label
     if (!isLiveAgentIdentity(orchDir, identity)) {
       throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed session registration");
     }
-    announceUnleasedAgents(identity);
     if (identity.registrationWarning) {
       logger.warn("daemon.registration-warning", { warning: identity.registrationWarning });
       process.stdout.write(`warning: ${identity.registrationWarning}\n`);

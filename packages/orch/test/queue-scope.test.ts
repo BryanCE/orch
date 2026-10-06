@@ -38,7 +38,7 @@ function fixture(): OrchDir {
     ["other", "other", null],
   ];
   for (const [id, root, parent] of agents) {
-    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1)`);
+    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1,${"agent"})`);
   }
   return dir;
 }

@@ -1,5 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -74,9 +74,9 @@ async function closeAll(dir: OrchDir, backend: FakePanedBackend, args: string[] 
 /** Seed an agent whose process has already ended, so close has nothing to signal.
  *  `handle` absent = the pane is GONE: `agent_handles` has no open interval, which
  *  is exactly the state the reported sweep hit. */
-function seedLiveAgent(dir: OrchDir, key: string, handle?: string): void {
+function seedLiveAgent(dir: OrchDir, key: string, handle?: string, name = key): void {
   seedAgent(key, {
-    adapter: "pi", backend: "headless", space: "space00001",
+    adapter: "pi", backend: "headless", space: "space00001", name,
     ...(handle === undefined ? {} : { handle }),
   }, dir);
   endProcess(dir, key, Date.now());
@@ -123,14 +123,15 @@ describe("close is keyed by the agent id, never by a plexer coordinate (U10)", (
 
   test("what a human is told they closed is the agent, not the plexer's coordinate", async () => {
     const dir = fixture();
-    seedLiveAgent(dir, "zcixvdjos8", "w7:p3C");
+    seedLiveAgent(dir, "zcixvdjos8", "w7:p3C", "Named worker");
     const backend = new FakePanedBackend({ id: "headless", panes: [fakePane("w7:p3C")] });
 
     const { text } = await closeAll(dir, backend, []);
 
     // One listing must speak ONE vocabulary. `Closed w7:p3C.` names a herdr
     // coordinate a person never typed and cannot address anything else with.
-    expect(text).toContain("zcixvdjos8");
+    expect(text).toContain("Closed Named worker.");
+    expect(text).not.toContain("zcixvdjos8");
     expect(text).not.toContain("w7:p3C");
   });
 

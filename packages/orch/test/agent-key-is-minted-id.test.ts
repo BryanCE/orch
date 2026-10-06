@@ -1,10 +1,10 @@
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
-import { basename } from "node:path";
 import { createAgentPresence } from "../src/agent/presence.ts";
+import type { DaemonLink, HarnessContext } from "../src/types/agent.ts";
 import { stubDaemonLink } from "./helpers/daemon-client.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
@@ -12,7 +12,7 @@ import { peerView } from "../src/daemon/server/peer-view.ts";
 import { selfIdentity } from "../src/identity/self.ts";
 import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
-import { ensurePresenceAgentDir, presenceAgentDir } from "../src/presence/history.ts";
+import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { claimAgent, ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
@@ -84,55 +84,74 @@ function fakeHarness(): HarnessApi {
   };
 }
 
-function presenceFor() {
+function fakeContext(): HarnessContext {
+  return {
+    hasUI: true,
+    sessionManager: { getSessionFile: () => undefined, getSessionId: () => "test-session", getBranch: () => [] },
+    modelRegistry: { find: () => undefined },
+    ui: { notify: () => undefined, setStatus: () => undefined, setWidget: () => undefined },
+    isIdle: () => true,
+    getContextUsage: () => undefined,
+  };
+}
+
+function presenceFor(daemon: DaemonLink) {
   return createAgentPresence({
     harness: fakeHarness(),
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     extensionHash: "test",
-    daemon: stubDaemonLink(),
+    daemon,
   });
 }
 
 // Malformed launch credentials exit by design; test/identity-launch.test.ts covers that wiring error.
-describe("a driving session mints an id, it is not placed by name", () => {
-  test("the key an interactive session addresses itself by is a bare minted id", () => {
+describe("presence uses the identity orchd returns", () => {
+  test("an unspawned interactive session uses the id returned by identify", async () => {
     tempOrchDir();
     delete process.env[LAUNCH_ENV];
-    const presence = presenceFor();
-    presence.initPresence(true);
-    const key = presence.keyOrCompute(true);
+    const id = mintAgentId();
+    const identified = Promise.resolve(id);
+    const daemon = { ...stubDaemonLink(), identify: () => identified };
+    const presence = presenceFor(daemon);
+    presence.initPresence(fakeContext());
+    await identified;
+    expect(presence.state.key).toBe(id);
+    expect(isAgentId(presence.state.key)).toBe(true);
     presence.stopPresence();
-
-    // A session is in no plexer and in no space. `headless` and `local` are the
-    // two sentinels the model outlaws: NULL wearing a name, and the exact pair
-    // that made the web render a fake space called "local".
-    expect(isAgentId(key)).toBe(true);
-    expect(key).not.toContain("~");
-    expect(key).not.toContain("local");
-    expect(key).not.toContain("headless");
   });
 
-  test("the presence directory is named by that id alone", () => {
+  test("retries identity after orchd does not know the agent yet", async () => {
     tempOrchDir();
     delete process.env[LAUNCH_ENV];
-    const presence = presenceFor();
-    presence.initPresence(true);
-    const key = presence.keyOrCompute(true);
-    const directory = presenceAgentDir(key, orchDirAt(process.env.ORCH_DIR!));
+    const id = mintAgentId();
+    let calls = 0;
+    const daemon = {
+      ...stubDaemonLink(),
+      identify: () => Promise.resolve(++calls === 1 ? undefined : id),
+    };
+    const presence = presenceFor(daemon);
+    presence.initPresence(fakeContext());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(presence.state.key).toBe("");
+
+    presence.initPresence(fakeContext());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(presence.state.key).toBe(id);
+    expect(calls).toBe(2);
     presence.stopPresence();
-    expect(directory).toBeDefined();
-    expect(isAgentId(basename(directory ?? ""))).toBe(true);
   });
 
-  test("a launch that handed over a minted id is used verbatim", () => {
+  test("a spawned agent uses its launch credential", async () => {
     tempOrchDir();
     const id = mintAgentId();
     process.env[LAUNCH_ENV] = id;
-    const presence = presenceFor();
-    presence.initPresence(false);
-    const directory = presenceAgentDir(id, orchDirAt(process.env.ORCH_DIR!));
+    const identified = Promise.resolve(id);
+    const daemon = { ...stubDaemonLink(), identify: () => identified };
+    const presence = presenceFor(daemon);
+    presence.initPresence(fakeContext());
+    await identified;
+    expect(presence.state.key).toBe(id);
     presence.stopPresence();
-    expect(basename(directory ?? "")).toBe(id);
   });
 });
 

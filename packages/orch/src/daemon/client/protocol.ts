@@ -7,7 +7,7 @@ import { isLifecycleVerb } from "../../adapters/adapter.ts";
 import { isThinkingLevel } from "../../policy/thinking.ts";
 import { AGENT_STATES } from "../../agent-state.ts";
 import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
-import type { ThinkingLevel, WorkerPolicy } from "../../types/policy.ts";
+import { CALLER_KINDS, type ThinkingLevel, type WorkerPolicy } from "../../types/policy.ts";
 import type { CallerCredential, CallerSession, TokenTotals } from "../../types/core.ts";
 import type { FleetCapacity } from "../../policy/capacity.ts";
 import { isAgentNotice, type AgentNotice } from "../../control/bridge-message.ts";
@@ -39,6 +39,20 @@ const CALLER = z.object({
   session: CALLER_SESSION.nullable(),
   process: z.object({ pid: z.number().int(), startToken: z.string().nullable() }),
 }) satisfies z.ZodType<CallerCredential>;
+
+/** What orchd stored when it registered the caller's row: the process it keys
+ *  liveness and token-less identity on, and the session token it matches. */
+const STORED_IDENTITY = z.object({
+  process: z.object({
+    pid: z.number().int(),
+    startToken: z.string().nullable(),
+    since: z.number(),
+    host: z.object({ id: z.string(), name: z.string(), os: z.enum(HOST_OS_VALUES) }).nullable(),
+    alive: z.boolean(),
+  }).nullable(),
+  sessionToken: z.string().nullable(),
+  claimedAt: z.number().nullable(),
+});
 
 /** Fields on every governed write. `callDaemon` sends `caller`; orchd stamps the actor fields from it before the handler runs (`stampGovernance`); `governWrite` reads them. */
 const GOVERNANCE = z.object({
@@ -149,6 +163,7 @@ const LEASE_RESULT = z.object({ id: z.string(), name: z.string() });
 
 const CLOSE_TARGET = z.object({
   key: z.string(),
+  name: z.string(),
   backendId: z.string().nullable(),
   handle: z.string().nullable(),
   recorded: z.object({ pid: z.number().int(), startToken: z.string().nullable() }).nullable(),
@@ -184,11 +199,13 @@ const ACCEPTED = z.object({
 });
 const SUBSYSTEM = z.enum(["running", "stopped"]);
 
+const ORPHAN = z.object({ id: z.string(), name: z.string() });
+
 const registerSessionResponse = z.object({
   id: z.string().min(1),
   label: z.string(),
   kind: z.literal("session"),
-  unleased: z.array(z.object({ id: z.string(), name: z.string() })),
+  unleased: z.array(ORPHAN),
   registrationWarning: z.string().optional(),
 });
 
@@ -204,6 +221,10 @@ const statusRow = z.object({
   agentId: z.string().nullable().optional(),
   paneId: z.string().nullable(),
   managed: z.boolean(),
+  owned: z.boolean(),
+  kind: z.enum(CALLER_KINDS).nullable(),
+  createdAt: z.number().nullable(),
+  pid: z.number().nullable(),
   name: z.string().nullable(),
   tab: z.string().nullable(),
   agent: z.string().nullable(),
@@ -260,7 +281,7 @@ export const RPC_PARAMS = {
     opts: z.custom<TaskOptions>(isTaskOptions),
     scope: z.object({ agentId: nonBlank.optional(), packId: nonBlank.optional(), spaceId: nonBlank.optional() }),
   }),
-  status: z.undefined(),
+  status: z.object({ caller: z.string().nullable() }),
   attach: z.object({ key: nonBlank }),
   dispatch: GOVERNANCE.extend({ target: nonBlank, text: nonBlank }),
   steer: GOVERNANCE.extend({ target: nonBlank, text: nonBlank }),
@@ -270,6 +291,9 @@ export const RPC_PARAMS = {
   lifecycle: GOVERNANCE.extend({ target: nonBlank, verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
   "spawn-headless": GOVERNANCE.extend({
     key: nonBlank,
+    name: nonBlank,
+    spawner: z.string().nullable(),
+    worktree: z.object({ path: z.string(), branch: z.string() }).optional(),
     adapter: nonBlank,
     model: nonBlank,
     thinking: z.custom<ThinkingLevel>(isThinkingLevel),
@@ -283,7 +307,7 @@ export const RPC_PARAMS = {
   "agent-closed": GOVERNANCE.extend({ key: nonBlank }),
   "register-agent": SPAWN_REGISTRATION.extend(GOVERNANCE.shape),
   detach: GOVERNANCE.extend({ target: nonBlank }),
-  adopt: GOVERNANCE.extend({ target: nonBlank.optional(), all: z.boolean().optional() }),
+  adopt: GOVERNANCE.extend({ targets: z.array(nonBlank).optional(), all: z.boolean().optional() }),
   rename: GOVERNANCE.extend({ target: nonBlank, name: nonBlank }),
   reap: GOVERNANCE.extend({ target: nonBlank.optional(), dead: z.boolean().optional() }),
   "reap-candidates": GOVERNANCE,
@@ -300,14 +324,13 @@ export const RPC_PARAMS = {
   grants: z.undefined(),
   grant: GOVERNANCE.extend({ target: nonBlank, decision: z.enum(["approve", "deny"]), host: nonBlank }),
   "admit-home": GOVERNANCE.extend({ action: GRANT_ACTION }),
-  "resolve-agent": z.object({ target: nonBlank }),
   "queue-list": z.object({ history: z.boolean() }),
   "queue-cancel": GOVERNANCE.extend({ target: nonBlank, by: nonBlank }),
   "queue-edit": GOVERNANCE.extend({ target: nonBlank, by: nonBlank, text: nonBlank }),
   "queue-take-on": GOVERNANCE.extend({ target: nonBlank, taker: nonBlank }),
   "queue-reap": GOVERNANCE.extend({ target: nonBlank, by: nonBlank }),
   "queue-intake": GOVERNANCE.extend({ by: nonBlank, agent: nonBlank.optional(), space: nonBlank.optional(), close: z.boolean() }),
-  clean: GOVERNANCE.extend({ force: z.boolean() }),
+  clean: GOVERNANCE.extend({ all: z.boolean() }),
   fleet: z.object({ skipBackends: z.boolean().optional() }).optional(),
   capacity: z.object({ packRootId: z.string().nullable().optional(), packSpace: z.string().nullable().optional() }),
   runs: z.object({ caller: CALLER, target: nonBlank.optional(), limit: z.number().int().positive().optional() }),
@@ -319,6 +342,7 @@ export const RPC_PARAMS = {
   "resolve-lifecycle": z.object({ caller: CALLER, target: nonBlank }),
   "close-targets": z.object({ caller: CALLER, targets: z.array(nonBlank), all: z.boolean() }),
   "owned-agents": z.object({ caller: CALLER }),
+  orphans: z.object({}),
   question: z.custom<AgentNotice>(isAgentNotice),
   questions: z.object({ caller: CALLER, all: z.boolean().optional() }),
   ack: z.object({ id: nonBlank }),
@@ -389,7 +413,6 @@ export const RPC_RESULTS = {
   grants: z.object({ requests: z.array(GRANT_REQUEST) }),
   grant: z.object({ id: z.string(), decision: z.enum(["approve", "deny"]), expiresAt: z.number().nullable() }),
   "admit-home": z.union([z.object({ granted: z.literal(true) }), z.object({ granted: z.literal(false), requestId: z.string() })]),
-  "resolve-agent": z.object({ id: z.string(), rootAgentId: z.string() }),
   "queue-list": z.object({ tasks: z.array(z.custom<TaskRec>(isTaskRec)) }),
   "queue-cancel": TASK,
   "queue-edit": TASK,
@@ -408,10 +431,11 @@ export const RPC_RESULTS = {
   "agent-status": z.object({ status: AGENT_STATUS_ROW.nullable() }),
   "process-live": z.object({ live: z.boolean() }),
   "resolve-target": z.object({ entity: ENTITY, view: AGENT_VIEW.nullable(), holder: z.string().nullable(), callerOwns: z.boolean() }),
-  self: z.object({ id: z.string().nullable(), kind: z.enum(["operator", "session", "agent"]), space: z.string().nullable(), view: AGENT_VIEW.nullable(), depth: z.number().int().nonnegative() }),
+  self: z.object({ id: z.string().nullable(), kind: z.enum(CALLER_KINDS), space: z.string().nullable(), view: AGENT_VIEW.nullable(), depth: z.number().int().nonnegative(), stored: STORED_IDENTITY.nullable() }),
   "resolve-lifecycle": z.object({ entity: ENTITY, key: z.string(), view: AGENT_VIEW.nullable(), backendId: z.string().nullable(), handle: z.string(), holder: z.string().nullable(), callerOwns: z.boolean() }),
   "close-targets": z.object({ targets: z.array(CLOSE_TARGET), refusal: z.string().nullable() }),
   "owned-agents": z.object({ keys: z.array(z.string()) }),
+  orphans: z.object({ agents: z.array(ORPHAN) }),
   question: OK,
   ack: OK,
   "control-outcome": OK,

@@ -7,7 +7,7 @@ import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 
 const originalTmux = process.env.TMUX;
 const originalHerdrEnv = process.env.HERDR_ENV;
@@ -143,7 +143,7 @@ describe("tmux backend registry and capabilities", () => {
     }
   });
 
-  test("refuses cross-session tmux steer without --cross-space", async () => {
+  test("refuses a tmux steer into another space without --space", async () => {
     const { checkWall } = await import("../src/policy/space.ts");
     const { seedAgent } = await import("./helpers/agent.ts");
     const orchDir: OrchDir = tempOrchDir("orch-tmux-wall-");

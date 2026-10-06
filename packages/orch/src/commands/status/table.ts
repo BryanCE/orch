@@ -2,7 +2,7 @@ import { renderTable } from "../../table.ts";
 import { collapse, truncate } from "../../util.ts";
 import { dim } from "../../tui/screen.ts";
 import { DEAD_HOLDER_DRIVER, NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
-import { formatSpace, displayStatusState, NO_STATUS_FILTER, isTTY } from "./options.ts";
+import { formatSpace, displayStatusState, NO_STATUS_HIDE, isTTY, callerNameLabel, ownsLiveWorker } from "./options.ts";
 import { modelShort } from "../../policy/thinking.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { FleetNames, FleetStatus } from "../../types/daemon.ts";
@@ -17,7 +17,8 @@ export function ownerLabel(row: StatusRow, names: FleetNames): string | null {
   return names.agents[row.lease.holderId] ?? row.lease.holderId;
 }
 
-function formatOwnerCell(row: StatusRow, names: FleetNames): string {
+function formatOwnerCell(row: StatusRow, names: FleetNames, callerId: string | null): string {
+  if (row.key === callerId) return "-";
   const owner = ownerLabel(row, names);
   if (owner === null) return "-";
   return owner.startsWith(NO_ORCH_DRIVER) && isTTY ? dim(owner) : owner;
@@ -31,25 +32,28 @@ export interface TableFlags {
 }
 
 export interface StatusTableOptions {
-  spaceWide: boolean;
+  /** `--all`: the table may span spaces, so it shows SPACE when the rows do. */
+  all: boolean;
   host: boolean;
+  callerId?: string | null;
   human?: boolean;
-  /** Columns `--filter` removed. */
+  /** Columns `--hide` removed. */
   columns: ReadonlySet<string>;
 }
 
-function tableFlags(fleet: FleetStatus, spaceWide: boolean, human: boolean): TableFlags {
+function tableFlags(fleet: FleetStatus, all: boolean, human: boolean, callerId: string | null): TableFlags {
+  const otherRows = fleet.rows.filter((row) => row.key !== callerId);
   return {
-    showSpace: spaceWide && new Set(fleet.rows.map((row) => row.spaceId ?? "-")).size > 1,
-    showOwner: new Set(fleet.rows.map((row) => ownerLabel(row, fleet.names) ?? "-")).size > 1,
+    showSpace: all && new Set(fleet.rows.map((row) => row.spaceId ?? "-")).size > 1,
+    showOwner: new Set(otherRows.map((row) => ownerLabel(row, fleet.names) ?? "-")).size > 1,
     showBranch: fleet.rows.some((row) => row.branch),
     human,
   };
 }
 
-function tableOptionalCells(row: StatusRow, names: FleetNames, flags: TableFlags): string[] {
+function tableOptionalCells(row: StatusRow, names: FleetNames, flags: TableFlags, callerId: string | null): string[] {
   const cells: string[] = [];
-  if (flags.showOwner) cells.push(formatOwnerCell(row, names));
+  if (flags.showOwner) cells.push(formatOwnerCell(row, names, callerId));
   if (flags.showBranch) cells.push(row.branch ?? "-");
   return cells;
 }
@@ -66,13 +70,16 @@ function environmentCell(row: StatusRow): string {
   return handle;
 }
 
-function localNameCell(row: StatusRow, names: FleetNames, flags: TableFlags): string {
-  const name = row.name ?? (row.warning ? "WARNING" : "");
+function localNameCell(row: StatusRow, names: FleetNames, flags: TableFlags, callerId: string | null, ownsOthers: boolean): string {
+  const baseName = row.name ?? (row.warning ? "WARNING" : "");
+  const name = callerNameLabel(baseName, row, callerId, ownsOthers);
   return flags.showSpace ? `${formatSpace(row.spaceId, row.spaceId ? names.spaces[row.spaceId] : null)} / ${name}` : name;
 }
 
-function tableStateCell(row: StatusRow, includeFallback: boolean): string {
-  return displayStatusState(row) + (includeFallback && row.stateFallback ? "?" : "");
+function tableStateCell(row: StatusRow, includeFallback: boolean, callerId: string | null): string {
+  const state = displayStatusState(row);
+  if (row.key === callerId && row.stateFallback && state === "unknown") return "-";
+  return state + (includeFallback && row.stateFallback ? "?" : "");
 }
 
 function tableCostCell(row: StatusRow): string {
@@ -83,22 +90,31 @@ function tableContextCell(row: StatusRow): string {
   return row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "";
 }
 
-function tableRow(row: StatusRow, names: FleetNames, flags: TableFlags, host: boolean): string[] {
-  if (flags.human) {
-    return [
-      ...(host ? [row.host ?? "local"] : []), row.name ?? (row.warning ? "WARNING" : "-"),
-      row.agent ?? "-", truncate(row.cwd ?? "-", 30), truncate(row.worktree ?? "-", 24),
-      truncate(row.branch ?? "-", 20), formatOwnerCell(row, names), tableStateCell(row, true),
-    ];
-  }
-  const prefix = host
-    ? [row.host ?? "local", localIdCell(row), environmentCell(row), localNameCell(row, names, flags)]
-    : [localIdCell(row), environmentCell(row), localNameCell(row, names, flags)];
+function humanTableCells(row: StatusRow, names: FleetNames, host: boolean, callerId: string | null, name: string): string[] {
   return [
-    ...prefix, ...tableOptionalCells(row, names, flags), row.tab ?? "-", row.agent ?? "-",
-    modelShort(row.model) || "-", tableStateCell(row, true), tableCostCell(row),
+    ...(host ? [row.host ?? "-"] : []), name,
+    row.agent ?? "-", truncate(row.cwd ?? "-", 30), truncate(row.worktree ?? "-", 24),
+    truncate(row.branch ?? "-", 20), formatOwnerCell(row, names, callerId), tableStateCell(row, true, callerId),
+  ];
+}
+
+function standardTableCells(row: StatusRow, names: FleetNames, flags: TableFlags, host: boolean, callerId: string | null, ownsOthers: boolean): string[] {
+  const prefix = host
+    ? [row.host ?? "-", localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)]
+    : [localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)];
+  return [
+    ...prefix, ...tableOptionalCells(row, names, flags, callerId), row.tab ?? "-", row.agent ?? "-",
+    modelShort(row.model) || "-", tableStateCell(row, true, callerId), tableCostCell(row),
     tableContextCell(row), truncate(collapse(row.task ?? ""), 40), truncate(collapse(row.lastText ?? ""), 50),
   ];
+}
+
+function tableRow(row: StatusRow, names: FleetNames, flags: TableFlags, host: boolean, callerId: string | null, ownsOthers: boolean): string[] {
+  const baseName = row.name ?? (row.warning ? "WARNING" : "-");
+  const name = callerNameLabel(baseName, row, callerId, ownsOthers);
+  return flags.human
+    ? humanTableCells(row, names, host, callerId, name)
+    : standardTableCells(row, names, flags, host, callerId, ownsOthers);
 }
 
 function ownerBranchHeaders(flags: TableFlags): string[] {
@@ -108,8 +124,8 @@ function ownerBranchHeaders(flags: TableFlags): string[] {
   return columns;
 }
 
-function sharedOwner(fleet: FleetStatus): string | null {
-  const labels = fleet.rows.map((row) => ownerLabel(row, fleet.names));
+function sharedOwner(fleet: FleetStatus, callerId: string | null): string | null {
+  const labels = fleet.rows.filter((row) => row.key !== callerId).map((row) => ownerLabel(row, fleet.names));
   const owners = new Set(labels.filter((owner): owner is string => owner !== null));
   return owners.size === 1 && labels.every((owner) => owner !== null) ? [...owners][0]! : null;
 }
@@ -125,12 +141,12 @@ function tableColumns(flags: TableFlags, host: boolean): { headers: string[]; ca
   if (flags.human) {
     return {
       headers: [...(host ? ["HOST"] : []), "NAME", "HARNESS", "CWD", "WORKTREE", "BRANCH", "OWNER", "STATE"],
-      caps: [...(host ? [10] : []), 20, 10, 30, 24, 20, 32, 12],
+      caps: [...(host ? [10] : []), 32, 10, 30, 24, 20, 32, 12],
     };
   }
   return {
     headers: [...(host ? ["HOST"] : []), "ID", "ENV", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
-    caps: [...(host ? [10] : []), 12, 10, 14, ...ownerBranchCaps(flags), 8, 6, 20, 10, 6, 4, 24, 34],
+    caps: [...(host ? [10] : []), 12, 10, 32, ...ownerBranchCaps(flags), 8, 6, 20, 10, 6, 4, 24, 34],
   };
 }
 
@@ -138,26 +154,40 @@ function visibleColumns<T>(cells: readonly T[], headers: readonly string[], colu
   return cells.filter((_, index) => !columns.has((headers[index] ?? "").toLowerCase()));
 }
 
-export function renderStatusTable(fleet: FleetStatus, flags: TableFlags, options: { host: boolean; columns: ReadonlySet<string> }): string {
-  const { names, rows } = fleet;
-  if (!rows.length) return "";
-  const { headers, caps } = tableColumns(flags, options.host);
-  const cells = rows.map((row) => visibleColumns(tableRow(row, names, flags, options.host), headers, options.columns));
-  const rendered = renderTable(visibleColumns(headers, headers, options.columns), cells, visibleColumns(caps, headers, options.columns)).split("\n");
-  const out: string[] = [rendered[0] ?? "", rendered[1] ?? ""];
+function appendRenderedRows(out: string[], rendered: readonly string[], rows: readonly StatusRow[]): void {
   for (let index = 0; index < rows.length; index++) {
     const line = rendered[index + 2] ?? "";
     out.push(rows[index]?.exited ? (isTTY ? dim(line) : line) : line);
   }
-  const shared = sharedOwner(fleet);
-  if (!flags.showOwner && !options.columns.has("owner") && shared !== null) out.push(`owner: ${shared}`);
+}
+
+function hasOwnerFooter(fleet: FleetStatus, flags: TableFlags, columns: ReadonlySet<string>, callerId: string | null): string | null {
+  const shared = sharedOwner(fleet, callerId);
+  const otherRows = fleet.rows.filter((row) => row.key !== callerId);
+  return !flags.showOwner && !columns.has("owner") && shared !== null && otherRows.some((row) => !row.owned)
+    ? shared
+    : null;
+}
+
+export function renderStatusTable(fleet: FleetStatus, flags: TableFlags, options: { host: boolean; columns: ReadonlySet<string>; callerId?: string | null }): string {
+  const { names, rows } = fleet;
+  if (!rows.length) return "";
+  const { headers, caps } = tableColumns(flags, options.host);
+  const ownsOthers = ownsLiveWorker(rows, options.callerId ?? null);
+  const cells = rows.map((row) => visibleColumns(tableRow(row, names, flags, options.host, options.callerId ?? null, ownsOthers), headers, options.columns));
+  const rendered = renderTable(visibleColumns(headers, headers, options.columns), cells, visibleColumns(caps, headers, options.columns)).split("\n");
+  const out: string[] = [rendered[0] ?? "", rendered[1] ?? ""];
+  appendRenderedRows(out, rendered, rows);
+  const owner = hasOwnerFooter(fleet, flags, options.columns, options.callerId ?? null);
+  if (owner !== null) out.push(`owner: ${owner}`);
   return out.join("\n");
 }
 
 export function formatStatusTable(fleet: FleetStatus, options: StatusTableOptions): string {
-  return renderStatusTable(fleet, tableFlags(fleet, options.spaceWide, options.human === true), { host: options.host, columns: options.columns });
+  const callerId = options.callerId ?? null;
+  return renderStatusTable(fleet, tableFlags(fleet, options.all, options.human === true, callerId), { host: options.host, columns: options.columns, callerId });
 }
 
-export function localStatusTable(fleet: FleetStatus, spaceWide: boolean): string {
-  return formatStatusTable(fleet, { spaceWide, host: false, columns: NO_STATUS_FILTER.columns });
+export function localStatusTable(fleet: FleetStatus, all: boolean): string {
+  return formatStatusTable(fleet, { all, host: false, columns: NO_STATUS_HIDE.columns });
 }

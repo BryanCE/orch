@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { presenceEntry } from "../presence/store.ts";
-import { errnoCode, isRecord, readJsonFile, shellQuote } from "../util.ts";
+import { ARROW, errnoCode, isRecord, readJsonFile, shellQuote } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
 import { computeCodeHash } from "../daemon/client/process.ts";
@@ -286,7 +286,7 @@ export function installExtensionLink(
   fs.rmSync(destination, { recursive: true, force: true });
   if (opts?.copy) fs.cpSync(bundle, destination, { recursive: true });
   else fs.symlinkSync(bundle, destination);
-  process.stdout.write(`  ${destination} ${opts?.copy ? "(copy)" : "-> " + bundle}\n`);
+  process.stdout.write(`  ${destination} ${opts?.copy ? "(copy)" : ARROW + " " + bundle}\n`);
 }
 
 /** results.jsonl first, then the last assistant entry of the session file. */

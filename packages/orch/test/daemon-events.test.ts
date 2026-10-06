@@ -12,6 +12,8 @@ import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { subscribeEvents } from "../src/daemon/client/rpc.ts";
 import { selectAgentStatus } from "../src/store/status-rows.ts";
 import { recordQuestion } from "../src/store/question-rows.ts";
+import { flushPresenceHistory, presenceAgentDir } from "../src/presence/history.ts";
+import { STATUS_LOG_FILE } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { statusRow } from "./helpers/presence.ts";
@@ -424,5 +426,32 @@ describe("daemon presence events", () => {
     expect(selectAgentStatus(orchDir, key)).toBeUndefined();
     expect(agentView(orchDir, key)).toBeNull();
     expect(records.some((record) => record.event === "tick.liveness" && typeof record.fields?.elapsedMs === "number")).toBe(true);
+  });
+});
+
+describe("status history", () => {
+  test("only a state change appends a line, holding what moved and the open question", () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
+    const publish = (): void => undefined;
+    report(orchDir, key, { state: "working", task: "build it", dispatchId: "d1" }, publish);
+    report(orchDir, key, { state: "working", task: "build it", dispatchId: "d1", lastText: "halfway" }, publish);
+    report(orchDir, key, { state: "working", task: "build it", dispatchId: "d1", lastText: "halfway" }, publish);
+    recordQuestion(orchDir, { id: "q1", agentId: key, question: "Which file?", askedAt: 2 });
+    report(orchDir, key, { state: "asking", task: "build it", dispatchId: "d1", lastText: "halfway" }, publish);
+    report(orchDir, key, { state: "done", task: "build it", dispatchId: "d1", lastText: "finished" }, publish);
+    flushPresenceHistory();
+
+    const lines = readFileSync(join(presenceAgentDir(key, orchDir), STATUS_LOG_FILE), "utf8").trim().split("\n")
+      .map((line): unknown => JSON.parse(line));
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatchObject({ state: "working", task: "build it", dispatchId: "d1" });
+    expect(lines[1]).toMatchObject({ state: "asking", lastText: "halfway", question: "Which file?" });
+    expect(lines[2]).toMatchObject({ state: "done", lastText: "finished" });
+    for (const line of lines.slice(1)) {
+      expect(line).not.toHaveProperty("task");
+      expect(line).not.toHaveProperty("dispatchId");
+    }
   });
 });

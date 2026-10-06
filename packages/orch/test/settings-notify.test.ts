@@ -51,7 +51,7 @@ describe("orch settings notify", () => {
   test("re-adding one sink replaces it in place and keeps the fields the call omits", async () => {
     await captureNotify(["add", "command", "--command=logger -t orch"]);
     await captureNotify(["add", "desktop"]);
-    await captureNotify(["add", "command", "--on=blocked,error,done"]);
+    await captureNotify(["add", "command", "--only=blocked,error,done"]);
 
     expect(fileSettingsManager(root).current().notify).toEqual([
       { id: "command", command: "logger -t orch", on: ["blocked", "error", "done"] },
@@ -60,7 +60,7 @@ describe("orch settings notify", () => {
   });
 
   test("accepts asking as a first-class sink state", async () => {
-    await captureNotify(["add", "command", "--command=logger -t orch", "--on=asking"]);
+    await captureNotify(["add", "command", "--command=logger -t orch", "--only=asking"]);
     expect(fileSettingsManager(root).current().notify).toEqual([
       { id: "command", command: "logger -t orch", on: ["asking"] },
     ]);
@@ -76,7 +76,7 @@ describe("orch settings notify", () => {
 
   test("list reports each sink with the states it fires on, defaults included", async () => {
     await captureNotify(["add", "desktop"]);
-    await captureNotify(["add", "webhook", "--url=https://example.test/hook", "--on=done"]);
+    await captureNotify(["add", "webhook", "--url=https://example.test/hook", "--only=done"]);
 
     const listed = await captureNotify([]);
     expect(listed).toContain("desktop   blocked,error,done");
@@ -90,7 +90,7 @@ describe("orch settings notify", () => {
   });
 
   test("the notify row lists every sink, the states it may fire on, and the fields each carries", async () => {
-    await captureNotify(["add", "webhook", "--url=https://example.test/hook", "--on=done"]);
+    await captureNotify(["add", "webhook", "--url=https://example.test/hook", "--only=done"]);
     const row = registeredSetting("notify");
     expect(row.type).toEqual({
       kind: "sinks",

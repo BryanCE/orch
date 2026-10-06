@@ -5,8 +5,9 @@ import { admitLaunchModel, pinModels } from "../spawn/models.ts";
 import { agentFlags, pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { readRpc, writeRpc } from "../daemon.ts";
 import { parseCommand } from "../registry.ts";
+import { usageError } from "../../cli/usage.ts";
 import { die } from "../target.ts";
-import { resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
+import { resolveLifecycle, refuseForeignHolder, targetName } from "../resolve.ts";
 import { whoAmI } from "../self.ts";
 import { lifecycleTargets, awaitIdleAfter } from "./index.ts";
 import { describeHandle } from "../../backends/backend.ts";
@@ -16,12 +17,13 @@ import type { Services } from "../../types/services.ts";
 interface ClearedAgent { key: string; handle: string; name: string }
 
 /** Clear one agent's session and wait for it to come back ready. */
-export async function clearSession(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string, force: boolean): Promise<ClearedAgent> {
+export async function clearSession(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string, steal: boolean): Promise<ClearedAgent> {
   const self = await whoAmI(services);
   const resolved = await resolveLifecycle(services, target);
-  refuseForeignHolder(self, target, resolved, force);
+  refuseForeignHolder(self, target, resolved, steal);
   const label = describeHandle(resolved.handle);
   const ent = resolved.entity;
+  const name = targetName(resolved);
   const { status } = await readRpc(services, "agent-status", { target: ent.key });
   const beforeUpdated = status?.updatedAt;
   const sentAt = Date.now();
@@ -29,24 +31,25 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
   // text, an agent with none is refused. Neither is the CLI's to choose.
   await writeRpc(services, "reclaim", { target: ent.key });
   await writeRpc(services, "lifecycle", { target: ent.key, verb: "reset" });
-  if (!await awaitIdleAfter(services, ent.key, beforeUpdated, sentAt)) die(`${label}: reset did not become ready within 75s.`);
-  return { key: ent.key, handle: label, name: ent.name ?? label };
+  const readyMs = services.settings.current().timeouts.reset_ready_ms;
+  if (!await awaitIdleAfter(services, ent.key, beforeUpdated, sentAt)) die(`Reset ${name} failed: it did not become ready within ${Math.round(readyMs / 1000)}s.`);
+  return { key: ent.key, handle: label, name };
 }
 
 export async function cmdNew(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("reset", args);
   const json = invocation.flags.has("--json");
-  const force = invocation.flags.has("--force");
+  const steal = invocation.flags.has("--steal");
   const flags = agentFlags(invocation.flags);
   const self = await whoAmI(services);
   const { targets } = await lifecycleTargets(services, self, invocation);
-  if (!targets.length) die("usage: orch reset <target>... | --all [--model <model>] [--thinking <level>] [--json]");
+  if (!targets.length) throw usageError(invocation);
   const settings = services.settings.current();
   // Check ownership before resolving model configuration: a driving verb must
   // name a live foreign holder even when this caller has no model selected.
   const owned = await Promise.all(targets.map(async (target) => {
     const resolved = await resolveLifecycle(services, target);
-    refuseForeignHolder(self, target, resolved, force);
+    refuseForeignHolder(self, target, resolved, steal);
     return { target, key: resolved.key, tuning: resolved.view?.tuning ?? NO_TUNING };
   }));
   const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
@@ -58,14 +61,14 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   });
   const cleared: (ClearedAgent & Tuning)[] = [];
   for (const plan of plans) {
-    const agent = await clearSession(services, plan.target, force);
+    const agent = await clearSession(services, plan.target, steal);
     cleared.push({ ...agent, ...plan.tuning });
-    if (!json) process.stdout.write(`Cleared session on ${agent.handle}; ready.\n`);
+    if (!json) process.stdout.write(`Cleared ${agent.name}'s session; ready.\n`);
   }
   // A reset that could not re-pin its model left the agent on the wrong one, and
   // re-running reset is idempotent — unlike a spawn, nothing duplicates on retry.
   if ((await pinModels(services, services.logger, cleared)).length) process.exitCode = 1;
   const results = cleared.map((agent) => ({ target: agent.handle, cleared: true, ready: true }));
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
-  else for (const agent of cleared) process.stdout.write(`Pinned ${agent.handle} to ${modelSpec(agent.model, agent.thinking)}.\n`);
+  else for (const agent of cleared) process.stdout.write(`Pinned ${agent.name} to ${modelSpec(agent.model, agent.thinking)}.\n`);
 }

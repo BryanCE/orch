@@ -5,6 +5,8 @@ import { normalizeControlTarget } from "./normalize-target.ts";
 /** One live bridge connection the daemon can push a delivery down. */
 export interface BridgeLink {
   push(delivery: BridgeDelivery): void;
+  /** End the connection; the bridge redials and attaches again. */
+  close(): void;
 }
 
 /** No bridge holds a link for the key: the row stays open and the drain retries. */
@@ -46,6 +48,14 @@ export function pushToBridge(orchDir: OrchDir, key: string, delivery: BridgeDeli
   const link = links.get(canonical);
   if (link === undefined) throw new BridgeDetachedError(canonical);
   link.push(delivery);
+}
+
+/** Close every link, so each bridge attaches again to what orchd holds now. Answers how many closed. */
+export function dropBridges(): number {
+  const held = [...links.values()];
+  links.clear();
+  for (const link of held) link.close();
+  return held.length;
 }
 
 export function attachedBridgeKeys(): readonly string[] {

@@ -10,9 +10,10 @@ import { lifecycleLogger } from "./index.ts";
 import { callDaemon, readRpc } from "../daemon.ts";
 import { cmdSteer } from "../control.ts";
 import { die } from "../target.ts";
-import { resolveLifecycle } from "../resolve.ts";
+import { resolveLifecycle, targetName } from "../resolve.ts";
 import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
+import { usageError } from "../../cli/usage.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
 import { STREAM_VERBS } from "../events.ts";
@@ -54,6 +55,7 @@ interface CloseOutcome {
 /** One agent a close was asked to end, with everything needed to end it. */
 interface CloseTarget {
   readonly backend: Backend | null;
+  readonly name: string;
   /** The current environment handle, or null when the pane interval is closed. */
   readonly handle: BackendHandle | null;
   readonly key: string;
@@ -183,17 +185,18 @@ async function closeEachTarget(services: CloseServices, targets: readonly CloseT
     if (seen.has(target.key)) continue;
     seen.add(target.key);
     const handle = target.handle === null ? null : describeHandle(target.handle);
+    const name = target.name;
     const { failure: processFailure, signalled, closedByBackend } = attemptClose(target);
     const failure = processFailure ?? await endClosedAgent(services, target.key);
     if (failure !== null) {
       lifecycleLogger(logger, target.key).error("close.failed", { handle, error: failure });
       results.push({ target: target.key, handle, outcome: "error", error: failure });
-      process.stdout.write(`Could not close ${target.key}: ${failure}\n`);
+      if (!json) process.stdout.write(`Could not close ${name}: ${failure}\n`);
       continue;
     }
     closed.push(target.key);
     results.push({ target: target.key, handle, outcome: "done", error: null });
-    if (!json) process.stdout.write(`Closed ${target.key}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
+    if (!json) process.stdout.write(`Closed ${name}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
   }
   return { results, closed, ok: closed.length };
 }
@@ -227,11 +230,12 @@ function closeTargetOf(wire: CloseTargetWire): CloseTarget {
 }
 
 export async function cmdClose(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("close", args);
+  const invocation = parseCommand("close", args);
+  const { flags, positional } = invocation;
   const all = flags.has("--all");
   const stream = flags.has("--stream");
   const json = flags.has("--json");
-  if (!all && !positional.length) die("usage: orch close <target>... | --all [--stream] [--json]");
+  if (!all && !positional.length) throw usageError(invocation);
 
   const answer = await readRpc(services, "close-targets", { caller: callerCredential(), targets: [...positional], all });
   if (answer.refusal !== null) die(answer.refusal);
@@ -239,14 +243,17 @@ export async function cmdClose(services: Services, args: string[]): Promise<void
 }
 
 export async function cmdAbort(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("abort", args);
+  const invocation = parseCommand("abort", args);
+  const { flags, positional } = invocation;
   const json = flags.has("--json");
   const target = positional[0];
   const text = positional.slice(1).join(" ");
-  if (!target) die("usage: orch abort <target> [<text...>] [--json]");
+  if (!target) throw usageError(invocation);
   // Abort itself has no close-authority gate. Lifecycle resolution still scopes a
   // driving session by its open lease; the operator remains unscoped.
-  const { backend, handle, entity } = await resolveLifecycle(services, target);
+  const resolved = await resolveLifecycle(services, target);
+  const { backend, handle, entity } = resolved;
+  const name = targetName(resolved);
   const input = backend.agentInput;
   if (!entity.paneId || !input) {
     const reason = !entity.paneId ? "no-pane" : "no-environment-role";
@@ -259,7 +266,7 @@ export async function cmdAbort(services: Services, args: string[]): Promise<void
   sleepMs(500);
   input.sendKeys(handle, ["Escape"]);
   if (json) process.stdout.write(JSON.stringify({ target: handle, aborted: true }) + "\n");
-  else process.stdout.write(`Aborted ${describeHandle(handle)}.\n`);
+  else process.stdout.write(`Aborted ${name}.\n`);
   // The text is a steer: the cancelled turn is gone, and this is what runs instead.
   if (text) await cmdSteer(services, [target, text, ...(json ? ["--json"] : [])]);
 }

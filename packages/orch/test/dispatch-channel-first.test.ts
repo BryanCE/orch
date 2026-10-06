@@ -24,7 +24,7 @@ function tempDir(): OrchDir {
 
 function fakeLink(directory: OrchDir, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
-  const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
+  const link: BridgeLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
   attachBridge(directory, key, link);
   links.push({ key, link });
   return deliveries;

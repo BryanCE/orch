@@ -17,6 +17,11 @@ export function claudeHookShimPath(root: string): string {
   return path.join(root, "dist", "scripts", "claude-hooks.js");
 }
 
+/** Orch-owned Claude settings passed only to sessions orch launches. */
+export function claudeSettingsPath(orchDir: OrchDir): string {
+  return path.join(orchDir, "claude", "settings.json");
+}
+
 /**
  * The exact settings.json command for one orch Claude hook event under the
  * runtime declared in settings.json. orch requires ONE declared runtime — the

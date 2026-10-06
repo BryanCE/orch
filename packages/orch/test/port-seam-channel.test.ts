@@ -2,7 +2,7 @@ import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverWrite } from "../src/daemon/server/handlers/write.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { createCaptureRole } from "../src/presence/roles.ts";
@@ -54,7 +54,7 @@ describe("orch bridge links and capture roles", () => {
     seedLiveProcess(orchDir, key);
     seedStatus(orchDir, key, { key, agent: "pi", state: "working" });
     const deliveries: BridgeDelivery[] = [];
-    const link: BridgeLink = { push: (delivery) => deliveries.push(delivery) };
+    const link: BridgeLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
     attachBridge(orchDir, key, link);
     links.push({ key, link });
     const id = "dispatch-1";
@@ -75,7 +75,7 @@ describe("orch bridge links and capture roles", () => {
     seedAgent(key, {}, orchDir);
     seedLiveProcess(orchDir, key);
     const id = "steer-session-1";
-    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w (wkey)] hi" } });
+    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w] hi" } });
 
     await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir));
 
@@ -90,7 +90,7 @@ describe("orch bridge links and capture roles", () => {
     seedAgent(key, { spawnedBy: "orch1" }, orchDir);
     seedLiveProcess(orchDir, key);
     const id = "steer-spawned-1";
-    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w (wkey)] hi" } });
+    insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w] hi" } });
 
     await deliverOutboxMessage(orchDir, id, outboxDeps(orchDir));
 

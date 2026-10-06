@@ -52,7 +52,7 @@ describe("commands/self", () => {
   });
 
   test("uses caller depth for worker spawn policy", () => {
-    const self = { id: "x", kind: "agent" as const, space: null, view: null, depth: 2 };
+    const self = { id: "x", kind: "agent" as const, space: null, view: null, depth: 2, stored: null };
     expect(workerHeaderContextOf(self, workerSettings(3), undefined).maySpawn).toBe(false);
     expect(workerHeaderContextOf(self, workerSettings(4), undefined).maySpawn).toBe(true);
   });

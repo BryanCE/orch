@@ -1,3 +1,6 @@
-Release the target's lease. The agent keeps running and becomes adoptable. An already
-unleased agent is a no-op. Work survives its spawner: there is no lifetime and no
-fate-sharing, and detach means only that the lease is released.
+Release your lease on an agent and leave it running, to hand it to another orch or the
+human, who takes it with `orch adopt`. Detaching an agent nobody leases succeeds.
+
+    orch detach api-types
+
+An agent outlives its spawner, so skip detach when you only want the work to keep going.

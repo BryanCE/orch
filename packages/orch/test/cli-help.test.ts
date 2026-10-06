@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { HELP_HEADER, renderMap, renderTopic } from "../src/cli/help.ts";
+import { HELP_HEADER, mapSynopsis, renderMap, renderTopic } from "../src/cli/help.ts";
 import { readHelpDoc } from "../src/cli/doc.ts";
 import { COMMANDS, GLOBAL_FLAGS, commandSpec } from "../src/commands/registry.ts";
 import { commandHandlers, helpTopic } from "../src/commands/index.ts";
@@ -11,16 +11,15 @@ import type { CommandSpec } from "../src/cli/spec.ts";
 const GOLDEN = join(import.meta.dirname, "golden", "help.txt");
 
 const SPEC: CommandSpec = {
-  name: "demo", section: "observe",
-  usage: "orch demo <target> [--tab <label>]",
+  name: "demo", section: "observe", args: "<target>",
   summary: "A demo.",
   flags: [
-    { name: "--tab", arity: "one", placeholder: "<label>", help: "The tab." },
+    { name: "--tab", arity: "one", placeholder: "<tab>", help: "The tab." },
     { name: "--file", arity: "many", placeholder: "<path>", help: "A file." },
     { name: "--yes", aliases: ["-y"], arity: "none", help: "Yes." },
   ],
   subcommands: [
-    { name: "sub", usage: "orch demo sub [--json]", summary: "A subcommand.", flags: [{ name: "--json", arity: "none", help: "JSON." }] },
+    { name: "sub", summary: "A subcommand.", flags: [{ name: "--pass", arity: "none", help: "Once." }] },
   ],
 };
 
@@ -34,21 +33,26 @@ describe("help from the registry", () => {
     expect(renderMap(COMMANDS)).toBe(readFileSync(GOLDEN, "utf8"));
   });
 
-  test("the map starts with the header and lists every top-level usage under its section", () => {
+  test("the map starts with the header and lists every top-level synopsis under its section", () => {
     const map = renderMap(COMMANDS);
     expect(map.startsWith(HELP_HEADER)).toBe(true);
-    for (const spec of COMMANDS) expect(map, spec.name).toContain(`  ${spec.usage}`);
+    for (const spec of COMMANDS) expect(map, spec.name).toContain(`  ${mapSynopsis(spec)}`);
     expect(map.indexOf("OBSERVE")).toBeLessThan(map.indexOf("DISPATCH"));
     expect(map.indexOf("AGENTS")).toBeLessThan(map.indexOf("MAINTENANCE"));
   });
 
-  test("a topic prints usage, doc, the flag table with spellings and placeholders, subcommands, then globals", () => {
+  test("the map synopsis is the grammar, with [flags] when the topic lists more", () => {
+    expect(mapSynopsis(SPEC)).toBe("orch demo <target> [flags]");
+    expect(mapSynopsis({ name: "bare", summary: "Bare.", flags: [] })).toBe("orch bare");
+  });
+
+  test("a topic prints the generated usage, doc, the flag table with spellings and placeholders, subcommands, then globals", () => {
     const topic = renderTopic(SPEC, { text: "Doctrine here." }, GLOBAL_FLAGS);
-    expect(topic.startsWith("orch demo <target> [--tab <label>]\n\nDoctrine here.\n\nFlags:\n")).toBe(true);
-    expect(topic).toContain("  --tab <label>");
+    expect(topic.startsWith("orch demo <target> [--tab <tab>] [--file <path>]... [--yes]\n\nDoctrine here.\n\nFlags:\n")).toBe(true);
+    expect(topic).toContain("  --tab <tab>");
     expect(topic).toContain("  --file <path>...");
     expect(topic).toContain("  -y, --yes");
-    expect(topic).toContain("\nSubcommands:\n  orch demo sub [--json]\n      A subcommand.\n      --json");
+    expect(topic).toContain("\nSubcommands:\n  orch demo sub [--pass]\n      A subcommand.\n      --pass");
     expect(topic).toContain("\nGlobal:\n  -h, --help");
     expect(topic.indexOf("Subcommands:")).toBeLessThan(topic.indexOf("Global:"));
     expect(topic.endsWith("\n")).toBe(true);
@@ -67,7 +71,7 @@ describe("help from the registry", () => {
 
   test("helpTopic resolves aliases and refuses unknown words", () => {
     expect(helpTopic("kill")).toBe(helpTopic("close"));
-    expect(helpTopic("spawn")).toContain("--tab <label>");
+    expect(helpTopic("spawn")).toContain("--tab <tab>");
     expect(helpTopic("nope")).toBeNull();
   });
 });

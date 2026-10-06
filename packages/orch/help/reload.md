@@ -1,3 +1,6 @@
-Live-reload code in place. Touches `reload.signal` so panes and watchers pick up a rebuilt
-install. Use after you update orch. reload = same session; reset = new session;
-restart = new process.
+Load rebuilt orch code into running agents without a new session. Use it after the user
+updates orch.
+
+    orch reload --all
+
+reload keeps the session, reset starts a new session, restart starts a new process.

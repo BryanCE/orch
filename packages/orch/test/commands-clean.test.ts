@@ -1,5 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
@@ -24,7 +24,7 @@ const servers: RpcServer[] = [];
 /** Capture what a refusal wrote, and put the real stream back afterwards. */
 
 describe("commands/clean", () => {
-  test("the forced sweep reaps dead agent dirs but preserves live processes", async () => {
+  test("the --all sweep reaps dead agent dirs but preserves live processes", async () => {
     const root: OrchDir = tempOrchDir("orch-command-clean-");
     const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
@@ -34,7 +34,7 @@ describe("commands/clean", () => {
       seedLiveProcess(root, "liveagent1");
       seedStatus(root, "liveagent1", {});
       ensurePresenceAgentDir("liveagent1", root);
-      await cmdClean(await servedServices({ orchDir: root, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers), ["--force", "--json"]);
+      await cmdClean(await servedServices({ orchDir: root, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers), ["--all", "--json"]);
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(existsSync(join(root, "agents", "liveagent1"))).toBe(true);
       expect(loadPresence(root).has("deadagent1")).toBe(false);
@@ -69,15 +69,15 @@ describe("commands/clean", () => {
     } finally { while (servers.length) await servers.pop()!.close(); closeAllStores(); if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
   });
 
-  test("--force reaps the ended agent and closes its queued writes", async () => {
-    const root = tempOrchDir("orch-command-clean-force-");
+  test("--all reaps the ended agent and closes its queued writes", async () => {
+    const root = tempOrchDir("orch-command-clean-all-");
     const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR); process.env.ORCH_DIR = root;
     try {
       seedStatus(root, "deadagent1", {});
       ensurePresenceAgentDir("deadagent1", root);
       insertOutboxMessage(root, { id: "to-dead", target: "deadagent1", payload: { action: "dispatch", text: "x" } });
 
-      await cmdClean(await servedServices({ orchDir: root, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers), ["--force", "--json"]);
+      await cmdClean(await servedServices({ orchDir: root, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers), ["--all", "--json"]);
 
       expect(existsSync(join(root, "agents", "deadagent1"))).toBe(false);
       expect(selectOutboxMessage(root, "to-dead")?.state).toBe("undeliverable");

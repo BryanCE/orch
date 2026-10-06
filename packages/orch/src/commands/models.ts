@@ -5,6 +5,7 @@ import { errorMessage } from "../util.ts";
 import { validateSetupFlag } from "../setup/flags.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
+import { usageError } from "../cli/usage.ts";
 import type { Services } from "../types/services.ts";
 import type { AdapterId, HarnessModel } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -18,9 +19,7 @@ import type { CatalogueReader, HarnessSection, ModelFilters, ModelRow } from "..
  * the picker quicklist stays findable and stays launchable.
  */
 
-const USAGE = "usage: orch models [--agent=<id>] [--preferred] [--search=<text>] [--json] [--pick=<index|spec>]";
-
-/** The harnesses to list: the one named by --agent, else every installed one in order. */
+/** The harnesses to list: the one named by --harness, else every installed one in order. */
 function readTargets(only: string | undefined, enabled: readonly AdapterId[]): AdapterId[] {
   if (!enabled.length) die("no harnesses are installed - run: orch setup");
   return only === undefined ? [...enabled] : [validateSetupFlag("harness", only, enabled)];
@@ -99,7 +98,7 @@ export function renderSections(sections: readonly HarnessSection[]): string {
 export function pickedSpec(sections: readonly HarnessSection[], pick: string): string {
   const wanted = Number(pick);
   if (Number.isInteger(wanted)) {
-    if (sections.length !== 1) throw new Error(`--pick=${pick} is ambiguous across ${sections.length} harnesses - name one with --agent=<id>`);
+    if (sections.length !== 1) throw new Error(`--pick=${pick} is ambiguous across ${sections.length} harnesses - name one with --harness <harness>`);
     const section = sections[0]!;
     const row = section.models.find((candidate) => candidate.index === wanted);
     if (!row) throw new Error(`--pick=${pick} is out of range - ${section.id} listed ${section.models.length} model(s)`);
@@ -107,7 +106,7 @@ export function pickedSpec(sections: readonly HarnessSection[], pick: string): s
   }
   const matches = sections.filter((section) => section.models.some((row) => row.spec === pick));
   if (!matches.length) throw new Error(`--pick=${pick} matched no listed model`);
-  if (matches.length > 1) throw new Error(`--pick=${pick} is offered by ${matches.map((section) => section.id).join(", ")} - name one with --agent=<id>`);
+  if (matches.length > 1) throw new Error(`--pick=${pick} is offered by ${matches.map((section) => section.id).join(", ")} - name one with --harness <harness>`);
   return pick;
 }
 
@@ -125,8 +124,9 @@ function writePickedSpec(sections: readonly HarnessSection[], pick: string): voi
  * `--pick` nor a filter ever changes a recorded default, quicklist, or allowlist.
  */
 export function cmdModels(services: Services, args: string[]): void {
-  const { flags, positional } = parseCommand("models", args);
-  if (positional.length) die(`orch models: unknown ${positional.length === 1 ? "argument" : "arguments"} ${positional.join(" ")}\n${USAGE}`);
+  const invocation = parseCommand("models", args);
+  const { flags, positional } = invocation;
+  if (positional.length) throw usageError(invocation, `orch models: unknown ${positional.length === 1 ? "argument" : "arguments"} ${positional.join(" ")}`);
   const json = flags.has("--json");
   const pick = flags.value("--pick");
   if (pick !== undefined && json) die("--pick prints one model spec and --json prints the catalogue; pass one or the other");
@@ -138,7 +138,7 @@ export function cmdModels(services: Services, args: string[]): void {
     die(errorMessage(error));
   }
   const search = flags.value("--search");
-  const sections = buildSections(readTargets(flags.value("--agent"), settings.enabled.adapters), settings, {
+  const sections = buildSections(readTargets(flags.value("--harness"),settings.enabled.adapters), settings, {
     quicklistOnly: flags.has("--preferred"),
     ...(search === undefined ? {} : { search }),
   }, (id) => readAdapterCatalogue(id, services));

@@ -11,8 +11,6 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
 
 const directories: OrchDir[] = [];
-const originalConfigTest = process.env.ORCH_CONFIG_TEST;
-const originalConfigPrecedence = process.env.ORCH_CONFIG_PRECEDENCE;
 
 function tempDir(): OrchDir {
   const directory = tempOrchDir("orch-settings-");
@@ -28,10 +26,6 @@ function readSettingsRecord(directory: OrchDir): Record<string, unknown> {
 
 afterEach(() => {
   while (directories.length) removeTempDir(directories.pop()!);
-  if (originalConfigTest === undefined) delete process.env.ORCH_CONFIG_TEST;
-  else process.env.ORCH_CONFIG_TEST = originalConfigTest;
-  if (originalConfigPrecedence === undefined) delete process.env.ORCH_CONFIG_PRECEDENCE;
-  else process.env.ORCH_CONFIG_PRECEDENCE = originalConfigPrecedence;
 });
 
 describe("loadSettings", () => {
@@ -89,13 +83,14 @@ describe("loadSettings", () => {
       queue: { max_retries: 3, dispatch_concurrency: 6 },
       retention: { queue_days: 1, events_days: 2, runs_days: 3, outbox_days: 4, control_outcomes_days: 5, ended_agents_days: 6, logs_days: 7 },
       monitor: { on: ["done", "error"] },
-      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44, spawn_attach_ms: 55, spawn_attach_poll_ms: 66 },
+      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44, spawn_attach_ms: 55, spawn_attach_poll_ms: 66, reset_ready_ms: 77, reset_poll_ms: 88 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       spaces: { wD: "Design" },
       daemon: { tcp_port: 4321, work_tick_ms: 7_000 },
       doctor: { unclaimed_after_ms: 123_456 },
       tiling: { first_split: "columns" },
+      counts: { tail: 40 },
       logging: { slow_tool_ms: 250, stall_ms: 100, stall_poll_ms: 250 },
     });
 
@@ -120,7 +115,7 @@ describe("loadSettings", () => {
       lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       monitor: { on: ["done", "error"] },
-      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44, spawn_attach_ms: 55, spawn_attach_poll_ms: 66, lock_wait_ms: 180_000, lock_poll_ms: 1_000 },
+      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44, spawn_attach_ms: 55, spawn_attach_poll_ms: 66, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 77, reset_poll_ms: 88 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       notification: { position: "top-left" },
       locked_commands: { commands: [], applies_to: ["orch", "slave"] },
@@ -132,6 +127,7 @@ describe("loadSettings", () => {
       daemon: { tcp_port: 4321, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 7_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       doctor: { unclaimed_after_ms: 123_456 },
       tiling: { first_split: "columns" },
+      counts: { tail: 40, peek: 25 },
       logging: { level: "info", slow_tool_ms: 250, stall_ms: 100, stall_poll_ms: 250 },
       skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
     });
@@ -230,7 +226,7 @@ describe("loadSettings", () => {
       lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       monitor: { on: ["asking", "waiting", "blocked", "done", "error", "aborted", "exited"] },
-      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000 },
+      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250 },
       notify: [],
       notification: { position: "top-left" },
       locked_commands: { commands: [], applies_to: ["orch", "slave"] },
@@ -242,6 +238,7 @@ describe("loadSettings", () => {
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       doctor: { unclaimed_after_ms: 120_000 },
       tiling: { first_split: "rows" },
+      counts: { tail: 20, peek: 25 },
       logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
       skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
     });
@@ -267,7 +264,7 @@ describe("loadSettings", () => {
       workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: ["read"], verify_commands: [] },
       retention: { logs_days: 2, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, ended_agents_days: 90, sweep_interval_ms: 3_600_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
-      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 1234, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500 },
+      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 1234, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, reset_ready_ms: 75_000, reset_poll_ms: 250 },
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 0, outbox_drain_ms: 1000, work_tick_ms: 5_000, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       tiling: { first_split: "columns" },
       skills: { install: false, store: "~/.agents/skills", link: ["~/.claude/skills"] },
@@ -463,69 +460,36 @@ describe("writeSettingsFullTree", () => {
 });
 
 describe("settings precedence", () => {
-  test("uses the fallback when env and settings.json omit a setting", () => {
-    delete process.env.ORCH_CONFIG_PRECEDENCE;
+  test("uses the fallback when settings.json omits a setting", () => {
     const directory = tempDir();
     writeSettingsFixture(directory);
     const settings = fileSettingsManager(directory).current();
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", settings: settings.fleet.max_agents_total, fallback: 2 })).toBe(2);
+    expect(resolveSetting<number>({ settings: settings.fleet.max_agents_total, fallback: 2 })).toBe(2);
   });
 
   test("uses the settings.json value over the fallback", () => {
-    delete process.env.ORCH_CONFIG_PRECEDENCE;
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { max_depth: 4 } });
     const settings = fileSettingsManager(directory).current();
 
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", settings: settings.fleet.max_depth, fallback: 2 })).toBe(4);
+    expect(resolveSetting<number>({ settings: settings.fleet.max_depth, fallback: 2 })).toBe(4);
   });
 
-  test("uses the ORCH_* environment value over settings.json", () => {
-    const directory = tempDir();
-    writeSettingsFixture(directory, { fleet: { max_depth: 4 } });
-    process.env.ORCH_CONFIG_PRECEDENCE = "7";
-    const settings = fileSettingsManager(directory).current();
-
-    expect(resolveSetting<number>({ env: "ORCH_CONFIG_PRECEDENCE", settings: settings.fleet.max_depth, fallback: 2 })).toBe(7);
-  });
-
-  test("uses an explicit flag override over the environment", () => {
-    process.env.ORCH_CONFIG_PRECEDENCE = "7";
-
-    expect(resolveSetting({ flag: 9, env: "ORCH_CONFIG_PRECEDENCE", settings: 4, fallback: 2 })).toBe(9);
-  });
-});
-
-describe("resolveSetting", () => {
-  test("uses flag, environment coercion, settings, then fallback in precedence order", () => {
-    process.env.ORCH_CONFIG_TEST = "7";
-    expect(resolveSetting({ flag: 9, env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toBe(9);
-    expect(resolveSetting({ env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toBe(7);
-
-    process.env.ORCH_CONFIG_TEST = "false";
-    expect(resolveSetting({ env: "ORCH_CONFIG_TEST", settings: true, fallback: true })).toBe(false);
-
-    delete process.env.ORCH_CONFIG_TEST;
-    expect(resolveSetting({ env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toBe(3);
-    expect(resolveSetting({ env: "ORCH_CONFIG_TEST", fallback: "pi" })).toBe("pi");
+  test("uses an explicit flag over settings.json", () => {
+    expect(resolveSetting({ flag: 9, settings: 4, fallback: 2 })).toBe(9);
   });
 });
 
 describe("resolveWithSource", () => {
-  test("rejects an environment value with the wrong shape", () => {
-    process.env.ORCH_CONFIG_TEST = "not-an-object";
-    expect(() => resolveWithSource({ env: "ORCH_CONFIG_TEST", fallback: { enabled: true } })).toThrow(/expected object/);
+  test("ignores a settings.json value with the wrong shape", () => {
+    expect(resolveWithSource({ settings: "not-an-object", fallback: { enabled: true } })).toEqual({ value: { enabled: true }, source: "default" });
   });
 
   test("reports the winning source at each precedence level", () => {
-    process.env.ORCH_CONFIG_TEST = "7";
-    expect(resolveWithSource({ flag: 9, env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toEqual({ value: 9, source: "flag" });
-    expect(resolveWithSource({ env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toEqual({ value: 7, source: "env" });
-
-    delete process.env.ORCH_CONFIG_TEST;
-    expect(resolveWithSource({ env: "ORCH_CONFIG_TEST", settings: 3, fallback: 1 })).toEqual({ value: 3, source: "settings.json" });
-    expect(resolveWithSource({ env: "ORCH_CONFIG_TEST", fallback: 1 })).toEqual({ value: 1, source: "default" });
+    expect(resolveWithSource({ flag: 9, settings: 3, fallback: 1 })).toEqual({ value: 9, source: "flag" });
+    expect(resolveWithSource({ settings: 3, fallback: 1 })).toEqual({ value: 3, source: "settings.json" });
+    expect(resolveWithSource({ fallback: 1 })).toEqual({ value: 1, source: "default" });
   });
 });
 

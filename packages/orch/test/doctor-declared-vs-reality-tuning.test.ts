@@ -79,7 +79,7 @@ describe("doctor declared tuning versus reality", () => {
     const result = checkDeclaredVsReality(directory, dependencies);
 
     expect(result.status).toBe("warn");
-    expect(result.detail).toContain("agent agent-1 (worker): declared openai/model-a:high, running openai/model-a:medium");
+    expect(result.detail).toContain("agent worker: declared openai/model-a:high, running openai/model-a:medium");
   });
 
   test("different model reports both ladder specs", () => {
@@ -88,7 +88,7 @@ describe("doctor declared tuning versus reality", () => {
     const result = checkDeclaredVsReality(directory, dependencies);
 
     expect(result.status).toBe("warn");
-    expect(result.detail).toContain("agent agent-1 (worker): declared openai/model-a:high, running anthropic/model-b:high");
+    expect(result.detail).toContain("agent worker: declared openai/model-a:high, running anthropic/model-b:high");
   });
 
   test("missing status produces no tuning finding", () => {

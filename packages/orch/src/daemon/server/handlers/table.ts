@@ -4,11 +4,11 @@ import { bootCodeHash, startedAt, fleetStatus } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import { answer, dispatch, message, steer } from "./write.ts";
 import { applyLifecycle, closeAgent, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
-import { adopt, detach, reap, reapCandidateList, rename } from "./lease.ts";
+import { adopt, detach, orphans, reap, reapCandidateList, rename } from "./lease.ts";
 import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
 import { admitHome, decideGrant, listGrants } from "./grant.ts";
 import { lockCommand, unlockCommand } from "./command-lock.ts";
-import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, resolveAgentTarget, takeOnQueued } from "./queue.ts";
+import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, takeOnQueued } from "./queue.ts";
 import { cleanStore } from "./clean.ts";
 import { agentStatusOf, capacityOf, fleetSnapshot, processLive, runOf, runsOf } from "./fleet.ts";
 import { resolveLifecycleEntity, resolveTargetEntity } from "./resolve.ts";
@@ -87,7 +87,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     },
     "command-lock": (params) => lockCommand(directory, services.settings.current(), params, publish),
     "command-unlock": (params) => unlockCommand(directory, params),
-    status: () => fleetStatus(state),
+    status: (params) => fleetStatus(state, params.caller),
     attach: (params) => {
       const key = params.key;
       return { attached: true, open: selectOpenOutboxForTarget(directory, key).length };
@@ -123,7 +123,6 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     grants: () => listGrants(directory),
     grant: governed(state, (params) => decideGrant(directory, params)),
     "admit-home": governed(state, (params) => admitHome(directory, params)),
-    "resolve-agent": (params) => resolveAgentTarget(directory, params),
     "queue-list": (params) => listQueued(directory, params),
     "queue-cancel": governed(state, (params) => cancelQueued(directory, params)),
     "queue-edit": governed(state, (params) => editQueued(directory, params)),
@@ -142,6 +141,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "resolve-lifecycle": (params) => resolveLifecycleEntity(state, params),
     "close-targets": (params) => closeTargets(state, params),
     "owned-agents": (params) => ownedAgents(state, params),
+    orphans: () => orphans(state),
     question: (params) => recordAgentQuestion(directory, params),
     questions: (params) => listPendingQuestions(directory, params),
     answer: governed(state, (params) => {

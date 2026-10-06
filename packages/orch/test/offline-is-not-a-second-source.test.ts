@@ -60,8 +60,8 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     seedPresence(root, "liveagent1", true, "working");
     seedPresence(root, "deadagent1", false, "done");
 
-    const offline = buildFleetStatus(noSettings(root), { offline: true, directory: root }).rows;
-    const online = buildFleetStatus(noSettings(root), { directory: root }).rows;
+    const offline = buildFleetStatus(noSettings(root), { offline: true, directory: root, caller: null }).rows;
+    const online = buildFleetStatus(noSettings(root), { directory: root, caller: null }).rows;
 
     // Every agent orch itself recorded appears in BOTH: offline drops no agent
     // of orch's, it only stops asking a plexer about panes.
@@ -78,7 +78,7 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     const root = fixture();
     seedPresence(root, "liveagent1", true, "working");
 
-    const [row] = buildFleetStatus(noSettings(root), { offline: true, directory: root }).rows;
+    const [row] = buildFleetStatus(noSettings(root), { offline: true, directory: root, caller: null }).rows;
 
     // `state` is what the AGENT says about itself and is the only field that
     // answers "is the work finished". Offline reads that same field; it does not
@@ -109,6 +109,7 @@ describe("--offline is a narrower view of ONE source, not a second one (M8)", ()
     // This is what the flag is FOR, and the reason it stays a status flag rather
     // than moving to doctor: a person on a machine with no daemon still gets the
     // fleet, and orch does not start one behind their back to answer.
-    expect(source).toMatch(/if \(!options\.offline\) \{\s*await ensureDaemonOrWarn/);
+    expect(source).toMatch(/resolveCaller\(services, options\.offline\)/);
+    expect(source).toMatch(/if \(!offline\) \{\s*await ensureDaemonOrWarn/);
   });
 });

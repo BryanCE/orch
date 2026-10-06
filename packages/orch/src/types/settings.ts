@@ -50,7 +50,7 @@ export interface OrchSettings {
   questions?: { renag_ms: number; renag_limit: number };
   monitor: { on: readonly NotifyState[] };
   logging: { level: LogLevel; slow_tool_ms: number; stall_ms: number; stall_poll_ms: number };
-  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number };
+  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number; reset_ready_ms: number; reset_poll_ms: number };
   notify: NotifyEntry[];
   notification: { position: NotificationPosition };
   locked_commands: { commands: string[]; applies_to: readonly Role[] };
@@ -62,6 +62,7 @@ export interface OrchSettings {
   daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number; work_tick_ms: number; liveness_poll_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number; report_timeout_ms: number };
   doctor: { unclaimed_after_ms: number };
   tiling: { first_split: TileFirstSplit };
+  counts: { tail: number; peek: number };
   skills: { install: boolean; store: string; link: string[] };
 }
 
@@ -80,7 +81,7 @@ export interface SettingsWatch {
 };
 
 /** Where a resolved setting's winning value came from. */
-export type SettingSource = "flag" | "env" | "settings.json" | "default";
+export type SettingSource = "flag" | "settings.json" | "default";
 
 /**
  * The declared shape of one setting is the contract.
@@ -123,8 +124,6 @@ export interface SettingSpec {
   readonly read: (config: OrchSettings) => unknown;
   /** Absent means read-only BY DECLARATION — never by omission. */
   readonly write?: (settings: SettingsManager, value: unknown) => void;
-  /** The env var that overrides this setting, if any. */
-  readonly env?: string;
 }
 
 /** A declared setting together with the value currently shown by the editor. */
@@ -133,8 +132,6 @@ export interface EditorSetting {
   readonly value: unknown;
   /** Provenance used by the shell when rendering the row. */
   readonly source?: string;
-  /** A flag or environment value that wins over settings.json, making this row read-only. */
-  readonly override?: string;
   /** Whether `agents.writable_settings` lets an agent write this row. */
   readonly agentWritable: boolean;
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { buildEntities } from "../src/entities/inventory.ts";
 import { entitySpace } from "../src/entities/space.ts";

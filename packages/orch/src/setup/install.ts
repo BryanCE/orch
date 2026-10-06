@@ -11,7 +11,7 @@ import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { ORCH_DING_BIN } from "../notify/ding.ts";
 import { withSpinner } from "./io.ts";
 import { chooseInstalls } from "./wizard.ts";
-import { binaryOnPath, binaryPath, errorMessage, packageRoot } from "../util.ts";
+import { ARROW, binaryOnPath, binaryPath, errorMessage } from "../util.ts";
 import type { Logger } from "../types/core.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
@@ -30,25 +30,20 @@ function printInstallHints(missing: readonly { bin: string; cmd: string }[]): vo
   for (const { bin, cmd } of missing) process.stdout.write(`  install ${bin}: ${cmd}\n`);
 }
 
-/** Decide which missing prerequisites to install: multiselect when interactive, all with -y, none otherwise. Null on cancel. */
+/** Decide which missing prerequisites to install: all with --install, none with --no-install, else the multiselect on a TTY. Null on cancel. */
 async function resolveInstallTargets(
   missing: readonly { bin: string; cmd: string }[],
   interactive: boolean,
-  yes: boolean,
-  noInstall: boolean,
+  install: boolean | undefined,
 ): Promise<string[] | null> {
-  if (!missing.length || noInstall) {
-    printInstallHints(missing);
-    return [];
-  }
-  if (interactive) {
+  if (install === true) return missing.map(({ bin }) => bin);
+  if (missing.length && install === undefined && interactive) {
     const picked = await chooseInstalls(missing);
     if (picked === null) return null;
     for (const { bin, cmd } of missing)
       if (!picked.includes(bin)) process.stdout.write(`  skipped ${bin} - install later with: ${cmd}\n`);
     return picked;
   }
-  if (yes) return missing.map(({ bin }) => bin);
   printInstallHints(missing);
   return [];
 }
@@ -89,7 +84,7 @@ function linkBin(src: string, dest: string, copy: boolean): void {
   files.mkdirSync(path.dirname(dest), { recursive: true });
   files.rmSync(dest, { recursive: true, force: true });
   const wired = copy ? copyBin(src, dest) : symlinkOrCopyBin(src, dest);
-  process.stdout.write(`  ${dest} ${wired === "copy" ? "(copy)" : "-> " + src}\n`);
+  process.stdout.write(`  ${dest} ${wired === "copy" ? "(copy)" : ARROW + " " + src}\n`);
 }
 
 interface MissingPrerequisite { bin: string; cmd: string }
@@ -124,10 +119,9 @@ async function installSelectedPrerequisites(
   logger: Logger,
   missing: readonly MissingPrerequisite[],
   interactive: boolean,
-  yes: boolean,
-  noInstall: boolean,
+  install: boolean | undefined,
 ): Promise<boolean> {
-  const toInstall = await resolveInstallTargets(missing, interactive, yes, noInstall);
+  const toInstall = await resolveInstallTargets(missing, interactive, install);
   if (toInstall === null) return false;
   // Install in the queued order so a provider's `needs` (e.g. bun before pi) land first.
   for (const { bin, cmd } of missing.filter((candidate) => toInstall.includes(candidate.bin))) {
@@ -147,8 +141,7 @@ export async function installPrerequisites(
   adapters: readonly AdapterId[],
   backends: readonly BackendId[],
   interactive: boolean,
-  yes: boolean,
-  noInstall: boolean,
+  install: boolean | undefined,
 ): Promise<boolean> {
   // Prerequisites are scoped to the selected providers only. Each selected provider id is
   // probed under the id-is-binary invariant; install-only dependencies are resolved from
@@ -175,7 +168,7 @@ export async function installPrerequisites(
   reportAdapterPrerequisites(adapters, bins, queueInstall);
   reportBackendPrerequisites(backends, bins, queueInstall);
   for (const { id, url } of manual) process.stdout.write(`  install ${id} manually: ${url}\n`);
-  return installSelectedPrerequisites(logger, missing, interactive, yes, noInstall);
+  return installSelectedPrerequisites(logger, missing, interactive, install);
 }
 
 export function planShimInstall(adapter: AgentAdapter): ShimBoundaryPlan {
@@ -237,9 +230,8 @@ export function alignEntrypointToRuntime(runtime: OrchRuntime): void {
 
 /** Wire the `orch`/`orch-ding` bins onto PATH (repo-clone case; `bun add -g` already
  * links bins). A bin already resolving into this package is left alone; a stale one is repointed. */
-export function wireBinaries(copy: boolean): void {
+export function wireBinaries(pkgRoot: string, copy: boolean): void {
   process.stdout.write("bins:\n");
-  const pkgRoot = packageRoot();
   const binDir = path.join(home(), ".local", "bin");
   for (const [name, rel] of [
     ["orch", path.join("dist", "bin", "orch.js")],

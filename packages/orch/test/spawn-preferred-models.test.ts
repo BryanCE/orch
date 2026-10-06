@@ -46,7 +46,7 @@ afterEach(async () => {
 });
 
 const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"];
-const HEADLESS_BASE = { key: "agent-a", adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go" };
+const HEADLESS_BASE = { key: "agent-a", name: "agent-a", spawner: null, adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go" };
 
 const settings = (preferred: string[]): OrchSettings => ({
   ...SETTINGS_DEFAULTS,
@@ -62,11 +62,12 @@ const settings = (preferred: string[]): OrchSettings => ({
   workers: { inherit_extensions: false, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
   queue: { max_retries: 1, dispatch_concurrency: 4 },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
-  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250 },
   notify: [],
   hosts: {},
   spaces: {},
   tiling: { first_split: "rows" },
+  counts: { tail: 20, peek: 25 },
   skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
   agents: { writable_settings: [] },
 });
@@ -110,7 +111,7 @@ describe("the preferred quicklist reaches every launch route", () => {
       adapter: piAdapter,
       adapterId: "pi",
       name: "quick-1",
-      spawner: { key: null, label: "operator" }, owner: undefined,
+      spawner: null, owner: undefined,
       cwd: "/tmp",
       space: "wsA",
       group: "tab1",
@@ -135,7 +136,7 @@ describe("the preferred quicklist reaches every launch route", () => {
         adapter: piAdapter,
         adapterId: "pi",
         name,
-        spawner: { key: null, label: "operator" }, owner: undefined,
+        spawner: null, owner: undefined,
         cwd: "/tmp",
         space: "wsA",
         group: "tab1",
@@ -161,7 +162,7 @@ describe("the preferred quicklist reaches every launch route", () => {
       adapter: piAdapter,
       adapterId: "pi",
       name: "quick-2",
-      spawner: { key: null, label: "operator" }, owner: undefined,
+      spawner: null, owner: undefined,
       cwd: "/tmp",
       space: "wsA",
       group: "tab1",

@@ -53,7 +53,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
     retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, ...days },
     monitor: SETTINGS_DEFAULTS.monitor,
-    timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000 },
+    timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250 },
     notify: [],
     notification: { position: "top-left" },
     locked_commands: { commands: [], applies_to: ["orch", "slave"] },
@@ -65,6 +65,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
     doctor: { unclaimed_after_ms: 120_000 },
     tiling: { first_split: "rows" },
+    counts: { tail: 20, peek: 25 },
     skills: { install: true, store: "~/.agents/skills", link: [] },
   };
 }
@@ -72,7 +73,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
 function seedQueueTask(dir: OrchDir, text: string, state: "queued" | "claimed" | "done", ts: string): void {
   const db = orm(dir);
   db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT OR IGNORE INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('queue-agent','queue-agent','pi','/tmp','queue-agent',${NOW.getTime()})`);
+  db.run(sql`INSERT OR IGNORE INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('queue-agent','queue-agent','pi','/tmp','queue-agent',${NOW.getTime()},'session')`);
   const task = addTask(dir, text, {}, "queue-agent");
   db.run(sql`UPDATE tasks SET created_at=${Date.parse(ts)} WHERE id=${task.id}`);
   if (state !== "queued") {
@@ -193,9 +194,9 @@ describe("retention sweep", () => {
     const db = orm(orchDir);
     db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
     db.run(sql`INSERT OR IGNORE INTO plexers(id,name) VALUES ('headless','headless')`);
-    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${holder},${holder},${"pi"},${"/tmp"},${holder},${Date.parse(old)})`);
+    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${holder},${holder},${"pi"},${"/tmp"},${holder},${Date.parse(old)},${"session"})`);
     seedLiveProcess(orchDir, holder);
-    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${agentId},${agentId},${"pi"},${"/tmp"},${"reserved-agent"},${Date.parse(old)})`);
+    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${agentId},${agentId},${"pi"},${"/tmp"},${"reserved-agent"},${Date.parse(old)},${"session"})`);
     db.run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${agentId},${Date.parse(old)},NULL)`);
     db.run(sql`INSERT INTO agent_worktrees(agent_id,path,branch) VALUES (${agentId},${"/tmp/worktree"},${"orch/expired"})`);
     db.run(sql`INSERT INTO agent_plexers(agent_id,plexer_id) VALUES (${agentId},${"headless"})`);

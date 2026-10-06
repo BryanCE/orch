@@ -75,8 +75,8 @@ export interface PackSourceShape {
   readonly transitions: Stream.Stream<NotifyEvent>;
   /** This session's own identity; the pack is the agents THIS key spawned. */
   ownKey(): string | undefined;
-  /** Presence facts for one agent, straight off disk. */
-  enrich(key: string): PackEnrichment;
+  /** Presence facts for one agent, asked of orchd. */
+  enrich(key: string): Promise<PackEnrichment>;
   /** Steer or continue one agent through its daemon link. */
   send(key: string, text: string): Effect.Effect<string, PackSendError>;
   /** Cancel one agent's current turn via the CLI dispatcher. */

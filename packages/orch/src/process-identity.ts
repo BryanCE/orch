@@ -140,6 +140,27 @@ function probeStartToken(pid: number): string | undefined {
   return readProcessField("ps", ["-o", "lstart=", "-p", String(pid)]);
 }
 
+function parentPid(pid: number): number | undefined {
+  const raw = hostOs() === "linux" ? linuxStatFields(pid)?.[1] : readProcessField("ps", ["-o", "ppid=", "-p", String(pid)]);
+  const parent = Number(raw);
+  return Number.isSafeInteger(parent) && parent > 0 ? parent : undefined;
+}
+
+/** One powershell spawn for the whole chain: each spawn costs about a second. */
+function windowsAncestorPids(pid: number): number[] {
+  const script = `$p=${pid}; $seen=@{}; while ($true) { $p=(Get-CimInstance Win32_Process -Filter "ProcessId=$p").ParentProcessId; if (-not $p -or $seen[$p]) { break }; $seen[$p]=1; $p }`;
+  const output = readProcessField("powershell", ["-NoProfile", "-NonInteractive", "-Command", script]) ?? "";
+  return output.split(/\s+/).map(Number).filter((parent) => Number.isSafeInteger(parent) && parent > 0);
+}
+
+/** The pids above a process, nearest first, up to the root. */
+export function ancestorPids(pid: number): number[] {
+  if (hostOs() === "windows") return windowsAncestorPids(pid);
+  const chain: number[] = [];
+  for (let parent = parentPid(pid); parent !== undefined && parent !== pid && !chain.includes(parent); parent = parentPid(parent)) chain.push(parent);
+  return chain;
+}
+
 /** True only when `pid` is alive AND provably the instance that produced `startToken`. */
 export function processInstanceMatches(pid: number, startToken: string): boolean {
   return recordedInstanceIsLive(pid, startToken);

@@ -1,6 +1,6 @@
 import { recordingLogger } from "./helpers/logger.ts";
 import type { OrchDir } from "../src/types/core.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -97,7 +97,7 @@ async function captureStdoutAsync(run: () => Promise<void>): Promise<string> {
 async function withQuestionsServer(root: OrchDir, questions: PendingQuestionView[], run: () => Promise<void>): Promise<void> {
   const server = await startRpcServer(root, stubRpcHandlers({
     questions: () => ({ questions }),
-    self: () => ({ id: null, kind: "operator", space: null, view: null, depth: 0 }),
+    self: () => ({ id: null, kind: "operator", space: null, view: null, depth: 0, stored: null }),
   }), { logger: recordingLogger().logger });
   try { await run(); } finally { await server.close(); }
 }
@@ -138,6 +138,13 @@ describe("commands/results", () => {
       });
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live" })]);
+      const text = await captureStdoutAsync(async () => {
+        await withQuestionsServer(root, [
+          { questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
+        ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--all"]); });
+      });
+      expect(text).toMatch(/^-  \S+\nlive\n$/);
+      expect(text).not.toContain("liveques01");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);
@@ -373,7 +380,7 @@ describe("commands/results", () => {
     expect(joined).toContain("user      | first task");
     expect(joined).toContain("assistant | working on it");
     expect(joined).toContain("assistant | [tools] bash(ls -la)");
-    expect(joined).toContain("tool      | bash -> file listing");
+    expect(joined).toContain("tool      | bash → file listing");
     expect(joined).toContain("assistant | final answer");
   });
 

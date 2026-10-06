@@ -46,7 +46,7 @@ describe("epoch-millisecond store instants", () => {
     const db = orm(dir);
     db.run(sql`INSERT OR IGNORE INTO harnesses (id, name, enabled_at) VALUES ('pi','pi',NULL)`);
     for (const [id, createdAt] of [["laaaaaaaaa", later], ["eaaaaaaaaa", earlier]] as const) {
-      db.run(sql`INSERT INTO agents (id, root_agent_id, harness_id, cwd, name, created_at) VALUES (${id},${id},${"pi"},${dir},${id},${createdAt})`);
+      db.run(sql`INSERT INTO agents (id, root_agent_id, harness_id, cwd, name, created_at, kind) VALUES (${id},${id},${"pi"},${dir},${id},${createdAt},${"session"})`);
     }
 
     expect(agentViews(dir).map((view) => [view.id, view.createdAt]))

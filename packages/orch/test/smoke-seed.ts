@@ -9,7 +9,7 @@
  *
  * usage: bun test/smoke-seed.ts <agent-id> <live-pid>   (ORCH_DIR set)
  */
-import { envOrchDir } from "../src/services.ts";
+import { envOrchDir } from "../src/orch-dir.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { recordAgentStatus } from "../src/presence/store.ts";
 import { upsertRun } from "../src/store/run-rows.ts";

@@ -1,6 +1,7 @@
 import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 
 
 
@@ -8,13 +9,9 @@ import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerPeerTools } from "../src/agent/peers.ts";
 import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
 import { stubDaemonLink } from "./helpers/daemon-client.ts";
-import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
-import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
-
 const originalOrchDir = process.env.ORCH_DIR;
-const originalSpawner = process.env.ORCH_SPAWNER;
-const originalSpawnerLabel = process.env.ORCH_SPAWNER_LABEL;
+const originalAgentKey = process.env[LAUNCH_ENV];
 const directories: OrchDir[] = [];
 
 function fakeHarness(): { harness: HarnessApi; toolNames: string[] } {
@@ -56,17 +53,15 @@ function tempOrchDir(): OrchDir {
 afterEach(() => {
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
-  if (originalSpawner === undefined) delete process.env.ORCH_SPAWNER;
-  else process.env.ORCH_SPAWNER = originalSpawner;
-  if (originalSpawnerLabel === undefined) delete process.env.ORCH_SPAWNER_LABEL;
-  else process.env.ORCH_SPAWNER_LABEL = originalSpawnerLabel;
+  if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
+  else process.env[LAUNCH_ENV] = originalAgentKey;
   while (directories.length > 0) removeTempDir(directories.pop()!);
 });
 
 describe("peer tool registration", () => {
-  test("does not register orch_send when no spawner address exists", () => {
+  test("does not register orch_send without a launch credential", () => {
     const directory = tempOrchDir();
-    delete process.env.ORCH_SPAWNER;
+    delete process.env[LAUNCH_ENV];
     const { harness, toolNames } = fakeHarness();
 
     registerPeerTools(directory, harness, fakePresence(harness), stubDaemonLink());
@@ -76,24 +71,9 @@ describe("peer tool registration", () => {
     expect(toolNames).toContain("orch_read");
   });
 
-  test("does not register orch_send when the spawner pid is dead", () => {
+  test("registers orch_send when a launch credential exists", () => {
     const directory = tempOrchDir();
-    process.env.ORCH_SPAWNER = "dead-spawner";
-    seedAgent("dead-spawner", {}, directory);
-    seedStatus(directory, "dead-spawner", { pid: 2147483646 });
-    const { harness, toolNames } = fakeHarness();
-
-    registerPeerTools(directory, harness, fakePresence(harness), stubDaemonLink());
-
-    expect(toolNames).not.toContain("orch_send");
-  });
-
-  test("registers orch_send when the spawner has a live status record", () => {
-    const directory = tempOrchDir();
-    process.env.ORCH_SPAWNER = "live-spawner";
-    seedAgent("live-spawner", {}, directory);
-    seedLiveProcess(directory, "live-spawner");
-    seedStatus(directory, "live-spawner", { pid: process.pid });
+    process.env[LAUNCH_ENV] = "worker0001";
     const { harness, toolNames } = fakeHarness();
 
     registerPeerTools(directory, harness, fakePresence(harness), stubDaemonLink());

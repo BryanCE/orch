@@ -20,6 +20,7 @@ function ambiguous(target: string, entities: Entity[]): never {
   // an ambiguous `orch dispatch` hits, and it used to print a bare list.
   throw ambiguousTargetRefusal(target, entities.map((entity) => ({
     key: entity.key,
+    name: entity.name,
     detail: [entity.tabLabel, entity.agent].filter(Boolean).join(" ") || null,
   })));
 }
@@ -43,7 +44,7 @@ export function callerMayResolveFor(root: OrchDir, credential: CallerCredential,
 }
 
 export function refuseForeignTarget(target: string): never {
-  die(`No target matches "${target}". Run 'orch panes' to list.`);
+  die(`No target matches "${target}". Run 'orch pane list' to list.`);
 }
 
 /**
@@ -121,6 +122,6 @@ export function resolveTargetFor(
       if (!decision.allowed) die(decision.reason ?? "space-wall denied the write");
     }
   }
-  die(`No target matches "${target}". Run 'orch panes' to list.`);
+  die(`No target matches "${target}". Run 'orch pane list' to list.`);
 }
 

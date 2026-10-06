@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { stampGovernance } from "../src/daemon/server/governance.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import type { CallerCredential, OrchDir } from "../src/types/core.ts";
 import type { Governance } from "../src/daemon/client/protocol.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";

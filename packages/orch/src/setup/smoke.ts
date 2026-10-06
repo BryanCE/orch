@@ -4,6 +4,7 @@ import { presenceEntry } from "../presence/store.ts";
 import { agentViews } from "../store/agent-view.ts";
 import { binaryOnPath, errorMessage } from "../util.ts";
 import { cmdSpawn } from "../commands/spawn/index.ts";
+import { registerCaller } from "../commands/self.ts";
 
 import type { SmokeSteps } from "../types/command.ts";
 import type { Services } from "../types/services.ts";
@@ -11,11 +12,12 @@ import type { OrchSettings } from "../types/settings.ts";
 
 /** Spawn one headless agent through the real `orch spawn` path and return the newly-recorded key. */
 async function spawnHeadlessSmokeAgent(services: Services, cwd: string, prompt: string): Promise<string> {
+  await registerCaller(services);
   const before = new Set(agentViews(services.orchDir).map((view) => view.id));
-  await cmdSpawn(services, ["orch-smoke", "--backend", "headless", "--dir", cwd, "--prompt", prompt]);
+  await cmdSpawn(services, ["orch-smoke", "--plexer", "headless", "--dir", cwd, "--prompt", prompt]);
   const after = agentViews(services.orchDir);
   // The row that was not there before the single-agent spawn IS the smoke agent. Nothing here
-  // re-checks the plexer: `--backend headless` above already decided it, and re-asserting it as a
+  // re-checks the plexer: `--plexer headless` above already decided it, and re-asserting it as a
   // string comparison would be the environment-id branch Rule 11 bans.
   const key = after.find((view) => !before.has(view.id))?.id;
   if (!key) throw new Error("headless spawn recorded no new agent");

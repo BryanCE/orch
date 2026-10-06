@@ -68,8 +68,8 @@ function nearestOffered(offered: readonly HarnessModel[], bare: string): string[
  *  that lists the rest. A refusal that only names what is wrong costs a round trip. */
 function correctedSpecHint(harness: AdapterId, candidates: readonly string[]): string {
   const best = candidates[0];
-  if (!best) return `run: orch models --agent=${harness}`;
-  return `try: --model ${best}[:${THINKING_LEVELS.join("|")}] — full list: orch models --agent=${harness}`;
+  if (!best) return `run: orch models --harness ${harness}`;
+  return `try: --model ${best}[:${THINKING_LEVELS.join("|")}] — full list: orch models --harness ${harness}`;
 }
 
 /**

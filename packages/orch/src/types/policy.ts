@@ -13,19 +13,6 @@ export type SpaceResolver =
   | ((id: string) => string | null | undefined);
 
 /**
- * Who launched a spawn, as every spawned agent should know it. Identity is
- * orch's own layer: it survives whichever harness or plexer either side runs
- * in, and both directions stay addressable — the spawner knows the worker by
- * name, and the worker knows exactly which session is orchestrating it.
- */
-export interface SpawnerIdentity {
-  /** Reply address when the spawner can receive mail; null when it cannot. */
-  key: string | null;
-  /** Human description: "lead-1 (pi)", "pi session", "claude session", "operator". */
-  label: string;
-}
-
-/**
  * Whether one agent belongs to the calling session, by provenance or by its
  * current lease. Every value is a normalized `agents.id`; a live FOREIGN lease
  * always excludes the agent, even one this session spawned.
@@ -35,7 +22,7 @@ export interface SpawnerIdentity {
  * rule would be two answers to "is this mine".
  */
 export interface AgentScopeInput {
-  /** `--space-wide`: widen from what I own to every agent in my space. Never past
+  /** `--all`: widen from what I own to every agent in my space. Never past
    *  it — the space ceiling is checked separately and no flag lifts it. */
   spaceWide: boolean;
   mineAddress: string | undefined;
@@ -107,7 +94,9 @@ export interface ProvenanceNode {
 /** Resolve one agent's provenance facts, or nothing when the id is unknown. */
 export type ProvenanceLookup = (id: string) => ProvenanceNode | null | undefined;
 
-export type CallerKind = "operator" | "session" | "agent";
+/** How an agent row came to be: a raw terminal, a harness typed into one, or an `orch spawn`. */
+export const CALLER_KINDS = ["operator", "session", "agent"] as const;
+export type CallerKind = (typeof CALLER_KINDS)[number];
 
 export type CloseAuthority =
   | { readonly kind: "human" }

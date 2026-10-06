@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { localStatusTable } from "../src/commands/status/table.ts";
+import { formatStatusTable, localStatusTable } from "../src/commands/status/table.ts";
 import { fleetFixture, statusRowFixture } from "./helpers/status-row.ts";
 import type { StatusRow } from "../src/types/command.ts";
 
@@ -22,6 +22,13 @@ function cells(line: string, widths: readonly number[]): string[] {
     offset += width + 2;
   }
   return out;
+}
+
+function formatCallerTable(): string {
+  return formatStatusTable(fleetFixture([
+    statusRow({ key: "caller", agentId: "caller", name: "orchestrator", owned: true }),
+    statusRow({ key: "agent00002", agentId: "agent00002", name: "worker", owned: true, lease: { holderId: "caller", holderAlive: true } }),
+  ]), { all: false, host: false, callerId: "caller", columns: new Set() });
 }
 
 function cellUnder(table: string, header: string, lineIndex: number): string {
@@ -47,6 +54,43 @@ describe("the rendered status table carries the owner column", () => {
     expect(cellUnder(table, "OWNER", 3)).toBe("no orch driving it");
   });
 
+  test("the caller row shows no owner, and its lease does not affect the other rows' column", () => {
+    const table = formatStatusTable(fleetFixture([
+      statusRow({ key: "caller", agentId: "caller", name: "orchestrator", lease: null }),
+      statusRow({ key: "agent00002", agentId: "agent00002", name: "worker", lease: { holderId: "captain", holderAlive: true } }),
+      statusRow({ key: "agent00003", agentId: "agent00003", name: "other", lease: { holderId: "other-orch", holderAlive: true } }),
+    ], { agents: { captain: "captain", "other-orch": "other-orch" } }), { all: false, host: false, callerId: "caller", columns: new Set() });
+
+    expect(cellUnder(table, "OWNER", 2)).toBe("-");
+    expect(cellUnder(table, "OWNER", 3)).toBe("captain");
+  });
+
+  test("when every other row is held by the caller, omit owner column and footer", () => {
+    const table = formatCallerTable();
+
+    expect(table).not.toContain("OWNER");
+    expect(table).not.toContain("owner:");
+  });
+
+  test("shows the shared-owner footer when a caller-held row is not owned", () => {
+    const table = formatStatusTable(fleetFixture([
+      statusRow({ key: "caller", agentId: "caller", name: "orchestrator", owned: true }),
+      statusRow({ key: "agent00002", agentId: "agent00002", owned: false, lease: { holderId: "caller", holderAlive: true } }),
+    ], { agents: { caller: "orchestrator" } }), { all: false, host: false, callerId: "caller", columns: new Set() });
+
+    expect(table).toContain("owner: orchestrator");
+  });
+
+  test("shows an unknown fallback as '-' only on the caller row", () => {
+    const table = formatStatusTable(fleetFixture([
+      statusRow({ key: "caller", agentId: "caller", state: "unknown", stateFallback: true }),
+      statusRow({ key: "agent00002", agentId: "agent00002", state: "unknown", stateFallback: true }),
+    ]), { all: false, host: false, callerId: "caller", columns: new Set() });
+
+    expect(cellUnder(table, "STATE", 2)).toBe("-");
+    expect(cellUnder(table, "STATE", 3)).toBe("unknown?");
+  });
+
   test("a holder with no name falls back to its id", () => {
     const table = localStatusTable(fleetFixture([
       statusRow({ name: "held", lease: { holderId: "orch00001", holderAlive: true } }),
@@ -58,7 +102,7 @@ describe("the rendered status table carries the owner column", () => {
 
   test("a dead holder reads as unleased under a table that all shares one owner", () => {
     const table = localStatusTable(fleetFixture([
-      statusRow({ name: "orphan", lease: { holderId: "orch00001", holderAlive: false } }),
+      statusRow({ name: "orphan", owned: false, lease: { holderId: "orch00001", holderAlive: false } }),
     ]), false);
 
     // One owner for every row is a fact about the table, not about a row: it is

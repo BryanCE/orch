@@ -11,6 +11,8 @@ import { isAgentId } from "../backends/identity.ts";
 import { eq, isNotNull } from "drizzle-orm";
 import { orm, registerMemoReset } from "../store/connection.ts";
 import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-rows.ts";
+import { deleteSettledTasksOf } from "../store/task-rows.ts";
+import { deleteGrantsOf } from "../store/grant-rows.ts";
 import { currentProcess, currentProcesses, type ProcessRow } from "../store/interval-rows.ts";
 import { recordedInstanceIsLive } from "../process-identity.ts";
 import { agents } from "../db/schema.ts";
@@ -69,9 +71,12 @@ export function spawnedRecords(root: OrchDir): Map<string, AgentView> {
 
 /** Delete one agent's hub row, which cascades every satellite, lease and
  *  ending, and close its open writes: a reaped agent reads nothing, so a write
- *  left open would retry on every drain tick forever. Its JSONL history under
- *  the presence directory is untouched; that ages out on its own. */
+ *  left open would retry on every drain tick forever. The store holds only
+ *  running state, so its settled tasks and spent grants go too. Its JSONL
+ *  history under the presence directory is untouched; that ages out on its own. */
 export function reapAgentRecord(agentId: string, root: OrchDir): void {
+  deleteSettledTasksOf(root, agentId);
+  deleteGrantsOf(root, agentId);
   orm(root).delete(agents).where(eq(agents.id, agentId)).run();
   refreshAgent(root, agentId);
   closeOutboxForTarget(root, agentId);

@@ -1,6 +1,5 @@
 import { basename } from "node:path";
 import { assertNameFree } from "../../policy/name.ts";
-import { agentIdentityEnv, spawnerIdentityOf, worktreeEnv } from "../../policy/spawner.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
 import { mintAgentId } from "../../backends/identity.ts";
 import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
@@ -120,7 +119,7 @@ function launchSpawnBackend(orchDir: OrchDir, spec: TabSpawnSpec, key: string, e
     handle = spec.backend.spawn(spec.adapter, {
       key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
       intoHandle: place, orchDir, model: spec.model, thinking, preferredModels: spec.preferredModels,
-      reportTimeoutMs: spec.reportTimeoutMs, tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
+      tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
     });
   } catch (error: unknown) {
     if ((spec.placement !== undefined || spec.intoHandle !== undefined) && spec.backend.placement) {
@@ -141,7 +140,7 @@ async function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpe
   await callDaemon(services, "register-agent", {
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
-    spawner: spec.spawner.key,
+    spawner: spec.spawner,
     owner: spec.owner,
     worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
     process: spec.backend.process.running(handle),
@@ -155,8 +154,7 @@ export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec
   const { views, presence } = admissionFleet(snapshot);
   assertNameFree(views, presence, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
-  const spawner = spec.spawner;
-  const env = spec.env ?? { ...agentIdentityEnv(spec.name, spawner), ...worktreeEnv(spec.worktree, spec.branch), [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
+  const env = spec.env ?? { [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
   const thinking = spec.thinking;
   if (thinking === undefined) throw new Error(`spawn requires a resolved thinking level for ${spec.name}`);
   const place = resolveSpawnPlace(spec, env);
@@ -193,7 +191,7 @@ function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: Spawn
     cmd: settings.commandFlag ? settings.cmd : undefined,
     worktree: settings.worktree ? cwd : undefined,
     branch: settings.worktree ? `orch/${name}` : undefined,
-    spawner: spawnerIdentityOf(self),
+    spawner: self.id,
     owner: self.id ?? undefined,
   }, settings.tiling.first_split, role, fleet);
 }
@@ -231,8 +229,8 @@ export function findGroupInSpace(backend: Backend, workspace: string | undefined
 }
 /**
  * Where the fleet runs is placement, never identity (Rule 11). Inside a plexer the
- * fleet lands beside the caller. A plexer the human chose — `--backend`,
- * `ORCH_BACKEND` or `settings.json` — opens its own home, and that opening is
+ * fleet lands beside the caller. A plexer the human chose — `--plexer` or
+ * `settings.json` — opens its own home, and that opening is
  * what the human grants. Outside every plexer, with none chosen, the default is
  * headless: a plexer orch only probed is a window nobody asked for.
  */
@@ -247,8 +245,8 @@ export function spawnBackend(logger: Logger, settings: Pick<SpawnSettings, "back
   logger.warn("spawn.headless-fallback", { backend: backend.id, chosen: settings.backendChosen });
   process.stdout.write(
     `orch is not running inside ${backend.id} and ${reason} - spawning headless. `
-    + `Pass --backend ${backend.id} or set defaults.backend to open a ${backend.id} home for these agents (the user grants it),`
-    + ` or --space <id> to place them in an open space.\n`,
+    + `Pass --plexer ${backend.id} or set defaults.backend to open a ${backend.id} home for these agents (the user grants it),`
+    + ` or --space <space> to place them in an open space.\n`,
   );
   return headlessBackend;
 }

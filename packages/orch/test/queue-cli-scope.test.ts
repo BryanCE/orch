@@ -27,7 +27,7 @@ async function fixture(): Promise<Services> {
     ["orch-b", "orch-b", null, "beta"],
     ["b1", "orch-b", "orch-b", "worker"],
   ] as const) {
-    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${name},1)`);
+    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${name},1,${"agent"})`);
   }
   db.run(sql`INSERT INTO spaces(id,name,created_by,created_at) VALUES ('space-1','One','orch-a',1)`);
   return servedServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
@@ -45,11 +45,12 @@ describe("Cq2: all three scopes are choosable at enqueue", () => {
     expect(await scopeFromFlags(services, {})).toEqual({});
   });
 
-  test("a name resolves to one id, and an ambiguous name asks for the id", async () => {
+  test("a name resolves through the one target resolver, which asks for the key when ambiguous", async () => {
     const services = await fixture();
     expect(await scopeFromFlags(services, { agent: "alpha" })).toEqual({ agentId: "orch-a" });
-    expect(await scopeFromFlags(services, { agent: "worker" }).then(() => null, (error: unknown) => errorMessage(error))).toMatch(/Ambiguous agent/);
-    expect(await scopeFromFlags(services, { agent: "nobody" }).then(() => null, (error: unknown) => errorMessage(error))).toMatch(/Unknown agent/);
+    expect(await scopeFromFlags(services, { pack: "beta" })).toEqual({ packId: "orch-b" });
+    expect(await scopeFromFlags(services, { agent: "worker" }).then(() => null, (error: unknown) => errorMessage(error))).toMatch(/Ambiguous target "worker"/);
+    expect(await scopeFromFlags(services, { agent: "nobody" }).then(() => null, (error: unknown) => errorMessage(error))).toMatch(/No target matches "nobody"/);
   });
 
   test("two scope flags at once are refused", async () => {

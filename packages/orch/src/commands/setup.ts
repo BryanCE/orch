@@ -18,9 +18,10 @@ import { compositionUnrecorded, resolveSetupComposition, recordComposition } fro
 import type { SetupComposition } from "../setup/composition.ts";
 import { parseSetupOptions } from "../setup/flags.ts";
 import { parseCommand } from "./registry.ts";
-import { die } from "./target.ts";
+import { usageError } from "../cli/usage.ts";
 import type { SetupOptions } from "../setup/flags.ts";
 import { installPrerequisites, installAdapterShims, wireBinaries, alignEntrypointToRuntime } from "../setup/install.ts";
+import { packageRoot } from "../util.ts";
 import { runSetupSmoke, smokeBlocker } from "../setup/smoke.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -63,7 +64,7 @@ async function offerSkills(
   writeSettingsSkills(services.settings, { install });
   process.stdout.write("Skills:\n");
   if (!install) {
-    process.stdout.write("  not installed - turn it back on with: orch settings skills --install\n");
+    process.stdout.write("  not installed - turn it back on with: orch settings skills --skills\n");
     return;
   }
   for (const placed of installSkills(roots)) process.stdout.write(`  ${describeSkillPlacement(placed)}\n`);
@@ -110,9 +111,10 @@ async function installSetupComposition(
   services: Pick<Services, "orchDir" | "settings" | "logger">,
   composition: SetupComposition,
   options: SetupOptions,
+  root: string,
 ): Promise<string[] | null> {
   recordComposition(services.settings, composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
-  if (!(await installPrerequisites(services.logger, composition.adapters, composition.backends, options.interactive, options.yes, options.noInstall))) return null;
+  if (!(await installPrerequisites(services.logger, composition.adapters, composition.backends, options.interactive, options.install))) return null;
   process.stdout.write("Presence dir:\n");
   files.mkdirSync(presenceRoot(services.orchDir), { recursive: true });
   process.stdout.write(`  ${presenceRoot(services.orchDir)}\n`);
@@ -120,7 +122,7 @@ async function installSetupComposition(
   await offerSkills(services, options.skills, options.interactive);
   // Notifier configuration is an interactive-only step; --yes / non-interactive adds nothing.
   if (options.interactive) await configureNotifiers(services);
-  wireBinaries(options.copy);
+  wireBinaries(root, options.copy);
   alignEntrypointToRuntime(composition.runtime);
   await diagnoseAdapters(services.orchDir, services.settings.current(), services.logger, composition.adapters);
   return gaps;
@@ -160,28 +162,32 @@ async function finishSetup(services: Services, options: SetupOptions, gaps: read
       await runSetupSmoke(services, process.cwd());
     }
   }
-  const doneMessage = "Done. Open a plexer workspace and try: orch spawn 2 --tab Team1";
+  const doneMessage = "Done. Try: orch spawn <name>... --tab <tab>";
   if (options.interactive) setupOutro(doneMessage);
   else process.stdout.write(`${doneMessage}\n`);
 }
 
 /** Onboarding wizard: record the composition, install prerequisites and adapter shims, wire bins,
  * then run a closing doctor pass. Each step is a single-purpose helper; this orchestrates them. */
-export async function cmdSetup(services: Services, args: string[]) {
-  const { flags, positional } = parseCommand("setup", args);
-  if (positional.length) die(`orch setup takes no arguments, got ${positional.join(" ")}`);
-  const options = parseSetupOptions(flags);
+export async function runSetup(services: Services, args: string[], root: string) {
+  const invocation = parseCommand("setup", args);
+  if (invocation.positional.length) throw usageError(invocation, `orch setup takes no arguments, got ${invocation.positional.join(" ")}`);
+  const options = parseSetupOptions(invocation.flags);
   await initializeSetup(options, services);
 
   // `currentOrNull`: setup is the command that writes settings.json, so an absent file is the
   // normal first-run state here, never a refusal.
   const composition = await resolveSetupComposition(services.settings.currentOrNull(), services.models, options);
   if (composition === null) return;
-  const gaps = await installSetupComposition(services, composition, options);
+  const gaps = await installSetupComposition(services, composition, options, root);
   if (gaps === null) return;
 
   await runDoctorPass(services, options.interactive);
   await finishSetup(services, options, gaps);
+}
+
+export async function cmdSetup(services: Services, args: string[]) {
+  await runSetup(services, args, packageRoot());
 }
 
 /** Interactive notifier onboarding: probe all notifiers, pick a set, collect each one's
@@ -223,8 +229,8 @@ export function setupRequiredMessage(orchDir: OrchDir): string {
   // <id> and leaving the reader to go find them.
   return `orch is not set up yet - no harness/backend recorded in ${settingsPath(orchDir)}.\n`
     + `Run: orch setup\n`
-    + `Non-interactive: orch setup --yes --agent <${ADAPTER_IDS.join("|")}> `
-    + `--backend <${BACKEND_IDS.join("|")}> [--runtime ${ORCH_RUNTIMES.join("|")}]`;
+    + `Non-interactive: orch setup --yes --harness <${ADAPTER_IDS.join("|")}> `
+    + `--plexer <${BACKEND_IDS.join("|")}> [--runtime ${ORCH_RUNTIMES.join("|")}]`;
 }
 
 /** Walk the first run through the setup wizard, then dispatch the original command via the injected dispatcher. */

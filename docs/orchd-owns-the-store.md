@@ -28,7 +28,7 @@ and whether it is an operator, and refuses `--steal` / `--cross-space` for a non
 The CLI reads no store to learn who it is.
 
 Read RPCs served and used: `spaces`, `space`, `home`, `grants`, `queue-list`,
-`resolve-agent`, `fleet`, `runs`, `run`, `agent-status`, `process-live`, `resolve-target`,
+`fleet`, `runs`, `run`, `agent-status`, `process-live`, `resolve-target`,
 `resolve-lifecycle`, `self`, `owned-agents`, `questions` (filtered by the caller),
 `close-targets`. Events carry `holder`, so `events` filters with no lookup.
 

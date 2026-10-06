@@ -5,9 +5,12 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { loadPresence, spawnedRecords } from "../src/presence/store.ts";
 import { indexPresenceById } from "../src/entities/lookup.ts";
+import { parseCommand } from "../src/commands/registry.ts";
+import { UsageError } from "../src/cli/spec.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const dirs: OrchDir[] = [];
+const SPAWN = parseCommand("spawn", []);
 const oldDir = process.env.ORCH_DIR;
 
 function makeDir(): OrchDir {
@@ -31,28 +34,29 @@ afterEach(() => {
 // about the slice that pane holds.
 describe("spawn names every agent positionally, at creation", () => {
   test("the positional arguments are the names, one per pane", () => {
-    expect(resolveSpawnNames(["api", "worker", "checker"]))
+    expect(resolveSpawnNames(SPAWN, ["api", "worker", "checker"]))
       .toEqual(["api", "worker", "checker"]);
   });
 
   test("the pane count is how many names were given", () => {
-    expect(resolveSpawnNames(["only-one"]).length).toBe(1);
+    expect(resolveSpawnNames(SPAWN, ["only-one"]).length).toBe(1);
   });
 
-  test("spawning with no name at all is refused", () => {
-    expect(() => resolveSpawnNames([])).toThrow(/name/i);
+  test("spawning with no name at all is refused with the spec's usage", () => {
+    expect(() => resolveSpawnNames(SPAWN, [])).toThrow(UsageError);
+    expect(() => resolveSpawnNames(SPAWN, [])).toThrow(/usage: orch spawn/);
   });
 
   test("a bare count is not a name and is refused", () => {
-    expect(() => resolveSpawnNames(["4"])).toThrow(/name/i);
+    expect(() => resolveSpawnNames(SPAWN, ["4"])).toThrow(/name/i);
   });
 
   test("the same name twice would collide, so it is refused before anything is created", () => {
-    expect(() => resolveSpawnNames(["api", "api"])).toThrow(/api/);
+    expect(() => resolveSpawnNames(SPAWN, ["api", "api"])).toThrow(/api/);
   });
 
   test("every name is validated, so one bad name creates nothing", () => {
-    expect(() => resolveSpawnNames(["api", "not a valid name!"])).toThrow();
+    expect(() => resolveSpawnNames(SPAWN, ["api", "not a valid name!"])).toThrow(UsageError);
   });
 
   test("--name is gone: naming is positional, so the flag is an unknown flag", () => {

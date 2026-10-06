@@ -1,4 +1,4 @@
-/** Shared presence history and launch helpers.
+/** Shared presence history helpers.
  *
  * Live status travels over the daemon socket. This module only owns the
  * append-only history files, presence directory layout, and standalone JSON
@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { setImmediate } from "node:timers";
 import { OUTCOMES_FILE, RESULTS_FILE, STATUS_LOG_FILE } from "./schema.ts";
 import { isRecord } from "../util.ts";
-import type { LaunchEnvFacts, PresenceRecord } from "../types/presence.ts";
+import type { PresenceRecord } from "../types/presence.ts";
 import type { OrchDir, JsonRecord } from "../types/core.ts";
 
 /** The root holding every agent's presence directory. */
@@ -45,21 +45,6 @@ export function readJsonStdin(): JsonRecord {
   } catch {
     return {};
   }
-}
-
-export function launchEnvFacts(): LaunchEnvFacts {
-  const value = (name: string): string | null => {
-    const raw = process.env[name];
-    return typeof raw === "string" && raw.length > 0 ? raw : null;
-  };
-  return {
-    label: value("ORCH_AGENT_NAME"),
-    spawnedBy: value("ORCH_SPAWNER"),
-    spawnedByLabel: value("ORCH_SPAWNER_LABEL"),
-    worktree: value("ORCH_AGENT_WORKTREE"),
-    branch: value("ORCH_AGENT_BRANCH"),
-    tabLabel: null,
-  };
 }
 
 /** Lines waiting for the next flush, per history file. History is append-only and

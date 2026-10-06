@@ -1,6 +1,7 @@
 import { and, eq, exists, isNotNull, isNull, notExists, or, sql, type SQL } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { QueryBuilder, alias, check, index, integer, primaryKey, real, sqliteTable, sqliteView, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { CALLER_KINDS } from "../types/policy.ts";
 
 /**
  * Every table, typed.
@@ -135,6 +136,8 @@ export const agents = sqliteTable("agents", {
   cwd: text("cwd").notNull(),
   name: text("name").notNull(),
   label: text("label"),
+  /** IMMUTABLE provenance: written once by the path that made the row, never derived. */
+  kind: text("kind", { enum: CALLER_KINDS }).notNull(),
   /** IMMUTABLE. The harness session this agent IS, as that harness names it
    *  (`AgentAdapter.sessionIdEnv`). It is the only stable key a driving session
    *  has: the `orch` CLI is short-lived, so anything derived from the process
@@ -150,6 +153,7 @@ export const agents = sqliteTable("agents", {
   uniqueIndex("one_agent_per_session").on(table.sessionToken),
   check("agents_not_self_spawned", sql`${table.spawnedBy} IS NULL OR ${table.spawnedBy} <> ${table.id}`),
   check("agents_root_is_self", sql`${table.spawnedBy} IS NOT NULL OR ${table.rootAgentId} = ${table.id}`),
+  check("agents_kind", sql`${table.kind} IN ('operator','session','agent')`),
 ]);
 
 // ── facts only some agents have ──────────────────────────────────────────────

@@ -17,7 +17,6 @@ import { seedLiveProcess } from "./helpers/agent.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
-const originalSpawner = process.env.ORCH_SPAWNER;
 const directories: OrchDir[] = [];
 
 afterEach(() => {
@@ -26,8 +25,6 @@ afterEach(() => {
   else process.env.ORCH_DIR = originalOrchDir;
   if (originalAgentKey === undefined) delete process.env[LAUNCH_ENV];
   else process.env[LAUNCH_ENV] = originalAgentKey;
-  if (originalSpawner === undefined) delete process.env.ORCH_SPAWNER;
-  else process.env.ORCH_SPAWNER = originalSpawner;
   while (directories.length > 0) removeTempDir(directories.pop()!);
 });
 
@@ -47,7 +44,6 @@ function fixture(): OrchDir {
   directories.push(directory);
   process.env.ORCH_DIR = directory;
   delete process.env[LAUNCH_ENV];
-  delete process.env.ORCH_SPAWNER;
 
   ensureHarness(directory, "pi", "Pi", 1);
   const db = orm(directory);

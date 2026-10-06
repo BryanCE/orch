@@ -149,14 +149,17 @@ function notificationDetails(event: NotifyEvent, title: string, space: string, c
 
 /** `STATE [space] agent:` — the part of a title that names the event, with no summary.
  *  An agent in no space gets no bracket: `[]` on every line said nothing. */
-export function notificationHeading(event: NotifyEvent, options: { colorize?: boolean } = {}): string {
+function notificationHeading(event: NotifyEvent, options: { colorize?: boolean } = {}): string {
   const space = eventSpace(event);
   const agent = eventAgent(event, space);
   const state = oneLine(textValue(event.newState) ?? "unknown").toUpperCase();
   if (space.length === 0) return `${state} ${agent}:`;
-  const spaceLabel = `[${space}]`;
-  const coloredSpace = options.colorize ? `${spaceAnsi(space)}${spaceLabel}\u001b[0m` : spaceLabel;
-  return `${state} ${coloredSpace} ${agent}:`;
+  return `${state} ${spaceTag(space, options.colorize === true)} ${agent}:`;
+}
+
+/** `[space]`, colored per space when asked. */
+export function spaceTag(space: string, colorize: boolean): string {
+  return colorize ? `${spaceAnsi(space)}[${space}]\u001b[0m` : `[${space}]`;
 }
 
 export function notificationText(event: NotifyEvent, options: { colorize?: boolean } = {}): { title: string; body: string } {

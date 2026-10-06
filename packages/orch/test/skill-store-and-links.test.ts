@@ -78,7 +78,7 @@ describe("skill store and harness links", () => {
 
     expect(result.status).toBe("warn");
     expect(result.detail).toContain("is a real directory, not a link into the store");
-    expect(result.detail).toContain("orch settings skills --install");
+    expect(result.detail).toContain("orch settings skills --skills");
   });
 
   test("doctor reports a stale store and its fix reinstalls the packaged skill", () => {

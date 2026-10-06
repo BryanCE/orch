@@ -23,8 +23,11 @@ import type { ModelCatalogue } from "../src/types/adapter.ts";
 import "../src/adapters/registry.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
+import { writeSettingsFixture } from "./helpers/settings.ts";
+import { claudeSettingsPath } from "../src/adapters/claude-hooks.ts";
 
 const orchDir: OrchDir = tempOrchDir("orch-claude-adapter-");
+writeSettingsFixture(orchDir, { daemon: { report_timeout_ms: 2000 } });
 const previousOrchDir = process.env.ORCH_DIR;
 const previousAgentKey = process.env[LAUNCH_ENV];
 const hookScript = join(import.meta.dir, "../extensions/claude/index.ts");
@@ -60,7 +63,7 @@ async function startReportServer(): Promise<ReportCapture> {
 
 async function runHook(event: string, input: Record<string, unknown> = {}): Promise<void> {
   const processChild = Bun.spawn([process.execPath, hookScript, event], {
-    env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: fakeKey, ORCH_REPORT_TIMEOUT_MS: "2000" },
+    env: { ...process.env, ORCH_DIR: orchDir, [LAUNCH_ENV]: fakeKey },
     stdin: "pipe",
     stdout: "ignore",
     stderr: "ignore",
@@ -131,6 +134,12 @@ describe("Claude adapter", () => {
 
   test("builds the interactive Claude launch command", () => {
     expect(claudeAdapter.interactiveCmd({})).toBe("claude");
+  });
+
+  test("loads orch-owned settings in interactive and headless launches", () => {
+    const settingsPath = claudeSettingsPath(orchDir);
+    expect(claudeAdapter.interactiveArgv({ orchDir })).toEqual(["claude", "--settings", settingsPath]);
+    expect(claudeAdapter.headlessCmd("reply", { orchDir })).toEqual(["claude", "-p", "--settings", settingsPath, "reply"]);
   });
 
   test("pins headless print mode to the hook-driven presence path", () => {

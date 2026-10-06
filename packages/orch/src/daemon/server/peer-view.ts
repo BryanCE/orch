@@ -74,6 +74,9 @@ export function peerView(orchDir: OrchDir, ownKey: string, keys: string[], allSp
       name: view.name,
       harness: view.harnessId,
       spawnedBy: view.spawnedBy,
+      spawnedByName: view.spawnedByName,
+      worktree: view.environment.worktree,
+      branch: view.environment.branch,
       status: status === null || status === undefined ? null : statusFields(status),
       result: fleet.presence.get(key)?.result ?? null,
     }];

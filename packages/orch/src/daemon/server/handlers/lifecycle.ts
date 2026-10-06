@@ -50,6 +50,9 @@ export function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headle
   const thinking = params.thinking;
   const handle = headlessBackend.spawn(adapter, {
     key,
+    name: params.name,
+    spawner: params.spawner,
+    worktree: params.worktree,
     env: params.env,
     orchDir: directory,
     cwd: params.cwd,
@@ -59,7 +62,6 @@ export function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headle
     // The quicklist the harness's own picker gets. It is NOT a second gate: the launch model
     // was ruled on above, and a model outside this list stays launchable.
     preferredModels: params.preferredModels,
-    reportTimeoutMs: state.services.settings.current().daemon.report_timeout_ms,
     tools: params.tools,
     workers: params.workers,
   });

@@ -13,7 +13,7 @@ function db() { const d = tempOrchDir("orch-schema-"); dirs.push(d); return orm(
 function base(d: ReturnType<typeof orm>) {
   d.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   d.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES (${"h"},${"Host"},${"linux"},${1})`);
-  d.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"a"},${"a"},${"pi"},${"/"},${"A"},${1})`);
+  d.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${"a"},${"a"},${"pi"},${"/"},${"A"},${1},${"session"})`);
 }
 
 // This is the complete current sqlite_master inventory.
@@ -32,7 +32,7 @@ const expectedInventory = new Set([
 function addDeps(d: ReturnType<typeof orm>) {
   d.run(sql`INSERT INTO plexers(id,name) VALUES (${"px"},${"Plexer"})`);
   d.run(sql`INSERT INTO spaces(id,name,created_at) VALUES (${"s"},${"Space"},${1})`);
-  d.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"b"},${"a"},${"a"},${"pi"},${"/"},${"B"},${1})`);
+  d.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${"b"},${"a"},${"a"},${"pi"},${"/"},${"B"},${1},${"agent"})`);
 }
 
 describe("rebuild schema", () => {
@@ -67,8 +67,8 @@ describe("rebuild schema", () => {
   test("enforces foreign keys and agent checks", () => {
     const d = db(); base(d);
     expect(() => d.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid) VALUES (${"missing"},${1},${"h"},${1})`)).toThrow();
-    expect(() => d.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"x"},${"x"},${"x"},${"pi"},${"/"},${"X"},${1})`)).toThrow();
-    expect(() => d.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"y"},${"a"},${"pi"},${"/"},${"Y"},${1})`)).toThrow();
+    expect(() => d.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${"x"},${"x"},${"x"},${"pi"},${"/"},${"X"},${1},${"agent"})`)).toThrow();
+    expect(() => d.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${"y"},${"a"},${"pi"},${"/"},${"Y"},${1},${"session"})`)).toThrow();
   });
   test("requires exactly one task scope", () => {
     const d = db(); base(d); d.run(sql`INSERT INTO spaces(id,name,created_at) VALUES (${"s"},${"S"},${1})`);
@@ -83,7 +83,7 @@ describe("rebuild schema", () => {
     attempt(1, "d1"); expect(() => attempt(2, "d2")).toThrow();
   });
   test("enforces lease checks and one lease", () => {
-    const d = db(); base(d); d.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${"b"},${"a"},${"a"},${"pi"},${"/"},${"B"},${1})`);
+    const d = db(); base(d); d.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${"b"},${"a"},${"a"},${"pi"},${"/"},${"B"},${1},${"agent"})`);
     const lease = (id: number, since: number) => d.run(sql`INSERT INTO agent_leases(id,agent_id,orch_id,since) VALUES (${id},${"a"},${"b"},${since})`);
     lease(1, 1); expect(() => lease(2, 2)).toThrow();
     expect(() => d.run(sql`INSERT INTO agent_leases(id,agent_id,orch_id,since) VALUES (${3},${"b"},${"b"},${1})`)).toThrow();

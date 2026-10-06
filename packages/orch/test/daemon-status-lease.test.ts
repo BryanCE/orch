@@ -19,7 +19,7 @@ function fixture(): OrchDir {
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
   db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
   for (const [id, name] of [[WORKER_ID, "Worker"], ["orch", "Lead"]]) {
-    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${id},${"pi"},${"/tmp"},${name},${1})`);
+    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${id},${"pi"},${"/tmp"},${name},${1},${"session"})`);
   }
   const token = processStartToken(process.pid);
   db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"orch"},${1},${"host"},${process.pid},${token ?? null})`);

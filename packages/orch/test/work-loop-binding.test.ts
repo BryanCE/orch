@@ -43,8 +43,8 @@ function fleet(): OrchDir {
   directories.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('enq',NULL,'enq','pi','/repo','enq',1)`);
-  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('runner0000','enq','enq','pi','/repo','runner',1)`);
+  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('enq',NULL,'enq','pi','/repo','enq',1,'session')`);
+  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('runner0000','enq','enq','pi','/repo','runner',1,'agent')`);
   seedLiveProcess(dir, "runner0000");
   seedStatus(dir, RUNNER_KEY, { state: "idle", label: "Runner" });
   writeSettingsFixture(dir);

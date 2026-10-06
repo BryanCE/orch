@@ -17,7 +17,8 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { placeAgent } from "./helpers/agent.ts";
+import { placeAgent, seedOperator } from "./helpers/agent.ts";
+import { readRpc, writeRpc } from "../src/commands/daemon.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
@@ -66,7 +67,7 @@ function liveHolder(dir: OrchDir, id = "foreign-orch"): void {
 describe("lease commands", () => {
   test("detach releases the lease and is a no-op when already unleased", () => {
     const dir = fixture();
-    agent(dir, "orch"); agent(dir, "new-orch"); agent(dir, "worker", "worker");
+    agent(dir, "orch"); agent(dir, "new-orch"); agent(dir, "worker", "worker", "orch");
     acquireLease(dir, "worker", "orch", 2);
     expect(detachAgent(dir, "worker", "orch", { now: 3 })).toMatchObject({ released: true, name: "worker" });
     expect(currentLease(dir, "worker")).toBeNull();
@@ -91,7 +92,7 @@ describe("lease commands", () => {
 
   test("adopt takes an unleased agent and a dead holder", () => {
     const dir = fixture();
-    agent(dir, "new-orch"); agent(dir, "old-orch"); agent(dir, "worker", "worker");
+    agent(dir, "new-orch"); agent(dir, "old-orch"); agent(dir, "worker", "worker", "old-orch");
     acquireLease(dir, "worker", "old-orch", 2);
     expect(adoptAgent(dir, "worker", "new-orch", { now: 3 })).toMatchObject({ adopted: true, name: "worker" });
     expect(currentLease(dir, "worker")?.orchId).toBe("new-orch");
@@ -99,9 +100,28 @@ describe("lease commands", () => {
       .toMatchObject({ release_reason: "adopted" });
   });
 
+  test("adopt refuses a root: a terminal or a harness session", () => {
+    const dir = fixture();
+    agent(dir, "new-orch"); agent(dir, "terminal", "cli-terminal");
+    expect(() => adoptAgent(dir, "terminal", "new-orch", { now: 3 })).toThrow("cli-terminal is a root");
+    expect(currentLease(dir, "terminal")).toBeNull();
+  });
+
+  test("adopt takes every named orphan, and the orphan list names them first", async () => {
+    const dir = fixture();
+    process.env.ORCH_DIR = dir;
+    agent(dir, "dead-orch"); agent(dir, "w1", "w1", "dead-orch"); agent(dir, "w2", "w2", "dead-orch"); agent(dir, "terminal");
+    const served = await servedServices({ orchDir: dir, settings: SETTINGS }, servers);
+    const caller = seedOperator(dir);
+    expect(await readRpc(served, "orphans", {})).toEqual({ agents: [{ id: "w1", name: "w1" }, { id: "w2", name: "w2" }] });
+    const { results } = await writeRpc(served, "adopt", { targets: ["w1", "w2"], actor: caller });
+    expect(results.map((result) => [result.name, result.adopted])).toEqual([["w1", true], ["w2", true]]);
+    expect(await readRpc(served, "orphans", {})).toEqual({ agents: [] });
+  });
+
   test("adopt refuses a holder with a live recorded process", () => {
     const dir = fixture();
-    agent(dir, "new-orch"); agent(dir, "old-orch"); agent(dir, "worker", "worker");
+    agent(dir, "new-orch"); agent(dir, "old-orch"); agent(dir, "worker", "worker", "old-orch");
     orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"old-orch"},${1},${"host"},${process.pid},${processStartToken(process.pid)})`);
     acquireLease(dir, "worker", "old-orch", 2);
     expect(() => adoptAgent(dir, "worker", "new-orch", { now: 3 })).toThrow("worker is leased by live orch old-orch.");

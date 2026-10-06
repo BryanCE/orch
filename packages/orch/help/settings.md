@@ -1,53 +1,16 @@
-Print each effective setting with the source that won (flag > env > settings.json >
-default). On a TTY, bare `orch settings` opens the editor. `orch settings <key> <value>`
-writes one setting. `--harness` and `--plexer` switch the active default among the enabled
-set.
+Read or change orch's configuration. Bare `orch settings` prints every effective setting and
+where its value came from (settings.json or default); on a terminal it opens the
+editor. Two words set one key:
 
-Config is `$ORCH_DIR/settings.json` (default `~/.orch/settings.json`), plain JSON you may
-edit by hand. Every number orch uses is a setting there. The names that bite a fleet most:
-`fleet.max_agents_per_tab`, `fleet.max_agents_per_pack`, `fleet.max_depth`,
-`fleet.worker_peer_tools`, `fleet.cross_space`, `monitor.on`, `defaults.models`,
-`defaults.thinking`, `models.allowed`, `questions.renag_ms`, `timeouts.dispatch_ack_ms`,
-`daemon.outbox_drain_ms`, `daemon.work_tick_ms`, `queue.dispatch_concurrency`.
+    orch settings fleet.max_agents_per_tab 6
 
-`mail.to_spawner` and `mail.to_worker` say where mail lands, per direction. `prompt` types
-the mail into the recipient's input as it arrives, whoever is in the pane.
-`prompt-unless-focused` does the same unless the human is in that pane, and then publishes
-instead. `events` always publishes it as a `message` line on `orch monitor` and `orch
-events` and leaves the input alone. Defaults: `prompt-unless-focused` to the spawner,
-`prompt` to everyone else. The daemon reads them per delivery, so a change applies at once.
+The file is `$ORCH_DIR/settings.json` (default `~/.orch/settings.json`), plain JSON the user
+may edit by hand. Every number orch uses is a setting there.
 
-`workers.verify_commands` is the list of commands a worker runs over its own slice before
-it reports (lint, type check, scoped tests). `locked_commands.commands` run one at a time machine-wide.
-Every worker header carries both, and the orchestrator sets them from the project.
+An agent may write only the keys the user granted it: by default `workers.verify_commands`
+and `locked_commands.commands`. A refusal names the keys it may set. To widen that, ask the
+user to run `orch settings grant <key>`.
 
-Which settings an agent may write is a per-row toggle. The table's last column reads
-`agent` on a row an agent may write; `--json` carries it as `agentWritable`. By default
-that is `workers.verify_commands` and `locked_commands.commands`. An agent that writes any other
-key is refused, and the refusal names the keys it may set. Only you change the grant:
-
-- `orch settings grant <key>` lets an agent write that setting.
-- `orch settings revoke <key>` makes it yours alone again.
-- In the editor, `a` on a row flips it. The row shows `[agent]`.
-
-The grant is stored as `agents.writable_settings`. Nothing writes that key for an agent,
-and it never grants itself.
-
-Subcommands:
-
-- `models`: re-pick, per enabled harness, the launch model, the picker quicklist
-  (`models.preferred`), and the launchable set (`models.allowed`). `--refresh` asks the
-  harnesses again rather than using the stored catalogues, for a model installed since the
-  last refresh.
-- `thinking`: thinking effort for every launch, independent of the model: off, minimal,
-  low, medium, high, xhigh, max. Bare prints the current value; a level sets the global
-  default; `--harness=<id>` sets that harness's override and `--clear --harness=<id>`
-  removes it.
-- `skills`: turn the skill install on or off and choose where it writes. `--install` writes
-  every packaged skill now; `--no-install` records the refusal and leaves files already
-  there alone. `--store` is the one directory holding the real files; `--link` names the
-  harness directories symlinked into it. A leading `~` expands to your home directory.
-- `notify`: the sinks orchd delivers through. `sound`, `desktop`, and `herdr` take no
-  fields; `webhook` needs `--url`; `command` needs `--command` and gets the event JSON on
-  stdin. `--on` defaults to `blocked,error,done`. A sink already configured is replaced,
-  keeping the fields this call does not name. Verify with `orch notify test`.
+Reach for a subcommand to re-pick models (`models`), set thinking effort (`thinking`),
+install skills (`skills`), or change where notifications go (`notify`). After `notify add`,
+confirm delivery with `orch notify test`.

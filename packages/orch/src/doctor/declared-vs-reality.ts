@@ -82,7 +82,7 @@ function tuningFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDepende
     const runningModel = `${status.modelProvider}/${status.modelId}`;
     const running = modelSpec(runningModel, status.thinking);
     if (declared === running) return [];
-    return [`agent ${agent.id} (${agent.name}): declared ${declared}, running ${running}`];
+    return [`agent ${agent.name}: declared ${declared}, running ${running}`];
   });
 }
 

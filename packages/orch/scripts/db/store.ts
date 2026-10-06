@@ -1,4 +1,4 @@
-import { envOrchDir } from "../../src/services.ts";
+import { envOrchDir } from "../../src/orch-dir.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 
 /** The store every `bun db:*` command acts on: the real one, so development runs against

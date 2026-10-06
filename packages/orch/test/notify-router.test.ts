@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createNotifierRegistry } from "../src/notify/router.ts";
 import type { Notifier, NotifyEvent } from "../src/types/notify.ts";
 import type { NotifyEntry } from "../src/types/settings.ts";
-import { orchDirAt } from "../src/services.ts";
+import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
 const orchDir = (): OrchDir => orchDirAt(".");

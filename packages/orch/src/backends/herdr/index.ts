@@ -1,5 +1,6 @@
 import { registerNotifier } from "../../notify/sinks.ts";
 import { createHerdrNotifier } from "./notify.ts";
+import { callerPaneHandle, insideHerdr } from "./detect.ts";
 import { binaryOnPath, errorMessage, isRecord } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { environmentStamp } from "../../agent/environment.ts";
@@ -14,7 +15,8 @@ const HERDR_ENVIRONMENT_STAMP = environmentStamp({ labels: true, blockedEvent: H
 import { GONE_HANDLE_CODES, HERDR_INPUT_RETRY, HerdrCommandError, createHerdrCli, type HerdrCli } from "./cli.ts";
 import { layoutReplySchema, moveReplySchema, paneOpenReplySchema, tabOpenReplySchema, workspaceListReplySchema, workspaceOpenReplySchema } from "./wire.ts";
 import { AgentGoneError } from "../../control/agent-gone.ts";
-import { createBackendCaptureRole, homeLabel } from "../backend.ts";
+import { homeLabel } from "../backend.ts";
+import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { isAgentId } from "../identity.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
@@ -45,16 +47,6 @@ function reportGoneHandle(handle: HerdrHandle, deliver: () => void): void {
 /** The oldest herdr this integration speaks to. Every command it issues and every
  *  JSON field it reads exists from here on; a newer herdr is still herdr. */
 const SUPPORTED_HERDR = ">=0.8.0";
-
-/** herdr exported its environment into this process. */
-export function herdrEnvironmentPresent(): boolean {
-  return process.env.HERDR_ENV === "1";
-}
-
-/** This process IS a herdr pane, and this is its handle. */
-export function callerPaneHandle(): string | undefined {
-  return process.env.HERDR_PANE_ID;
-}
 
 /** The workspace holding one pane, or null when herdr no longer lists it. */
 function paneWorkspace(handle: HerdrHandle, cli: HerdrCli): string | null {
@@ -304,7 +296,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
    *  environment it gives every pane. Reachability is a different fact (herdr is
    *  up somewhere) and answers a different question. */
   isInsideSession(): boolean {
-    return herdrEnvironmentPresent() || callerPaneHandle() !== undefined;
+    return insideHerdr();
   }
 
   /** Identity of the calling pane, resolved from the explicit orch id. */

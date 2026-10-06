@@ -29,8 +29,8 @@ afterEach(() => {
 function seedPack(dir: OrchDir): void {
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch','orch','pi','/tmp','orch',1)`);
-  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('worker','orch','orch','pi','/tmp','worker',1)`);
+  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('orch','orch','pi','/tmp','orch',1,'session')`);
+  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('worker','orch','orch','pi','/tmp','worker',1,'agent')`);
 }
 
 describe("store hardening", () => {
@@ -72,7 +72,7 @@ describe("store hardening", () => {
   test("adoption closes the prior holding in the same step that opens the new one", () => {
     const dir = tempDir("orch-routing-adopt-");
     seedPack(dir);
-    orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at) VALUES ('orch2','orch2','pi','/tmp','orch2',1)`);
+    orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('orch2','orch2','pi','/tmp','orch2',1,'session')`);
     acquireLease(dir, "worker", "orch", 1);
     adoptLease(dir, "worker", "orch2", 2);
     expect(currentLease(dir, "worker")?.orchId).toBe("orch2");

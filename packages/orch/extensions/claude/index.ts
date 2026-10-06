@@ -22,8 +22,6 @@ import { isRecord, projectRoot, textValue, truncateOptional } from "orch/core/ut
 import { lastAssistantFromJsonl } from "orch/core/adapters/transcript.ts";
 import { prepareWorkerTask } from "orch/core/worker-prompt.ts";
 import { gatedPatterns, lockedCommandLine } from "orch/core/policy/command-gate.ts";
-import { readSettingsFile, settingsValues } from "orch/core/settings/read.ts";
-import { settingsPath } from "orch/core/settings/schema.ts";
 import type { JsonRecord } from "orch/core/types/core.ts";
 import type { StatusPatch } from "orch/core/types/presence.ts";
 
@@ -65,7 +63,7 @@ function modelValue(input: JsonRecord): { provider: string; id: string } | undef
 
 const input = readJsonStdin();
 const sessionId = textValue(input.session_id ?? input.sessionId);
-const session = presenceSession(sessionId);
+const session = presenceSession();
 if (session.kind === "not-orch") process.exit(0);
 const cliEvent = process.argv.slice(2).find((argument) => !argument.startsWith("-"));
 const event = eventName(cliEvent, input);
@@ -75,10 +73,9 @@ const event = eventName(cliEvent, input);
 if (event === "pretooluse") {
   const toolInput = input.tool_input;
   if (input.tool_name !== "Bash" || !isRecord(toolInput) || typeof toolInput.command !== "string") process.exit(0);
-  const file = readSettingsFile(settingsPath(session.orchDir));
-  const settings = file === null ? null : settingsValues(file);
-  const wrapped = settings === null ? undefined : lockedCommandLine(toolInput.command, gatedPatterns(settings));
-  if (settings !== null && wrapped !== undefined) {
+  const settings = session.settings;
+  const wrapped = lockedCommandLine(toolInput.command, gatedPatterns(settings));
+  if (wrapped !== undefined) {
     const timeout = bashTimeoutWithWait(toolInput.timeout, settings.timeouts.lock_wait_ms);
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { ...toolInput, command: wrapped, timeout } } }));
   }
@@ -115,7 +112,7 @@ if (event === "sessionstart" || event === "sessionstarted") {
   process.exit(0);
 }
 
-await reportOnce(session.orchDir, "report-status", { key: session.key, status: patch }, session.timeoutMs);
+await reportOnce(session.orchDir, "report-status", { key: session.key, status: patch }, session.settings.daemon.report_timeout_ms);
 if ((event === "stop" || event === "stopped") && transcriptText) {
   await reportOnce(session.orchDir, "report-result", {
     key: session.key,
@@ -125,5 +122,5 @@ if ((event === "stop" || event === "stopped") && transcriptText) {
       model: patch.model ?? null,
       finishedAt: Date.now(),
     },
-  }, session.timeoutMs);
+  }, session.settings.daemon.report_timeout_ms);
 }

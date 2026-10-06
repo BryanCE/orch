@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "452517b1-d28f-4c87-889f-c152c08857c1",
+  "id": "858650ed-dc40-4f91-9510-6eb7881ae228",
   "prevIds": [
-    "3c6b87b8-642e-44ba-9410-22c60f3e767c"
+    "00000000-0000-0000-0000-000000000000"
   ],
   "ddl": [
     {
@@ -805,6 +805,16 @@
       "default": null,
       "generated": null,
       "name": "label",
+      "entityType": "columns",
+      "table": "agents"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kind",
       "entityType": "columns",
       "table": "agents"
     },
@@ -3374,6 +3384,12 @@
     {
       "value": "\"spawned_by\" IS NOT NULL OR \"root_agent_id\" = \"id\"",
       "name": "agents_root_is_self",
+      "entityType": "checks",
+      "table": "agents"
+    },
+    {
+      "value": "\"kind\" IN ('operator','session','agent')",
+      "name": "agents_kind",
       "entityType": "checks",
       "table": "agents"
     },

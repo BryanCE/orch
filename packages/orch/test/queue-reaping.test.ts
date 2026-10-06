@@ -30,7 +30,7 @@ function fixture(): OrchDir {
     ["orch-a", "orch-a", null], ["a1", "orch-a", "orch-a"],
     ["orch-b", "orch-b", null],
   ] as const) {
-    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1)`);
+    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1,${"agent"})`);
   }
   return dir;
 }
@@ -62,7 +62,7 @@ describe("Cq10/Cq11: unrunnable is a fact, stale is a clock, and only one of the
     end(dir, "a1", 2);
     end(dir, "orch-a", 3);
     expect(taskState(dir, task.id)).toBe("unrunnable");
-    orm(dir).run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at) VALUES ('a2','orch-a','orch-a','pi','/repo','a2',4)`);
+    orm(dir).run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('a2','orch-a','orch-a','pi','/repo','a2',4,'agent')`);
     expect(taskState(dir, task.id)).toBe("queued");
     expect(nextQueuedTask(dir, "a2", 1)?.id).toBe(task.id);
     // And a task nobody can ever claim is exactly the one a reap refuses now.

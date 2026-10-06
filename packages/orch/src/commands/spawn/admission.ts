@@ -104,7 +104,7 @@ export function assertSpawnPolicy(
 export function assertTabCapacity(settings: Pick<OrchSettings, "fleet">, tab: string, occupied: number, requested: number): void {
   const cap = settings.fleet.max_agents_per_tab;
   if (occupied + requested <= cap) return;
-  throw new SpawnRefusalError(`spawn refused: would put tab ${tab} at ${occupied + requested}/${cap} agents (${occupied} placed + ${requested} requested; fleet.max_agents_per_tab). Open another tab: orch spawn <names> --tab <new-name>.`);
+  throw new SpawnRefusalError(`spawn refused: would put tab ${tab} at ${occupied + requested}/${cap} agents (${occupied} placed + ${requested} requested; fleet.max_agents_per_tab). Open another tab: orch spawn <name>... --tab <tab>.`);
 }
 
 export function assertSpawnCapacity(
@@ -146,8 +146,8 @@ export async function assertNewSpaceGranted(services: DaemonClient, settings: Sp
   if (admitted.granted) return;
   die(`orch is not running inside a ${backend.id} space, so this spawn would open a NEW ${backend.id} space.\n`
     + `Ask the user to approve it in another terminal:\n\n    orch grant ${admitted.requestId}\n\n`
-    + `then retry this exact command. Or pass --space <id> to place the fleet in an open space,`
-    + ` or drop --backend and pass --prompt to launch headless with no space at all.`);
+    + `then retry this exact command. Or pass --space <space> to place the fleet in an open space,`
+    + ` or drop --plexer and pass --prompt to launch headless with no space at all.`);
 }
 /** Everything that can refuse a spawn, run before it creates anything. A refused
  *  spawn leaves no handle, no worktree and no queue entry. Returns the settings the

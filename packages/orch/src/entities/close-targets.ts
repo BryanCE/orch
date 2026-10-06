@@ -1,7 +1,8 @@
 import { getBackend } from "../backends/registry.ts";
 import { lifecycleResolutionFor } from "./lifecycle.ts";
 import { addressOf, indexPresenceById } from "./lookup.ts";
-import { callerAuthority, refuseClose } from "../policy/close-authority.ts";
+import { callerAuthority, refuseClose, sweeps } from "../policy/close-authority.ts";
+import { callerKindOf } from "../policy/caller.ts";
 import { selfIdentityOf } from "../identity/self.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { currentProcess } from "../store/interval-rows.ts";
@@ -13,6 +14,7 @@ import type { OrchSettings } from "../types/settings.ts";
 /** One agent a close may end, as orchd answers it: the backend by id, the handle, the recorded process. */
 export interface CloseTargetWire {
   readonly key: string;
+  readonly name: string;
   readonly backendId: string | null;
   readonly handle: string | null;
   readonly recorded: RecordedProcess | null;
@@ -69,6 +71,7 @@ function sweptCloseTargets(
       backendId,
       handle,
       key: address,
+      name: view.name ?? address,
       recorded: recordedProcess(orchDir, address),
       // Unknown inventory still permits a real recorded handle to be handed to
       // the plexer; a null handle is never replaced with the agent id.
@@ -93,6 +96,7 @@ function namedCloseTargets(
       backendId: resolved.backendId,
       handle,
       key: resolved.key,
+      name: resolved.view?.name ?? resolved.entity.name ?? resolved.key,
       recorded: recordedProcess(orchDir, resolved.key),
       // A pane-capable backend's stale registry row may outlive its pane. Do
       // not invoke a provider with an opaque identity handle in that case.
@@ -110,16 +114,17 @@ export function closeTargetsFor(
   all: boolean,
   warn: (address: string, backendId: string | null) => void,
 ): { targets: CloseTargetWire[]; refusal: string | null } {
-  const authority = callerAuthority(selfIdentityOf(orchDir, credential));
+  const self = selfIdentityOf(orchDir, credential);
+  const authority = callerAuthority(callerKindOf(orchDir, credential), self);
+  if (authority === null) return { targets: [], refusal: "cannot close: this caller is not the human and has no orch row. Run orch whoami to register it, then retry." };
   const named = namedCloseTargets(orchDir, settings, credential, positional);
   const refusal = named
     .map((target) => refuseClose(orchDir, authority, target.key))
     .find((reason) => reason !== null) ?? null;
   if (refusal !== null) return { targets: [], refusal };
-  // A sweep skips what is not the caller's; a named target is refused.
-  const swept = all
-    ? sweptCloseTargets(orchDir, settings, credential, warn)
-      .filter((target) => refuseClose(orchDir, authority, target.key) === null)
+  // A sweep takes only the caller's own tree, the human's too; a named target is refused when not the caller's.
+  const swept = all && self !== null
+    ? sweptCloseTargets(orchDir, settings, credential, warn).filter((target) => sweeps(orchDir, self.id, target.key))
     : [];
   return { targets: [...swept, ...named], refusal: null };
 }

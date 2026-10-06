@@ -17,7 +17,7 @@ function fixture(): OrchDir {
   db.insert(plexers).values({ id: "herdr", name: "herdr", enabledAt: null }).run();
   db.insert(hosts).values({ id: "h", name: "host", os: "linux", createdAt: 0 }).run();
   db.insert(spaces).values({ id: "s", name: "space", createdBy: null, createdAt: 0 }).run();
-  db.insert(agents).values({ id: "a", spawnedBy: null, rootAgentId: "a", harnessId: "pi", cwd: "/", name: "a", label: null, createdAt: 0 }).run();
+  db.insert(agents).values({ id: "a", spawnedBy: null, rootAgentId: "a", harnessId: "pi", cwd: "/", name: "a", label: null, kind: "session", createdAt: 0 }).run();
   return dir;
 }
 

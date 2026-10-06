@@ -5,6 +5,8 @@ import { firstNonEmptyText } from "../target.ts";
 import { viewForKey } from "../../entities/lookup.ts";
 import { collapse } from "../../util.ts";
 import { displayStatusState } from "./options.ts";
+import { ownsAgent } from "../../policy/close-authority.ts";
+import type { OrchDir } from "../../types/core.ts";
 import type { LeaseFacts } from "../../agent/drive-state.ts";
 import type { AgentAdapter, SessionView } from "../../types/adapter.ts";
 import type { AgentView } from "../../types/store.ts";
@@ -139,11 +141,30 @@ export function fleetNames(rows: readonly StatusRow[], views: ReadonlyMap<string
   return { agents, spaces: spaceNames };
 }
 
+/** The stored process an agent row runs as, and the host it runs on. */
+export interface RowProcess {
+  readonly pid: number;
+  readonly host: string | undefined;
+}
+
+/** What orch stored when it made the row: its kind, its creation instant, and the process it runs as. */
+function storedFacts(agent: AgentView | undefined, process: RowProcess | undefined): Pick<StatusRow, "kind" | "createdAt" | "pid" | "host"> {
+  return {
+    kind: agent?.kind ?? null,
+    createdAt: agent?.createdAt ?? null,
+    pid: process?.pid ?? null,
+    ...(process?.host === undefined ? {} : { host: process.host }),
+  };
+}
+
 export function statusRowFromEntity(
   entity: Entity,
   views: ReadonlyMap<string, AgentView>,
   leaseFacts: LeaseFacts,
   questionOf: (agentId: string) => string | undefined,
+  processOf: (agentId: string) => RowProcess | undefined,
+  orchDir: OrchDir,
+  caller: string | null,
 ): StatusRow {
   const pres = entity.presence;
   const adapter = getAdapter(viewForKey(views, entity.key)?.harnessId ?? entity.agent ?? "");
@@ -158,6 +179,8 @@ export function statusRowFromEntity(
     rootAgentId: agent?.rootAgentId ?? null,
     paneId: entity.paneId,
     managed: entity.managed,
+    owned: caller === null ? entity.managed : ownsAgent(orchDir, caller, entity.key),
+    ...storedFacts(agent, processOf(entity.key)),
     name: agent?.name ?? (entity.managed === false ? null : entity.name),
     tab: entity.tabLabel,
     agent: entity.agent,
@@ -184,7 +207,7 @@ export function statusRowFromEntity(
 
 export function warningStatusRow(host: string, warning: string): StatusRow {
   return {
-    key: `warning:${host}`, paneId: null, managed: false, name: "WARNING", lease: null, leaseKnown: false,
+    key: `warning:${host}`, paneId: null, managed: false, owned: false, kind: null, createdAt: null, pid: null, name: "WARNING", lease: null, leaseKnown: false,
     spawnedBy: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
     focused: false, model: "", state: "warning", stateFallback: false,
     exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,

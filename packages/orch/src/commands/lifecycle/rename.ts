@@ -1,22 +1,28 @@
 import { isAgentId } from "../../backends/identity.ts";
 import { assertNameFree } from "../../policy/name.ts";
-import { errorMessage } from "../../util.ts";
+import { ARROW, errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
 import { readFleet } from "../fleet.ts";
 import { admissionFleet } from "../spawn/admission.ts";
-import { resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
+import { displayName, resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
 import { whoAmI } from "../self.ts";
 import { lifecycleLogger } from "./index.ts";
 import { describeHandle } from "../../backends/backend.ts";
 import { die } from "../target.ts";
 import { parseCommand } from "../registry.ts";
+import { usageError } from "../../cli/usage.ts";
 import type { Backend, BackendHandle } from "../../types/backend.ts";
 import type { AgentView } from "../../types/store.ts";
 import type { Services } from "../../types/services.ts";
 
-interface ChromeOutcome {
+export interface ChromeOutcome {
   readonly chrome: "renamed" | "none" | "failed";
   readonly chromeError: string | null;
+}
+
+export function renamedLine(oldName: string, newName: string, outcome: ChromeOutcome): string {
+  const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
+  return `Renamed ${oldName} ${ARROW} ${newName}${chrome}.`;
 }
 
 /**
@@ -32,7 +38,7 @@ interface ChromeOutcome {
  * whose failure is reported and never rewrites whether the rename happened
  * The response states the two outcomes separately.
  */
-async function renameAgent(
+export async function renameAgent(
   services: Pick<Services, "orchDir" | "settings" | "logger">,
   backend: Backend,
   handle: BackendHandle,
@@ -67,17 +73,44 @@ async function renameAgent(
   }
 }
 
+function writeRenameOutput(
+  targetName: string,
+  handle: BackendHandle,
+  key: string,
+  name: string,
+  paneLabel: boolean,
+  json: boolean,
+  outcome: ChromeOutcome,
+  view: AgentView | null,
+): void {
+  if (json) {
+    process.stdout.write(JSON.stringify({
+      target: describeHandle(handle), key, name, paneLabel, renamed: true,
+      chrome: outcome.chrome, chromeError: outcome.chromeError,
+    }) + "\n");
+  } else if (!paneLabel && view !== null) {
+    process.stdout.write(`${renamedLine(targetName, name, outcome)}\n`);
+  } else {
+    const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
+    process.stdout.write(paneLabel
+      ? `Set ${targetName}'s pane label to "${name}"${chrome}.\n`
+      : `${describeHandle(handle)} ${ARROW} named "${name}"${chrome}.\n`);
+  }
+}
+
 export async function cmdRename(services: Services, args: string[]): Promise<void> {
-  const { flags, positional } = parseCommand("rename", args);
+  const invocation = parseCommand("rename", args);
+  const { flags, positional } = invocation;
   const paneLabel = flags.has("--pane");
   const json = flags.has("--json");
-  const force = flags.has("--force");
+  const steal = flags.has("--steal");
   const target = positional[0];
   const name = positional[1];
-  if (!target || !name) die("usage: orch rename <target> <name> [--pane] [--force]");
+  if (!target || !name) throw usageError(invocation);
   const self = await whoAmI(services);
   const resolved = await resolveLifecycle(services, target);
-  refuseForeignHolder(self, target, resolved, force);
+  const targetName = resolved.view === null ? describeHandle(resolved.handle) : displayName(resolved.view.name, resolved.key);
+  refuseForeignHolder(self, target, resolved, steal);
   const { backend, handle, key } = resolved;
   // Renaming an agent moves a label only: orch's registry owns the name, the
   // identity key never changes, and every session/daemon route survives it.
@@ -94,14 +127,8 @@ export async function cmdRename(services: Services, args: string[]): Promise<voi
   } catch (error: unknown) {
     die(`orch rename: ${errorMessage(error)}`);
   }
-  if (!outcome) die(`Could not rename ${describeHandle(handle)}.`);
-  if (json) {
-    process.stdout.write(JSON.stringify({
-      target: describeHandle(handle), key, name, paneLabel, renamed: true,
-      chrome: outcome.chrome, chromeError: outcome.chromeError,
-    }) + "\n");
-  } else {
-    const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
-    process.stdout.write(`${describeHandle(handle)} -> ${paneLabel ? "pane label" : "named"} "${name}"${chrome}.\n`);
+  if (!outcome) {
+    die(`Could not rename ${targetName}.`);
   }
+  writeRenameOutput(targetName, handle, key, name, paneLabel, json, outcome, resolved.view);
 }

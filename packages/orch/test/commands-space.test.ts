@@ -113,7 +113,7 @@ describe("orch space — orch's own grouping", () => {
     const id = spaceIdOf(dir, "Release");
     const db = orm(dir);
     db.run(sql`INSERT INTO harnesses (id,name,enabled_at) VALUES ('pi','pi',NULL)`);
-    db.run(sql`INSERT INTO agents (id,spawned_by,root_agent_id,harness_id,cwd,name,label,created_at) VALUES ('a',NULL,'a','pi','/','a',NULL,0)`);
+    db.run(sql`INSERT INTO agents (id,spawned_by,root_agent_id,harness_id,cwd,name,label,created_at,kind) VALUES ('a',NULL,'a','pi','/','a',NULL,0,'session')`);
     db.run(sql`INSERT INTO agent_spaces (agent_id, since, until, space_id) VALUES ('a', 1, NULL, ${id})`);
     expect(await refusal(env, ["delete", "Release"])).toMatch(/not empty|still/i);
   });

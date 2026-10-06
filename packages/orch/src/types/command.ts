@@ -1,6 +1,6 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
-import type { SpawnerIdentity, ThinkingLevel, WorkerPolicy } from "./policy.ts";
+import type { CallerKind, ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentView } from "./store.ts";
 import type { Entity, LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
@@ -81,7 +81,7 @@ export type ShimBoundaryPlan = ShimBoundaryAnswer | ShimBoundaryInvocation;
 
 /** The four IO steps of the closing smoke round-trip, injected so the orchestration is testable
  * without a live daemon, a model, or a real spawn. Each default is a thin wrapper over the same
- * plumbing `orch spawn`/`orch run`/`orch result` use — the smoke reuses those paths, never
+ * plumbing `orch spawn`/`orch dispatch`/`orch result` use — the smoke reuses those paths, never
  * reimplements them. */
 export interface SmokeSteps {
   /** Spawn one headless agent ON the given prompt and return its identity key; throws when none is recorded. */
@@ -166,8 +166,6 @@ export interface TabSpawnSpec {
    *  letting the launch mint a second one. */
   key?: string;
   env?: Readonly<Record<string, string>>;
-  /** How long the harness waits for orchd to accept a report, in milliseconds. */
-  reportTimeoutMs?: number;
   tools?: string;
   /** What this worker may load; absent lets the adapter apply no policy. */
   workers?: WorkerPolicy;
@@ -175,8 +173,8 @@ export interface TabSpawnSpec {
   cmd?: string;
   worktree?: string;
   branch?: string;
-  /** Identity of the session performing this launch. */
-  spawner: SpawnerIdentity;
+  /** The launching agent's id; null for an unregistered caller. */
+  spawner: string | null;
   /** Owner lease for the launched agent. */
   owner: string | undefined;
 }
@@ -201,6 +199,13 @@ export interface StatusRow extends LeaseStatusPayload {
   paneId: string | null;
   /** False for panes orch did not spawn (the orchestrator's own, the user's). */
   managed: boolean;
+  readonly owned: boolean;
+  /** How the agent row came to be; null for a pane orch holds no row for. */
+  kind: CallerKind | null;
+  /** When orch made the agent row; null for a pane orch holds no row for. */
+  createdAt: number | null;
+  /** The process orch keys the agent's liveness on, from the store. */
+  pid: number | null;
   name: string | null;
   tab: string | null;
   agent: string | null;
@@ -292,8 +297,6 @@ export interface SpawnPlacement {
 export interface SpawnPlacementRequest {
   readonly services: DaemonClient;
   readonly backend: Backend;
-  /** Identity of the session performing this placement. */
-  readonly spawner?: SpawnerIdentity;
   /** The space the caller named, or null. Never invented here. */
   readonly space: string | null;
   /** The agent at the root of this fleet's provenance tree — what

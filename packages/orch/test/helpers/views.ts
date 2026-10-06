@@ -20,6 +20,7 @@ export function agentViewFixture(id: string, overrides: AgentViewFixtureOverride
     harnessId: "pi",
     cwd: "/repo",
     createdAt: 1,
+    kind: "agent",
     spawnedBy: null,
     spawnedByName: null,
     rootAgentId: id,

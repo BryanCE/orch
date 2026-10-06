@@ -12,6 +12,7 @@ import { presenceAgentDir } from "../src/presence/history.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { adoptAgent, detachAgent, leasedAgents, renameTarget, resolveTarget } from "../src/daemon/server/handlers/lease.ts";
 import { resolveSpawnNames } from "../src/commands/spawn/names.ts";
+import { parseCommand } from "../src/commands/registry.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
@@ -63,7 +64,7 @@ describe("C3 foreign agents are untouchable", () => {
     const dir = fixture();
     live(dir, "orch-a");
     agent(dir, "caller-orch");
-    agent(dir, "worker", "worker");
+    agent(dir, "worker", "worker", "orch-a");
     acquireLease(dir, "worker", "orch-a", 2);
     // dispatch / steer / model / reset all reach the same daemon gate.
     expect(() => governWrite(daemonState(dir), "worker", { actor: "caller-orch" }))
@@ -79,7 +80,7 @@ describe("C3 foreign agents are untouchable", () => {
     const dir = fixture();
     dead(dir, "zombie-orch");
     agent(dir, "caller-orch");
-    agent(dir, "worker", "worker");
+    agent(dir, "worker", "worker", "zombie-orch");
     acquireLease(dir, "worker", "zombie-orch", 2);
     expect(() => governWrite(daemonState(dir), "worker", { actor: "caller-orch" })).not.toThrow();
     expect(adoptAgent(dir, "worker", "caller-orch")).toMatchObject({ adopted: true });
@@ -111,7 +112,7 @@ describe("C4 steal", () => {
     const dir = fixture();
     live(dir, "live-orch");
     agent(dir, "new-orch");
-    agent(dir, "worker", "worker");
+    agent(dir, "worker", "worker", "live-orch");
     acquireLease(dir, "worker", "live-orch", 2);
     expect(() => adoptAgent(dir, "worker", "new-orch")).toThrow(/leased by live orch/);
     expect(adoptAgent(dir, "worker", "new-orch", { steal: true, now: 3 })).toMatchObject({ adopted: true });
@@ -209,7 +210,7 @@ describe("C4c/C4d name resolution", () => {
 // C4e - spawning requires a name; a self-registering session mints its own.
 describe("C4e naming at creation", () => {
   test("a nameless spawn is refused", () => {
-    expect(() => resolveSpawnNames([])).toThrow(/must be named at creation/);
+    expect(() => resolveSpawnNames(parseCommand("spawn", []), [])).toThrow(/must be named at creation/);
   });
 
   test("a self-registering session gets <harness>-<first 8 of its id>", () => {
@@ -259,7 +260,7 @@ describe("C5 a transfer does not disturb the agent", () => {
     process.env.ORCH_DIR = dir;
     dead(dir, "old-orch");
     agent(dir, "new-orch");
-    agent(dir, "worker", "worker");
+    agent(dir, "worker", "worker", "old-orch");
     orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"worker"},${1},${"host"},${424242},${"worker-token"})`);
     const statusPath = join(presenceAgentDir("worker", dir), "status.json");
     mkdirSync(presenceAgentDir("worker", dir), { recursive: true });

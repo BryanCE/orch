@@ -19,6 +19,7 @@ function view(id: string, name: string, handle: string | null = null): AgentView
     harnessId: "pi",
     cwd: "/repo",
     createdAt: 1,
+    kind: "agent",
     spawnedBy: null, spawnedByName: null,
     rootAgentId: id,
     heldBy: null,

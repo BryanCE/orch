@@ -9,11 +9,12 @@ import { adapterCommand, admitLaunchModel } from "../spawn/models.ts";
 import { resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { readRpc, writeRpc } from "../daemon.ts";
 import { die } from "../target.ts";
-import { resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
+import { resolveLifecycle, refuseForeignHolder, targetName } from "../resolve.ts";
 import { NO_TUNING } from "../../policy/tuning.ts";
 import { whoAmI, type CallerSelf } from "../self.ts";
 import { lifecycleLogger, lifecycleTargets } from "./index.ts";
 import { parseCommand } from "../registry.ts";
+import { usageError } from "../../cli/usage.ts";
 import { describeHandle } from "../../backends/backend.ts";
 import type { Backend, ForegroundProcesses } from "../../types/backend.ts";
 import type { AgentAdapter, LifecycleVerb } from "../../types/adapter.ts";
@@ -138,12 +139,12 @@ interface PlannedReload {
 /** Resolve every target BEFORE touching a shim: an unresolvable target must not
  *  leave a redeployed integration behind, and the refresh can only be scoped to
  *  the harnesses in play once they are known. */
-async function planReloads(services: LifecycleServices, self: CallerSelf, targets: readonly string[], force: boolean, results: ReloadResult[]): Promise<PlannedReload[]> {
+async function planReloads(services: LifecycleServices, self: CallerSelf, targets: readonly string[], steal: boolean, results: ReloadResult[]): Promise<PlannedReload[]> {
   const planned: PlannedReload[] = [];
   for (const target of targets) {
     try {
       const resolved = await resolveLifecycle(services, target);
-      refuseForeignHolder(self, target, resolved, force);
+      refuseForeignHolder(self, target, resolved, steal);
       const harness = resolved.view?.harnessId;
       if (!harness) throw new Error(`Target "${target}" has no recorded harness - cannot determine its reload mechanism`);
       const adapter = resolveAdapterOrDie(harness);
@@ -196,9 +197,9 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
   // `--all` is a valid invocation even with zero live agents: it still touches
   // reload.signal (SIGNALED) for settings/extension watchers. Only a bare call
   // with neither --all nor a target is a usage error.
-  if (!all && !targets.length) die("usage: orch reload <target>... | --all [--json]");
+  if (!all && !targets.length) throw usageError(invocation);
   const results: ReloadResult[] = [];
-  const planned = await planReloads(services, self, targets, invocation.flags.has("--force"), results);
+  const planned = await planReloads(services, self, targets, invocation.flags.has("--steal"), results);
   // A reload exists to pick up new code, so stale deployments redeploy first —
   // but only for the harnesses being reloaded. `orch reload <pi agent>` has no
   // business rewriting another harness's integration.
@@ -225,12 +226,13 @@ function restartLaunchCommand(resolved: HeldLifecycleTarget, cmd: string | null,
 
 /** Restart one target. A detached agent has no shell to type a quit into, so the
  *  daemon rules on what restart means for it. */
-async function restartOneTarget(services: LifecycleServices, self: CallerSelf, target: string, cmd: string | null, flags: { json: boolean; force: boolean }): Promise<boolean> {
+async function restartOneTarget(services: LifecycleServices, self: CallerSelf, target: string, cmd: string | null, flags: { json: boolean; steal: boolean }): Promise<boolean> {
   const { logger } = services;
   const settings = services.settings.current();
   const resolved = await resolveLifecycle(services, target);
-  refuseForeignHolder(self, target, resolved, flags.force);
+  refuseForeignHolder(self, target, resolved, flags.steal);
   const { entity: ent, backend, handle } = resolved;
+  const name = targetName(resolved);
   const harness = resolved.view?.harnessId;
   if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
   const adapter = resolveAdapterOrDie(harness);
@@ -241,27 +243,27 @@ async function restartOneTarget(services: LifecycleServices, self: CallerSelf, t
   if (!backend.agentInput) {
     const restarted = await lifecycleThroughDaemon(services, "restart", ent.key, describeHandle(handle));
     if (restarted.ok) {
-      if (!flags.json) process.stdout.write(`${restarted.handle}: bridge live.\n`);
+      if (!flags.json) process.stdout.write(`${name}: bridge live.\n`);
       return true;
     }
     const reason = restarted.reason ?? "restart failed";
     lifecycleLogger(logger, ent.key).error("lifecycle.restart-failed", { handle: String(restarted.handle), error: reason });
-    process.stdout.write(`${restarted.handle}: ${reason}\n`);
+    process.stdout.write(`${name}: ${reason}\n`);
     return false;
   }
   const launch = restartLaunchCommand(resolved, cmd, harness, adapter, settings, services.models);
-  if (!flags.json) process.stdout.write(`Restarting ${describeHandle(handle)} (${launch})...\n`);
+  if (!flags.json) process.stdout.write(`Restarting ${name} (${launch})...\n`);
   if (!await restartAgentAndAwaitBridge(services, logger, backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
-  if (!flags.json) process.stdout.write(`${describeHandle(handle)}: bridge live.\n`);
+  if (!flags.json) process.stdout.write(`${name}: bridge live.\n`);
   return true;
 }
 export async function cmdRestart(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("restart", args);
   const json = invocation.flags.has("--json");
-  const flags = { json, force: invocation.flags.has("--force") };
+  const flags = { json, steal: invocation.flags.has("--steal") };
   const self = await whoAmI(services);
   const { targets } = await lifecycleTargets(services, self, invocation);
-  if (!targets.length) die("usage: orch restart <target>... | --all [--cmd pi] [--json]");
+  if (!targets.length) throw usageError(invocation);
   const cmd = invocation.flags.value("--cmd") ?? null;
   const results: ReloadResult[] = [];
   let ok = 0;

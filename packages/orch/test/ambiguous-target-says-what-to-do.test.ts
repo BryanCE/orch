@@ -26,7 +26,7 @@ const presence = (key: string, alive: boolean): PresenceEntry => ({ key, status:
 
 function view(id: string, name: string): AgentView {
   return {
-    id, name, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1,
+    id, name, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1, kind: "agent",
     spawnedBy: null, spawnedByName: null, rootAgentId: id, heldBy: null,
     environment: { plexer: null, handle: null, space: null, worktree: null, branch: null },
     tuning: { model: null, thinking: null },
@@ -37,8 +37,8 @@ function view(id: string, name: string): AgentView {
 describe("an ambiguous target names the failure and the way out (U3)", () => {
   test("the message names the failure, the target string, and every candidate", () => {
     const message = ambiguousTargetRefusal("port-roles", [
-      { key: "keyaagent1", detail: "fix" },
-      { key: "keybagent1", detail: null },
+      { key: "keyaagent1", name: "worker", detail: "fix" },
+      { key: "keybagent1", name: "worker", detail: null },
     ]).message;
 
     expect(message).toContain("Ambiguous target");
@@ -47,19 +47,20 @@ describe("an ambiguous target names the failure and the way out (U3)", () => {
     expect(message).toContain('"port-roles"');
     expect(message).toContain("keyaagent1");
     expect(message).toContain("keybagent1");
-    // What was ambiguous about each is kept - it is how a human picks.
-    expect(message).toContain("fix");
+    // Names lead; keys distinguish agents that share a name.
+    expect(message).toContain("worker (keyaagent1)  (fix)");
+    expect(message).toContain("worker (keybagent1)");
   });
 
   test("it says what to send instead, so the caller is not left guessing", () => {
     // The whole of U3: the old output was a list and nothing else, so it read as
     // a listing command's answer rather than as a refused command.
-    const message = ambiguousTargetRefusal("port-roles", [{ key: "keyaagent1", detail: null }]).message;
+    const message = ambiguousTargetRefusal("port-roles", [{ key: "keyaagent1", name: "worker", detail: null }]).message;
     expect(message).toContain("address it by its key");
   });
 
   test("it is a refusal, not an exit — the caller can act on it", () => {
-    expect(ambiguousTargetRefusal("x", [{ key: "keyaagent1", detail: null }])).toBeInstanceOf(CommandRefusal);
+    expect(ambiguousTargetRefusal("x", [{ key: "keyaagent1", name: "worker", detail: null }])).toBeInstanceOf(CommandRefusal);
   });
 
   test("resolveAgentView raises that same one message", () => {

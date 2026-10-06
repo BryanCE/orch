@@ -8,7 +8,7 @@ export type FlagArity = "none" | "one" | "many";
 export interface FlagSpec {
   /** The long form, with dashes: `--json`. */
   readonly name: string;
-  /** Other spellings, with their dashes: `-y`, or `--adapter` for `--agent`. */
+  /** Other spellings, with their dashes: `-y` for `--yes`. */
   readonly aliases?: readonly string[];
   readonly arity: FlagArity;
   /** Shown after the name in usage and the flag table: `<label>`. Required when the flag takes a value. */
@@ -24,8 +24,11 @@ export interface CommandSpec {
   readonly aliases?: readonly string[];
   /** The block of the `orch help` map this command prints in. A subcommand has none. */
   readonly section?: HelpSection;
-  /** The synopsis line: `orch spawn <name>... [--tab <label>]`. */
-  readonly usage: string;
+  /**
+   * The positional grammar after the command words: `<target>... | --all`. A flag named here is not
+   * repeated in the usage line. Omitted on a parent, it is its subcommand words: `<add|list>`.
+   */
+  readonly args?: string;
   /** The one line the `orch help` map prints. */
   readonly summary: string;
   readonly flags: readonly FlagSpec[];

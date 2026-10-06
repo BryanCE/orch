@@ -1,10 +1,12 @@
 import { spaceName as resolveSpaceName, withinSpaceCeiling } from "../../policy/space.ts";
 import type { CallerSelf } from "../self.ts";
-import { die } from "../target.ts";
 import { parseCommand } from "../registry.ts";
+import { usageError } from "../../cli/usage.ts";
+import type { CommandAt } from "../../cli/usage.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { CallerKind } from "../../types/policy.ts";
+import { term } from "../../policy/vocabulary.ts";
 
 export const isTTY = process.stdout.isTTY;
 
@@ -29,44 +31,83 @@ export function callerScope(self: CallerSelf): CallerScope {
   return { id: self.id, ceiling: self.kind === "operator" || self.id === null ? null : self.space, kind: self.kind };
 }
 
-export function scopeFleetRows(
-  rows: readonly StatusRow[],
-  opts: { spaceWide: boolean; allPanes: boolean; states?: ReadonlySet<string>; agent?: string; space?: string; caller?: CallerScope },
-): StatusRow[] {
+export interface FleetScope {
+  all: boolean;
+  /** `--only`: the states a row must be in, or null for every state. */
+  only?: ReadonlySet<string> | null;
+  /** `--hide`: the states whose rows are dropped. */
+  hide?: ReadonlySet<string>;
+  /** The row key `--agent` resolved to; undefined means the fleet. */
+  agentKey?: string;
+  space?: string;
+  caller?: CallerScope;
+}
+
+/** Whether a row's state survives `--only` and `--hide`. */
+function keepsState(row: StatusRow, only: ReadonlySet<string> | null | undefined, hide: ReadonlySet<string> | undefined): boolean {
+  const state = displayStatusState(row);
+  if (only != null && !only.has(state)) return false;
+  return hide?.has(state) !== true;
+}
+
+function matchesRequestedRow(row: StatusRow, opts: FleetScope): boolean {
+  return (opts.space === undefined || row.spaceId === opts.space)
+    && (opts.agentKey === undefined || row.key === opts.agentKey);
+}
+
+function belongsToCallerFleet(row: StatusRow, opts: FleetScope, caller: CallerScope): boolean {
+  return (opts.all || row.managed)
+    && withinSpaceCeiling(row.spaceId, caller.ceiling)
+    && (opts.all || row.owned);
+}
+
+function isCurrentFleetRow(row: StatusRow, opts: FleetScope, caller: CallerScope): boolean {
+  // The table is the fleet as it is NOW. An agent that has exited is history —
+  // `orch result` and `orch tail` still read it — and keeping every dead one
+  // that ever recorded a line buried ten working agents under thirty corpses.
+  // Naming one agent in `--agent` is how you ask for it back.
+  return opts.agentKey !== undefined || row.key === caller.id || (row.alive && !row.exited);
+}
+
+function keepsFleetRow(row: StatusRow, opts: FleetScope, caller: CallerScope): boolean {
+  return matchesRequestedRow(row, opts)
+    && belongsToCallerFleet(row, opts, caller)
+    && keepsState(row, opts.only, opts.hide)
+    && isCurrentFleetRow(row, opts, caller);
+}
+
+export function scopeFleetRows(rows: readonly StatusRow[], opts: FleetScope): StatusRow[] {
   const caller: CallerScope = opts.caller ?? { id: null, ceiling: null, kind: "operator" };
-  return rows.filter((row) => {
-    if (opts.space !== undefined && row.spaceId !== opts.space) return false;
-    if (opts.agent !== undefined && !statusRowMatches(row, opts.agent)) return false;
-    if (!opts.allPanes && !row.managed) return false;
-    if (!withinSpaceCeiling(row.spaceId, caller.ceiling)) return false;
-    if (caller.kind !== "operator" && !opts.spaceWide && (caller.id === null || row.lease?.holderId !== caller.id)) return false;
-    if (opts.states?.has(displayStatusState(row))) return false;
-    // The table is the fleet as it is NOW. An agent that has exited is history —
-    // `orch result` and `orch tail` still read it — and keeping every dead one
-    // that ever recorded a line buried ten working agents under thirty corpses.
-    // Naming one agent in `--agent` is how you ask for it back.
-    return opts.agent !== undefined || (row.alive && !row.exited);
-  });
+  return rows.filter((row) => keepsFleetRow(row, opts, caller))
+    .sort((left, right) => Number(right.key === caller.id) - Number(left.key === caller.id));
 }
 
-/** `--agent=<name|id>`: the row's minted id, presence key, name, or current handle. */
-export function statusRowMatches(row: StatusRow, target: string): boolean {
-  return row.agentId === target || row.key === target || row.name === target || row.paneId === target;
+export function ownsLiveWorker(rows: readonly StatusRow[], callerId: string | null): boolean {
+  return rows.some((row) => row.owned && row.key !== callerId && row.alive && !row.exited);
 }
 
-export function formatNoRowsMessage(info: { agentsSeen: number; alive: number; backendAnswered: boolean }): string {
-  const backend = info.backendAnswered ? "; backend answered: yes" : "";
-  return `No agents found (agent records seen: ${info.agentsSeen}; alive: ${info.alive}${backend}).\n`;
+export function callerNameLabel(name: string, row: StatusRow, callerId: string | null, ownsOthers: boolean): string {
+  return row.key === callerId ? `${name} (you${ownsOthers ? `, ${term("orch")}` : ""})` : name;
+}
+
+export function formatNoRowsMessage(info: { otherLive: number }): string {
+  const singular = info.otherLive === 1;
+  const noun = singular ? "live agent" : "live agents";
+  const verb = singular ? "belongs" : "belong";
+  return `you hold 0; ${info.otherLive} ${noun} ${verb} to other ${term("orch")}s\n`;
 }
 
 export function displayStatusState(row: Pick<StatusRow, "state" | "alive" | "exited">): string {
   return row.exited || !row.alive ? "exited" : row.state;
 }
 
-/** `--filter=a,b`: the trimmed names in the list, lower-cased. Empty when the caller named none. */
-function parseNameList(list: string | undefined): string[] {
-  if (list === undefined) return [];
-  return list.split(",").map((name) => name.trim().toLowerCase()).filter((name) => name.length > 0);
+/** `--hide=a,b`: the trimmed names in the list, lower-cased; null when the flag is absent.
+ *  A list that names nothing selects nothing, so it is a typo and refused. */
+export function readNameList(invocation: CommandAt, flag: string, list: string | undefined): readonly string[] | null {
+  if (list === undefined) return null;
+  const names = list.split(",").map((name) => name.trim().toLowerCase()).filter((name) => name.length > 0);
+  if (names.length === 0) throw usageError(invocation, `${flag} names nothing`);
+  return names;
 }
 
 /** Every table column by its lower-cased header, with the JSON row keys that carry the same fact. */
@@ -90,16 +131,16 @@ const STATUS_COLUMN_KEYS: Readonly<Record<string, readonly (keyof StatusRow)[]>>
   last: ["lastText"],
 };
 
-export interface StatusFilter {
+export interface StatusHide {
   columns: ReadonlySet<string>;
   states: ReadonlySet<string>;
 }
 
-export const NO_STATUS_FILTER: StatusFilter = { columns: new Set(), states: new Set() };
+export const NO_STATUS_HIDE: StatusHide = { columns: new Set(), states: new Set() };
 
-/** `--filter=owner,env,done`: a column name drops that column; any other name drops rows in that state. */
-function parseStatusFilter(list: string | undefined): StatusFilter {
-  const names = parseNameList(list);
+/** `--hide=owner,env,done`: a column name drops that column; any other name drops rows in that state. */
+function statusHide(names: readonly string[] | null): StatusHide {
+  if (names === null) return NO_STATUS_HIDE;
   return {
     columns: new Set(names.filter((name) => name in STATUS_COLUMN_KEYS)),
     states: new Set(names.filter((name) => !(name in STATUS_COLUMN_KEYS))),
@@ -114,22 +155,25 @@ export function filterRowKeys(row: StatusRow, columns: ReadonlySet<string>): Par
   return visible;
 }
 
-/** `--agent=<name|id>`: one agent to show, whatever its state. */
-function parseAgentTarget(given: string | undefined): string | undefined {
+/** `--agent=<target>`: one agent to show, whatever its state. orchd resolves it, so `--offline` cannot. */
+function readAgentTarget(invocation: CommandAt, given: string | undefined, offline: boolean): string | undefined {
   const target = given?.trim();
   if (target === undefined) return undefined;
-  if (target.length === 0) die("--agent needs a name or id, e.g. --agent=ctx-edges");
+  if (target.length === 0) throw usageError(invocation, "--agent needs a target, e.g. --agent=ctx-edges");
+  if (offline) throw usageError(invocation, "--agent resolves through orchd; drop --offline");
   return target;
 }
 
 export interface StatusOptions {
   json: boolean;
   human: boolean;
-  spaceWide: boolean;
-  allPanes: boolean;
-  /** The columns and states `--filter` removes; both empty by default. */
-  filter: StatusFilter;
-  /** The one agent named with `--agent`, by name or id; undefined means the fleet. */
+  /** `--all`: the other orchs' agents in the caller's space, and panes orch did not spawn. */
+  all: boolean;
+  /** The states `--only` keeps, or null for every state. */
+  only: ReadonlySet<string> | null;
+  /** The columns and states `--hide` removes; both empty by default. */
+  hide: StatusHide;
+  /** The target named with `--agent`, still unresolved; undefined means the fleet. */
   agent?: string;
   local: boolean;
   offline: boolean;
@@ -139,16 +183,18 @@ export interface StatusOptions {
 }
 
 export function parseStatusOptions(args: readonly string[]): StatusOptions {
-  const { command, flags, positional } = parseCommand("status", args);
-  if (positional.length) die(`usage: ${command.usage}`);
-  const agent = parseAgentTarget(flags.value("--agent"));
+  const invocation = parseCommand("status", args);
+  const { flags, positional } = invocation;
+  if (positional.length) throw usageError(invocation);
+  const agent = readAgentTarget(invocation, flags.value("--agent"), flags.has("--offline"));
+  const only = readNameList(invocation, "--only", flags.value("--only"));
   const space = flags.value("--space");
   return {
     json: flags.has("--json"),
     human: flags.has("--human"),
-    spaceWide: flags.has("--space-wide"),
-    allPanes: flags.has("--all-panes"),
-    filter: parseStatusFilter(flags.value("--filter")),
+    all: flags.has("--all"),
+    only: only === null ? null : new Set(only),
+    hide: statusHide(readNameList(invocation, "--hide", flags.value("--hide"))),
     ...(agent === undefined ? {} : { agent }),
     local: flags.has("--local"),
     offline: flags.has("--offline"),

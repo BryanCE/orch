@@ -167,6 +167,9 @@ export interface PeerViewPeer {
   name: string;
   harness: string;
   spawnedBy: string | null;
+  spawnedByName: string | null;
+  worktree: string | null;
+  branch: string | null;
   status: PeerStatus | null;
   result: string | null;
 }

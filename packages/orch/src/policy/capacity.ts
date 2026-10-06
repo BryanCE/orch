@@ -45,7 +45,7 @@ function presenceAliveViews(
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
 ): readonly AgentView[] {
-  return [...views.values()].filter((view) => presence.get(view.id)?.alive === true);
+  return [...views.values()].filter((view) => view.endedAt === null && presence.get(view.id)?.alive === true);
 }
 
 /** Live agents grouped by orch space. Agents without a space are not in a space. */
@@ -137,7 +137,7 @@ export function computeFleetCapacity(
 
 /** Render the compact capacity summary used by command output: one entry per pack, the caller's first. */
 export function formatCapacityLine(capacity: FleetCapacity, selfId: string | undefined): string {
-  const packs = [...capacity.packs];
+  const packs = capacity.packs.filter((pack) => pack.root.id === selfId || pack.used > 1);
   packs.sort((left, right) => {
     const leftSelf = left.root.id === selfId;
     const rightSelf = right.root.id === selfId;

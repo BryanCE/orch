@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { assertStoreRecreatable, databasePath, livePresenceHolders, storeFiles } from "../../src/store/connection.ts";
 import { errorMessage } from "../../src/util.ts";
+import { provenDaemonPid, terminateDaemon } from "../../src/daemon/client/process.ts";
 import { buildStore, reportStore } from "./build.ts";
 import { targetStoreDir } from "./store.ts";
 
@@ -52,14 +53,11 @@ function restoreStore(copies: readonly StoreCopy[]): void {
 
 
 // One guard for every rebuild of this store, wherever it is asked from: a slave
-// never rebuilds it at all, and nobody rebuilds it under a live worker. A live
-// driving session re-registers on its next command, so `--with-sessions` lets
-// the user rebuild under their own sessions without closing them.
-const withSessions = process.argv.includes("--with-sessions");
+// never rebuilds it at all, and nobody rebuilds it under a live worker.
 const holders = livePresenceHolders(ORCH_DIR);
 if (!isDryRun) {
   try {
-    assertStoreRecreatable(ORCH_DIR, { withSessions });
+    assertStoreRecreatable(ORCH_DIR);
   } catch (error: unknown) {
     process.stderr.write(`${errorMessage(error)}\n`);
     process.exit(1);
@@ -67,8 +65,10 @@ if (!isDryRun) {
 }
 
 const present = STORE_FILES.filter((file) => existsSync(file));
+const daemonPid = provenDaemonPid(ORCH_DIR);
 
 if (isDryRun) {
+  if (daemonPid !== undefined) process.stdout.write(`[dry-run] would stop orchd (pid ${daemonPid})\n`);
   if (present.length) {
     process.stdout.write(`[dry-run] would back up to ${backupPath()}\n`);
     for (const file of STORE_FILES) process.stdout.write(`[dry-run] would remove ${describe(file)}\n`);
@@ -76,14 +76,19 @@ if (isDryRun) {
     process.stdout.write(`[dry-run] nothing to remove: ${STORE} does not exist\n`);
   }
   if (holders.workers.length) process.stdout.write(`[dry-run] WOULD REFUSE: ${holders.workers.length} live worker(s): ${holders.workers.join(", ")}\n`);
-  if (holders.sessions.length) {
-    process.stdout.write(withSessions
-      ? `[dry-run] would rebuild under ${holders.sessions.length} live driving session(s), which re-register on their next command: ${holders.sessions.join(", ")}\n`
-      : `[dry-run] WOULD REFUSE: ${holders.sessions.length} live driving session(s): ${holders.sessions.join(", ")} (pass --with-sessions to rebuild under them)\n`);
+  if (holders.registered.length) {
+    process.stdout.write(`[dry-run] ${holders.registered.length} live terminal(s) and session(s) register again on their next command: ${holders.registered.join(", ")}\n`);
   }
   process.stdout.write(`[dry-run] would rebuild it empty at the current migration.\n`);
   process.stdout.write(`[dry-run] re-run without --dry-run to do it.\n`);
   process.exit(0);
+}
+
+// orchd holds the store open; stopped, it cannot write into the file being replaced.
+// The next orch command starts it on the new store.
+if (daemonPid !== undefined) {
+  await terminateDaemon(daemonPid, 5_000);
+  process.stdout.write(`stopped orchd (pid ${daemonPid})\n`);
 }
 
 const copies = backupStore(backupPath());

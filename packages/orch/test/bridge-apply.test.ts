@@ -13,10 +13,10 @@ interface HarnessCall { content: string; options: { deliverAs?: "steer" | "follo
 
 function fakeContext(): HarnessContext {
   return {
-    hasUI: false,
+    hasUI: true,
     sessionManager: {
       getSessionFile: () => undefined,
-      getSessionId: () => undefined,
+      getSessionId: () => "session-1",
       getBranch: () => [],
     },
     modelRegistry: { find: (provider, id) => ({ provider, id }) },
@@ -68,6 +68,7 @@ function fakeDaemon(): {
     isAcked: (id) => acked.has(id),
     markAcked: (id) => { acked.add(id); },
     ask: () => Promise.resolve(undefined),
+    identify: () => Promise.resolve("agent0001"),
     attach: (key, callback) => {
       attached.push(key);
       onDelivery = callback;
@@ -92,7 +93,7 @@ function fakeDaemon(): {
   };
 }
 
-function presence(daemon: DaemonLink, harness: HarnessApi) {
+async function presence(daemon: DaemonLink, harness: HarnessApi) {
   const orchDir = tempOrchDir("orch-bridge-apply-");
   process.env.ORCH_DIR = orchDir;
   directories.push(orchDir);
@@ -102,8 +103,10 @@ function presence(daemon: DaemonLink, harness: HarnessApi) {
     extensionHash: "test",
     daemon,
   });
-  value.setLastCtx(fakeContext());
-  value.initPresence(true);
+  const ctx = fakeContext();
+  value.setLastCtx(ctx);
+  value.initPresence(ctx);
+  await Promise.resolve();
   return value;
 }
 
@@ -114,10 +117,10 @@ afterEach(() => {
 });
 
 describe("presence bridge delivery", () => {
-  test("applies dispatch before ack, dedupes redelivery, and detaches", () => {
+  test("applies dispatch before ack, dedupes redelivery, and detaches", async () => {
     const { harness, messages } = fakeHarness();
     const link = fakeDaemon();
-    const value = presence(link.daemon, harness);
+    const value = await presence(link.daemon, harness);
     expect(link.attached).toHaveLength(1);
 
     const delivery: BridgeDelivery = { id: "dispatch-1", message: { action: "dispatch", text: "do work" } };
@@ -136,7 +139,7 @@ describe("presence bridge delivery", () => {
   test("applies model deliveries through model control", async () => {
     const { harness, models } = fakeHarness();
     const link = fakeDaemon();
-    const value = presence(link.daemon, harness);
+    const value = await presence(link.daemon, harness);
 
     link.deliveries({ id: "model-1", message: { action: "model", model: "openai/gpt" } });
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
@@ -148,7 +151,7 @@ describe("presence bridge delivery", () => {
   test("resolves matching answers and drops answers for other questions", async () => {
     const { harness } = fakeHarness();
     const link = fakeDaemon();
-    const value = presence(link.daemon, harness);
+    const value = await presence(link.daemon, harness);
 
     const answer = value.answers.await("question-1", undefined);
     link.deliveries({ id: "answer-1", message: { action: "answer", questionId: "question-1", text: "yes" } });

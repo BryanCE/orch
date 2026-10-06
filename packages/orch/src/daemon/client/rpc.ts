@@ -2,11 +2,9 @@ import type { Logger, OrchDir } from "../../types/core.ts";
 import { createConnection, type Socket } from "node:net";
 import { existsSync } from "node:fs";
 import { readPortPath } from "../../presence/socket-client.ts";
-import { launchCredential } from "../../identity/launch.ts";
 import type { EventSubscription } from "../../types/daemon.ts";
 import { daemonResult, type ParamsOf, type ResultOf, type RpcMethod } from "./protocol.ts";
 import { DaemonAbsentError, DaemonUnreachableError, type RpcLine, DEFAULT_TIMEOUT_MS, encodeRequest, endpointPaths, readJsonMessages, responseError } from "./wire.ts";
-import { nonEmpty, sessionClaim } from "./registration.ts";
 import { errorMessage, isRecord } from "../../util.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 
@@ -158,24 +156,6 @@ export async function rpcCall<M extends RpcMethod>(
   }
 }
 
-type IdentityHandshake =
-  | { method: "claim-identity"; params: ParamsOf<"claim-identity"> }
-  | { method: "register-session"; params: ParamsOf<"register-session"> };
-
-/** The identity request a subscribing process sends on each dial, read fresh
- *  because a daemon restart mints a new token. A spawned agent IS the id in its
- *  launch credential: with a session token it claims that id, without one it
- *  sends nothing. Registering it as a session minted a second agent on the same
- *  pane pid at every spawn. Only a session orch never spawned registers. */
-function identityHandshake(orchDir: OrchDir): IdentityHandshake | undefined {
-  const credential = launchCredential();
-  const claim = sessionClaim(orchDir);
-  if (credential === null) return { method: "register-session", params: claim };
-  const sessionToken = nonEmpty(typeof claim.sessionToken === "string" ? claim.sessionToken : undefined);
-  if (sessionToken === undefined) return undefined;
-  return { method: "claim-identity", params: { ...claim, id: credential, sessionToken } };
-}
-
 /**
  * Subscribe to daemon-pushed events, self-healing across daemon restarts. The
  * socket dying is the disconnect signal: on close or error the subscription
@@ -191,7 +171,6 @@ export function subscribeEvents(
   opts: { since?: number; logger?: Logger },
   onEvent: (event: NotifyEvent, seq: number) => void,
   onGap?: (oldestSeq: number) => void,
-  identify = false,
 ): EventSubscription {
   let last = opts.since ?? 0;
   let socket: Socket | undefined;
@@ -255,10 +234,6 @@ export function subscribeEvents(
         });
         connected.once("error", onDisconnect);
         connected.once("close", onDisconnect);
-        if (identify) {
-          const handshake = identityHandshake(orchDir);
-          if (handshake !== undefined) connected.write(encodeRequest(nextId(), handshake.method, handshake.params));
-        }
         // The first dial honours the caller's `since` (undefined = live only).
         // Durable sequence numbers survive daemon restarts, so reconnects resume
         // from the last sequence delivered instead of replaying an unrelated window.

@@ -45,10 +45,10 @@ const patch: StatusPatch = {
   finishedAt,
 };
 
-await reportOnce(session.orchDir, "report-status", { key: session.key, status: patch }, session.timeoutMs);
+await reportOnce(session.orchDir, "report-status", { key: session.key, status: patch }, session.settings.daemon.report_timeout_ms);
 if (resultText !== undefined) {
   await reportOnce(session.orchDir, "report-result", {
     key: session.key,
     result: { text: resultText, sessionPath, finishedAt },
-  }, session.timeoutMs);
+  }, session.settings.daemon.report_timeout_ms);
 }

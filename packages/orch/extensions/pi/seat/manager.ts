@@ -27,6 +27,7 @@ interface Entry {
   snapshot: MutableSnapshot;
   /** Millis of the last presence read, so renders do not hammer the disk. */
   enrichedAt: number;
+  enrichRequest: number;
 }
 
 const ENRICH_TTL_MS = 1_000;
@@ -116,7 +117,12 @@ const makeManager = Effect.gen(function* () {
     const now = Date.now();
     if (!force && now - entry.enrichedAt < ENRICH_TTL_MS) return;
     entry.enrichedAt = now;
-    entry.snapshot.info = source.enrich(entry.snapshot.key);
+    const request = ++entry.enrichRequest;
+    void source.enrich(entry.snapshot.key).then((info) => {
+      if (disposed || entries.get(entry.snapshot.key) !== entry || request !== entry.enrichRequest) return;
+      entry.snapshot.info = info;
+      notify(entry.snapshot.key);
+    });
   };
 
   const pruneSettled = () => {
@@ -143,7 +149,7 @@ const makeManager = Effect.gen(function* () {
       applyTransition(existing.snapshot, transition);
       enrich(existing);
     } else {
-      const entry: Entry = { snapshot: snapshotFrom(transition), enrichedAt: 0 };
+      const entry: Entry = { snapshot: snapshotFrom(transition), enrichedAt: 0, enrichRequest: 0 };
       entries.set(transition.key, entry);
       enrich(entry);
     }
@@ -168,7 +174,7 @@ const makeManager = Effect.gen(function* () {
       const rows = [...entries.values()];
       for (const entry of rows) enrich(entry);
       return rows
-        .map((entry) => entry.snapshot as PackSnapshot)
+        .map((entry) => entry.snapshot)
         .sort((left, right) => left.name.localeCompare(right.name));
     },
     get: (key) => entries.get(key)?.snapshot,

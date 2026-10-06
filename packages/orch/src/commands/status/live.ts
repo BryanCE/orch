@@ -1,10 +1,10 @@
 import { subscribeEvents } from "../../daemon/client/rpc.ts";
 import { ensureDaemon } from "../../daemon/client/reach.ts";
-import { registerCallerSession, whoAmI, refuseNonOperatorOverride } from "../self.ts";
+import { registerCaller, whoAmI, refuseNonOperatorOverride } from "../self.ts";
 import { CLEAR_SCREEN, CTRL_C, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, dim } from "../../tui/screen.ts";
 import { die } from "../target.ts";
 import { formatStatusTable } from "./table.ts";
-import { readStatusResult } from "./fetch.ts";
+import { readStatusResult, resolveStatusAgent } from "./fetch.ts";
 import { callerScope } from "./options.ts";
 import type { StatusOptions } from "./options.ts";
 import type { StatusTableOptions } from "./table.ts";
@@ -91,22 +91,22 @@ export async function cmdStatusLive(services: Services, options: StatusOptions):
   if (options.json) die("--live renders a terminal table; drop --json");
   if (process.stdout.isTTY !== true || process.stdin.isTTY !== true) die("--live needs a terminal");
   await ensureDaemon(services.orchDir, services.logger);
-  await registerCallerSession(services);
+  await registerCaller(services);
   const self = await whoAmI(services);
   const caller = callerScope(self);
-  if (options.spaceWide) refuseNonOperatorOverride(caller, "--space-wide");
-  if (options.allPanes) refuseNonOperatorOverride(caller, "--all-panes");
+  if (options.all) refuseNonOperatorOverride(caller, "--all");
+  const agentKey = await resolveStatusAgent(services, options);
 
   let stopped = false;
   let resolveDone: (() => void) | undefined;
   const done = new Promise<void>((resolve) => { resolveDone = resolve; });
   let fleet: FleetStatus = { names: { agents: {}, spaces: {} }, rows: [] };
   let host = false;
-  const tableOptions = (): StatusTableOptions => ({ spaceWide: options.spaceWide, host, human: options.human, columns: options.filter.columns });
+  const tableOptions = (): StatusTableOptions => ({ all: options.all, host, human: options.human, columns: options.hide.columns });
   const refreshController = createRefreshController(async () => {
     if (stopped) return;
     try {
-      const result = await readStatusResult(services, options, caller);
+      const result = await readStatusResult(services, options, caller, agentKey);
       if (stopped) return;
       fleet = result;
       host = result.host;

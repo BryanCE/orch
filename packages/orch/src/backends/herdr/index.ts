@@ -19,6 +19,8 @@ import { homeLabel } from "../backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { isAgentId } from "../identity.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
+import { plexerExecOptions } from "../tool-exec.ts";
+import { PLEXER_TIMEOUTS } from "../../config.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { OrchDir } from "../../types/core.ts";
@@ -160,11 +162,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   };
   readonly foreground: ForegroundRole<HerdrHandle> = {
     read: (handle) => {
-      const out = this.cli.exec(["pane", "process-info", "--pane", handle], {
-        timeout: 5000,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }).toString();
+      const out = this.cli.exec(["pane", "process-info", "--pane", handle]);
       const parsed: unknown = JSON.parse(out);
       if (!isHerdrProcessInfo(parsed)) throw new Error(`herdr pane process-info returned invalid response for ${handle}`);
       const info = parsed.result?.process_info;
@@ -197,11 +195,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   };
   /** The last visible lines of a pane's screen. Throws on failure. */
   readonly screen: ScreenRole<HerdrHandle> = {
-    read: (handle, lines) => this.cli.exec(["pane", "read", handle, "--source", "recent-unwrapped", "--lines", String(lines)], {
-      timeout: 5000,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }),
+    read: (handle, lines) => this.cli.exec(["pane", "read", handle, "--source", "recent-unwrapped", "--lines", String(lines)]),
   };
   readonly zooming: ZoomRole<HerdrHandle> = { setZoom: (handle, mode) => { this.cli.ack(["pane", "zoom", handle, ZOOM_FLAGS[mode]]); } };
   readonly labeling: LabelRole<HerdrHandle> = { setLabel: (handle, name) => { this.cli.ack(["pane", "rename", handle, name]); } };
@@ -209,11 +203,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   /** Blocks until herdr reports the status; provider failures and timeouts throw. */
   readonly agentStatus: AgentStatusRole<HerdrHandle> = {
     wait: (handle, status, timeoutMs) => {
-      this.cli.exec(["agent", "wait", handle, "--until", status, "--timeout", String(timeoutMs)], {
-        timeout: timeoutMs + 5000,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      this.cli.exec(["agent", "wait", handle, "--until", status, "--timeout", String(timeoutMs)], plexerExecOptions(timeoutMs + PLEXER_TIMEOUTS.commandMs));
     },
   };
   readonly groupHome: GroupHomeRole<HerdrHandle> = {

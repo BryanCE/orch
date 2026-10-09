@@ -10,8 +10,9 @@ import { callerTmuxPane, insideTmux } from "./detect.ts";
  *  nothing to relay. Adding one means editing this stamp and nothing else. */
 const TMUX_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: null });
 import { sleepMs } from "../shell-ready.ts";
+import { PLEXER_TIMEOUTS } from "../../config.ts";
 import { selectAgentStatus } from "../../store/status-rows.ts";
-import { bestEffortTmux, execTmux, orchPanes, windowPaneRects } from "./cli.ts";
+import { bestEffortTmux, execTmux, noTmuxServer, orchPanes, windowPaneRects } from "./cli.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
@@ -190,11 +191,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     },
   };
   readonly spaceHome: SpaceHomeRole<TmuxHandle> = {
-    list: (): readonly PlexerHome[] => this.homeExec(["list-sessions", "-F", "#{session_name}"])
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((coordinate) => coordinate.length > 0)
-      .map((coordinate) => ({ coordinate, label: coordinate })),
+    list: (): readonly PlexerHome[] => this.sessionNames().map((coordinate) => ({ coordinate, label: coordinate })),
     create: (subject: HomeSubject, request): CreatedHome<TmuxHandle> => {
       // E8: never unmarked. A `new-session` with no `-s` takes tmux's own
       // counter for a name, which says nothing about who opened it or what for.
@@ -218,6 +215,19 @@ export class TmuxBackend implements Backend<TmuxHandle> {
 
   isInsideSession(): boolean {
     return insideTmux();
+  }
+
+  /** Every session name. No server running holds no sessions; a spawn's `new-session` starts one. */
+  private sessionNames(): string[] {
+    try {
+      return this.homeExec(["list-sessions", "-F", "#{session_name}"])
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((coordinate) => coordinate.length > 0);
+    } catch (error) {
+      if (noTmuxServer(error)) return [];
+      throw error;
+    }
   }
 
   /** Resolve the session owning a pane. Kept protected for hermetic tests. */
@@ -326,7 +336,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     while (true) {
       if (selectAgentStatus(this.orchDir, key)?.state === status) return true;
       if (Date.now() >= deadline) return false;
-      sleepMs(250);
+      sleepMs(PLEXER_TIMEOUTS.statusPollMs);
     }
   }
 

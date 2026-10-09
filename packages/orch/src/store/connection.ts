@@ -78,7 +78,14 @@ export function reportDrains(report: (drain: DrainRecord) => void): void {
  *  (oven-sh/bun#24956). */
 function createDatabase(file: string, readOnly = false): OpenDatabase {
   const client = readOnly ? new DatabaseSync(file, { readOnly: true }) : new DatabaseSync(file);
+  assertReturnArrays(client);
   return { client, orm: drizzle({ client, relations }) };
+}
+
+/** drizzle calls `setReturnArrays` on every statement; a runtime without it crashes on the first query. */
+function assertReturnArrays(client: DatabaseSync): void {
+  if (typeof Reflect.get(client.prepare("SELECT 1"), "setReturnArrays") === "function") return;
+  throw new Error(`node:sqlite in this runtime (node ${process.versions.node}) has no setReturnArrays. Upgrade Node to a version in orch's package.json "engines" range.`);
 }
 
 interface LiveProcessRow {

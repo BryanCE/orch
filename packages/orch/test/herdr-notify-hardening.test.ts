@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
-import { AGENT_START_TIMEOUT_MS, createHerdrCli, type HerdrExecutor } from "../src/backends/herdr/cli.ts";
+import { createHerdrCli, type HerdrExecutor } from "../src/backends/herdr/cli.ts";
+import { PLEXER_TIMEOUTS } from "../src/config.ts";
 import { projectRoot } from "../src/util.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import { testServices } from "./helpers/services.ts";
@@ -94,7 +95,7 @@ describe("herdr and notification hardening", () => {
     // Each argument stays one argv entry, unquoted: herdr applies the target
     // shell's quoting itself, and pre-quoting here would export the quotes.
     expect(lastCall("agent", "start")).toEqual([
-      "agent", "start", "pi-agent", "--kind", "pi", "--pane", "w6:p10", "--timeout", String(AGENT_START_TIMEOUT_MS),
+      "agent", "start", "pi-agent", "--kind", "pi", "--pane", "w6:p10", "--timeout", String(PLEXER_TIMEOUTS.agentStartMs),
       "--", 'quoted "value" spaces $HOME',
     ]);
     expect(lastCall("tab", "create")).toContain("/tmp/work dir");

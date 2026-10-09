@@ -4,7 +4,7 @@ import { declaredRuntime } from "../settings/read.ts";
 
 import { presenceEntry } from "../presence/store.ts";
 import { isRecord, packageRoot, reinstallCommand, textValue } from "../util.ts";
-import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath } from "./claude-hooks.ts";
+import { CLAUDE_HOOK_EVENTS, CLAUDE_HOOK_MATCHERS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath } from "./claude-hooks.ts";
 import { agentStateFrom } from "../agent-state.ts";
 import { buildHeadlessArgv, buildInteractiveArgv, shimRole, type AgentState } from "./adapter.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
@@ -78,10 +78,11 @@ function withOrchKeys(current: Record<string, unknown>, hooks: Record<string, un
 function claudeHooks(root: string, orchDir: OrchDir, settings: OrchSettings): Record<string, unknown> {
   const shim = claudeHookShimPath(root);
   const runtime = declaredRuntime(settings);
-  return Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => [
-    event,
-    [{ hooks: [{ type: "command", command: claudeHookCommand(shim, event, runtime, orchDir) }] }],
-  ]));
+  return Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => {
+    const matcher = CLAUDE_HOOK_MATCHERS[event];
+    const hooks = [{ type: "command", command: claudeHookCommand(shim, event, runtime, orchDir) }];
+    return [event, [matcher === undefined ? { hooks } : { matcher, hooks }]];
+  }));
 }
 
 /** The worker settings file as JSON, or the reason it is not usable. Absent reads as empty. */

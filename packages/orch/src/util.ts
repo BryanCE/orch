@@ -1,5 +1,6 @@
 import { accessSync, chmodSync, constants, existsSync, linkSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { homedir } from "node:os";
 import { delimiter, dirname, join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostOs } from "./host.ts";
@@ -7,18 +8,48 @@ import { isRecord } from "./json.ts";
 
 export const ARROW = "→";
 
-/** The installed package directory. Resolved through the real path first: the
- *  harness extension bundles are symlinked into `~/.pi/agent/extensions` and the
- *  like, and `import.meta.url` names the link, not the file it points at. */
-export function packageRoot(): string {
-  let dir = dirname(realpathSync(fileURLToPath(import.meta.url)));
+/** A tool's config folder: the tool's own env override, else its default under the home folder. */
+export function toolDir(envVar: string, ...underHome: string[]): string {
+  const override = process.env[envVar];
+  if (override) return override;
+  return join(homedir(), ...underHome);
+}
+
+/** A directory whose manifest declares the `orch` bin: orch's own package, not a harness's. */
+function holdsOrchManifest(dir: string): boolean {
+  const file = join(dir, "package.json");
+  if (!existsSync(file)) return false;
+  const manifest: unknown = JSON.parse(readFileSync(file, "utf8"));
+  return isRecord(manifest) && isRecord(manifest.bin) && typeof manifest.bin.orch === "string";
+}
+
+/** The nearest orch package directory above a file, or null when no orch package holds it. */
+export function orchRootAbove(file: string): string | null {
+  let dir = dirname(file);
   for (let i = 0; i < 16; i++) {
-    if (existsSync(join(dir, "package.json"))) return dir;
+    if (holdsOrchManifest(dir)) return dir;
     const parent = dirname(dir);
-    if (parent === dir) break;
+    if (parent === dir) return null;
     dir = parent;
   }
-  throw new Error(`packageRoot: no package.json found above ${fileURLToPath(import.meta.url)}`);
+  return null;
+}
+
+/** A bundle copied into a harness's extension dir (`setup --copy`) has no orch above it; the `orch` on PATH does. */
+function locateRoot(): string | null {
+  const own = orchRootAbove(realpathSync(fileURLToPath(import.meta.url)));
+  if (own !== null) return own;
+  const bin = binaryPath("orch");
+  return bin === null ? null : orchRootAbove(realpathSync(bin));
+}
+
+let heldRoot: string | null = null;
+
+/** The installed package directory, above this file's real path. */
+export function packageRoot(): string {
+  heldRoot ??= locateRoot();
+  if (heldRoot === null) throw new Error(`packageRoot: no orch package.json above ${fileURLToPath(import.meta.url)} or the orch on PATH`);
+  return heldRoot;
 }
 
 export interface PackageManifest {

@@ -13,7 +13,8 @@ import { FakePanedBackend, fakePane, withRegisteredBackendAsync } from "./helper
 import { seedSpace } from "./helpers/space.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedOperator } from "./helpers/agent.ts";
+import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { endProcess } from "../src/store/interval-rows.ts";
 import { servedServices } from "./helpers/daemon-state.ts";
 import { captureCommand } from "./helpers/stdout.ts";
@@ -47,7 +48,10 @@ const SETTINGS = {
   defaults: { adapter: "pi", backend: "headless" },
 };
 
+let operator = "";
+
 afterEach(async () => {
+  restoreOrchEnv();
   while (servers.length) await servers.pop()!.close();
   if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
   if (oldKey === undefined) delete process.env[LAUNCH_ENV]; else process.env[LAUNCH_ENV] = oldKey;
@@ -58,9 +62,12 @@ function fixture(): OrchDir {
   const dir = tempOrchDir("orch-close-by-id-");
   dirs.push(dir);
   writeSettingsFixture(dir, SETTINGS);
+  // The runner is the operator, and `close --all` sweeps only what it owns (Rule 19).
+  isolateOrchEnv();
   process.env.ORCH_DIR = dir;
   delete process.env[LAUNCH_ENV];
   orm(dir);
+  operator = seedOperator(dir);
   seedSpace(dir, "space00001");
   return dir;
 }
@@ -76,7 +83,7 @@ async function closeAll(dir: OrchDir, backend: FakePanedBackend, args: string[] 
  *  is exactly the state the reported sweep hit. */
 function seedLiveAgent(dir: OrchDir, key: string, handle?: string, name = key): void {
   seedAgent(key, {
-    adapter: "pi", backend: "headless", space: "space00001", name,
+    adapter: "pi", backend: "headless", space: "space00001", name, owner: operator,
     ...(handle === undefined ? {} : { handle }),
   }, dir);
   endProcess(dir, key, Date.now());

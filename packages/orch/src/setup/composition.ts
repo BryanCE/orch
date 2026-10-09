@@ -4,6 +4,7 @@ import { writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, write
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { signedOutFix } from "../adapters/prerequisites.ts";
 import { assertModelListed } from "../policy/model.ts";
+import { allowlistWithDefault } from "../settings/read.ts";
 import { logStep, logWarning } from "./io.ts";
 import { selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectRuntime } from "./wizard.ts";
 import { errorMessage } from "../util.ts";
@@ -229,7 +230,7 @@ export function recordComposition(
     `  default adapter   = ${defaultAdapter}\n` +
     `  backends          = ${backends.join(", ")}\n` +
     `  default backend   = ${defaultBackend}\n` +
-    adapters.map((id) => `  model (${id})${" ".repeat(Math.max(0, 11 - id.length))} = ${models.defaults[id] ?? "(none)"}${modelListsNote(models.preferred[id], models.allowed[id])}\n`).join(""),
+    adapters.map((id) => `  model (${id})${" ".repeat(Math.max(0, 11 - id.length))} = ${models.defaults[id] ?? "(none)"}${modelListsNote(models.preferred[id], allowlistWithDefault(models.allowed[id] ?? [], models.defaults[id]))}\n`).join(""),
   );
 }
 

@@ -1,14 +1,14 @@
 import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { retryingSync } from "../retry.ts";
+import { PLEXER_TIMEOUTS } from "../config.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import type { ToolExecRecord, ToolExecutor } from "../types/backend.ts";
 import type { RetryPolicy } from "../types/core.ts";
 
-export const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
-  encoding: "utf8",
-  timeout: 5000,
-  stdio: ["ignore", "pipe", "pipe"],
-};
+/** How a plexer CLI runs: text out, nothing in, and the plexer command timeout. */
+export function plexerExecOptions(timeoutMs: number = PLEXER_TIMEOUTS.commandMs): ExecFileSyncOptionsWithStringEncoding {
+  return { encoding: "utf8", timeout: timeoutMs, stdio: ["ignore", "pipe", "pipe"] };
+}
 
 /** Reattempt anything that is not obviously permanent. A caller that can read
  *  its tool's error codes should narrow this; one that cannot is still better
@@ -47,7 +47,7 @@ export function runTool(
   binary: string,
   args: readonly string[],
   policy: RetryPolicy = DEFAULT_TOOL_RETRY,
-  options: ExecFileSyncOptionsWithStringEncoding = DEFAULT_OPTIONS,
+  options: ExecFileSyncOptionsWithStringEncoding = plexerExecOptions(),
   executor: ToolExecutor = realExecutor,
 ): string {
   let attempt = 0;
@@ -72,7 +72,7 @@ export function runToolBestEffort(
   binary: string,
   args: readonly string[],
   policy: RetryPolicy = DEFAULT_TOOL_RETRY,
-  options: ExecFileSyncOptionsWithStringEncoding = DEFAULT_OPTIONS,
+  options: ExecFileSyncOptionsWithStringEncoding = plexerExecOptions(),
   executor: ToolExecutor = realExecutor,
 ): string | null {
   try {

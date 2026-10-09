@@ -7,6 +7,7 @@ import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { packageRoot } from "../util.ts";
 import { hostOs } from "../host.ts";
+import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { notificationText, payload } from "./format.ts";
 import { playDing, soundAvailable } from "./ding.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
@@ -45,10 +46,12 @@ function run(command: string[], stdin?: string): Promise<boolean> {
   });
 }
 
+function toastScript(): string {
+  return path.join(packageRoot(), "scripts", "wsl-toast.ps1");
+}
+
 async function windowsToast(title: string, body: string): Promise<boolean> {
-  if (!commandOnPath("powershell.exe")) return false;
-  const script = path.join(packageRoot(), "scripts", "wsl-toast.ps1");
-  if (!filesystem.existsSync(script)) return false;
+  const script = toastScript();
   try {
     const windowsPath = await new Promise<string>((resolve) => {
       execFile("wslpath", ["-w", script], { encoding: "utf8" }, (error, stdout) => {
@@ -62,16 +65,39 @@ async function windowsToast(title: string, body: string): Promise<boolean> {
   }
 }
 
-async function deliverDesktop(event: NotifyEvent): Promise<boolean> {
-  const { title, body } = notificationText(event);
-  if (await run(["notify-send", title, body])) return true;
-  if (commandOnPath("wsl-notify-send") && await run(["wsl-notify-send", title, body])) return true;
-  return windowsToast(title, body);
+/** One way to show a desktop notification on this host. */
+export interface DesktopTier {
+  readonly name: string;
+  readonly available: () => boolean;
+  readonly deliver: (title: string, body: string) => Promise<boolean>;
 }
 
-function desktopAvailable(): boolean {
-  if (commandOnPath("notify-send") || commandOnPath("wsl-notify-send")) return true;
-  return commandOnPath("powershell.exe") && commandOnPath("wslpath") && filesystem.existsSync(path.join(packageRoot(), "scripts", "wsl-toast.ps1"));
+/** The title and body arrive as `argv`, so no AppleScript quoting can break. */
+const APPLESCRIPT_NOTIFY = ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run"];
+
+/** Tried in order; delivery falls through to the next tier when one fails. */
+const DESKTOP_TIERS: readonly DesktopTier[] = [
+  { name: "notify-send", available: () => commandOnPath("notify-send"), deliver: (title, body) => run(["notify-send", title, body]) },
+  { name: "wsl-notify-send", available: () => commandOnPath("wsl-notify-send"), deliver: (title, body) => run(["wsl-notify-send", title, body]) },
+  { name: "osascript", available: () => commandOnPath("osascript"), deliver: (title, body) => run(["osascript", ...APPLESCRIPT_NOTIFY, title, body]) },
+  {
+    name: "powershell.exe toast",
+    available: () => commandOnPath("powershell.exe") && commandOnPath("wslpath") && filesystem.existsSync(toastScript()),
+    deliver: windowsToast,
+  },
+];
+
+/** The first desktop tier this host can use, or undefined when it has none. */
+export function desktopTier(): DesktopTier | undefined {
+  return DESKTOP_TIERS.find((tier) => tier.available());
+}
+
+async function deliverDesktop(event: NotifyEvent): Promise<boolean> {
+  const { title, body } = notificationText(event);
+  for (const tier of DESKTOP_TIERS) {
+    if (tier.available() && await tier.deliver(title, body)) return true;
+  }
+  return false;
 }
 
 export function commandAvailable(config: Record<string, unknown>): boolean {
@@ -102,8 +128,8 @@ export function createBuiltinNotifiers(): Notifier[] {
     {
       id: "desktop",
       label: "Desktop",
-      metadata: { description: "Desktop notifications with WSL fallback", requiredConfig: [] },
-      available: () => desktopAvailable(),
+      metadata: { description: "Desktop notifications on Linux, macOS and WSL", requiredConfig: [] },
+      available: () => desktopTier() !== undefined,
       deliver: (event, _config) => deliverDesktop(event),
     },
     {
@@ -111,21 +137,15 @@ export function createBuiltinNotifiers(): Notifier[] {
       label: "Webhook",
       metadata: { description: "HTTP POST notification", requiredConfig: [{ name: "url", label: "Webhook URL" }] },
       available: (_settings) => typeof fetch === "function",
-      deliver: async (event, config) => {
+      deliver: async (event, config, settings) => {
         if (typeof config.url !== "string" || !config.url) return false;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        try {
-          const response = await fetch(config.url, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: payload(event),
-            signal: controller.signal,
-          });
-          return response.ok;
-        } finally {
-          clearTimeout(timeout);
-        }
+        const response = await fetch(config.url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: payload(event),
+          signal: AbortSignal.timeout((settings ?? SETTINGS_DEFAULTS).timeouts.notify_ms),
+        });
+        return response.ok;
       },
     },
     {

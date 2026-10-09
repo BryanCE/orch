@@ -1,7 +1,6 @@
-import * as os from "node:os";
 import * as path from "node:path";
 import { runtimeArgv, type OrchRuntime } from "../runtime.ts";
-import { shellQuote } from "../util.ts";
+import { shellQuote, toolDir } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
 
 // Claude's hook wire format lives here, in the claude adapter family (law #2:
@@ -11,6 +10,14 @@ import type { OrchDir } from "../types/core.ts";
 
 /** Every Claude hook event orch registers its shim under. */
 export const CLAUDE_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "Notification", "PreToolUse"] as const;
+
+/** The events whose shim runs only on a match, so Claude starts no process for the rest:
+ *  PreToolUse rewrites only Bash, and only these notification types wait on the human
+ *  (`idle_prompt` only means the turn ended a while ago). */
+export const CLAUDE_HOOK_MATCHERS: Readonly<Partial<Record<(typeof CLAUDE_HOOK_EVENTS)[number], string>>> = {
+  PreToolUse: "Bash",
+  Notification: "permission_prompt|elicitation_dialog|elicitation_url_dialog",
+};
 
 /** Built hook shim inside a package root (source: extensions/claude/index.ts); plain ESM JS any runtime can run. */
 export function claudeHookShimPath(root: string): string {
@@ -37,7 +44,7 @@ export function claudeSettingsPath(orchDir: OrchDir): string {
 export function claudeHookCommand(shim: string, event: string, runtime: OrchRuntime, orchDir: OrchDir): string {
   // Claude writes transcripts under its own config dir; the shim reads the one
   // named in the hook payload to recover the last assistant message.
-  const transcriptRoot = path.join(os.homedir(), ".claude");
+  const transcriptRoot = toolDir("CLAUDE_CONFIG_DIR", ".claude");
   const argv = runtimeArgv(runtime, shim, [event], { orchDir, readOnly: [transcriptRoot] });
   return argv.map(shellQuote).join(" ");
 }

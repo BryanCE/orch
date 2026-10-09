@@ -32,7 +32,7 @@ import { closeAllStores } from "../src/store/connection.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { binaryPath, isRecord } from "../src/util.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../src/runtimes.ts";
-import { runningRuntime } from "../src/doctor/runtime.ts";
+import { runningRuntime } from "../src/runtime.ts";
 import { settingsFixtureText } from "../test/helpers/settings.ts";
 import { settingsPath } from "../src/settings/schema.ts";
 import type { OrchDir } from "../src/types/core.ts";

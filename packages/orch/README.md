@@ -18,14 +18,14 @@ orch works with these coding agents (orch calls them **harnesses**):
 It runs them in one of these places (orch calls them **plexers**):
 
 - `herdr` or `tmux`: visible panes that you can watch and type into
-- `orca`: orca panes
+- `orca`: orca panes (Linux only)
 - `headless`: a detached process with no pane
 
 ## Requirements
 
-- Node.js 22.13 or later (orch can also run under bun or deno; `orch setup` asks)
+- Node.js 22.16 or later on the 22 line, or Node.js 24 or later (Node 23 is not supported) (orch can also run under bun or deno; `orch setup` asks)
 - At least one harness from the list above, installed and signed in
-- For visible panes: `herdr` or `tmux`. For `--plexer headless`, nothing else.
+- For visible panes: `herdr` (recommended) or `tmux`. For `--plexer headless`, nothing else.
 - Linux, macOS, or Windows through WSL
 
 ## Install
@@ -55,7 +55,7 @@ It then installs what is missing, connects each harness to orch, and writes
 For a non-interactive install (CI, scripts):
 
 ```sh
-orch setup --yes --install --harness claude,pi --plexer tmux,headless --runtime node
+orch setup --yes --install --harness claude,pi --plexer herdr,headless --runtime node
 ```
 
 Check the install at any time:
@@ -75,6 +75,16 @@ orch doctor -y     # fix every problem it can
 | `codex` | see [openai/codex](https://github.com/openai/codex) | `codex login` |
 | `pi` | `bun add -g @earendil-works/pi-coding-agent` | `pi auth` |
 | `omp` | `bun add -g @oh-my-pi/pi-coding-agent` | `omp setup` |
+
+### Plexer installs
+
+herdr is the recommended plexer. `orch setup` selects it and offers to install it. To do it yourself:
+
+| OS | Install |
+| --- | --- |
+| Linux, macOS | `curl -fsSL https://herdr.dev/install.sh \| sh` |
+| Windows (PowerShell) | `irm https://herdr.dev/install.ps1 \| iex` |
+| NixOS, Homebrew, mise | see [herdr.dev/docs/install](https://herdr.dev/docs/install/) |
 
 ## Quick start
 
@@ -159,12 +169,12 @@ Run `orch help` for the full list, and `orch help <command>` for every flag of o
 | Area | Commands |
 | --- | --- |
 | Watch | `status`, `monitor`, `events`, `questions`, `runs`, `logs` |
-| Give work | `dispatch`, `run`, `answer`, `steer`, `broadcast`, `pipe`, `model`, `wait` |
+| Give work | `dispatch`, `answer`, `steer`, `broadcast`, `pipe`, `model`, `wait` |
 | Read results | `result`, `tail`, `peek`, `session` |
 | Queue | `queue add\|list\|history\|cancel\|edit`, `work`, `review` |
 | Agents | `spawn`, `tile`, `rename`, `reset`, `restart`, `reload`, `abort`, `close`, `adopt`, `detach`, `reap`, `grant`, `lock` |
-| Panes and tabs | `panes`, `tabs`, `tab`, `focus`, `zoom`, `move`, `keys`, `space` |
-| Install | `setup`, `doctor`, `settings`, `models`, `notify`, `daemon`, `clean`, `version` |
+| Panes and tabs | `pane`, `tab`, `focus`, `zoom`, `move`, `keys`, `space` |
+| Install | `setup`, `doctor`, `settings`, `models`, `notify`, `daemon`, `clean`, `version`, `whoami` |
 
 Some useful ones:
 
@@ -271,7 +281,8 @@ orch notify test --state blocked                       # send a test event now
 
 The sinks:
 
-- `desktop`: an OS notification (`notify-send`, or a Windows toast on WSL)
+- `desktop`: an OS notification (`notify-send` on Linux, `osascript` on macOS, a Windows toast on WSL)
+- `sound`: a short sound through `orch-ding`
 - `herdr`: a herdr notification (orchd must run inside herdr)
 - `webhook`: a POST of the event as JSON
 - `command`: runs your command with the event JSON on stdin
@@ -305,9 +316,19 @@ npm uninstall -g @bryance/orch
 rm -rf ~/.orch
 ```
 
-`orch setup` also added the orch skill to `~/.agents/skills`. Remove it by hand if you want it
-gone. orch's Claude Code hooks live in `~/.orch/claude/settings.json`, and only the Claude
-sessions orch spawns load them.
+`orch setup` also connected each harness to orch. Remove these by hand, or the harness calls
+a file that no longer exists:
+
+- the `notify = [...]` line in `~/.codex/config.toml`
+- `~/.pi/agent/extensions/pi-bridge.js` and `~/.omp/agent/extensions/omp-bridge.js`
+- the orch skill in `~/.agents/skills/orch` and its link `~/.claude/skills/orch`
+- `~/.local/bin/orch` and `~/.local/bin/orch-ding`, if setup made them
+
+orch's Claude Code hooks live in `~/.orch/claude/settings.json`, so `rm -rf ~/.orch` removes
+them. Only the Claude sessions orch spawns load them.
+
+The Claude and Codex hooks name the absolute path of your JS runtime. After a Node upgrade
+through nvm or fnm, run `orch doctor -y` to point them at the new runtime.
 
 ## License
 

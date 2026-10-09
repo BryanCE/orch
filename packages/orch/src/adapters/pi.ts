@@ -1,8 +1,7 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { presenceEntry } from "../presence/store.ts";
-import { ARROW, errnoCode, isRecord, readJsonFile, shellQuote } from "../util.ts";
+import { ARROW, errnoCode, isRecord, readJsonFile, shellQuote, toolDir } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
 import { computeCodeHash } from "../daemon/client/process.ts";
@@ -17,9 +16,13 @@ import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 import type { ExtensionName, Logger, OrchDir, SessionEntry, ToolCallContentBlock } from "../types/core.ts";
 
 /** pi's own config root, and the files under it orch reads or writes. */
-const PI_AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
-const PI_EXTENSION_DIR = path.join(PI_AGENT_DIR, "extensions");
-const PI_TRUST_FILE = path.join(PI_AGENT_DIR, "trust.json");
+function piAgentDir(): string {
+  return toolDir("PI_CODING_AGENT_DIR", ".pi", "agent");
+}
+
+function piExtensionDir(): string {
+  return path.join(piAgentDir(), "extensions");
+}
 /** pi's shipped bundle, built from extensions/pi/. */
 const PI_EXTENSION: ExtensionName = "pi-bridge";
 /** Binaries that start pi. */
@@ -432,29 +435,29 @@ export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
 
   /** Verify the extension link and bundle written by installShim. */
   diagnoseShim(_orchDir: OrchDir): CheckResult {
-    return diagnoseExtensionLink(this.id, PI_EXTENSION_DIR, PI_EXTENSION);
+    return diagnoseExtensionLink(this.id, piExtensionDir(), PI_EXTENSION);
   }
 
   /** Pre-trust cwd in pi's trust store when the launch command actually starts pi. */
   preTrustWorkspace(cwd: string, cmd: string): void {
     if (!launchesBinary(PI_BINARIES, cmd)) return;
-    writeTrustEntry(PI_TRUST_FILE, cwd);
+    writeTrustEntry(path.join(piAgentDir(), "trust.json"), cwd);
   }
 
-  /** Read pi's persisted default model from ~/.pi/agent/settings.json. */
+  /** Read pi's persisted default model from its agent folder's settings.json. */
   defaultModelString(): string | undefined {
-    return settingsDefaultModel(PI_AGENT_DIR);
+    return settingsDefaultModel(piAgentDir());
   }
 
   /** Link the prebuilt bridge bundle into pi's extension directory. */
   installShim(_orchDir: OrchDir, opts?: ShimInstallOpts): void {
-    installExtensionLink(this.id, PI_EXTENSION_DIR, PI_EXTENSION, opts);
+    installExtensionLink(this.id, piExtensionDir(), PI_EXTENSION, opts);
   }
 }
 
 /** pi's `-e` tokens for one worker. */
 function piExtensionArgv(opts: SpawnOpts): string[] {
-  return bridgeExtensionArgv(PI_EXTENSION_DIR, PI_EXTENSION, opts.workers);
+  return bridgeExtensionArgv(piExtensionDir(), PI_EXTENSION, opts.workers);
 }
 
 /** pi's tool-gating tokens for one worker; pi spells the built-ins switch --no-builtin-tools. */

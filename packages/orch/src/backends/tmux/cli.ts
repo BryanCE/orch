@@ -1,21 +1,28 @@
 import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
-import { runTool, runToolBestEffort } from "../tool-exec.ts";
+import { DEFAULT_TOOL_RETRY, plexerExecOptions, runTool, runToolBestEffort, toolErrorDetail } from "../tool-exec.ts";
+import type { RetryPolicy } from "../../types/core.ts";
 import type { TmuxPane, TmuxPaneRect } from "../../types/plexer.ts";
 
-const DEFAULT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
-  encoding: "utf8",
-  timeout: 5000,
-  stdio: ["ignore", "pipe", "pipe"],
+/** tmux answered that no server runs: an empty plexer, not a fault. */
+export function noTmuxServer(error: unknown): boolean {
+  return /no server running|error connecting to/.test(toolErrorDetail(error));
+}
+
+/** With no tmux server running, every retry fails the same way, and each wait blocks
+ *  orchd: four tries cost an enumeration about 1.8s on a machine that runs no tmux. */
+export const TMUX_RETRY: RetryPolicy = {
+  ...DEFAULT_TOOL_RETRY,
+  retryable: (error) => !noTmuxServer(error),
 };
 
 /** Run tmux and swallow any failure, returning null instead of throwing. */
 export function bestEffortTmux(args: string[]): string | null {
-  return runToolBestEffort("tmux", args);
+  return runToolBestEffort("tmux", args, TMUX_RETRY);
 }
 
 /** Run tmux and let a failure throw (matches herdrExec: callers treat it as an error). */
-export function execTmux(args: string[], options: ExecFileSyncOptionsWithStringEncoding = DEFAULT_OPTIONS): string {
-  return runTool("tmux", args, undefined, options);
+export function execTmux(args: string[], options: ExecFileSyncOptionsWithStringEncoding = plexerExecOptions()): string {
+  return runTool("tmux", args, TMUX_RETRY, options);
 }
 
 const FIELD_SEP = "\t";

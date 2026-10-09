@@ -230,7 +230,6 @@ describe("Claude adapter", () => {
     try {
       await runHook("SessionStart", { session_id: "s1", source: "startup", model: "claude-haiku-5-5" });
       await runHook("UserPromptSubmit", { prompt: "do the task" });
-      await runHook("Notification", { notification_type: "idle_prompt", message: "Claude is waiting for your input" });
       await runHook("Notification", { notification_type: "permission_prompt", message: "Approval needed" });
       await runHook("Stop", {});
       await runHook("Stop", { transcript_path: transcript, last_assistant_message: "Finished" });

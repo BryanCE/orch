@@ -5,13 +5,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
-import { PREREQUISITES } from "../adapters/prerequisites.ts";
+import { installCommand, PREREQUISITES } from "../adapters/prerequisites.ts";
+import { hostOs } from "../host.ts";
 import { binaryStatus } from "../doctor/bins.ts";
 import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { ORCH_DING_BIN } from "../notify/ding.ts";
 import { withSpinner } from "./io.ts";
 import { chooseInstalls } from "./wizard.ts";
-import { ARROW, binaryOnPath, binaryPath, errorMessage } from "../util.ts";
+import { ARROW, binaryOnPath, binaryPath, errorMessage, orchRootAbove } from "../util.ts";
 import type { Logger } from "../types/core.ts";
 import type { OrchRuntime } from "../runtime.ts";
 import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
@@ -48,14 +49,22 @@ async function resolveInstallTargets(
   return [];
 }
 
+/** The shell an install command is written for: PowerShell on Windows, sh elsewhere. */
+function installShell(cmd: string): [string, string[]] {
+  return hostOs() === "windows"
+    ? ["powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd]]
+    : ["sh", ["-c", cmd]];
+}
+
 /** Install one prerequisite: silent under a spinner when interactive, streamed otherwise. */
 function runInstall(logger: Logger, bin: string, cmd: string, interactive: boolean): void {
+  const [shell, args] = installShell(cmd);
   try {
     if (interactive) {
-      withSpinner(`Installing ${bin}...`, `${bin} installed`, () => execFileSync("bash", ["-c", cmd], { stdio: "ignore" }));
+      withSpinner(`Installing ${bin}...`, `${bin} installed`, () => execFileSync(shell, args, { stdio: "ignore" }));
     } else {
       process.stdout.write(`  Installing ${bin}...\n`);
-      execFileSync("bash", ["-c", cmd], { stdio: "inherit" });
+      execFileSync(shell, args, { stdio: "inherit" });
     }
   } catch {
     logger.warn("setup.install-failed", { bin, command: cmd });
@@ -127,7 +136,7 @@ async function installSelectedPrerequisites(
   for (const { bin, cmd } of missing.filter((candidate) => toInstall.includes(candidate.bin))) {
     runInstall(logger, bin, cmd, interactive);
     // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
-    process.env.PATH = `${path.join(home(), ".bun", "bin")}:${path.join(home(), ".local", "bin")}:${process.env.PATH}`;
+    process.env.PATH = [path.join(home(), ".bun", "bin"), path.join(home(), ".local", "bin"), process.env.PATH].join(path.delimiter);
     const now = binaryPath(bin);
     process.stdout.write(now ? `  ok      ${bin}  (${now})\n` : `  ${bin} still not on PATH - open a new shell and re-run orch setup\n`);
   }
@@ -152,13 +161,14 @@ export async function installPrerequisites(
   const manual: ManualPrerequisite[] = [];
   const queueInstall = (id: string): void => {
     const entry = PREREQUISITES[id];
-    if (entry?.install) {
-      for (const need of entry.needs ?? []) {
+    const cmd = installCommand(id);
+    if (cmd) {
+      for (const need of entry?.needs ?? []) {
         if (binaryOnPath(need)) continue;
-        const needCmd = PREREQUISITES[need]?.install;
+        const needCmd = installCommand(need);
         if (needCmd && !missing.some((candidate) => candidate.bin === need)) missing.push({ bin: need, cmd: needCmd });
       }
-      if (!missing.some((candidate) => candidate.bin === id)) missing.push({ bin: id, cmd: entry.install });
+      if (!missing.some((candidate) => candidate.bin === id)) missing.push({ bin: id, cmd });
     } else if (entry?.docsUrl) {
       manual.push({ id, url: entry.docsUrl });
     } else {
@@ -224,12 +234,47 @@ export function alignEntrypointToRuntime(runtime: OrchRuntime): void {
     return;
   }
   if (shebangRuntime(target) === runtime) return;
-  writeShebangRuntime(target, runtime);
+  try {
+    writeShebangRuntime(target, runtime);
+  } catch (error: unknown) {
+    process.stdout.write(`  could not point ${target} at ${runtime}: ${errorMessage(error)}. Re-run setup as the owner of that file, or choose runtime node.\n`);
+    return;
+  }
   process.stdout.write(`  entrypoint ${target} now runs under ${runtime}\n`);
 }
 
-/** Wire the `orch`/`orch-ding` bins onto PATH (repo-clone case; `bun add -g` already
- * links bins). A bin already resolving into this package is left alone; a stale one is repointed. */
+function realTarget(file: string): string | null {
+  try {
+    return files.realpathSync(file);
+  } catch {
+    return null;
+  }
+}
+
+interface BinOnPath { readonly name: string; readonly resolved: string; readonly packageBin: string }
+
+/** Repoint a bin already on PATH. Leave it when it is this package's, or another tool's. */
+function repointBin(bin: BinOnPath, pkgRoot: string, copy: boolean): void {
+  const target = realTarget(bin.resolved);
+  const owner = target === null ? null : orchRootAbove(target);
+  if (owner === pkgRoot) {
+    process.stdout.write(`  ok      ${bin.name}  (${bin.resolved})\n`);
+    return;
+  }
+  if (target !== null && owner === null) {
+    process.stdout.write(`  skipped ${bin.name}: ${bin.resolved} is not orch's; put ${path.dirname(bin.packageBin)} ahead of it on PATH\n`);
+    return;
+  }
+  try {
+    linkBin(bin.packageBin, bin.resolved, copy);
+  } catch (error: unknown) {
+    process.stdout.write(`  could not replace stale ${bin.name} at ${bin.resolved}: ${errorMessage(error)}\n`);
+    return;
+  }
+  process.stdout.write(`  replaced stale bin ${bin.name}  (${bin.resolved})\n`);
+}
+
+/** Wire the `orch`/`orch-ding` bins onto PATH (repo-clone case; `bun add -g` already links bins). */
 export function wireBinaries(pkgRoot: string, copy: boolean): void {
   process.stdout.write("bins:\n");
   const binDir = path.join(home(), ".local", "bin");
@@ -239,24 +284,7 @@ export function wireBinaries(pkgRoot: string, copy: boolean): void {
   ] as const) {
     const resolved = binaryPath(name);
     const packageBin = path.join(pkgRoot, rel);
-    if (resolved) {
-      let realResolved = "";
-      try {
-        realResolved = files.realpathSync(resolved);
-      } catch {
-        // A missing or unreadable target is stale; replace it below.
-      }
-      const relative = realResolved ? path.relative(pkgRoot, realResolved) : "";
-      const belongsToPackage =
-        !!realResolved && !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`);
-      if (belongsToPackage) {
-        process.stdout.write(`  ok      ${name}  (${resolved})\n`);
-        continue;
-      }
-      linkBin(packageBin, resolved, copy);
-      process.stdout.write(`  replaced stale bin ${name}  (${resolved})\n`);
-      continue;
-    }
-    linkBin(packageBin, path.join(binDir, name), copy);
+    if (resolved) repointBin({ name, resolved, packageBin }, pkgRoot, copy);
+    else linkBin(packageBin, path.join(binDir, name), copy);
   }
 }

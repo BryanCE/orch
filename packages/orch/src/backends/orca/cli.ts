@@ -4,14 +4,10 @@ import { hostOs } from "../../host.ts";
 import { isRecord } from "../../util.ts";
 import { extractVersion } from "../versions.ts";
 import { buildCommandFailure, findFreshCacheEntry, parseCliJson } from "../shared-cli.ts";
-import { DEFAULT_TOOL_RETRY, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
+import { DEFAULT_TOOL_RETRY, plexerExecOptions, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
+import { PLEXER_TIMEOUTS } from "../../config.ts";
 import type { OrcaExecutor, OrcaTerminal } from "../../types/plexer.ts";
 import type { RetryPolicy } from "../../types/core.ts";
-
-const DEFAULT_ORCA_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
-  encoding: "utf8",
-  stdio: ["ignore", "pipe", "pipe"],
-};
 
 /** Orca's terminal-handle errors mean the caller must refresh its inventory. */
 export const GONE_HANDLE_CODES: ReadonlySet<string> = new Set([
@@ -22,7 +18,7 @@ export const GONE_HANDLE_CODES: ReadonlySet<string> = new Set([
 
 /** The default runner uses orch's shared retry seam for every Orca command. */
 const defaultOrcaExecutor: OrcaExecutor = (command, args, options, policy) =>
-  runTool(command, args, policy ?? DEFAULT_TOOL_RETRY, options ?? DEFAULT_ORCA_OPTIONS);
+  runTool(command, args, policy ?? DEFAULT_TOOL_RETRY, options ?? plexerExecOptions());
 
 function envelopeErrorCode(value: unknown): string | null {
   if (!isRecord(value) || !isRecord(value.error) || typeof value.error.code !== "string") return null;
@@ -60,13 +56,6 @@ export const ORCA_INPUT_RETRY: RetryPolicy = {
     return code === null || !GONE_HANDLE_CODES.has(code);
   },
 };
-
-/** Each Orca exec costs whole seconds under WSL load; one action must never pay twice for a listing.
- * Long-lived processes (orchd) stay fresh because entries expire after a short TTL. */
-const LIST_CACHE_TTL_MS = 1500;
-/** How long an Orca mutation may take before orch stops waiting. Enough for a command that only
- * edits Orca's own state, never for one that starts a process. */
-const MUTATION_TIMEOUT_MS = 5000;
 
 function isOrcaTerminal(value: unknown): value is OrcaTerminal {
   return isRecord(value)
@@ -137,10 +126,10 @@ export function orcaBinary(): string {
 export function createOrcaCli(executor: OrcaExecutor = defaultOrcaExecutor): OrcaCli {
   const listCache = new Map<string, { at: number; value: unknown }>();
   const read = (args: string[], policy?: RetryPolicy): unknown => {
-    const cached = findFreshCacheEntry(listCache, args, LIST_CACHE_TTL_MS);
+    const cached = findFreshCacheEntry(listCache, args, PLEXER_TIMEOUTS.listCacheMs);
     if (cached.kind === "hit") return cached.value;
     try {
-      const output = executor(orcaBinary(), withJson(args), { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
+      const output = executor(orcaBinary(), withJson(args), plexerExecOptions(PLEXER_TIMEOUTS.listMs), policy);
       const value = unwrapEnvelope(output);
       listCache.set(cached.key, { at: Date.now(), value });
       return value;
@@ -148,10 +137,10 @@ export function createOrcaCli(executor: OrcaExecutor = defaultOrcaExecutor): Orc
       throw wrapOrcaFailure(error, args);
     }
   };
-  const mutation = (args: string[], timeoutMs = MUTATION_TIMEOUT_MS, policy?: RetryPolicy): unknown => {
+  const mutation = (args: string[], timeoutMs: number = PLEXER_TIMEOUTS.commandMs, policy?: RetryPolicy): unknown => {
     listCache.clear();
     try {
-      const output = executor(orcaBinary(), withJson(args), { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
+      const output = executor(orcaBinary(), withJson(args), plexerExecOptions(timeoutMs), policy);
       return unwrapEnvelope(output);
     } catch (error: unknown) {
       throw wrapOrcaFailure(error, args);
@@ -184,7 +173,7 @@ export function createOrcaCli(executor: OrcaExecutor = defaultOrcaExecutor): Orc
       }
       return result.terminals.filter(isOrcaTerminal);
     },
-    exec: (args, options = { encoding: "utf8" }) => {
+    exec: (args, options = plexerExecOptions()) => {
       try { return executor(orcaBinary(), args, options); }
       catch (error: unknown) {
         throw wrapOrcaFailure(error, args);

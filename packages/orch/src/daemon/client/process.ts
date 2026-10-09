@@ -15,6 +15,7 @@ import { processInstanceMatches, processIsAlive, processStartToken } from "../..
 import { retryingAsync, retryingSync } from "../../retry.ts";
 import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, packageRoot } from "../../util.ts";
 import { hostOs, isHostOs } from "../../host.ts";
+import { entrypointArgs, runningRuntime } from "../../runtime.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 import { orchDirAt } from "../../orch-dir.ts";
 import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, LockRecord, OsExecutor, OsSideExecution, SocketProbe } from "../../types/daemon.ts";
@@ -337,7 +338,7 @@ export function unprovenLockRefusal(orchDir: OrchDir, pid: number): string {
 
 function commandFor(entrypoint: string, args: string[]): [string, string[]] {
   if (/\.(?:[cm]?jsx?|[cm]?tsx?)$/i.test(entrypoint)) {
-    return [process.execPath, [entrypoint, ...args]];
+    return [process.execPath, entrypointArgs(runningRuntime(), entrypoint, args)];
   }
   return [entrypoint, args];
 }

@@ -37,6 +37,16 @@ describe("tmux space home", () => {
       { coordinate: "ship", label: "ship" },
     ]);
   });
+
+  test("list with no tmux server running is empty, so a spawn opens a session that starts one", () => {
+    const backend = new TmuxBackend({ homeExec: (): string => { throw Object.assign(new Error("tmux failed"), { stderr: "no server running on /tmp/tmux-1000/default" }); } });
+    expect(backend.spaceHome.list()).toEqual([]);
+  });
+
+  test("list still throws a tmux failure that is not a missing server", () => {
+    const backend = new TmuxBackend({ homeExec: (): string => { throw Object.assign(new Error("tmux failed"), { stderr: "unknown option" }); } });
+    expect(() => backend.spaceHome.list()).toThrow("tmux failed");
+  });
 });
 
 // An orch that opens a home of its own must leave it visibly separate from

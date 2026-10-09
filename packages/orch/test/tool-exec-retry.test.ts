@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { DEFAULT_OPTIONS, observeToolExec, runTool } from "../src/backends/tool-exec.ts";
+import { observeToolExec, plexerExecOptions, runTool, runToolBestEffort } from "../src/backends/tool-exec.ts";
+import { TMUX_RETRY } from "../src/backends/tmux/cli.ts";
 import type { ToolExecutor } from "../src/types/backend.ts";
 
 /** A failure shaped like execFileSync's: a code on stderr is how every tool
@@ -33,7 +34,7 @@ describe("every command into a harness or plexer retries on timing, not on being
     observeToolExec(({ attempt, ok, elapsedMs }) => observed.push({ attempt, ok, elapsedMs }));
     const scripted = scriptedExecutor([toolFailure("agent_pane_busy"), "started"]);
 
-    expect(runTool("herdr", ["agent", "start", "a"], { ...FAST, retryable: () => true }, DEFAULT_OPTIONS, scripted.executor)).toBe("started");
+    expect(runTool("herdr", ["agent", "start", "a"], { ...FAST, retryable: () => true }, plexerExecOptions(),scripted.executor)).toBe("started");
     expect(observed.map(({ attempt, ok }) => ({ attempt, ok }))).toEqual([{ attempt: 1, ok: false }, { attempt: 2, ok: true }]);
     expect(observed.every(({ elapsedMs }) => typeof elapsedMs === "number")).toBe(true);
   });
@@ -43,7 +44,7 @@ describe("every command into a harness or plexer retries on timing, not on being
     const output = runTool("herdr", ["agent", "start", "a"], {
       ...FAST,
       retryable: (error) => String((error as { stderr?: string }).stderr).includes("agent_pane_busy"),
-    }, DEFAULT_OPTIONS, scripted.executor);
+    }, plexerExecOptions(),scripted.executor);
     expect(output).toBe("started");
     expect(scripted.calls).toBe(3);
   });
@@ -53,7 +54,7 @@ describe("every command into a harness or plexer retries on timing, not on being
     expect(() => runTool("herdr", ["agent", "start", "a"], {
       ...FAST,
       retryable: (error) => String((error as { stderr?: string }).stderr).includes("agent_pane_busy"),
-    }, DEFAULT_OPTIONS, scripted.executor)).toThrow(/duplicate_name/);
+    }, plexerExecOptions(),scripted.executor)).toThrow(/duplicate_name/);
     expect(scripted.calls).toBe(1);
   });
 
@@ -65,13 +66,23 @@ describe("every command into a harness or plexer retries on timing, not on being
     expect(() => runTool("herdr", ["agent", "start", "a"], {
       ...FAST,
       retryable: () => true,
-    }, DEFAULT_OPTIONS, scripted.executor)).toThrow(/4 attempts/);
+    }, plexerExecOptions(),scripted.executor)).toThrow(/4 attempts/);
     expect(scripted.calls).toBe(4);
   });
 
   test("the seam names no harness: the same policy drives a different binary", () => {
     const scripted = scriptedExecutor([toolFailure("server not ready"), "%3"]);
-    expect(runTool("tmux", ["split-window"], { ...FAST, retryable: () => true }, DEFAULT_OPTIONS, scripted.executor)).toBe("%3");
+    expect(runTool("tmux", ["split-window"], { ...FAST, retryable: () => true }, plexerExecOptions(),scripted.executor)).toBe("%3");
     expect(scripted.calls).toBe(2);
+  });
+
+  test("tmux with no server running fails once, never waiting on retries that cannot succeed", () => {
+    const noServer = Object.assign(new Error("tmux failed"), { status: 1, stderr: "error connecting to /tmp/tmux-1000/default (No such file or directory)" });
+    const scripted = scriptedExecutor([noServer, "%3"]);
+    expect(runToolBestEffort("tmux", ["list-panes", "-a"], { ...TMUX_RETRY, delayMs: 1 }, plexerExecOptions(),scripted.executor)).toBeNull();
+    expect(scripted.calls).toBe(1);
+
+    const busy = scriptedExecutor([Object.assign(new Error("tmux failed"), { status: 1, stderr: "server busy" }), "%3"]);
+    expect(runTool("tmux", ["split-window"], { ...TMUX_RETRY, delayMs: 1 }, plexerExecOptions(),busy.executor)).toBe("%3");
   });
 });

@@ -2,7 +2,6 @@ import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 
-import { join } from "node:path";
 import { fileSettingsManager, inMemorySettingsManager } from "../src/settings/manager.ts";
 import { settingsPath } from "../src/settings/schema.ts";
 import { settingsFixtureText, writeSettingsFixture } from "./helpers/settings.ts";
@@ -121,13 +120,5 @@ describe("settings manager", () => {
       expect(readFileSync(settingsPath(dir), "utf8")).toBe(before);
       expect(existsSync(lockFile)).toBe(true);
     });
-  });
-
-  test("reports a legacy config.toml", () => {
-    const dir = tempDir();
-    writeFileSync(join(dir, "config.toml"), "legacy = true\n");
-    const manager = fileSettingsManager(dir);
-
-    expect(() => manager.currentOrNull()).toThrow(/legacy config\.toml/);
   });
 });

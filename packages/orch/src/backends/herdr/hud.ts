@@ -8,6 +8,7 @@
 // functions in as its herdr provider — no herdr socket, event name, or shell-out
 // ever appears outside `src/backends/herdr/`.
 import { execFile } from "node:child_process";
+import { PLEXER_TIMEOUTS } from "../../config.ts";
 import { isHudPaneActive, resolveHudPane, type PaneHudProvider } from "../shared-hud.ts";
 import { requestJsonLine } from "../../presence/socket-client.ts";
 import type { HerdrCli } from "./cli.ts";
@@ -88,7 +89,7 @@ function sendHerdrMetadata(state: HudState, cli: HerdrCli, paneId: string, custo
       seq: state.metadataSeq += 1,
     },
   };
-  void requestJsonLine(socketPath, request, 500);
+  void requestJsonLine(socketPath, request, PLEXER_TIMEOUTS.hudSocketMs);
 }
 
 /**
@@ -137,9 +138,10 @@ interface HerdrEntityLike {
 function runHerdrJson(args: string[]): Promise<unknown> {
   return new Promise((resolve) => {
     try {
-      execFile("herdr", args, { timeout: 2000 }, (_error, stdout) => {
+      execFile("herdr", args, { timeout: PLEXER_TIMEOUTS.hudMs }, (_error, stdout) => {
         try {
-          resolve(JSON.parse(String(stdout)) as unknown);
+          const parsed: unknown = JSON.parse(String(stdout));
+          resolve(parsed);
         } catch {
           resolve(undefined);
         }

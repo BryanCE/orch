@@ -1,5 +1,4 @@
 import * as filesystem from "node:fs";
-import * as path from "node:path";
 import { settingsPath, settingsTemporaryPath, type SettingsFilePath } from "./schema.ts";
 import { ensurePrivateDir, errnoCode } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -28,10 +27,6 @@ export function fileSettingsStorage(orchDir: OrchDir): SettingsStorage {
       return filesystem.readFileSync(file, "utf8");
     } catch (error: unknown) {
       if (errnoCode(error) !== "ENOENT") throw error;
-    }
-    const legacy = path.join(orchDir, "config.toml");
-    if (filesystem.existsSync(legacy)) {
-      throw new Error(`${legacy}: legacy config.toml detected - settings now live in ${file}; re-run orch setup (the old values are not read)`);
     }
     return null;
   };

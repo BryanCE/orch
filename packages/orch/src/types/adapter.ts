@@ -4,6 +4,7 @@ import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { CheckResult } from "./doctor.ts";
 import type { OrchSettings } from "./settings.ts";
 import type { BridgeAction } from "../control/bridge-message.ts";
+import type { HostOs } from "./host.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
 export const ADAPTER_IDS = ["pi", "omp", "claude", "codex"] as const;
@@ -346,14 +347,16 @@ export type CodexNotifyEdit =
   | { readonly status: "foreign"; readonly foreignValue: string }
   | { readonly status: "ambiguous" };
 
-/** What one provider id needs to be usable: exactly one of a real install command or a
- * documentation URL, an optional ordered list of prerequisite provider ids installed
- * first, and the provider's own command for signing in — installed is not the same as
- * usable, and a harness with no credentials enumerates no models.
- * Keyed by real provider id, so a prerequisite can never drift from its provider. */
+/** One install command per host OS. Windows commands are PowerShell; the others are sh. */
+export type InstallCommands = Readonly<Partial<Record<HostOs, string>>>;
+
+/** What one provider id needs to be usable, keyed by its real id. `docsUrl` is the manual
+ *  path for a host with no install command; `signIn` matters because installed is not usable. */
 export interface Prerequisite {
-  install?: string;
+  install?: InstallCommands;
   docsUrl?: string;
   needs?: readonly string[];
   signIn?: string;
+  /** Setup preselects it and offers its install, whether or not it is on PATH. */
+  recommended?: boolean;
 }

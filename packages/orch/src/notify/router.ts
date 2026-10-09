@@ -1,5 +1,5 @@
 import type { Logger, OrchDir } from "../types/core.ts";
-import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, SETTINGS_DEFAULTS } from "../settings/schema.ts";
+import { NOTIFY_DEFAULT_ON, NOTIFY_IDS } from "../settings/schema.ts";
 import { commandArgv, commandAvailable, createBuiltinNotifiers, stringArray } from "./sinks.ts";
 import { oneLine } from "./format.ts";
 import type { AgentState } from "../adapters/adapter.ts";
@@ -35,15 +35,13 @@ function findConfigErrors(entry: NotifyEntry, notifier: Notifier, config: Record
 class NotifierRegistry {
   private readonly notifiers: Map<NotifyEntry["id"], Notifier>;
   private readonly emitWarning: (message: string) => void;
-  readonly timeoutMs: number;
 
   /** The settings every availability probe is judged against. What a sink reads
    *  from them is the sink's business; the router only carries them through the port. */
   private readonly settings: OrchSettings | null;
 
-  constructor(orchDir: OrchDir, settings: OrchSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { timeoutMs?: number; warn?: (message: string) => void; logger?: Logger } = {}) {
+  constructor(orchDir: OrchDir, settings: OrchSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { warn?: (message: string) => void; logger?: Logger } = {}) {
     this.settings = settings;
-    this.timeoutMs = options.timeoutMs ?? SETTINGS_DEFAULTS.timeouts.notify_ms;
     const logger = options.logger;
     this.emitWarning = options.warn ?? (logger === undefined ? () => undefined : (message) => warning(logger, message));
     this.notifiers = new Map(notifiers.flatMap((notifier) => isNotifyId(notifier.id) ? [[notifier.id, notifier]] : []));
@@ -98,7 +96,7 @@ class NotifierRegistry {
   }
 }
 
-export function createNotifierRegistry(orchDir: OrchDir, settings: OrchSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { timeoutMs?: number; warn?: (message: string) => void; logger?: Logger } = {}): NotifierRegistry {
+export function createNotifierRegistry(orchDir: OrchDir, settings: OrchSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { warn?: (message: string) => void; logger?: Logger } = {}): NotifierRegistry {
   return new NotifierRegistry(orchDir, settings, notifiers, options);
 }
 

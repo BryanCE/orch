@@ -7,8 +7,7 @@ import {
   SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA,
   type SettingsFile,
 } from "./schema.ts";
-import { matchesModelPattern, parseSettingsRoot, parseSettingsText, settingsValues, requireEnabledComposition } from "./read.ts";
-import { splitThinkingSuffix } from "../policy/thinking.ts";
+import { allowlistWithDefault, parseSettingsRoot, parseSettingsText, settingsValues, requireEnabledComposition } from "./read.ts";
 import { withKeys } from "./unknown-keys.ts";
 import type { NotifyEntry, SettingsRepair } from "../types/settings.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
@@ -40,12 +39,11 @@ function withDefaultsAllowed(root: SettingsFile): SettingsFile {
   const allowed = { ...root.models?.allowed };
   let added = false;
   for (const harness of ADAPTER_IDS) {
-    const recorded = root.defaults?.models?.[harness];
     const patterns = allowed[harness];
-    if (recorded === undefined || !patterns?.length) continue;
-    const { bare } = splitThinkingSuffix(recorded);
-    if (matchesModelPattern(patterns, bare)) continue;
-    allowed[harness] = [...patterns, bare];
+    if (!patterns) continue;
+    const effective = allowlistWithDefault(patterns, root.defaults?.models?.[harness]);
+    if (effective.length === patterns.length) continue;
+    allowed[harness] = effective;
     added = true;
   }
   return added ? { ...root, models: { ...root.models, allowed } } : root;

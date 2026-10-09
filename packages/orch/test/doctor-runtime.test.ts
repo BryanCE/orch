@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { checkRuntime, runningRuntime, shebangRuntime } from "../src/doctor/runtime.ts";
+import { checkRuntime, shebangRuntime } from "../src/doctor/runtime.ts";
+import { runningRuntime, shebangInterpreter } from "../src/runtime.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -45,6 +46,7 @@ describe("shebangRuntime", () => {
     ["#!/usr/bin/env node", "node"],
     ["#!/usr/bin/env bun", "bun"],
     ["#!/usr/bin/env deno", "deno"],
+    [`#!/usr/bin/env ${shebangInterpreter("deno")}`, "deno"],
     ["#!/usr/local/bin/node", "node"],
   ] as const)("reads %s as %s", (shebang, expected) => {
     expect(shebangRuntime(scriptWith(shebang))).toBe(expected);

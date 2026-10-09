@@ -1,16 +1,40 @@
-import type { Prerequisite } from "../types/adapter.ts";
+import { hostOs, isNixOs } from "../host.ts";
+import type { InstallCommands, Prerequisite } from "../types/adapter.ts";
+
+function posix(command: string): InstallCommands {
+  return { linux: command, darwin: command };
+}
+
+function everywhere(command: string): InstallCommands {
+  return { linux: command, darwin: command, windows: command };
+}
+
 export const PREREQUISITES: Record<string, Prerequisite> = {
   // bun is never probed on its own — it surfaces only as pi's declared dependency.
-  pi: { install: "bun add -g @earendil-works/pi-coding-agent", needs: ["bun"], signIn: "pi auth" },
-  omp: { install: "bun add -g @oh-my-pi/pi-coding-agent", needs: ["bun"], signIn: "omp setup" },
-  claude: { install: "curl -fsSL https://claude.ai/install.sh | bash", signIn: "claude auth" },
+  pi: { install: everywhere("bun add -g @earendil-works/pi-coding-agent"), needs: ["bun"], signIn: "pi auth" },
+  omp: { install: everywhere("bun add -g @oh-my-pi/pi-coding-agent"), needs: ["bun"], signIn: "omp setup" },
+  claude: { install: { ...posix("curl -fsSL https://claude.ai/install.sh | bash"), windows: "irm https://claude.ai/install.ps1 | iex" }, signIn: "claude auth" },
   codex: { docsUrl: "https://github.com/openai/codex", signIn: "codex login" },
-  bun: { install: "curl -fsSL https://bun.sh/install | bash" },
+  bun: { install: { ...posix("curl -fsSL https://bun.sh/install | bash"), windows: "irm bun.sh/install.ps1 | iex" } },
   tmux: { docsUrl: "https://github.com/tmux/tmux/wiki/Installing" },
-  herdr: { docsUrl: "https://github.com/BryanCE/orch#readme" },
+  herdr: {
+    install: { ...posix("curl -fsSL https://herdr.dev/install.sh | sh"), windows: "irm https://herdr.dev/install.ps1 | iex" },
+    docsUrl: "https://herdr.dev/docs/install/",
+    recommended: true,
+  },
   orca: { docsUrl: "https://github.com/stablyai/orca#install" },
-  "notify-send": { install: "sudo apt install libnotify-bin" },
+  "notify-send": { install: { linux: "sudo apt install libnotify-bin" } },
 };
+
+export function isRecommended(id: string): boolean {
+  return PREREQUISITES[id]?.recommended === true;
+}
+
+/** The command that installs a tool on this host. NixOS users install through Nix, so they get none. */
+export function installCommand(id: string): string | null {
+  if (isNixOs()) return null;
+  return PREREQUISITES[id]?.install?.[hostOs()] ?? null;
+}
 
 /** The one command that re-picks a harness's default and allowlist after its catalogue changes. */
 export function repickCommand(harnessId: string): string {

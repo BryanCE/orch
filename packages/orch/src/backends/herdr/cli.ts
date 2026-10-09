@@ -3,7 +3,8 @@ import { z } from "zod";
 import { isRecord } from "../../util.ts";
 import { extractVersion } from "../versions.ts";
 import { buildCommandFailure, findFreshCacheEntry, parseCliJson } from "../shared-cli.ts";
-import { DEFAULT_TOOL_RETRY, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
+import { DEFAULT_TOOL_RETRY, plexerExecOptions, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
+import { PLEXER_TIMEOUTS } from "../../config.ts";
 import type { HerdrPane, HerdrTab } from "../../types/plexer.ts";
 import type { RetryPolicy } from "../../types/core.ts";
 
@@ -13,7 +14,7 @@ interface HerdrAgent {
 }
 
 function parseHerdrOutput(output: string): unknown {
-  const value = JSON.parse(output) as unknown;
+  const value: unknown = JSON.parse(output);
   return isRecord(value) && value.result !== undefined ? value.result : value;
 }
 
@@ -24,11 +25,6 @@ export type HerdrExecutor = (
   policy?: RetryPolicy,
 ) => string;
 
-const DEFAULT_HERDR_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
-  encoding: "utf8",
-  stdio: ["ignore", "pipe", "pipe"],
-};
-
 /** herdr's own codes for "that handle no longer exists". They stay in this
  * adapter; what crosses the boundary is orch's AgentGoneError. */
 export const GONE_HANDLE_CODES = new Set(["pane_not_found", "agent_not_found"]);
@@ -36,7 +32,7 @@ export const GONE_HANDLE_CODES = new Set(["pane_not_found", "agent_not_found"]);
  *  command - not just `agent start` - rides the same backoff. A test that
  *  injects its own executor replaces this wholesale and retries nothing. */
 const defaultHerdrExecutor: HerdrExecutor = (command, args, options, policy) =>
-  runTool(command, args, policy ?? DEFAULT_TOOL_RETRY, options ?? DEFAULT_HERDR_OPTIONS);
+  runTool(command, args, policy ?? DEFAULT_TOOL_RETRY, options ?? plexerExecOptions());
 
 function isHerdrPane(value: unknown): value is HerdrPane {
   return isRecord(value) && typeof value.pane_id === "string";
@@ -52,18 +48,8 @@ function isHerdrAgent(value: unknown): value is HerdrAgent {
     && (value.name === undefined || typeof value.name === "string");
 }
 
-/** Each herdr exec costs whole seconds under WSL load; one CLI action must
- *  never pay twice for the same listing. Long-lived processes (orchd) stay
- *  fresh because entries expire after a short TTL. */
-const LIST_CACHE_TTL_MS = 1500;
-/** How long a herdr mutation may take before orch stops waiting. Enough for a
- *  command that only edits herdr's own state, never for one that starts a process. */
-const MUTATION_TIMEOUT_MS = 5000;
-/** `agent start` blocks while the harness boots: herdr enforces a 3s settle and
- *  defaults to a 30s ceiling. orch hands herdr this budget and outwaits it, so the
- *  two sides can never disagree about who gave up first. */
-export const AGENT_START_TIMEOUT_MS = 30_000;
-const AGENT_START_EXEC_TIMEOUT_MS = AGENT_START_TIMEOUT_MS + MUTATION_TIMEOUT_MS;
+/** orch hands herdr the agent start budget and outwaits it by one command, so herdr always gives up first. */
+const AGENT_START_EXEC_TIMEOUT_MS = PLEXER_TIMEOUTS.agentStartMs + PLEXER_TIMEOUTS.commandMs;
 
 /** A failed herdr command, carrying the code herdr answered with. The code is
  *  herdr's wire format and stays inside this adapter; callers read `code` rather
@@ -135,10 +121,10 @@ const ASK_ONCE: RetryPolicy = { attempts: 1, delayMs: 0, backoff: 1 };
 export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): HerdrCli {
   const listCache = new Map<string, { at: number; value: unknown }>();
   const herdr = (args: string[], policy?: RetryPolicy): unknown => {
-    const cached = findFreshCacheEntry(listCache, args, LIST_CACHE_TTL_MS);
+    const cached = findFreshCacheEntry(listCache, args, PLEXER_TIMEOUTS.listCacheMs);
     if (cached.kind === "hit") return cached.value;
     try {
-      const output = executor("herdr", args, { timeout: 3000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
+      const output = executor("herdr", args, plexerExecOptions(PLEXER_TIMEOUTS.listMs), policy);
       const value = parseHerdrOutput(output);
       listCache.set(cached.key, { at: Date.now(), value });
       return value;
@@ -146,10 +132,10 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
       throw new Error(buildCommandFailure("herdr", args, toolErrorDetail(error)));
     }
   };
-  const herdrOutput = (args: string[], timeoutMs = MUTATION_TIMEOUT_MS, policy?: RetryPolicy): string => {
+  const herdrOutput = (args: string[], timeoutMs: number = PLEXER_TIMEOUTS.commandMs, policy?: RetryPolicy): string => {
     listCache.clear();
     try {
-      return executor("herdr", args, { timeout: timeoutMs, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, policy);
+      return executor("herdr", args, plexerExecOptions(timeoutMs), policy);
     } catch (error: unknown) {
       throw new HerdrCommandError(herdrErrorCode(error), buildCommandFailure("herdr", args, toolErrorDetail(error)));
     }
@@ -162,9 +148,9 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
     ack: (args, timeoutMs, policy) => { herdrOutput(args, timeoutMs, policy); },
     answer: (args, timeoutMs) => herdrOutput(args, timeoutMs),
     startAgent: (args, agentArgs = []) => {
-      const fullArgs = [...args, "--timeout", String(AGENT_START_TIMEOUT_MS), ...(agentArgs.length > 0 ? ["--", ...agentArgs] : [])];
+      const fullArgs = [...args, "--timeout", String(PLEXER_TIMEOUTS.agentStartMs), ...(agentArgs.length > 0 ? ["--", ...agentArgs] : [])];
       listCache.clear();
-      try { executor("herdr", fullArgs, { timeout: AGENT_START_EXEC_TIMEOUT_MS, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, START_RETRY); }
+      try { executor("herdr", fullArgs, plexerExecOptions(AGENT_START_EXEC_TIMEOUT_MS), START_RETRY); }
       catch (error: unknown) {
         if (herdrErrorCode(error) === "agent_not_ready") return;
         throw new Error(buildCommandFailure("herdr", fullArgs, toolErrorDetail(error)));
@@ -198,7 +184,7 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
       for (const tab of result.tabs.filter(isHerdrTab)) tabs.set(tab.tab_id, tab);
       return tabs;
     },
-    exec: (args, options = { encoding: "utf8" }) => {
+    exec: (args, options = plexerExecOptions()) => {
       try { return executor("herdr", args, options); }
       catch (error: unknown) { throw new Error(buildCommandFailure("herdr", args, toolErrorDetail(error))); }
     },

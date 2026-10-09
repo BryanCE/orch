@@ -4,7 +4,8 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
-import { AGENT_START_TIMEOUT_MS, createHerdrCli, type HerdrExecutor } from "../src/backends/herdr/cli.ts";
+import { createHerdrCli, type HerdrExecutor } from "../src/backends/herdr/cli.ts";
+import { PLEXER_TIMEOUTS } from "../src/config.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import { retryingSync } from "../src/retry.ts";
 import { projectRoot } from "../src/util.ts";
@@ -60,7 +61,7 @@ function agentStart(name: string, pane: string, agentArgs: readonly string[] = [
   // herdr supplies the executable from --kind and appends whatever follows `--`
   // (its src/app/agents.rs: `argv = [interactive_agent_executable(kind), ...args]`),
   // so orch passes the adapter's ARGUMENTS, never its binary.
-  const start = ["agent", "start", name, "--kind", "pi", "--pane", pane, "--timeout", String(AGENT_START_TIMEOUT_MS)];
+  const start = ["agent", "start", name, "--kind", "pi", "--pane", pane, "--timeout", String(PLEXER_TIMEOUTS.agentStartMs)];
   return agentArgs.length > 0 ? [...start, "--", ...agentArgs] : start;
 }
 // The fake goes at the process runner, not over the module. Stubbing the cli

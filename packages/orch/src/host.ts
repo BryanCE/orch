@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { release } from "node:os";
 import { HOST_OS_VALUES, type Host, type HostOs } from "./types/host.ts";
 
@@ -24,6 +25,11 @@ export function isWsl(
 ): boolean {
   if (input.wslDistro !== undefined && input.wslDistro !== "") return true;
   return /microsoft|wsl/i.test(input.release);
+}
+
+/** NixOS marks itself with `/etc/NIXOS`. */
+export function isNixOs(): boolean {
+  return hostOs() === "linux" && existsSync("/etc/NIXOS");
 }
 
 export function detectHost(): Host {

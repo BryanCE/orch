@@ -1,5 +1,5 @@
 import * as files from "node:fs";
-import { resolveWithSource } from "../settings/read.ts";
+import { allowedModelPatterns, allowlistWithDefault, resolveWithSource } from "../settings/read.ts";
 import { NOTIFY_DEFAULT_ON, settingsPath, SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { displaySetting, displayValue } from "../settings/display.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
@@ -167,7 +167,7 @@ async function settingsModels(services: Services, { flags }: Invocation): Promis
       process.stdout.write(`  ${id}: unchanged - ${id} listed no models; ${signedOutFix(id)}\n`);
       continue;
     }
-    const allowed = chosen.allowed[id] ?? [];
+    const allowed = allowlistWithDefault(chosen.allowed[id] ?? [], recorded);
     process.stdout.write(
       `  ${id}: default ${recorded}`
       + `, models ${allowed.length ? allowed.join(", ") : "(all offered)"}\n`,
@@ -420,7 +420,7 @@ function printSettingsOutput(services: Pick<Services, "settings">, settings: Orc
     // Two lists, never conflated: the quicklist that harness's own picker shows, then the
     // gate its spawns are held to. A model missing from the first is still launchable.
     process.stdout.write(modelListRow("picker", harness, settings.models.preferred[harness] ?? [], "(none)"));
-    process.stdout.write(modelListRow("allowed", harness, settings.models.allowed[harness] ?? [], "(all offered)"));
+    process.stdout.write(modelListRow("allowed", harness, allowedModelPatterns(settings, harness), "(all offered)"));
   }
   process.stdout.write(`  hosts               ${Object.keys(settings.hosts).length}\n`);
   process.stdout.write(`  spaces              ${Object.keys(settings.spaces).length}\n`);

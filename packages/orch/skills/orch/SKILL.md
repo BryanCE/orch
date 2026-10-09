@@ -26,10 +26,12 @@ orch spawn api-types api-routes api-guards --tab api --with tasks/W1-api.md \
   --prompt "Do section T1 of tasks/W1-api.md. Only that section." \
   --prompt "Do section T2 of tasks/W1-api.md. Only that section." \
   --prompt "Do section T3 of tasks/W1-api.md. Only that section." \
-  --model luna:high --model luna:low --model luna:high
+  --model <model>:high --model <model>:low --model <model>:high
 orch monitor                                  # arm through the Monitor tool, in this same message
 orch result api-types api-routes api-guards   # one call collects the wave
 ```
+
+Take each `<model>` from `orch models --preferred`. Model names differ per harness and per install.
 
 A spawn from outside the plexer (`--plexer herdr` from a plain terminal) opens a new space,
 and the user must grant it. The spawn exits with `orch grant <id>`. Give the user that exact

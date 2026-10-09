@@ -12,6 +12,27 @@ import { binaryPath } from "./util.ts";
 export { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "./runtimes.ts";
 import type { ShimScope } from "./types/core.ts";
 
+/** The runtime THIS process runs under, from its own version table: a process cannot be wrong about its interpreter. */
+export function runningRuntime(): OrchRuntime {
+  const versions = process.versions;
+  if (versions.bun) return "bun";
+  if (versions.deno) return "deno";
+  return "node";
+}
+
+/** The CLI and orchd spawn processes, dial the daemon and read the tree, so under deno they run with every permission. */
+const DENO_FULL_ACCESS = ["run", "-A"];
+
+/** What follows `#!/usr/bin/env` in an entrypoint that runs under `runtime`. */
+export function shebangInterpreter(runtime: OrchRuntime): string {
+  return runtime === "deno" ? ["-S", "deno", ...DENO_FULL_ACCESS].join(" ") : runtime;
+}
+
+/** The args that run an orch entrypoint under `runtime`, after the runtime's own binary. */
+export function entrypointArgs(runtime: OrchRuntime, script: string, args: readonly string[]): string[] {
+  return runtime === "deno" ? [...DENO_FULL_ACCESS, script, ...args] : [script, ...args];
+}
+
 /**
  * The argv that executes a plain ESM JS file under one runtime — the ONE
  * definition site, shared by every harness shim so the three can never drift.

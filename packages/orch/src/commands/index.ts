@@ -117,7 +117,7 @@ type Handler = (services: Services, args: string[]) => void | Promise<void>;
  */
 function reportCommandFailure(logger: Logger, error: unknown): void {
   logger.error("command.failed", { error: errorMessage(error) });
-  process.stdout.write(errorMessage(error) + "\n");
+  process.stderr.write(errorMessage(error) + "\n");
   process.exitCode = 1;
 }
 
@@ -217,7 +217,7 @@ export function runCommand(argv: string[]): void {
     if (cmd.startsWith("--")) dispatchAsync(services.logger, cmdStatusVerb(services, argv));
     else {
       services.logger.error("command.unknown", { command: cmd });
-      process.stdout.write(`Unknown command: ${cmd}\n\n`);
+      process.stderr.write(`Unknown command: ${cmd}\n\n`);
       usage();
       process.exitCode = 1;
     }

@@ -166,11 +166,11 @@ describe("orch settings", () => {
 
   test("a load error surfaces loudly with no partial table", async () => {
     const directory = tempDir();
-    fs.writeFileSync(path.join(directory, "config.toml"), "[defaults]\n");
+    fs.writeFileSync(path.join(directory, "settings.json"), "{ not json");
 
     const failed = await runSettingsExpectingFailure(directory, {}, "--json");
-    expect(failed.message).toContain("config.toml");
-    expect(failed.message).toContain("orch setup");
+    expect(failed.message).toContain("settings.json");
+    expect(failed.message).toContain("expected valid JSON");
   });
 
   test("sets a boolean through its registry entry", async () => {

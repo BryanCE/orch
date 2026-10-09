@@ -271,10 +271,6 @@ export function patchStatus(root: OrchDir, row: AgentStatusRow): void {
   held.get(root)?.statuses.set(row.agentId, row);
 }
 
-export function dropStatus(root: OrchDir, agentId: string): void {
-  held.get(root)?.statuses.delete(agentId);
-}
-
 export function runIsSettled(root: OrchDir, dispatchId: string): boolean {
   return heldPresence(root).settled.has(dispatchId);
 }

@@ -338,7 +338,7 @@ export async function runWorkLoop(options: WorkOptions): Promise<void> {
         },
       });
     }
-    const maxRetries = settings?.queue.max_retries ?? options.maxRetries ?? 1;
+    const maxRetries = settings.queue.max_retries;
     const presence = loadPresence(orchDir);
     settleClaimedTasks(orchDir, settings, emit, options.logger);
     const tasks = listTasks(orchDir);

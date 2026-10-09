@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand, shellQuote } from "../util.ts";
+import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand, shellQuote, toolDir } from "../util.ts";
 import { declaredRuntime } from "../settings/read.ts";
 
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
@@ -13,13 +12,16 @@ import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
-const CODEX_MODELS_CACHE = join(homedir(), ".codex", "models_cache.json");
+/** codex's config folder; `CODEX_HOME` moves it. */
+function codexHome(): string {
+  return toolDir("CODEX_HOME", ".codex");
+}
 
 /** codex caches its model catalogue as `{ models: [{ slug, display_name }] }`; that
  *  shape is codex's and lives only here. */
 function codexCachedModels(): { slug?: unknown; display_name?: unknown }[] {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(CODEX_MODELS_CACHE, "utf8"));
+    const parsed: unknown = JSON.parse(readFileSync(join(codexHome(), "models_cache.json"), "utf8"));
     return isRecord(parsed) && Array.isArray(parsed.models) ? parsed.models.filter(isRecord) : [];
   } catch {
     return [];
@@ -41,7 +43,7 @@ function installCodexNotifyShim(orchDir: OrchDir, settings: OrchSettings, logger
   // is exactly how an install silently ends up running under something it never chose.
   const runtime = declaredRuntime(settings);
   const argv = codexNotifyArgv(shim, runtime, { orchDir });
-  const codexDir = join(homedir(), ".codex");
+  const codexDir = codexHome();
   const configPath = join(codexDir, "config.toml");
 
   let raw = "";
@@ -160,7 +162,7 @@ export class CodexAdapter implements AgentAdapter {
   /** Verify the top-level notify artifact written by installShim. */
   // fallow-ignore-next-line unused-class-member -- reached through shimRole(this).
   diagnoseShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult {
-    const configPath = join(homedir(), ".codex", "config.toml");
+    const configPath = join(codexHome(), "config.toml");
     const shim = codexNotifyShimPath(packageRoot());
     if (!existsSync(shim)) return { id: "codex-notify", label: "Codex notify shim", status: "warn", detail: `${shim} is missing from the install; fix: ${reinstallCommand()}` };
     let raw: string;

@@ -1,6 +1,7 @@
 import * as filesystem from "node:fs";
 import { declaredRuntime } from "../settings/read.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
+import { runningRuntime, shebangInterpreter } from "../runtime.ts";
 import { binaryPath, errorMessage } from "../util.ts";
 import type { CheckResult, RuntimeObservations } from "../types/doctor.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -8,24 +9,12 @@ import type { OrchSettings } from "../types/settings.ts";
 const id = "runtime";
 const label = "Declared runtime";
 
-/**
- * The runtime THIS process is executing under. Read from the runtime's own
- * version table rather than from PATH or from an env var: a process cannot be
- * wrong about what is interpreting it.
- */
-export function runningRuntime(): OrchRuntime {
-  const versions = process.versions;
-  if (versions.bun) return "bun";
-  if (versions.deno) return "deno";
-  return "node";
-}
-
 const SHEBANG = /^#![^\r\n]*/;
 
 /** Point an entrypoint at `runtime`, so switching runtimes needs no rebuild. */
 export function writeShebangRuntime(file: string, runtime: OrchRuntime): void {
   const source = filesystem.readFileSync(file, "utf8");
-  filesystem.writeFileSync(file, source.replace(SHEBANG, `#!/usr/bin/env ${runtime}`));
+  filesystem.writeFileSync(file, source.replace(SHEBANG, `#!/usr/bin/env ${shebangInterpreter(runtime)}`));
   filesystem.chmodSync(file, 0o755);
 }
 

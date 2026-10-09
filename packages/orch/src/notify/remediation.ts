@@ -1,4 +1,4 @@
-import { PREREQUISITES } from "../adapters/prerequisites.ts";
+import { installCommand } from "../adapters/prerequisites.ts";
 import { soundTierBinaries } from "./ding.ts";
 import { isWsl } from "../host.ts";
 
@@ -12,7 +12,7 @@ export function notifierRemediation(
 ): string {
   if (declared) return declared;
   if (id === "desktop") {
-    const notifySendInstall = PREREQUISITES["notify-send"]?.install;
+    const notifySendInstall = installCommand("notify-send");
     if (!notifySendInstall) return DEFAULT_REMEDIATION;
     return isWsl()
       ? `fix: install notify-send (\`${notifySendInstall}\`) or ensure powershell.exe and wslpath are reachable`
@@ -23,7 +23,7 @@ export function notifierRemediation(
   }
   if (id === "command") {
     const command = Array.isArray(config.command) && typeof config.command[0] === "string" ? config.command[0] : "the command";
-    return `fix: install ${command} (for example: sudo apt install ${command})`;
+    return `fix: install ${command}, or put it on PATH`;
   }
   return DEFAULT_REMEDIATION;
 }

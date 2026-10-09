@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { diagnoseClaudeShim } from "../src/adapters/claude.ts";
-import { CLAUDE_HOOK_EVENTS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath } from "../src/adapters/claude-hooks.ts";
+import { CLAUDE_HOOK_EVENTS, CLAUDE_HOOK_MATCHERS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath } from "../src/adapters/claude-hooks.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createLogger } from "../src/log.ts";
@@ -48,10 +48,11 @@ function hooksFor(
   shim: string,
   command: (shim: string, event: string) => string = (s, e) => claudeHookCommand(s, e, "node", orchHome),
 ): Record<string, unknown> {
-  return Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => [
-    event,
-    [{ hooks: [{ type: "command", command: command(shim, event) }] }],
-  ]));
+  return Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => {
+    const matcher = CLAUDE_HOOK_MATCHERS[event];
+    const hooks = [{ type: "command", command: command(shim, event) }];
+    return [event, [matcher === undefined ? { hooks } : { matcher, hooks }]];
+  }));
 }
 
 const sourcePackageRoot = path.join(import.meta.dir, "..");

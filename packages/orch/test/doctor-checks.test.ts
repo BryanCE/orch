@@ -9,6 +9,7 @@ import { orm } from "../src/store/connection.ts";
 import { sql } from "drizzle-orm";
 import { checkNotifiers, checkNotifySinks } from "../src/doctor/notify.ts";
 import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
+import { hostOs } from "../src/host.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedAgent } from "./helpers/agent.ts";
@@ -156,12 +157,12 @@ describe("doctor notification-sink checks", () => {
     expect(() => fileSettingsManager(directory).current()).toThrow(/notify/);
   });
 
-  test("uses the notify-send prerequisite install command in desktop remediation", async () => {
+  test.skipIf(hostOs() !== "linux")("uses the notify-send prerequisite install command in desktop remediation", async () => {
     const directory = tempDir();
     writeSettings(directory, { notify: [{ id: "desktop" }] });
 
     const result = await withPath(path.join(directory, "empty-path"), () => checkNotifiers(directory, settingsOf(directory)));
-    const install = PREREQUISITES["notify-send"]!.install!;
+    const install = PREREQUISITES["notify-send"]!.install!.linux!;
     expect(result.status).toBe("fail");
     expect(result.detail).toContain(`fix: install notify-send (\`${install}\`)`);
   });

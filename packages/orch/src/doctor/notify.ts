@@ -1,12 +1,10 @@
 import type { Logger, OrchDir } from "../types/core.ts";
-import * as filesystem from "node:fs";
-import * as path from "node:path";
 import { NOTIFY_DEFAULT_ON } from "../settings/schema.ts";
 import { createNotifierRegistry } from "../notify/router.ts";
-import { commandArgv } from "../notify/sinks.ts";
+import { commandArgv, desktopTier } from "../notify/sinks.ts";
 import { soundAvailable, soundTierBinaries } from "../notify/ding.ts";
 import { allBackends } from "../backends/registry.ts";
-import { binaryOnPath, errorMessage, packageRoot } from "../util.ts";
+import { binaryOnPath, errorMessage } from "../util.ts";
 import { notifierRemediation } from "../notify/remediation.ts";
 import type { BinaryStatus, CheckResult } from "../types/doctor.ts";
 import type { NotifyEntry, OrchSettings } from "../types/settings.ts";
@@ -15,12 +13,8 @@ export function checkNotifications(_bins: BinaryStatus): CheckResult {
   if (allBackends().some((backend) => backend.isAvailable() && backend.isInsideSession())) {
     return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "native backend notification tier is available" };
   }
-  if (binaryOnPath("notify-send")) return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "notify-send tier is available" };
-  if (binaryOnPath("wsl-notify-send")) return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "wsl-notify-send tier is available" };
-  const toast = path.join(packageRoot(), "scripts", "wsl-toast.ps1");
-  if (binaryOnPath("powershell.exe") && filesystem.existsSync(toast)) {
-    return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "powershell.exe toast tier is available" };
-  }
+  const tier = desktopTier();
+  if (tier) return { id: "notifications", label: "Desktop notifications", status: "ok", detail: `${tier.name} tier is available` };
   return { id: "notifications", label: "Desktop notifications", status: "warn", detail: "no desktop notification tier is available" };
 }
 

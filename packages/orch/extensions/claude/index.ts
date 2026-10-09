@@ -28,8 +28,6 @@ const MAX_TEXT = 400;
 /** Claude's Bash tool: its timeout is in ms, 2 minutes when unset, 10 minutes at most. */
 const BASH_DEFAULT_TIMEOUT_MS = 120_000;
 const BASH_MAX_TIMEOUT_MS = 600_000;
-/** Notification types that mean Claude waits on the human. `idle_prompt` only means the turn ended a while ago. */
-const ASKING_NOTIFICATIONS = new Set(["permission_prompt", "elicitation_dialog", "elicitation_url_dialog"]);
 
 /** The Bash timeout with the lock wait added, so waiting for the lock never eats the command's own time. */
 function bashTimeoutWithWait(timeout: unknown, lockWaitMs: number): number {
@@ -138,8 +136,8 @@ async function reportStopFailure(): Promise<void> {
   });
 }
 
+/** The hook's matcher passes only the notification types that wait on the human. */
 async function reportNotification(): Promise<void> {
-  if (!ASKING_NOTIFICATIONS.has(textValue(input.notification_type) ?? "")) return;
   await reportStatus({ state: "asking", blockedMessage: textValue(input.message) ?? "Claude is waiting for input" });
 }
 

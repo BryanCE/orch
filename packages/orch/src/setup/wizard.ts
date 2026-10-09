@@ -2,6 +2,7 @@ import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { allBackends } from "../backends/registry.ts";
+import { isRecommended } from "../adapters/prerequisites.ts";
 import { idOptions, promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
 import type { HarnessModel } from "../types/adapter.ts";
 import type { NotifierChoice } from "../types/notify.ts";
@@ -48,12 +49,17 @@ export function selectBackends<Id extends string>(backends: readonly Id[]): Prom
   // Widened to strings: the offered ids are generic here, and this only asks whether one of
   // them is among the detected backend ids — a membership test, not a narrowing.
   const detected = new Set<string>(allBackends().filter((backend) => backend.isAvailable()).map((backend) => backend.id));
-  return promptMultiselect("Select the backends you use (space to toggle)", backends.map((id) => ({ value: id, label: id, hint: "", checked: detected.has(id) })));
+  return promptMultiselect("Select the backends you use (space to toggle)", backends.map((id) => ({
+    value: id,
+    label: id,
+    hint: isRecommended(id) ? "recommended" : "",
+    checked: detected.has(id) || isRecommended(id),
+  })));
 }
 
 /** Pick the default backend among the selected set; null when the user cancels. */
 export function selectDefaultBackend<Id extends string>(selected: readonly Id[]): Promise<Id | null> {
-  return promptSelect("Default backend for new spawns", idOptions(selected));
+  return promptSelect("Default backend for new spawns", idOptions(selected), selected.find(isRecommended));
 }
 
 type ModelPicker = (

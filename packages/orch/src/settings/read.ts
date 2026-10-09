@@ -9,6 +9,7 @@ import { BACKEND_IDS } from "../types/backend.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import { errnoCode, errorMessage, isRecord, valueAtPath } from "../util.ts";
 import { isLogLevel } from "../log.ts";
+import { splitThinkingSuffix } from "../policy/thinking.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA, type SettingsFile, settingsPath } from "./schema.ts";
 import { checkSettingsKeys, type UnknownKey } from "./unknown-keys.ts";
@@ -334,7 +335,14 @@ export function resolveSetting<T>(opts: { flag?: T; settings?: T; fallback: T })
  * applied one. Restricting models is an explicit `models.allowed` opt-in, per harness.
  */
 export function allowedModelPatterns(settings: OrchSettings, harness: AdapterId): string[] {
-  return settings.models.allowed[harness] ?? [];
+  return allowlistWithDefault(settings.models.allowed[harness] ?? [], settings.defaults.models[harness]);
+}
+
+/** An allowlist with the harness's default model on it. An empty list stays empty: it already allows every model. */
+export function allowlistWithDefault(patterns: readonly string[], recorded: string | undefined): string[] {
+  if (recorded === undefined || patterns.length === 0) return [...patterns];
+  const { bare } = splitThinkingSuffix(recorded);
+  return matchesModelPattern(patterns, bare) ? [...patterns] : [...patterns, bare];
 }
 
 function globToRegex(pattern: string): RegExp {

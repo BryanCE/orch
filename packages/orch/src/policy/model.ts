@@ -11,14 +11,10 @@ import type { OrchSettings } from "../types/settings.ts";
  * any adapter sees the request.
  */
 
-/** True when the bare model passes that harness's configured allowlist; no patterns means no
- *  restriction, and the harness's configured default is always allowed. */
+/** True when the bare model passes that harness's allowlist, which always holds its default; no patterns means no restriction. */
 function isAllowedModel(settings: OrchSettings, harness: AdapterId, bareModel: string): boolean {
   const patterns = allowedModelPatterns(settings, harness);
-  if (patterns.length === 0) return true;
-  const recorded = settings.defaults.models[harness];
-  if (recorded !== undefined && splitThinkingSuffix(recorded).bare === bareModel) return true;
-  return matchesModelPattern(patterns, bareModel);
+  return patterns.length === 0 || matchesModelPattern(patterns, bareModel);
 }
 
 export type ModelExpansion =

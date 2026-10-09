@@ -252,7 +252,6 @@ export interface WorkOptions {
   continuous?: boolean;
   /** Suppress human progress output for machine-readable callers. */
   json?: boolean;
-  maxRetries?: number;
   /** Settings for each loop iteration. The daemon passes its manager so reloads are seen. */
   settings: SettingsManager;
   models: ModelCatalogue;

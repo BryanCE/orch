@@ -11,6 +11,7 @@ import {
 } from "../src/control/bridge-links.ts";
 import type { BridgeDelivery } from "../src/control/bridge-message.ts";
 import { settleControlOutcome } from "../src/control/outcome.ts";
+import { echoAwaited, forgetEchoes } from "../src/control/echo.ts";
 import { getBackend, registerBackend } from "../src/backends/registry.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
@@ -79,6 +80,7 @@ function captureBridge(key: string, onPush?: (delivery: BridgeDelivery) => void)
       deliveries.push(delivery);
       onPush?.(delivery);
     },
+    close: () => undefined,
   };
   attachBridge(key, link);
   links.push({ key, link });
@@ -229,10 +231,14 @@ describe("deliverControl bridge dispatch", () => {
     registerBackend(backend);
     try {
       const deliveries = captureBridge(key);
-      await deliverControl(key, { kind: "steer", text: "hello", id: "steer-1" });
+      const outcome = await deliverControl(key, { kind: "steer", text: "hello", id: "steer-1" });
       expect(submitted).toEqual([{ handle: key, text: "hello" }]);
       expect(deliveries).toHaveLength(0);
+      // Claude reports each prompt it takes, so the typed steer waits for that echo.
+      expect(outcome).toEqual({ outcome: "invoke", ack: "echo" });
+      expect(echoAwaited("steer-1")).toBe(true);
     } finally {
+      forgetEchoes(key);
       registerBackend(previous);
     }
   });

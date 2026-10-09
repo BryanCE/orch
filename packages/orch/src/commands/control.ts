@@ -14,10 +14,11 @@ import { die, remoteWrite, resultText, targetHost } from "./target.ts";
 import { readFleet, type FleetSnapshot } from "./fleet.ts";
 import { registeredId, whoAmI, refuseNonOperatorOverride, type CallerSelf } from "./self.ts";
 import { callerCredential } from "../identity/credential.ts";
-import { agentFlags, pickAdapter, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
+import { agentAdapter, agentFlags, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
 import { clearSession } from "./lifecycle/reset.ts";
-import { admitLaunchModel, pinModels } from "./spawn/models.ts";
+import { admitLaunchModel, pinModels, refuseModelChange } from "./spawn/models.ts";
+import { takesModel } from "../adapters/adapter.ts";
 import { contextReference, readPromptFile } from "./prompt-file.ts";
 import { getBackend } from "../backends/registry.ts";
 import type { Services } from "../types/services.ts";
@@ -364,7 +365,9 @@ async function prepareSession(services: Services, dispatchSettings: DispatchSett
   const tuning = resolveTuningOrDie(flags, settings, adapter.id, dispatchSettings.view?.tuning ?? NO_TUNING);
   const { thinking } = tuning;
   const model = admitLaunchModel(settings, adapter.id, services.models, tuning.model);
+  refuseModelChange(adapter, dispatchSettings.view?.tuning.model, model);
   if (!dispatchSettings.keepContext) await clearSession(services, target.key, target.steal);
+  if (!takesModel(adapter)) return { model, thinking };
   const pinWarnings = await pinModels(services, services.logger, [{ key: target.key, handle: dispatchSettings.handle, name: target.name, model, thinking }]);
   if (pinWarnings.length > 0) process.exitCode = 1;
   return { model, thinking };
@@ -387,8 +390,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const key = dispatchSettings.ent.key;
   const { model, thinking } = await prepareSession(services, dispatchSettings, flags, { key, name: effectiveName, steal: gov.steal === true });
   const headerContext = workerHeaderContextOf(self, settings, dispatchSettings.view?.cwd);
-  const agentAdapter = getAdapter(dispatchSettings.view?.harnessId ?? dispatchSettings.ent.agent ?? "");
-  const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: agentAdapter, context: headerContext, gov });
+  const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: resolveAdapterOrDie(dispatchSettings.adapter), context: headerContext, gov });
   if (dispatchSettings.view === null) await recordAdoptedAgent(services, self, key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the agent runs the prompt this command sent, not some other delivery.
@@ -428,6 +430,6 @@ async function resolveDispatchSettings(services: Services, self: CallerSelf, inv
   const resolved = await resolveDriveTarget(services, self, target, gov);
   const ent = resolved.entity;
   const handle = ent.paneId ?? ent.key;
-  return { adapter: pickAdapter(flags, settings), model: requestedModel(flags), raw: flags.raw, json: flags.json, ent, view: resolved.view, handle, prompt: taskWithReferences(prompt, flags.withPaths.map(contextReference)), keepContext: flags.keepContext };
+  return { adapter: agentAdapter(flags, settings, resolved.view?.harnessId ?? ent.agent), model: requestedModel(flags), raw: flags.raw, json: flags.json, ent, view: resolved.view, handle, prompt: taskWithReferences(prompt, flags.withPaths.map(contextReference)), keepContext: flags.keepContext };
 }
 

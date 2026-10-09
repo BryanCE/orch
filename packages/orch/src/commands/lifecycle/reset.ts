@@ -1,8 +1,9 @@
 import { modelSpec } from "../../policy/thinking.ts";
 import { NO_TUNING } from "../../policy/tuning.ts";
 import type { Tuning } from "../../policy/tuning.ts";
-import { admitLaunchModel, pinModels } from "../spawn/models.ts";
-import { agentFlags, pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
+import { admitLaunchModel, pinModels, refuseModelChange } from "../spawn/models.ts";
+import { agentAdapter, agentFlags, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
+import { takesModel } from "../../adapters/adapter.ts";
 import { readRpc, writeRpc } from "../daemon.ts";
 import { parseCommand } from "../registry.ts";
 import { usageError } from "../../cli/usage.ts";
@@ -50,24 +51,28 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   const owned = await Promise.all(targets.map(async (target) => {
     const resolved = await resolveLifecycle(services, target);
     refuseForeignHolder(self, target, resolved, steal);
-    return { target, key: resolved.key, tuning: resolved.view?.tuning ?? NO_TUNING };
+    return { target, key: resolved.key, tuning: resolved.view?.tuning ?? NO_TUNING, harness: resolved.view?.harnessId };
   }));
-  const adapter = resolveAdapterOrDie(pickAdapter(flags, settings));
   // Each agent keeps the tuning it holds unless this reset names another: a
   // reset clears the session, never the model the orchestrator chose.
-  const plans = owned.map(({ target, tuning: pinned }) => {
+  const plans = owned.map(({ target, tuning: pinned, harness }) => {
+    const adapter = resolveAdapterOrDie(agentAdapter(flags, settings, harness));
     const tuning = resolveTuningOrDie(flags, settings, adapter.id, pinned);
-    return { target, tuning: { ...tuning, model: admitLaunchModel(settings, adapter.id, services.models, tuning.model) } };
+    const model = admitLaunchModel(settings, adapter.id, services.models, tuning.model);
+    refuseModelChange(adapter, pinned.model, model);
+    return { target, pinnable: takesModel(adapter), tuning: { ...tuning, model } };
   });
   const cleared: (ClearedAgent & Tuning)[] = [];
+  const pins: (ClearedAgent & Tuning)[] = [];
   for (const plan of plans) {
     const agent = await clearSession(services, plan.target, steal);
     cleared.push({ ...agent, ...plan.tuning });
+    if (plan.pinnable) pins.push({ ...agent, ...plan.tuning });
     if (!json) process.stdout.write(`Cleared ${agent.name}'s session; ready.\n`);
   }
   // A reset that could not re-pin its model left the agent on the wrong one, and
   // re-running reset is idempotent — unlike a spawn, nothing duplicates on retry.
-  if ((await pinModels(services, services.logger, cleared)).length) process.exitCode = 1;
+  if ((await pinModels(services, services.logger, pins)).length) process.exitCode = 1;
   const results = cleared.map((agent) => ({ target: agent.handle, cleared: true, ready: true }));
   if (json) process.stdout.write(JSON.stringify(results.length === 1 ? results[0] : results) + "\n");
   else for (const agent of cleared) process.stdout.write(`Pinned ${agent.name} to ${modelSpec(agent.model, agent.thinking)}.\n`);

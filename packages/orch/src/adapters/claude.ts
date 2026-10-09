@@ -9,7 +9,7 @@ import { agentStateFrom } from "../agent-state.ts";
 import { buildHeadlessArgv, buildInteractiveArgv, shimRole, type AgentState } from "./adapter.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, HarnessModel, ModelCatalogue, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, HarnessModel, HookReportRole, LifecycleVerb, ModelCatalogue, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -64,27 +64,57 @@ function parseClaudeModelsOutput(stdout: string): readonly HarnessModel[] {
   return [];
 }
 
-function claudeHookSettings(root: string, orchDir: OrchDir, settings: OrchSettings): Record<string, unknown> {
+/** Claude's token count at which a session compacts its conversation. */
+const COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+
+/** The worker settings file with orch's two values in place: the `hooks` key and the
+ *  compaction point in `env`. Every other key and env value is the user's and stays. */
+function withOrchKeys(current: Record<string, unknown>, hooks: Record<string, unknown>, settings: OrchSettings): Record<string, unknown> {
+  const env = isRecord(current.env) ? current.env : {};
+  return { ...current, env: { ...env, [COMPACT_WINDOW_ENV]: String(settings.workers.compact_at_tokens) }, hooks };
+}
+
+/** orch's hook entries, one per Claude hook event. */
+function claudeHooks(root: string, orchDir: OrchDir, settings: OrchSettings): Record<string, unknown> {
   const shim = claudeHookShimPath(root);
   const runtime = declaredRuntime(settings);
-  return {
-    hooks: Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => [
-      event,
-      [{ hooks: [{ type: "command", command: claudeHookCommand(shim, event, runtime, orchDir) }] }],
-    ])),
-  };
+  return Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => [
+    event,
+    [{ hooks: [{ type: "command", command: claudeHookCommand(shim, event, runtime, orchDir) }] }],
+  ]));
 }
+
+/** The worker settings file as JSON, or the reason it is not usable. Absent reads as empty. */
+function readWorkerSettings(settingsPath: string): Record<string, unknown> | string {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(settingsPath, "utf8");
+  } catch {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isRecord(parsed) ? parsed : `malformed ${settingsPath}`;
+  } catch {
+    return `malformed ${settingsPath}`;
+  }
+}
+
+/** The text a running Claude session takes for each lifecycle verb; it has none for reload or restart. */
+const CLAUDE_LIFECYCLE_TEXT: Readonly<Record<LifecycleVerb, { text: string } | undefined>> = { reset: { text: "/clear" }, reload: undefined, restart: undefined };
 
 /** Load orch's hooks into a session orch spawns, and into no other session. */
 function settingsArgv(opts: SpawnOpts): string[] {
   return opts.orchDir ? ["--settings", claudeSettingsPath(opts.orchDir)] : [];
 }
 
-/** Write orch's complete, private Claude settings file. */
+/** Write orch's values into the worker settings file, keeping every key the user wrote beside them. */
 function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Logger, pkgRoot: string): void {
   const settingsPath = claudeSettingsPath(orchDir);
+  const current = readWorkerSettings(settingsPath);
+  if (typeof current === "string") throw new Error(`${current}; fix the JSON by hand, then run orch setup`);
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, `${JSON.stringify(claudeHookSettings(pkgRoot, orchDir, settings), null, 2)}\n`);
+  fs.writeFileSync(settingsPath, `${JSON.stringify(withOrchKeys(current, claudeHooks(pkgRoot, orchDir, settings), settings), null, 2)}\n`);
   process.stdout.write(`Claude Code hooks: wrote ${settingsPath}\n`);
   const shim = claudeHookShimPath(pkgRoot);
   if (!fs.existsSync(shim)) {
@@ -102,19 +132,9 @@ export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: Orc
     id, label, status: "warn", detail,
     fix: { description: "rewrite orch's Claude settings", apply: () => { installClaudeHooks(orchDir, settings, logger, root); } },
   });
-  let raw: string;
-  try {
-    raw = fs.readFileSync(settingsPath, "utf8");
-  } catch {
-    return rewrite(`missing ${settingsPath}; fix: run orch setup`);
-  }
-  let fileSettings: unknown;
-  try {
-    fileSettings = JSON.parse(raw);
-  } catch {
-    return rewrite(`malformed ${settingsPath}; fix: run orch setup`);
-  }
-  if (!isRecord(fileSettings)) return rewrite(`malformed ${settingsPath}; fix: run orch setup`);
+  const fileSettings = readWorkerSettings(settingsPath);
+  // A file orch cannot parse holds the user's keys too; rewriting it would lose them.
+  if (typeof fileSettings === "string") return { id, label, status: "fail", detail: `${fileSettings}; fix the JSON by hand` };
 
   const shim = claudeHookShimPath(root);
   if (!fs.existsSync(shim)) {
@@ -122,22 +142,23 @@ export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: Orc
   }
   let expected: Record<string, unknown>;
   try {
-    expected = claudeHookSettings(root, orchDir, settings);
+    expected = withOrchKeys(fileSettings, claudeHooks(root, orchDir, settings), settings);
   } catch {
     return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
   }
   return JSON.stringify(fileSettings) === JSON.stringify(expected)
     ? { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` }
-    : rewrite(`missing or stale orch Claude hooks in ${settingsPath}`);
+    : rewrite(`missing or stale orch Claude hooks or compaction point in ${settingsPath}`);
 }
 
 /**
- * Claude Code adapter. Presence fidelity is coarse by design: `working` on
- * SessionStart, `blocked` on Notification, `done`/`idle` on Stop, and nothing
- * in between — Claude's hooks fire only at those three points, so there are
- * no mid-run tool/token/cost transitions the way pi's live extension reports
- * them. State and session-tail data are supplied by extensions/claude/index.ts.
- * PreToolUse reports nothing; it routes locked and gated Bash commands through `orch lock`.
+ * Claude Code adapter. Presence fidelity is coarse by design: `idle` on
+ * SessionStart, `working` on UserPromptSubmit (which also acks a typed prompt),
+ * `asking` on a permission Notification or a turn that ends on a question,
+ * `done` on Stop and `error` on StopFailure. There are no mid-run tool/token/cost
+ * transitions the way pi's live extension reports them. State and session-tail
+ * data are supplied by extensions/claude/index.ts. PreToolUse reports nothing;
+ * it routes locked and gated Bash commands through `orch lock`.
  */
 class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
@@ -145,7 +166,8 @@ class ClaudeAdapter implements AgentAdapter {
   readonly thinking = null;
   readonly workerLaunch = null;
   readonly modelControl = null;
-  readonly lifecycleControl = null;
+  /** `/clear` starts a fresh conversation; SessionStart (`source: "clear"`) then reports it idle. */
+  readonly lifecycleControl = { lifecycleCmd: (verb: LifecycleVerb): { text: string } | undefined => CLAUDE_LIFECYCLE_TEXT[verb] };
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = shimRole(this);
@@ -153,11 +175,9 @@ class ClaudeAdapter implements AgentAdapter {
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseClaudeModelsOutput(catalogue.read("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST) };
   readonly bridge = null;
-  readonly presenceRegistration = { isRegistered: (key: string, orchDir: OrchDir): boolean => presenceEntry(orchDir, key) !== undefined };
+  /** SessionStart reports the session before any prompt; UserPromptSubmit reports each prompt Claude takes. */
+  readonly hooks: HookReportRole = { reports: ["start", "prompt"] };
   readonly commandGate = true;
-
-  /** State is authoritative only when the Claude settings hooks are installed. */
-  readonly hookDriven = true;
 
   /** Claude Code exports CLAUDECODE=1 into every subprocess it runs. */
   readonly sessionEnvMarker = HARNESS_SESSION_ENV.claude.marker;

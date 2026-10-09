@@ -22,6 +22,8 @@ import {
   unprovenLockRefusal,
 } from "./process.ts";
 import { isLogRecord, logFile } from "../../log.ts";
+import { readSettingsFile, settingsValues } from "../../settings/read.ts";
+import { settingsPath } from "../../settings/schema.ts";
 import { sessionClaim } from "./registration.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./wire.ts";
 import { rpcCall } from "./rpc.ts";
@@ -42,13 +44,16 @@ export function daemonLockPid(directory: OrchDir): number | undefined {
  *  An RPC error still means it answered, and anything unclassifiable stays unreachable. */
 type DaemonProbe = "answered" | "not-listening" | "unreachable";
 
-/** Generous on purpose: under load the CLI starves before orchd does, and this budget
- *  is what a starved probe used to mistake for a dead daemon. Idle answers cost ~2ms. */
-const PROBE_BUDGET_MS = 2_000;
 export const BIND_GRACE_MS = 1_000;
 const START_GRACE_MS = 5_000;
 
-export async function probeDaemon(directory: OrchDir, timeoutMs = PROBE_BUDGET_MS): Promise<DaemonProbe> {
+/** Generous on purpose: a busy orchd blocks for seconds, and this budget is what a starved
+ *  probe used to mistake for a dead daemon. Idle answers cost ~2ms. */
+function probeBudgetMs(directory: OrchDir): number {
+  return settingsValues(readSettingsFile(settingsPath(directory)) ?? {}).timeouts.daemon_probe_ms;
+}
+
+export async function probeDaemon(directory: OrchDir, timeoutMs = probeBudgetMs(directory)): Promise<DaemonProbe> {
   try {
     await rpcCall(directory, "daemon-status", undefined, timeoutMs);
     return "answered";
@@ -59,17 +64,17 @@ export async function probeDaemon(directory: OrchDir, timeoutMs = PROBE_BUDGET_M
   }
 }
 
-function probeBudget(deadline: number): number {
-  return Math.max(50, Math.min(PROBE_BUDGET_MS, deadline - Date.now()));
+function probeBudget(directory: OrchDir, deadline: number): number {
+  return Math.max(50, Math.min(probeBudgetMs(directory), deadline - Date.now()));
 }
 
 /** Poll until orchd answers or the deadline passes, reporting the last verdict —
  *  covers the window where it holds the lock but has not finished binding its socket. */
 export async function awaitDaemonProbe(directory: OrchDir, deadline: number): Promise<DaemonProbe> {
-  let verdict = await probeDaemon(directory, probeBudget(deadline));
+  let verdict = await probeDaemon(directory, probeBudget(directory, deadline));
   while (verdict !== "answered" && Date.now() < deadline) {
     await sleep(50);
-    verdict = await probeDaemon(directory, probeBudget(deadline));
+    verdict = await probeDaemon(directory, probeBudget(directory, deadline));
   }
   return verdict;
 }
@@ -77,8 +82,8 @@ export async function awaitDaemonProbe(directory: OrchDir, deadline: number): Pr
 /** What orch says instead of killing a daemon it merely could not reach in time. */
 export function starvedDaemonRefusal(directory: OrchDir, lockPid: number | undefined): string {
   const owner = lockPid === undefined ? "orchd" : `orchd pid ${lockPid}`;
-  return `${owner} did not answer within ${PROBE_BUDGET_MS}ms; it was NOT stopped — a timeout is no proof it died. `
-    + `The machine is likely loaded: retry, or read ${logFile(directory)}`;
+  return `${owner} did not answer within ${probeBudgetMs(directory)}ms, so this command did nothing; orchd was NOT stopped — a timeout is no proof it died. `
+    + `orchd is busy: run the same command again, raise timeouts.daemon_probe_ms, or read ${logFile(directory)}`;
 }
 
 /** How far back the log is read for the one line that says why orchd went. */

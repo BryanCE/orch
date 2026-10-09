@@ -2,6 +2,7 @@ import { rpcCall } from "../../daemon/client/rpc.ts";
 import { maySpawnBelow } from "../../policy/spawner.ts";
 import { workerRules } from "../../worker-prompt.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
+import { takesModel } from "../../adapters/adapter.ts";
 import { readGroupLayout } from "../../backends/tiling.ts";
 import { dispatchToAgent } from "../control.ts";
 import { writeDelivery } from "../delivery.ts";
@@ -24,28 +25,37 @@ export function spawnLogger(logger: Logger, key?: string): Logger {
   return key !== undefined && isAgentId(key) ? logger.forAgent(key) : logger;
 }
 
-/** Return the keys whose bridge is attached in one daemon status response. */
-function attachedBridgeKeys(answer: ResultOf<"status"> | null): ReadonlySet<string> {
-  return new Set(answer?.rows.filter((row) => row.bridgeAttached === true).map((row) => row.key));
+type StatusWireRow = ResultOf<"status">["rows"][number];
+
+/** What says an agent came up: its bridge attached, or the status its harness reports on
+ *  start. Null when the harness gives no start-up signal at all. */
+function startupSignal(adapter: AgentAdapter): ((row: StatusWireRow) => boolean) | null {
+  if (adapter.bridge) return (row) => row.bridgeAttached === true;
+  return adapter.hooks?.reports.includes("start") ? (row) => !row.stateFallback : null;
 }
 
-/** Wait for every agent's bridge to attach; returns only the ones that attached. */
-export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, created: { key: string; handle: string; name: string }[], timeouts: OrchSettings["timeouts"], json = false): Promise<CreatedAgent[]> {
+/** Return the keys that came up in one daemon status response. */
+function upKeys(answer: ResultOf<"status"> | null, isUp: (row: StatusWireRow) => boolean): ReadonlySet<string> {
+  return new Set(answer?.rows.filter(isUp).map((row) => row.key));
+}
+
+/** Wait for every agent to come up; returns only the ones that did. */
+async function awaitAgentsUp(orchDir: OrchDir, logger: Logger, created: readonly CreatedAgent[], timeouts: OrchSettings["timeouts"], json: boolean, isUp: (row: StatusWireRow) => boolean): Promise<CreatedAgent[]> {
   const pending = new Map(created.map((c) => [c.key, c]));
-  const attached = new Map<string, CreatedAgent>();
+  const up = new Map<string, CreatedAgent>();
   const deadline = Date.now() + timeouts.spawn_attach_ms;
   while (pending.size && Date.now() < deadline) {
     let answer: ResultOf<"status"> | null = null;
     try {
       answer = await rpcCall(orchDir, "status", { caller: null });
     } catch {
-      // The daemon may be briefly unavailable while a bridge starts; keep polling until the deadline.
+      // The daemon may be briefly unavailable while an agent starts; keep polling until the deadline.
     }
-    const keys = attachedBridgeKeys(answer);
+    const keys = upKeys(answer, isUp);
     for (const [key, agent] of [...pending]) {
       if (keys.has(key)) {
         pending.delete(key);
-        attached.set(key, agent);
+        up.set(key, agent);
         if (!json) process.stdout.write(`Spawned ${agent.name}\n`);
       }
     }
@@ -56,10 +66,10 @@ export async function awaitBridgeAttach(orchDir: OrchDir, logger: Logger, create
   // launch read as success and dispatch into agents that never came up.
   for (const agent of pending.values()) {
     spawnLogger(logger, agent.key).error("spawn.stalled", { handle: agent.handle, name: agent.name });
-    process.stdout.write(`STALLED ${agent.handle}  ${agent.name} - bridge never attached; try: orch restart ${agent.name}\n`);
+    process.stdout.write(`STALLED ${agent.handle}  ${agent.name} - never came up; try: orch restart ${agent.name}\n`);
   }
   if (pending.size) process.exitCode = 1;
-  return [...attached.values()];
+  return [...up.values()];
 }
 
 /** A launch that placed fewer agents than were asked for FAILED; a warning line
@@ -74,10 +84,9 @@ export function reportShortfall(logger: Logger, requested: number, placed: numbe
 /** How many agents actually came up, or `null` when the harness cannot say.
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
-async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: CreatedAgent[], timeouts: OrchSettings["timeouts"], json: boolean): Promise<CreatedAgent[] | null> {
-  if (adapter.bridge) {
-    return await awaitBridgeAttach(orchDir, logger, created, timeouts, json);
-  }
+export async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: readonly CreatedAgent[], timeouts: OrchSettings["timeouts"], json: boolean): Promise<CreatedAgent[] | null> {
+  const isUp = startupSignal(adapter);
+  if (isUp !== null) return await awaitAgentsUp(orchDir, logger, created, timeouts, json, isUp);
   logger.warn("spawn.unverified", { adapter: adapter.id, count: created.length });
   process.stdout.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
   return null;
@@ -160,10 +169,13 @@ async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settin
 
 export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, tabLabel: string, created: CreatedAgent[]): Promise<void> {
   reportShortfall(logger, settings.agents.length, created.length);
-  const registeredAgents = await confirmAgentsCameUp(services.orchDir, logger, resolveAdapterOrDie(settings.adapter), created, settingsFile.timeouts, settings.json);
+  const adapter = resolveAdapterOrDie(settings.adapter);
+  const registeredAgents = await confirmAgentsCameUp(services.orchDir, logger, adapter, created, settingsFile.timeouts, settings.json);
   const registered = registeredAgents?.length ?? null;
-  if (registeredAgents) warnUnregisteredAgents(logger, created, registeredAgents);
-  const pinEntries = buildSpawnPinEntries(registeredAgents, settings);
+  // A harness that cannot change a running session's model launched on it already.
+  const pinnable = takesModel(adapter) ? registeredAgents : null;
+  if (pinnable) warnUnregisteredAgents(logger, created, pinnable);
+  const pinEntries = buildSpawnPinEntries(pinnable, settings);
   const warnings = await pinModels(services, logger, pinEntries);
   const dispatches = await dispatchSpawnPrompts(services, self, logger, settingsFile, settings, created);
   const outage = warnings.length ? await reportControlPlaneOutage(services.orchDir, logger, created.length) : null;

@@ -16,10 +16,11 @@ export type ControlAction =
 /**
  * Whether the caller should wait for the agent to acknowledge this write.
  * `expected` means the text was pushed down the bridge link and the bridge will
- * ack it when it applies it; `none` means the channel has no reader that will ack.
+ * ack it when it applies it; `echo` means the text was typed into the harness's input
+ * and the harness's prompt report acks it; `none` means the channel has no reader that will ack.
  * The outbox needs this to tell a handoff apart from a delivery (L7).
  */
-export type ControlAck = "expected" | "none";
+export type ControlAck = "expected" | "echo" | "none";
 
 export type ControlBoundaryOutcome =
   | { readonly outcome: "invoke"; readonly ack: ControlAck }

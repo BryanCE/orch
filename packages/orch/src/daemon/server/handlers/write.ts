@@ -6,6 +6,8 @@ import { withTransaction } from "../../../store/connection.ts";
 import { currentLease } from "../../../store/lease-rows.ts";
 import { insertOutboxMessage, outboxMessageState, selectOutboxMessage } from "../../../store/outbox-rows.ts";
 import { confirmDelivery } from "../../../control/ack.ts";
+import { echoAwaited } from "../../../control/echo.ts";
+import type { ControlAck } from "../../../types/control.ts";
 import { checkWall, operatorControls } from "../../../policy/space.ts";
 import { emitAndNotify } from "../events.ts";
 import { deliverOutboxMessage } from "../outbox.ts";
@@ -180,17 +182,10 @@ export function governWrite(state: DaemonState, target: string, params: Governan
   logLeaseGrant();
 }
 
-async function acceptTextWrite<M extends "dispatch" | "steer">(state: DaemonState, action: M, params: ParamsOf<M>, id: string): Promise<"none" | "expected"> {
-  const directory = state.directory;
-  const { target, text } = params;
+/** What the caller of one write waits on, read from the row its delivery attempt left. */
+function writeAck(state: DaemonState, id: string, target: string, action: string): ControlAck {
   const log = state.services.logger.forCorrelation(id);
-  withTransaction(directory, () => {
-    governWrite(state, target, params, { correlationId: id });
-    insertOutboxMessage(directory, { id, target, payload: { action, text } });
-  });
-  log.info("dispatch.accepted", { target, action });
-  await deliverOutboxMessage(directory, id, outboxDeps(state));
-  const deliveryState = outboxMessageState(directory, id);
+  const deliveryState = outboxMessageState(state.directory, id);
   if (deliveryState === "undeliverable") throw new Error(`write ${id}: agent ${target} is gone`);
   if (deliveryState === "pending") {
     log.info("dispatch.queued", { target, action, reason: "bridge-detached" });
@@ -198,23 +193,32 @@ async function acceptTextWrite<M extends "dispatch" | "steer">(state: DaemonStat
   }
   if (deliveryState === "awaiting") return "expected";
   if (deliveryState === "delivered") log.info("dispatch.delivered", { target, action });
-  return "none";
+  return echoAwaited(id) ? "echo" : "none";
 }
 
-async function deliverAcceptedText(state: DaemonState, id: string): Promise<"none" | "expected"> {
+/** The ack once the wait timed out: a bridge ack can land just after the timer; a typed prompt counts only once echoed. */
+function lateAck(directory: OrchDir, id: string): "acknowledged" | "unavailable" {
+  return outboxMessageState(directory, id) === "delivered" && !echoAwaited(id) ? "acknowledged" : "unavailable";
+}
+
+async function acceptTextWrite<M extends "dispatch" | "steer">(state: DaemonState, action: M, params: ParamsOf<M>, id: string): Promise<ControlAck> {
+  const directory = state.directory;
+  const { target, text } = params;
+  withTransaction(directory, () => {
+    governWrite(state, target, params, { correlationId: id });
+    insertOutboxMessage(directory, { id, target, payload: { action, text } });
+  });
+  state.services.logger.forCorrelation(id).info("dispatch.accepted", { target, action });
+  await deliverOutboxMessage(directory, id, outboxDeps(state));
+  return writeAck(state, id, target, action);
+}
+
+async function deliverAcceptedText(state: DaemonState, id: string): Promise<ControlAck> {
   const directory = state.directory;
   const row = selectOutboxMessage(directory, id);
   if (row === undefined) throw new Error(`write ${id} does not exist`);
   await deliverOutboxMessage(directory, id, outboxDeps(state));
-  const deliveryState = outboxMessageState(directory, id);
-  if (deliveryState === "undeliverable") throw new Error(`write ${id}: agent ${row.target} is gone`);
-  if (deliveryState === "pending") {
-    state.services.logger.forCorrelation(id).info("dispatch.queued", { target: row.target, action: row.payload.action, reason: "bridge-detached" });
-    return "none";
-  }
-  if (deliveryState === "awaiting") return "expected";
-  if (deliveryState === "delivered") state.services.logger.forCorrelation(id).info("dispatch.delivered", { target: row.target, action: row.payload.action });
-  return "none";
+  return writeAck(state, id, row.target, row.payload.action);
 }
 
 async function confirmTextWrite<M extends "dispatch" | "steer">(state: DaemonState, action: M, params: ParamsOf<M>): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
@@ -225,7 +229,7 @@ async function confirmTextWrite<M extends "dispatch" | "steer">(state: DaemonSta
     ack = await confirmDelivery(id, timeoutMs, () => acceptTextWrite(state, action, params, id));
   } catch (error: unknown) {
     if (!errorMessage(error).includes(`delivery ${id} was not acknowledged within`)) throw error;
-    ack = outboxMessageState(state.directory, id) === "delivered" ? "acknowledged" : "unavailable";
+    ack = lateAck(state.directory, id);
   }
   return { accepted: true, id, ack };
 }
@@ -252,7 +256,7 @@ export async function message(state: DaemonState, params: ParamsOf<"message">): 
     ack = await confirmDelivery(accepted.id, timeoutMs, () => deliverAcceptedText(state, accepted.id));
   } catch (error: unknown) {
     if (!errorMessage(error).includes(`delivery ${accepted.id} was not acknowledged within`)) throw error;
-    ack = outboxMessageState(directory, accepted.id) === "delivered" ? "acknowledged" : "unavailable";
+    ack = lateAck(directory, accepted.id);
   }
   return { accepted: true, id: accepted.id, ack };
 }

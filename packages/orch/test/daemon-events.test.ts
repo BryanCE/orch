@@ -5,7 +5,9 @@ import { selectRun, selectRuns } from "../src/store/run-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { insertAgent, renameAgent, ensureHarness } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
-import { acceptResultReport, acceptStatusReport, startLivenessTick } from "../src/daemon/server/status-report.ts";
+import { acceptPromptReport, acceptResultReport, acceptStatusReport, startLivenessTick } from "../src/daemon/server/status-report.ts";
+import { confirmDelivery } from "../src/control/ack.ts";
+import { echoAwaited, expectEcho, forgetEchoes } from "../src/control/echo.ts";
 import { askingEventFromRow, transitionEventFromRow } from "../src/daemon/server/status-events.ts";
 import { emitAndNotify, isRepeatTransition } from "../src/daemon/server/events.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
@@ -206,6 +208,46 @@ describe("daemon presence events", () => {
       finishedAt: 5,
       cost: 0.5,
     });
+  });
+
+  test("a prompt report acks the typed dispatch and binds the run to it", async () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
+    report(orchDir, key, { state: "idle" }, () => { /* start */ });
+    const events: NotifyEvent[] = [];
+    const ack = await confirmDelivery("d-typed", 1_000, () => {
+      expectEcho(key, { id: "d-steer", kind: "steer", text: "a later steer" });
+      expectEcho(key, { id: "d-typed", kind: "run", text: "do   the\ntask" });
+      acceptPromptReport(orchDir, key, "do the task", (event) => { events.push(event); });
+      return Promise.resolve("echo");
+    });
+    expect(ack).toBe("acknowledged");
+    expect(echoAwaited("d-typed")).toBe(false);
+    expect(echoAwaited("d-steer")).toBe(true);
+    expect(selectAgentStatus(orchDir, key)).toMatchObject({ state: "working", dispatchId: "d-typed", task: "do the task" });
+    expect(events.map(eventState)).toEqual(["working"]);
+    forgetEchoes(key);
+  });
+
+  test("a result report with no dispatch id settles the run its status row holds", () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
+    expectEcho(key, { id: "d-bound", kind: "run", text: "work" });
+    acceptPromptReport(orchDir, key, "work", () => { /* start */ });
+    report(orchDir, key, { state: "done", finishedAt: 9 }, () => { /* done */ });
+    acceptResultReport(orchDir, key, { text: "the answer", finishedAt: 9 });
+    expect(selectRun(orchDir, "d-bound")).toMatchObject({ state: "done", result: "the answer" });
+  });
+
+  test("a prompt orch never typed opens a run that is no dispatch of orch's", () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
+    report(orchDir, key, { state: "done", dispatchId: "d-old", startedAt: 1, finishedAt: 2 }, () => { /* seed */ });
+    acceptPromptReport(orchDir, key, "typed by the human", () => { /* start */ });
+    expect(selectAgentStatus(orchDir, key)).toMatchObject({ state: "working", dispatchId: null });
   });
 
   test("repeated transitions upsert one run and only terminal states set finishedAt", () => {

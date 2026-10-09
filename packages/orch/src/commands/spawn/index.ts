@@ -25,7 +25,7 @@ import { admissionFleet, assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceG
 import { admitLaunchModel, pinModels } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
 import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
-import { awaitBridgeAttach, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
+import { confirmAgentsCameUp, printLayout, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
 import { usageError } from "../../cli/usage.ts";
 
@@ -88,19 +88,21 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
       break;
     }
   }
-  // Same gate the placed path uses: an adapter with a bridge is only reachable once
-  // its bridge has come up (P2-3 makes "up" mean attached), so returning before that
-  // hands the caller a key it cannot dispatch to yet.
+  await reportHeadlessSpawn(services, adapter, settingsFile, settings, created);
+}
+
+/** Same gate the placed path uses: returning before an agent comes up hands the
+ *  caller a key it cannot dispatch to yet. A stalled agent sets the exit code there. */
+async function reportHeadlessSpawn(services: Pick<Services, "orchDir" | "logger">, adapter: AgentAdapter, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[]): Promise<void> {
   reportShortfall(services.logger, settings.agents.length, created.length);
-  const registered = adapter.bridge ? await awaitBridgeAttach(services.orchDir, services.logger, created, settingsFile.timeouts, settings.json) : [];
-  const stalled = created.filter((agent) => !registered.some((candidate) => candidate.key === agent.key));
-  if (stalled.length > 0) process.exitCode = 1;
-  if (settings.json) process.stdout.write(JSON.stringify({
+  const registered = await confirmAgentsCameUp(services.orchDir, services.logger, adapter, created, settingsFile.timeouts, settings.json);
+  if (!settings.json) return;
+  process.stdout.write(JSON.stringify({
     backend: settings.backend,
     agents: created,
     requested: settings.agents.length,
     created: created.length,
-    registered: registered.length,
+    registered: registered?.length ?? null,
   }) + "\n");
 }
 

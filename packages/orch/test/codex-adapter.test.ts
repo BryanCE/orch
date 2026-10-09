@@ -70,7 +70,7 @@ describe("CodexAdapter", () => {
     expect(adapter.sessionView).not.toBeNull();
     expect(adapter.bridge).toBeNull();
     expect(adapter.modelControl).toBeNull();
-    expect(adapter.presenceRegistration).toBeNull();
+    expect(adapter.hooks).toBeNull();
     expect(adapter.lifecycleControl).toBeNull();
     expect(adapter.stateFallback).toBe(true);
     expect(CODEX_STATE_FALLBACK_MARKER).toBe("stateFallback");

@@ -59,7 +59,7 @@ describe("PiAdapter", () => {
     expect(adapter.bridge?.takes).toEqual(["dispatch", "steer", "answer", "model"]);
     expect(adapter.modelControl).not.toBeNull();
     expect(adapter.sessionView).not.toBeNull();
-    expect(adapter.presenceRegistration).not.toBeNull();
+    expect(adapter.hooks).toBeNull();
     expect(adapter.lifecycleControl).not.toBeNull();
   });
 

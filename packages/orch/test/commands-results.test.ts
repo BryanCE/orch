@@ -226,7 +226,7 @@ describe("commands/results", () => {
     recordAgentStatus(root, key, { state: "done", sessionPath: session }, Date.now());
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
-      expect(await captureStdoutAsync(() => cmdResult(services, [key]))).toContain("(no results.jsonl - falling back to adapter-extracted session text)\nsession final\n");
+      expect(await captureStdoutAsync(() => cmdResult(services, [key]))).toContain("(no reported result - read from the harness session)\nsession final\n");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
       removeTempDir(root);

@@ -16,7 +16,7 @@ export function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter
     models: null,
     modelWarm: null,
     bridge: null,
-    presenceRegistration: null,
+    hooks: null,
     commandGate: false,
     interactiveCmd,
     interactiveArgv: (opts: SpawnOpts): readonly string[] => interactiveCmd(opts).split(" "),

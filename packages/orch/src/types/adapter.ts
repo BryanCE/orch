@@ -236,8 +236,14 @@ export interface BridgeRole {
   readonly takes: readonly BridgeAction[];
 }
 
-export interface PresenceRegistrationRole {
-  isRegistered(key: string, orchDir: OrchDir): boolean;
+/** What a bridge-less harness reports from hooks inside its session: `start` is its status as
+ *  the session starts, so a spawn can wait for it; `prompt` is each prompt it takes
+ *  (`report-prompt`), which acks text typed into its input and answers a question that ended its turn. */
+export type HookReport = "start" | "prompt";
+
+/** The harness reports presence from hooks it runs inside the session. */
+export interface HookReportRole {
+  readonly reports: readonly HookReport[];
 }
 
 export interface AgentAdapter {
@@ -264,7 +270,7 @@ export interface AgentAdapter {
   /** Background catalogue warm-up, absent when listing is synchronous. */
   readonly modelWarm: ModelWarmRole | null;
   readonly bridge: BridgeRole | null;
-  readonly presenceRegistration: PresenceRegistrationRole | null;
+  readonly hooks: HookReportRole | null;
   /** True when this harness's integration rewrites a locked or gated shell command through `orch lock` before it runs. */
   readonly commandGate: boolean;
   /**

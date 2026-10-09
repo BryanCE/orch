@@ -13,15 +13,20 @@ import type { CallerCredential, OrchDir } from "../../../types/core.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { DaemonState } from "../state.ts";
 import { heldCapacity } from "../capacity.ts";
+import { phaseClock } from "../phase-clock.ts";
 
 export function fleetSnapshot(state: DaemonState, params: ParamsOf<"fleet">): ResultOf<"fleet"> {
   const directory = state.directory;
   const settings = state.services.settings.current();
-  return {
-    views: agentViews(directory),
-    presence: [...loadPresence(directory).values()],
-    entities: sortEntities(buildEntities(directory, settings, { skipBackends: params?.skipBackends === true })),
-  };
+  const clock = phaseClock();
+  const views = agentViews(directory);
+  clock.lap("views");
+  const presence = [...loadPresence(directory).values()];
+  clock.lap("presence");
+  const entities = sortEntities(buildEntities(directory, settings, { skipBackends: params?.skipBackends === true }));
+  clock.lap("entities");
+  state.services.logger.trace("fleet.phases", clock.phases());
+  return { views, presence, entities };
 }
 
 /** A reaped agent has no presence, only history; an operator may still read it by exact key. */

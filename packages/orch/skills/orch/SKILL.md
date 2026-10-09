@@ -31,6 +31,12 @@ orch monitor                                  # arm through the Monitor tool, in
 orch result api-types api-routes api-guards   # one call collects the wave
 ```
 
+A spawn from outside the plexer (`--plexer herdr` from a plain terminal) opens a new space,
+and the user must grant it. The spawn exits with `orch grant <id>`. Give the user that exact
+line at once, wait until they say it ran, then run the same spawn again unchanged.
+
+Arm the Monitor with its longest timeout. When it expires, arm it again in the same turn.
+
 The Monitor command is exactly `orch monitor`. orch filters its own output and finds its own
 directory, so a `cd`, a pipe or a `grep` added to it only hides the events you armed it for.
 

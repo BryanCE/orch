@@ -14,7 +14,7 @@ import { errorMessage } from "../util.ts";
 import type { SettingsManager } from "../types/services.ts";
 import { gatedPatterns, lockedCommandLine } from "../policy/command-gate.ts";
 import { registerPeerTools, toolResult } from "./peers.ts";
-import { extractText, isAssistantMessageLike, LAST_TEXT_MAX, TASK_MAX } from "./presence.ts";
+import { extractText, isAssistantMessageLike, LAST_TEXT_MAX } from "./presence.ts";
 import { sessionUsageCost } from "../session.ts";
 import { isRecord, isUnknownArray, optionalString, truncate } from "../util.ts";
 import { prepareWorkerTask } from "../worker-prompt.ts";
@@ -204,7 +204,7 @@ export function registerAgentTools(
   harness.on("before_agent_start", (event: unknown, ctx: HarnessContext) => {
     presence.setLastCtx(ctx);
     if (isBeforeAgentStartEvent(event) && typeof event.prompt === "string" && event.prompt.trim()) {
-      state.task = prepareWorkerTask(event.prompt, TASK_MAX);
+      state.task = prepareWorkerTask(event.prompt);
       state.dispatchId = presence.dispatchIdFor(event.prompt);
     }
   });

@@ -96,7 +96,7 @@ describe("worker prompt capability composition", () => {
   test("unreachable spawner tells the worker to finish and end without relaying", () => {
     const header = workerHeaderFor(getAdapter("pi"), { spawnerRepliable: false });
     expect(header).toContain("finish, write your result, END the turn");
-    expect(header).toContain("your result is collected from your session/result file");
+    expect(header).toContain("orch collects your final reply as your result");
     expect(header).toContain("NEVER route a report through another agent");
   });
 
@@ -120,6 +120,12 @@ describe("worker prompt capability composition", () => {
       bridge: { takes: ["dispatch", "steer", "model"] },
     });
     expect(workerHeaderFor(bridgeWithoutAnswer)).not.toContain("orch_ask");
+  });
+
+  test("a harness that echoes prompts asks by ending its turn on the question", () => {
+    const header = workerHeaderFor(fakeAdapter({ hooks: { reports: ["start", "prompt"] } }));
+    expect(header).not.toContain("orch_ask");
+    expect(header).toContain("end your turn with the question as your last line");
   });
 
   test("events strip both worker header variants", () => {

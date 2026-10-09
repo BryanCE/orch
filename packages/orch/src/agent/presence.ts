@@ -17,8 +17,6 @@ import type { ResultReport, StatusPatch } from "../types/presence.ts";
 import type { BridgeDelivery, BridgeMessage } from "../control/bridge-message.ts";
 
 export const LAST_TEXT_MAX = 400;
-/** Maximum stored task length after the worker header is removed. */
-export const TASK_MAX = 200;
 
 interface TextBlockLike {
   type: unknown;

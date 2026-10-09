@@ -13,6 +13,9 @@ import { appendStatusHistory, writeResult } from "../../presence/history.ts";
 import { loadPresence, probeAllProcesses, reapDeadAgentRecords, recordAgentStatus, runIsSettled } from "../../presence/store.ts";
 import { askingEventFromRow, transitionEventFromRow } from "./status-events.ts";
 import { forgetCapacity } from "./capacity.ts";
+import { acknowledgeDelivery } from "../../control/ack.ts";
+import { takeEcho, type TypedPrompt } from "../../control/echo.ts";
+import { prepareWorkerTask } from "../../worker-prompt.ts";
 
 const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited"]);
 
@@ -99,6 +102,28 @@ export function acceptStatusReport(
   return { ok: true };
 }
 
+/** The status a prompt the harness took opens. A prompt orchd typed is acked here; new work
+ *  binds its dispatch id, a steer or an answer keeps the run it lands in, and a prompt orch
+ *  never typed opens a run that is no dispatch of orch's. */
+function promptStatus(prompt: string, typed: TypedPrompt | undefined, now: number): StatusPatch {
+  if (typed !== undefined && typed.kind !== "run") return { state: "working", blockedMessage: null };
+  return {
+    state: "working",
+    task: prepareWorkerTask(prompt),
+    dispatchId: typed?.id ?? null,
+    startedAt: now,
+    finishedAt: null,
+    blockedMessage: null,
+    lastText: null,
+  };
+}
+
+export function acceptPromptReport(orchDir: OrchDir, key: string, prompt: string, publish: (event: NotifyEvent) => void, now = Date.now()): { ok: true } {
+  const typed = takeEcho(key, prompt);
+  if (typed !== undefined) acknowledgeDelivery(typed.id);
+  return acceptStatusReport(orchDir, key, promptStatus(prompt, typed, now), publish, now);
+}
+
 export function acceptResultReport(
   orchDir: OrchDir,
   key: string,
@@ -107,32 +132,32 @@ export function acceptResultReport(
 ): { ok: true } {
   if (agentView(orchDir, key) === null) throw new Error(`agent ${key} does not exist`);
   writeResult(key, orchDir, { ts: now, key, ...result });
-  if (result.dispatchId !== null && result.dispatchId !== undefined) {
-    try {
-      const run: RunRecord = {
-        dispatchId: result.dispatchId,
-        agentKey: key,
-        state: "done",
-        startedAt: now,
-        result: result.text,
-      };
-      if (result.finishedAt !== undefined) run.finishedAt = result.finishedAt;
-      if (result.task !== null && result.task !== undefined) run.task = result.task;
-      if (result.model !== null && result.model !== undefined) run.model = result.model.id;
-      if (result.tokens !== null && result.tokens !== undefined) {
-        run.tokensIn = result.tokens.input;
-        run.tokensOut = result.tokens.output;
-        run.cacheRead = result.tokens.cacheRead;
-        run.cacheWrite = result.tokens.cacheWrite;
-      }
-      if (result.cost !== null && result.cost !== undefined) run.cost = result.cost;
-      if (result.turns !== null && result.turns !== undefined) run.turns = result.turns;
-      upsertRun(orchDir, run);
-    } catch {
-      // History is a bystander: a failed run write cannot reject a report.
-    }
+  // A harness that never saw the dispatch id reports the result of the run its status row holds.
+  const dispatchId = result.dispatchId ?? selectAgentStatus(orchDir, key)?.dispatchId ?? null;
+  if (dispatchId === null) return { ok: true };
+  try {
+    upsertRun(orchDir, runFromResult(dispatchId, key, result, now));
+  } catch {
+    // History is a bystander: a failed run write cannot reject a report.
   }
   return { ok: true };
+}
+
+/** The settled run one result report describes. */
+function runFromResult(dispatchId: string, key: string, result: ResultReport, now: number): RunRecord {
+  const run: RunRecord = { dispatchId, agentKey: key, state: "done", startedAt: now, result: result.text };
+  if (result.finishedAt !== undefined) run.finishedAt = result.finishedAt;
+  if (result.task !== null && result.task !== undefined) run.task = result.task;
+  if (result.model !== null && result.model !== undefined) run.model = result.model.id;
+  if (result.tokens !== null && result.tokens !== undefined) {
+    run.tokensIn = result.tokens.input;
+    run.tokensOut = result.tokens.output;
+    run.cacheRead = result.tokens.cacheRead;
+    run.cacheWrite = result.tokens.cacheWrite;
+  }
+  if (result.cost !== null && result.cost !== undefined) run.cost = result.cost;
+  if (result.turns !== null && result.turns !== undefined) run.turns = result.turns;
+  return run;
 }
 
 export function startLivenessTick(

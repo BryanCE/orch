@@ -44,21 +44,38 @@ function agentDir(key: string): string {
 /** The hook always runs under `fakeKey`; a test's own key only names its transcript file. */
 type StatusReportParams = ParamsOf<"report-status">;
 type ResultReportParams = ParamsOf<"report-result">;
+type PromptReportParams = ParamsOf<"report-prompt">;
+type QuestionParams = ParamsOf<"question">;
 
 interface ReportCapture {
   readonly statuses: StatusReportParams[];
   readonly results: ResultReportParams[];
+  readonly prompts: PromptReportParams[];
+  readonly questions: QuestionParams[];
   readonly server: RpcServer;
 }
 
-async function startReportServer(): Promise<ReportCapture> {
+/** `refusals` status reports are refused first, the way orchd refuses an agent the spawn has not registered yet. */
+async function startReportServer(refusals = 0): Promise<ReportCapture> {
   const statuses: StatusReportParams[] = [];
   const results: ResultReportParams[] = [];
+  const prompts: PromptReportParams[] = [];
+  const questions: QuestionParams[] = [];
+  let refused = 0;
   const server = await startRpcServer(orchDir, stubRpcHandlers({
-    "report-status": (params) => { statuses.push(params); return { ok: true }; },
+    "report-status": (params) => {
+      if (refused < refusals) {
+        refused += 1;
+        throw new Error(`agent ${params.key} does not exist`);
+      }
+      statuses.push(params);
+      return { ok: true };
+    },
     "report-result": (params) => { results.push(params); return { ok: true }; },
+    "report-prompt": (params) => { prompts.push(params); return { ok: true }; },
+    question: (params) => { questions.push(params); return { ok: true }; },
   }), { logger: recordingLogger().logger });
-  return { statuses, results, server };
+  return { statuses, results, prompts, questions, server };
 }
 
 async function runHook(event: string, input: Record<string, unknown> = {}): Promise<void> {
@@ -100,14 +117,17 @@ afterAll(() => {
 describe("Claude adapter", () => {
   test("declares its identity, and composes only the roles it fully implements", () => {
     expect(claudeAdapter.id).toBe("claude");
-    // Claude reads a native transcript and registers presence on start...
+    // Claude reads a native transcript, reports on start, and echoes each prompt it takes...
     expect(claudeAdapter.sessionView).not.toBeNull();
-    expect(claudeAdapter.presenceRegistration).not.toBeNull();
+    expect(claudeAdapter.hooks?.reports).toEqual(["start", "prompt"]);
     // ...and composes NOTHING for what it cannot do. An absent role is the whole
     // capability statement: no stub, no "unsupported" return, no boolean (E13).
     expect(claudeAdapter.bridge).toBeNull();
     expect(claudeAdapter.modelControl).toBeNull();
-    expect(claudeAdapter.lifecycleControl).toBeNull();
+    // A reset is `/clear`; Claude has no in-session reload or restart.
+    expect(claudeAdapter.lifecycleControl?.lifecycleCmd("reset")).toEqual({ text: "/clear" });
+    expect(claudeAdapter.lifecycleControl?.lifecycleCmd("reload")).toBeUndefined();
+    expect(claudeAdapter.lifecycleControl?.lifecycleCmd("restart")).toBeUndefined();
   });
 
   test("lists the models Claude Code reports in its initialize control response", () => {
@@ -143,7 +163,6 @@ describe("Claude adapter", () => {
   });
 
   test("pins headless print mode to the hook-driven presence path", () => {
-    expect(claudeAdapter.hookDriven).toBe(true);
     expect(claudeAdapter.headlessCmd("reply", {})).toEqual(["claude", "-p", "reply"]);
   });
 
@@ -206,21 +225,48 @@ describe("Claude adapter", () => {
   test("maps Claude hook events to presence reports", async () => {
     const key = "claude-hooks";
     const transcript = join(agentDir(key), "session.jsonl");
-    writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: "Finished" })}\n`);
+    writeFileSync(transcript, `${JSON.stringify({ role: "assistant", content: "stale transcript text" })}\n`);
     const capture = await startReportServer();
     try {
-      await runHook("SessionStart", { pid: process.pid, session_id: "s1", model: "sonnet" });
-      await runHook("Notification", { pid: process.pid, message: "Approval needed", model: "sonnet" });
-      await runHook("Stop", { pid: process.pid, model: "sonnet" });
-      await runHook("Stop", { pid: process.pid, transcript_path: transcript, model: "sonnet" });
-      expect(capture.statuses.map((report) => report.status.state)).toEqual(["working", "asking", "idle", "done"]);
+      await runHook("SessionStart", { session_id: "s1", source: "startup", model: "claude-haiku-5-5" });
+      await runHook("UserPromptSubmit", { prompt: "do the task" });
+      await runHook("Notification", { notification_type: "idle_prompt", message: "Claude is waiting for your input" });
+      await runHook("Notification", { notification_type: "permission_prompt", message: "Approval needed" });
+      await runHook("Stop", {});
+      await runHook("Stop", { transcript_path: transcript, last_assistant_message: "Finished" });
+      await runHook("Stop", { last_assistant_message: "Read the four callers.\nDo you want me to trace those four now?" });
+      await runHook("StopFailure", { error: "rate_limit", error_details: "429 Too Many Requests" });
+      expect(capture.statuses.map((report) => report.status.state)).toEqual(["idle", "asking", "done", "done", "asking", "error"]);
       expect(capture.statuses.every((report) => report.key === fakeKey)).toBe(true);
+      expect(capture.statuses[0]?.status).toMatchObject({ sessionId: "s1", model: { provider: "anthropic", id: "claude-haiku-5-5" } });
+      expect(capture.prompts).toEqual([{ key: fakeKey, prompt: "do the task" }]);
+      expect(capture.statuses[1]?.status).toMatchObject({ blockedMessage: "Approval needed" });
       expect(capture.results).toHaveLength(1);
-      expect(capture.results[0]?.key).toBe(fakeKey);
-      expect(capture.statuses[0]?.status).toMatchObject({ model: { provider: "anthropic", id: "sonnet" } });
-      expect(capture.statuses[1]?.status).toMatchObject({ blockedMessage: "Approval needed", model: { provider: "anthropic", id: "sonnet" } });
-      expect(capture.statuses[3]?.status).toMatchObject({ sessionPath: transcript, model: { provider: "anthropic", id: "sonnet" } });
-      expect(capture.results[0]?.result).toMatchObject({ text: "Finished", sessionPath: transcript });
+      expect(capture.results[0]).toMatchObject({ key: fakeKey, result: { text: "Finished", sessionPath: transcript } });
+      expect(capture.questions).toHaveLength(1);
+      expect(capture.questions[0]).toMatchObject({ notice: "question", agentId: fakeKey, question: "Do you want me to trace those four now?" });
+      expect(capture.statuses[4]?.status).toMatchObject({ blockedMessage: "Do you want me to trace those four now?" });
+      expect(capture.statuses[5]?.status).toMatchObject({ lastError: "rate_limit: 429 Too Many Requests" });
+    } finally {
+      await capture.server.close();
+    }
+  }, 30_000);
+
+  test("retries the start report until the spawn has registered the agent", async () => {
+    const capture = await startReportServer(2);
+    try {
+      await runHook("SessionStart", { session_id: "s2", source: "startup" });
+      expect(capture.statuses.map((report) => report.status.state)).toEqual(["idle"]);
+    } finally {
+      await capture.server.close();
+    }
+  }, 20_000);
+
+  test("keeps the run state across a compaction", async () => {
+    const capture = await startReportServer();
+    try {
+      await runHook("SessionStart", { session_id: "s3", source: "compact" });
+      expect(capture.statuses[0]?.status.state).toBeUndefined();
     } finally {
       await capture.server.close();
     }

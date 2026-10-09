@@ -5,7 +5,7 @@
 import { createConnection } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
 import { daemonRuntimeFiles } from "../daemon/client/runtime-files.ts";
-import { isRecord } from "../util.ts";
+import { isRecord, sleep } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
 
 function isValidPort(port: unknown): port is number {
@@ -38,10 +38,28 @@ export function readPortFile(orchDir: OrchDir): number | undefined {
   return readPortPath(daemonRuntimeFiles(orchDir).port);
 }
 
+type ReportMethod = "report-status" | "report-result" | "report-prompt" | "question";
+
+/** Send one report until orchd accepts it or the wait runs out. A session can start
+ *  before the spawn that launched it has registered the agent. */
+export async function reportUntilAccepted(
+  orchDir: OrchDir,
+  method: ReportMethod,
+  params: unknown,
+  timing: { readonly timeoutMs: number; readonly waitMs: number; readonly pollMs: number },
+): Promise<boolean> {
+  const deadline = Date.now() + timing.waitMs;
+  while (!await reportOnce(orchDir, method, params, timing.timeoutMs)) {
+    if (Date.now() >= deadline) return false;
+    await sleep(timing.pollMs);
+  }
+  return true;
+}
+
 /** Send one report to the daemon, trying its unix socket before its TCP port. */
 export async function reportOnce(
   orchDir: OrchDir,
-  method: "report-status" | "report-result",
+  method: ReportMethod,
   params: unknown,
   timeoutMs: number,
 ): Promise<boolean> {

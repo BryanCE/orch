@@ -161,11 +161,11 @@ const settingsValueExtractors = {
   }),
   models: (root: Partial<SettingsFile>) => ({ allowed: root.models?.allowed ?? {}, preferred: root.models?.preferred ?? {} }),
   workers: (root: Partial<SettingsFile>) => ({
-    inherit_extensions: root.workers?.inherit_extensions ?? SETTINGS_DEFAULTS.workers.inherit_extensions,
-    exclude_extensions: root.workers?.exclude_extensions ?? [],
-    builtin_tools: root.workers?.builtin_tools ?? SETTINGS_DEFAULTS.workers.builtin_tools,
-    allow_tools: root.workers?.allow_tools ?? [],
-    verify_commands: root.workers?.verify_commands ?? [],
+    exclude_extensions: [],
+    allow_tools: [],
+    verify_commands: [],
+    ...SETTINGS_DEFAULTS.workers,
+    ...root.workers,
   }),
   agents: (root: Partial<SettingsFile>) => ({
     writable_settings: root.agents?.writable_settings ?? [...SETTINGS_DEFAULTS.agents.writable_settings],
@@ -335,6 +335,16 @@ export function resolveSetting<T>(opts: { flag?: T; settings?: T; fallback: T })
  */
 export function allowedModelPatterns(settings: OrchSettings, harness: AdapterId): string[] {
   return settings.models.allowed[harness] ?? [];
+}
+
+function globToRegex(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, (char) => `\\${char}`);
+  return new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
+}
+
+/** True when one of the allowlist patterns (`*` globs) matches the bare model. */
+export function matchesModelPattern(patterns: readonly string[], bareModel: string): boolean {
+  return patterns.some((pattern) => globToRegex(pattern).test(bareModel));
 }
 /**
  * The log level every logger must use: ORCH_LOG_LEVEL, else `logging.level` from

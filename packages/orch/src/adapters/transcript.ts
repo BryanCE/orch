@@ -79,3 +79,9 @@ export function lastAssistantFromJsonl(raw: string | undefined): string | undefi
   });
   return last;
 }
+
+/** The question a reply ends on: its last line, when that line ends with a question mark. */
+export function trailingQuestion(text: string): string | undefined {
+  const last = text.trim().split("\n").at(-1)?.trim().replace(/[*_`"')\]]+$/, "");
+  return last?.endsWith("?") ? last : undefined;
+}

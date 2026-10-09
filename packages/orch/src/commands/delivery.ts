@@ -12,7 +12,7 @@ export interface Delivery {
 
 export function deliveryLine(delivery: Delivery, ackMs: number, suffix = ""): string {
   if (delivery.ack === "acknowledged") return `Delivered to ${delivery.name} (${delivery.action} ${delivery.id})${suffix}`;
-  return `Queued for ${delivery.name} (${delivery.action} ${delivery.id}): no bridge ack within ${ackMs}ms${suffix}`;
+  return `Queued for ${delivery.name} (${delivery.action} ${delivery.id}): no ack within ${ackMs}ms${suffix}`;
 }
 
 export function writeDelivery(delivery: Delivery, options: { json: boolean; ackMs: number; suffix?: string }): void {

@@ -11,6 +11,7 @@ import { isAgentId } from "../backends/identity.ts";
 import { eq, isNotNull } from "drizzle-orm";
 import { orm, registerMemoReset } from "../store/connection.ts";
 import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-rows.ts";
+import { forgetEchoes } from "../control/echo.ts";
 import { deleteSettledTasksOf } from "../store/task-rows.ts";
 import { deleteGrantsOf } from "../store/grant-rows.ts";
 import { currentProcess, currentProcesses, type ProcessRow } from "../store/interval-rows.ts";
@@ -80,6 +81,7 @@ export function reapAgentRecord(agentId: string, root: OrchDir): void {
   orm(root).delete(agents).where(eq(agents.id, agentId)).run();
   refreshAgent(root, agentId);
   closeOutboxForTarget(root, agentId);
+  forgetEchoes(agentId);
 }
 
 /** A row that another row still points at (a task it enqueued, a lease it held)

@@ -6,7 +6,8 @@ import { SpawnRefusalError } from "../../refusal.ts";
 import { errorMessage } from "../../util.ts";
 import { retryingAsync } from "../../retry.ts";
 import { callDaemon } from "../daemon.ts";
-import type { AdapterId, ModelCatalogue } from "../../types/adapter.ts";
+import { takesModel } from "../../adapters/adapter.ts";
+import type { AdapterId, AgentAdapter, ModelCatalogue } from "../../types/adapter.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 import type { Logger, RetryPolicy } from "../../types/core.ts";
 import type { Services } from "../../types/services.ts";
@@ -78,6 +79,12 @@ export async function pinModels(
     process.stdout.write(`warning: ${warning}\n`);
   }
   return warnings;
+}
+
+/** Refuse a model change a running session cannot take: such a harness keeps the model it launched on. */
+export function refuseModelChange(adapter: AgentAdapter, launched: string | null | undefined, model: string): void {
+  if (takesModel(adapter) || !launched || launched === model) return;
+  throw new SpawnRefusalError(`${adapter.id} cannot change a running session's model (${launched}); spawn a new agent on ${model}`);
 }
 
 /** Enforce orch's model policy at the command's side-effect gate and return the spec

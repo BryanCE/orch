@@ -92,11 +92,11 @@ export const SETTINGS_DEFAULTS = {
   denied_commands: { applies_to: ROLES.filter((role) => role !== "orch") },
   settings_file: { typo_max_edits: 2 },
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
-  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
   doctor: { unclaimed_after_ms: 120_000 },
-  workers: { inherit_extensions: true, builtin_tools: true },
+  workers: { inherit_extensions: true, builtin_tools: true, compact_at_tokens: 130_000 },
   // What a registered caller (an agent or a harness session) may write with `orch settings`:
   // the project's own commands, which the orchestrator knows and the human need not type.
   agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
@@ -172,6 +172,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     allow_tools: z.array(z.string()).optional(),
     /** Commands a worker runs to verify its own slice, named in its header. */
     verify_commands: z.array(SettingsCommand).optional(),
+    /** The context size, in tokens, at which a worker compacts its conversation. */
+    compact_at_tokens: PositiveInt.optional(),
   }).optional(),
   /** What a registered caller may change about this install. The human may change anything. */
   agents: z.strictObject({
@@ -235,6 +237,7 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     lock_poll_ms: PositiveInt.optional(),
     reset_ready_ms: PositiveInt.optional(),
     reset_poll_ms: PositiveInt.optional(),
+    daemon_probe_ms: PositiveInt.optional(),
   }).optional(),
   notify: z.array(NotifyEntrySchema).optional(),
   notification: z.strictObject({

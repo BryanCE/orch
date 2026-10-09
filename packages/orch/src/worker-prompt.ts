@@ -5,6 +5,7 @@
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
 import { commandIn } from "./policy/command-paths.ts";
+import { echoesPrompts } from "./adapters/adapter.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
 import type { ContextReference, WorkerHeaderContext, WorkerRules } from "./types/core.ts";
 import type { OrchSettings } from "./types/settings.ts";
@@ -42,6 +43,15 @@ function workerSpawnClause(maySpawn: boolean): string {
 const WORKER_HEADER_ASK_CLAUSE =
   ` For any decision you cannot make yourself, call orch_ask and wait for the ${term("orch")}. NEVER use ask-user/question tools.`;
 
+/** Appended for adapters whose question ends the turn: the answer arrives as the next prompt. */
+const WORKER_HEADER_TURN_ASK_CLAUSE =
+  ` For any decision you cannot make yourself, end your turn with the question as your last line, and the ${term("orch")} answers it as your next prompt. NEVER use ask-user/question tools.`;
+
+function askClause(adapter: AgentAdapter | undefined): string {
+  if (adapter?.bridge?.takes.includes("answer")) return WORKER_HEADER_ASK_CLAUSE;
+  return adapter !== undefined && echoesPrompts(adapter) ? WORKER_HEADER_TURN_ASK_CLAUSE : "";
+}
+
 /**
  * Appended only when BOTH sides of the reply can carry it: this worker's bridge
  * has the peer tools, and the spawner is live; orchd queues mail for it. A worker's
@@ -57,7 +67,7 @@ const WORKER_HEADER_SPAWNER_CLAUSE =
 
 /** Appended when the spawner's inbox is not reachable: the result is collected from presence. */
 const WORKER_HEADER_NO_SPAWNER_CLAUSE =
-  " finish, write your result, END the turn - your result is collected from your session/result file;" +
+  " finish, write your result, END the turn - orch collects your final reply as your result;" +
   " NEVER route a report through another agent.";
 
 /** Names the commands only the human may allow; empty when the user declared none. */
@@ -69,7 +79,7 @@ function gatedCommandsClause(gatedCommands: readonly string[]): string {
 
 /** Compose the worker header from the adapter's bridge role and this spawn's reachable peers. */
 export function workerHeaderFor(adapter: AgentAdapter | undefined, context: Partial<WorkerHeaderContext> = {}): string {
-  const ask = adapter?.bridge?.takes.includes("answer") ? WORKER_HEADER_ASK_CLAUSE : "";
+  const ask = askClause(adapter);
   const spawner = adapter?.bridge && context.spawnerRepliable
     ? WORKER_HEADER_SPAWNER_CLAUSE
     : context.spawnerRepliable ? "" : WORKER_HEADER_NO_SPAWNER_CLAUSE;
@@ -108,8 +118,11 @@ export function taskWithReferences(instructions: string, references: readonly Co
 }
 
 /** Normalize a dispatched task before storing it: strip the header, then truncate. */
-export function prepareWorkerTask(task: string, max: number): string {
-  return truncate(stripWorkerHeader(task), max);
+/** Maximum stored task length after the worker header is removed. */
+export const TASK_MAX = 200;
+
+export function prepareWorkerTask(task: string): string {
+  return truncate(stripWorkerHeader(task), TASK_MAX);
 }
 
 export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, context: Partial<WorkerHeaderContext> = {}): string {

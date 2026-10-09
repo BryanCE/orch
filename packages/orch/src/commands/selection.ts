@@ -50,6 +50,15 @@ export function pickAdapter(flags: AgentFlags, settings: OrchSettings): AdapterI
   return resolveAdapterOrDie(selected).id;
 }
 
+/** The harness a running agent runs: the one orch recorded for it. Only an agent with no
+ *  record falls back to the selection; a `--harness` that names another harness is refused. */
+export function agentAdapter(flags: AgentFlags, settings: OrchSettings, recorded: string | null | undefined): AdapterId {
+  if (!recorded) return pickAdapter(flags, settings);
+  const adapter = resolveAdapterOrDie(recorded).id;
+  if (flags.adapterFlag !== undefined && flags.adapterFlag !== adapter) die(`this agent runs ${adapter}; --harness ${flags.adapterFlag} cannot change it`);
+  return adapter;
+}
+
 /** The model THIS command named, or null when the caller named none. NEVER the
  *  configured default: only a launch may apply that. A dispatch that fell back to
  *  it re-pinned every agent to the default and erased the model it spawned on. */

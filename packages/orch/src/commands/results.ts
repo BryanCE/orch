@@ -138,7 +138,7 @@ function printHumanBody(entry: { target: string; lookup: ResultLookup }): void {
     return;
   }
   if (entry.lookup.source === "history") process.stdout.write("(result from run history)\n");
-  if (entry.lookup.source === "session") process.stdout.write("(no results.jsonl - falling back to adapter-extracted session text)\n");
+  if (entry.lookup.source === "session") process.stdout.write("(no reported result - read from the harness session)\n");
   process.stdout.write(humanResult(entry.lookup.payload) + "\n");
 }
 

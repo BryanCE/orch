@@ -63,6 +63,7 @@ export function stubRpcHandlers(overrides: Partial<RpcHandlers> = {}): RpcHandle
     ack: notStubbed,
     "report-status": notStubbed,
     "report-result": notStubbed,
+    "report-prompt": notStubbed,
     "command-lock": notStubbed,
     "command-unlock": notStubbed,
     enqueue: notStubbed,

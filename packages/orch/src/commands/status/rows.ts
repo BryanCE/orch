@@ -9,7 +9,7 @@ import { ownsAgent } from "../../policy/close-authority.ts";
 import type { OrchDir } from "../../types/core.ts";
 import type { LeaseFacts } from "../../agent/drive-state.ts";
 import type { AgentAdapter, SessionView } from "../../types/adapter.ts";
-import type { AgentView } from "../../types/store.ts";
+import type { AgentTuning, AgentView } from "../../types/store.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { LeaseStatusPayload, StatusRow } from "../../types/command.ts";
@@ -49,11 +49,13 @@ function sessionModelString(sview: SessionView | null): string | null {
   return formatModel(sview.provider, sview.model, sview.thinking);
 }
 
-function deriveModelString(pres: PresenceEntry | null, sview: SessionView | null, adapter: AgentAdapter | undefined): string {
+/** What the agent reports it runs, else what its session shows, else the model orch launched it on. */
+function deriveModelString(pres: PresenceEntry | null, sview: SessionView | null, adapter: AgentAdapter | undefined, launched: AgentTuning | undefined): string {
   const presenceModel = presenceModelString(pres);
   if (presenceModel) return presenceModel;
   const sessionModel = sessionModelString(sview);
   if (sessionModel) return sessionModel;
+  if (launched?.model) return modelSpec(launched.model, launched.thinking);
   const adapterDefault = adapter?.defaultModel?.defaultModelString();
   return adapterDefault ? `${adapterDefault} (default)` : "-";
 }
@@ -166,12 +168,7 @@ export function statusRowFromEntity(
   orchDir: OrchDir,
   caller: string | null,
 ): StatusRow {
-  const pres = entity.presence;
-  const adapter = getAdapter(viewForKey(views, entity.key)?.harnessId ?? entity.agent ?? "");
-  const sview = pres?.status ? null : sessionViewFor(entity, adapter);
   const agentView = viewForKey(views, entity.key);
-  const { state, stateFallback, exited } = deriveState(pres, entity, sview);
-  const alive = pres?.alive ?? false;
   const agent = views.get(entity.key);
   return {
     key: entity.key,
@@ -187,21 +184,43 @@ export function statusRowFromEntity(
     ...leasePayloadFrom(entity.key, leaseFacts),
     ...viewProvenance(agentView),
     focused: entity.focused,
-    model: deriveModelString(pres, sview, adapter),
+    ...liveFacts(entity, agentView, questionOf),
+    backendStatus: entity.backendStatus,
+    backend: entity.backend,
+    bridgeAttached: null,
+    spaceId: agent?.environment.space ?? entity.space,
+  };
+}
+
+type UsageFacts = Pick<StatusRow, "cost" | "ctxPercent" | "dispatchId" | "tokens">;
+type LiveFacts = UsageFacts & Pick<StatusRow, "model" | "state" | "stateFallback" | "exited" | "alive" | "task" | "lastText">;
+
+/** What the run has spent, and which dispatch it is. */
+function usageFacts(pres: PresenceEntry | null, sview: SessionView | null): UsageFacts {
+  return {
+    cost: deriveCost(pres, sview),
+    ctxPercent: deriveContextPercent(pres),
+    dispatchId: pres?.status?.dispatchId ?? null,
+    tokens: presenceTokens(pres) ?? sview?.tokens ?? null,
+  };
+}
+
+/** What the agent's presence says now, or its session when it has reported nothing. */
+function liveFacts(entity: Entity, agentView: AgentView | undefined, questionOf: (agentId: string) => string | undefined): LiveFacts {
+  const pres = entity.presence;
+  const adapter = getAdapter(agentView?.harnessId ?? entity.agent ?? "");
+  const sview = pres?.status ? null : sessionViewFor(entity, adapter);
+  const { state, stateFallback, exited } = deriveState(pres, entity, sview);
+  const alive = pres?.alive ?? false;
+  return {
+    model: deriveModelString(pres, sview, adapter, agentView?.tuning),
     state: displayStatusState({ state, alive, exited }),
     stateFallback,
     exited,
     alive,
-    cost: deriveCost(pres, sview),
-    ctxPercent: deriveContextPercent(pres),
     task: collapse(deriveViewTask(pres, sview, questionOf, entity.key)),
-    dispatchId: pres?.status?.dispatchId ?? null,
     lastText: collapse(deriveViewLast(pres, sview)),
-    backendStatus: entity.backendStatus,
-    backend: entity.backend,
-    bridgeAttached: null,
-    tokens: presenceTokens(pres) ?? sview?.tokens ?? null,
-    spaceId: agent?.environment.space ?? entity.space,
+    ...usageFacts(pres, sview),
   };
 }
 

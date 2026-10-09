@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from "../src/settings/schema.ts";
 import { allowedModelPatterns, declaredRuntime, reapUnreadableSettings, resolveSetting, resolveWithSource } from "../src/settings/read.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
-import { writeSettingsAllowedModels, writeSettingsDefault, writeSettingsFullTree, writeSettingsEnabled, writeSettingsPreferredModels, writeSettingsRuntime } from "../src/settings/write.ts";
+import { writeSettingsAllowedModels, writeSettingsDefault, writeSettingsFullTree, writeSettingsEnabled, writeSettingsModels, writeSettingsPreferredModels, writeSettingsRuntime } from "../src/settings/write.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
@@ -108,14 +108,14 @@ describe("loadSettings", () => {
       fleet: { max_agents_total: 12, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 2, max_agents_per_space: { wD: 4 }, worker_peer_tools: true, cross_space: true },
       mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt" },
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
-      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
+      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: 130_000 },
       agents: { writable_settings: ["workers.verify_commands"] },
       queue: { max_retries: 3, dispatch_concurrency: 6 },
       retention: { queue_days: 1, events_days: 2, runs_days: 3, outbox_days: 4, control_outcomes_days: 5, ended_agents_days: 6, logs_days: 7, sweep_interval_ms: 3_600_000 },
       lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       monitor: { on: ["done", "error"] },
-      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44, spawn_attach_ms: 55, spawn_attach_poll_ms: 66, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 77, reset_poll_ms: 88 },
+      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44, spawn_attach_ms: 55, spawn_attach_poll_ms: 66, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 77, reset_poll_ms: 88, daemon_probe_ms: 10_000 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       notification: { position: "top-left" },
       locked_commands: { commands: [], applies_to: ["orch", "slave"] },
@@ -219,14 +219,14 @@ describe("loadSettings", () => {
       fleet: { max_agents_total: undefined, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
       mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt" },
       models: { allowed: {}, preferred: {} },
-      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
+      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: 130_000 },
       agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
       queue: { max_retries: 1, dispatch_concurrency: 4 },
       retention: { queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, ended_agents_days: 90, logs_days: 7, sweep_interval_ms: 3_600_000 },
       lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       monitor: { on: ["asking", "waiting", "blocked", "done", "error", "aborted", "exited"] },
-      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250 },
+      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000 },
       notify: [],
       notification: { position: "top-left" },
       locked_commands: { commands: [], applies_to: ["orch", "slave"] },
@@ -528,6 +528,22 @@ describe("models.preferred and models.allowed are independent", () => {
 
     writeSettingsPreferredModels(fileSettingsManager(directory), { claude: ["sonnet"] });
     expect(fileSettingsManager(directory).current().models.allowed.pi).toEqual(["openrouter/a", "openrouter/z"]);
+  });
+
+  test("a default model always joins its harness's allowlist", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: [] } });
+
+    writeSettingsAllowedModels(fileSettingsManager(directory), { claude: ["opus", "sonnet"], pi: ["openai-codex/*"] });
+    writeSettingsModels(fileSettingsManager(directory), { claude: "haiku:low", pi: "openai-codex/gpt-6-luna" });
+    const settings = fileSettingsManager(directory).current();
+    expect(settings.models.allowed.claude).toEqual(["opus", "sonnet", "haiku"]);
+    expect(settings.models.allowed.pi).toEqual(["openai-codex/*"]);
+
+    writeSettingsModels(fileSettingsManager(directory), {});
+    writeSettingsAllowedModels(fileSettingsManager(directory), {});
+    writeSettingsModels(fileSettingsManager(directory), { claude: "haiku" });
+    expect(fileSettingsManager(directory).current().models.allowed).toEqual({});
   });
 
   test("an empty list is recorded as no list at all, so a cleared picker really clears", () => {

@@ -13,6 +13,7 @@ import type { FleetStatus, RpcHandler, RpcHandlers, RpcServer } from "../../type
 import type { SettingsWatch } from "../../types/settings.ts";
 import type { Services } from "../../types/services.ts";
 import type { WakeSignal } from "./wake.ts";
+import { phaseClock } from "./phase-clock.ts";
 import type { LoopWatchdog } from "./loop-watchdog.ts";
 
 /** The one spelling of "is this lease's holder still running". A start token
@@ -69,6 +70,7 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     notify: touchHandler(state, handlers.notify),
     "report-status": touchHandler(state, handlers["report-status"]),
     "report-result": touchHandler(state, handlers["report-result"]),
+    "report-prompt": touchHandler(state, handlers["report-prompt"]),
     "command-lock": touchHandler(state, handlers["command-lock"]),
     "command-unlock": touchHandler(state, handlers["command-unlock"]),
     enqueue: touchHandler(state, handlers.enqueue),
@@ -132,8 +134,11 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
  *  second shape here is what left the method unusable and every client reading files. */
 export function fleetStatus(state: DaemonState, caller: string | null): FleetStatus {
   const directory = state.directory;
+  const clock = phaseClock();
   const facts = fleetLeaseFacts(directory, agentViewIndex(directory));
-  const fleet = buildFleetStatus(state.services.settings.current(), { directory, leaseFacts: facts, caller });
+  clock.lap("leases");
+  const fleet = buildFleetStatus(state.services.settings.current(), { directory, leaseFacts: facts, caller, onPhase: (phase) => { clock.lap(phase); } });
+  state.services.logger.trace("status.phases", clock.phases());
   return { names: fleet.names, rows: fleet.rows.map((row) => ({ ...row, bridgeAttached: bridgeAttached(row.key) })) };
 }
 

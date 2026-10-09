@@ -1,4 +1,4 @@
-import { allowedModelPatterns } from "../settings/read.ts";
+import { allowedModelPatterns, matchesModelPattern } from "../settings/read.ts";
 import { modelSpec, splitThinkingSuffix } from "./thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import type { AdapterId, AgentAdapter, HarnessModel, ModelCatalogue } from "../types/adapter.ts";
@@ -11,11 +11,6 @@ import type { OrchSettings } from "../types/settings.ts";
  * any adapter sees the request.
  */
 
-function globToRegex(pattern: string): RegExp {
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, (char) => `\\${char}`);
-  return new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
-}
-
 /** True when the bare model passes that harness's configured allowlist; no patterns means no
  *  restriction, and the harness's configured default is always allowed. */
 function isAllowedModel(settings: OrchSettings, harness: AdapterId, bareModel: string): boolean {
@@ -23,7 +18,7 @@ function isAllowedModel(settings: OrchSettings, harness: AdapterId, bareModel: s
   if (patterns.length === 0) return true;
   const recorded = settings.defaults.models[harness];
   if (recorded !== undefined && splitThinkingSuffix(recorded).bare === bareModel) return true;
-  return patterns.some((pattern) => globToRegex(pattern).test(bareModel));
+  return matchesModelPattern(patterns, bareModel);
 }
 
 export type ModelExpansion =

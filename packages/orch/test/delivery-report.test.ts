@@ -18,7 +18,7 @@ describe("delivery report", () => {
   });
 
   test("formats queued delivery", () => {
-    expect(deliveryLine(unavailable, 250)).toBe("Queued for api-types (dispatch dispatch-id): no bridge ack within 250ms");
+    expect(deliveryLine(unavailable, 250)).toBe("Queued for api-types (dispatch dispatch-id): no ack within 250ms");
   });
 
   test("appends a suffix", () => {

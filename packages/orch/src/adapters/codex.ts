@@ -101,7 +101,7 @@ export class CodexAdapter implements AgentAdapter {
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = null;
   readonly bridge = null;
-  readonly presenceRegistration = null;
+  readonly hooks = null;
   readonly commandGate = false;
 
   /** Marker consumed by callers that render heuristic states with a dagger. */

@@ -7,7 +7,8 @@ import {
   SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA,
   type SettingsFile,
 } from "./schema.ts";
-import { parseSettingsRoot, parseSettingsText, settingsValues, requireEnabledComposition } from "./read.ts";
+import { matchesModelPattern, parseSettingsRoot, parseSettingsText, settingsValues, requireEnabledComposition } from "./read.ts";
+import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { withKeys } from "./unknown-keys.ts";
 import type { NotifyEntry, SettingsRepair } from "../types/settings.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
@@ -34,9 +35,26 @@ export function writeSettingsPreferredModels(settings: SettingsManager, preferre
   updateSettingsFile(settings, (root) => ({ ...root, models: { ...root.models, preferred: withoutEmptyLists(preferred) } }));
 }
 
+/** Each harness's default model joins its allowlist. An empty list already allows every model. */
+function withDefaultsAllowed(root: SettingsFile): SettingsFile {
+  const allowed = { ...root.models?.allowed };
+  let added = false;
+  for (const harness of ADAPTER_IDS) {
+    const recorded = root.defaults?.models?.[harness];
+    const patterns = allowed[harness];
+    if (recorded === undefined || !patterns?.length) continue;
+    const { bare } = splitThinkingSuffix(recorded);
+    if (matchesModelPattern(patterns, bare)) continue;
+    allowed[harness] = [...patterns, bare];
+    added = true;
+  }
+  return added ? { ...root, models: { ...root.models, allowed } } : root;
+}
+
 /** Validate and serialize a settings root for the storage layer to write; keys a newer build added stay. */
 function serializeSettingsRoot(file: string, candidate: unknown): string {
-  const { settings: updated, newer } = parseSettingsRoot(candidate, file);
+  const { settings: parsed, newer } = parseSettingsRoot(candidate, file);
+  const updated = withDefaultsAllowed(parsed);
   requireEnabledComposition(file, updated);
   return JSON.stringify(withKeys(updated, newer), null, 2) + "\n";
 }

@@ -29,6 +29,8 @@ interface FleetStatusOptions {
   /** Resolve the store root once per fleet build (injectable for cost tests). */
   directory: OrchDir;
   caller: string | null;
+  /** Called as each phase of the build ends, so orchd can log what a slow build spent. */
+  onPhase?: (phase: string) => void;
 }
 
 /** Each agent row's open process, read once on the first row that has one, so a fleet with no rows opens no store. */
@@ -48,10 +50,15 @@ export function buildFleetStatus(settings: OrchSettings, options: FleetStatusOpt
   const views = liveViews(fleet);
   const leaseFacts = options.leaseFacts ?? fleetLeaseFacts(directory, fleet);
   const processOf = processLookup(directory, views);
-  const rows = sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }))
-    .map((entity) => statusRowFromEntity(entity, views, leaseFacts, (id) => pendingQuestion(directory, id)?.question, processOf, directory, options.caller));
+  options.onPhase?.("index");
+  const entities = sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }));
+  options.onPhase?.("entities");
+  const rows = entities.map((entity) => statusRowFromEntity(entity, views, leaseFacts, (id) => pendingQuestion(directory, id)?.question, processOf, directory, options.caller));
+  options.onPhase?.("rows");
   // Names come off the whole index: an ended spawner or holder is still named.
-  return { names: fleetNames(rows, fleet, settings.spaces), rows };
+  const names = fleetNames(rows, fleet, settings.spaces);
+  options.onPhase?.("names");
+  return { names, rows };
 }
 
 export function offlineCallerScope(orchDir: OrchDir): CallerScope {

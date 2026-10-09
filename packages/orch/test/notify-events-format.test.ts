@@ -6,8 +6,7 @@ import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { deliver } from "../src/notify/router.ts";
 import { notificationText, spaceColor } from "../src/notify/format.ts";
-import { TASK_MAX } from "../src/agent/presence.ts";
-import { prepareWorkerTask, workerHeaderFor } from "../src/worker-prompt.ts";
+import { prepareWorkerTask, TASK_MAX, workerHeaderFor } from "../src/worker-prompt.ts";
 import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { statusRow } from "./helpers/presence.ts";
@@ -186,7 +185,7 @@ describe("notification and presence event formatting", () => {
     const longTask = "x".repeat(100);
     expect(eventTask(transition(orchDir, TASK_KEY, { state: "done", task: longTask }))).toBe(`${"x".repeat(77)}...`);
     const longDispatched = `${workerHeaderFor(undefined)}\n\n${"x".repeat(TASK_MAX + 20)}`;
-    expect(prepareWorkerTask(longDispatched, TASK_MAX)).toBe(`${"x".repeat(TASK_MAX - 3)}...`);
+    expect(prepareWorkerTask(longDispatched)).toBe(`${"x".repeat(TASK_MAX - 3)}...`);
     expect(eventTask(transition(orchDir, TASK_KEY, { state: "done", task: longDispatched }))).toBe(`${"x".repeat(77)}...`);
     expect(eventTask(transition(orchDir, TASK_KEY, { state: "working", asking: { question: "  Need   approval?  " } }))).toBe("Q: Need approval?");
   });

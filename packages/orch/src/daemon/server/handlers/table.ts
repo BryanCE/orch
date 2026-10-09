@@ -17,7 +17,7 @@ import { callerSelf } from "./self.ts";
 import { ownedAgents } from "./owned.ts";
 import { reexecSelf } from "../../client/process.ts";
 import { emitAndNotify } from "../events.ts";
-import { acceptResultReport, acceptStatusReport } from "../status-report.ts";
+import { acceptPromptReport, acceptResultReport, acceptStatusReport } from "../status-report.ts";
 import { insertControlOutcome } from "../../../store/control-outcome-rows.ts";
 import { appendOutcome } from "../../../presence/history.ts";
 import { settleControlOutcome } from "../../../control/outcome.ts";
@@ -31,6 +31,15 @@ import { activePaneHud } from "../../../backends/hud.ts";
 import { peerView } from "../peer-view.ts";
 import { governed } from "../governance.ts";
 import type { PaneLabels } from "../../../types/plexer.ts";
+
+/** One handler that wakes the work loop once it has run. */
+function waking<P, R>(state: DaemonState, handler: (params: P) => R): (params: P) => R {
+  return (params) => {
+    const result = handler(params);
+    state.wake.wake();
+    return result;
+  };
+}
 
 export function rpcHandlers(state: DaemonState): RpcHandlers {
   const directory = state.directory;
@@ -75,16 +84,9 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       activePaneHud(event.key, directory).notify(composed, position);
       return { ok: true };
     },
-    "report-status": (params) => {
-      const result = acceptStatusReport(directory, params.key, params.status, publish);
-      state.wake.wake();
-      return result;
-    },
-    "report-result": (params) => {
-      const result = acceptResultReport(directory, params.key, params.result);
-      state.wake.wake();
-      return result;
-    },
+    "report-status": waking(state, (params) => acceptStatusReport(directory, params.key, params.status, publish)),
+    "report-result": waking(state, (params) => acceptResultReport(directory, params.key, params.result)),
+    "report-prompt": waking(state, (params) => acceptPromptReport(directory, params.key, params.prompt, publish)),
     "command-lock": (params) => lockCommand(directory, services.settings.current(), params, publish),
     "command-unlock": (params) => unlockCommand(directory, params),
     status: (params) => fleetStatus(state, params.caller),
@@ -99,11 +101,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "spawn-headless": governed(state, (params) => spawnHeadless(state, params)),
     "set-model": governed(state, (params) => setModel(state, params)),
     lifecycle: governed(state, (params) => applyLifecycle(state, params)),
-    "agent-closed": governed(state, (params) => {
-      const result = closeAgent(state, params);
-      state.wake.wake();
-      return result;
-    }),
+    "agent-closed": governed(state, waking(state, (params) => closeAgent(state, params))),
     "register-agent": governed(state, (params) => registerAgent(directory, params)),
     detach: governed(state, (params) => detach(state, params)),
     adopt: governed(state, (params) => adopt(state, params)),
@@ -144,11 +142,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     orphans: () => orphans(state),
     question: (params) => recordAgentQuestion(directory, params),
     questions: (params) => listPendingQuestions(directory, params),
-    answer: governed(state, (params) => {
-      const result = answer(state, params);
-      state.wake.wake();
-      return result;
-    }),
+    answer: governed(state, waking(state, (params) => answer(state, params))),
     ack: (params) => {
       const id = params.id;
       const row = selectOutboxMessage(directory, id);

@@ -18,18 +18,20 @@ rest. A model outside `models.allowed.<harness>` is the user's choice, so ask th
 
 ## Queued dispatch
 
-`Queued to <agent> (dispatch <id>): no bridge ack ...` means orchd holds the write and the
-agent's bridge has not linked yet: the harness is still starting, or the bridge is redialing.
-orchd delivers it when the bridge attaches, so move on. `claude` and `codex` run no bridge.
-Spawn warns that they are UNVERIFIED, and `orch status` shows when they are ready.
+`Queued for <agent> (dispatch <id>): no ack within ...` means orchd holds the write and the
+agent has not taken it yet. A pi agent's bridge is still starting or redialing, and orchd
+delivers the write when the bridge attaches. A `claude` agent got the text in its input and
+has not submitted it yet, because it is mid-turn. Move on either way. `codex` gives no
+start-up signal, so spawn warns that it is UNVERIFIED; `orch status` shows when it is ready.
 
 ## Stalled spawn
 
-`STALLED <handle>  <name> - bridge never attached; try: orch restart <name>` means
-`timeouts.spawn_attach_ms` ran out. Spawn exits 1 and the other agents are fine. The task
-stays queued and lands on attach, with no model set. An agent that `orch status` later shows
-idle had a slow harness: set its model with `orch model`. One that stays stalled gets its
-harness startup checked, then `orch restart <name>`.
+`STALLED <handle>  <name> - never came up; try: orch restart <name>` means
+`timeouts.spawn_attach_ms` ran out before the agent's bridge attached or its start report
+landed. Spawn exits 1 and the other agents are fine. The task stays queued and lands on
+attach, with no model set. An agent that `orch status` later shows idle had a slow harness:
+set its model with `orch model`. One that stays stalled gets its harness startup checked,
+then `orch restart <name>`.
 
 ## Stuck agent
 

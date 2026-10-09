@@ -273,6 +273,7 @@ export const RPC_PARAMS = {
   notify: notifyParams,
   "report-status": z.object({ key: nonBlank, status: STATUS_PATCH }),
   "report-result": z.object({ key: nonBlank, result: RESULT_REPORT }),
+  "report-prompt": z.object({ key: nonBlank, prompt: z.string() }),
   "command-lock": z.object({ command: nonBlank, cwd: nonBlank, pid: z.number().int().positive(), startToken: z.string().nullable(), agent: z.string().nullable(), held: z.array(z.string()), waitingSince: z.number() }),
   "command-unlock": z.object({ pid: z.number().int().positive(), startToken: z.string().nullable() }),
   enqueue: z.object({
@@ -375,6 +376,7 @@ export const RPC_RESULTS = {
   notify: OK,
   "report-status": OK,
   "report-result": OK,
+  "report-prompt": OK,
   "command-lock": z.discriminatedUnion("verdict", [
     z.object({ verdict: z.literal("run"), patterns: z.array(z.string()) }),
     z.object({ verdict: z.literal("wait"), pattern: z.string(), holder: z.string(), since: z.number() }),

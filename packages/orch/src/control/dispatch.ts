@@ -1,6 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { execFile } from "node:child_process";
 import { resolveAdapter } from "../adapters/registry.ts";
+import { echoesPrompts, takesModel } from "../adapters/adapter.ts";
 import { getBackend } from "../backends/registry.ts";
 import { normalizeControlTarget } from "./normalize-target.ts";
 import { AgentGoneError } from "./agent-gone.ts";
@@ -12,6 +13,7 @@ import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { agentProcessLive, setTuning } from "../store/interval-rows.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { pushToBridge } from "./bridge-links.ts";
+import { echoAwaited, expectEcho, type TypedPrompt } from "./echo.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AdapterCommand, AgentAdapter, LifecycleVerb, ModelCatalogue } from "../types/adapter.ts";
@@ -91,7 +93,7 @@ function refuseSteerWhileAsking(orchDir: OrchDir, target: string, action: Prompt
   throw new Error(`cannot steer ${target}: it is awaiting an answer - use 'orch answer ${target} "<text>"'`);
 }
 
-async function deliverPrompt(orchDir: OrchDir, target: string, adapter: AgentAdapter, action: PromptAction, timeoutMs: number): Promise<ControlBoundaryOutcome> {
+async function deliverPrompt(orchDir: OrchDir, target: string, adapter: AgentAdapter, action: PromptAction, timeouts: OrchSettings["timeouts"]): Promise<ControlBoundaryOutcome> {
   refuseSteerWhileAsking(orchDir, target, action);
   const bridgeAction = action.kind === "run" ? "dispatch" : "steer";
   if (adapter.bridge?.takes.includes(bridgeAction)) {
@@ -101,23 +103,43 @@ async function deliverPrompt(orchDir: OrchDir, target: string, adapter: AgentAda
   }
   const command = adapter.steer({ key: target, text: action.text, id: action.id });
   if (command) {
-    await runAdapterCommand(command, timeoutMs);
+    await runAdapterCommand(command, timeouts.adapter_command_ms);
     return { outcome: "invoke", ack: "none" };
   }
-  const route = resolveTargetRoute(orchDir, target);
-  if (!route?.backend.placementInventory) return { outcome: "answer", reason: "not-placed", text: `${target} is placed nowhere; ${action.kind} does not apply.` };
-  if (!route.backend.agentInput) return { outcome: "answer", reason: "no-environment-role", text: `this environment does not provide ${action.kind}` };
-  route.backend.agentInput.submit(route.handle, action.text);
-  return { outcome: "invoke", ack: "none" };
+  return typePrompt(orchDir, target, adapter, { id: action.id, kind: action.kind, text: action.text }, timeouts.dispatch_ack_ms);
 }
 
-function deliverAnswer(orchDir: OrchDir, target: string, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>): ControlBoundaryOutcome {
-  if (!adapter.bridge?.takes.includes("answer")) {
+/** Type the text into the agent's input. A harness that echoes each prompt it takes acks it that way. */
+function typePrompt(orchDir: OrchDir, target: string, adapter: AgentAdapter, prompt: TypedPrompt, ackMs: number): ControlBoundaryOutcome {
+  const route = resolveTargetRoute(orchDir, target);
+  if (!route?.backend.placementInventory) return { outcome: "answer", reason: "not-placed", text: `${target} is placed nowhere; ${prompt.kind} does not apply.` };
+  const input = route.backend.agentInput;
+  if (!input) return { outcome: "answer", reason: "no-environment-role", text: `this environment does not provide ${prompt.kind}` };
+  input.submit(route.handle, prompt.text);
+  if (!echoesPrompts(adapter)) return { outcome: "invoke", ack: "none" };
+  expectEcho(target, prompt);
+  setTimeout(() => { retypeIgnored(orchDir, target, prompt); }, ackMs).unref();
+  return { outcome: "invoke", ack: "echo" };
+}
+
+/** Type a prompt once more when the agent sat idle and never took it: text typed while
+ *  the harness was still starting is lost. A busy agent holds it for its next turn. */
+function retypeIgnored(orchDir: OrchDir, target: string, prompt: TypedPrompt): void {
+  if (!echoAwaited(prompt.id) || presenceEntry(orchDir, target)?.status?.state !== "idle") return;
+  const route = resolveTargetRoute(orchDir, target);
+  route?.backend.agentInput?.submit(route.handle, prompt.text);
+}
+
+/** A bridge applies the answer to the blocked tool call. A harness whose question ends its turn takes the answer as its next prompt. */
+function deliverAnswer(orchDir: OrchDir, target: string, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>, ackMs: number): ControlBoundaryOutcome {
+  const bridged = adapter.bridge?.takes.includes("answer") === true;
+  if (!bridged && !echoesPrompts(adapter)) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot answer ${target}: adapter ${adapter.id} takes no answers` };
   }
   requireLiveAgent(orchDir, target, adapter, "answer");
   const questionId = pendingQuestion(orchDir, target)?.id;
   if (questionId === undefined) return { outcome: "answer", reason: "not-asking", text: `${target} is not asking a question` };
+  if (!bridged) return typePrompt(orchDir, target, adapter, { id: action.id, kind: "answer", text: action.text }, ackMs);
   pushToBridge(orchDir, target, { id: action.id, message: { action: "answer", text: action.text, questionId } });
   return { outcome: "invoke", ack: "expected" };
 }
@@ -129,7 +151,7 @@ function deliverAnswer(orchDir: OrchDir, target: string, adapter: AgentAdapter, 
  * surfaces as an error instead of a false "accepted".
  */
 async function deliverModel(orchDir: OrchDir, settings: OrchSettings, catalogue: ModelCatalogue, target: string, adapter: AgentAdapter, requested: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
-  if (adapter.modelControl === null && !adapter.bridge?.takes.includes("model")) {
+  if (!takesModel(adapter)) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot set the model on ${target}: adapter ${adapter.id} has no running-session model control` };
   }
   // The daemon admits every caller's spec itself, so a short name from any RPC
@@ -195,11 +217,11 @@ export async function deliverControl(orchDir: OrchDir, settings: OrchSettings, c
   const canonicalTarget = normalizeControlTarget(orchDir, target);
   const adapter = resolveTargetAdapter(orchDir, canonicalTarget);
   if (!adapter) throw new Error(`target ${canonicalTarget} has no recorded adapter (presence or spawn registry)`);
-  if (isPromptAction(action)) return deliverPrompt(orchDir, canonicalTarget, adapter, action, timeoutMs);
+  if (isPromptAction(action)) return deliverPrompt(orchDir, canonicalTarget, adapter, action, settings.timeouts);
   // Return what deliverAnswer decided. Discarding it and reporting "invoke"
   // regardless turned every boundary answer into a silent success, which is the
   // one thing E14 says an absence must never become.
-  if (action.kind === "answer") return deliverAnswer(orchDir, canonicalTarget, adapter, action);
+  if (action.kind === "answer") return deliverAnswer(orchDir, canonicalTarget, adapter, action, settings.timeouts.dispatch_ack_ms);
   if (action.kind === "lifecycle") return deliverLifecycle(orchDir, canonicalTarget, adapter, action.verb);
   return deliverModel(orchDir, settings, catalogue, canonicalTarget, adapter, action.model, action.id, timeoutMs);
 }

@@ -21,6 +21,7 @@ import { cmdGrant } from "./grant.ts";
 import { cmdLock } from "./lock.ts";
 import { cmdDaemon, cmdWork } from "./daemon.ts";
 import { cmdSetup, runFirstTimeSetup, setupRequiredMessage } from "./setup.ts";
+import { cmdUpdate } from "./update.ts";
 import { compositionUnrecorded } from "../setup/composition.ts";
 import { cmdSettings } from "./settings.ts";
 import { cmdModels } from "./models.ts";
@@ -57,7 +58,7 @@ const STALE_GUARD_COMMANDS = new Set([
 
 /** Commands that never dial orchd, plus `status`, which registers itself unless `--offline`. */
 const REGISTRATION_EXEMPT = new Set([
-  "setup", "doctor", "settings", "daemon", "logs", "models", "status",
+  "setup", "doctor", "settings", "daemon", "logs", "models", "status", "update",
   "help", "-h", "--help", "version", "-V", "--version",
 ]);
 
@@ -87,7 +88,7 @@ function preflightSkew(directory: OrchDir, argv: string[]): string[] {
  * composition and `doctor` diagnoses an install that does not work yet - they are how a user
  * reaches a configured state, so neither may ever be refused for being unconfigured. `orch settings` is how a person repairs a settings.json that will not load, so the gate that reads settings.json can never be what stops them reaching it. */
 function exemptFromSetupGate(cmd: string | undefined): boolean {
-  return cmd === "setup" || cmd === "doctor" || cmd === "settings" || cmd === "status" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version";
+  return cmd === "setup" || cmd === "doctor" || cmd === "settings" || cmd === "status" || cmd === "update" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version";
 }
 
 /** True on a clean slate: no selections recorded yet, a TTY to prompt on, and a command that needs them.
@@ -178,6 +179,7 @@ export const commandHandlers: Record<string, Handler> = {
   lock: cmdLock,
   settings: cmdSettings,
   setup: cmdSetup,
+  update: cmdUpdate,
   "--version": (_services, _args) => { void process.stdout.write(`orch ${VERSION}\n`); },
   "-V": (_services, _args) => { void process.stdout.write(`orch ${VERSION}\n`); },
   version: (_services, _args) => { void process.stdout.write(`orch ${VERSION}\n`); },

@@ -1,4 +1,4 @@
-import { applyFixes, runDoctor } from "../doctor/runner.ts";
+import { applySafeFixes, runDoctor } from "../doctor/runner.ts";
 import { parseCommand } from "./registry.ts";
 import { renderDoctorResults, pickFixes } from "../setup/doctor-wizard.ts";
 import { withSpinner } from "../setup/io.ts";
@@ -43,9 +43,7 @@ export async function cmdDoctor(services: Services, args: string[]) {
   // interactive fix menu (bare `doctor` and `doctor --fix` both land here).
   if (!json && !yes && process.stdin.isTTY) return runInteractiveDoctor(results, services);
   // Unattended: -y (or --fix with no TTY to prompt on) applies every fix.
-  const changes = fix
-    ? applyFixes(results.filter((r) => !r.fix?.destructive)).applied
-    : [];
+  const changes = fix ? applySafeFixes(results).applied : [];
   if (fix && changes.length) results = await runDoctor(services, {});
   if (json) {
     process.stdout.write(JSON.stringify({ results, changes }, null, 2) + "\n");

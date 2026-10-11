@@ -337,6 +337,16 @@ const MAINTENANCE: readonly CommandSpec[] = [
     ],
   },
   {
+    name: "update", section: "maintenance",
+    summary: "Move to a newer orch: back up, install, migrate settings and the store. Rolls back on failure.",
+    flags: [
+      { name: "--to", arity: "one", placeholder: "<version>", help: "Install this version instead of the newest." },
+      { name: "--check", arity: "none", help: "Show the newest version and its breaking changes. Change nothing." },
+      { name: "--yes", aliases: ["-y"], arity: "none", help: "Never prompt." },
+      { name: "--finish", arity: "none", help: "Run by orch update on the freshly installed code. Not for direct use." },
+    ],
+  },
+  {
     name: "setup", section: "maintenance",
     summary: "Onboarding wizard.",
     flags: [

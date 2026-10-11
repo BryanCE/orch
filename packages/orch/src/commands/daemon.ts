@@ -32,6 +32,7 @@ import { callerCredential } from "../identity/credential.ts";
 import { parseCommand } from "./registry.ts";
 import type { ParsedFlags } from "../cli/spec.ts";
 import { die } from "./target.ts";
+import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { usageError } from "../cli/usage.ts";
 import type { DaemonStatus, WriteGovernance } from "../types/command.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -156,8 +157,8 @@ async function startDaemon(orchDir: OrchDir, logger: Services["logger"], foregro
   else process.stdout.write(`started (pid ${status.pid})\n`);
 }
 
-async function stopDaemon(orchDir: OrchDir, json = false): Promise<void> {
-  const directory = orchDir;
+async function stopDaemon(services: Services, json = false): Promise<void> {
+  const directory = services.orchDir;
   const lockPid = daemonLockPid(directory);
   if (!lockPid || !pidAlive(lockPid)) {
     if (json) process.stdout.write(JSON.stringify({ running: false, stopped: false }) + "\n");
@@ -166,7 +167,13 @@ async function stopDaemon(orchDir: OrchDir, json = false): Promise<void> {
   }
   const pid = provenDaemonPid(directory);
   if (pid === undefined) die(unprovenLockRefusal(directory, lockPid));
-  await terminateDaemon(pid, 5000);
+  let timeoutMs: number = SETTINGS_DEFAULTS.timeouts.daemon_stop_ms;
+  try {
+    timeoutMs = services.settings.currentOrNull()?.timeouts.daemon_stop_ms ?? timeoutMs;
+  } catch {
+    // A broken settings file must not prevent the operator from stopping orchd.
+  }
+  await terminateDaemon(pid, timeoutMs);
   if (pidAlive(pid)) throw new Error(`timed out stopping orchd (pid ${pid})`);
   if (json) process.stdout.write(JSON.stringify({ running: false, stopped: true, pid }) + "\n");
   else process.stdout.write(`stopped (pid ${pid})\n`);
@@ -207,7 +214,7 @@ export async function cmdDaemon(services: Services, args: string[]): Promise<voi
   if (positional.length > 0) throw usageError(invocation);
   switch (command.name) {
     case "start": return startDaemon(services.orchDir, services.logger, flags.has("--fg"), json);
-    case "stop": return stopDaemon(services.orchDir, json);
+    case "stop": return stopDaemon(services, json);
     case "status": return statusDaemon(services.orchDir, json);
     case "reload": return reloadDaemon(services.orchDir, json);
     default: throw usageError(invocation);

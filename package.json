@@ -22,6 +22,7 @@
     "db:gen:dry": "bun --filter @bryance/orch db:gen:dry",
     "db:mig": "bun --filter @bryance/orch db:mig",
     "db:check": "bun --filter @bryance/orch db:check",
+    "db:seal": "bun --filter @bryance/orch db:seal",
     "db:reset": "bun --filter @bryance/orch db:reset",
     "db:reset:dry": "bun --filter @bryance/orch db:reset:dry",
     "reset": "bun --filter @bryance/orch reset",

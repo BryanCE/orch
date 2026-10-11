@@ -10,13 +10,12 @@ import { COMMAND_PATTERN_MESSAGE, isCommandPattern } from "../policy/command-gat
 import { ROLES } from "../types/policy.ts";
 import { MAIL_DELIVERIES, NOTIFICATION_POSITIONS, NOTIFY_STATES, type NotifyState } from "../types/settings.ts";
 import type { OrchDir } from "../types/core.ts";
+import { SETTINGS_MIGRATIONS } from "../update/settings-migrations.ts";
 
-/** The one settings.json schema version. Pre-publish there is no legacy support:
- * exactly ONE live schema, no reader accepts two, and a file with any other version is
- * invalid and recreated by `orch setup`. This stamp is 1 and DOES NOT MOVE (CLAUDE.md
- * Rule 14): nothing has published, so there is no installed base to version against.
- * On a shape change, fix every writer/reader/test — never the number. */
-export const SETTINGS_SCHEMA = 1;
+/** The one live settings.json version, derived from the converter chain in
+ * `src/update/settings-migrations.ts`, so a breaking change appends one converter and
+ * the version follows. `orch update`, `orch setup` and `orch doctor` run the chain. */
+export const SETTINGS_SCHEMA = SETTINGS_MIGRATIONS.length + 1;
 
 const PositiveInt = z.number().int().positive();
 const SettingsCommand = z.string().refine((command) => !hasFixedPath(command), FIXED_PATH_MESSAGE);
@@ -92,7 +91,7 @@ export const SETTINGS_DEFAULTS = {
   denied_commands: { applies_to: ROLES.filter((role) => role !== "orch") },
   settings_file: { typo_max_edits: 2 },
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
-  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, update_query_ms: 30_000, update_install_ms: 300_000, daemon_stop_ms: 5_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
   doctor: { unclaimed_after_ms: 120_000 },
@@ -238,6 +237,9 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     reset_ready_ms: PositiveInt.optional(),
     reset_poll_ms: PositiveInt.optional(),
     daemon_probe_ms: PositiveInt.optional(),
+    update_query_ms: PositiveInt.optional(),
+    update_install_ms: PositiveInt.optional(),
+    daemon_stop_ms: PositiveInt.optional(),
   }).optional(),
   notify: z.array(NotifyEntrySchema).optional(),
   notification: z.strictObject({

@@ -42,7 +42,7 @@ function unknownProviderId(root: unknown, path: readonly PropertyKey[]):
 function invalidSettingsError(file: string, parsed: unknown, error: z.ZodError): Error {
   const root = isRecord(parsed) ? parsed : null;
   if (error.issues.some((issue) => issue.path[0] === "schemaVersion")) {
-    return new Error(`${file}: this settings file was written by an older orch (schemaVersion ${JSON.stringify(root?.schemaVersion)}; this orch reads ${SETTINGS_SCHEMA}) and cannot be read.\nRun: orch setup`);
+    return new Error(`${file}: this settings file was written by a different orch version (schemaVersion ${JSON.stringify(root?.schemaVersion)}; this orch reads ${SETTINGS_SCHEMA}) and cannot be read.\nRun: orch update`);
   }
   // The runtime is declared, never inferred: there is deliberately no default-on-read.
   if (error.issues.some((issue) => issue.path[0] === "runtime")) {

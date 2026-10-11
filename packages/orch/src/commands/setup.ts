@@ -2,7 +2,7 @@ import { confirm, isCancel } from "@clack/prompts";
 import * as files from "node:fs";
 import { refreshAdapterCatalogues, resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { reapUnreadableSettings } from "../settings/read.ts";
-import { automaticSettingsRepair } from "../settings/auto-repair.ts";
+import { settingsRepair } from "../settings/auto-repair.ts";
 import { settingsPath } from "../settings/schema.ts";
 import { writeSettingsNotify, writeSettingsSkills } from "../settings/write.ts";
 import { ORCH_RUNTIMES } from "../runtime.ts";
@@ -102,16 +102,26 @@ async function initializeSetup(options: SetupOptions, services: Pick<Services, "
   else warmAdapterCatalogues(services.models);
   if (options.interactive) setupIntro();
 
-  // A reinstall moves the person forward onto the current shape: every key this build cannot read
-  // is renamed, set, or dropped to its default, and everything it can read stays. Only a file no
-  // repair can mend (bad JSON) is moved aside so re-recording can proceed.
-  const repair = automaticSettingsRepair(services.settings);
-  if (repair) {
-    try {
-      repair.apply();
-      process.stdout.write(`  repaired settings.json for this orch:\n${repair.changes.map((change) => `    ${change}\n`).join("")}`);
-    } catch (error: unknown) {
-      process.stdout.write(`  could not repair settings.json: ${errorMessage(error)}\n`);
+  // A reinstall runs every schema converter before repairing unreadable keys. Only a file this
+  // build cannot repair is moved aside so re-recording can proceed.
+  const repair = settingsRepair(services.settings);
+  switch (repair.plan.kind) {
+    case "clean":
+      break;
+    case "unrepairable":
+      process.stdout.write(`  could not repair settings.json: ${repair.plan.reason}\n`);
+      break;
+    case "repair":
+      try {
+        repair.apply();
+        process.stdout.write(`  repaired settings.json for this orch:\n${repair.plan.changes.map((change) => `    ${change}\n`).join("")}`);
+      } catch (error: unknown) {
+        process.stdout.write(`  could not repair settings.json: ${errorMessage(error)}\n`);
+      }
+      break;
+    default: {
+      const exhaustive: never = repair.plan;
+      return exhaustive;
     }
   }
   const reaped = reapUnreadableSettings(services.orchDir);

@@ -169,6 +169,11 @@ export function applyFixes(results: CheckResult[]): { applied: string[] } {
   return { applied };
 }
 
+/** Apply every fix that deletes nothing: what `doctor -y` and `orch update` run unattended. */
+export function applySafeFixes(results: readonly CheckResult[]): { applied: string[] } {
+  return applyFixes(results.filter((result) => !result.fix?.destructive));
+}
+
 /** Redeploy the stale integration shim of the harnesses a command actually touches.
  *  Cheap when current (a live symlink resolves with two stats), so spawn and reload
  *  run it first — a freshly updated orch must never launch agents on the last

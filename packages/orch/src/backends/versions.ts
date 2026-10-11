@@ -5,7 +5,7 @@ interface Semver {
   prerelease: string;
 }
 
-function parseSemver(value: string): Semver | null {
+export function parseSemver(value: string): Semver | null {
   const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value.trim());
   if (!match) return null;
   return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), prerelease: match[4] ?? "" };

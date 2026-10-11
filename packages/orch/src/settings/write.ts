@@ -57,6 +57,15 @@ function serializeSettingsRoot(file: string, candidate: unknown): string {
   return JSON.stringify(withKeys(updated, newer), null, 2) + "\n";
 }
 
+/** Re-read under the settings lock, transform the raw JSON once, then validate and serialize it. */
+export function writeSettingsRoot(settings: SettingsManager, next: (raw: unknown) => Record<string, unknown>): void {
+  settings.update((current) => {
+    if (current === null) throw new Error(`${settings.file}: settings.json is absent`);
+    const parsed: unknown = JSON.parse(current);
+    return serializeSettingsRoot(settings.file, next(parsed));
+  });
+}
+
 /** Apply one schema-validated mutation under the settings storage lock. */
 function updateSettingsFile(settings: SettingsManager, mutate: (root: Partial<SettingsFile>) => Partial<SettingsFile>): void {
   settings.update((current) => {
@@ -139,44 +148,47 @@ function settingsPathValue(root: unknown, segments: readonly string[]): Settings
   return { found: true, value: cursor };
 }
 
+/** Apply repairs without mutating the input root, validating only after all repairs are made. */
+export function repairSettingsRoot(root: Readonly<Record<string, unknown>>, repairs: readonly SettingsRepair[]): Record<string, unknown> {
+  let candidate = copyRecord(root);
+
+  for (const repair of repairs) {
+    switch (repair.kind) {
+      case "rename": {
+        const source = settingsPathValue(candidate, repair.from.split("."));
+        const destination = settingsPathValue(candidate, repair.to.split("."));
+        if (destination.found) {
+          throw new Error(`cannot rename ${JSON.stringify(repair.from)} to ${JSON.stringify(repair.to)}: destination already holds a value`);
+        }
+        if (!source.found) continue;
+        candidate = deleteSettingsPathRecord(candidate, repair.from.split("."));
+        candidate = setSettingsPathRecord(candidate, repair.to.split("."), source.value);
+        continue;
+      }
+      case "set":
+        candidate = setSettingsPathRecord(candidate, repair.path.split("."), repair.value);
+        continue;
+      case "drop":
+        candidate = deleteSettingsPathRecord(candidate, repair.path.split("."));
+        continue;
+      default: {
+        const exhaustive: never = repair;
+        return exhaustive;
+      }
+    }
+  }
+
+  return candidate;
+}
+
 /** Apply explicit repairs to a raw settings file, validating only after all repairs are made. */
 export function applySettingsRepairs(settings: SettingsManager, repairs: readonly SettingsRepair[]): void {
   // Choosing nothing writes nothing. Falling through to the validator would reject the very
   // file the person just decided to leave as it is, and report that decision as an error.
   if (repairs.length === 0) return;
-  settings.update((current) => {
-    if (current === null) throw new Error(`${settings.file}: settings.json is absent`);
-    const parsed: unknown = JSON.parse(current);
-    if (!isRecord(parsed)) throw new Error(`${settings.file}: settings root must be an object`);
-    let candidate = copyRecord(parsed);
-
-    for (const repair of repairs) {
-      switch (repair.kind) {
-        case "rename": {
-          const source = settingsPathValue(candidate, repair.from.split("."));
-          const destination = settingsPathValue(candidate, repair.to.split("."));
-          if (destination.found) {
-            throw new Error(`cannot rename ${JSON.stringify(repair.from)} to ${JSON.stringify(repair.to)}: destination already holds a value`);
-          }
-          if (!source.found) continue;
-          candidate = deleteSettingsPathRecord(candidate, repair.from.split("."));
-          candidate = setSettingsPathRecord(candidate, repair.to.split("."), source.value);
-          continue;
-        }
-        case "set":
-          candidate = setSettingsPathRecord(candidate, repair.path.split("."), repair.value);
-          continue;
-        case "drop":
-          candidate = deleteSettingsPathRecord(candidate, repair.path.split("."));
-          continue;
-        default: {
-          const exhaustive: never = repair;
-          return exhaustive;
-        }
-      }
-    }
-
-    return serializeSettingsRoot(settings.file, candidate);
+  writeSettingsRoot(settings, (raw) => {
+    if (!isRecord(raw)) throw new Error(`${settings.file}: settings root must be an object`);
+    return repairSettingsRoot(raw, repairs);
   });
 }
 

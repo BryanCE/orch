@@ -115,7 +115,7 @@ describe("loadSettings", () => {
       lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       monitor: { on: ["done", "error"] },
-      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44, spawn_attach_ms: 55, spawn_attach_poll_ms: 66, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 77, reset_poll_ms: 88, daemon_probe_ms: 10_000 },
+      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44, spawn_attach_ms: 55, spawn_attach_poll_ms: 66, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 77, reset_poll_ms: 88, daemon_probe_ms: 10_000, update_query_ms: 30_000, update_install_ms: 300_000, daemon_stop_ms: 5_000 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       notification: { position: "top-left" },
       locked_commands: { commands: [], applies_to: ["orch", "slave"] },
@@ -148,7 +148,7 @@ describe("loadSettings", () => {
     fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: 999 }));
 
     expect(() => fileSettingsManager(directory).current()).toThrow("schemaVersion");
-    expect(() => fileSettingsManager(directory).current()).toThrow(/orch setup/);
+    expect(() => fileSettingsManager(directory).current()).toThrow(/orch update/);
   });
 
   test("rejects invalid JSON loudly", () => {
@@ -226,7 +226,7 @@ describe("loadSettings", () => {
       lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       monitor: { on: ["asking", "waiting", "blocked", "done", "error", "aborted", "exited"] },
-      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000 },
+      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, update_query_ms: 30_000, update_install_ms: 300_000, daemon_stop_ms: 5_000 },
       notify: [],
       notification: { position: "top-left" },
       locked_commands: { commands: [], applies_to: ["orch", "slave"] },

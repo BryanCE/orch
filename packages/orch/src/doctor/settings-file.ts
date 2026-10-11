@@ -3,7 +3,7 @@ import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { newerSettingsKeys, settingsDefects } from "../settings/defects.ts";
 import { settingsPath } from "../settings/schema.ts";
-import { automaticSettingsRepair } from "../settings/auto-repair.ts";
+import { settingsRepair } from "../settings/auto-repair.ts";
 import { fileSettingsManager } from "../settings/manager.ts";
 import { displayValue } from "../settings/display.ts";
 import { commandOutput } from "./shared.ts";
@@ -51,8 +51,8 @@ export async function checkSettingsFile(orchDir: OrchDir): Promise<CheckResult> 
     }
     if (defects.length === 0) return { id: "settings", label: "Settings validity", status: "ok", detail: file };
     const count = defects.length;
-    const repair = automaticSettingsRepair(fileSettingsManager(orchDir));
-    const fixHint = repair === null ? "orch settings" : "orch doctor --fix, or by hand: orch settings";
+    const repair = settingsRepair(fileSettingsManager(orchDir));
+    const fixHint = repair.plan.kind === "repair" ? "orch doctor --fix, or by hand: orch settings" : "orch settings";
     const headline = `${count} ${count === 1 ? "key" : "keys"} cannot be read; fix: ${fixHint} (settings.json)`;
     const details = defects.map((defect) => {
       const key = defect.path === "" ? "(whole file)" : defect.path;
@@ -65,7 +65,7 @@ export async function checkSettingsFile(orchDir: OrchDir): Promise<CheckResult> 
       label: "Settings validity",
       status: "fail",
       detail: `${headline}\n    ${details}`,
-      ...(repair === null ? {} : { fix: { description: `Repair settings.json (${repair.changes.join("; ")})`, apply: repair.apply } }),
+      ...(repair.plan.kind === "repair" ? { fix: { description: `Repair settings.json (${repair.plan.changes.join("; ")})`, apply: repair.apply } } : {}),
     };
   } catch (error: unknown) {
     return { id: "settings", label: "Settings validity", status: "fail", detail: errorMessage(error) };

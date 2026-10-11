@@ -25,6 +25,15 @@ export function createRepairState(defects: readonly SettingsDefect[]): RepairSta
   };
 }
 
+/** Every defect set to its first meaningful choice: rename a typo, set a pinned value, else drop
+ *  the key so its default applies. This is the repair `doctor` offers and `setup` applies when a
+ *  newer build no longer reads an older file. Null when a defect has no fix but leaving it (bad JSON). */
+export function automaticRepairState(defects: readonly SettingsDefect[]): RepairState | null {
+  const choices = defects.map((defect): RepairChoice => repairChoicesFor(defect)[0] ?? "leave");
+  if (choices.includes("leave")) return null;
+  return { defects, choices, focusedIndex: 0 };
+}
+
 /** Apply one repair-screen action without mutating the existing state. */
 export function repairReducer(state: RepairState, action: RepairAction): RepairState {
   if (state.defects.length === 0) return state;

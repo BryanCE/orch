@@ -11,8 +11,12 @@ import type { RegisterSessionResponse } from "../src/types/daemon.ts";
 
 describe("commands/index", () => {
   test("does not gate help or noninteractive commands", () => {
-    expect(needsFirstRunSetup(null, "help")).toBe(false);
-    expect(needsFirstRunSetup(null, "status")).toBe(false);
+    expect(needsFirstRunSetup(() => null, "help")).toBe(false);
+    expect(needsFirstRunSetup(() => null, "status")).toBe(false);
+  });
+  test("never reads settings for a command that mends them", () => {
+    const unreadable = (): null => { throw new Error("settings.json has invalid values"); };
+    for (const cmd of ["setup", "doctor", "settings"]) expect(needsFirstRunSetup(unreadable, cmd)).toBe(false);
   });
   test("reads the package name and version", () => {
     const manifest = packageManifest();

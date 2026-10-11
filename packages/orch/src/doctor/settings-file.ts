@@ -3,6 +3,8 @@ import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { newerSettingsKeys, settingsDefects } from "../settings/defects.ts";
 import { settingsPath } from "../settings/schema.ts";
+import { automaticSettingsRepair } from "../settings/auto-repair.ts";
+import { fileSettingsManager } from "../settings/manager.ts";
 import { displayValue } from "../settings/display.ts";
 import { commandOutput } from "./shared.ts";
 import { isWsl } from "../host.ts";
@@ -49,14 +51,22 @@ export async function checkSettingsFile(orchDir: OrchDir): Promise<CheckResult> 
     }
     if (defects.length === 0) return { id: "settings", label: "Settings validity", status: "ok", detail: file };
     const count = defects.length;
-    const headline = `${count} ${count === 1 ? "key" : "keys"} cannot be read; fix: orch settings (settings.json)`;
+    const repair = automaticSettingsRepair(fileSettingsManager(orchDir));
+    const fixHint = repair === null ? "orch settings" : "orch doctor --fix, or by hand: orch settings";
+    const headline = `${count} ${count === 1 ? "key" : "keys"} cannot be read; fix: ${fixHint} (settings.json)`;
     const details = defects.map((defect) => {
       const key = defect.path === "" ? "(whole file)" : defect.path;
       const problem = defect.expected === undefined ? defect.problem : `expected ${displayValue(defect.expected)}`;
       const suggestion = defect.suggestion === undefined ? "" : `; did you mean ${defect.suggestion}?`;
       return `${key} = ${displayValue(defect.value)}  ${problem}${suggestion}`;
     }).join("\n    ");
-    return { id: "settings", label: "Settings validity", status: "fail", detail: `${headline}\n    ${details}` };
+    return {
+      id: "settings",
+      label: "Settings validity",
+      status: "fail",
+      detail: `${headline}\n    ${details}`,
+      ...(repair === null ? {} : { fix: { description: `Repair settings.json (${repair.changes.join("; ")})`, apply: repair.apply } }),
+    };
   } catch (error: unknown) {
     return { id: "settings", label: "Settings validity", status: "fail", detail: errorMessage(error) };
   }

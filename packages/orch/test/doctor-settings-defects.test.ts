@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -82,8 +82,34 @@ describe("doctor settings defects", () => {
 
     const result = await checkSettingsFile(directory);
     expect(result.status).toBe("fail");
-    expect(result.detail).toContain("1 key cannot be read; fix: orch settings");
+    expect(result.detail).toContain("1 key cannot be read; fix: orch doctor --fix, or by hand: orch settings");
     expect(result.detail).not.toContain("orch setup");
+  });
+
+  test("offers no repair for a file that is not JSON", async () => {
+    const directory = tempDir();
+    writeFileSync(join(directory, "settings.json"), "{\n");
+
+    const result = await checkSettingsFile(directory);
+    expect(result.fix).toBeUndefined();
+    expect(result.detail).toContain("cannot be read; fix: orch settings (settings.json)");
+  });
+
+  test("repairs a key whose shape changed and keeps every key it can read", async () => {
+    const directory = tempDir();
+    const file = writeSettingsFixture(directory, { locked_commands: [], fleet: { max_dpeth: 2, max_agents_total: 7 } });
+
+    const result = await checkSettingsFile(directory);
+    if (result.fix === undefined) throw new Error("expected a settings repair");
+    expect(result.fix.destructive).toBeUndefined();
+    expect(result.fix.description).toContain("locked_commands: drop");
+    expect(result.fix.description).toContain("fleet.max_dpeth: rename");
+    result.fix.apply();
+
+    expect(await checkSettingsFile(directory)).toEqual({ id: "settings", label: "Settings validity", status: "ok", detail: file });
+    const repaired: unknown = JSON.parse(readFileSync(file, "utf8"));
+    expect(repaired).toMatchObject({ fleet: { max_depth: 2, max_agents_total: 7 } });
+    expect(repaired).not.toHaveProperty("locked_commands");
   });
 
   test("reports a typo with its suggested key", async () => {

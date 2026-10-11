@@ -2,6 +2,7 @@ import { confirm, isCancel } from "@clack/prompts";
 import * as files from "node:fs";
 import { refreshAdapterCatalogues, resolveAdapter, warmAdapterCatalogues } from "../adapters/registry.ts";
 import { reapUnreadableSettings } from "../settings/read.ts";
+import { automaticSettingsRepair } from "../settings/auto-repair.ts";
 import { settingsPath } from "../settings/schema.ts";
 import { writeSettingsNotify, writeSettingsSkills } from "../settings/write.ts";
 import { ORCH_RUNTIMES } from "../runtime.ts";
@@ -21,7 +22,7 @@ import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { SetupOptions } from "../setup/flags.ts";
 import { installPrerequisites, installAdapterShims, wireBinaries, alignEntrypointToRuntime } from "../setup/install.ts";
-import { packageRoot } from "../util.ts";
+import { errorMessage, packageRoot } from "../util.ts";
 import { runSetupSmoke, smokeBlocker } from "../setup/smoke.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -94,15 +95,25 @@ async function offerReapMalformedRecords(
   return true;
 }
 
-async function initializeSetup(options: SetupOptions, services: Pick<Services, "orchDir" | "models">): Promise<void> {
+async function initializeSetup(options: SetupOptions, services: Pick<Services, "orchDir" | "models" | "settings">): Promise<void> {
   // Before the first prompt, and for every harness rather than the ones about to be picked:
   // the registry queries then run under the whole wizard instead of stalling the model step.
   if (options.refresh) await refreshAdapterCatalogues(services.models);
   else warmAdapterCatalogues(services.models);
   if (options.interactive) setupIntro();
 
-  // setup is the ONE recovery path: a settings.json from an older schema (or otherwise invalid)
-  // is malformed data, not something to migrate — reap it so re-recording can proceed.
+  // A reinstall moves the person forward onto the current shape: every key this build cannot read
+  // is renamed, set, or dropped to its default, and everything it can read stays. Only a file no
+  // repair can mend (bad JSON) is moved aside so re-recording can proceed.
+  const repair = automaticSettingsRepair(services.settings);
+  if (repair) {
+    try {
+      repair.apply();
+      process.stdout.write(`  repaired settings.json for this orch:\n${repair.changes.map((change) => `    ${change}\n`).join("")}`);
+    } catch (error: unknown) {
+      process.stdout.write(`  could not repair settings.json: ${errorMessage(error)}\n`);
+    }
+  }
   const reaped = reapUnreadableSettings(services.orchDir);
   if (reaped) process.stdout.write(`  previous settings.json was unreadable (older schema or invalid values) - moved aside to ${reaped}, re-recording from scratch\n`);
 }

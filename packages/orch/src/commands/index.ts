@@ -90,11 +90,13 @@ function exemptFromSetupGate(cmd: string | undefined): boolean {
   return cmd === "setup" || cmd === "doctor" || cmd === "settings" || cmd === "status" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version";
 }
 
-/** True on a clean slate: no selections recorded yet, a TTY to prompt on, and a command that needs them. */
-export function needsFirstRunSetup(settings: OrchSettings | null, cmd: string | undefined): boolean {
+/** True on a clean slate: no selections recorded yet, a TTY to prompt on, and a command that needs them.
+ *  Settings are read only past the exemption: an exempt command is how a person mends a file that
+ *  will not load, so reading it first would refuse them with the very error they came to fix. */
+export function needsFirstRunSetup(settings: () => OrchSettings | null, cmd: string | undefined): boolean {
   if (exemptFromSetupGate(cmd)) return false;
   if (!process.stdin.isTTY) return false;
-  return compositionUnrecorded(settings);
+  return compositionUnrecorded(settings());
 }
 
 /** `orch <cmd> -h|--help` and `orch help <cmd>` both name one command's topic. */
@@ -196,7 +198,7 @@ export function runCommand(argv: string[]): void {
     // The setup gate never surfaces a raw config error. Either it routes into the wizard, or it
     // prints exactly what is missing and the command that fixes it. `die` exits, so the switch
     // below is only ever reached with a real recorded configuration.
-    if (needsFirstRunSetup(services.settings.currentOrNull(), cmd)) {
+    if (needsFirstRunSetup(() => services.settings.currentOrNull(), cmd)) {
       void runFirstTimeSetup(services, argv, runCommand).catch((error: unknown) => reportCommandFailure(services.logger, error));
       return;
     }

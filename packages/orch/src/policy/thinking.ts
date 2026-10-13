@@ -25,9 +25,9 @@ export function splitThinkingSuffix(model: string): { bare: string; thinking?: T
   return { bare: model.slice(0, colon), thinking: suffix };
 }
 
-/** The ladder token as a table or a card shows it: the codex provider prefix is noise there. */
+/** The ladder token as a table or a card shows it: the AGENT column names the harness, so the provider prefix is noise. */
 export function modelShort(model: string): string {
-  return model.replace(/^openai-codex\//, "");
+  return model.replace(/^[^/]+\//, "");
 }
 
 /** The ladder token for a model and its effort: the inverse of `splitThinkingSuffix`. */

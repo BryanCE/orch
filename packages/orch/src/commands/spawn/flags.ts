@@ -1,11 +1,12 @@
 import { resolveSetting } from "../../settings/read.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { resolveBackend } from "../../backends/registry.ts";
-import { agentFlags, pickAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
+import { agentFlags, pickAdapter, resolveTuningOrDie } from "../selection.ts";
 import { parseCommand } from "../registry.ts";
 import { readFileSync } from "node:fs";
 import { errorMessage } from "../../util.ts";
 import { die } from "../target.ts";
+import type { AdapterId } from "../../types/adapter.ts";
 import type { Backend } from "../../types/backend.ts";
 import type { WorkerPolicy } from "../../types/policy.ts";
 import type { OrchSettings } from "../../types/settings.ts";
@@ -19,7 +20,7 @@ import { usageError, type CommandAt } from "../../cli/usage.ts";
 import { taskWithReferences } from "../../worker-prompt.ts";
 
 
-export type SpawnFlags = AgentFlags & {
+export type SpawnFlags = Omit<AgentFlags, "adapterFlag" | "modelFlag"> & {
   /** Where the invocation was parsed, so a refusal prints the spec's usage. */
   at: CommandAt;
   json: boolean;
@@ -37,6 +38,8 @@ export type SpawnFlags = AgentFlags & {
   promptFiles: string[];
   /** Models to pin, one for all agents or one per agent. */
   modelFlags: string[];
+  /** Harnesses to launch, one for all agents or one per agent. */
+  harnessFlags: string[];
   /** Where the agents' context lives; each `--with` adds one, `<name>=<path>` for one agent. Orch checks each exists and never reads it. */
   withPaths: string[];
   tasksFile?: string;
@@ -59,6 +62,7 @@ export function parseSpawnFlags(args: string[]): SpawnFlags {
     promptFlags: [...flags.values("--prompt")],
     promptFiles: [...flags.values("--file")],
     modelFlags: [...flags.values("--model")],
+    harnessFlags: [...flags.values("--harness")],
     withPaths: [...flags.values("--with")],
     ...(tasksFile === undefined ? {} : { tasksFile }),
     positional: [...positional],
@@ -67,13 +71,18 @@ export function parseSpawnFlags(args: string[]): SpawnFlags {
 
 export interface SpawnAgentPlan {
   readonly name: string;
+  readonly adapter: AdapterId;
+  /** The harness command this agent launches under: `--cmd`, or its adapter's own. */
+  readonly cmd: string;
+  /** The quicklist this agent's harness picker is given; never a launch gate. */
+  readonly preferredModels: readonly string[];
   readonly model: string;
   readonly thinking: ThinkingLevel;
   /** The initial task, or null when the fleet starts idle. All agents have one or none have one. */
   readonly prompt: string | null;
 }
 
-export type SpawnSettings = Omit<AgentSettings, "model" | "thinking"> & {
+export type SpawnSettings = Pick<AgentSettings, "backend"> & {
   tools: string | undefined;
   workers: WorkerPolicy;
   json: boolean;
@@ -84,7 +93,6 @@ export type SpawnSettings = Omit<AgentSettings, "model" | "thinking"> & {
    *  A plexer orch only probed is not. */
   backendChosen: boolean;
   cwd: string;
-  cmd: string;
   commandFlag: boolean;
   space: string | null;
   prefix: string;
@@ -167,31 +175,43 @@ export function resolveSpawnAgentSettings(flags: AgentFlags, settings: OrchSetti
   };
 }
 
+/** One harness per agent. `--cmd` is one harness's command, so it refuses a mixed fleet. */
+function resolveSpawnAdapters(flags: SpawnFlags, settings: OrchSettings, n: number): AdapterId[] {
+  const adapters = perAgent(flags.at, "--harness", flags.harnessFlags, n)
+    .map((harness) => pickAdapter(harness === undefined ? {} : { adapterFlag: harness }, settings));
+  if (flags.cmd !== null && new Set(adapters).size > 1) throw usageError(flags.at, "--cmd launches one harness; give one --harness with it");
+  return adapters;
+}
+
+/** One agent's launch, with its model and command resolved against its own harness. */
+function planAgent(flags: SpawnFlags, settings: OrchSettings, agent: { name: string; adapter: AdapterId; model: string | undefined; prompt: string | null }): SpawnAgentPlan {
+  const tuning = resolveTuningOrDie({ ...flags, modelFlag: agent.model }, settings, agent.adapter, null);
+  const preferredModels = settings.models.preferred[agent.adapter] ?? [];
+  const cmd = flags.cmd ?? adapterCommand(agent.adapter, settings, { model: tuning.model, thinking: tuning.thinking, preferredModels });
+  return { name: agent.name, adapter: agent.adapter, cmd, preferredModels, model: tuning.model, thinking: tuning.thinking, prompt: agent.prompt };
+}
+
 export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings): SpawnSettings {
-  const adapter = pickAdapter(flags, settings);
   const backend = resolveSpawnBackend(flags, settings);
   const worktree = resolveSetting({ flag: flags.worktreeFlag, settings: settings.defaults.worktree, fallback: settings.defaults.worktree });
   const names = resolveSpawnNames(flags.at, flags.positional);
   const n = names.length;
   const references = referencesByAgent(flags.withPaths, names);
   const prompts = resolveSpawnPrompts(flags, n).map((prompt, index) => prompt === null ? null : taskWithReferences(prompt, references[index] ?? []));
+  const adapters = resolveSpawnAdapters(flags, settings, n);
   const models = perAgent(flags.at, "--model", flags.modelFlags, n);
-  const tunings = models.map((model) => resolveTuningOrDie({ ...flags, modelFlag: model }, settings, adapter, null));
   const agents = names.map((name, index) => {
-    const tuning = tunings[index];
+    const adapter = adapters[index];
     const prompt = prompts[index];
-    if (tuning === undefined || prompt === undefined) die("could not resolve spawn agent plan");
-    return { name, model: tuning.model, thinking: tuning.thinking, prompt };
+    if (adapter === undefined || prompt === undefined) die("could not resolve spawn agent plan");
+    return planAgent(flags, settings, { name, adapter, model: models[index], prompt });
   });
-  resolveAdapterOrDie(adapter);
-  const preferredModels = settings.models.preferred[adapter] ?? [];
   const tools = workerTools(settings);
   const workers = workerPolicyFrom(settings);
   const firstAgent = agents[0];
   if (firstAgent === undefined) die("spawn requires at least one agent");
-  const cmd = flags.cmd ?? adapterCommand(adapter, settings, { model: firstAgent.model, thinking: firstAgent.thinking, preferredModels });
   const backendChosen = (flags.backendFlag ?? settings.defaults.backend ?? null) !== null;
-  return { adapter, backend: backend.id, preferredModels, tools, workers, json: flags.json, tab: flags.tab, backendChosen, cwd: flags.cwd, cmd, commandFlag: flags.cmd !== null, space: flags.space, prefix: firstAgent.name, agents, worktree, fleet: settings.fleet, tiling: settings.tiling };
+  return { backend: backend.id, tools, workers, json: flags.json, tab: flags.tab, backendChosen, cwd: flags.cwd, commandFlag: flags.cmd !== null, space: flags.space, prefix: firstAgent.name, agents, worktree, fleet: settings.fleet, tiling: settings.tiling };
 }
 
 /** Live agents per space. Both maps are keyed by the minted id: a space is an

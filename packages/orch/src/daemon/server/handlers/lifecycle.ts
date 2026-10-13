@@ -9,8 +9,8 @@ import { headlessBackend } from "../../../backends/registry.ts";
 import { deliverControl } from "../../../control/dispatch.ts";
 import { emitAndNotify } from "../events.ts";
 import { agentView } from "../../../store/agent-view.ts";
-import { agentById, endAgent, reclaimAgent } from "../../../store/agent-rows.ts";
-import { setHandle } from "../../../store/interval-rows.ts";
+import { agentById, endAgent, reclaimAgent, setHarness } from "../../../store/agent-rows.ts";
+import { setHandle, setTuning } from "../../../store/interval-rows.ts";
 import { registerSpawnedAgent } from "../../../store/spawn-registration.ts";
 import { presenceEntry } from "../../../presence/store.ts";
 import { isAgentState } from "../../../agent-state.ts";
@@ -135,6 +135,12 @@ export function registerAgent(directory: OrchDir, params: ParamsOf<"register-age
 
 export function reclaim(directory: OrchDir, params: ParamsOf<"reclaim">): { ok: true } {
   reclaimAgent(directory, params.target);
+  const { relaunch } = params;
+  if (relaunch) {
+    const now = Date.now();
+    setHarness(directory, params.target, relaunch.harnessId, now);
+    setTuning(directory, params.target, now, { model: relaunch.model, thinking: relaunch.thinking });
+  }
   return { ok: true };
 }
 

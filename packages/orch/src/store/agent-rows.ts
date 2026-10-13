@@ -79,14 +79,21 @@ export function claimAgent(orchDir: OrchDir, id: string, sessionToken: string, n
   return result;
 }
 
-export function reclaimAgent(orchDir: OrchDir, id: string): void {
-  withTransaction(orchDir, () => {
-    const db = orm(orchDir);
-    const result = db.update(agents).set({ claimedAt: null, sessionToken: null })
-      .where(eq(agents.id, id)).run();
-    if (result.changes !== 1) throw new Error(`unknown agent: ${id}`);
-  });
+/** Write fields onto one agent's row, then refresh its view. An unknown id throws. */
+function updateAgentRow(orchDir: OrchDir, id: string, fields: Partial<typeof agents.$inferInsert>): void {
+  const updated = orm(orchDir).update(agents).set(fields).where(eq(agents.id, id)).run();
+  if (updated.changes !== 1) throw new Error(`unknown agent: ${id}`);
   refreshAgent(orchDir, id);
+}
+
+export function reclaimAgent(orchDir: OrchDir, id: string): void {
+  updateAgentRow(orchDir, id, { claimedAt: null, sessionToken: null });
+}
+
+/** Move an agent onto another harness. The id, name, and pane stay. */
+export function setHarness(orchDir: OrchDir, id: string, harnessId: string, now: number): void {
+  ensureHarness(orchDir, harnessId, harnessId, now);
+  updateAgentRow(orchDir, id, { harnessId });
 }
 
 /** Record an agent's ending and close the writes still queued for it. An ended

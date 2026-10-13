@@ -9,10 +9,11 @@ import { agentStateFrom } from "../agent-state.ts";
 import { buildHeadlessArgv, buildInteractiveArgv, shimRole, type AgentState } from "./adapter.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, HarnessModel, HookReportRole, LifecycleVerb, ModelCatalogue, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, HarnessModel, HookReportRole, LifecycleVerb, ModelCatalogue, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
+import type { ThinkingLevel } from "../types/policy.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
 interface ClaudeStateDetectionInput extends StateDetectionInput {
@@ -104,6 +105,16 @@ function readWorkerSettings(settingsPath: string): Record<string, unknown> | str
 /** The text a running Claude session takes for each lifecycle verb; it has none for reload or restart. */
 const CLAUDE_LIFECYCLE_TEXT: Readonly<Record<LifecycleVerb, { text: string } | undefined>> = { reset: { text: "/clear" }, reload: undefined, restart: undefined };
 
+const CLAUDE_EFFORT_LEVELS: Readonly<Record<ThinkingLevel, string>> = {
+  off: "low",
+  minimal: "low",
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: "max",
+};
+
 /** Load orch's hooks into a session orch spawns, and into no other session. */
 function settingsArgv(opts: SpawnOpts): string[] {
   return opts.orchDir ? ["--settings", claudeSettingsPath(opts.orchDir)] : [];
@@ -164,7 +175,12 @@ export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: Orc
 class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
 
-  readonly thinking = null;
+  readonly thinking: ThinkingStrategy = {
+    launchArgs: (level: ThinkingLevel): readonly string[] => ["--effort", CLAUDE_EFFORT_LEVELS[level]],
+    set: (_level: ThinkingLevel): void => {
+      // Claude effort is launch-only; running sessions cannot change it.
+    },
+  };
   readonly workerLaunch = null;
   readonly modelControl = null;
   /** `/clear` starts a fresh conversation; SessionStart (`source: "clear"`) then reports it idle. */
@@ -195,12 +211,16 @@ class ClaudeAdapter implements AgentAdapter {
   }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return [...buildInteractiveArgv("claude", opts), ...settingsArgv(opts)];
+    const argv = [...buildInteractiveArgv("claude", opts), ...settingsArgv(opts)];
+    if (opts.thinking !== undefined) argv.push(...this.thinking.launchArgs(opts.thinking));
+    return argv;
   }
 
   /** Run Claude Code's print mode for detached workers. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return buildHeadlessArgv("claude", ["-p", ...settingsArgv(opts)], opts, prompt);
+    const flags = ["-p", ...settingsArgv(opts)];
+    if (opts.thinking !== undefined) flags.push(...this.thinking.launchArgs(opts.thinking));
+    return buildHeadlessArgv("claude", flags, opts, prompt);
   }
 
   /** Read the status written by Claude's SessionStart/Stop/Notification hooks. */

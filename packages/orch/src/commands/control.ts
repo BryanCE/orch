@@ -30,7 +30,7 @@ import type { OrchSettings } from "../types/settings.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
 import type { AgentView } from "../types/store.ts";
-import { NO_TUNING } from "../policy/tuning.ts";
+import { NO_TUNING, type Tuning } from "../policy/tuning.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;
@@ -355,22 +355,26 @@ async function renameBeforeDispatch(services: Services, dispatchSettings: Dispat
   if (!dispatchSettings.json) process.stdout.write(`${renamedLine(currentName, newName, outcome)}\n`);
 }
 
-/** New work lands on a clean session unless the caller asked to keep the old one.
- *  The model is pinned AFTER the clear, because a clear drops it. The pin is the
- *  one the agent already holds unless this dispatch names another: a clear
- *  resets the session, never the tuning the orchestrator chose. */
-async function prepareSession(services: Services, dispatchSettings: DispatchSettings, flags: DispatchFlags, target: { key: string; name: string; steal: boolean }) {
+/** The tuning this dispatch runs on: the one the agent holds unless the dispatch names
+ *  another. Refuses before any side effect, so a refused model leaves no rename behind. */
+function admitDispatchTuning(services: Services, dispatchSettings: DispatchSettings, flags: DispatchFlags): Tuning {
   const settings = services.settings.current();
   const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
   const tuning = resolveTuningOrDie(flags, settings, adapter.id, dispatchSettings.view?.tuning ?? NO_TUNING);
-  const { thinking } = tuning;
   const model = admitLaunchModel(settings, adapter.id, services.models, tuning.model);
   refuseModelChange(adapter, dispatchSettings.view?.tuning.model, model);
+  return { model, thinking: tuning.thinking };
+}
+
+/** New work lands on a clean session unless the caller asked to keep the old one.
+ *  The model is pinned AFTER the clear, because a clear drops it. */
+async function prepareSession(services: Services, dispatchSettings: DispatchSettings, tuning: Tuning, target: { key: string; name: string; steal: boolean }): Promise<Tuning> {
+  const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
   if (!dispatchSettings.keepContext) await clearSession(services, target.key, target.steal);
-  if (!takesModel(adapter)) return { model, thinking };
-  const pinWarnings = await pinModels(services, services.logger, [{ key: target.key, handle: dispatchSettings.handle, name: target.name, model, thinking }]);
+  if (!takesModel(adapter)) return tuning;
+  const pinWarnings = await pinModels(services, services.logger, [{ key: target.key, handle: dispatchSettings.handle, name: target.name, ...tuning }]);
   if (pinWarnings.length > 0) process.exitCode = 1;
-  return { model, thinking };
+  return tuning;
 }
 
 export async function cmdDispatch(services: Services, args: string[]) {
@@ -383,12 +387,13 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const dispatchSettings = await resolveDispatchSettings(services, self, invocation, flags, gov);
   const currentName = targetName({ view: dispatchSettings.view, entity: dispatchSettings.ent });
   const effectiveName = flags.rename ?? currentName;
+  const tuning = admitDispatchTuning(services, dispatchSettings, flags);
   if (flags.rename !== undefined) await renameBeforeDispatch(services, dispatchSettings, currentName, flags.rename);
   // Address the daemon by the one canonical identity, never the handle: a second
   // registry row keyed by handle forks the agent and makes every later control
   // target ambiguous (dispatch/steer/reset all fail post-first-run).
   const key = dispatchSettings.ent.key;
-  const { model, thinking } = await prepareSession(services, dispatchSettings, flags, { key, name: effectiveName, steal: gov.steal === true });
+  const { model, thinking } = await prepareSession(services, dispatchSettings, tuning, { key, name: effectiveName, steal: gov.steal === true });
   const headerContext = workerHeaderContextOf(self, settings, dispatchSettings.view?.cwd);
   const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: resolveAdapterOrDie(dispatchSettings.adapter), context: headerContext, gov });
   if (dispatchSettings.view === null) await recordAdoptedAgent(services, self, key, dispatchSettings, { model, thinking });

@@ -44,7 +44,7 @@ export function callerMayResolveFor(root: OrchDir, credential: CallerCredential,
 }
 
 export function refuseForeignTarget(target: string): never {
-  die(`No target matches "${target}". Run 'orch pane list' to list.`);
+  die(`No target matches "${target}". Run 'orch status' to list agents.`);
 }
 
 /**
@@ -95,12 +95,7 @@ export function resolveTargetFor(
   target: string,
   opts?: { all?: boolean; crossSpace?: boolean },
 ): Entity {
-  let ref: TargetRef;
-  try {
-    ref = parseTarget(target, settings.hosts);
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
+  const ref = parseTargetOrDie(target, settings);
   const localTarget = ref.target;
   const everything = buildEntities(root, settings);
   const crossSpace = opts?.crossSpace === true;
@@ -113,15 +108,27 @@ export function resolveTargetFor(
     refuseForeignTarget(target);
   }
 
-  if (!crossWall) {
-    if (callerKindOf(root, credential) !== "operator") refuseForeignTarget(target);
-    const foreign = matchInPool(everything, localTarget, target);
-    if (foreign) {
-      // The wall decision lives in policy/space.ts alone; this only relays it.
-      const decision = checkWall(root, selfIdentityOf(root, credential)?.id ?? null, foreign.key, { crossSpace: false });
-      if (!decision.allowed) die(decision.reason ?? "space-wall denied the write");
-    }
+  if (!crossWall) refuseBehindWall(root, credential, everything, localTarget, target);
+  refuseForeignTarget(target);
+}
+
+function parseTargetOrDie(target: string, settings: OrchSettings): TargetRef {
+  try {
+    return parseTarget(target, settings.hosts);
+  } catch (error: unknown) {
+    die(errorMessage(error));
   }
-  die(`No target matches "${target}". Run 'orch pane list' to list.`);
+}
+
+/** A target outside the caller's space: an operator learns why the wall refused it, anyone else that nothing matched. */
+function refuseBehindWall(root: OrchDir, credential: CallerCredential, everything: Entity[], localTarget: string, target: string): never {
+  if (callerKindOf(root, credential) !== "operator") refuseForeignTarget(target);
+  const foreign = matchInPool(everything, localTarget, target);
+  if (foreign) {
+    // The wall decision lives in policy/space.ts alone; this only relays it.
+    const decision = checkWall(root, selfIdentityOf(root, credential)?.id ?? null, foreign.key, { crossSpace: false });
+    if (!decision.allowed) die(decision.reason ?? "space-wall denied the write");
+  }
+  refuseForeignTarget(target);
 }
 

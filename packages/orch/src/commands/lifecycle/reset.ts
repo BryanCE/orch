@@ -2,15 +2,13 @@ import { modelSpec } from "../../policy/thinking.ts";
 import { NO_TUNING } from "../../policy/tuning.ts";
 import type { Tuning } from "../../policy/tuning.ts";
 import { admitLaunchModel, pinModels, refuseModelChange } from "../spawn/models.ts";
-import { agentAdapter, agentFlags, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
+import { agentAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { takesModel } from "../../adapters/adapter.ts";
 import { readRpc, writeRpc } from "../daemon.ts";
-import { parseCommand } from "../registry.ts";
-import { usageError } from "../../cli/usage.ts";
 import { die } from "../target.ts";
 import { resolveLifecycle, refuseForeignHolder, targetName } from "../resolve.ts";
 import { whoAmI } from "../self.ts";
-import { lifecycleTargets, awaitIdleAfter } from "./index.ts";
+import { awaitIdleAfter, requireLifecycleTargets } from "./index.ts";
 import { describeHandle } from "../../backends/backend.ts";
 
 import type { Services } from "../../types/services.ts";
@@ -38,13 +36,7 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
 }
 
 export async function cmdNew(services: Services, args: string[]): Promise<void> {
-  const invocation = parseCommand("reset", args);
-  const json = invocation.flags.has("--json");
-  const steal = invocation.flags.has("--steal");
-  const flags = agentFlags(invocation.flags);
-  const self = await whoAmI(services);
-  const { targets } = await lifecycleTargets(services, self, invocation);
-  if (!targets.length) throw usageError(invocation);
+  const { self, targets, json, steal, selection: flags } = await requireLifecycleTargets(services, "reset", args);
   const settings = services.settings.current();
   // Check ownership before resolving model configuration: a driving verb must
   // name a live foreign holder even when this caller has no model selected.

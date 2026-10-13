@@ -10,16 +10,17 @@ import { resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { readRpc, writeRpc } from "../daemon.ts";
 import { die } from "../target.ts";
 import { resolveLifecycle, refuseForeignHolder, targetName } from "../resolve.ts";
-import { NO_TUNING } from "../../policy/tuning.ts";
 import { whoAmI, type CallerSelf } from "../self.ts";
-import { lifecycleLogger, lifecycleTargets } from "./index.ts";
+import { lifecycleLogger, lifecycleTargets, requireLifecycleTargets } from "./index.ts";
 import { parseCommand } from "../registry.ts";
 import { usageError } from "../../cli/usage.ts";
 import { describeHandle } from "../../backends/backend.ts";
 import type { Backend, ForegroundProcesses } from "../../types/backend.ts";
 import type { AgentAdapter, LifecycleVerb } from "../../types/adapter.ts";
 import type { HeldLifecycleTarget } from "../resolve.ts";
-import type { LifecycleTarget } from "../../types/command.ts";
+import type { AgentFlags, LifecycleTarget } from "../../types/command.ts";
+import type { ThinkingLevel } from "../../types/policy.ts";
+import type { AgentView } from "../../types/store.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { Services } from "../../types/services.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
@@ -98,31 +99,28 @@ function touchReloadSignal(orchDir: OrchDir): void {
   files.closeSync(fd);
 }
 
-async function restartAgentAndAwaitBridge(services: LifecycleServices, logger: Logger, backend: Backend, handle: string, cmd: string, presenceKey: string, quitText: string): Promise<boolean> {
+/** Poll the probe every 500ms until it holds, or give up after `attempts`. */
+function pollUntil(label: string, probe: () => boolean | Promise<boolean>, attempts: number): Promise<boolean> {
+  return retryingAsync(label, probe, { attempts, delayMs: 500, backoff: 1 }, { retryOnResult: (value) => !value });
+}
+
+/** Type the harness's own quit text and wait for the shell prompt. */
+async function quitHarness(logger: Logger, backend: Backend, handle: string, presenceKey: string, quitText: string): Promise<boolean> {
   await submitAgentText(backend, handle, quitText);
-  const shellSeen = await retryingAsync(
-    "await shell prompt",
-    () => atShellPrompt(foregroundOf(backend, handle)),
-    { attempts: 16, delayMs: 500, backoff: 1 },
-    { retryOnResult: (value) => !value },
-  );
-  if (!shellSeen) {
-    lifecycleLogger(logger, presenceKey).warn("lifecycle.restart-exit-timeout", { handle, command: quitText });
-    process.stdout.write(`${handle}: agent did not exit after ${quitText} - skipping relaunch.\n`);
-    return false;
-  }
+  if (await pollUntil("await shell prompt", () => atShellPrompt(foregroundOf(backend, handle)), 16)) return true;
+  lifecycleLogger(logger, presenceKey).warn("lifecycle.restart-exit-timeout", { handle, command: quitText });
+  process.stdout.write(`${handle}: agent did not exit after ${quitText} - skipping relaunch.\n`);
+  return false;
+}
+
+async function launchAndAwaitBridge(services: LifecycleServices, logger: Logger, backend: Backend, handle: string, cmd: string, presenceKey: string): Promise<boolean> {
   if (!backend.agentInput) throw new Error("target environment cannot take input");
   backend.agentInput.submit(handle, cmd);
-  const refreshed = await retryingAsync(
-    "await relaunched bridge",
-    async () => {
-      const { status, live } = await readAgentRuntime(services, presenceKey);
-      return status !== null && live;
-    },
-    { attempts: 40, delayMs: 500, backoff: 1 },
-    { retryOnResult: (value) => !value },
-  );
-  if (refreshed) return true;
+  const bridgeLive = async (): Promise<boolean> => {
+    const { status, live } = await readAgentRuntime(services, presenceKey);
+    return status !== null && live;
+  };
+  if (await pollUntil("await relaunched bridge", bridgeLive, 40)) return true;
   lifecycleLogger(logger, presenceKey).warn("lifecycle.restart-bridge-timeout", { handle });
   process.stdout.write(`${handle}: relaunched but bridge status.json did not refresh within 20s.\n`);
   return false;
@@ -213,63 +211,102 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
   reportReloads(results, json);
 }
 
-/** The command a restart relaunches the harness on. Restart is a FRESH launch of
- *  an EXISTING agent, so it relaunches on the tuning the agent holds, resolved
- *  exactly like dispatch and reset rather than letting the harness fall back to
- *  its own default. */
-function restartLaunchCommand(resolved: HeldLifecycleTarget, cmd: string | null, harnessId: string, adapter: AgentAdapter, settings: OrchSettings, catalogue: Services["models"]): string {
-  if (cmd !== null) return cmd;
-  const tuning = resolveTuningOrDie({}, settings, adapter.id, resolved.view?.tuning ?? NO_TUNING);
-  const model = admitLaunchModel(settings, adapter.id, catalogue, tuning.model);
-  return adapterCommand(harnessId, settings, { model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] });
+/** The flags one restart applies to every target. `harness` is null when the
+ *  caller named none: each target relaunches on its recorded harness. */
+interface RestartOptions {
+  readonly json: boolean;
+  readonly steal: boolean;
+  readonly cmd: string | null;
+  readonly selection: AgentFlags;
+  readonly harness: AgentAdapter | null;
 }
 
-/** Restart one target. A detached agent has no shell to type a quit into, so the
- *  daemon rules on what restart means for it. */
-async function restartOneTarget(services: LifecycleServices, self: CallerSelf, target: string, cmd: string | null, flags: { json: boolean; steal: boolean }): Promise<boolean> {
-  const { logger } = services;
-  const settings = services.settings.current();
-  const resolved = await resolveLifecycle(services, target);
-  refuseForeignHolder(self, target, resolved, flags.steal);
-  const { entity: ent, backend, handle } = resolved;
+/** What a restart relaunches an agent on. */
+interface Relaunch {
+  readonly adapter: AgentAdapter;
+  readonly model: string;
+  readonly thinking: ThinkingLevel;
+  readonly command: string;
+}
+
+/** The harness `--harness` moves the agent onto, or null when it keeps the recorded one. */
+function switchedHarness(options: RestartOptions, recorded: AgentAdapter): AgentAdapter | null {
+  return options.harness === recorded ? null : options.harness;
+}
+
+/** Restart is a FRESH launch of an EXISTING agent: the flags, else the tuning the
+ *  agent holds, else the configured default. Another harness never inherits the
+ *  old harness's model, so a changed harness pins nothing. */
+function planRelaunch(view: AgentView, recorded: AgentAdapter, options: RestartOptions, settings: OrchSettings, catalogue: Services["models"]): Relaunch {
+  const switched = switchedHarness(options, recorded);
+  const adapter = switched ?? recorded;
+  const pinned = switched === null ? view.tuning : null;
+  const tuning = resolveTuningOrDie(options.selection, settings, adapter.id, pinned);
+  const model = admitLaunchModel(settings, adapter.id, catalogue, tuning.model);
+  const command = options.cmd ?? adapterCommand(adapter.id, settings, { model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] });
+  return { adapter, model, thinking: tuning.thinking, command };
+}
+
+/** A detached agent has no shell to type a quit into, so the daemon rules on what
+ *  restart means for it. The daemon relaunches only what it recorded. */
+async function restartThroughDaemon(services: LifecycleServices, resolved: HeldLifecycleTarget, recorded: AgentAdapter, options: RestartOptions): Promise<boolean> {
+  const { entity: ent, handle } = resolved;
   const name = targetName(resolved);
-  const harness = resolved.view?.harnessId;
-  if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
-  const adapter = resolveAdapterOrDie(harness);
-  const quitCmd = adapter.lifecycleControl?.lifecycleCmd("restart");
-  if (!quitCmd) die(`Target "${target}" uses adapter ${adapter.id}, which has no restart mechanism.`);
+  const retuned = switchedHarness(options, recorded) !== null || options.selection.modelFlag !== undefined;
+  if (retuned) die(`cannot relaunch ${name} on another harness or model: its environment takes no input. Close it and spawn again.`);
   // The relaunched harness claims the row afresh, so the old claim goes first.
   await writeRpc(services, "reclaim", { target: ent.key });
-  if (!backend.agentInput) {
-    const restarted = await lifecycleThroughDaemon(services, "restart", ent.key, describeHandle(handle));
-    if (restarted.ok) {
-      if (!flags.json) process.stdout.write(`${name}: bridge live.\n`);
-      return true;
-    }
-    const reason = restarted.reason ?? "restart failed";
-    lifecycleLogger(logger, ent.key).error("lifecycle.restart-failed", { handle: String(restarted.handle), error: reason });
-    process.stdout.write(`${name}: ${reason}\n`);
-    return false;
+  const restarted = await lifecycleThroughDaemon(services, "restart", ent.key, describeHandle(handle));
+  if (restarted.ok) {
+    if (!options.json) process.stdout.write(`${name}: bridge live.\n`);
+    return true;
   }
-  const launch = restartLaunchCommand(resolved, cmd, harness, adapter, settings, services.models);
-  if (!flags.json) process.stdout.write(`Restarting ${name} (${launch})...\n`);
-  if (!await restartAgentAndAwaitBridge(services, logger, backend, describeHandle(handle), launch, ent.key, quitCmd.text)) return false;
-  if (!flags.json) process.stdout.write(`${name}: bridge live.\n`);
+  const reason = restarted.reason ?? "restart failed";
+  lifecycleLogger(services.logger, ent.key).error("lifecycle.restart-failed", { handle: String(restarted.handle), error: reason });
+  process.stdout.write(`${name}: ${reason}\n`);
+  return false;
+}
+
+/** Quit with the recorded harness's quit text, then launch the planned harness in
+ *  the same pane. The store moves to the new harness only after the old one exits. */
+async function restartOneTarget(services: LifecycleServices, self: CallerSelf, target: string, options: RestartOptions): Promise<boolean> {
+  const { logger } = services;
+  const resolved = await resolveLifecycle(services, target);
+  refuseForeignHolder(self, target, resolved, options.steal);
+  const { entity: ent, backend, handle, view } = resolved;
+  if (!view?.harnessId) die(`Target "${target}" has no recorded harness - cannot determine its restart mechanism.`);
+  const recorded = resolveAdapterOrDie(view.harnessId);
+  const quitCmd = recorded.lifecycleControl?.lifecycleCmd("restart");
+  if (!quitCmd) die(`Target "${target}" uses adapter ${recorded.id}, which has no restart mechanism.`);
+  if (!backend.agentInput) return restartThroughDaemon(services, resolved, recorded, options);
+  const name = targetName(resolved);
+  const pane = describeHandle(handle);
+  const relaunch = planRelaunch(view, recorded, options, services.settings.current(), services.models);
+  relaunch.adapter.workspaceTrust?.preTrustWorkspace(view.cwd, relaunch.command);
+  if (!options.json) process.stdout.write(`Restarting ${name} (${relaunch.command})...\n`);
+  if (!await quitHarness(logger, backend, pane, ent.key, quitCmd.text)) return false;
+  // The relaunched harness claims the row afresh, so the old claim goes first.
+  await writeRpc(services, "reclaim", { target: ent.key, relaunch: { harnessId: relaunch.adapter.id, model: relaunch.model, thinking: relaunch.thinking } });
+  if (!await launchAndAwaitBridge(services, logger, backend, pane, relaunch.command, ent.key)) return false;
+  if (!options.json) process.stdout.write(`${name}: bridge live.\n`);
   return true;
 }
+
+/** One `--harness` applies to every target, `--all` included, so its shims refresh once. */
+async function restartOptions(services: Services, drive: Omit<RestartOptions, "cmd" | "harness">, cmd: string | null): Promise<RestartOptions> {
+  const harness = drive.selection.adapterFlag === undefined ? null : resolveAdapterOrDie(drive.selection.adapterFlag);
+  if (harness) await refreshStaleShims(services.orchDir, services.logger, [harness.id], services.settings.current());
+  return { ...drive, cmd, harness };
+}
+
 export async function cmdRestart(services: Services, args: string[]): Promise<void> {
-  const invocation = parseCommand("restart", args);
-  const json = invocation.flags.has("--json");
-  const flags = { json, steal: invocation.flags.has("--steal") };
-  const self = await whoAmI(services);
-  const { targets } = await lifecycleTargets(services, self, invocation);
-  if (!targets.length) throw usageError(invocation);
-  const cmd = invocation.flags.value("--cmd") ?? null;
+  const { invocation, self, targets, json, steal, selection } = await requireLifecycleTargets(services, "restart", args);
+  const options = await restartOptions(services, { json, steal, selection }, invocation.flags.value("--cmd") ?? null);
   const results: ReloadResult[] = [];
   let ok = 0;
   for (const target of targets) {
     try {
-      const restarted = await restartOneTarget(services, self, target, cmd, flags);
+      const restarted = await restartOneTarget(services, self, target, options);
       if (restarted) {
         ok++;
         results.push({ handle: target, ok: true });

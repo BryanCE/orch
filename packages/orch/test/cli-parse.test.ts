@@ -8,7 +8,7 @@ const SPEC: CommandSpec = {
   args: "<name>...",
   summary: "One fleet.",
   flags: [
-    { name: "--tab", arity: "one", placeholder: "<tab>", help: "The tab." },
+    { name: "--tab", aliases: ["-t"], arity: "one", placeholder: "<tab>", help: "The tab." },
     { name: "--file", arity: "many", placeholder: "<path>", help: "A task file." },
     { name: "--json", arity: "none", help: "JSON." },
     { name: "--yes", aliases: ["-y"], arity: "none", help: "Yes." },
@@ -61,8 +61,15 @@ describe("parseInvocation", () => {
     expect(parseInvocation(SPEC, ["-y"]).flags.has("--yes")).toBe(true);
   });
 
-  test("a repeated one-value flag keeps the last value", () => {
-    expect(parseInvocation(SPEC, ["--tab", "a", "--tab", "b"]).flags.value("--tab")).toBe("b");
+  test.each([
+    { argv: ["--tab", "a", "--tab", "b"] },
+    { argv: ["--tab=a", "--tab", "b"] },
+    { argv: ["--tab", "a", "-t", "b"] },
+    { argv: ["-t=a", "--tab", "b"] },
+    { argv: ["--tab", "a", "--tab"] },
+  ])("a repeated one-value flag is refused: %j", ({ argv }) => {
+    expect(() => parseInvocation(SPEC, argv)).toThrow(UsageError);
+    expect(() => parseInvocation(SPEC, argv)).toThrow("--tab takes one value; given twice");
   });
 
   test("an unknown flag is refused with the usage line built from the spec", () => {

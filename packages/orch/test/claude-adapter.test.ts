@@ -15,6 +15,7 @@ import type { ParamsOf } from "../src/daemon/client/protocol.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { ModelCatalogue } from "../src/types/adapter.ts";
+import type { ThinkingLevel } from "../src/types/policy.ts";
 // Imported FIRST on purpose, and for its evaluation order alone: reaching
 // adapters/claude.ts as the ENTRY point makes it the head of the pre-existing
 // config.ts -> runtime.ts -> adapters/registry.ts -> claude.ts import cycle, and
@@ -154,6 +155,27 @@ describe("Claude adapter", () => {
 
   test("builds the interactive Claude launch command", () => {
     expect(claudeAdapter.interactiveCmd({})).toBe("claude");
+  });
+
+  test.each([
+    { thinking: "off", effort: "low" },
+    { thinking: "minimal", effort: "low" },
+    { thinking: "low", effort: "low" },
+    { thinking: "medium", effort: "medium" },
+    { thinking: "high", effort: "high" },
+    { thinking: "xhigh", effort: "xhigh" },
+    { thinking: "max", effort: "max" },
+    { thinking: undefined, effort: undefined },
+  ] satisfies { thinking: ThinkingLevel | undefined; effort: string | undefined }[])("launches with effort for $thinking", ({ thinking, effort }) => {
+    const effortArgv = effort === undefined ? [] : ["--effort", effort];
+    const settingsArgv = ["--settings", claudeSettingsPath(orchDir)];
+    expect(claudeAdapter.interactiveArgv({ orchDir, model: "opus", thinking })).toEqual(["claude", "--model", "opus", ...settingsArgv, ...effortArgv]);
+    expect(claudeAdapter.headlessCmd("reply", { orchDir, model: "opus", thinking })).toEqual(["claude", "-p", ...settingsArgv, ...effortArgv, "--model", "opus", "reply"]);
+  });
+
+  test("ignores running-session effort changes", () => {
+    expect(claudeAdapter.thinking.set("high")).toBeUndefined();
+    expect(claudeAdapter.modelControl).toBeNull();
   });
 
   test("loads orch-owned settings in interactive and headless launches", () => {

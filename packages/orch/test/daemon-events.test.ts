@@ -225,9 +225,18 @@ describe("daemon presence events", () => {
     expect(ack).toBe("acknowledged");
     expect(echoAwaited("d-typed")).toBe(false);
     expect(echoAwaited("d-steer")).toBe(true);
-    expect(selectAgentStatus(orchDir, key)).toMatchObject({ state: "working", dispatchId: "d-typed", task: "do the task" });
+    expect(selectAgentStatus(orchDir, key)).toMatchObject({ state: "working", dispatchId: "d-typed", task: "do   the\ntask" });
     expect(events.map(eventState)).toEqual(["working"]);
     forgetEchoes(key);
+  });
+
+  test("the task is the text orchd typed, not the wrapper a harness echoes it in", () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
+    expectEcho(key, { id: "d-wrapped", kind: "run", text: "fix the parser" });
+    acceptPromptReport(orchDir, key, "<pasted_content id=\"1\">fix the parser</pasted_content>", () => { /* start */ });
+    expect(selectAgentStatus(orchDir, key)).toMatchObject({ dispatchId: "d-wrapped", task: "fix the parser" });
   });
 
   test("a result report with no dispatch id settles the run its status row holds", () => {

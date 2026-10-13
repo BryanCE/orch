@@ -187,8 +187,6 @@ const REVIEW: readonly CommandSpec[] = [
   },
 ];
 
-/** Where and how an agent launches. Shared by spawn and tile; each adds its own model flag. */
-const AGENT_LAUNCH: readonly FlagSpec[] = [DIR, CMD, THINKING, HARNESS, PLEXER];
 const TAB_STEAL: FlagSpec = { ...STEAL, help: "Act on a tab holding an agent a live foreign holder leases." };
 
 const AGENTS: readonly CommandSpec[] = [
@@ -198,7 +196,9 @@ const AGENTS: readonly CommandSpec[] = [
     flags: [
       { name: "--tab", arity: "one", placeholder: "<tab>", help: "The tab label. Default: a random label like elk-glacier-01." },
       { ...MODEL, arity: "many", help: "The model. One, or one per name." },
-      ...AGENT_LAUNCH,
+      DIR, CMD, THINKING,
+      { ...HARNESS, arity: "many", help: "Harness id: pi, omp, claude, codex. One, or one per name." },
+      PLEXER,
       { ...SPACE, help: "The orch space the agents join." },
       { name: "--prompt", arity: "many", placeholder: "<text>", help: "The task text. One, or one per name." },
       { name: "--file", arity: "many", placeholder: "<path>|-", help: "The task file. One, or one per name. '-' reads stdin." },
@@ -207,7 +207,7 @@ const AGENTS: readonly CommandSpec[] = [
       { name: "--worktree", arity: "none", help: "A git worktree per agent." },
     ],
   },
-  { name: "tile", section: "agents", args: "<tab> <name>", summary: "Add one named agent to an existing tab.", flags: [MODEL, ...AGENT_LAUNCH] },
+  { name: "tile", section: "agents", args: "<tab> <name>", summary: "Add one named agent to an existing tab.", flags: [MODEL, DIR, CMD, THINKING, HARNESS, PLEXER] },
   {
     name: "rename", section: "agents", args: "<target> <name>",
     summary: "Set the agent name. --pane sets the border label.",
@@ -218,7 +218,13 @@ const AGENTS: readonly CommandSpec[] = [
   {
     name: "restart", section: "agents", args: "<target>... | --all",
     summary: "Relaunch the harness process.",
-    flags: [ALL, { ...CMD, help: "The command to relaunch with. Default: the recorded harness command." }, STEAL],
+    flags: [
+      ALL,
+      { ...CMD, help: "The command to relaunch with. Default: the recorded harness command." },
+      { ...HARNESS, help: "Relaunch on this harness. Default: the recorded one." },
+      { ...MODEL, help: "Model for the relaunch. Required when --harness changes the harness." },
+      STEAL,
+    ],
   },
   {
     name: "close", aliases: ["kill"], section: "agents", args: "<target>... | --all",

@@ -190,6 +190,7 @@ describe("commands/status", () => {
       spaceId: "local",
     });
     expect(modelShort(row.model)).toBe("gpt-5.6:medium");
+    expect(modelShort("anthropic/claude-opus-5-5:high")).toBe("claude-opus-5-5:high");
     expect(row.host).toBeUndefined();
   });
 

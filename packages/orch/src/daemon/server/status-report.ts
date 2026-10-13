@@ -109,7 +109,7 @@ function promptStatus(prompt: string, typed: TypedPrompt | undefined, now: numbe
   if (typed !== undefined && typed.kind !== "run") return { state: "working", blockedMessage: null };
   return {
     state: "working",
-    task: prepareWorkerTask(prompt),
+    task: prepareWorkerTask(typed?.text ?? prompt),
     dispatchId: typed?.id ?? null,
     startedAt: now,
     finishedAt: null,

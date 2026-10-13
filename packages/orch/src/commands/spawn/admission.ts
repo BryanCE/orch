@@ -166,16 +166,15 @@ export async function admitSpawn(
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.
   assertSpawnPolicy(settings, settings.space ?? self.space, settings.agents.length, views, presence, self.id);
-  const admitted = new Map<string, string>();
-  for (const model of new Set(settings.agents.map((agent) => agent.model))) admitted.set(model, admitLaunchModel(settingsFile, settings.adapter, catalogue, model));
+  const agents = settings.agents.map((agent) => ({ ...agent, model: admitLaunchModel(settingsFile, agent.adapter, catalogue, agent.model) }));
   // Shim refresh is a launch side effect, so it happens only after policy
-  // accepts, and only for the harness actually being launched.
-  await refreshStaleShims(services.orchDir, logger, [settings.adapter], settingsFile);
+  // accepts, and only for the harnesses actually being launched.
+  await refreshStaleShims(services.orchDir, logger, [...new Set(agents.map((agent) => agent.adapter))], settingsFile);
   // Herdr rejects an invalid prefix, so no placement side effect may precede it.
   try {
     assertValidAgentName(settings.prefix);
   } catch (error: unknown) {
     die(errorMessage(error));
   }
-  return { ...settings, agents: settings.agents.map((agent) => ({ ...agent, model: admitted.get(agent.model) ?? agent.model })) };
+  return { ...settings, agents };
 }

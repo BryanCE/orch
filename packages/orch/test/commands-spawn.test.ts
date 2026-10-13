@@ -135,7 +135,7 @@ describe("commands/spawn", () => {
 
   // The positional arguments ARE the agent names, and how many you give is how
   // many panes you get. There is no --name flag to preserve.
-  test("the positionals are the agent names", () => expect(parseSpawnFlags(["worker", "checker", "--harness", "claude", "--plexer", "headless", "--json"])).toMatchObject({ positional: ["worker", "checker"], adapterFlag: "claude", backendFlag: "headless", json: true }));
+  test("the positionals are the agent names", () => expect(parseSpawnFlags(["worker", "checker", "--harness", "claude", "--plexer", "headless", "--json"])).toMatchObject({ positional: ["worker", "checker"], harnessFlags: ["claude"], backendFlag: "headless", json: true }));
   test("--tab names the tab, and no --tab leaves it to the rolled label", () => {
     expect(parseSpawnFlags(["worker", "--tab", "review"]).tab).toBe("review");
     expect(parseSpawnFlags(["worker"]).tab).toBeNull();
@@ -153,6 +153,51 @@ describe("commands/spawn", () => {
     orchDir: dir,
     settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } },
   }).settings.current();
+
+  const mixedSettingsFor = (dir: OrchDir) => testServices({
+    orchDir: dir,
+    settings: {
+      enabled: { adapters: ["pi", "omp"], backends: ["headless"] },
+      defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna", omp: "openrouter/anthropic/claude-sonnet-4.5" } },
+      models: { preferred: { omp: ["openrouter/anthropic/claude-sonnet-4.5"] } },
+    },
+  }).settings.current();
+
+  test("one --harness launches every agent on that harness", () => {
+    const dir = tempOrchDir("orch-spawn-harness-one-");
+    tempDirs.push(dir);
+    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "--harness", "omp"]), mixedSettingsFor(dir));
+    expect(settings.agents.map((agent) => agent.adapter)).toEqual(["omp", "omp"]);
+  });
+
+  test("one --harness per name launches each agent on its own harness", () => {
+    const dir = tempOrchDir("orch-spawn-harness-each-");
+    tempDirs.push(dir);
+    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir));
+    expect(settings.agents.map((agent) => agent.adapter)).toEqual(["pi", "omp"]);
+    expect(settings.agents[0]?.cmd.startsWith("pi")).toBe(true);
+    expect(settings.agents[1]?.cmd.startsWith("omp")).toBe(true);
+  });
+
+  test("refuses an incorrect number of harnesses", () => {
+    const dir = tempOrchDir("orch-spawn-harness-count-");
+    tempDirs.push(dir);
+    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "c", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir))).toThrow(/--harness accepts one value for all agents or exactly 3 values/);
+  });
+
+  test("refuses --cmd with more than one harness", () => {
+    const dir = tempOrchDir("orch-spawn-harness-cmd-");
+    tempDirs.push(dir);
+    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp", "--cmd", "pi"]), mixedSettingsFor(dir))).toThrow(/--cmd launches one harness/);
+  });
+
+  test("resolves each agent's model against its own harness", () => {
+    const dir = tempOrchDir("orch-spawn-harness-model-");
+    tempDirs.push(dir);
+    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir));
+    expect(settings.agents.map((agent) => agent.model)).toEqual(["openrouter/openai/gpt-5.6-luna", "openrouter/anthropic/claude-sonnet-4.5"]);
+    expect(settings.agents.map((agent) => agent.preferredModels)).toEqual([[], ["openrouter/anthropic/claude-sonnet-4.5"]]);
+  });
 
   test("resolves one prompt file per agent", () => {
     const dir = tempOrchDir("orch-spawn-files-");

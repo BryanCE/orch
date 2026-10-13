@@ -14,10 +14,10 @@ import type { Backend } from "../../types/backend.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { Services } from "../../types/services.ts";
 import type { OrchSettings } from "../../types/settings.ts";
-import type { AgentAdapter } from "../../types/adapter.ts";
+import type { AdapterId, AgentAdapter } from "../../types/adapter.ts";
 import type { CreatedAgent } from "../../types/command.ts";
 import { pinModels } from "./models.ts";
-import type { SpawnSettings } from "./flags.ts";
+import type { SpawnAgentPlan, SpawnSettings } from "./flags.ts";
 import type { ResultOf } from "../../daemon/client/protocol.ts";
 
 
@@ -84,12 +84,44 @@ export function reportShortfall(logger: Logger, requested: number, placed: numbe
 /** How many agents actually came up, or `null` when the harness cannot say.
  *  A harness with no start-up presence signal leaves a launch unverifiable, and reporting
  *  an unverified launch as a success is how a fleet of ghosts reads as a healthy one. */
-export async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: readonly CreatedAgent[], timeouts: OrchSettings["timeouts"], json: boolean): Promise<CreatedAgent[] | null> {
+async function confirmAgentsCameUp(orchDir: OrchDir, logger: Logger, adapter: AgentAdapter, created: readonly CreatedAgent[], timeouts: OrchSettings["timeouts"], json: boolean): Promise<CreatedAgent[] | null> {
   const isUp = startupSignal(adapter);
   if (isUp !== null) return await awaitAgentsUp(orchDir, logger, created, timeouts, json, isUp);
   logger.warn("spawn.unverified", { adapter: adapter.id, count: created.length });
   process.stdout.write(`warning: ${adapter.id} writes no presence record at session start - ${created.length} agent(s) UNVERIFIED; check 'orch status' before dispatching\n`);
   return null;
+}
+
+/** The plan an agent launched from. A claimed name is the planned name. */
+export function planFor(settings: SpawnSettings, name: string): SpawnAgentPlan {
+  const plan = settings.agents.find((candidate) => candidate.name === name);
+  if (plan === undefined) throw new Error(`missing spawn plan for ${name}`);
+  return plan;
+}
+
+interface HarnessConfirmation {
+  adapter: AgentAdapter;
+  agents: CreatedAgent[];
+  up: CreatedAgent[] | null;
+}
+
+/** Confirm each harness's agents by that harness's own start-up signal, all at once. */
+export async function confirmFleetCameUp(orchDir: OrchDir, logger: Logger, settings: SpawnSettings, created: readonly CreatedAgent[], timeouts: OrchSettings["timeouts"]): Promise<HarnessConfirmation[]> {
+  const groups = new Map<AdapterId, CreatedAgent[]>();
+  for (const agent of created) {
+    const adapter = planFor(settings, agent.name).adapter;
+    groups.set(adapter, [...groups.get(adapter) ?? [], agent]);
+  }
+  return await Promise.all([...groups].map(async ([id, agents]) => {
+    const adapter = resolveAdapterOrDie(id);
+    return { adapter, agents, up: await confirmAgentsCameUp(orchDir, logger, adapter, agents, timeouts, settings.json) };
+  }));
+}
+
+/** How many agents came up, or null when any harness in the fleet cannot say. */
+export function registeredCount(confirmed: readonly HarnessConfirmation[]): number | null {
+  if (confirmed.some((group) => group.up === null)) return null;
+  return confirmed.reduce((sum, group) => sum + (group.up?.length ?? 0), 0);
 }
 
 export function printLayout(backend: Backend, group: string, header: string) {
@@ -132,10 +164,10 @@ function warnUnregisteredAgents(logger: Logger, created: readonly CreatedAgent[]
   }
 }
 
-function buildSpawnPinEntries(registeredAgents: readonly CreatedAgent[] | null, settings: SpawnSettings): Parameters<typeof pinModels>[2] {
-  return (registeredAgents ?? []).flatMap((agent) => {
-    const plan = settings.agents.find((candidate) => candidate.name === agent.name);
-    return plan === undefined ? [] : [{ ...agent, model: plan.model, thinking: plan.thinking }];
+function buildSpawnPinEntries(registeredAgents: readonly CreatedAgent[], settings: SpawnSettings): Parameters<typeof pinModels>[2] {
+  return registeredAgents.map((agent) => {
+    const plan = planFor(settings, agent.name);
+    return { ...agent, model: plan.model, thinking: plan.thinking };
   });
 }
 
@@ -145,12 +177,12 @@ function buildSpawnPinEntries(registeredAgents: readonly CreatedAgent[] | null, 
 async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[]): Promise<{ name: string; key: string; id: string; ack: "acknowledged" | "unavailable" }[]> {
   const dispatches: { name: string; key: string; id: string; ack: "acknowledged" | "unavailable" }[] = [];
   const maySpawn = maySpawnBelow(self, settingsFile.fleet.max_depth);
-  for (const [index, agent] of created.entries()) {
-    const text = settings.agents[index]?.prompt;
-    if (text === undefined || text === null) continue;
+  for (const agent of created) {
+    const plan = planFor(settings, agent.name);
+    if (plan.prompt === null) continue;
     try {
-      const { id, ack } = await dispatchToAgent(services, logger, agent.key, text, {
-        adapter: resolveAdapterOrDie(settings.adapter),
+      const { id, ack } = await dispatchToAgent(services, logger, agent.key, plan.prompt, {
+        adapter: resolveAdapterOrDie(plan.adapter),
         context: { maySpawn, cwd: settings.cwd, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
       });
       dispatches.push({ name: agent.name, key: agent.key, id, ack });
@@ -169,13 +201,12 @@ async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settin
 
 export async function reportSpawnResults(services: Pick<Services, "orchDir" | "settings" | "logger">, self: CallerSelf, logger: Logger, settingsFile: OrchSettings, settings: SpawnSettings, tabLabel: string, created: CreatedAgent[]): Promise<void> {
   reportShortfall(logger, settings.agents.length, created.length);
-  const adapter = resolveAdapterOrDie(settings.adapter);
-  const registeredAgents = await confirmAgentsCameUp(services.orchDir, logger, adapter, created, settingsFile.timeouts, settings.json);
-  const registered = registeredAgents?.length ?? null;
+  const confirmed = await confirmFleetCameUp(services.orchDir, logger, settings, created, settingsFile.timeouts);
+  const registered = registeredCount(confirmed);
   // A harness that cannot change a running session's model launched on it already.
-  const pinnable = takesModel(adapter) ? registeredAgents : null;
-  if (pinnable) warnUnregisteredAgents(logger, created, pinnable);
-  const pinEntries = buildSpawnPinEntries(pinnable, settings);
+  const pinnable = confirmed.flatMap(({ adapter, agents, up }) => takesModel(adapter) && up !== null ? [{ agents, up }] : []);
+  for (const group of pinnable) warnUnregisteredAgents(logger, group.agents, group.up);
+  const pinEntries = buildSpawnPinEntries(pinnable.flatMap((group) => group.up), settings);
   const warnings = await pinModels(services, logger, pinEntries);
   const dispatches = await dispatchSpawnPrompts(services, self, logger, settingsFile, settings, created);
   const outage = warnings.length ? await reportControlPlaneOutage(services.orchDir, logger, created.length) : null;

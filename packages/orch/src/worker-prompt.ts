@@ -89,11 +89,16 @@ export function workerHeaderFor(adapter: AgentAdapter | undefined, context: Part
     + ask + spawner + gatedCommandsClause(context.gatedCommands ?? []);
 }
 
+/** A task that opens with `lead`, cut at its first blank line. Null when it opens otherwise. */
+function leadBlock(task: string, lead: string): { readonly block: string; readonly rest: string } | null {
+  if (!task.startsWith(lead)) return null;
+  const separator = task.indexOf("\n\n");
+  return separator === -1 ? { block: task, rest: "" } : { block: task.slice(0, separator), rest: task.slice(separator + 2) };
+}
+
 /** Strip the composed worker header (base + any clauses) from a dispatched task's text. */
 export function stripWorkerHeader(task: string): string {
-  if (!task.startsWith(WORKER_HEADER_BASE)) return task;
-  const separator = task.indexOf("\n\n");
-  return separator === -1 ? "" : task.slice(separator + 2);
+  return leadBlock(task, WORKER_HEADER_BASE)?.rest ?? task;
 }
 
 const CONTEXT_REFERENCES_LEAD =
@@ -117,12 +122,18 @@ export function taskWithReferences(instructions: string, references: readonly Co
   return `${CONTEXT_REFERENCES_LEAD}\n${references.map(contextReferenceLine).join("\n")}\n\n${instructions}`;
 }
 
-/** Normalize a dispatched task before storing it: strip the header, then truncate. */
 /** Maximum stored task length after the worker header is removed. */
 export const TASK_MAX = 200;
 
+/** The instructions ahead of the context references, so a truncated record keeps what the agent was told to do. */
+function instructionsFirst(task: string): string {
+  const references = leadBlock(task, CONTEXT_REFERENCES_LEAD);
+  return references?.rest ? `${references.rest}\n\n${references.block}` : task;
+}
+
+/** Normalize a dispatched task before storing it: strip the header, put the instructions first, then truncate. */
 export function prepareWorkerTask(task: string): string {
-  return truncate(stripWorkerHeader(task), TASK_MAX);
+  return truncate(instructionsFirst(stripWorkerHeader(task)), TASK_MAX);
 }
 
 export function workerPrompt(prompt: string, raw: boolean, adapter: AgentAdapter | undefined, context: Partial<WorkerHeaderContext> = {}): string {

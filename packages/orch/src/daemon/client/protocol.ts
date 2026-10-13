@@ -73,6 +73,12 @@ const workerPolicy = z.object({
   builtinTools: z.boolean(),
   allowTools: z.array(z.string()).readonly(),
 }) satisfies z.ZodType<WorkerPolicy>;
+/** The harness and tuning a restart relaunches an agent on. */
+const RELAUNCH = z.object({
+  harnessId: nonBlank,
+  model: nonBlank,
+  thinking: z.custom<ThinkingLevel>(isThinkingLevel),
+});
 
 const notifyParams = z.object({
   key: nonBlank,
@@ -312,7 +318,7 @@ export const RPC_PARAMS = {
   rename: GOVERNANCE.extend({ target: nonBlank, name: nonBlank }),
   reap: GOVERNANCE.extend({ target: nonBlank.optional(), dead: z.boolean().optional() }),
   "reap-candidates": GOVERNANCE,
-  reclaim: GOVERNANCE.extend({ target: nonBlank }),
+  reclaim: GOVERNANCE.extend({ target: nonBlank, relaunch: RELAUNCH.optional() }),
   "set-handle": GOVERNANCE.extend({ target: nonBlank, handle: nonBlank }),
   spaces: z.object({ plexerId: nonBlank }),
   space: z.object({ target: nonBlank, plexerId: nonBlank }),

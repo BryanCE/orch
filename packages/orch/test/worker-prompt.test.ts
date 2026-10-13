@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { getAdapter } from "../src/adapters/registry.ts";
-import { stripWorkerHeader, workerPrompt } from "../src/worker-prompt.ts";
+import { prepareWorkerTask, stripWorkerHeader, taskWithReferences, TASK_MAX, workerPrompt } from "../src/worker-prompt.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
 import { transitionEventFromRow } from "../src/daemon/server/status-events.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
@@ -31,6 +31,12 @@ describe("worker prompt capability composition", () => {
     expect(may.toLowerCase()).toContain("you may `orch spawn`");
     expect(may.toLowerCase()).not.toContain("never spawn");
     expect(stripWorkerHeader(may)).toBe("bare task");
+  });
+
+  test("a stored task keeps the instructions when its context references fill the cap", () => {
+    const longPath = `/tmp/${"p".repeat(TASK_MAX)}/tasks.md`;
+    const task = taskWithReferences("Do section T1.", [{ kind: "file", path: longPath }]);
+    expect(prepareWorkerTask(workerPrompt(task, false, getAdapter("pi"))).startsWith("Do section T1.\n\n")).toBe(true);
   });
 
   test("orch dispatch composition selects the same header per harness", () => {

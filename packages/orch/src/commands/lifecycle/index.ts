@@ -4,10 +4,12 @@ import { readRpc } from "../daemon.ts";
 import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
 import { resolveLifecycle, targetName } from "../resolve.ts";
-import { registeredId, refuseNonOperatorOverride, type CallerSelf } from "../self.ts";
+import { registeredId, refuseNonOperatorOverride, whoAmI, type CallerSelf } from "../self.ts";
 import { durationSpan } from "../../cli/duration.ts";
 import { usageError } from "../../cli/usage.ts";
+import { agentFlags } from "../selection.ts";
 import type { Invocation } from "../../cli/spec.ts";
+import type { AgentFlags } from "../../types/command.ts";
 import type { DaemonClient, Services } from "../../types/services.ts";
 import type { Logger } from "../../types/core.ts";
 import { describeHandle } from "../../backends/backend.ts";
@@ -82,5 +84,15 @@ export async function lifecycleTargets(services: DaemonClient, self: CallerSelf,
     targets.push(...await ownedAgentKeys(services));
   }
   return { targets, all };
+}
+
+/** A drive verb's caller, its targets, and the flags every drive verb reads. A verb given no target is a usage error. */
+export async function requireLifecycleTargets(services: DaemonClient, verb: string, args: readonly string[]): Promise<{ invocation: Invocation; self: CallerSelf; targets: string[]; json: boolean; steal: boolean; selection: AgentFlags }> {
+  const invocation = parseCommand(verb, args);
+  const self = await whoAmI(services);
+  const { targets } = await lifecycleTargets(services, self, invocation);
+  if (!targets.length) throw usageError(invocation);
+  const { flags } = invocation;
+  return { invocation, self, targets, json: flags.has("--json"), steal: flags.has("--steal"), selection: agentFlags(flags) };
 }
 

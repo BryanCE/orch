@@ -40,6 +40,7 @@ function recordDeclared(store: FlagStore, flag: FlagSpec, assigned: string | und
     store.set(flag.name, true);
     return 0;
   }
+  if (flag.arity === "one" && store.has(flag.name)) throw usageError(at, `${flag.name} takes one value; given twice`);
   const taken = takeValue(flag, assigned, argv, index, at);
   if (flag.arity === "one") {
     store.set(flag.name, taken.value);

@@ -176,8 +176,8 @@ function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: Spawn
   const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
   return tileAgentIntoGroup(services, {
     backend,
-    adapter: resolveAdapterOrDie(settings.adapter),
-    adapterId: settings.adapter,
+    adapter: resolveAdapterOrDie(plan.adapter),
+    adapterId: plan.adapter,
     name,
     cwd,
     space,
@@ -185,10 +185,10 @@ function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: Spawn
     group,
     model: plan.model,
     thinking: plan.thinking,
-    preferredModels: settings.preferredModels,
+    preferredModels: plan.preferredModels,
     tools: settings.tools,
     workers: settings.workers,
-    cmd: settings.commandFlag ? settings.cmd : undefined,
+    cmd: settings.commandFlag ? plan.cmd : undefined,
     worktree: settings.worktree ? cwd : undefined,
     branch: settings.worktree ? `orch/${name}` : undefined,
     spawner: self.id,

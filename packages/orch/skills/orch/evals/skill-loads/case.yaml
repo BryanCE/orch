@@ -1,0 +1,18 @@
+schema_version: "1.1"
+name: skill-loads
+description: A cheap check that the orch skill reaches the model. Run it before the plan cases.
+tags: [smoke]
+plugins: ["../.."]
+execution:
+  prompt: |
+    Load the orch skill. Copy its stop line, the sentence that starts with "Do only this",
+    into `stop.md`. Do nothing else.
+  max_turns: 4
+  timeout_seconds: 120
+  allowed_tools: [Skill]
+runs: 1
+graders:
+  - type: regex
+    name: stop-line-copied
+    target: { source: file, path: stop.md }
+    pattern: "Do only this\\. If something does not fit, report it in one line and stop\\."

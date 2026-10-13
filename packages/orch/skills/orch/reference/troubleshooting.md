@@ -1,28 +1,12 @@
 # Facts that bite
 
-## Daemon
+Find the message or symptom below. Where this file and `orch help` disagree, help is right.
 
-`orch daemon status` asks orchd directly, so trust it over a pid file. After a daemon restart
-the bridges reconnect on their own and the fleet keeps its agents. Check `orch status`, then
-carry on. A hung daemon gets `orch daemon stop`, then `orch daemon start`.
+## Stuck agent
 
-`daemon hash=... differs from installed hash=...` means the CLI and orchd run different builds.
-Run `orch daemon reload` to put orchd on the installed code, and leave `--stale-ok` for the
-user.
-
-## Model refusals
-
-Each refusal names a spec to paste or the `orch models --harness <harness>` that lists the
-rest. A model outside `models.allowed.<harness>` is the user's choice, so ask the user.
-`orch help model` covers the rest.
-
-## Queued dispatch
-
-`Queued for <agent> (dispatch <id>): no ack within ...` means orchd holds the write and the
-agent has not taken it yet. A pi agent's bridge is still starting or redialing, and orchd
-delivers the write when the bridge attaches. A `claude` agent got the text in its input and
-has not submitted it yet, because it is mid-turn. Move on either way. `codex` gives no
-start-up signal, so spawn warns that it is UNVERIFIED; `orch status` shows when it is ready.
+`orch status` shows `working` on one task with a flat cost for minutes. A steer waits for the
+running tool call to return, so abort it: in the `orch abort` text, name the slow step and give
+the faster route. A headless agent has no pane to abort: `orch restart <name>`.
 
 ## Stalled spawn
 
@@ -33,12 +17,19 @@ attach, with no model set. An agent that `orch status` later shows idle had a sl
 set its model with `orch model`. One that stays stalled gets its harness startup checked,
 then `orch restart <name>`.
 
-## Stuck agent
+## Queued dispatch
 
-`orch status` shows `working` on one task with a flat cost for minutes, and `orch peek <name>`
-shows one tool call with a climbing `Elapsed`. A steer waits for that call to return.
-`orch abort <name> "<text>"` cancels the turn, then steers. Name the slow step in the text and
-give the faster route. A headless agent has no pane to abort: `orch restart <name>`.
+`Queued for <agent> (dispatch <id>): no ack within ...` means orchd holds the write and the
+agent has not taken it yet. A pi agent's bridge is still starting or redialing, and orchd
+delivers the write when the bridge attaches. A `claude` agent got the text in its input and
+has not submitted it yet, because it is mid-turn. Move on either way. `codex` gives no
+start-up signal, so spawn warns that it is UNVERIFIED; `orch status` shows when it is ready.
+
+## Model refusals
+
+Each refusal names a spec to paste or the `orch models --harness <harness>` that lists the
+rest. A model outside `models.allowed.<harness>` is the user's choice, so ask the user.
+`orch help model` covers the rest.
 
 ## Ambiguous targets
 
@@ -53,6 +44,16 @@ compared with the id `orch dispatch` printed, proves the agent runs your prompt.
 `bridgeAttached` says whether a dispatch delivers or queues. Read `state` for what the agent is
 doing, since `backendStatus` comes from the plexer and lags. `orch help status` lists every
 field.
+
+## Daemon
+
+`orch daemon status` asks orchd directly, so trust it over a pid file. After a daemon restart
+the bridges reconnect on their own and the fleet keeps its agents. Check `orch status`, then
+carry on. A hung daemon gets `orch daemon stop`, then `orch daemon start`.
+
+`daemon hash=... differs from installed hash=...` means the CLI and orchd run different builds.
+Run `orch daemon reload` to put orchd on the installed code, and leave `--stale-ok` for the
+user.
 
 ## Spaces
 

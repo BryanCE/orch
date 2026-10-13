@@ -1,23 +1,72 @@
 ---
 name: orch
-description: Drive the orch CLI to run a fleet of coding agents. Told to use orch or to spawn agents? Spawn right away, with no preflight and no questions. Then run the job in waves, watch `orch monitor`, and collect with `orch result`. Use for any multi-agent dispatch, the agent lifecycle, the task queue, or an orch command error.
+description: Run a fleet of coding agents with the orch CLI. You design each change and write exact tasks; the agents type them in parallel. Told to use orch or to spawn agents? Start at once, with no questions to the user. Use for multi-agent work, planning a wave, the agent lifecycle, the task queue, or an orch command error.
 allowed-tools: Bash, Read
 ---
 
 # orch
 
 orch runs coding agents in a plexer's panes, or headless. Its daemon, orchd, carries every
-write, so a dispatch survives restarts. Drive agents through orch and leave the plexer alone.
+write, so a dispatch survives restarts. Drive agents through orch and leave the plexer to it.
+Before you first use a command, read `orch help <command>`: the installed build's truth.
 
-`orch help` is the map. `orch help <command>` gives the installed build's usage line, every
-flag, and the traps. Read it before you first use a command. Where this skill and help
-disagree, help is right. A broken install gets `orch doctor -y`.
+Read each reference at its moment:
+- `reference/fleet.md` before the first spawn of a job: project checks, tabs and caps, fleet
+  size, reusing agents, another orchestrator's agents, the task index.
+- `reference/commands.md` before a command this file does not show: which `orch help` to read.
+- `reference/troubleshooting.md` when orch refuses, stalls or disagrees, before you retry.
 
-## You are the orchestrator
+## You are the engineer; agents are hands
 
-You plan, write the tasks, dispatch, review what lands, and decide. Hand agents anything that
-can run in parallel, reading and reviewing included. Your measure is throughput, and an idle
-agent is the waste you hunt.
+An orch agent is hands: you decide the approach, and it types your edits fast, in parallel with
+the others. orch's fast models are weak at agentic coding and strong at exact edits (GPT-6 Luna
+scores 13% on Terminal-Bench 4.0, Sol 44%). Hand an agent a goal and you redo its guess. Hand
+it an exact task and the wave lands 2 to 3 times faster.
+
+- You design every change: each file's end state, the names, the types, where code lives, and
+  how each new input meets every existing option (accepted, or refused with which message).
+- You check every fact a task leans on: a fixture value, a line number, a name. A task holds
+  answers. "If X fails, use Y" is a question you left for the agent.
+- You review each diff before you refill that agent. A finding goes back as an exact edit.
+- Keep every agent full of small tasks. An idle agent is the waste you hunt.
+
+## The exact task
+
+A task is ready when an agent with no other context can type it without one decision. It is 1
+to 3 related edits, 1 to 3 minutes of typing, on files no other task in the wave touches. Each
+edit names its path, its place and its end state: the new code or signature, where it goes,
+and what to delete. The agent works around a small surprise (a shifted line, a renamed import)
+and reports anything larger.
+
+```markdown
+## T1 Rename foo to bar
+Edit src/a.ts:
+- Rename `foo` (L42) to `bar`, same signature.
+- Delete the `oldThing` import (L3).
+Edit src/b.ts:
+- L10: call `bar(name)` in place of `foo(name)`.
+Verify: src/a.ts src/b.ts
+Do only this. If something does not fit, report it in one line and stop.
+Report: one line. "done: <files>, verify clean", "pending: <files>", or "blocked: <exact error>".
+```
+
+The last two lines are the stop line and the report line, word for word in every task. A task
+that builds on another task's change states the shape it builds against: the new type or
+signature. A lookup has a question and an answer shape ("every caller of `foo` as file:line")
+in place of edits, and writes one report file.
+
+## Waves
+
+A wave is 3 to 4 exact tasks in one scratch wave file, one `## T<n> <title>` section each.
+
+1. Get the facts: read the code yourself, or send lookups.
+2. Design the change. Write every task until it is ready. A behavior change carries its test
+   task: the test file, and each case's input and expected result.
+3. On a new job, pilot one task and review its diff, then fix the wave. Dispatch the rest of
+   the wave in one message, with `orch monitor` armed.
+4. Write the next wave while this one runs. Review each diff as it lands.
+5. At a checkpoint, run the slow checks yourself over what landed (typecheck, tests,
+   duplication and complexity scans). Report to the user in a few lines.
 
 ## The loop
 
@@ -29,76 +78,23 @@ orch spawn api-types api-routes api-guards --tab api --with tasks/W1-api.md \
   --model <model>:high --model <model>:low --model <model>:high
 orch monitor                                  # arm through the Monitor tool, in this same message
 orch result api-types api-routes api-guards   # one call collects the wave
-```
-
-Take each `<model>` from `orch models --preferred`. Model names differ per harness and per install.
-
-A spawn from outside the plexer (`--plexer herdr` from a plain terminal) opens a new space,
-and the user must grant it. The spawn exits with `orch grant <id>`. Give the user that exact
-line at once, wait until they say it ran, then run the same spawn again unchanged.
-
-Arm the Monitor with its longest timeout. When it expires, arm it again in the same turn.
-
-The Monitor command is exactly `orch monitor`. orch filters its own output and finds its own
-directory, so a `cd`, a pipe or a `grep` added to it only hides the events you armed it for.
-
-Refill an agent the moment it lands, renamed for the new task:
-
-```bash
 orch dispatch api-types --rename api-auth "Do section T4 of tasks/W2-api.md. Only that section." --with tasks/W2-api.md
 ```
 
-Dispatch clears the agent's context first. Close an agent when the task list has nothing left
-for it.
-
-## Waves
-
-A wave is 3 to 4 agents whose tasks touch different files.
-
-1. Get the context. Read the code yourself, or spawn read-only agents that write a report,
-   whichever is faster.
-2. Write the tasks. Each names exact files, exact edits, the files to verify, and a one-line
-   report. Edits to the same file go to one agent, in order. The task shape is in
-   `reference/fleet.md`.
-3. Dispatch the whole wave in one message, with `orch monitor` armed.
-4. Write the next wave while this one runs. Review each landed diff yourself, or through a
-   reviewer agent when that is faster. A finding becomes a task in a later wave.
-5. At a checkpoint, run the verify commands over what landed, report to the user in a few
-   lines, and do what the user asked for at checkpoints.
-
-`done` is the agent's claim. Build on it once the diff passes review.
-
-## Project commands
-
-Before the first wave, set the checks from the project's scripts and lint config. Keep what
-`orch settings` already shows. For a Bun project:
-
-```bash
-orch settings workers.verify_commands '["bunx oxlint", "bunx tsc --noEmit", "bun test"]'
-orch settings locked_commands.commands '["bun test", "bunx tsc"]'
-```
-
-Every agent runs `workers.verify_commands` over its own files before it reports, so a task
-names only the files. `locked_commands.commands` run one at a time across the machine. A
-command in `gated_commands` is refused with a request id: hand the user `orch grant <id>`.
-`orch help settings` says which keys you may write.
+- Take each `<model>` from `orch models --preferred`. Exact tasks go to the fast, cheap model.
+- Refill an agent the moment it lands, renamed for its new task; dispatch clears its context.
+  Close an agent when the task list has nothing left for it.
+- The Monitor command is exactly `orch monitor`, bare. Arm it with its longest timeout, and arm
+  it again in the same turn when it expires.
+- A command that exits with `orch grant <id>` (a spawn into a new space, a gated command):
+  give the user that line, wait until they say it ran, then run the same command again.
 
 ## While agents run
 
-- `asking`: read `orch questions`, then `orch answer` within seconds. A blocked agent is the
-  most expensive idle.
-- `waiting`: a locked command holds the agent, and the monitor line names the holder.
-  `orch peek <holder>` shows whether the holder is stuck.
-- `pending: <files>`: the agent's own files are clean and the verify run fails only in another
-  task's files. That agent is done. Put this report shape in every task.
+- `asking`: read `orch questions`, then `orch answer` within seconds.
+- `waiting`: a locked command holds the agent. `orch peek <holder>` shows if the holder is stuck.
+- `pending: <files>`: the agent's own files are clean, and the verify run fails only in another
+  task's files. That agent is done.
 - `error`: dispatch once more, then move the model up one step.
 - Stuck: `orch peek` shows one tool call with a climbing `Elapsed`.
   `orch abort <target> "<what to do instead>"` cancels the call and steers in one command.
-
-## Reference
-
-- `reference/fleet.md`: tabs, fleet size, reusing agents, another orchestrator's agents, the
-  cadence, and the task list shape.
-- `reference/commands.md`: which `orch help <command>` to read in which situation.
-- `reference/troubleshooting.md`: daemon skew, queued dispatches, stalled spawns, stuck agents,
-  ambiguous targets, `status --json`, and repair.

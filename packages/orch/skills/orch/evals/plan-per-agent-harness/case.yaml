@@ -1,0 +1,52 @@
+schema_version: "1.1"
+name: plan-per-agent-harness
+description: The orchestrator plans one wave for a real orch bug. Graders score whether the wave hands agents exact edits or leaves the design to them.
+tags: [plan]
+plugins: ["../.."]
+context:
+  scaffold_script: fixture.sh
+execution:
+  prompt: |
+    This directory holds the orch source. Bug: `orch spawn a b --harness pi --harness claude`
+    launches both agents on claude. Goal: `orch spawn --harness` takes one value for every
+    agent, or exactly one per name, the way `--model` and `--prompt` already do.
+
+    Plan the first wave of orch agents for this job. Write the wave file to `wave.md`, one
+    `## T<n> <title>` section per agent task. Do not run orch and do not edit any source file.
+    Stop once `wave.md` is written.
+  max_turns: 60
+  timeout_seconds: 900
+  allowed_tools: [Skill, Read, Grep, Glob]
+runs: 3
+graders:
+  - type: file_exists
+    name: wrote-wave
+    path: wave.md
+  - type: regex
+    name: no-open-design
+    target: { source: file, path: wave.md }
+    pattern: "figure out|find out how|decide (how|whether|where|which)|as needed|if needed|as appropriate|investigate"
+    flags: i
+    match: not_contains
+  - type: llm
+    name: exact-edits
+    focus: { source: file, path: wave.md }
+    criteria: Every `## T` section names each file it edits and states the end state of each edit (the new code, the new signature, or the exact change and where it goes). A section that asks the agent to choose an approach, explore, or design something fails.
+  - type: llm
+    name: disjoint-files
+    focus: { source: file, path: wave.md }
+    criteria: No two `## T` sections edit the same file. Two sections that both list one file as an edit target fail.
+  - type: regex
+    name: stop-line
+    target: { source: file, path: wave.md }
+    pattern: '^## T\d(?:(?!Do only this\. If something does not fit, report it in one line and stop\.)[\s\S])*?(?=^## |(?![\s\S]))'
+    flags: m
+    match: not_contains
+  - type: llm
+    name: design-decided
+    focus: { source: file, path: wave.md }
+    criteria: The wave decides, in its own text, how each agent's harness, model, launch command, and preferred models resolve when the agents run different harnesses, and how `--cmd` behaves for a fleet with mixed harnesses. It names the test file and the cases to add. Leaving any of these to an agent fails.
+  - type: tool_used
+    name: skill-fired
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?orch"'

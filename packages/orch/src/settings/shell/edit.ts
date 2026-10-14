@@ -1,5 +1,5 @@
 import type { Key } from "node:readline";
-import { getColumns, getRows, isCancel, Prompt, SelectPrompt, TextPrompt } from "@clack/core";
+import { isCancel, Prompt, TextPrompt } from "@clack/core";
 import type { SettingsManager } from "../../types/services.ts";
 import { CLEAR_SCREEN, CTRL_C } from "../../tui/screen.ts";
 import { parseSettingValue } from "../parse.ts";
@@ -10,18 +10,16 @@ import {
   INPUT_KEYBAR,
   inputOverlay,
   SEARCH_KEYBAR,
-  SELECT_KEYBAR,
-  selectOverlay,
-  settingsFrame,
   visibleEntryIndices,
 } from "../view.ts";
 import type { EditingState } from "../../types/settings.ts";
 import { editorReducer } from "../editor.ts";
-import { askMulti, submittedText } from "./ask.ts";
+import { askChoice, askMulti, promptFrame, submittedText } from "./ask.ts";
 import { editSinks } from "./sinks.ts";
 import { editModels } from "./models.ts";
+import { editCompaction } from "./compaction.ts";
 import type { ModelCatalogue } from "../../types/adapter.ts";
-import { asBrowsing, commitAndFlush, refocusVisible, resetFocused, screenOf, stepFocus, toggleAgentGrant, type Session } from "./state.ts";
+import { asBrowsing, cancelEdit, commitAndFlush, commitPick, refocusVisible, resetFocused, stepFocus, toggleAgentGrant, type Session } from "./state.ts";
 
 type BrowseOutcome = "open" | "again" | "quit";
 
@@ -96,13 +94,7 @@ function browseKey(session: Session, manager: SettingsManager, char: string | un
 export async function browseOnce(session: Session, manager: SettingsManager): Promise<BrowseOutcome> {
   process.stdout.write(CLEAR_SCREEN);
   const prompt = new Prompt<undefined>({
-    render: () => settingsFrame(
-      screenOf(session, manager),
-      getColumns(process.stdout),
-      getRows(process.stdout),
-      undefined,
-      session.searching ? SEARCH_KEYBAR : BROWSE_KEYBAR,
-    ),
+    render: () => promptFrame(session, manager, undefined, session.searching ? SEARCH_KEYBAR : BROWSE_KEYBAR),
   }, false);
   prompt.on("key", (char, info) => {
     if (info.name !== "return") session.status = undefined;
@@ -126,38 +118,14 @@ export async function browseOnce(session: Session, manager: SettingsManager): Pr
 }
 
 async function editChoice(session: Session, manager: SettingsManager, editing: EditingState, choices: readonly string[]): Promise<void> {
-  process.stdout.write(CLEAR_SCREEN);
-  const prompt = new SelectPrompt<{ value: string }>({
-    options: choices.map((value) => ({ value })),
-    ...(typeof editing.draft === "string" && choices.includes(editing.draft) ? { initialValue: editing.draft } : {}),
-    render() {
-      return settingsFrame(
-        screenOf(session, manager),
-        getColumns(process.stdout),
-        getRows(process.stdout),
-        selectOverlay(choices, this.cursor),
-        SELECT_KEYBAR,
-      );
-    },
-  });
-  const answer = await prompt.prompt();
-  if (isCancel(answer) || typeof answer !== "string") {
-    session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
-    return;
-  }
-  commitAndFlush(session, manager, editing, answer);
+  commitPick(session, manager, editing, await askChoice(session, manager, choices, typeof editing.draft === "string" ? editing.draft : undefined));
 }
 
 async function editMulti(session: Session, manager: SettingsManager, editing: EditingState, choices: readonly string[]): Promise<void> {
   const current = Array.isArray(editing.draft)
     ? editing.draft.filter((value): value is string => typeof value === "string")
     : [];
-  const answer = await askMulti(session, manager, choices, current);
-  if (answer === null) {
-    session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
-    return;
-  }
-  commitAndFlush(session, manager, editing, answer);
+  commitPick(session, manager, editing, await askMulti(session, manager, choices, current));
 }
 
 async function editText(session: Session, manager: SettingsManager, editing: EditingState): Promise<void> {
@@ -170,26 +138,13 @@ async function editText(session: Session, manager: SettingsManager, editing: Edi
       return parsed.ok ? undefined : parsed.reason;
     },
     render() {
-      return settingsFrame(
-        screenOf(session, manager),
-        getColumns(process.stdout),
-        getRows(process.stdout),
-        inputOverlay(spec.key, inputCursor(this.userInput, this.cursor), this.state === "error" ? this.error : undefined),
-        INPUT_KEYBAR,
-      );
+      return promptFrame(session, manager, inputOverlay(spec.key, inputCursor(this.userInput, this.cursor), this.state === "error" ? this.error : undefined), INPUT_KEYBAR);
     },
   });
   const answer = await prompt.prompt();
-  if (isCancel(answer)) {
-    session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
-    return;
-  }
+  if (isCancel(answer)) return cancelEdit(session, editing);
   const parsed = parseSettingValue(spec, submittedText(prompt, answer));
-  if (!parsed.ok) {
-    session.status = `${spec.key}: ${parsed.reason}`;
-    session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
-    return;
-  }
+  if (!parsed.ok) return cancelEdit(session, editing, `${spec.key}: ${parsed.reason}`);
   commitAndFlush(session, manager, editing, parsed.value);
 }
 
@@ -214,6 +169,8 @@ export async function editFocused(session: Session, manager: SettingsManager, ca
       return editSinks(session, manager, opened, kind);
     case "models":
       return editModels(session, manager, catalogue, opened);
+    case "compaction":
+      return editCompaction(session, manager, catalogue, opened);
     case "integer":
     case "text":
     case "list":

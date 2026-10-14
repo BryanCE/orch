@@ -1,7 +1,7 @@
 // Type-only: `keyof typeof` over a runtime binding, erased at compile time, so
 // this creates no runtime edge out of the types layer.
 import type { VOCABULARY } from "../policy/vocabulary.ts";
-import type { OrchSettings } from "./settings.ts";
+import type { CompactionTable, OrchSettings } from "./settings.ts";
 
 export interface WallDecision {
   allowed: boolean;
@@ -85,6 +85,8 @@ export interface WorkerPolicy {
   readonly builtinTools: boolean;
   /** The exact tool allowlist, or empty for no restriction. Orch's own tools are always in it. */
   readonly allowTools: readonly string[];
+  /** Where a worker compacts, by harness and model; a pair with no entry keeps the harness default. */
+  readonly compactAtTokens: CompactionTable;
 }
 
 /** The two provenance facts a walk reads; `AgentView` satisfies it structurally. */

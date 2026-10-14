@@ -1,4 +1,4 @@
-import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
+import { compactionEnv, workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { workerPrompt, workerRules } from "../../worker-prompt.ts";
 import { agentFlags, resolveAdapterOrDie } from "../selection.ts";
 import { parseCommand } from "../registry.ts";
@@ -10,7 +10,6 @@ import { errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
 import { die } from "../target.ts";
 import { whoAmI, type CallerSelf } from "../self.ts";
-import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { resolveTab } from "../panes.ts";
 import type { Backend, BackendGroup, CreatedHome, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import type { CreatedAgent, PreparedAgent, SpawnPlacement } from "../../types/command.ts";
@@ -23,7 +22,7 @@ import type { SpawnSettings } from "./flags.ts";
 import { admissionFleet, assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceGranted, assertTabCapacity, admitSpawn } from "./admission.ts";
 import { admitLaunchModel, pinModels } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
-import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnOneIntoTab } from "./placement.ts";
+import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab } from "./placement.ts";
 import { confirmFleetCameUp, planFor, printLayout, registeredCount, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
 import { usageError } from "../../cli/usage.ts";
@@ -75,6 +74,7 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
         prompt: workerPrompt(plan.prompt ?? "", false, adapter, { maySpawn, cwd, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) }),
         tools: settings.tools,
         workers: settings.workers,
+        env: compactionEnv(adapter, plan.model, settings.workers),
       }, {}, settingsFile.timeouts.adapter_command_ms);
       // A headless agent is placed nowhere, so its key is the handle every display uses.
       created.push({ key, handle: key, name });
@@ -128,10 +128,11 @@ function prepareAgents(orchDir: OrchDir, settings: SpawnSettings, names: readonl
   return names.map((name) => {
     const plan = planFor(settings, name);
     const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-    resolveAdapterOrDie(plan.adapter).workspaceTrust?.preTrustWorkspace(cwd, plan.cmd);
+    const adapter = resolveAdapterOrDie(plan.adapter);
+    adapter.workspaceTrust?.preTrustWorkspace(cwd, plan.cmd);
     const key = mintAgentId();
     const branch = settings.worktree ? `orch/${name}` : undefined;
-    const env = { [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
+    const env = spawnEnv(orchDir, key, adapter, plan.model, settings.workers);
     return { name, cwd, key, env, branch, handle: undefined };
   });
 }

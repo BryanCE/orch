@@ -22,6 +22,9 @@ const PositiveInt = z.number().int().positive();
 const SettingsCommand = z.string().refine((command) => !hasFixedPath(command), FIXED_PATH_MESSAGE);
 const CommandPattern = SettingsCommand.refine(isCommandPattern, COMMAND_PATTERN_MESSAGE);
 
+/** Compaction point in tokens, by harness, then by that harness's model spec. */
+export const CompactionTableSchema = z.partialRecord(z.enum(ADAPTER_IDS), z.record(z.string().min(1), PositiveInt));
+
 export const HostSchema = z.strictObject({
   /** SSH destination (for example, user@example.org). */
   dest: z.string().min(1),
@@ -96,7 +99,7 @@ export const SETTINGS_DEFAULTS = {
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
   doctor: { unclaimed_after_ms: 120_000 },
-  workers: { inherit_extensions: true, builtin_tools: true, compact_at_tokens: 130_000 },
+  workers: { inherit_extensions: true, builtin_tools: true, compact_at_tokens: {} },
   // What a registered caller (an agent or a harness session) may write with `orch settings`:
   // the project's own commands, which the orchestrator knows and the human need not type.
   agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
@@ -172,8 +175,9 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     allow_tools: z.array(z.string()).optional(),
     /** Commands a worker runs to verify its own slice, named in its header. */
     verify_commands: z.array(SettingsCommand).optional(),
-    /** The context size, in tokens, at which a worker compacts its conversation. */
-    compact_at_tokens: PositiveInt.optional(),
+    /** The context size, in tokens, at which a worker compacts, by harness, then by model spec.
+     *  A pair with no entry keeps the harness's own default. */
+    compact_at_tokens: CompactionTableSchema.optional(),
   }).optional(),
   /** What a registered caller may change about this install. The human may change anything. */
   agents: z.strictObject({

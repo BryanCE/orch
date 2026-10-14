@@ -80,6 +80,7 @@ class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseOmpModelsOutput(catalogue.read("omp", OMP_MODELS_ARGV)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("omp", OMP_MODELS_ARGV) };
+  readonly compaction = null;
 
   /** Start omp directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {

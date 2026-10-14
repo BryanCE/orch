@@ -1,13 +1,12 @@
-import { getColumns, getRows, isCancel, Prompt } from "@clack/core";
+import { isCancel, Prompt } from "@clack/core";
 import type { SettingsManager } from "../../types/services.ts";
 import { isRecord } from "../../util.ts";
 import type { EditingState, SettingKind } from "../../types/settings.ts";
 import { CLEAR_SCREEN } from "../../tui/screen.ts";
 import { displayValue } from "../display.ts";
-import { multiOverlay, settingsFrame, SINKS_KEYBAR } from "../view.ts";
-import { askMulti, askValue } from "./ask.ts";
-import { asBrowsing, commitAndFlush, screenOf, type Session } from "./state.ts";
-import { editorReducer } from "../editor.ts";
+import { multiOverlay, SINKS_KEYBAR } from "../view.ts";
+import { askMulti, askValue, promptFrame } from "./ask.ts";
+import { cancelEdit, commitAndFlush, type Session } from "./state.ts";
 
 type SinksKind = Extract<SettingKind, { kind: "sinks" }>;
 
@@ -92,13 +91,7 @@ async function pickSinks(session: Session, manager: SettingsManager, kind: Sinks
   process.stdout.write(CLEAR_SCREEN);
   let outcome: PickOutcome = { done: "save" };
   const prompt = new Prompt<undefined>({
-    render: () => settingsFrame(
-      screenOf(session, manager),
-      getColumns(process.stdout),
-      getRows(process.stdout),
-      multiOverlay(kind.choices, pick.cursor, pick.checked, sinkNotes(kind, pick)),
-      SINKS_KEYBAR,
-    ),
+    render: () => promptFrame(session, manager, multiOverlay(kind.choices, pick.cursor, pick.checked, sinkNotes(kind, pick)), SINKS_KEYBAR),
   }, false);
   prompt.on("key", (char, info) => {
     if (info.name === "return") return;
@@ -172,10 +165,7 @@ export async function editSinks(session: Session, manager: SettingsManager, edit
   const pick = initialPick(kind, editing.draft);
   for (;;) {
     const outcome = await pickSinks(session, manager, kind, pick);
-    if (outcome.done === "cancel") {
-      session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
-      return;
-    }
+    if (outcome.done === "cancel") return cancelEdit(session, editing);
     if (outcome.done === "edit") {
       await editSinkValue(session, manager, kind, pick, outcome.id);
       continue;

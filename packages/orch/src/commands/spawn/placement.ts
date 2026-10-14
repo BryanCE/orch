@@ -9,6 +9,9 @@ import { errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
 import { die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
+import { compactionEnv } from "../../policy/workers.ts";
+import type { AgentAdapter } from "../../types/adapter.ts";
+import type { WorkerPolicy } from "../../types/policy.ts";
 import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { DaemonClient } from "../../types/services.ts";
@@ -102,6 +105,12 @@ export async function openFleetHome(request: OpenFleetHomeRequest): Promise<Crea
 // launch credential — the name and the backend handle are recorded
 // beside it as plain fields, never folded into it. The caller owns error policy
 // (warn-and-continue vs die); this throws on backend failure.
+/** The env one agent launches into: its credential, the orch dir, and its harness's
+ *  compaction point for its model when one is set. */
+export function spawnEnv(orchDir: OrchDir, key: string, adapter: AgentAdapter, model: string | undefined, workers: WorkerPolicy | undefined): Record<string, string> {
+  return { [LAUNCH_ENV]: key, ORCH_DIR: orchDir, ...compactionEnv(adapter, model, workers) };
+}
+
 function resolveSpawnPlace(spec: TabSpawnSpec, env: Readonly<Record<string, string>>): BackendHandle | undefined {
   let place: BackendHandle | undefined;
   if (spec.placement) {
@@ -154,7 +163,7 @@ export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec
   const { views, presence } = admissionFleet(snapshot);
   assertNameFree(views, presence, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
-  const env = spec.env ?? { [LAUNCH_ENV]: key, ORCH_DIR: orchDir };
+  const env = spec.env ?? spawnEnv(orchDir, key, spec.adapter, spec.model, spec.workers);
   const thinking = spec.thinking;
   if (thinking === undefined) throw new Error(`spawn requires a resolved thinking level for ${spec.name}`);
   const place = resolveSpawnPlace(spec, env);

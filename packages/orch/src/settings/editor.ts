@@ -133,13 +133,22 @@ function validateValue(kind: SettingKind, value: unknown): string | null {
       return validateIntegerValue(kind, value);
     case "choice":
       return validateChoiceValue(kind, value);
+    case "text":
+      return typeof value === "string" ? null : "Value must be text";
+    default:
+      return validateShapedValue(kind, value);
+  }
+}
+
+/** Kinds whose value is a list or an object. */
+function validateShapedValue(kind: Extract<SettingKind, { kind: "multi" | "sinks" | "models" | "compaction" | "list" }>, value: unknown): string | null {
+  switch (kind.kind) {
     case "multi":
       return validateMultiValue(kind, value);
     case "sinks":
       return validateSinksValue(kind, value);
-    case "text":
-      return typeof value === "string" ? null : "Value must be text";
     case "models":
+    case "compaction":
     case "list":
       // "list" covers every JSON-shaped setting: string arrays (skills.link) and keyed
       // objects (hosts). Element shapes are enforced by the settings

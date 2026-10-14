@@ -1,9 +1,39 @@
-import { getColumns, getRows, isCancel, MultiSelectPrompt, TextPrompt } from "@clack/core";
+import { getColumns, getRows, isCancel, MultiSelectPrompt, SelectPrompt, TextPrompt } from "@clack/core";
 import type { SettingsManager } from "../../types/services.ts";
 import { CLEAR_SCREEN } from "../../tui/screen.ts";
-import { inputCursor, INPUT_KEYBAR, inputOverlay, MULTI_KEYBAR, multiOverlay, settingsFrame } from "../view.ts";
+import { inputCursor, INPUT_KEYBAR, inputOverlay, MULTI_KEYBAR, multiOverlay, SELECT_KEYBAR, selectOverlay, settingsFrame } from "../view.ts";
 import type { Session } from "./state.ts";
 import { screenOf } from "./state.ts";
+
+/** The settings screen at the terminal's size, with a prompt's overlay and key bar on it. */
+export function promptFrame(session: Session, manager: SettingsManager, overlay: readonly string[] | undefined, keybar: string): string {
+  return settingsFrame(screenOf(session, manager), getColumns(process.stdout), getRows(process.stdout), overlay, keybar);
+}
+
+/** A cleared screen and the prompt options for a list of choices. */
+function choiceOptions(choices: readonly string[]): { value: string }[] {
+  process.stdout.write(CLEAR_SCREEN);
+  return choices.map((value) => ({ value }));
+}
+
+/** Pick one choice off a list; `notes` is what each choice carries now. Null on cancel. */
+export async function askChoice(
+  session: Session,
+  manager: SettingsManager,
+  choices: readonly string[],
+  initial: string | undefined,
+  notes?: Readonly<Record<string, string>>,
+): Promise<string | null> {
+  const prompt = new SelectPrompt<{ value: string }>({
+    options: choiceOptions(choices),
+    ...(initial !== undefined && choices.includes(initial) ? { initialValue: initial } : {}),
+    render() {
+      return promptFrame(session, manager, selectOverlay(choices, this.cursor, notes), SELECT_KEYBAR);
+    },
+  });
+  const answer = await prompt.prompt();
+  return isCancel(answer) || typeof answer !== "string" ? null : answer;
+}
 
 /** Check any number of choices off a list. Null on cancel. */
 export async function askMulti(
@@ -12,22 +42,15 @@ export async function askMulti(
   choices: readonly string[],
   initial: readonly string[],
 ): Promise<string[] | null> {
-  process.stdout.write(CLEAR_SCREEN);
   const prompt = new MultiSelectPrompt<{ value: string }>({
-    options: choices.map((value) => ({ value })),
+    options: choiceOptions(choices),
     initialValues: [...initial],
     required: false,
     render() {
       const selected = Array.isArray(this.value)
         ? this.value.filter((value): value is string => typeof value === "string")
         : [];
-      return settingsFrame(
-        screenOf(session, manager),
-        getColumns(process.stdout),
-        getRows(process.stdout),
-        multiOverlay(choices, this.cursor, selected),
-        MULTI_KEYBAR,
-      );
+      return promptFrame(session, manager, multiOverlay(choices, this.cursor, selected), MULTI_KEYBAR);
     },
   });
   const answer = await prompt.prompt();
@@ -50,19 +73,14 @@ export async function askValue(
   label: string,
   initial: string,
   example: string | undefined,
+  refusal: (value: string) => string | undefined = (value) => value.trim() ? undefined : `${label} needs a value`,
 ): Promise<string | null> {
   process.stdout.write(CLEAR_SCREEN);
   const prompt = new TextPrompt({
     initialUserInput: initial,
-    validate: (value) => (value ?? "").trim() ? undefined : `${label} needs a value`,
+    validate: (value) => refusal(value ?? ""),
     render() {
-      return settingsFrame(
-        screenOf(session, manager),
-        getColumns(process.stdout),
-        getRows(process.stdout),
-        inputOverlay(label, inputCursor(this.userInput, this.cursor), this.state === "error" ? this.error : undefined, example),
-        INPUT_KEYBAR,
-      );
+      return promptFrame(session, manager, inputOverlay(label, inputCursor(this.userInput, this.cursor), this.state === "error" ? this.error : undefined, example), INPUT_KEYBAR);
     },
   });
   const answer = await prompt.prompt();

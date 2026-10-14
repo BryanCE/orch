@@ -21,26 +21,34 @@ function choicesFor(key: string, node: JsonSchemaNode): readonly string[] {
 
 const MODEL_KEYS: readonly string[] = ["defaults.models", "models.allowed", "models.preferred"];
 
-function kindFor(key: string): SettingKind {
+/** The kinds a key declares by name, because its schema shape alone does not say how to edit it. */
+function namedKind(key: string): SettingKind | undefined {
   if (MODEL_KEYS.includes(key)) return { kind: "models" };
+  if (key === "workers.compact_at_tokens") return { kind: "compaction" };
   // Sinks are checked off a list; the ones that carry a value declare the field to ask for.
-  if (key === "notify") {
-    return {
-      kind: "sinks",
-      choices: NOTIFY_IDS,
-      fields: Object.fromEntries(Object.entries(NOTIFY_SINK_FIELD).map(([id, name]) => [id, { name }])),
-      states: NOTIFY_STATES,
-      defaultStates: NOTIFY_DEFAULT_ON,
-    };
-  }
+  if (key !== "notify") return undefined;
+  return {
+    kind: "sinks",
+    choices: NOTIFY_IDS,
+    fields: Object.fromEntries(Object.entries(NOTIFY_SINK_FIELD).map(([id, name]) => [id, { name }])),
+    states: NOTIFY_STATES,
+    defaultStates: NOTIFY_DEFAULT_ON,
+  };
+}
+
+function integerKind(node: JsonSchemaNode): SettingKind {
+  const min = node.minimum ?? (node.exclusiveMinimum === undefined ? undefined : node.exclusiveMinimum + 1);
+  const max = node.maximum;
+  return { kind: "integer", ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }), ...(node.nullable ? { none: true } : {}) };
+}
+
+function kindFor(key: string): SettingKind {
+  const named = namedKind(key);
+  if (named !== undefined) return named;
   const node = schemaNode(key);
   if (node.enum !== undefined) return { kind: "choice", choices: choicesFor(key, node) };
   if (node.type === "boolean") return { kind: "boolean" };
-  if (node.type === "integer") {
-    const min = node.minimum ?? (node.exclusiveMinimum === undefined ? undefined : node.exclusiveMinimum + 1);
-    const max = node.maximum;
-    return { kind: "integer", ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }), ...(node.nullable ? { none: true } : {}) };
-  }
+  if (node.type === "integer") return integerKind(node);
   if (node.type === "array") {
     const item = jsonSchemaNode(node.items);
     if (item?.enum !== undefined) return { kind: "multi", choices: choicesFor(key, item) };
@@ -181,7 +189,7 @@ const HELP: Readonly<Record<string, string>> = {
   "workers.exclude_extensions": "Extensions workers must not load.",
   "workers.builtin_tools": "Whether workers receive built-in tools.",
   "workers.allow_tools": "Tools workers may use.",
-  "workers.compact_at_tokens": "The context size, in tokens, at which a worker compacts its conversation. Claude workers take 100000 to 1000000.",
+  "workers.compact_at_tokens": "The context size, in tokens, at which a worker compacts, per harness and model. A model with no entry keeps the harness's own default. Only a harness that takes a compaction point is offered. Claude takes 100000 to 1000000.",
   "workers.verify_commands": "Commands a worker runs to verify its own slice before it reports. Write {cwd} (or {wincwd} for a Windows tool such as powershell.exe) for the agent's own directory; a fixed path is refused.",
   "agents.writable_settings": "Settings an agent may write with orch settings. Change it per row: orch settings grant|revoke <key>, or a in the editor. Never grants itself.",
   "queue.max_retries": "Maximum retries for queued tasks.",

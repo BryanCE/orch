@@ -127,7 +127,7 @@ function emptyCatalogueHint(harnessId: string): string {
 /** Ask a harness what it can run, ONCE per setup run — both model prompts read this one answer,
  *  so they can never disagree about what the harness offers. Resolves against the stored
  *  catalogue, so a harness asked before answers without shelling out at all. */
-async function readHarnessCatalogue(harness: AgentAdapter, catalogue: ModelCatalogue, interactive: boolean): Promise<readonly HarnessModel[]> {
+export async function readHarnessCatalogue(harness: AgentAdapter, catalogue: ModelCatalogue, interactive: boolean): Promise<readonly HarnessModel[]> {
   if (harness.modelWarm) await harness.modelWarm.warmModels(catalogue);
   if (!interactive) return harness.models?.listModels(catalogue) ?? [];
   logStep(`asking ${harness.id} which models it can run...`);

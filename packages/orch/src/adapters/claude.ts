@@ -68,11 +68,12 @@ function parseClaudeModelsOutput(stdout: string): readonly HarnessModel[] {
 /** Claude's token count at which a session compacts its conversation. */
 const COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 
-/** The worker settings file with orch's two values in place: the `hooks` key and the
- *  compaction point in `env`. Every other key and env value is the user's and stays. */
-function withOrchKeys(current: Record<string, unknown>, hooks: Record<string, unknown>, settings: OrchSettings): Record<string, unknown> {
-  const env = isRecord(current.env) ? current.env : {};
-  return { ...current, env: { ...env, [COMPACT_WINDOW_ENV]: String(settings.workers.compact_at_tokens) }, hooks };
+/** The worker settings file with orch's hooks in place. The file's `env` overrides the process
+ *  env, so it never holds the compaction point: each launch sets that for its own model. */
+function withOrchKeys(current: Record<string, unknown>, hooks: Record<string, unknown>): Record<string, unknown> {
+  const { env: _fileEnv, ...rest } = current;
+  const { [COMPACT_WINDOW_ENV]: _launchOwned, ...env } = isRecord(current.env) ? current.env : {};
+  return Object.keys(env).length ? { ...current, env, hooks } : { ...rest, hooks };
 }
 
 /** orch's hook entries, one per Claude hook event. */
@@ -126,7 +127,7 @@ function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Lo
   const current = readWorkerSettings(settingsPath);
   if (typeof current === "string") throw new Error(`${current}; fix the JSON by hand, then run orch setup`);
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, `${JSON.stringify(withOrchKeys(current, claudeHooks(pkgRoot, orchDir, settings), settings), null, 2)}\n`);
+  fs.writeFileSync(settingsPath, `${JSON.stringify(withOrchKeys(current, claudeHooks(pkgRoot, orchDir, settings)), null, 2)}\n`);
   process.stdout.write(`Claude Code hooks: wrote ${settingsPath}\n`);
   const shim = claudeHookShimPath(pkgRoot);
   if (!fs.existsSync(shim)) {
@@ -154,13 +155,13 @@ export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: Orc
   }
   let expected: Record<string, unknown>;
   try {
-    expected = withOrchKeys(fileSettings, claudeHooks(root, orchDir, settings), settings);
+    expected = withOrchKeys(fileSettings, claudeHooks(root, orchDir, settings));
   } catch {
     return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
   }
   return JSON.stringify(fileSettings) === JSON.stringify(expected)
     ? { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` }
-    : rewrite(`missing or stale orch Claude hooks or compaction point in ${settingsPath}`);
+    : rewrite(`missing or stale orch Claude hooks, or a compaction point the launch owns, in ${settingsPath}`);
 }
 
 /**
@@ -191,6 +192,7 @@ class ClaudeAdapter implements AgentAdapter {
   readonly defaultModel = null;
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseClaudeModelsOutput(catalogue.read("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST) };
+  readonly compaction = { launchEnv: (tokens: number): Readonly<Record<string, string>> => ({ [COMPACT_WINDOW_ENV]: String(tokens) }) };
   readonly bridge = null;
   /** SessionStart reports the session before any prompt; UserPromptSubmit reports each prompt Claude takes. */
   readonly hooks: HookReportRole = { reports: ["start", "prompt"] };

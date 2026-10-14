@@ -5,6 +5,7 @@ import { isPeerView } from "../../agent/peers.ts";
 import { isPaneLabels } from "../../agent/environment.ts";
 import { isLifecycleVerb } from "../../adapters/adapter.ts";
 import { isThinkingLevel } from "../../policy/thinking.ts";
+import { CompactionTableSchema } from "../../settings/schema.ts";
 import { AGENT_STATES } from "../../agent-state.ts";
 import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
 import { CALLER_KINDS, type ThinkingLevel, type WorkerPolicy } from "../../types/policy.ts";
@@ -72,6 +73,7 @@ const workerPolicy = z.object({
   excludeExtensions: z.array(z.string()).readonly(),
   builtinTools: z.boolean(),
   allowTools: z.array(z.string()).readonly(),
+  compactAtTokens: CompactionTableSchema,
 }) satisfies z.ZodType<WorkerPolicy>;
 /** The harness and tuning a restart relaunches an agent on. */
 const RELAUNCH = z.object({

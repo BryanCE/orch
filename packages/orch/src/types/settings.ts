@@ -33,6 +33,9 @@ export const NOTIFICATION_POSITIONS = ["top-left", "top-right", "bottom-left", "
 
 export type NotificationPosition = (typeof NOTIFICATION_POSITIONS)[number];
 
+/** Compaction point in tokens, by harness, then by that harness's model spec. A pair with no
+ *  entry launches on the harness's own default. */
+export type CompactionTable = Partial<Record<AdapterId, Readonly<Record<string, number>>>>;
 
 /** Settings normalized for consumers: every section present and defaults applied. */
 export interface OrchSettings {
@@ -42,7 +45,7 @@ export interface OrchSettings {
   fleet: { max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; worker_peer_tools: boolean; cross_space: boolean };
   mail: { to_spawner: MailDelivery; to_worker: MailDelivery };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
-  workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[]; compact_at_tokens: number };
+  workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[]; compact_at_tokens: CompactionTable };
   agents: { writable_settings: string[] };
   queue: { max_retries: number; dispatch_concurrency: number };
   retention: { ended_agents_days: number | null; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };
@@ -110,6 +113,8 @@ export type SettingKind =
   }
   /** A per-harness model map, picked from what each harness lists; typed as JSON on the CLI. */
   | { readonly kind: "models" }
+  /** A token count per harness and model, picked from what each harness lists; typed as JSON on the CLI. */
+  | { readonly kind: "compaction" }
   | { readonly kind: "text" }
   | { readonly kind: "list" };
 

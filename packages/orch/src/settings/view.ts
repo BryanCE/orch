@@ -122,9 +122,18 @@ function listLines(screen: SettingsScreen, visible: readonly number[], columns: 
 }
 
 /** Overlay for a choice edit: the option list with the cursor row highlighted. */
-export function selectOverlay(choices: readonly string[], cursor: number): string[] {
-  return choices.map((choice, index) =>
-    index === cursor ? inverse(` > (*) ${choice}`) : `   ( ) ${choice}`);
+/** Each choice with its note, the notes lined up in one column. */
+function notedChoices(choices: readonly string[], notes: Readonly<Record<string, string>> | undefined): string[] {
+  const width = Math.max(0, ...choices.map((choice) => choice.length));
+  return choices.map((choice) => {
+    const note = notes?.[choice] ?? "";
+    return note === "" ? choice : `${choice.padEnd(width)}  ${note}`;
+  });
+}
+
+export function selectOverlay(choices: readonly string[], cursor: number, notes?: Readonly<Record<string, string>>): string[] {
+  return notedChoices(choices, notes).map((text, index) =>
+    index === cursor ? inverse(` > (*) ${text}`) : `   ( ) ${text}`);
 }
 
 /** Overlay for a multi edit: checkboxes, the cursor row highlighted. `notes` is what a
@@ -135,11 +144,10 @@ export function multiOverlay(
   selected: readonly string[],
   notes?: Readonly<Record<string, string>>,
 ): string[] {
-  const width = Math.max(0, ...choices.map((choice) => choice.length));
+  const texts = notedChoices(choices, notes);
   return choices.map((choice, index) => {
     const box = selected.includes(choice) ? "[x]" : "[ ]";
-    const note = notes?.[choice] ?? "";
-    const text = note === "" ? choice : `${choice.padEnd(width)}  ${note}`;
+    const text = texts[index] ?? choice;
     return index === cursor ? inverse(` > ${box} ${text}`) : `   ${box} ${text}`;
   });
 }

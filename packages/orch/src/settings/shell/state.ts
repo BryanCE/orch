@@ -153,15 +153,23 @@ export function toggleAgentGrant(session: Session, manager: SettingsManager): vo
   }
 }
 
+/** Close the edit with the value unchanged; `status` says why, when there is a reason to show. */
+export function cancelEdit(session: Session, editing: EditingState, status?: string): void {
+  if (status !== undefined) session.status = status;
+  session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
+}
+
+/** Commit a picked value, or close the edit when the pick was cancelled. */
+export function commitPick(session: Session, manager: SettingsManager, editing: EditingState, picked: unknown): void {
+  if (picked === null) cancelEdit(session, editing);
+  else commitAndFlush(session, manager, editing, picked);
+}
+
 /** Commit an edited value through the reducer, persist it, and re-read the file. */
 export function commitAndFlush(session: Session, manager: SettingsManager, editing: EditingState, value: unknown): void {
   const key = editing.focused.spec.key;
   const committed = editorReducer(editing, { type: "commit", value });
-  if (committed.mode === "editing") {
-    session.status = committed.reason ?? `${key}: invalid value`;
-    session.state = asBrowsing(editorReducer(committed, { type: "cancel" }));
-    return;
-  }
+  if (committed.mode === "editing") return cancelEdit(session, committed, committed.reason ?? `${key}: invalid value`);
   try {
     for (const pending of committed.pendingWrites) writeRegisteredSetting(manager, pending.key, pending.value);
     session.status = `${key} saved`;

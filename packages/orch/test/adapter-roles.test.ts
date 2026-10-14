@@ -16,11 +16,12 @@ describe("adapter role composition", () => {
       defaultModel: adapter.defaultModel !== null,
       models: adapter.models !== null,
       modelWarm: adapter.modelWarm !== null,
+      compaction: adapter.compaction !== null,
     }]));
-    expect(roles.get("pi")).toEqual({ thinking: true, workerLaunch: true, modelControl: true, lifecycleControl: true, sessionView: true, workspaceTrust: true, shim: true, defaultModel: true, models: true, modelWarm: true });
-    expect(roles.get("omp")).toEqual({ thinking: false, workerLaunch: true, modelControl: true, lifecycleControl: true, sessionView: true, workspaceTrust: false, shim: true, defaultModel: true, models: true, modelWarm: true });
-    expect(roles.get("claude")).toEqual({ thinking: false, workerLaunch: false, modelControl: false, lifecycleControl: true, sessionView: true, workspaceTrust: false, shim: true, defaultModel: false, models: true, modelWarm: true });
-    expect(roles.get("codex")).toEqual({ thinking: false, workerLaunch: false, modelControl: false, lifecycleControl: false, sessionView: true, workspaceTrust: false, shim: true, defaultModel: false, models: true, modelWarm: false });
+    expect(roles.get("pi")).toEqual({ thinking: true, workerLaunch: true, modelControl: true, lifecycleControl: true, sessionView: true, workspaceTrust: true, shim: true, defaultModel: true, models: true, modelWarm: true, compaction: false });
+    expect(roles.get("omp")).toEqual({ thinking: false, workerLaunch: true, modelControl: true, lifecycleControl: true, sessionView: true, workspaceTrust: false, shim: true, defaultModel: true, models: true, modelWarm: true, compaction: false });
+    expect(roles.get("claude")).toEqual({ thinking: true, workerLaunch: false, modelControl: false, lifecycleControl: true, sessionView: true, workspaceTrust: false, shim: true, defaultModel: false, models: true, modelWarm: true, compaction: true });
+    expect(roles.get("codex")).toEqual({ thinking: false, workerLaunch: false, modelControl: false, lifecycleControl: false, sessionView: true, workspaceTrust: false, shim: true, defaultModel: false, models: true, modelWarm: false, compaction: false });
   });
 
   test("answers with zero exit code when a shim role is absent", () => {

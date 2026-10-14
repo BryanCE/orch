@@ -10,7 +10,7 @@ function parseBooleanSetting(input: string): SettingValueResult {
   return { ok: false, reason: "expected true or false" };
 }
 
-function parseIntegerSetting(kind: Extract<SettingKind, { readonly kind: "integer" }>, input: string): SettingValueResult {
+export function parseIntegerSetting(kind: Extract<SettingKind, { readonly kind: "integer" }>, input: string): SettingValueResult {
   if (kind.none && input === "none") return { ok: true, value: null };
   if (!/^-?\d+$/.test(input)) return { ok: false, reason: kind.none ? "expected an integer or none" : "expected an integer" };
   const value = Number(input);
@@ -65,6 +65,7 @@ export function parseSettingValue(spec: SettingSpec, input: string): SettingValu
     case "text":
       return input.length > 0 ? { ok: true, value: input } : { ok: false, reason: "expected non-empty text" };
     case "models":
+    case "compaction":
     case "list":
       return parseListSetting(input);
     default: {

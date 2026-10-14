@@ -1,3 +1,4 @@
+import type { AgentAdapter } from "../types/adapter.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
@@ -24,5 +25,12 @@ export function workerPolicyFrom(settings: OrchSettings): WorkerPolicy {
     builtinTools: workers.builtin_tools,
     // An allowlist that omitted orch's tools would mute the worker, so they join it.
     allowTools: workers.allow_tools.length ? [...new Set([...workers.allow_tools, ...orchTools])] : [],
+    compactAtTokens: workers.compact_at_tokens,
   };
+}
+
+/** The env that sets a launch's compaction point, or none, which keeps the harness's own default. */
+export function compactionEnv(adapter: AgentAdapter, model: string | undefined, policy: WorkerPolicy | undefined): Readonly<Record<string, string>> {
+  const tokens = model === undefined ? undefined : policy?.compactAtTokens[adapter.id]?.[model];
+  return tokens === undefined || adapter.compaction === null ? {} : adapter.compaction.launchEnv(tokens);
 }

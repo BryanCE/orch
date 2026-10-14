@@ -15,6 +15,7 @@ export function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter
     defaultModel: null,
     models: null,
     modelWarm: null,
+    compaction: null,
     bridge: null,
     hooks: null,
     commandGate: false,

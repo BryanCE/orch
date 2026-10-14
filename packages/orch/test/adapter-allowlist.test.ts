@@ -8,6 +8,7 @@ const INHERIT: WorkerPolicy = {
   excludeExtensions: [],
   builtinTools: true,
   allowTools: [],
+  compactAtTokens: {},
 };
 
 const LOCKED_DOWN: WorkerPolicy = {
@@ -15,6 +16,7 @@ const LOCKED_DOWN: WorkerPolicy = {
   excludeExtensions: [],
   builtinTools: false,
   allowTools: ["read", "bash", "orch_ask"],
+  compactAtTokens: {},
 };
 
 describe("pi worker launch obeys the worker policy", () => {

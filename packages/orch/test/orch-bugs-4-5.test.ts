@@ -8,6 +8,7 @@ const inherited: WorkerPolicy = {
   excludeExtensions: [],
   builtinTools: true,
   allowTools: [],
+  compactAtTokens: {},
 };
 
 const model = "openrouter/openai/gpt-5.6-luna:high";

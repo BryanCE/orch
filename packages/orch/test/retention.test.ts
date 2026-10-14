@@ -46,7 +46,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
     mail: { to_spawner: "prompt", to_worker: "prompt" },
     models: { allowed: {}, preferred: {} },
-    workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: 130_000 },
+    workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: {} },
     agents: { writable_settings: [...SETTINGS_DEFAULTS.agents.writable_settings] },
     queue: { max_retries: 1, dispatch_concurrency: 4 },
     logging: { ...SETTINGS_DEFAULTS.logging },

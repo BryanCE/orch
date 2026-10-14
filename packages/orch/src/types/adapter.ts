@@ -237,6 +237,11 @@ export interface BridgeRole {
   readonly takes: readonly BridgeAction[];
 }
 
+/** The harness takes a context size, in tokens, at which a session compacts, set at launch. */
+export interface CompactionRole {
+  launchEnv(tokens: number): Readonly<Record<string, string>>;
+}
+
 /** What a bridge-less harness reports from hooks inside its session: `start` is its status as
  *  the session starts, so a spawn can wait for it; `prompt` is each prompt it takes
  *  (`report-prompt`), which acks text typed into its input and answers a question that ended its turn. */
@@ -270,6 +275,8 @@ export interface AgentAdapter {
   readonly models: ModelCatalogueRole | null;
   /** Background catalogue warm-up, absent when listing is synchronous. */
   readonly modelWarm: ModelWarmRole | null;
+  /** Launch-time compaction point, absent when the harness takes none and keeps its own default. */
+  readonly compaction: CompactionRole | null;
   readonly bridge: BridgeRole | null;
   readonly hooks: HookReportRole | null;
   /** True when this harness's integration rewrites a locked or gated shell command through `orch lock` before it runs. */

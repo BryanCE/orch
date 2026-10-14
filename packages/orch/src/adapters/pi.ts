@@ -406,6 +406,7 @@ export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parsePiModelsOutput(catalogue.read("pi", PI_MODELS_ARGV)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("pi", PI_MODELS_ARGV) };
+  readonly compaction = null;
 
   /** Start pi directly in an interactive backend session. Worker options use the same
    * composition as restricted launches, so tile/spawn cannot silently drop extensions. */

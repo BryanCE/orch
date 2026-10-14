@@ -3,6 +3,7 @@ import type { CompactionTable, EditingState } from "../../types/settings.ts";
 import type { SettingsManager } from "../../types/services.ts";
 import { resolveAdapter } from "../../adapters/registry.ts";
 import { readHarnessCatalogue } from "../../setup/composition.ts";
+import { concreteModel } from "../../policy/compaction.ts";
 import { parseIntegerSetting } from "../parse.ts";
 import { askChoice, askValue } from "./ask.ts";
 import { cancelEdit, commitAndFlush, type Session } from "./state.ts";
@@ -17,10 +18,22 @@ function withPair(table: CompactionTable, harness: AdapterId, model: string, tok
   return Object.fromEntries(Object.entries({ ...table, [harness]: models }).filter(([, entries]) => Object.keys(entries ?? {}).length));
 }
 
-/** Every model the harness lists, then any recorded model it no longer lists, so that one can be cleared. */
-async function harnessModels(harness: AdapterId, catalogue: ModelCatalogue, recorded: Readonly<Record<string, number>>): Promise<string[]> {
-  const offered = (await readHarnessCatalogue(resolveAdapter(harness), catalogue, false)).map((model) => model.spec);
-  return [...new Set([...offered, ...Object.keys(recorded)])];
+/** Each concrete model the harness runs, with the aliases that run it now. */
+async function concreteModels(harness: AdapterId, catalogue: ModelCatalogue): Promise<Map<string, string[]>> {
+  const models = new Map<string, string[]>();
+  for (const model of await readHarnessCatalogue(resolveAdapter(harness), catalogue, false)) {
+    const aliases = models.get(concreteModel(model)) ?? [];
+    if (model.spec !== concreteModel(model)) aliases.push(model.spec);
+    models.set(concreteModel(model), aliases);
+  }
+  return models;
+}
+
+/** What a model row shows: its aliases and its point, or why a recorded key does nothing. */
+function modelNote(aliases: readonly string[] | undefined, tokens: number | undefined): string {
+  if (aliases === undefined) return `${tokens ?? HARNESS_DEFAULT} · not a model the harness runs; unused`;
+  const named = aliases.length ? `${aliases.join(", ")} · ` : "";
+  return `${named}${tokens ?? HARNESS_DEFAULT}`;
 }
 
 /** Empty clears the pair; anything else is a positive token count. */
@@ -36,10 +49,11 @@ async function pickHarness(session: Session, manager: SettingsManager, harnesses
   return harnesses.find((candidate) => candidate === picked);
 }
 
-/** One of the harness's models, each shown with the point it compacts at now. */
-async function pickModel(session: Session, manager: SettingsManager, models: readonly string[], recorded: Readonly<Record<string, number>>): Promise<string | null> {
-  const notes = Object.fromEntries(models.map((model) => [model, String(recorded[model] ?? HARNESS_DEFAULT)]));
-  return askChoice(session, manager, models, undefined, notes);
+/** One concrete model, then any recorded key the harness does not run, so that one can be cleared. */
+async function pickModel(session: Session, manager: SettingsManager, models: ReadonlyMap<string, string[]>, recorded: Readonly<Record<string, number>>): Promise<string | null> {
+  const choices = [...new Set([...models.keys(), ...Object.keys(recorded)])];
+  const notes = Object.fromEntries(choices.map((model) => [model, modelNote(models.get(model), recorded[model])]));
+  return askChoice(session, manager, choices, undefined, notes);
 }
 
 /** Pick a harness that takes a compaction point, one of its models, then the token count.
@@ -51,8 +65,8 @@ export async function editCompaction(session: Session, manager: SettingsManager,
   const id = await pickHarness(session, manager, harnesses);
   if (id === undefined) return cancelEdit(session, editing);
   const recorded = table[id] ?? {};
-  const models = await harnessModels(id, catalogue, recorded);
-  if (!models.length) return cancelEdit(session, editing, `${id} lists no models`);
+  const models = await concreteModels(id, catalogue);
+  if (!models.size) return cancelEdit(session, editing, `${id} lists no models`);
   const model = await pickModel(session, manager, models, recorded);
   if (model === null) return cancelEdit(session, editing);
   const typed = await askValue(session, manager, `${id} ${model} compacts at (tokens, empty for ${HARNESS_DEFAULT})`, String(recorded[model] ?? ""), undefined, tokensRefusal);

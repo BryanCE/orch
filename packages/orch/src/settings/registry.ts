@@ -189,7 +189,7 @@ const HELP: Readonly<Record<string, string>> = {
   "workers.exclude_extensions": "Extensions workers must not load.",
   "workers.builtin_tools": "Whether workers receive built-in tools.",
   "workers.allow_tools": "Tools workers may use.",
-  "workers.compact_at_tokens": "The context size, in tokens, at which a worker compacts, per harness and model. A model with no entry keeps the harness's own default. Only a harness that takes a compaction point is offered. Claude takes 100000 to 1000000.",
+  "workers.compact_at_tokens": "The context size, in tokens, at which a worker compacts, per harness and concrete model (claude-haiku-5-5, never the haiku alias). An alias launch takes the point of the model it runs now. A model with no entry keeps the harness's own default. Only a harness that takes a compaction point is offered. Claude takes 100000 to 1000000.",
   "workers.verify_commands": "Commands a worker runs to verify its own slice before it reports. Write {cwd} (or {wincwd} for a Windows tool such as powershell.exe) for the agent's own directory; a fixed path is refused.",
   "agents.writable_settings": "Settings an agent may write with orch settings. Change it per row: orch settings grant|revoke <key>, or a in the editor. Never grants itself.",
   "queue.max_retries": "Maximum retries for queued tasks.",

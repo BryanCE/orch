@@ -170,6 +170,8 @@ export interface HarnessModel {
   readonly spec: string;
   /** The harness's own display name for it, when it has one. */
   readonly label?: string;
+  /** The concrete model an alias spec runs now, when the harness says; absent when the spec is concrete. */
+  readonly resolved?: string;
 }
 
 export interface ThinkingStrategy {

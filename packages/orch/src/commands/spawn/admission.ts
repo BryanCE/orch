@@ -18,6 +18,7 @@ import type { CallerSelf } from "../self.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { SpawnSettings } from "./flags.ts";
 import { admitLaunchModel } from "./models.ts";
+import { withLaunchPoints } from "../../policy/compaction.ts";
 import { computeFleetCapacity, liveSpawnCounts, packsUsed } from "../../policy/capacity.ts";
 
 export { liveSpawnCounts } from "../../policy/capacity.ts";
@@ -176,5 +177,5 @@ export async function admitSpawn(
   } catch (error: unknown) {
     die(errorMessage(error));
   }
-  return { ...settings, agents };
+  return { ...settings, agents, workers: withLaunchPoints(settings.workers, catalogue) };
 }

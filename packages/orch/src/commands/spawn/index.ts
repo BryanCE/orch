@@ -1,4 +1,5 @@
 import { compactionEnv, workerPolicyFrom, workerTools } from "../../policy/workers.ts";
+import { withLaunchPoints } from "../../policy/compaction.ts";
 import { workerPrompt, workerRules } from "../../worker-prompt.ts";
 import { agentFlags, resolveAdapterOrDie } from "../selection.ts";
 import { parseCommand } from "../registry.ts";
@@ -12,7 +13,7 @@ import { die } from "../target.ts";
 import { whoAmI, type CallerSelf } from "../self.ts";
 import { resolveTab } from "../panes.ts";
 import type { Backend, BackendGroup, CreatedHome, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../../types/backend.ts";
-import type { CreatedAgent, PreparedAgent, SpawnPlacement } from "../../types/command.ts";
+import type { CreatedAgent, PreparedAgent, SpawnPlacement, TabSpawnSpec } from "../../types/command.ts";
 import type { DaemonClient, Services } from "../../types/services.ts";
 import { readFleet, type FleetSnapshot } from "../fleet.ts";
 import type { OrchDir } from "../../types/core.ts";
@@ -115,12 +116,31 @@ async function spawnIntoExistingTab(services: Pick<Services, "orchDir" | "logger
  *  orchd are UNMANAGED: no steer, model pin, or result reaches them, and printing
  *  the tiling and "Spawned N agent(s)" over that silence is what sent an operator
  *  dispatching into a fleet that answered nothing. Null when orchd answers. */
-/** An environment with no group layout cannot tile. That is an ANSWER with exit
- *  0, never a throw and never a silent empty result. */
-function answerNoGroupLayout(json: boolean): void {
-  const answer = { outcome: "answer", reason: "no-environment-role", text: "this environment does not provide group layout" };
+/** An environment without the role a command needs cannot do it. That is an ANSWER
+ *  with exit 0, never a throw and never a silent empty result. */
+function answerNoEnvironmentRole(json: boolean, text: string): void {
+  const answer = { outcome: "answer", reason: "no-environment-role", text };
   if (json) process.stdout.write(JSON.stringify(answer) + "\n");
   else process.stdout.write(`${answer.text}\n`);
+}
+
+/** Tile one agent, or end the command with the reason it could not. */
+async function tileOrDie(services: Services, spec: TabSpawnSpec, fleet: FleetSnapshot): Promise<CreatedAgent> {
+  try {
+    return await spawnOneIntoTab(services, spec, fleet);
+  } catch (e: unknown) {
+    die(`tile failed: ${errorMessage(e)}`);
+  }
+}
+
+/** Report the tiled agent, and the tab's tiling when a person reads it. */
+function reportTiled(json: boolean, spec: TabSpawnSpec, agent: CreatedAgent, layoutGroup: string): void {
+  if (json) {
+    process.stdout.write(JSON.stringify({ handle: agent.handle, key: agent.key, name: spec.name, tab: layoutGroup, added: true }) + "\n");
+    return;
+  }
+  process.stdout.write(`Added ${agent.handle} (${spec.name}) to group ${layoutGroup} running ${spec.adapterId}.\n`);
+  printLayout(spec.backend, spec.group, "\nFinal tiling:");
 }
 
 /** Mint every identity, worktree and environment up front, before a tab exists. */
@@ -272,7 +292,7 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
   // An environment that creates no group can place nothing: spawn headless.
   if (!backend.groupHome) return executeHeadlessSpawn(services, self, fleet, settingsFile, settings);
   const groupLayout = backend.groupLayout;
-  if (!groupLayout) return answerNoGroupLayout(settings.json);
+  if (!groupLayout) return answerNoEnvironmentRole(settings.json, "this environment does not provide group layout");
   const placement = await placeSpawn(services, settings, settingsFile, backend, self, fleet);
   const { space } = placement;
   const { views, presence } = admissionFleet(fleet);
@@ -313,37 +333,33 @@ export async function cmdSpawn(services: Services, args: string[]) {
   await executeSpawn(services, settingsFile, resolveSpawnSettings(parseSpawnFlags(args), settingsFile));
 }
 
+/** The tab `orch tile` fills and the name of the agent it adds. Tile CREATES an agent, so it
+ *  names one too: an agent called `tile-3` says nothing about the slice it holds. */
+function tileNames(invocation: ReturnType<typeof parseCommand>): { target: string; name: string } {
+  const [target, requested] = invocation.positional;
+  if (!target || !requested) throw usageError(invocation);
+  return { target, name: resolveSpawnNames(invocation, [requested])[0]! };
+}
+
 export async function cmdTile(services: Services, args: string[]) {
   const invocation = parseCommand("tile", args);
-  const { flags, positional } = invocation;
+  const { flags } = invocation;
   const json = flags.has("--json");
   const launch = agentFlags(flags);
   const settingsFile = services.settings.current();
   const { adapter, model: named, thinking, preferredModels } = resolveSpawnAgentSettings(launch, settingsFile);
   const selectedBackend = resolveBackend({ explicit: launch.backendFlag ?? null, configured: settingsFile.defaults.backend ?? null });
   if (!selectedBackend.placementInventory) die(`orch tile requires an environment that places agents; ${selectedBackend.id} places none.`);
-  if (!selectedBackend.groupHome || !selectedBackend.groupLayout) {
-    const answer = { outcome: "answer", reason: "no-environment-role", text: "this environment does not provide groups" };
-    if (json) process.stdout.write(JSON.stringify(answer) + "\n");
-    else process.stdout.write(`${answer.text}\n`);
-    return;
-  }
+  if (!selectedBackend.groupHome || !selectedBackend.groupLayout) return answerNoEnvironmentRole(json, "this environment does not provide groups");
   const selectedAdapter = resolveAdapterOrDie(adapter);
   const model = admitLaunchModel(settingsFile, adapter, services.models, named);
-  const target = positional[0];
-  const requestedName = positional[1];
-  // Tile CREATES an agent, so it names one too. An agent
-  // called `tile-3` says nothing about the slice it holds.
-  if (!target || !requestedName) throw usageError(invocation);
-  const autoName = resolveSpawnNames(invocation, [requestedName])[0]!;
+  const { target, name: autoName } = tileNames(invocation);
 
   const self = await whoAmI(services);
   const fleet = await readFleet(services, true);
   const { views, presence } = admissionFleet(fleet);
   const tab = await resolveTab(services, target);
-  const role = selectedBackend.groupLayout;
-  if (!role) return;
-  const layout = readGroupLayout(role, tab.id);
+  const layout = readGroupLayout(selectedBackend.groupLayout, tab.id);
   if (!layout) die(`Could not read layout for group "${tab.id}".`);
 
   // E10: `tab.workspace` is the plexer's coordinate; orch's space is the caller's
@@ -352,38 +368,30 @@ export async function cmdTile(services: Services, args: string[]) {
   const workspace = tab.workspace ?? undefined;
   assertSpawnCapacity(settingsFile, space, 1, views, presence);
   assertTabCapacity(settingsFile, tab.label ?? tab.id, layout.placements.length, 1);
-  let agent: CreatedAgent;
-  try {
-    agent = await spawnOneIntoTab(services, {
-      backend: selectedBackend,
-      adapter: selectedAdapter,
-      adapterId: adapter,
-      name: autoName,
-      cwd: flags.value("--dir") ?? process.cwd(),
-      space,
-      workspace,
-      group: tab.id,
-      // Same planner `spawn` uses, off the same tab-wide geometry.
-      placement: planTilePlacement(layout, settingsFile.tiling.first_split),
-      cmd: flags.value("--cmd"),
-      // A tiled worker loads exactly what a spawned one does; dropping these is
-      // how tiled agents lost the user's own harness extensions.
-      tools: workerTools(settingsFile),
-      workers: workerPolicyFrom(settingsFile),
-      model,
-      thinking,
-      preferredModels,
-      spawner: self.id,
-      owner: self.id ?? undefined,
-    }, fleet);
-  } catch (e: unknown) {
-    die(`tile failed: ${errorMessage(e)}`);
-  }
-  if (json) process.stdout.write(JSON.stringify({ handle: agent.handle, key: agent.key, name: autoName, tab: layout.group, added: true }) + "\n");
-  else {
-    process.stdout.write(`Added ${agent.handle} (${autoName}) to group ${layout.group} running ${adapter}.\n`);
-    printLayout(selectedBackend, tab.id, "\nFinal tiling:");
-  }
+  const spec: TabSpawnSpec = {
+    backend: selectedBackend,
+    adapter: selectedAdapter,
+    adapterId: adapter,
+    name: autoName,
+    cwd: flags.value("--dir") ?? process.cwd(),
+    space,
+    workspace,
+    group: tab.id,
+    // Same planner `spawn` uses, off the same tab-wide geometry.
+    placement: planTilePlacement(layout, settingsFile.tiling.first_split),
+    cmd: flags.value("--cmd"),
+    // A tiled worker loads exactly what a spawned one does; dropping these is
+    // how tiled agents lost the user's own harness extensions.
+    tools: workerTools(settingsFile),
+    workers: withLaunchPoints(workerPolicyFrom(settingsFile), services.models),
+    model,
+    thinking,
+    preferredModels,
+    spawner: self.id,
+    owner: self.id ?? undefined,
+  };
+  const agent = await tileOrDie(services, spec, fleet);
+  reportTiled(json, spec, agent, layout.group);
   await pinModels(services, services.logger, [{ key: agent.key, handle: agent.handle, name: autoName, model, thinking }]);
 }
 

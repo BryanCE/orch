@@ -45,6 +45,7 @@ function claudeModelRow(entry: unknown): HarnessModel[] {
   return [{
     spec: entry.value,
     ...(typeof entry.displayName === "string" && entry.displayName ? { label: entry.displayName } : {}),
+    ...(typeof entry.resolvedModel === "string" && entry.resolvedModel && entry.resolvedModel !== entry.value ? { resolved: entry.resolvedModel } : {}),
   }];
 }
 

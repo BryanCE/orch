@@ -144,7 +144,7 @@ describe("Claude adapter", () => {
       read: (bin, argv, stdin) => { asked.push({ bin, argv, stdin }); return `{"type":"system"}\n${initialize}\n`; },
     };
     expect(claudeAdapter.models.listModels(catalogue)).toEqual([
-      { spec: "opus", label: "Opus 5.5" },
+      { spec: "opus", label: "Opus 5.5", resolved: "claude-opus-5-5" },
       { spec: "claude-opus-5", label: "Opus 5" },
       { spec: "haiku" },
     ]);

@@ -5,12 +5,16 @@ import { declaredRuntime } from "../settings/read.ts";
 
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import { detectCodexState, extractCodexResult, readCodexSessionView } from "./codex-events.ts";
-import { buildHeadlessArgv, buildInteractiveArgv, shimRole, type AgentState } from "./adapter.ts";
+import { buildHeadlessArgv, buildInteractiveArgv, launchCompaction, shimRole, type AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
+import { compactionArgs } from "../policy/workers.ts";
 import type { AdapterCommand, AgentAdapter, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
+
+/** codex's config key for the token count at which a session compacts. */
+const CODEX_COMPACT_KEY = "model_auto_compact_token_limit";
 
 /** codex's config folder; `CODEX_HOME` moves it. */
 function codexHome(): string {
@@ -102,7 +106,8 @@ export class CodexAdapter implements AgentAdapter {
   readonly defaultModel = null;
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = null;
-  readonly compaction = null;
+  /** Codex takes the point as a config override; a running session cannot change its model. */
+  readonly compaction = launchCompaction((tokens) => ({ env: {}, args: ["-c", `${CODEX_COMPACT_KEY}=${tokens}`] }));
   readonly bridge = null;
   readonly hooks = null;
   readonly commandGate = false;
@@ -113,16 +118,16 @@ export class CodexAdapter implements AgentAdapter {
   interactiveCmd(opts: SpawnOpts): string {
     const command = ["codex"];
     if (opts.model) command.push("--model", shellQuote(opts.model));
-    return command.join(" ");
+    return [...command, ...compactionArgs(this, opts)].join(" ");
   }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return buildInteractiveArgv("codex", opts);
+    return [...buildInteractiveArgv("codex", opts), ...compactionArgs(this, opts)];
   }
 
   /** Run Codex's documented JSON event stream in a detached process. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return buildHeadlessArgv("codex", ["exec", "--json"], opts, prompt);
+    return buildHeadlessArgv("codex", ["exec", "--json", ...compactionArgs(this, opts)], opts, prompt);
   }
 
   detectState(input: StateDetectionInput): AgentState {

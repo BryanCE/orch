@@ -12,6 +12,8 @@ import { createDaemonLink } from "./daemon-client.ts";
 import { createAgentPresence } from "./presence.ts";
 import { agentEnvironment, isBlockedSignal } from "./environment.ts";
 import { registerAgentTools } from "./tools.ts";
+import { registerCompaction } from "./compaction.ts";
+import { launchCredential } from "../identity/launch.ts";
 import type { HarnessApi, HarnessBridge, HarnessIdentity } from "../types/agent.ts";
 import type { SettingsManager } from "../types/services.ts";
 
@@ -55,6 +57,8 @@ export function registerHarnessBridge(
     },
     refreshLabels,
   }, options.orchDir, options.settings);
+  // The point is a worker setting: a session orch did not launch keeps the harness default.
+  if (launchCredential() !== null) registerCompaction(harness, identity, options.settings);
 
   // The environment names its own blocked signal; the bridge only listens for
   // whatever it was told. An environment that raises none names none.

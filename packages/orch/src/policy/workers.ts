@@ -1,4 +1,5 @@
-import type { AgentAdapter } from "../types/adapter.ts";
+import { NO_COMPACTION } from "../adapters/adapter.ts";
+import type { AgentAdapter, CompactionLaunch, SpawnOpts } from "../types/adapter.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
@@ -29,8 +30,18 @@ export function workerPolicyFrom(settings: OrchSettings): WorkerPolicy {
   };
 }
 
-/** The env that sets a launch's compaction point, or none, which keeps the harness's own default. */
+/** What a launch adds for its harness's compaction point, or nothing when none is set. */
+function compactionLaunch(adapter: AgentAdapter, model: string | undefined, policy: WorkerPolicy | undefined): CompactionLaunch {
+  const points = policy?.compactAtTokens[adapter.id];
+  return points === undefined || adapter.compaction === null ? NO_COMPACTION : adapter.compaction.launch(points, model);
+}
+
+/** The env that sets a launch's compaction point. */
 export function compactionEnv(adapter: AgentAdapter, model: string | undefined, policy: WorkerPolicy | undefined): Readonly<Record<string, string>> {
-  const tokens = model === undefined ? undefined : policy?.compactAtTokens[adapter.id]?.[model];
-  return tokens === undefined || adapter.compaction === null ? {} : adapter.compaction.launchEnv(tokens);
+  return compactionLaunch(adapter, model, policy).env;
+}
+
+/** The launch arguments that set a launch's compaction point. */
+export function compactionArgs(adapter: AgentAdapter, opts: Pick<SpawnOpts, "model" | "workers">): readonly string[] {
+  return compactionLaunch(adapter, opts.model, opts.workers).args;
 }

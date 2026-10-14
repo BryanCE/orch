@@ -237,9 +237,16 @@ export interface BridgeRole {
   readonly takes: readonly BridgeAction[];
 }
 
-/** The harness takes a context size, in tokens, at which a session compacts, set at launch. */
+/** What a launch adds so its session compacts at the configured point. */
+export interface CompactionLaunch {
+  readonly env: Readonly<Record<string, string>>;
+  readonly args: readonly string[];
+}
+
+/** The harness takes a context size, in tokens, at which a session compacts. `points` is this
+ *  harness's model-to-tokens table; a model with no entry keeps the harness default. */
 export interface CompactionRole {
-  launchEnv(tokens: number): Readonly<Record<string, string>>;
+  launch(points: Readonly<Record<string, number>>, model: string | undefined): CompactionLaunch;
 }
 
 /** What a bridge-less harness reports from hooks inside its session: `start` is its status as

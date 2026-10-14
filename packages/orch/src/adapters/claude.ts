@@ -6,7 +6,7 @@ import { presenceEntry } from "../presence/store.ts";
 import { isRecord, packageRoot, reinstallCommand, textValue } from "../util.ts";
 import { CLAUDE_HOOK_EVENTS, CLAUDE_HOOK_MATCHERS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath } from "./claude-hooks.ts";
 import { agentStateFrom } from "../agent-state.ts";
-import { buildHeadlessArgv, buildInteractiveArgv, shimRole, type AgentState } from "./adapter.ts";
+import { buildHeadlessArgv, buildInteractiveArgv, launchCompaction, shimRole, type AgentState } from "./adapter.ts";
 import { lastAssistantFromJsonl } from "./transcript.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
 import type { AdapterCommand, AgentAdapter, HarnessModel, HookReportRole, LifecycleVerb, ModelCatalogue, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
@@ -192,7 +192,8 @@ class ClaudeAdapter implements AgentAdapter {
   readonly defaultModel = null;
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseClaudeModelsOutput(catalogue.read("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST) };
-  readonly compaction = { launchEnv: (tokens: number): Readonly<Record<string, string>> => ({ [COMPACT_WINDOW_ENV]: String(tokens) }) };
+  /** Claude takes one point per launch, and a running session cannot change its model. */
+  readonly compaction = launchCompaction((tokens) => ({ env: { [COMPACT_WINDOW_ENV]: String(tokens) }, args: [] }));
   readonly bridge = null;
   /** SessionStart reports the session before any prompt; UserPromptSubmit reports each prompt Claude takes. */
   readonly hooks: HookReportRole = { reports: ["start", "prompt"] };

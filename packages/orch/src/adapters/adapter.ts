@@ -1,4 +1,18 @@
-import { ADAPTER_IDS, LIFECYCLE_VERBS, type AdapterId, type AgentAdapter, type LifecycleVerb, type ShimRole, type SpawnOpts } from "../types/adapter.ts";
+import { ADAPTER_IDS, LIFECYCLE_VERBS, type AdapterId, type AgentAdapter, type CompactionLaunch, type CompactionRole, type LifecycleVerb, type ShimRole, type SpawnOpts } from "../types/adapter.ts";
+
+/** A launch that adds nothing, so the harness keeps its own compaction default. */
+export const NO_COMPACTION: CompactionLaunch = { env: {}, args: [] };
+
+/** A compaction role that sets one point per launch, for the model the launch starts on.
+ *  `launchAt` is what the harness takes to compact at `tokens`. */
+export function launchCompaction(launchAt: (tokens: number) => CompactionLaunch): CompactionRole {
+  return {
+    launch: (points, model) => {
+      const tokens = model === undefined ? undefined : points[model];
+      return tokens === undefined ? NO_COMPACTION : launchAt(tokens);
+    },
+  };
+}
 
 export function buildInteractiveArgv(command: string, opts: SpawnOpts): string[] {
   return [command, ...(opts.model ? ["--model", opts.model] : [])];

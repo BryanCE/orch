@@ -59,6 +59,12 @@ export interface HarnessEventBus {
   on(channel: string, handler: (data: unknown) => void): unknown;
 }
 
+/** Callbacks for a compaction the harness runs without the caller awaiting it. */
+export interface HarnessCompactOptions {
+  readonly onComplete?: () => void;
+  readonly onError?: (error: Error) => void;
+}
+
 /** Per-invocation state the harness passes to every handler. */
 export interface HarnessContext {
   readonly hasUI: boolean;
@@ -68,6 +74,8 @@ export interface HarnessContext {
   readonly ui: HarnessUi;
   isIdle(): boolean;
   getContextUsage(): HarnessContextUsage | undefined;
+  /** Start a compaction now; absent when the harness exposes none to extensions. */
+  compact?(options: HarnessCompactOptions): void;
 }
 
 /** A handler bound to one harness event; the event payload is validated by its reader. */

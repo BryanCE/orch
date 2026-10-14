@@ -7,9 +7,9 @@ import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata
 import { computeCodeHash } from "../daemon/client/process.ts";
 import { packageRoot, reinstallCommand } from "../util.ts";
 import { agentStateFrom } from "../agent-state.ts";
-import type { AgentState } from "./adapter.ts";
+import { NO_COMPACTION, type AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, BridgeRole, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
@@ -406,7 +406,9 @@ export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
   readonly defaultModel = { defaultModelString: (): string | undefined => this.defaultModelString() };
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parsePiModelsOutput(catalogue.read("pi", PI_MODELS_ARGV)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("pi", PI_MODELS_ARGV) };
-  readonly compaction = null;
+  /** pi has no launch flag for it: orch's bridge reads the table each turn, for the model the
+   *  session runs now, and compacts the session itself. */
+  readonly compaction = { launch: (): CompactionLaunch => NO_COMPACTION };
 
   /** Start pi directly in an interactive backend session. Worker options use the same
    * composition as restricted launches, so tile/spawn cannot silently drop extensions. */

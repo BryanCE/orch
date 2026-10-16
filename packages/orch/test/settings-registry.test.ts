@@ -101,7 +101,7 @@ function completeSettings(): Record<string, unknown> {
     models: { allowed: { pi: ["openai/test"] }, preferred: { pi: ["openai/test"] } },
     workers: {
       inherit_extensions: false,
-      exclude_extensions: ["one"],
+      exclude_extensions: { pi: ["one"] },
       builtin_tools: false,
       allow_tools: ["read"],
     },

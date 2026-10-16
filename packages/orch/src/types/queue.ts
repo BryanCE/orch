@@ -56,6 +56,9 @@ export type ScopeQuery =
 
 export interface TaskOptions {
   agent?: string;
+  /** Only an agent on this harness takes the task. */
+  harness?: string;
+  /** Only an agent whose model matches this glob takes the task. */
   model?: string;
   cwd?: string;
   worktree?: boolean;
@@ -63,14 +66,13 @@ export interface TaskOptions {
   [key: string]: unknown;
 }
 
+/** The `typeof` each scalar task option must have when present. */
+const TASK_OPTION_TYPES: Readonly<Record<string, "string" | "boolean">> = { agent: "string", harness: "string", model: "string", cwd: "string", worktree: "boolean" };
+
 export function isTaskOptions(value: unknown): value is TaskOptions {
   if (!isRecord(value)) return false;
-  if ("agent" in value && typeof value.agent !== "string") return false;
-  if ("model" in value && typeof value.model !== "string") return false;
-  if ("cwd" in value && typeof value.cwd !== "string") return false;
-  if ("worktree" in value && typeof value.worktree !== "boolean") return false;
   if ("constraints" in value && !isRecord(value.constraints)) return false;
-  return true;
+  return Object.entries(TASK_OPTION_TYPES).every(([key, type]) => !(key in value) || typeof value[key] === type);
 }
 
 export interface TaskAttemptRec {

@@ -10,8 +10,8 @@ orch settings workers.verify_commands '["bunx oxlint"]'
 orch settings locked_commands.commands '["bun test", "bunx tsc"]'
 ```
 
-Each agent runs `workers.verify_commands` over its own files before it reports, so a task names
-only the files. Keep the list to the cheap lint: the typecheck, the tests and the repo-wide
+Each agent runs `workers.verify_commands` over the files it edited before it reports, so a task
+names only the files. A read-only task runs none. Keep the list to the cheap lint: the typecheck, the tests and the repo-wide
 scans are the orchestrator's, once per wave. `locked_commands.commands` run one at a time
 across the machine. `orch help settings` says which keys you may write.
 

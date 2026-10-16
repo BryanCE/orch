@@ -11,7 +11,7 @@ import { parseCommand } from "./registry.ts";
 import type { Invocation } from "../cli/spec.ts";
 import { usageError } from "../cli/usage.ts";
 import { recordHarnessModels, resolveHarnessModels } from "../setup/composition.ts";
-import { refreshAdapterCatalogues } from "../adapters/registry.ts";
+import { refreshAdapterCatalogues, syncAdapterSettingsFiles } from "../adapters/registry.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
 import { signedOutFix } from "../adapters/prerequisites.ts";
@@ -439,8 +439,23 @@ function settingsRoot(services: Services, invocation: Invocation): void {
   printSettingsOutput(services, settings, provenance, flags.has("--json"));
 }
 
-/** `orch settings` and every subcommand under it. A bare call on a TTY opens the editor. */
+/** `orch settings` and every subcommand under it, then each harness file the settings build is brought in step. */
 export async function cmdSettings(services: Services, args: string[]): Promise<void> {
+  await runSettingsVerb(services, args);
+  syncHarnessFiles(services);
+}
+
+/** A harness reads its file only at launch, so a setting it holds takes effect with no doctor run. */
+function syncHarnessFiles(services: Pick<Services, "settings" | "orchDir">): void {
+  try {
+    for (const written of syncAdapterSettingsFiles(services.orchDir, services.settings.current())) process.stderr.write(`rewrote ${written}\n`);
+  } catch (error: unknown) {
+    die(`${errorMessage(error)}. Workers launch on the old file until it is fixed.`);
+  }
+}
+
+/** A bare call on a TTY opens the editor. */
+async function runSettingsVerb(services: Services, args: string[]): Promise<void> {
   if (shouldLaunchSettingsEditor(args)) return launchSettingsEditor(services);
   const invocation = parseCommand("settings", args);
   switch (invocation.path[1]) {

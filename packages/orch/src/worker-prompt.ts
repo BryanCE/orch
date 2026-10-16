@@ -23,7 +23,7 @@ export function workerRules(settings: OrchSettings): WorkerRules {
  */
 const WORKER_HEADER_BASE =
   "[orch worker] No human watches you." +
-  " Verify your own slice before you report it." +
+  " Verify the files you edited before you report; a task that edits no file runs no verify command." +
   " Every orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden." +
   " Do the work yourself. A slice too big for one agent is reported back, not split by you.";
 
@@ -31,7 +31,7 @@ const WORKER_HEADER_BASE =
 function verifyCommandsClause(verifyCommands: readonly string[], cwd: string | undefined): string {
   if (verifyCommands.length === 0) return " Run the tests and typechecks this repository already has.";
   const commands = cwd === undefined ? verifyCommands : verifyCommands.map((command) => commandIn(command, cwd, process.env.WSL_DISTRO_NAME));
-  return ` Verify with: ${commands.join(", ")}.` + (cwd === undefined ? "" : ` Work only inside ${cwd}.`);
+  return ` Verify with, over only the files you edited: ${commands.join(", ")}.` + (cwd === undefined ? "" : ` Work only inside ${cwd}.`);
 }
 
 /** Tell the worker whether it may create another provenance level. */

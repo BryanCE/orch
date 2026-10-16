@@ -5,7 +5,7 @@ import { isPeerView } from "../../agent/peers.ts";
 import { isPaneLabels } from "../../agent/environment.ts";
 import { isLifecycleVerb } from "../../adapters/adapter.ts";
 import { isThinkingLevel } from "../../policy/thinking.ts";
-import { CompactionTableSchema } from "../../settings/schema.ts";
+import { CompactionTableSchema, ExtensionExclusionsSchema } from "../../settings/schema.ts";
 import { AGENT_STATES } from "../../agent-state.ts";
 import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
 import { CALLER_KINDS, type ThinkingLevel, type WorkerPolicy } from "../../types/policy.ts";
@@ -70,7 +70,7 @@ const nonBlank = z.string().refine((value) => value.trim().length > 0, "must not
 const optionalText = z.string().transform((value) => value.length === 0 ? undefined : value).optional();
 const workerPolicy = z.object({
   inheritExtensions: z.boolean(),
-  excludeExtensions: z.array(z.string()).readonly(),
+  excludeExtensions: ExtensionExclusionsSchema,
   builtinTools: z.boolean(),
   allowTools: z.array(z.string()).readonly(),
   compactAtTokens: CompactionTableSchema,

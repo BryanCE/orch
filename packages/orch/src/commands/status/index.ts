@@ -1,4 +1,5 @@
 import { computeFleetCapacity, formatCapacityLine } from "../../policy/capacity.ts";
+import { availableMemoryMb, formatMemoryLine } from "../../policy/memory.ts";
 import { registerCaller, whoAmI, refuseNonOperatorOverride } from "../self.ts";
 import { ensureDaemonOrWarn } from "../../daemon/client/reach.ts";
 import { readRpc } from "../daemon.ts";
@@ -18,9 +19,14 @@ function offlineCapacity(services: Services, settings: OrchSettings): FleetCapac
 }
 
 /** The capacity line: from orchd's held capacity, or computed from the store when offline. */
-async function capacityLine(services: Services, orchId: string | null, settings: OrchSettings, offline: boolean): Promise<{ capacity: FleetCapacity; line: string }> {
+async function capacityLine(services: Services, orchId: string | null, settings: OrchSettings, offline: boolean): Promise<{ capacity: FleetCapacity; memory: { availableMb: number; floorMb: number }; line: string }> {
   const capacity = offline ? offlineCapacity(services, settings) : await readRpc(services, "capacity", {});
-  return { capacity, line: formatCapacityLine(capacity, orchId ?? undefined) };
+  const availableMb = availableMemoryMb();
+  return {
+    capacity,
+    memory: { availableMb, floorMb: settings.fleet.min_free_memory_mb },
+    line: `${formatCapacityLine(capacity, orchId ?? undefined)} - ${formatMemoryLine(settings, availableMb)}`,
+  };
 }
 
 async function resolveCaller(services: Services, offline: boolean): Promise<{ caller: CallerScope; orchId: string | null }> {
@@ -37,7 +43,7 @@ async function writeCapacityStatus(services: Services, options: StatusOptions, o
   const settings = services.settings.currentOrNull();
   if (settings === null) throw new Error("capacity unavailable: settings.json does not exist");
   const output = await capacityLine(services, orchId, settings, options.offline);
-  process.stdout.write(options.json ? JSON.stringify({ capacity: output.capacity }, null, 2) + "\n" : output.line + "\n");
+  process.stdout.write(options.json ? JSON.stringify({ capacity: output.capacity, memory: output.memory }, null, 2) + "\n" : output.line + "\n");
 }
 
 async function writeStatusRows(services: Services, options: StatusOptions, caller: CallerScope, orchId: string | null): Promise<void> {

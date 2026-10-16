@@ -208,6 +208,12 @@ export interface ShimRole {
   diagnoseShim(orchDir: OrchDir, settings: OrchSettings, logger: Logger): CheckResult | Promise<CheckResult>;
 }
 
+/** A harness file orch builds from its settings, kept in step as the settings change. */
+export interface SettingsFileRole {
+  /** Rewrite the file when it no longer matches the settings: the path written, or null when it matched. */
+  sync(orchDir: OrchDir, settings: OrchSettings): string | null;
+}
+
 export interface DefaultModelRole {
   defaultModelString(): string | undefined;
 }
@@ -278,6 +284,8 @@ export interface AgentAdapter {
   readonly workspaceTrust: WorkspaceTrustRole | null;
   /** Integration install and diagnosis, absent when this harness has no shim. */
   readonly shim: ShimRole | null;
+  /** A file built from orch's settings, absent when this harness has none. */
+  readonly settingsFile: SettingsFileRole | null;
   /** Persisted default model reader, absent when this harness has none. */
   readonly defaultModel: DefaultModelRole | null;
   /** Harness model catalogue, absent when it exposes no catalogue. */

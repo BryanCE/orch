@@ -52,7 +52,7 @@ describe("worker prompt capability composition", () => {
     const header = workerHeaderFor(getAdapter("pi"));
     expect(header).not.toContain("orch lock run");
     expect(header).toContain("Every orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden");
-    expect(header).toContain("Verify your own slice before you report it");
+    expect(header).toContain("Verify the files you edited before you report");
     expect(header.toLowerCase()).toContain("never spawn subagents");
   });
 
@@ -64,9 +64,15 @@ describe("worker prompt capability composition", () => {
     expect(header.toLowerCase()).not.toContain("workspace");
   });
 
+  // A reader that ran a verify command over a repository it never touched reported its
+  // tool's failure as `blocked` in place of its finding.
+  test("a task that edits no file runs no verify command", () => {
+    expect(workerHeaderFor(getAdapter("pi"), { verifyCommands: ["bunx oxlint"] })).toContain("a task that edits no file runs no verify command");
+  });
+
   test("the verify clause names the configured commands, and asks for the repository's own when there are none", () => {
     const named = workerHeaderFor(getAdapter("pi"), { verifyCommands: ["bun check", "bun test"] });
-    expect(named).toContain("Verify with: bun check, bun test.");
+    expect(named).toContain("Verify with, over only the files you edited: bun check, bun test.");
     expect(named).not.toContain("this repository already has");
 
     const unnamed = workerHeaderFor(getAdapter("pi"), { verifyCommands: [] });

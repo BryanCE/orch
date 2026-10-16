@@ -7,7 +7,8 @@ import { Database } from "bun:sqlite";
 import { computeCodeHash } from "../src/daemon/client/process.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
-import { applyFixes } from "../src/doctor/runner.ts";
+import { applyFixes, applyFixesUntilSettled } from "../src/doctor/runner.ts";
+import type { CheckResult } from "../src/types/doctor.ts";
 import { checkStore } from "../src/doctor/store.ts";
 import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
 import { isDrvFsPath } from "../src/doctor/settings-file.ts";
@@ -287,6 +288,18 @@ describe("runDoctor", () => {
     expect(applyFixes(results)).toEqual({ applied: ["Create first fixture", "Create second fixture"] });
     expect(fs.readFileSync(first, "utf8")).toBe("first");
     expect(fs.readFileSync(second, "utf8")).toBe("second");
+  });
+
+  // A settings repair turned on the pi check; its stale bridge was never fixed, and the build exited 1.
+  test("-y applies the fixes a first round uncovers, then stops at a round with nothing new", async () => {
+    const fixed: string[] = [];
+    const fixable = (id: string): CheckResult => ({ id, label: id, status: "fail", detail: "stale", fix: { description: `fix ${id}`, apply: () => { fixed.push(id); } } });
+    // The second round's pi-bridge fix did not take; a third try would loop forever.
+    const rounds: CheckResult[][] = [[fixable("pi-bridge"), fixable("settings")], [fixable("pi-bridge")]];
+    const settled = await applyFixesUntilSettled([fixable("settings")], () => Promise.resolve(rounds.shift() ?? []));
+    expect(fixed).toEqual(["settings", "pi-bridge"]);
+    expect(settled.applied).toEqual(["fix settings", "fix pi-bridge"]);
+    expect(settled.results.map((result) => result.id)).toEqual(["pi-bridge"]);
   });
 
   test("validates configured notifier adapters", async () => {

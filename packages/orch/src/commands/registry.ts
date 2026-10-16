@@ -146,6 +146,8 @@ const QUEUE: readonly CommandSpec[] = [
           { name: "--agent", arity: "one", placeholder: "<target>", help: "Scope the task to one agent." },
           { name: "--pack", arity: "one", placeholder: "<target>", help: "Scope the task to that agent's pack." },
           { ...SPACE, help: "Scope the task to a space." },
+          { ...HARNESS, help: "Only an agent on this harness takes it." },
+          { ...MODEL, placeholder: "<glob>", help: "Only an agent whose model matches this glob (*haiku*) takes it." },
           { name: "--host", arity: "one", placeholder: "<host>", help: "Enqueue on a configured remote host." },
           { name: "--worktree", arity: "none", help: "Run it in a fresh git worktree." },
         ],

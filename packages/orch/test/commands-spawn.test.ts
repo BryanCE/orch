@@ -48,7 +48,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }, servers), ["Bad_Name", "ok-name", "--harness", "pi", "--plexer", "headless", "--prompt", "work"]);
+      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } }, fleet: { min_free_memory_mb: 1 } } }, servers), ["Bad_Name", "ok-name", "--harness", "pi", "--plexer", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -85,7 +85,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }, servers), ["--harness", "pi", "--plexer", "headless", "--prompt", "work"]);
+      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } }, fleet: { min_free_memory_mb: 1 } } }, servers), ["--harness", "pi", "--plexer", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {
@@ -120,7 +120,7 @@ describe("commands/spawn", () => {
     process.exit = (code?: number): never => { throw new Error(`exit ${code ?? 0}`); };
     let refusal: unknown;
     try {
-      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } } }, servers), ["worker", "--detached", "--harness", "pi", "--plexer", "headless", "--prompt", "work"]);
+      await cmdSpawn(await servedServices({ orchDir: dir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } }, fleet: { min_free_memory_mb: 1 } } }, servers), ["worker", "--detached", "--harness", "pi", "--plexer", "headless", "--prompt", "work"]);
     } catch (error: unknown) {
       refusal = error;
     } finally {

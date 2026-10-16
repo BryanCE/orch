@@ -82,7 +82,7 @@ describe("spawn limits", () => {
   test("schema loads global and workspace caps", () => {
     const dir = storeDir();
     writeSettingsFixture(dir, { fleet: { max_agents_total: 12, max_agents_per_space: { wD: 4 } } });
-    expect(fileSettingsManager(dir).current().fleet).toEqual({ max_agents_total: 12, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: { wD: 4 }, worker_peer_tools: false, cross_space: false });
+    expect(fileSettingsManager(dir).current().fleet).toEqual({ max_agents_total: 12, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: { wD: 4 }, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false });
   });
 
   test.each([0, -1, 1.5])("rejects invalid cap %s with file and key", (value) => {
@@ -95,7 +95,7 @@ describe("spawn limits", () => {
   test("omitted fleet caps normalize to defaults", () => {
     const dir = storeDir();
     writeSettingsFixture(dir);
-    expect(fileSettingsManager(dir).current().fleet).toEqual({ max_agents_total: undefined, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false });
+    expect(fileSettingsManager(dir).current().fleet).toEqual({ max_agents_total: undefined, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false });
   });
 
   test("global boundary refusal data counts the whole request", () => {
@@ -142,7 +142,7 @@ describe("spawn limits", () => {
       ["root-child-7", "wD", "root"], ["root-child-8", "wD", "root"],
       ["foreign-1", "wD", "other-root"], ["foreign-2", "wD", "other-root"],
     ]);
-    expect(spawnPolicyError({ fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false } }, "wD", 1, data.views, data.presence, "root")).toBeNull();
+    expect(spawnPolicyError({ fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false } }, "wD", 1, data.views, data.presence, "root")).toBeNull();
   });
 
   test("an agent whose recorded process is gone frees capacity", () => {

@@ -4,7 +4,8 @@ import "../src/adapters/registry.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { agentAdapter } from "../src/commands/selection.ts";
-import { refuseModelChange } from "../src/commands/spawn/models.ts";
+import { admitAgentModel, refuseModelChange } from "../src/commands/spawn/models.ts";
+import type { ModelCatalogue } from "../src/types/adapter.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { testServices } from "./helpers/services.ts";
 
@@ -26,6 +27,25 @@ describe("the harness a control verb drives", () => {
 
   test("refuses a --harness that names another harness", () => {
     expect(() => agentAdapter({ adapterFlag: "pi" }, settings, "claude")).toThrow("this agent runs claude; --harness pi cannot change it");
+  });
+});
+
+describe("a model the agent's harness does not offer", () => {
+  const claudeModels = JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: "models", response: { models: [{ value: "haiku" }] } } });
+  const piModels = "provider model context max-out thinking images\nopenai gpt-5.6-luna 400K 128K yes yes\n";
+  const catalogue: ModelCatalogue = {
+    ...testServices({ orchDir }).models,
+    read: (bin) => (bin === "claude" ? `${claudeModels}\n` : piModels),
+  };
+
+  // A pi agent sent claude/haiku got only pi's model list and no way forward.
+  test("names the harness that offers it and the restart that moves the agent there", () => {
+    expect(() => admitAgentModel(settings, "pi", catalogue, "claude/haiku", "d-paytype"))
+      .toThrow("d-paytype runs pi, and only a restart changes its harness. Run orch restart d-paytype --harness claude --model haiku, then try again.");
+  });
+
+  test("admits a model the agent's own harness offers", () => {
+    expect(admitAgentModel(settings, "pi", catalogue, "openai/gpt-5.6-luna", "d-paytype")).toBe("openai/gpt-5.6-luna");
   });
 });
 

@@ -23,6 +23,7 @@ const settings = {
     max_depth: 1,
     max_agents_total: undefined,
     max_agents_per_space: { main: 6 },
+    min_free_memory_mb: 2048,
     worker_peer_tools: false,
     cross_space: false,
   },

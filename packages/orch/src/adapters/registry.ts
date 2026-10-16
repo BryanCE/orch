@@ -4,6 +4,8 @@ import { ompAdapter } from "./omp.ts";
 import { codexAdapter } from "./codex.ts";
 import { claudeAdapter } from "./claude.ts";
 import type { AgentAdapter } from "../types/adapter.ts";
+import type { OrchDir } from "../types/core.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 const adapters: readonly AgentAdapter[] = [piAdapter, ompAdapter, codexAdapter, claudeAdapter];
 
@@ -24,6 +26,14 @@ export function warmAdapterCatalogues(catalogue: ModelCatalogue): void {
 export async function refreshAdapterCatalogues(catalogue: ModelCatalogue): Promise<void> {
   catalogue.forget();
   await Promise.all(adapters.map((adapter) => adapter.modelWarm ? adapter.modelWarm.warmModels(catalogue) : Promise.resolve()));
+}
+
+/** Rewrite each enabled harness's file that the settings no longer match: the paths written. */
+export function syncAdapterSettingsFiles(orchDir: OrchDir, settings: OrchSettings): string[] {
+  return settings.enabled.adapters.flatMap((id) => {
+    const written = getAdapter(id)?.settingsFile?.sync(orchDir, settings);
+    return typeof written === "string" ? [written] : [];
+  });
 }
 
 /** Find an adapter by id. */

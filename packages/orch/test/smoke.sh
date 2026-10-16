@@ -49,6 +49,7 @@ sanitize() {
     -e 's#\$[0-9]+(\.[0-9]+)?#\$0#g' \
     -e 's#"cost"[[:space:]]*:[[:space:]]*[0-9]+(\.[0-9]+)?#"cost": 0#g' \
     -e "s#${ORCH_FIXTURE//\//\\/}#<ORCH_DIR>#g" \
+    -e 's#memory [0-9]+/([0-9]+) MiB available/floor( LOW: spawns refused)?#memory <MIB>/\1 MiB available/floor#g' \
     -e 's#  [0-9]+[smhd]( |$)#  <AGE>\1#g'
 }
 

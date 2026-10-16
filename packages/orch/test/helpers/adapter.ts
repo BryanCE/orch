@@ -12,6 +12,7 @@ export function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter
     sessionView: null,
     workspaceTrust: null,
     shim: null,
+    settingsFile: null,
     defaultModel: null,
     models: null,
     modelWarm: null,

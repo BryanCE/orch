@@ -169,6 +169,21 @@ export function applyFixes(results: CheckResult[]): { applied: string[] } {
   return { applied };
 }
 
+/** Apply every safe fix, then each fix the last round uncovered: a repaired settings.json turns on
+ *  the checks that need it. Stops at a round with no check it has not already fixed. */
+export async function applyFixesUntilSettled(initial: CheckResult[], rerun: () => Promise<CheckResult[]>): Promise<{ results: CheckResult[]; applied: string[] }> {
+  let results = initial;
+  const fixed = new Set<string>();
+  const applied: string[] = [];
+  for (;;) {
+    const fresh = results.filter((result) => result.fix && !result.fix.destructive && !fixed.has(result.id));
+    if (!fresh.length) return { results, applied };
+    for (const result of fresh) fixed.add(result.id);
+    applied.push(...applyFixes(fresh).applied);
+    results = await rerun();
+  }
+}
+
 /** Redeploy the stale integration shim of the harnesses a command actually touches.
  *  Cheap when current (a live symlink resolves with two stats), so spawn and reload
  *  run it first — a freshly updated orch must never launch agents on the last

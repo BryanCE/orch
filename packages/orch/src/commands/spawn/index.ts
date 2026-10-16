@@ -175,7 +175,7 @@ function createSpawnGroup(
 }
 
 /** Place every prepared agent after the first, which already holds the group's
- *  root. A place that fails to open costs that agent, never the group. */
+ *  root. A place that fails to open costs that agent, never the group. Returns each failure. */
 function placeRemainingAgents(
   logger: Services["logger"],
   backend: Backend,
@@ -183,7 +183,8 @@ function placeRemainingAgents(
   groupId: string,
   workspace: string | undefined,
   firstSplit: TileFirstSplit,
-): void {
+): string[] {
+  const failures: string[] = [];
   for (let index = 1; index < prepared.length; index++) {
     const item = prepared[index]!;
     try {
@@ -196,9 +197,11 @@ function placeRemainingAgents(
       const message = errorMessage(error);
       logger.warn("spawn.place-failed", { name: item.name, error: message });
       process.stdout.write(`warning: could not place ${item.name}: ${message}\n`);
+      failures.push(`could not place ${item.name}: ${message}`);
       item.handle = undefined;
     }
   }
+  return failures;
 }
 
 /** Launch an agent into every place that opened. A launch failure costs that
@@ -207,9 +210,10 @@ async function launchPrepared(
   services: DaemonClient,
   prepared: readonly PreparedAgent[],
   context: { settings: SpawnSettings; backend: Backend; space: string | null; workspace: string | undefined; groupId: string; self: CallerSelf; fleet: FleetSnapshot },
-): Promise<CreatedAgent[]> {
+): Promise<{ created: CreatedAgent[]; failures: string[] }> {
   const { settings, backend, space, workspace, groupId, self, fleet } = context;
   const created: CreatedAgent[] = [];
+  const failures: string[] = [];
   for (const item of prepared) {
     if (item.handle === undefined) continue;
     const plan = planFor(settings, item.name);
@@ -226,9 +230,10 @@ async function launchPrepared(
       const message = errorMessage(error);
       spawnLogger(services.logger, item.key).error("spawn.launch-failed", { name: item.name, error: message });
       process.stdout.write(`warning: could not launch agent ${item.name}: ${message}\n`);
+      failures.push(`could not launch ${item.name}: ${message}`);
     }
   }
-  return created;
+  return { created, failures };
 }
 
 /** Where this spawn lands, and whether it fits there.
@@ -319,11 +324,11 @@ async function spawnIntoNewTab(
   assertTabCapacity(settings, label, 0, names.length);
   const prepared = prepareAgents(services.orchDir, settings, names);
   const { group, workspace } = await seatFleet(services, backend, groupHome, placement, settings, label, prepared);
-  placeRemainingAgents(services.logger, backend, prepared, group.id, workspace, settings.tiling.first_split);
-  const created = await launchPrepared(services, prepared, { settings, backend, space: placement.space, workspace, groupId: group.id, self, fleet });
+  const placeFailures = placeRemainingAgents(services.logger, backend, prepared, group.id, workspace, settings.tiling.first_split);
+  const { created, failures } = await launchPrepared(services, prepared, { settings, backend, space: placement.space, workspace, groupId: group.id, self, fleet });
   if (created.length === 0) {
     try { groupHome.close(group.id); } catch { /* best effort */ }
-    die("all spawns failed");
+    die(`all spawns failed: ${[...placeFailures, ...failures].join("; ")}`);
   }
   await reportSpawnResults(services, self, services.logger, settingsFile, settings, group.label ?? label, created);
 }

@@ -1,7 +1,7 @@
 // Type-only: `keyof typeof` over a runtime binding, erased at compile time, so
 // this creates no runtime edge out of the types layer.
 import type { VOCABULARY } from "../policy/vocabulary.ts";
-import type { CompactionTable, OrchSettings } from "./settings.ts";
+import type { CompactionTable, ExtensionExclusions, OrchSettings } from "./settings.ts";
 
 export interface WallDecision {
   allowed: boolean;
@@ -79,8 +79,8 @@ export const ROLES = ["orch", "slave"] as const satisfies readonly Role[];
 export interface WorkerPolicy {
   /** Load the harness's own discovered extensions alongside orch's bridge. */
   readonly inheritExtensions: boolean;
-  /** Extension names to drop when inheriting (basename, no file suffix). */
-  readonly excludeExtensions: readonly string[];
+  /** Extensions to drop when inheriting, by harness, each in that harness's own naming. */
+  readonly excludeExtensions: ExtensionExclusions;
   /** Keep the harness's built-in tools; false restricts to `allowTools` only. */
   readonly builtinTools: boolean;
   /** The exact tool allowlist, or empty for no restriction. Orch's own tools are always in it. */

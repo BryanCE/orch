@@ -1,7 +1,8 @@
 import type { OrchDir } from "./types/core.ts";
 import { randomUUID } from "node:crypto";
 import { agentById } from "./store/agent-rows.ts";
-import { currentSpace } from "./store/interval-rows.ts";
+import { currentSpace, currentTuning } from "./store/interval-rows.ts";
+import { matchesModelPattern } from "./settings/read.ts";
 import { currentLease, holdsLease, leasesByOrch } from "./store/lease-rows.ts";
 import { errorMessage } from "./util.ts";
 import {
@@ -232,10 +233,19 @@ function agentMayClaim(task: TaskRec, agentId: string): boolean {
     || task.scopeSpaceId !== null;
 }
 
+/** Whether the agent runs the harness and model the task asks for. A task that names neither fits any agent. */
+function fitsAgent(orchDir: OrchDir, task: TaskRec, agentId: string): boolean {
+  const { harness, model } = task.opts;
+  if (harness !== undefined && agentById(orchDir, agentId)?.harnessId !== harness) return false;
+  if (model === undefined) return true;
+  const running = currentTuning(orchDir, agentId)?.model;
+  return running !== undefined && matchesModelPattern([model], running);
+}
+
 /** A claim is the attempt INSERT. A unique-index collision is the expected lost race. */
 export function claimTask(orchDir: OrchDir, id: string, agentId: string, dispatchId: string): boolean {
   const task = requireTask(orchDir, id);
-  if ((task.state !== "queued" && task.state !== "failed") || !agentMayClaim(task, agentId)) return false;
+  if ((task.state !== "queued" && task.state !== "failed") || !agentMayClaim(task, agentId) || !fitsAgent(orchDir, task, agentId)) return false;
   const eligible = openTasksInScope(orchDir, { agentId }).some((row) => row.id === id)
     || (task.state === "failed" && scopeIncludesAgent(orchDir, task, agentId));
   if (!eligible) return false;
@@ -263,7 +273,7 @@ function scopeIncludesAgent(orchDir: OrchDir, task: TaskRec, agentId: string): b
 /** FIFO selection among tasks claimable by this agent under scope and retry policy. */
 export function nextQueuedTask(orchDir: OrchDir, agentId: string, maxRetries: number, knownTasks?: TaskRec[]): TaskRec | undefined {
   return (knownTasks ?? listTasks(orchDir))
-    .filter((task) => (task.state === "queued" || task.state === "failed") && scopeIncludesAgent(orchDir, task, agentId))
+    .filter((task) => (task.state === "queued" || task.state === "failed") && scopeIncludesAgent(orchDir, task, agentId) && fitsAgent(orchDir, task, agentId))
     .filter((task) => task.attempts.length < maxRetries + 1)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
 }

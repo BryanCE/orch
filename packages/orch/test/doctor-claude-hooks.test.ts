@@ -93,6 +93,19 @@ describe("doctor Claude hooks shim check", () => {
     expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ hooks: hooksFor(currentShim) });
   });
 
+  // Each worker would otherwise start its own copy of every plugin's language server.
+  test("turns off each plugin excluded for claude, and drops a plugin no longer excluded", () => {
+    writeSettingsFixture(orchHome, { runtime: "node", workers: { exclude_extensions: { claude: ["tsgo-lsp@local"], pi: ["hud"] } } });
+    const file = settingsPath();
+    writeSettings(file, { enabledPlugins: { "old-lsp@local": false }, hooks: hooksFor(currentShim) });
+    const result = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
+    expect(result).toMatchObject({ status: "warn" });
+    result.fix?.apply();
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ enabledPlugins: { "tsgo-lsp@local": false }, hooks: hooksFor(currentShim) });
+    expect(diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger)).toMatchObject({ status: "ok" });
+    writeSettingsFixture(orchHome, { runtime: "node" });
+  });
+
   test.each(["node", "deno", "bun"] as const)("accepts the %s hook form when %s is the declared runtime", (runtime) => {
     writeSettingsFixture(orchHome, { runtime });
     const file = settingsPath();

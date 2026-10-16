@@ -98,4 +98,35 @@ export function admitLaunchModel(settings: OrchSettings, adapterId: AdapterId, c
   }
 }
 
+/** The model as `harness` names it: `claude/haiku` is `haiku` to claude. */
+function modelOn(harness: AdapterId, model: string): string {
+  return model.startsWith(`${harness}/`) ? model.slice(harness.length + 1) : model;
+}
+
+/** Another enabled harness that admits `model`, and the model in its own vocabulary. */
+function otherHarnessFor(settings: OrchSettings, catalogue: ModelCatalogue, current: AdapterId, model: string): { harness: AdapterId; model: string } | undefined {
+  for (const harness of settings.enabled.adapters) {
+    if (harness === current) continue;
+    try {
+      return { harness, model: admitModel(settings, resolveAdapterOrDie(harness), catalogue, modelOn(harness, model)) };
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+/** Admit a model for a running agent, which keeps its harness. A refusal names the harness that offers it. */
+export function admitAgentModel(settings: OrchSettings, adapterId: AdapterId, catalogue: ModelCatalogue, model: string, name: string): string {
+  try {
+    return admitModel(settings, resolveAdapterOrDie(adapterId), catalogue, model);
+  } catch (error: unknown) {
+    const other = otherHarnessFor(settings, catalogue, adapterId, model);
+    const hint = other === undefined
+      ? ""
+      : ` ${name} runs ${adapterId}, and only a restart changes its harness. Run orch restart ${name} --harness ${other.harness} --model ${other.model}, then try again.`;
+    throw new SpawnRefusalError(`${errorMessage(error)}${hint}`);
+  }
+}
+
 

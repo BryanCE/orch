@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { declaredRuntime } from "../settings/read.ts";
 
 import { presenceEntry } from "../presence/store.ts";
@@ -69,12 +70,23 @@ function parseClaudeModelsOutput(stdout: string): readonly HarnessModel[] {
 /** Claude's token count at which a session compacts its conversation. */
 const COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 
-/** The worker settings file with orch's hooks in place. The file's `env` overrides the process
- *  env, so it never holds the compaction point: each launch sets that for its own model. */
-function withOrchKeys(current: Record<string, unknown>, hooks: Record<string, unknown>): Record<string, unknown> {
-  const { env: _fileEnv, ...rest } = current;
+/** Claude's `enabledPlugins` for a worker: each plugin in `workers.exclude_extensions.claude` turned off. */
+function disabledPlugins(settings: OrchSettings): Record<string, false> {
+  return Object.fromEntries((settings.workers.exclude_extensions.claude ?? []).map((plugin) => [plugin, false]));
+}
+
+/** The worker settings file with orch's hooks and plugin exclusions in place. The file's `env`
+ *  overrides the process env, so it never holds the compaction point: each launch sets that for its own model. */
+function withOrchKeys(current: Record<string, unknown>, hooks: Record<string, unknown>, settings: OrchSettings): Record<string, unknown> {
+  const { env: _fileEnv, enabledPlugins: _orchOwned, ...rest } = current;
   const { [COMPACT_WINDOW_ENV]: _launchOwned, ...env } = isRecord(current.env) ? current.env : {};
-  return Object.keys(env).length ? { ...current, env, hooks } : { ...rest, hooks };
+  const enabledPlugins = disabledPlugins(settings);
+  return {
+    ...rest,
+    ...(Object.keys(env).length ? { env } : {}),
+    ...(Object.keys(enabledPlugins).length ? { enabledPlugins } : {}),
+    hooks,
+  };
 }
 
 /** orch's hook entries, one per Claude hook event. */
@@ -122,13 +134,31 @@ function settingsArgv(opts: SpawnOpts): string[] {
   return opts.orchDir ? ["--settings", claudeSettingsPath(opts.orchDir)] : [];
 }
 
+/** The worker settings file as orch writes it: the user's keys beside orch's values. A file orch cannot parse throws. */
+function expectedWorkerSettings(settingsPath: string, pkgRoot: string, orchDir: OrchDir, settings: OrchSettings): { current: Record<string, unknown>; expected: Record<string, unknown> } {
+  const current = readWorkerSettings(settingsPath);
+  if (typeof current === "string") throw new Error(`${current}; fix the JSON by hand, then run orch setup`);
+  return { current, expected: withOrchKeys(current, claudeHooks(pkgRoot, orchDir, settings), settings) };
+}
+
+function writeWorkerSettings(settingsPath: string, contents: Record<string, unknown>): void {
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, `${JSON.stringify(contents, null, 2)}\n`);
+}
+
+/** Rewrite the worker settings file when a settings change left it behind: the path written, or null. */
+function syncWorkerSettings(orchDir: OrchDir, settings: OrchSettings): string | null {
+  const settingsPath = claudeSettingsPath(orchDir);
+  const { current, expected } = expectedWorkerSettings(settingsPath, packageRoot(), orchDir, settings);
+  if (isDeepStrictEqual(current, expected)) return null;
+  writeWorkerSettings(settingsPath, expected);
+  return settingsPath;
+}
+
 /** Write orch's values into the worker settings file, keeping every key the user wrote beside them. */
 function installClaudeHooks(orchDir: OrchDir, settings: OrchSettings, logger: Logger, pkgRoot: string): void {
   const settingsPath = claudeSettingsPath(orchDir);
-  const current = readWorkerSettings(settingsPath);
-  if (typeof current === "string") throw new Error(`${current}; fix the JSON by hand, then run orch setup`);
-  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, `${JSON.stringify(withOrchKeys(current, claudeHooks(pkgRoot, orchDir, settings)), null, 2)}\n`);
+  writeWorkerSettings(settingsPath, expectedWorkerSettings(settingsPath, pkgRoot, orchDir, settings).expected);
   process.stdout.write(`Claude Code hooks: wrote ${settingsPath}\n`);
   const shim = claudeHookShimPath(pkgRoot);
   if (!fs.existsSync(shim)) {
@@ -156,13 +186,13 @@ export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: Orc
   }
   let expected: Record<string, unknown>;
   try {
-    expected = withOrchKeys(fileSettings, claudeHooks(root, orchDir, settings));
+    expected = withOrchKeys(fileSettings, claudeHooks(root, orchDir, settings), settings);
   } catch {
     return { id, label, status: "warn", detail: "cannot determine the declared runtime; fix: run orch setup" };
   }
-  return JSON.stringify(fileSettings) === JSON.stringify(expected)
+  return isDeepStrictEqual(fileSettings, expected)
     ? { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` }
-    : rewrite(`missing or stale orch Claude hooks, or a compaction point the launch owns, in ${settingsPath}`);
+    : rewrite(`missing or stale orch Claude hooks, plugin exclusions out of step with workers.exclude_extensions.claude, or a compaction point the launch owns, in ${settingsPath}`);
 }
 
 /**
@@ -190,6 +220,8 @@ class ClaudeAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = shimRole(this);
+  /** The worker settings file holds the plugin exclusions and hooks orch derives from its settings. */
+  readonly settingsFile = { sync: (orchDir: OrchDir, settings: OrchSettings): string | null => syncWorkerSettings(orchDir, settings) };
   readonly defaultModel = null;
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseClaudeModelsOutput(catalogue.read("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST) };

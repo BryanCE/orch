@@ -78,7 +78,7 @@ describe("loadSettings", () => {
       defaults: { adapter: "claude", backend: "headless", models: { claude: "sonnet" }, worktree: true },
       fleet: { max_agents_total: 12, max_agents_per_space: { wD: 4 }, worker_peer_tools: true, cross_space: true, max_depth: 2 },
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
-      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [] },
+      workers: { inherit_extensions: true, exclude_extensions: {}, builtin_tools: true, allow_tools: [], verify_commands: [] },
       agents: { writable_settings: ["workers.verify_commands"] },
       queue: { max_retries: 3, dispatch_concurrency: 6 },
       retention: { queue_days: 1, events_days: 2, runs_days: 3, outbox_days: 4, control_outcomes_days: 5, ended_agents_days: 6, logs_days: 7 },
@@ -105,10 +105,10 @@ describe("loadSettings", () => {
         thinking_by_harness: {},
         worktree: true,
       },
-      fleet: { max_agents_total: 12, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 2, max_agents_per_space: { wD: 4 }, worker_peer_tools: true, cross_space: true },
+      fleet: { max_agents_total: 12, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 2, max_agents_per_space: { wD: 4 }, min_free_memory_mb: 2048, worker_peer_tools: true, cross_space: true },
       mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt" },
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
-      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: {} },
+      workers: { inherit_extensions: true, exclude_extensions: {}, builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: {} },
       agents: { writable_settings: ["workers.verify_commands"] },
       queue: { max_retries: 3, dispatch_concurrency: 6 },
       retention: { queue_days: 1, events_days: 2, runs_days: 3, outbox_days: 4, control_outcomes_days: 5, ended_agents_days: 6, logs_days: 7, sweep_interval_ms: 3_600_000 },
@@ -216,10 +216,10 @@ describe("loadSettings", () => {
       runtime: "node",
       enabled: { adapters: [], backends: [] },
       defaults: { models: {}, thinking: "medium", thinking_by_harness: {}, worktree: false },
-      fleet: { max_agents_total: undefined, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
+      fleet: { max_agents_total: undefined, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false },
       mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt" },
       models: { allowed: {}, preferred: {} },
-      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: {} },
+      workers: { inherit_extensions: true, exclude_extensions: {}, builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: {} },
       agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
       queue: { max_retries: 1, dispatch_concurrency: 4 },
       retention: { queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, ended_agents_days: 90, logs_days: 7, sweep_interval_ms: 3_600_000 },
@@ -261,7 +261,7 @@ describe("loadSettings", () => {
     expect(fileSettingsManager(directory).current()).toMatchObject({
       defaults: { models: {}, worktree: true },
       fleet: { max_depth: 3, max_agents_per_pack: 10, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false },
-      workers: { inherit_extensions: true, exclude_extensions: [], builtin_tools: true, allow_tools: ["read"], verify_commands: [] },
+      workers: { inherit_extensions: true, exclude_extensions: {}, builtin_tools: true, allow_tools: ["read"], verify_commands: [] },
       retention: { logs_days: 2, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, ended_agents_days: 90, sweep_interval_ms: 3_600_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       timeouts: { dispatch_ack_ms: 10_000, wait_ms: 1234, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, reset_ready_ms: 75_000, reset_poll_ms: 250 },
@@ -453,7 +453,7 @@ describe("writeSettingsFullTree", () => {
     writeSettingsFullTree(fileSettingsManager(directory));
 
     const raw = readSettingsRecord(directory);
-    expect(raw.fleet).toEqual({ max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, worker_peer_tools: false, cross_space: false });
+    expect(raw.fleet).toEqual({ max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false });
     expect(Object.hasOwn(isRecord(raw.fleet) ? raw.fleet : {}, "max_agents_total")).toBe(false);
     expect(fileSettingsManager(directory).current().fleet.max_agents_total).toBeUndefined();
   });

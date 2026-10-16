@@ -17,7 +17,7 @@ import { callerCredential } from "../identity/credential.ts";
 import { agentAdapter, agentFlags, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
 import { clearSession } from "./lifecycle/reset.ts";
-import { admitLaunchModel, pinModels, refuseModelChange } from "./spawn/models.ts";
+import { admitAgentModel, pinModels, refuseModelChange } from "./spawn/models.ts";
 import { takesModel } from "../adapters/adapter.ts";
 import { contextReference, readPromptFile } from "./prompt-file.ts";
 import { getBackend } from "../backends/registry.ts";
@@ -256,9 +256,9 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
   const tuning = resolveTuningOrDie({ modelFlag: modelArg }, services.settings.current(), adapter.id, null);
   // Admitted here, before the daemon sees it, so a short name is expanded once and the
   // spec this command reports back is the one the agent was actually pinned to.
-  const spec = modelSpec(admitLaunchModel(services.settings.current(), adapter.id, services.models, tuning.model), tuning.thinking);
-  const result = await setAgentModel(services, ent.key, spec, gov);
   const label = targetName(resolved);
+  const spec = modelSpec(admitAgentModel(services.settings.current(), adapter.id, services.models, tuning.model, label), tuning.thinking);
+  const result = await setAgentModel(services, ent.key, spec, gov);
   if (json) process.stdout.write(JSON.stringify({ target: handle, name: label, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`Kept ${label} on ${result.now}; no change.\n`);
   else process.stdout.write(`Changed ${label}'s model: ${result.old ?? "(unknown)"} ${ARROW} ${result.now}.\n`);
@@ -357,11 +357,11 @@ async function renameBeforeDispatch(services: Services, dispatchSettings: Dispat
 
 /** The tuning this dispatch runs on: the one the agent holds unless the dispatch names
  *  another. Refuses before any side effect, so a refused model leaves no rename behind. */
-function admitDispatchTuning(services: Services, dispatchSettings: DispatchSettings, flags: DispatchFlags): Tuning {
+function admitDispatchTuning(services: Services, dispatchSettings: DispatchSettings, flags: DispatchFlags, name: string): Tuning {
   const settings = services.settings.current();
   const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
   const tuning = resolveTuningOrDie(flags, settings, adapter.id, dispatchSettings.view?.tuning ?? NO_TUNING);
-  const model = admitLaunchModel(settings, adapter.id, services.models, tuning.model);
+  const model = admitAgentModel(settings, adapter.id, services.models, tuning.model, name);
   refuseModelChange(adapter, dispatchSettings.view?.tuning.model, model);
   return { model, thinking: tuning.thinking };
 }
@@ -387,7 +387,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const dispatchSettings = await resolveDispatchSettings(services, self, invocation, flags, gov);
   const currentName = targetName({ view: dispatchSettings.view, entity: dispatchSettings.ent });
   const effectiveName = flags.rename ?? currentName;
-  const tuning = admitDispatchTuning(services, dispatchSettings, flags);
+  const tuning = admitDispatchTuning(services, dispatchSettings, flags, currentName);
   if (flags.rename !== undefined) await renameBeforeDispatch(services, dispatchSettings, currentName, flags.rename);
   // Address the daemon by the one canonical identity, never the handle: a second
   // registry row keyed by handle forks the agent and makes every later control

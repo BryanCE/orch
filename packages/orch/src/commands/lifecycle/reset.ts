@@ -1,7 +1,7 @@
 import { modelSpec } from "../../policy/thinking.ts";
 import { NO_TUNING } from "../../policy/tuning.ts";
 import type { Tuning } from "../../policy/tuning.ts";
-import { admitLaunchModel, pinModels, refuseModelChange } from "../spawn/models.ts";
+import { admitAgentModel, pinModels, refuseModelChange } from "../spawn/models.ts";
 import { agentAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
 import { takesModel } from "../../adapters/adapter.ts";
 import { readRpc, writeRpc } from "../daemon.ts";
@@ -15,6 +15,11 @@ import type { Services } from "../../types/services.ts";
 
 interface ClearedAgent { key: string; handle: string; name: string }
 
+/** The next step for an agent whose turn will not end on its own. */
+function abortHint(name: string): string {
+  return `Run orch abort ${name} to stop its turn, then try again, or orch close ${name} and spawn a fresh agent.`;
+}
+
 /** Clear one agent's session and wait for it to come back ready. */
 export async function clearSession(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string, steal: boolean): Promise<ClearedAgent> {
   const self = await whoAmI(services);
@@ -24,6 +29,8 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
   const ent = resolved.entity;
   const name = targetName(resolved);
   const { status } = await readRpc(services, "agent-status", { target: ent.key });
+  // A session mid-turn queues the clear behind its turn, so the wait below would only time out.
+  if (status?.state === "working") die(`${name} is mid-turn (working), so its session cannot be cleared. ${abortHint(name)}`);
   const beforeUpdated = status?.updatedAt;
   const sentAt = Date.now();
   // The daemon owns every lifecycle mechanism: a console gets the adapter's
@@ -31,7 +38,10 @@ export async function clearSession(services: Pick<Services, "orchDir" | "setting
   await writeRpc(services, "reclaim", { target: ent.key });
   await writeRpc(services, "lifecycle", { target: ent.key, verb: "reset" });
   const readyMs = services.settings.current().timeouts.reset_ready_ms;
-  if (!await awaitIdleAfter(services, ent.key, beforeUpdated, sentAt)) die(`Reset ${name} failed: it did not become ready within ${Math.round(readyMs / 1000)}s.`);
+  if (!await awaitIdleAfter(services, ent.key, beforeUpdated, sentAt)) {
+    const { status: last } = await readRpc(services, "agent-status", { target: ent.key });
+    die(`Reset ${name} failed: it did not become ready within ${Math.round(readyMs / 1000)}s; its last state is ${last?.state ?? "unknown"}. ${abortHint(name)}`);
+  }
   return { key: ent.key, handle: label, name };
 }
 
@@ -50,7 +60,7 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   const plans = owned.map(({ target, tuning: pinned, harness }) => {
     const adapter = resolveAdapterOrDie(agentAdapter(flags, settings, harness));
     const tuning = resolveTuningOrDie(flags, settings, adapter.id, pinned);
-    const model = admitLaunchModel(settings, adapter.id, services.models, tuning.model);
+    const model = admitAgentModel(settings, adapter.id, services.models, tuning.model, target);
     refuseModelChange(adapter, pinned.model, model);
     return { target, pinnable: takesModel(adapter), tuning: { ...tuning, model } };
   });

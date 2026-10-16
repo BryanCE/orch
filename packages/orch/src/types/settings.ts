@@ -36,16 +36,18 @@ export type NotificationPosition = (typeof NOTIFICATION_POSITIONS)[number];
 /** Compaction point in tokens, by harness, then by that harness's model spec. A pair with no
  *  entry launches on the harness's own default. */
 export type CompactionTable = Partial<Record<AdapterId, Readonly<Record<string, number>>>>;
+/** Extensions a worker does not load, by harness. */
+export type ExtensionExclusions = Partial<Record<AdapterId, string[]>>;
 
 /** Settings normalized for consumers: every section present and defaults applied. */
 export interface OrchSettings {
   runtime: OrchRuntime;
   enabled: { adapters: AdapterId[]; backends: BackendId[] };
   defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking: ThinkingLevel; thinking_by_harness: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
-  fleet: { max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; worker_peer_tools: boolean; cross_space: boolean };
+  fleet: { max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; min_free_memory_mb: number; worker_peer_tools: boolean; cross_space: boolean };
   mail: { to_spawner: MailDelivery; to_worker: MailDelivery };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
-  workers: { inherit_extensions: boolean; exclude_extensions: string[]; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[]; compact_at_tokens: CompactionTable };
+  workers: { inherit_extensions: boolean; exclude_extensions: ExtensionExclusions; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[]; compact_at_tokens: CompactionTable };
   agents: { writable_settings: string[] };
   queue: { max_retries: number; dispatch_concurrency: number };
   retention: { ended_agents_days: number | null; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };

@@ -18,7 +18,7 @@ import {
 } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { acquireLease, adoptLease, currentLease } from "../src/store/lease-rows.ts";
-import { setSpace } from "../src/store/interval-rows.ts";
+import { setSpace, setTuning } from "../src/store/interval-rows.ts";
 
 import { isRecord } from "../src/util.ts";
 import { openTasksInScope, taskState } from "../src/store/task-rows.ts";
@@ -184,6 +184,23 @@ describe("queue facade on tasks and attempts", () => {
     expect(nextQueuedTask(dir, "b1", 1)).toBeUndefined();
     expect(claimTask(dir, task.id, "b1", "foreign")).toBe(false);
     expect(claimTask(dir, task.id, "a1", "adopted")).toBe(true);
+  });
+
+  // One queue feeds a mixed fleet: a task that names a harness or a model goes only to an agent that runs it.
+  test("a task that names a harness or a model goes only to an agent that runs it", () => {
+    const dir = fixture();
+    setTuning(dir, "a1", 2, { model: "anthropic/claude-haiku-4-5" });
+    setTuning(dir, "a2", 2, { model: "openai/gpt-5.6-luna" });
+    const haiku = addTask(dir, "haiku work", { model: "*haiku*" }, "a1");
+    expect(nextQueuedTask(dir, "a2", 1)).toBeUndefined();
+    expect(claimTask(dir, haiku.id, "a2", "d1")).toBe(false);
+    expect(nextQueuedTask(dir, "a1", 1)?.id).toBe(haiku.id);
+
+    const claude = addTask(dir, "claude work", { harness: "claude" }, "a1");
+    expect(claimTask(dir, claude.id, "a2", "d2")).toBe(false);
+    orm(dir).run(sql`INSERT INTO harnesses(id,name) VALUES ('claude','Claude')`);
+    orm(dir).run(sql`UPDATE agents SET harness_id='claude' WHERE id='a2'`);
+    expect(claimTask(dir, claude.id, "a2", "d3")).toBe(true);
   });
 
   test("a claim is an insert and a lost race returns false", () => {

@@ -9,7 +9,7 @@ import { packageRoot, reinstallCommand } from "../util.ts";
 import { agentStateFrom } from "../agent-state.ts";
 import { NO_COMPACTION, type AgentState } from "./adapter.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AdapterCommand, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
+import type { AdapterCommand, AdapterId, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
@@ -70,13 +70,14 @@ function installedUserExtensions(directory: string): { name: string; file: strin
  * discovery and naming every survivor explicitly.
  */
 export function bridgeExtensionArgv(
+  harness: AdapterId,
   extensionDir: string,
   extension: ExtensionName,
   policy: WorkerPolicy | undefined,
 ): string[] {
   const argv = ["--no-extensions", "-e", path.join(extensionDir, `${extension}.js`)];
   if (!policy?.inheritExtensions) return argv;
-  const excluded = new Set(policy.excludeExtensions);
+  const excluded = new Set(policy.excludeExtensions[harness]);
   for (const installed of installedUserExtensions(extensionDir)) {
     if (!excluded.has(installed.name)) argv.push("-e", installed.file);
   }
@@ -89,7 +90,7 @@ export function bridgeExtensionArgv(
  * argument. It is never a gate — the launch model was ruled on long before a command is built,
  * and a model outside the quicklist stays launchable.
  */
-export function modelSelectionArgv(
+function modelSelectionArgv(
   flags: { model: string; cycle: string },
   opts: SpawnOpts,
   form: QuicklistForm,
@@ -327,7 +328,7 @@ function piSessionView(input: SessionViewInput): SessionView | undefined {
 function piLaunchArgv(opts: SpawnOpts, worker: boolean, prompt: string | undefined, form: QuicklistForm, thinking?: ThinkingStrategy | null): string[] {
   const argv: string[] = ["pi"];
   if (worker) argv.push(...piToolArgv(opts), ...piExtensionArgv(opts));
-  argv.push(...piModelArgv(opts, form));
+  argv.push(...bridgeModelArgv(opts, form));
   if (thinking && opts.thinking !== undefined) argv.push(...thinking.launchArgs(opts.thinking));
   if (prompt !== undefined) argv.push(prompt);
   return argv;
@@ -347,6 +348,7 @@ export abstract class PiBridgeAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
   readonly hooks = null;
+  readonly settingsFile = null;
   readonly commandGate = true;
 
   /** The presence state the bridge last wrote for this agent. */
@@ -460,7 +462,7 @@ export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
 
 /** pi's `-e` tokens for one worker. */
 function piExtensionArgv(opts: SpawnOpts): string[] {
-  return bridgeExtensionArgv(piExtensionDir(), PI_EXTENSION, opts.workers);
+  return bridgeExtensionArgv("pi", piExtensionDir(), PI_EXTENSION, opts.workers);
 }
 
 /** pi's tool-gating tokens for one worker; pi spells the built-ins switch --no-builtin-tools. */
@@ -468,8 +470,8 @@ function piToolArgv(opts: SpawnOpts): string[] {
   return toolPolicyArgv("--no-builtin-tools", opts.workers, opts.tools);
 }
 
-/** pi's model tokens: `--model` selects the session's model, `--models` fills its Ctrl+P cycle. */
-function piModelArgv(opts: SpawnOpts, form: QuicklistForm): string[] {
+/** A pi-shaped CLI's model tokens: `--model` selects the session's model, `--models` fills its Ctrl+P cycle. */
+export function bridgeModelArgv(opts: SpawnOpts, form: QuicklistForm): string[] {
   return modelSelectionArgv({ model: "--model", cycle: "--models" }, opts, form);
 }
 

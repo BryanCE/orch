@@ -1,9 +1,9 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { isRecord } from "../util.ts";
-import { bridgeExtensionArgv, diagnoseExtensionLink, installExtensionLink, modelSelectionArgv, PiBridgeAdapter, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
+import { bridgeExtensionArgv, bridgeModelArgv, diagnoseExtensionLink, installExtensionLink, PiBridgeAdapter, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
 import { HARNESS_SESSION_ENV } from "./session-env.ts";
-import type { AgentAdapter, HarnessModel, ModelCatalogue, QuicklistForm, ShimInstallOpts, SpawnOpts } from "../types/adapter.ts";
+import type { AgentAdapter, HarnessModel, ModelCatalogue, ShimInstallOpts, SpawnOpts } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { ExtensionName, Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -49,18 +49,13 @@ function parseOmpModelsOutput(stdout: string): readonly HarnessModel[] {
 
 /** omp's `-e` tokens for one worker. */
 function ompExtensionArgv(opts: SpawnOpts): string[] {
-  return bridgeExtensionArgv(OMP_EXTENSION_DIR, OMP_EXTENSION, opts.workers);
+  return bridgeExtensionArgv("omp", OMP_EXTENSION_DIR, OMP_EXTENSION, opts.workers);
 }
 
 /** omp's tool-gating tokens for one worker. omp's `--no-tools` drops built-in tools
  *  and keeps extension tools; it has no `--no-builtin-tools`. */
 function ompToolArgv(opts: SpawnOpts): string[] {
   return toolPolicyArgv("--no-tools", opts.workers, opts.tools);
-}
-
-/** omp's model tokens: `--model` selects the session's model, `--models` fills its Ctrl+P cycle. */
-function ompModelArgv(opts: SpawnOpts, form: QuicklistForm): string[] {
-  return modelSelectionArgv({ model: "--model", cycle: "--models" }, opts, form);
 }
 
 /** Adapter for omp (@oh-my-pi/pi-coding-agent), driven through orch's omp-bridge extension. */
@@ -84,27 +79,27 @@ class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
 
   /** Start omp directly in an interactive backend session. */
   interactiveCmd(opts: SpawnOpts): string {
-    return ["omp", ...ompModelArgv(opts, "shell")].join(" ");
+    return ["omp", ...bridgeModelArgv(opts, "shell")].join(" ");
   }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return ["omp", ...ompModelArgv(opts, "argv")];
+    return ["omp", ...bridgeModelArgv(opts, "argv")];
   }
 
   /** Start omp as an orch worker: orch's bridge always, plus whatever extensions
    * and tools the worker policy admits. */
   restrictedInteractiveCmd(opts: SpawnOpts): string {
-    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...ompModelArgv(opts, "shell")].join(" ");
+    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...bridgeModelArgv(opts, "shell")].join(" ");
   }
 
   /** omp's single binary serves headless runs too — no launcher wrapper. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return ["omp", ...ompModelArgv(opts, "argv"), prompt];
+    return ["omp", ...bridgeModelArgv(opts, "argv"), prompt];
   }
 
   /** Start omp headless under the same worker policy as an interactive omp worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...ompModelArgv(opts, "argv"), prompt];
+    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...bridgeModelArgv(opts, "argv"), prompt];
   }
 
   /** Verify the extension link and bundle written by installShim. */

@@ -4,6 +4,8 @@ import { rpcCall } from "../daemon/client/rpc.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
 import { createAgentWorktree } from "../worktree.ts";
+import { isAdapterId } from "../adapters/adapter.ts";
+import { ADAPTER_IDS } from "../types/adapter.ts";
 import { askDaemon, callDaemon } from "./daemon.ts";
 import { resolveEntity } from "./resolve.ts";
 import { callerId } from "./self.ts";
@@ -96,6 +98,14 @@ function worktreeOptions(wanted: boolean): Record<string, unknown> {
   return { worktree: true, cwd: worktreePath, branch: `orch/${name}` };
 }
 
+/** The harness and model an agent must run to take the task, present ones only. */
+function takerOptions(flags: ParsedFlags): Record<string, string> {
+  const harness = flags.value("--harness");
+  const model = flags.value("--model");
+  if (harness !== undefined && !isAdapterId(harness)) die(`--harness ${harness} is not a harness; use one of ${ADAPTER_IDS.join(", ")}`);
+  return { ...(harness === undefined ? {} : { harness }), ...(model === undefined ? {} : { model }) };
+}
+
 async function queueAdd(services: DaemonClient, invocation: Invocation, args: string[]): Promise<void> {
   const { flags, positional } = invocation;
   const text = positional.join(" ");
@@ -107,7 +117,8 @@ async function queueAdd(services: DaemonClient, invocation: Invocation, args: st
   }
   const enqueuedBy = await callerId(services);
   const scope = await scopeFromFlags(services, scopeFlags(flags));
-  const { task } = await rpcCall(services.orchDir, "enqueue", { enqueuedBy, text, opts: worktreeOptions(flags.has("--worktree")), scope });
+  const opts = { ...worktreeOptions(flags.has("--worktree")), ...takerOptions(flags) };
+  const { task } = await rpcCall(services.orchDir, "enqueue", { enqueuedBy, text, opts, scope });
   writeQueueTask(task, flags.has("--json"), `Added task ${task.id}.`);
 }
 

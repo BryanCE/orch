@@ -10,7 +10,7 @@ import type { WorkerPolicy } from "../src/types/policy.ts";
 
 const workers: WorkerPolicy = {
   inheritExtensions: true,
-  excludeExtensions: [],
+  excludeExtensions: {},
   builtinTools: true,
   allowTools: [],
   compactAtTokens: { claude: { haiku: 100_000 }, codex: { "gpt-5.5": 150_000 }, pi: { "anthropic/claude-haiku-4-5": 90_000 } },

@@ -2,7 +2,7 @@
 // the caller's terminal; the rows that record the answer are written here.
 import { hostOs } from "../../../host.ts";
 import { ensureHost } from "../../../store/agent-rows.ts";
-import { approveGrantRequest, denyGrantRequest, pendingGrantRequest, pendingGrantRequests, recordGrantRequest, spendGrant } from "../../../store/grant-rows.ts";
+import { approveGrantRequest, denyGrantRequest, grantIsApproved, pendingGrantRequest, pendingGrantRequests, recordGrantRequest } from "../../../store/grant-rows.ts";
 import type { OrchDir } from "../../../types/core.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 
@@ -22,9 +22,10 @@ export function decideGrant(directory: OrchDir, params: ParamsOf<"grant">): Resu
   return { id: request.id, decision: "approve", expiresAt: approveGrantRequest(directory, request.id, params.host) };
 }
 
-/** Spend an approval of exactly this action, or record the request a human quotes back. */
+/** Whether an unspent approval of exactly this action exists, or record the
+ *  request a human quotes back. Nothing is spent here: `record-home` spends the
+ *  approval once the home has opened. */
 export function admitHome(directory: OrchDir, params: ParamsOf<"admit-home">): ResultOf<"admit-home"> {
-  const actor = params.actor ?? null;
-  if (spendGrant(directory, params.action, actor)) return { granted: true };
-  return { granted: false, requestId: recordGrantRequest(directory, params.action, actor).id };
+  if (grantIsApproved(directory, params.action)) return { granted: true };
+  return { granted: false, requestId: recordGrantRequest(directory, params.action, params.actor ?? null).id };
 }

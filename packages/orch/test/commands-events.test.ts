@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,6 +17,8 @@ import type { AgentState } from "../src/agent-state.ts";
 function transition(oldState: AgentState, newState: Exclude<AgentState, "asking">): NotifyEvent {
   return { type: "transition", key: "agent", agent: "pi", tab: null, model: null, oldState, newState, ts: "now" };
 }
+
+const SUMMARY_CHARS = SETTINGS_DEFAULTS.monitor.summary_chars;
 
 describe("commands/events", () => {
   test("owned renderers and tool help do not expose the retired workspace term", () => {
@@ -128,17 +131,17 @@ describe("commands/events", () => {
   });
   test("renders opaque plexer coordinates without relabeling them as spaces", () => {
     const event: NotifyEvent = { type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: "finished", ts: "now" };
-    const json = renderEvent(event, true, 4);
+    const json = renderEvent(event, true, 4, SUMMARY_CHARS);
     const parsed: unknown = JSON.parse(json);
     expect(parsed).toMatchObject({ space: "wF", streamSeq: 4 });
     expect(parsed).not.toHaveProperty("workspace");
     expect(parsed).not.toHaveProperty("spaceName");
     expect(json).not.toContain("Friendly name");
-    const text = renderEvent(event, false, 4);
+    const text = renderEvent(event, false, 4, SUMMARY_CHARS);
     expect(text).toContain("[wF]");
     expect(text).not.toContain("Friendly name");
 
-    const absent = renderEvent({ ...event, space: undefined }, true, 5);
+    const absent = renderEvent({ ...event, space: undefined }, true, 5, SUMMARY_CHARS);
     expect(absent).not.toContain("space");
     expect(absent).not.toContain("workspace");
     expect(absent).not.toContain("local");
@@ -148,22 +151,33 @@ describe("commands/events", () => {
   // transition read like a status row and buried what the line exists to say.
   test("message events render the full delivered mail text once", () => {
     const mail = "[from worker] hello orchestrator, this report runs well past the sixty characters a notification title keeps";
-    const line = renderEvent({ type: "message", key: "agent", space: "wF", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "dispatch-message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4);
+    const line = renderEvent({ type: "message", key: "agent", space: "wF", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "dispatch-message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4, SUMMARY_CHARS);
     expect(line).toBe(`MESSAGE ${spaceTag("wF", true)} ${mail}`);
     expect(line).not.toContain("pi:");
     expect(line.split("[from worker").length).toBe(2);
     expect(line).not.toContain("message→message");
   });
 
+  // A worker's report is the line's point: a monitor cut at a notification's title width
+  // read "0 passed, 7 failed beca" and sent the orchestrator to the diff to learn why.
+  test("a done line keeps the report up to monitor.summary_chars, then marks the cut", () => {
+    const report = `pending: src/a.ts, src/b.ts. 0 passed, 7 failed because src/c.ts from another task does not compile yet. ${"x".repeat(SUMMARY_CHARS)}`;
+    const event: NotifyEvent = { type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: report, ts: "now" };
+    const line = renderEvent(event, false, 4, SUMMARY_CHARS);
+    expect(line).toContain("7 failed because src/c.ts from another task does not compile yet.");
+    expect(line).toContain(`${report.slice(0, SUMMARY_CHARS - 3)}...`);
+    expect(line).not.toContain(report.slice(0, SUMMARY_CHARS - 2));
+  });
+
   test("an agent in no space gets no empty bracket on its line", () => {
     const event: NotifyEvent = { type: "transition", key: "agent", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now" };
-    expect(renderEvent(event, false, 4)).not.toContain("[]");
-    expect(renderEvent({ ...event, space: "" }, false, 4)).not.toContain("[]");
+    expect(renderEvent(event, false, 4, SUMMARY_CHARS)).not.toContain("[]");
+    expect(renderEvent({ ...event, space: "" }, false, 4, SUMMARY_CHARS)).not.toContain("[]");
   });
 
   test("an event line says what happened, never the fleet's books", () => {
     const event: NotifyEvent = { type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now" };
-    const line = renderEvent(event, false, 4);
+    const line = renderEvent(event, false, 4, SUMMARY_CHARS);
     expect(line).toEndWith("working→done");
     expect(line).not.toContain("pack");
     expect(line).not.toContain("$");

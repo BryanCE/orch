@@ -28,6 +28,9 @@ export const MAIL_DELIVERIES = ["prompt", "prompt-unless-focused", "events"] as 
 
 export type MailDelivery = (typeof MAIL_DELIVERIES)[number];
 
+/** How a desktop or plexer notification is shown: its corner, and how much of the report its title keeps. */
+export interface NotificationSettings { position: NotificationPosition; title_chars: number }
+
 /** The screen corner a plexer shows a notification in. */
 export const NOTIFICATION_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
 
@@ -53,11 +56,11 @@ export interface OrchSettings {
   retention: { ended_agents_days: number | null; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };
   lock: { retries: number; interval_ms: number; stale_ms: number };
   questions?: { renag_ms: number; renag_limit: number };
-  monitor: { on: readonly NotifyState[] };
+  monitor: { on: readonly NotifyState[]; summary_chars: number };
   logging: { level: LogLevel; slow_tool_ms: number; stall_ms: number; stall_poll_ms: number };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number; reset_ready_ms: number; reset_poll_ms: number; daemon_probe_ms: number };
   notify: NotifyEntry[];
-  notification: { position: NotificationPosition };
+  notification: NotificationSettings;
   locked_commands: { commands: string[]; applies_to: readonly Role[] };
   gated_commands: string[];
   denied_commands: { commands: string[]; applies_to: readonly Role[] };

@@ -283,7 +283,7 @@ async function seatFleet(services: DaemonClient, backend: Backend, groupHome: Gr
   if (placement.homeToOpen === null) {
     return { group: createSpawnGroup(groupHome, placement.workspace, label, prepared), workspace: placement.workspace };
   }
-  const home = await openFleetHome({ services, backend, subject: placement.homeToOpen, cwd: settings.cwd, env: prepared[0]!.env });
+  const home = await openFleetHome({ services, backend, home: placement.homeToOpen, cwd: settings.cwd, env: prepared[0]!.env });
   return { group: seatFleetInHome(backend, groupHome, home, label, prepared), workspace: home.coordinate };
 }
 

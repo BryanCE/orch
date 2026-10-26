@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { transitionEventFromRow } from "../src/daemon/server/status-events.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { orm } from "../src/store/connection.ts";
@@ -100,28 +101,28 @@ describe("notification and presence event formatting", () => {
   });
 
   test("nameless events use an identity-derived agent label", () => {
-    const after = notificationText(event({ agent: null }), { colorize: false }).title;
+    const after = notificationText(event({ agent: null }), { colorize: false, summaryChars: SETTINGS_DEFAULTS.notification.title_chars }).title;
     expect(after).toContain(EVENT_KEY);
     expect(after).toContain(`w6/agent-${EVENT_KEY}`);
     expect(after).toContain("[w6]");
   });
 
   test("named events prefer the human name over the harness id", () => {
-    expect(notificationText(event({ agent: "pi", name: "ident-hello-1" }), { colorize: false }).title)
+    expect(notificationText(event({ agent: "pi", name: "ident-hello-1" }), { colorize: false, summaryChars: SETTINGS_DEFAULTS.notification.title_chars }).title)
       .toBe("DONE [w6] ident-hello-1: build the thing");
   });
 
   test("notificationText pins the canonical done, error, and blocked golden vectors", () => {
-    expect(notificationText(event({ lastText: "reported result" }), { colorize: false })).toEqual({
+    expect(notificationText(event({ lastText: "reported result" }), { colorize: false, summaryChars: SETTINGS_DEFAULTS.notification.title_chars })).toEqual({
       title: "DONE [w6] w-2: reported result",
       body: "DONE [w6] w-2: reported result\nSpace: w6 (#2563eb)\nTask: build the thing",
     });
-    expect(notificationText(event(), { colorize: false }).title).toBe("DONE [w6] w-2: build the thing");
-    expect(notificationText(event({ newState: "error", task: "old task", lastError: "build exploded" }), { colorize: false })).toEqual({
+    expect(notificationText(event(), { colorize: false, summaryChars: SETTINGS_DEFAULTS.notification.title_chars }).title).toBe("DONE [w6] w-2: build the thing");
+    expect(notificationText(event({ newState: "error", task: "old task", lastError: "build exploded" }), { colorize: false, summaryChars: SETTINGS_DEFAULTS.notification.title_chars })).toEqual({
       title: "ERROR [w6] w-2: build exploded",
       body: "ERROR [w6] w-2: build exploded\nSpace: w6 (#2563eb)\nTask: old task",
     });
-    expect(notificationText(event({ newState: "blocked", task: "Q: need approval" }), { colorize: false })).toEqual({
+    expect(notificationText(event({ newState: "blocked", task: "Q: need approval" }), { colorize: false, summaryChars: SETTINGS_DEFAULTS.notification.title_chars })).toEqual({
       title: "BLOCKED [w6] w-2: need approval",
       body: "BLOCKED [w6] w-2: need approval\nSpace: w6 (#2563eb)",
     });
@@ -139,7 +140,7 @@ describe("notification and presence event formatting", () => {
       dispatchId: "dispatch-1",
       mail: { id: "mail-1", text: "[from worker] hello orchestrator" },
       ts: "2026-01-01T00:00:00.000Z",
-    }, { colorize: false }).title;
+    }, { colorize: false, summaryChars: SETTINGS_DEFAULTS.notification.title_chars }).title;
     expect(title).toContain("[from worker] hello orchestrator");
   });
 

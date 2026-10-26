@@ -12,6 +12,7 @@ import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { Invocation } from "../cli/spec.ts";
 import { getAdapter } from "../adapters/registry.ts";
+import { isRunEndState } from "../agent-state.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
 import type { Entity, Logger, OrchDir } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
@@ -54,6 +55,29 @@ function adapterResultDocument(ent: Entity, adapter: AgentAdapter, text: string)
   };
 }
 
+/** What the agent's own session says it last wrote, when its harness can read one. */
+function sessionResult(services: Services, ent: Entity, resolved: ResolvedTarget): ResultLookup | undefined {
+  const adapter = getAdapter(resolved.view?.harnessId ?? ent.agent ?? "");
+  const text = adapter ? adapterResultText(services.orchDir, ent, adapter) : undefined;
+  if (!adapter || !text) return undefined;
+  resultLogger(services.logger, ent.key).info("result.adapter-fallback");
+  return { kind: "found", source: "session", payload: adapterResultDocument(ent, adapter, text) };
+}
+
+/** A run status says ended, whose result report lags the status report or never
+ *  comes. It answers from the session, then from the final text the status carried,
+ *  so `orch result` agrees with `orch status` the moment status says done. */
+function endedRunResult(services: Services, ent: Entity, resolved: ResolvedTarget, dispatchId: string, state: string): ResultLookup {
+  const session = sessionResult(services, ent, resolved);
+  if (session !== undefined) return session;
+  const lastText = ent.presence?.status?.lastText;
+  if (lastText) {
+    resultLogger(services.logger, ent.key).info("result.status-fallback", { dispatchId });
+    return { kind: "found", source: "presence", payload: { text: lastText, dispatchId, task: ent.presence?.status?.task ?? null } };
+  }
+  return { kind: "missing", reason: `Dispatch ${dispatchId} ended (${state}) and reported no text.` };
+}
+
 function lookupRemoteResult(services: Services, self: CallerSelf, settings: ReturnType<Services["settings"]["current"]>, remote: NonNullable<ReturnType<typeof targetHost>>, steal: boolean): ResultLookup {
   refuseNonOperatorOverride(self, "remote targets");
   const host = settings.hosts[remote.host];
@@ -87,6 +111,7 @@ async function lookupResolvedResult(services: Services, self: CallerSelf, target
   const dispatchId = ent.presence?.status?.dispatchId;
   if (dispatchId) {
     const run = (await readRpc(services, "run", { dispatchId })).run;
+    if (run && run.result === undefined && isRunEndState(run.state)) return endedRunResult(services, ent, resolved, dispatchId, run.state);
     if (run?.result === undefined) {
       die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${displayName(ent.name, ent.key)}\`.`);
     }
@@ -100,12 +125,8 @@ async function lookupResolvedResult(services: Services, self: CallerSelf, target
     resultLogger(services.logger, ent.key).info("result.history-fallback");
     return { kind: "found", source: "history", payload: historical.result };
   }
-  const adapter = getAdapter(resolved.view?.harnessId ?? ent.agent ?? "");
-  const text = adapter ? adapterResultText(services.orchDir, ent, adapter) : undefined;
-  if (adapter && text) {
-    resultLogger(services.logger, ent.key).info("result.adapter-fallback");
-    return { kind: "found", source: "session", payload: adapterResultDocument(ent, adapter, text) };
-  }
+  const session = sessionResult(services, ent, resolved);
+  if (session !== undefined) return session;
   return { kind: "missing", reason: `No result available for "${target}" (no settled dispatch, no reported result, and no adapter-extractable session text).` };
 }
 

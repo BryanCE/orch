@@ -24,8 +24,8 @@ export function createHerdrNotifier(cli: HerdrCli): Notifier {
     remediation: "fix: enable the herdr plexer in orch setup, and start herdr so its control socket answers",
     available: (settings) => herdrRunsAgents(settings) && cli.reachable(),
     deliver: (event, _config, settings) => {
-      const position = settings?.notification.position ?? SETTINGS_DEFAULTS.notification.position;
-      return Promise.resolve(deliverHerdrNotification(notificationText(event), position, io));
+      const { position, title_chars: titleChars } = (settings ?? SETTINGS_DEFAULTS).notification;
+      return Promise.resolve(deliverHerdrNotification(notificationText(event, { summaryChars: titleChars }), position, io));
     },
   };
 }

@@ -328,7 +328,7 @@ export const RPC_PARAMS = {
   "space-rename": GOVERNANCE.extend({ target: nonBlank, name: nonBlank, plexerId: nonBlank }),
   "space-delete": GOVERNANCE.extend({ target: nonBlank, plexerId: nonBlank }),
   home: z.object({ subject: HOME_SUBJECT, plexerId: nonBlank }),
-  "record-home": GOVERNANCE.extend({ subject: HOME_SUBJECT, plexerId: nonBlank, handle: nonBlank }),
+  "record-home": GOVERNANCE.extend({ subject: HOME_SUBJECT, plexerId: nonBlank, handle: nonBlank, grant: GRANT_ACTION.optional() }),
   "clear-home": GOVERNANCE.extend({ subject: HOME_SUBJECT }),
   grants: z.undefined(),
   grant: GOVERNANCE.extend({ target: nonBlank, decision: z.enum(["approve", "deny"]), host: nonBlank }),

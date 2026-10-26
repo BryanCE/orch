@@ -4,7 +4,7 @@ import { createNotifierRegistry } from "../notify/router.ts";
 import { commandArgv, desktopTier } from "../notify/sinks.ts";
 import { soundAvailable, soundTierBinaries } from "../notify/ding.ts";
 import { allBackends } from "../backends/registry.ts";
-import { binaryOnPath, errorMessage } from "../util.ts";
+import { binaryOnPath, countOf, errorMessage } from "../util.ts";
 import { notifierRemediation } from "../notify/remediation.ts";
 import type { BinaryStatus, CheckResult } from "../types/doctor.ts";
 import type { NotifyEntry, OrchSettings } from "../types/settings.ts";
@@ -59,7 +59,7 @@ export async function checkNotifiers(orchDir: OrchDir, settings: OrchSettings | 
 
   if (failures.length) return { id, label, status: "fail", detail: failures.join("; ") };
   if (warnings.length) return { id, label, status: "warn", detail: warnings.join("; ") };
-  return { id, label, status: "ok", detail: `${configured.length} configured notifier${configured.length === 1 ? "" : "s"} are available` };
+  return { id, label, status: "ok", detail: `${countOf(configured.length, "configured notifier")}, all available` };
 }
 
 export function checkNotifySinks(settings: OrchSettings | null, bins: BinaryStatus): CheckResult {
@@ -91,5 +91,5 @@ export function checkNotifySinks(settings: OrchSettings | null, bins: BinaryStat
 
   return unavailable.length
     ? { id, label, status: "warn", detail: `undeliverable: ${unavailable.join("; ")}` }
-    : { id, label, status: "ok", detail: `${sinks.length} configured sink${sinks.length === 1 ? "" : "s"} look deliverable` };
+    : { id, label, status: "ok", detail: `${countOf(sinks.length, "configured sink")}, all deliverable` };
 }

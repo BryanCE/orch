@@ -22,6 +22,20 @@ describe("loop watchdog", () => {
     expect(maxDelayMs).toBeGreaterThanOrEqual(50);
   });
 
+  it("logs one long pause once, not on every later tick", async () => {
+    const { logger, records } = recordingLogger();
+    const watchdog = startLoopWatchdog(logger, 50, 50);
+
+    const until = Date.now() + 200;
+    while (Date.now() < until) {
+      // One pause several intervals long, as a host suspend looks to the loop.
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 400));
+    watchdog.stop();
+
+    expect(records.filter((record) => record.event === "loop.stalled").length).toBeLessThanOrEqual(2);
+  });
+
   it("does not log when the loop stays below the threshold", async () => {
     const { logger, records } = recordingLogger();
     const watchdog = startLoopWatchdog(logger, 10_000, 100);

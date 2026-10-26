@@ -11,6 +11,14 @@ export const AGENT_STATES = ["idle", "working", "waiting", "blocked", "asking", 
 
 export type AgentState = (typeof AGENT_STATES)[number];
 
+/** The states a run ends in. A run in one has settled, whether or not its result report landed. */
+const RUN_END_STATES: ReadonlySet<AgentState> = new Set<AgentState>(["done", "error", "aborted", "exited"]);
+
+/** Whether a state is one a run ends in. */
+export function isRunEndState(value: unknown): boolean {
+  return isAgentState(value) && RUN_END_STATES.has(value);
+}
+
 /** Verify that an unknown value is one of orch's declared agent states. */
 export function isAgentState(value: unknown): value is AgentState {
   return typeof value === "string" && AGENT_STATES.some((state) => state === value);

@@ -5,7 +5,7 @@ import { pendingQuestion } from "../../store/question-rows.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import type { ResultReport, StatusPatch } from "../../types/presence.ts";
 import type { RunRecord } from "../../types/store.ts";
-import { isAgentState } from "../../agent-state.ts";
+import { isAgentState, isRunEndState } from "../../agent-state.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { selectAgentStatus, type AgentStatusRow } from "../../store/status-rows.ts";
 import { upsertRun } from "../../store/run-rows.ts";
@@ -16,8 +16,6 @@ import { forgetCapacity } from "./capacity.ts";
 import { acknowledgeDelivery } from "../../control/ack.ts";
 import { takeEcho, type TypedPrompt } from "../../control/echo.ts";
 import { prepareWorkerTask } from "../../worker-prompt.ts";
-
-const TERMINAL_STATES = new Set(["done", "error", "aborted", "exited"]);
 
 /** Row fields a history line never repeats: the line's `ts` and its directory already say them. */
 const UNLOGGED_FIELDS = new Set(["agentId", "updatedAt"]);
@@ -59,7 +57,7 @@ function runFromRow(orchDir: OrchDir, row: AgentStatusRow, now: number): RunReco
   if (view) run.adapter = view.harnessId;
   if (row.modelId !== null) run.model = row.modelId;
   if (row.task !== null) run.task = row.task;
-  if (TERMINAL_STATES.has(row.state) && row.finishedAt !== null) run.finishedAt = row.finishedAt;
+  if (isRunEndState(row.state) && row.finishedAt !== null) run.finishedAt = row.finishedAt;
   if (row.tokensIn !== null) run.tokensIn = row.tokensIn;
   if (row.tokensOut !== null) run.tokensOut = row.tokensOut;
   if (row.cacheRead !== null) run.cacheRead = row.cacheRead;

@@ -197,6 +197,11 @@ export function textValue(value: unknown): string | undefined {
  *  reaches a cp1252 console as "â¦". */
 const ELLIPSIS = "...";
 
+/** A count and its noun, pluralized with a trailing "s" unless the count is one. */
+export function countOf(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 export function truncate(value: string, max: number): string {
   const text = String(value ?? "");
   if (text.length <= max) return text;

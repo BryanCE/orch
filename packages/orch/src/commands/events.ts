@@ -124,7 +124,7 @@ async function streamEvents(services: Services, verb: StreamVerb, options: Event
   const items = await eventsItems(services, options, fleet, self);
   const scope = resolveCallerScopeOf(options.scope, self);
   const accepts = eventAcceptor(options, items, scope, self.space);
-  const context: EventsContext = { options, accepts, emit: eventWriter(options, shows) };
+  const context: EventsContext = { options, accepts, emit: eventWriter(options, shows, services.settings.current().monitor.summary_chars) };
   // Notification delivery is orchd's, not the client's: the daemon fans every
   // transition out to the sinks configured in settings.json whether or not
   // anyone is streaming. `orch events` only renders.
@@ -299,9 +299,10 @@ export function formatEventGap(oldestSeq: number): string {
   return `warning: event history gap; events before sequence ${oldestSeq} were pruned (replay resumes at sequence ${oldestSeq})\n`;
 }
 
-export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number, space = event.space ?? null): string {
+/** `summaryChars` is `monitor.summary_chars`: how much of a report a text line keeps. */
+export function renderEvent(event: NotifyEvent, json: boolean, streamSeq: number, summaryChars: number, space = event.space ?? null): string {
   const coordinate = space !== null && space !== undefined && space.length > 0 ? space : null;
-  return json ? renderEventJson(event, coordinate, streamSeq) : renderEventLine(event, coordinate);
+  return json ? renderEventJson(event, coordinate, streamSeq) : renderEventLine(event, coordinate, summaryChars);
 }
 
 function renderEventJson(event: NotifyEvent, coordinate: string | null, streamSeq: number): string {
@@ -314,13 +315,13 @@ function renderEventJson(event: NotifyEvent, coordinate: string | null, streamSe
 
 /** One readable line: what happened, and nothing about the fleet's books. Cost and pack
  *  capacity are `orch status` columns; on a stream they buried the one thing the line says. */
-function renderEventLine(event: NotifyEvent, coordinate: string | null): string {
+function renderEventLine(event: NotifyEvent, coordinate: string | null, summaryChars: number): string {
   // The plexer coordinate is opaque: echo it verbatim and never resolve it to a
   // configured label that could make the coordinate look like an orch-chosen name.
   const textEvent: NotifyEvent = { ...event, space: coordinate ?? "" };
   // Mail is keyed by its recipient, so its line names the event, not that recipient.
   if (event.type === "message") return `MESSAGE${coordinate === null ? "" : ` ${spaceTag(coordinate, true)}`} ${oneLine(event.mail.text)}`;
-  return `${notificationText(textEvent, { colorize: true }).title}  ${eventStateChange(event)}`;
+  return `${notificationText(textEvent, { colorize: true, summaryChars }).title}  ${eventStateChange(event)}`;
 }
 
 function eventStateChange(event: Exclude<NotifyEvent, { type: "message" }>): string {
@@ -338,10 +339,10 @@ function eventStateChange(event: Exclude<NotifyEvent, { type: "message" }>): str
   }
 }
 
-function eventWriter(options: EventsOptions, shows: (event: NotifyEvent) => boolean): (event: NotifyEvent, streamSeq: number) => boolean {
+function eventWriter(options: EventsOptions, shows: (event: NotifyEvent) => boolean, summaryChars: number): (event: NotifyEvent, streamSeq: number) => boolean {
   return (event, streamSeq): boolean => {
     if (!shows(event)) return false;
-    process.stdout.write(`${renderEvent(event, options.json, streamSeq)}\n`);
+    process.stdout.write(`${renderEvent(event, options.json, streamSeq, summaryChars)}\n`);
     return true;
   };
 }

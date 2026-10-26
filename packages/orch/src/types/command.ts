@@ -1,7 +1,7 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
 import type { CallerKind, ThinkingLevel, WorkerPolicy } from "./policy.ts";
-import type { AgentView } from "./store.ts";
+import type { AgentView, GrantAction } from "./store.ts";
 import type { Entity, LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
@@ -118,6 +118,9 @@ export interface OpenHomeRequest {
    *  the plexer; the plexer never sees a bare directory basename. */
   readonly label: string;
   readonly env?: Readonly<Record<string, string>>;
+  /** The approved action this home opens on, spent by orchd when it records the
+   *  home. Absent for a home nobody had to approve. */
+  readonly grant?: GrantAction;
 }
 
 export interface AgentFlags {
@@ -290,7 +293,14 @@ export interface SpawnPlacement {
   /** A home this fleet has to open before it has anywhere to land. Opening is
    *  the caller's, after the first agent's environment exists: the home's root
    *  place launches that agent, so it is opened under that agent's environment. */
-  readonly homeToOpen: HomeSubject | null;
+  readonly homeToOpen: HomeToOpen | null;
+}
+
+/** A home a fleet is owed and the human's approval to open it. The approval is
+ *  checked when placement decides and spent only when the opened home is recorded. */
+export interface HomeToOpen {
+  readonly subject: HomeSubject;
+  readonly grant: GrantAction;
 }
 
 /** What deciding a {@link SpawnPlacement} needs. */
@@ -311,15 +321,16 @@ export interface SpawnPlacementRequest {
   readonly callerHandle: string | null;
   /** Opening a home puts a window on the human's screen, so it is asked for.
    *  Passed in rather than called here so the decision stays one function and
-   *  the gate stays testable. Throws or exits when not granted. */
-  readonly grantNewHome: () => Promise<void>;
+   *  the gate stays testable. Throws or exits when not granted, and otherwise
+   *  returns the approved action for the open to spend. */
+  readonly grantNewHome: () => Promise<GrantAction>;
 }
 
 /** What opening the home a {@link SpawnPlacement} owes needs. */
 export interface OpenFleetHomeRequest {
   readonly services: DaemonClient;
   readonly backend: Backend;
-  readonly subject: HomeSubject;
+  readonly home: HomeToOpen;
   /** Where the fleet works, and the name its home is opened under: a workspace
    *  called after the repo is one a human can find, and the tab label names a
    *  slice, which is a different noun. */

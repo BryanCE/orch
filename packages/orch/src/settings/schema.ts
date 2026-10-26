@@ -92,8 +92,8 @@ export const SETTINGS_DEFAULTS = {
   retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, sweep_interval_ms: 3_600_000 },
   lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
   questions: { renag_ms: 120_000, renag_limit: 5 },
-  monitor: { on: MONITOR_DEFAULT_ON },
-  notification: { position: "top-left" },
+  monitor: { on: MONITOR_DEFAULT_ON, summary_chars: 400 },
+  notification: { position: "top-left", title_chars: 60 },
   locked_commands: { applies_to: ROLES },
   denied_commands: { applies_to: ROLES.filter((role) => role !== "orch") },
   settings_file: { typo_max_edits: 2 },
@@ -234,6 +234,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   monitor: z.strictObject({
     /** The agent states `orch monitor` shows; a worker's message always shows. */
     on: NotifyOnSchema,
+    /** Characters of an agent's report an `orch monitor` or `orch events` line keeps. */
+    summary_chars: PositiveInt.optional(),
   }).optional(),
   timeouts: z.strictObject({
     dispatch_ack_ms: PositiveInt.optional(),
@@ -251,6 +253,7 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   notify: z.array(NotifyEntrySchema).optional(),
   notification: z.strictObject({
     position: z.enum(NOTIFICATION_POSITIONS).optional(),
+    title_chars: PositiveInt.optional(),
   }).optional(),
   locked_commands: z.strictObject({
     commands: z.array(CommandPattern).optional(),

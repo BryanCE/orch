@@ -3,6 +3,8 @@
 // runs in the caller's session; the rows that record it are written here.
 import { mintAgentId } from "../../../backends/identity.ts";
 import { clearHome, homeHandle, recordHome } from "../../../store/home-rows.ts";
+import { spendGrant } from "../../../store/grant-rows.ts";
+import { withTransaction } from "../../../store/connection.ts";
 import { deleteSpaceRow, findSpace, insertSpace, listSpaces, renameSpaceRow, spaceNameTaken, spaceOccupied } from "../../../store/space-rows.ts";
 import type { OrchDir } from "../../../types/core.ts";
 import type { SpaceListing, SpaceRow } from "../../../types/store.ts";
@@ -50,8 +52,16 @@ export function subjectHome(directory: OrchDir, params: ParamsOf<"home">): Resul
   return { handle: homeHandle(directory, params.subject, params.plexerId) };
 }
 
+/** Record a home the caller's plexer opened. A home opened on a human's approval
+ *  spends that approval here, in the same transaction as the record, so a home
+ *  that never opened costs no grant and a retry finds the approval unspent. */
 export function recordSubjectHome(directory: OrchDir, params: ParamsOf<"record-home">): ResultOf<"record-home"> {
-  recordHome(directory, params.subject, params.plexerId, params.handle);
+  withTransaction(directory, () => {
+    if (params.grant !== undefined && !spendGrant(directory, params.grant, params.actor ?? null)) {
+      throw new Error("the approval to open this home was already spent by another spawn; run the spawn again to ask for a new one");
+    }
+    recordHome(directory, params.subject, params.plexerId, params.handle);
+  });
   return { ok: true };
 }
 

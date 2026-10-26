@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { is } from "drizzle-orm";
 import { SQLiteTable, getTableConfig } from "drizzle-orm/sqlite-core";
 import * as tables from "../db/schema.ts";
-import { errorMessage } from "../util.ts";
+import { countOf, errorMessage } from "../util.ts";
 import { databasePath, storeRebuildRemedy } from "../store/connection.ts";
 import type { CheckResult } from "../types/doctor.ts";
 
@@ -79,7 +79,7 @@ export function checkStore(orchDir: OrchDir): CheckResult {
       return { id, label, status: "fail", detail: `missing store tables: ${missing.join(", ")}` };
     }
     const applied = appliedCount(database.prepare(`SELECT COUNT(*) AS applied FROM ${MIGRATIONS_TABLE}`).get());
-    return { id, label, status: "ok", detail: `store healthy at ${applied} applied migration${applied === 1 ? "" : "s"}` };
+    return { id, label, status: "ok", detail: `store healthy at ${countOf(applied, "applied migration")}` };
   } catch (error: unknown) {
     return { id, label, status: "fail", detail: `cannot open orch.db: ${errorMessage(error)}` };
   } finally {

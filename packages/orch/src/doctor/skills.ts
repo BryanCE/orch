@@ -1,7 +1,7 @@
 import * as files from "node:fs";
 import * as path from "node:path";
 import { installSkills, packagedSkillNames, resolveSkillRoot, skillDigest, skillLinkTarget } from "../setup/skills.ts";
-import { packageRoot } from "../util.ts";
+import { countOf, packageRoot } from "../util.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
@@ -57,10 +57,10 @@ export function checkSkillLinks(settings: OrchSettings | null, pkgRoot: string =
       status: "warn",
       detail: `${defects.join("; ")}; ${INSTALL_HINT}`,
       fix: {
-        description: `Reinstall ${names.length} packaged skill(s) into ${store} and relink ${link.join(", ") || "no harness dirs"}`,
+        description: `Reinstall ${countOf(names.length, "packaged skill")} into ${store} and relink ${link.join(", ") || "no harness dirs"}`,
         apply: () => { installSkills({ store, link }, pkgRoot); },
       },
     };
   }
-  return { id, label, status: "ok", detail: `${names.length} skill(s) in ${store}, linked into ${link.join(", ") || "no harness dirs"}` };
+  return { id, label, status: "ok", detail: `${countOf(names.length, "skill")} in ${store}, linked into ${link.join(", ") || "no harness dirs"}` };
 }

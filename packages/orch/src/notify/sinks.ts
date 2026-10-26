@@ -92,8 +92,8 @@ export function desktopTier(): DesktopTier | undefined {
   return DESKTOP_TIERS.find((tier) => tier.available());
 }
 
-async function deliverDesktop(event: NotifyEvent): Promise<boolean> {
-  const { title, body } = notificationText(event);
+async function deliverDesktop(event: NotifyEvent, titleChars: number): Promise<boolean> {
+  const { title, body } = notificationText(event, { summaryChars: titleChars });
   for (const tier of DESKTOP_TIERS) {
     if (tier.available() && await tier.deliver(title, body)) return true;
   }
@@ -130,7 +130,7 @@ export function createBuiltinNotifiers(): Notifier[] {
       label: "Desktop",
       metadata: { description: "Desktop notifications on Linux, macOS and WSL", requiredConfig: [] },
       available: () => desktopTier() !== undefined,
-      deliver: (event, _config) => deliverDesktop(event),
+      deliver: (event, _config, settings) => deliverDesktop(event, (settings ?? SETTINGS_DEFAULTS).notification.title_chars),
     },
     {
       id: "webhook",
@@ -142,7 +142,7 @@ export function createBuiltinNotifiers(): Notifier[] {
         const response = await fetch(config.url, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: payload(event),
+          body: payload(event, (settings ?? SETTINGS_DEFAULTS).notification.title_chars),
           signal: AbortSignal.timeout((settings ?? SETTINGS_DEFAULTS).timeouts.notify_ms),
         });
         return response.ok;
@@ -160,9 +160,9 @@ export function createBuiltinNotifiers(): Notifier[] {
       label: "Command",
       metadata: { description: "Run a command with canonical JSON on stdin", requiredConfig: [{ name: "command", label: "Command" }] },
       available: (_settings) => commandOnPath(hostShell()[0]),
-      deliver: (event, config) => {
+      deliver: (event, config, settings) => {
         const command = stringArray(config.command);
-        return command?.length ? run(command, payload(event)) : Promise.resolve(false);
+        return command?.length ? run(command, payload(event, (settings ?? SETTINGS_DEFAULTS).notification.title_chars)) : Promise.resolve(false);
       },
     },
   ];

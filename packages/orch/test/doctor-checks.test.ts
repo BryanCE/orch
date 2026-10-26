@@ -188,7 +188,7 @@ describe("doctor notification-sink checks", () => {
     writeSettings(directory, { notify: [{ id: "command", command: ["bash"] }] });
 
     const result = await withPath(binDir, () => notifyResult(directory));
-    expect(result).toMatchObject({ status: "ok", detail: "1 configured sink look deliverable" });
+    expect(result).toMatchObject({ status: "ok", detail: "1 configured sink, all deliverable" });
   });
 
   test("warns when a notifier omits done from its on list", async () => {

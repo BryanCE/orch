@@ -22,7 +22,7 @@ import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { SetupOptions } from "../setup/flags.ts";
 import { installPrerequisites, installAdapterShims, wireBinaries, alignEntrypointToRuntime } from "../setup/install.ts";
-import { errorMessage, packageRoot } from "../util.ts";
+import { countOf, errorMessage, packageRoot } from "../util.ts";
 import { runSetupSmoke, smokeBlocker } from "../setup/smoke.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -77,7 +77,7 @@ async function offerSkills(
 async function offerReapMalformedRecords(
   results: readonly CheckResult[],
   interactive: boolean,
-  askConfirm: (count: number) => Promise<boolean> = (count) => promptConfirm(`Reap ${count} malformed presence record${count === 1 ? "" : "s"} now?`),
+  askConfirm: (count: number) => Promise<boolean> = (count) => promptConfirm(`Reap ${countOf(count, "malformed presence record")} now?`),
 ): Promise<boolean> {
   const malformed = results.find((result) => result.id === "malformed-presence");
   const records = malformed?.ignoredRecords ?? [];
@@ -91,7 +91,7 @@ async function offerReapMalformedRecords(
     return false;
   }
   for (const record of records) files.rmSync(record.path, { recursive: true, force: true });
-  process.stdout.write(`  reaped ${records.length} record${records.length === 1 ? "" : "s"}\n`);
+  process.stdout.write(`  reaped ${countOf(records.length, "record")}\n`);
   return true;
 }
 

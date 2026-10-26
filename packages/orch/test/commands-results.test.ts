@@ -192,6 +192,43 @@ describe("commands/results", () => {
     } finally { process.stdout.write = originalWrite; if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); }
     expect(output.join("")).toBe("finished\n");
   });
+  // The harness reports `done` before its result, and a turn with no final text reports
+  // no result at all. `orch result` answers the moment `orch status` says done.
+  test.serial("answers an ended dispatch whose result has not landed from the status text", async () => {
+    const root = tempOrchDir("orch-command-result-ended-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
+    const { key, space } = testTarget("resultaa46");
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    seedAgent(root, key, space);
+    recordAgentStatus(root, key, { state: "done", dispatchId: "result-ended-46", lastText: "done: src/a.ts, verify clean" }, Date.now());
+    upsertRun(root, { dispatchId: "result-ended-46", agentKey: key, state: "done", startedAt: Date.now() });
+    try {
+      const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
+      expect(await captureStdoutAsync(() => cmdResult(services, [key]))).toContain("done: src/a.ts, verify clean");
+    } finally {
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
+  });
+  test.serial("still refuses a dispatch that is running", async () => {
+    const root = tempOrchDir("orch-command-result-running-");
+    const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
+    const { key, space } = testTarget("resultaa47");
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    seedAgent(root, key, space);
+    recordAgentStatus(root, key, { state: "working", dispatchId: "result-running-47", lastText: "halfway" }, Date.now());
+    upsertRun(root, { dispatchId: "result-running-47", agentKey: key, state: "working", startedAt: Date.now() });
+    try {
+      const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
+      const output = await captureStdoutAsync(() => cmdResult(services, [key])).catch((error: unknown) => errorMessage(error));
+      expect(output).toContain("has not settled (working)");
+    } finally {
+      if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
+  });
   test.serial("keeps every settled dispatch and reports the newest", async () => {
     const root = tempOrchDir("orch-command-result-history-");
     const old: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);

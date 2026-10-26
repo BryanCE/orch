@@ -3,7 +3,7 @@ import * as filesystem from "node:fs";
 import { basename } from "node:path";
 import { loadPresence, malformedPresenceDirs, presenceDir } from "../presence/store.ts";
 import { listTasks, type TaskRec } from "../queue.ts";
-import { truncate } from "../util.ts";
+import { countOf, truncate } from "../util.ts";
 import { agentView } from "../store/agent-view.ts";
 export { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
 import type { PresenceEntry } from "../types/presence.ts";
@@ -39,7 +39,7 @@ export function checkMalformedPresenceRecords(orchDir: OrchDir): CheckResult {
       id: "malformed-presence",
       label: "Malformed presence records",
       status: "fail",
-      detail: `${ignoredRecords.length} malformed presence record${ignoredRecords.length === 1 ? "" : "s"}; orch clean can reap them\n    ${ignoredRecords.map((record) => `${record.path}: ${record.reason}`).join("\n    ")}`,
+      detail: `${countOf(ignoredRecords.length, "malformed presence record")}; orch clean can reap them\n    ${ignoredRecords.map((record) => `${record.path}: ${record.reason}`).join("\n    ")}`,
       ignoredRecords,
     };
   }
@@ -74,7 +74,7 @@ export function checkUnscopedTasks(orchDir: OrchDir): CheckResult {
     id: "unscoped-tasks",
     label: "Unscoped queue tasks",
     status: "warn",
-    detail: `${unscoped.length} malformed-scope task${unscoped.length === 1 ? "" : "s"} (exactly one scope is required; orch clean can reap them):\n    ${unscoped.map(describeUnscopedTask).join("\n    ")}`,
+    detail: `${countOf(unscoped.length, "malformed-scope task")} (exactly one scope is required; orch clean can reap them):\n    ${unscoped.map(describeUnscopedTask).join("\n    ")}`,
   };
 }
 
@@ -101,6 +101,6 @@ export async function checkDeadAgents(orchDir: OrchDir): Promise<CheckResult> {
     id: "dead-agents",
     label: "Dead agent rows",
     status: "warn",
-    detail: `${dead.length} dead agent${dead.length === 1 ? "" : "s"} still in the store; orchd reaps each one once no queued task or open grant holds it:\n    ${dead.map((entry) => describeDeadAgent(orchDir, entry)).join("\n    ")}`,
+    detail: `${countOf(dead.length, "dead agent")} still in the store; orchd reaps each one once no queued task or open grant holds it:\n    ${dead.map((entry) => describeDeadAgent(orchDir, entry)).join("\n    ")}`,
   };
 }

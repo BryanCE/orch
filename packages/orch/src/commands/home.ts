@@ -17,16 +17,18 @@ export function homeLabel(name: string): string {
 }
 
 /**
- * Open a plexer home for one space or pack and record its coordinate.
+ * Open a plexer home for one space or pack and record its coordinate. A home
+ * opened on a human's approval passes that approval, and orchd spends it with
+ * the record.
  *
  * Returns the home as the plexer created it — coordinate, root group and root
  * place. The coordinate is for orch to STORE and to hand back to the plexer —
  * never to display and never to use as an orch id.
  */
 export async function openHome(request: OpenHomeRequest): Promise<CreatedHome> {
-  const { services, subject, plexerId, home, cwd, label, env } = request;
+  const { services, subject, plexerId, home, cwd, label, env, grant } = request;
   const created = home.create(subject, { cwd, label: homeLabel(label), env });
-  await callDaemon(services, "record-home", { subject, plexerId, handle: created.coordinate });
+  await callDaemon(services, "record-home", { subject, plexerId, handle: created.coordinate, grant });
   return created;
 }
 

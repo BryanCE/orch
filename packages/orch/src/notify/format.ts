@@ -1,6 +1,6 @@
 // Leaf module: the canonical notification formatter. It imports no notify module,
 // so the sink builtins can format without re-entering the router that composes them.
-import { errorMessage, textValue } from "../util.ts";
+import { errorMessage, textValue, truncate } from "../util.ts";
 import type { NotifyEvent } from "../types/notify.ts";
 
 export function oneLine(error: unknown): string {
@@ -73,9 +73,9 @@ interface NotificationPayload {
 };
 
 /** Build the canonical structured payload consumed by non-text sinks. */
-function notificationPayload(event: NotifyEvent): NotificationPayload {
+function notificationPayload(event: NotifyEvent, summaryChars: number): NotificationPayload {
   const space = eventSpace(event);
-  const { title, body } = notificationText(event);
+  const { title, body } = notificationText(event, { summaryChars });
   const cost = "cost" in event ? event.cost : undefined;
   return {
     title,
@@ -98,11 +98,11 @@ function notificationPayload(event: NotifyEvent): NotificationPayload {
   };
 }
 
-export function payload(event: NotifyEvent): string {
-  return JSON.stringify(notificationPayload(event));
+export function payload(event: NotifyEvent, summaryChars: number): string {
+  return JSON.stringify(notificationPayload(event, summaryChars));
 }
 
-function notificationSummary(event: NotifyEvent): string {
+function notificationSummary(event: NotifyEvent, summaryChars: number): string {
   let summary: string;
   switch (event.type) {
     case "transition":
@@ -132,8 +132,7 @@ function notificationSummary(event: NotifyEvent): string {
       return exhaustive;
     }
   }
-  summary = oneLine(summary).replace(/^Q:\s*/i, "").slice(0, 60);
-  return summary;
+  return truncate(oneLine(summary).replace(/^Q:\s*/i, ""), summaryChars);
 }
 
 function notificationDetails(event: NotifyEvent, title: string, space: string, color: string): string {
@@ -162,9 +161,11 @@ export function spaceTag(space: string, colorize: boolean): string {
   return colorize ? `${spaceAnsi(space)}[${space}]\u001b[0m` : `[${space}]`;
 }
 
-export function notificationText(event: NotifyEvent, options: { colorize?: boolean } = {}): { title: string; body: string } {
+/** `summaryChars` is how much of the report the title keeps: a notification takes
+ *  `notification.title_chars`, a stream line takes `monitor.summary_chars`. */
+export function notificationText(event: NotifyEvent, options: { colorize?: boolean; summaryChars: number }): { title: string; body: string } {
   const space = eventSpace(event);
-  const title = `${notificationHeading(event, options)} ${notificationSummary(event)}`;
+  const title = `${notificationHeading(event, options)} ${notificationSummary(event, options.summaryChars)}`;
   const body = notificationDetails(event, title, space, spaceColor(space));
   return { title, body };
 }

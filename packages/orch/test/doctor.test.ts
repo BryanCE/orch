@@ -323,7 +323,7 @@ describe("runDoctor", () => {
     writeSettingsFixture(command, { notify: [{ id: "command", command: [process.execPath], on: ["blocked", "error", "done"] }] });
     expect(check(await runTestDoctor(command), "notifiers")).toMatchObject({
       status: "ok",
-      detail: "1 configured notifier are available",
+      detail: "1 configured notifier, all available",
     });
   }, FULL_DOCTOR_TIMEOUT_MS);
 

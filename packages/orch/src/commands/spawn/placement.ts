@@ -73,8 +73,8 @@ export async function resolveSpawnPlacement(request: SpawnPlacementRequest): Pro
   const subject: HomeSubject = { kind: "pack", id: packRootId };
   const existing = await listedHomeHandle(services, subject, backend.id, backend.spaceHome);
   if (existing !== null) return { space: null, workspace: existing, homeToOpen: null };
-  await grantNewHome();
-  return { space: null, workspace: undefined, homeToOpen: subject };
+  const grant = await grantNewHome();
+  return { space: null, workspace: undefined, homeToOpen: { subject, grant } };
 }
 
 /** The plexer coordinate holding the caller's recorded place. A caller with no
@@ -90,11 +90,11 @@ function callerCoordinate(backend: Backend, callerHandle: string | null): string
  *  that agent launches in it: a second group beside an empty root is the tab
  *  nobody asked for. */
 export async function openFleetHome(request: OpenFleetHomeRequest): Promise<CreatedHome> {
-  const { services, backend, subject, cwd, env } = request;
+  const { services, backend, home: { subject, grant }, cwd, env } = request;
   const role = backend.spaceHome;
   if (role === null) die(`${backend.id} cannot open a home for this fleet`);
   try {
-    return await openHome({ services, subject, plexerId: backend.id, home: role, cwd, label: homeName(cwd, subject), env });
+    return await openHome({ services, subject, plexerId: backend.id, home: role, cwd, label: homeName(cwd, subject), env, grant });
   } catch (error: unknown) {
     die(`could not open a home for this fleet: ${errorMessage(error)}`);
   }

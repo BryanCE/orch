@@ -7,6 +7,7 @@ import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { GrantRequest } from "../types/store.ts";
+import { countOf } from "../util.ts";
 
 /**
  * Approve actions an agent asked for and was refused.
@@ -24,7 +25,7 @@ function writeLine(text: string): void {
 }
 
 function listRequests(requests: readonly GrantRequest[]): void {
-  writeLine(`\n${requests.length} request${requests.length === 1 ? "" : "s"} awaiting approval:\n`);
+  writeLine(`\n${countOf(requests.length, "request")} awaiting approval:\n`);
   for (const request of requests) writeLine(`${renderGrantRequest(request)}\n`);
 }
 

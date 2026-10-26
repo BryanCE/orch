@@ -14,8 +14,12 @@ export function startLoopWatchdog(logger: Logger, stallMs: number, intervalMs: n
 
   const sample = (): void => {
     const histogramMaxDelayMs = Math.round(histogram.max / 1e6);
-    const timerDelayMs = Math.max(0, Date.now() - nextSampleAt);
-    nextSampleAt += intervalMs;
+    const now = Date.now();
+    const timerDelayMs = Math.max(0, now - nextSampleAt);
+    // Re-anchor on the actual tick. Advancing by `intervalMs` alone leaves the
+    // schedule permanently behind after one long pause (a host suspend), so
+    // every later tick would read that pause again and log a stall.
+    nextSampleAt = now + intervalMs;
     const maxDelayMs = Math.max(histogramMaxDelayMs, timerDelayMs);
     if (maxDelayMs >= stallMs) {
       logger.warn("loop.stalled", {

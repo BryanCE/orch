@@ -55,7 +55,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     monitor: SETTINGS_DEFAULTS.monitor,
     timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000 },
     notify: [],
-    notification: { position: "top-left" },
+    notification: SETTINGS_DEFAULTS.notification,
     locked_commands: { commands: [], applies_to: ["orch", "slave"] },
     gated_commands: [],
     denied_commands: { commands: [], applies_to: ["slave"] },

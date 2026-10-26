@@ -19,7 +19,7 @@ import { isRecord } from "../../util.ts";
 import { isUnknownArray, optionalString, truncate } from "../../util.ts";
 import type { BridgeNotifyEvent, PaneLabels, PaneStatusSnapshot } from "../../types/plexer.ts";
 import type { OrchDir } from "../../types/core.ts";
-import type { NotificationPosition } from "../../types/settings.ts";
+import type { NotificationSettings } from "../../types/settings.ts";
 
 const HERDR_METADATA_SOURCE = "orch:bridge";
 const CUSTOM_STATUS_MAX = 32;
@@ -205,8 +205,8 @@ async function readPaneLabelsInternal(id: string | null, apply: (labels: PaneLab
 
 // ---- desktop notifications ----
 
-function notifyInternal(event: BridgeNotifyEvent, position: NotificationPosition): void {
-  const { title, body } = notificationText(event, { colorize: true });
+function notifyInternal(event: BridgeNotifyEvent, { position, title_chars: titleChars }: NotificationSettings): void {
+  const { title, body } = notificationText(event, { colorize: true, summaryChars: titleChars });
   try {
     execFile("herdr", ["notification", "show", title, "--body", body, "--sound", "request", "--position", position], () => {
       /* noop */
@@ -218,7 +218,7 @@ function notifyInternal(event: BridgeNotifyEvent, position: NotificationPosition
 
 interface HerdrHud extends PaneHudProvider {
   readPaneLabels: (id: string | null, apply: (labels: PaneLabels) => void, orchDir: OrchDir) => Promise<boolean>;
-  notify: (event: BridgeNotifyEvent, position: NotificationPosition) => void;
+  notify: (event: BridgeNotifyEvent, display: NotificationSettings) => void;
 }
 
 function createHerdrHud(cli: HerdrCli): HerdrHud {

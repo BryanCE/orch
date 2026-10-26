@@ -4,7 +4,7 @@ import { term } from "../../policy/vocabulary.ts";
 import { depthOf } from "../../policy/provenance.ts";
 import { SpawnRefusalError } from "../../refusal.ts";
 import { refreshStaleShims } from "../../doctor/runner.ts";
-import { errorMessage } from "../../util.ts";
+import { countOf, errorMessage } from "../../util.ts";
 import { die } from "../target.ts";
 import { indexPresenceById } from "../../entities/lookup.ts";
 import type { Backend } from "../../types/backend.ts";
@@ -83,7 +83,7 @@ export function spawnPolicyError(
   const live = livePackMembers(settings, space, views, presence, packRoot);
   const cap = settings.fleet.max_agents_per_pack;
   if (live + requested > cap) {
-    return `pack cap ${cap} exceeded (${live} live member${live === 1 ? "" : "s"} + ${requested} requested; fleet.max_agents_per_pack). ${SPAWN_POLICY_OFFERS}`;
+    return `pack cap ${cap} exceeded (${countOf(live, "live member")} + ${requested} requested; fleet.max_agents_per_pack). ${SPAWN_POLICY_OFFERS}`;
   }
   return null;
 }
@@ -143,9 +143,10 @@ function newSpaceAction(settings: SpawnSettings, backend: Backend): GrantAction 
 /** Opening a space puts a window on the human's screen, so a caller with no
  *  space of its own may not take one unasked. There is no flag to pass here:
  *  a flag is typed by whoever runs the command, which is the agent. */
-export async function assertNewSpaceGranted(services: DaemonClient, settings: SpawnSettings, backend: Backend): Promise<void> {
-  const admitted = await callDaemon(services, "admit-home", { action: newSpaceAction(settings, backend) });
-  if (admitted.granted) return;
+export async function assertNewSpaceGranted(services: DaemonClient, settings: SpawnSettings, backend: Backend): Promise<GrantAction> {
+  const action = newSpaceAction(settings, backend);
+  const admitted = await callDaemon(services, "admit-home", { action });
+  if (admitted.granted) return action;
   die(`orch is not running inside a ${backend.id} space, so this spawn would open a NEW ${backend.id} space.\n`
     + `Ask the user to approve it in another terminal:\n\n    orch grant ${admitted.requestId}\n\n`
     + `then retry this exact command. Or pass --space <space> to place the fleet in an open space,`

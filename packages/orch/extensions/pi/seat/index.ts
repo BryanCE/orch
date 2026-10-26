@@ -114,7 +114,7 @@ export function registerOrchSeat(pi: SeatRegistrationApi, settings: SettingsMana
         const previous = lastStates.get(agent.key);
         lastStates.set(agent.key, agent.state);
         if (ALERT_STATES.has(agent.state) && previous !== undefined && !ALERT_STATES.has(previous)) {
-          if (hasNotify(ui)) ui.notify(notificationText(agent.lastEvent).title, agent.state === "error" ? "error" : "warning");
+          if (hasNotify(ui)) ui.notify(notificationText(agent.lastEvent, { summaryChars: settings.current().notification.title_chars }).title, agent.state === "error" ? "error" : "warning");
         }
       }
       // An empty pack renders as NOTHING; this seat stays invisible until it spawns.

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { createHerdrCli, type HerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { PLEXER_TIMEOUTS } from "../src/config.ts";
@@ -116,7 +117,7 @@ describe("herdr and notification hardening", () => {
   });
 
   test("nameless notifications use a space label, never a bare pane key", () => {
-    const title = notificationText(event(), { colorize: false }).title;
+    const title = notificationText(event(), { colorize: false, summaryChars: SETTINGS_DEFAULTS.notification.title_chars }).title;
     expect(title).toContain("[space]");
     expect(title).not.toContain("[space] p9:");
 

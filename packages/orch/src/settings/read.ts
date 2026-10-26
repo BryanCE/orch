@@ -194,7 +194,10 @@ const settingsValueExtractors = {
     renag_ms: settingOr(root.questions?.renag_ms, SETTINGS_DEFAULTS.questions.renag_ms),
     renag_limit: settingOr(root.questions?.renag_limit, SETTINGS_DEFAULTS.questions.renag_limit),
   }),
-  monitor: (root: Partial<SettingsFile>) => ({ on: root.monitor?.on ?? SETTINGS_DEFAULTS.monitor.on }),
+  monitor: (root: Partial<SettingsFile>) => ({
+    on: root.monitor?.on ?? SETTINGS_DEFAULTS.monitor.on,
+    summary_chars: root.monitor?.summary_chars ?? SETTINGS_DEFAULTS.monitor.summary_chars,
+  }),
   timeouts: (root: Partial<SettingsFile>) => ({
     ...SETTINGS_DEFAULTS.timeouts,
     ...root.timeouts,
@@ -202,6 +205,7 @@ const settingsValueExtractors = {
   notify: (root: Partial<SettingsFile>) => root.notify ?? [],
   notification: (root: Partial<SettingsFile>) => ({
     position: root.notification?.position ?? SETTINGS_DEFAULTS.notification.position,
+    title_chars: root.notification?.title_chars ?? SETTINGS_DEFAULTS.notification.title_chars,
   }),
   locked_commands: (root: Partial<SettingsFile>) => ({
     commands: root.locked_commands?.commands ?? [],

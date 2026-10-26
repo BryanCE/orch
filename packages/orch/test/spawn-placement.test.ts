@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { openFleetHome, resolveSpawnPlacement, spawnBackend } from "../src/commands/spawn/placement.ts";
 import { openHome } from "../src/commands/home.ts";
+import { callDaemon } from "../src/commands/daemon.ts";
 import { homeHandle } from "../src/store/home-rows.ts";
-import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
+import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
+import { approveGrantRequest, grantIsApproved, requestGrant } from "../src/store/grant-rows.ts";
+import { hostOs } from "../src/host.ts";
+import { errorMessage } from "../src/util.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -10,6 +14,7 @@ import { servedServices } from "./helpers/daemon-state.ts";
 import type { Backend, CreateHomeRequest, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, HomeSubject, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { Services } from "../src/types/services.ts";
+import type { GrantAction } from "../src/types/store.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
@@ -121,11 +126,19 @@ function homedBackend(home: SpaceHomeRole | null, inside: boolean, self: string 
   return new HomedBackend(home, inside, self);
 }
 
+const HOME_ACTION: GrantAction = { kind: "spawn.new-space", params: { plexer: "herdr", cwd: "/work", agents: "1", name: "w" } };
+
 /** A grant gate that records whether it was asked, so a test can assert orch did
  *  NOT ask the human to approve a window it was never going to open. */
-function gate(): { asked: number; grantNewHome: () => Promise<void> } {
-  const state = { asked: 0, grantNewHome: (): Promise<void> => { state.asked += 1; return Promise.resolve(); } };
+function gate(): { asked: number; grantNewHome: () => Promise<GrantAction> } {
+  const state = { asked: 0, grantNewHome: (): Promise<GrantAction> => { state.asked += 1; return Promise.resolve(HOME_ACTION); } };
   return state;
+}
+
+/** The human approving {@link HOME_ACTION} from a terminal. */
+function approveHome(dir: OrchDir): void {
+  ensureHost(dir, "host", "host", hostOs(), Date.now());
+  approveGrantRequest(dir, requestGrant(dir, HOME_ACTION, null).id, "host");
 }
 
 describe("outside every plexer, spawn is headless unless the human chose one", () => {
@@ -262,6 +275,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const grant = gate();
 
     const backend = homedBackend(home, false);
+    approveHome(dir);
 
     const placement = await resolveSpawnPlacement({
       services, backend, space: null,
@@ -274,10 +288,10 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     // Deciding opens nothing: the home's root place launches the fleet's first
     // agent, so it is opened once that agent's environment exists.
     const subject: HomeSubject = { kind: "pack", id: orch };
-    expect(placement).toEqual({ space: null, workspace: undefined, homeToOpen: subject });
+    expect(placement).toEqual({ space: null, workspace: undefined, homeToOpen: { subject, grant: HOME_ACTION } });
     expect(home.created).toEqual([]);
 
-    const opened = await openFleetHome({ services, backend, subject, cwd: "/home/bryan/work", env: { ROOT_AGENT: "1" } });
+    const opened = await openFleetHome({ services, backend, home: { subject, grant: HOME_ACTION }, cwd: "/home/bryan/work", env: { ROOT_AGENT: "1" } });
 
     expect(home.created[0]?.subject).toEqual(subject);
     expect(home.created[0]?.request.env).toEqual({ ROOT_AGENT: "1" });
@@ -289,6 +303,8 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     // The root group and place come back with it, for the fleet to take.
     expect(opened).toEqual({ coordinate: "w1", rootGroup: "w1:t1", rootHandle: "w1:p1" });
     expect(homeHandle(dir, { kind: "pack", id: orch }, "herdr")).toBe("w1");
+    // The approval is spent by the record of the opened home, and only then.
+    expect(grantIsApproved(dir, HOME_ACTION)).toBe(false);
   });
 
   test("the same pack spawning again reuses its home and asks the human nothing", async () => {
@@ -297,6 +313,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const home = new RecordingHomeRole();
     const grant = gate();
     const backend = homedBackend(home, false);
+    approveHome(services.orchDir);
     const request = {
       services, backend, space: null,
       packRootId: orch, callerPlexer: null, callerHandle: null, grantNewHome: grant.grantNewHome,
@@ -304,8 +321,8 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
 
     const subject: HomeSubject = { kind: "pack", id: orch };
     const first = await resolveSpawnPlacement(request);
-    expect(first.homeToOpen).toEqual(subject);
-    const opened = await openFleetHome({ services, backend, subject, cwd: "/work", env: {} });
+    expect(first.homeToOpen).toEqual({ subject, grant: HOME_ACTION });
+    const opened = await openFleetHome({ services, backend, home: { subject, grant: HOME_ACTION }, cwd: "/work", env: {} });
     const second = await resolveSpawnPlacement(request);
 
     expect(second).toEqual({ space: null, workspace: opened.coordinate, homeToOpen: null });
@@ -349,5 +366,53 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     // belongs to another plexer and is not this one's to drive.
     expect(placement.space).toBe("space00002");
     expect(placement.workspace).toBeUndefined();
+  });
+});
+
+/** A plexer whose home never opens, as when the plexer refuses or times out. */
+class FailingHomeRole extends RecordingHomeRole {
+  override create(): CreatedHome<string> {
+    throw new Error("plexer did not answer");
+  }
+}
+
+describe("a human's approval to open a home is spent only by a home that opened", () => {
+  test("asking whether a home is approved spends nothing", async () => {
+    const services = await fixture();
+    approveHome(services.orchDir);
+
+    expect(await callDaemon(services, "admit-home", { action: HOME_ACTION })).toEqual({ granted: true });
+    expect(await callDaemon(services, "admit-home", { action: HOME_ACTION })).toEqual({ granted: true });
+    expect(grantIsApproved(services.orchDir, HOME_ACTION)).toBe(true);
+  });
+
+  test("a home that fails to open leaves the approval for the retry", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
+    const orch = seedOrch(dir, "packroot07");
+    approveHome(dir);
+    const home = { subject: { kind: "pack", id: orch } satisfies HomeSubject, grant: HOME_ACTION };
+
+    const refusal = await openFleetHome({ services, backend: homedBackend(new FailingHomeRole(), false), home, cwd: "/work", env: {} })
+      .then(() => null, (error: unknown) => errorMessage(error));
+    expect(refusal).toContain("could not open a home for this fleet");
+    expect(grantIsApproved(dir, HOME_ACTION)).toBe(true);
+
+    const retry = new RecordingHomeRole();
+    const opened = await openFleetHome({ services, backend: homedBackend(retry, false), home, cwd: "/work", env: {} });
+    expect(homeHandle(dir, home.subject, "herdr")).toBe(opened.coordinate);
+    expect(grantIsApproved(dir, HOME_ACTION)).toBe(false);
+  });
+
+  test("a spent approval records no home", async () => {
+    const services = await fixture();
+    const dir = services.orchDir;
+    const orch = seedOrch(dir, "packroot08");
+    const home = { subject: { kind: "pack", id: orch } satisfies HomeSubject, grant: HOME_ACTION };
+
+    const refusal = await openFleetHome({ services, backend: homedBackend(new RecordingHomeRole(), false), home, cwd: "/work", env: {} })
+      .then(() => null, (error: unknown) => errorMessage(error));
+    expect(refusal).toContain("already spent");
+    expect(homeHandle(dir, home.subject, "herdr")).toBeNull();
   });
 });

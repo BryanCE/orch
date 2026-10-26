@@ -1,4 +1,4 @@
-import { packageManifest, shellQuote } from "../util.ts";
+import { countOf, packageManifest, shellQuote } from "../util.ts";
 import type { CheckResult, SshRunner } from "../types/doctor.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
 
@@ -15,7 +15,7 @@ function hostDestination(name: string, host: HostSettings): string {
 
 function hostResult(id: string, label: string, failures: string[], total: number, failureStatus: "warn" | "fail"): CheckResult {
   if (!total) return { id, label, status: "ok", detail: "no remote hosts configured" };
-  if (!failures.length) return { id, label, status: "ok", detail: `${total} configured host${total === 1 ? "" : "s"} passed` };
+  if (!failures.length) return { id, label, status: "ok", detail: `${countOf(total, "configured host")} passed` };
   return { id, label, status: failureStatus, detail: failures.join("; ") };
 }
 

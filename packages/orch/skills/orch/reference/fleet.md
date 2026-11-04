@@ -63,8 +63,8 @@ blocks a spawn, spawn what fits now and retry on the next event that frees a slo
 
 ## The cadence
 
-- One command per wave: one `orch spawn` with a `--file` or `--prompt` and a `--model` per
-  agent. On a refill wave, send every rename and dispatch together.
+- One command per wave: one `orch spawn` with a `--file` or `--prompt` per agent. On a refill
+  wave, send every rename and dispatch together.
 - Before a wide change, one read-only agent lists every caller and fixture into a report file.
   Later tasks point `--with` at it.
 - At a stopping point, idle agents run the verify commands over their own files.

@@ -74,14 +74,12 @@ A wave is 3 to 4 exact tasks in one scratch wave file, one `## T<n> <title>` sec
 orch spawn api-types api-routes api-guards --tab api --with tasks/W1-api.md \
   --prompt "Do section T1 of tasks/W1-api.md. Only that section." \
   --prompt "Do section T2 of tasks/W1-api.md. Only that section." \
-  --prompt "Do section T3 of tasks/W1-api.md. Only that section." \
-  --model <model>:high --model <model>:low --model <model>:high
+  --prompt "Do section T3 of tasks/W1-api.md. Only that section."
 orch monitor                                  # arm through the Monitor tool, in this same message
 orch result api-types api-routes api-guards   # one call collects the wave
 orch dispatch api-types --rename api-auth "Do section T4 of tasks/W2-api.md. Only that section." --with tasks/W2-api.md
 ```
 
-- Take each `<model>` from `orch models --preferred`. Exact tasks go to the fast, cheap model.
 - Refill an agent the moment it lands, renamed for its new task; dispatch clears its context.
   Close an agent when the task list has nothing left for it.
 - The Monitor command is exactly `orch monitor`, bare. Arm it with its longest timeout, and arm

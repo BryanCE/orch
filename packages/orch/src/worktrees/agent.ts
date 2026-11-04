@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { branchExists, checkedOutBranch, checkoutSubdirectory, linkedWorktrees, repositoryCommonRoot, runWorktreeCommand } from "./repository.ts";
+import { branchExists, checkedOutBranch, checkoutRoot, checkoutSubdirectory, linkedWorktrees, repositoryCommonRoot, runWorktreeCommand } from "./repository.ts";
 import { worktreeProvider } from "./registry.ts";
 import { errorMessage } from "../util.ts";
 import type { AgentWorktree, WorktreeConfig, WorktreeExec, WorktreeProviderId } from "../types/worktree.ts";
@@ -28,7 +28,17 @@ export function createAgentWorktree(intent: WorktreeIntent, from: string, name: 
   if (branchExists(root, branch)) {
     throw new Error(`Branch ${branch} is left over from an earlier agent. Land it with 'orch review', clear it with 'orch clean --worktrees', or use another name.`);
   }
-  const path = worktreeProvider(intent.provider, intent.config, exec).create({ from, root, name, branch, base });
+  const provider = worktreeProvider(intent.provider, intent.config, exec);
+  const path = provider.create({ from, root, name, branch, base });
+  if (intent.config.copy_ignored) {
+    try {
+      provider.provision({ source: checkoutRoot(from), worktree: path, base });
+    } catch (error: unknown) {
+      // An agent in half a workspace fails later and somewhere less obvious.
+      provider.remove({ root, worktree: path, branch, discard: true });
+      throw new Error(`Could not bring gitignored files into ${path}: ${errorMessage(error)}`);
+    }
+  }
   return { cwd: join(path, checkoutSubdirectory(from)), worktree: { path, branch, base, provider: intent.provider } };
 }
 

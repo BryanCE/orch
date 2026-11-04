@@ -15,10 +15,14 @@ Traps:
   might touch the same files by accident, then collect with `orch review`. Each agent gets
   the branch `orch/<name>`, forked from what is checked out here, and sits in the same tab
   and the same `orch status` as any other agent.
-- `--worktree-provider worktrunk` makes the worktree with `wkt`, so its location template
-  and its hooks apply. `worktrees.provider` sets the default.
-- A worktree holds no gitignored files. Dependencies need a worktrunk hook, or the agent
-  installs them itself.
+- `--worktree-provider worktrunk` makes the worktree with worktrunk, so its location
+  template and its hooks apply. `worktrees.provider` sets the default. Orch runs
+  `WORKTRUNK_BIN`, else the first of `worktrees.worktrunk_commands` it finds: a name, a path,
+  or a command like `git wt`. A shell alias is invisible to it, so write out what it runs.
+- A worktree starts without gitignored files. List the ones agents need in `.worktreeinclude`,
+  gitignore syntax, and orch brings them in with either provider before the agent starts.
+  With worktrunk, `pre-start` hooks finish before the agent launches and `post-start` hooks
+  run beside it, so put anything an agent depends on in `pre-start`.
 - Outside a plexer the agents run headless and need `--prompt` or `--file`.
 - A refused spawn creates nothing and names the setting. `orch status --capacity` shows room.
 - `STALLED <handle> <name>` exits 1: its bridge never attached. The task still arrives once

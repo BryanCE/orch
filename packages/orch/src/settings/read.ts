@@ -239,7 +239,8 @@ const settingsValueExtractors = {
     provider: root.worktrees?.provider ?? SETTINGS_DEFAULTS.worktrees.provider,
     branch_prefix: root.worktrees?.branch_prefix ?? SETTINGS_DEFAULTS.worktrees.branch_prefix,
     directory: root.worktrees?.directory ?? SETTINGS_DEFAULTS.worktrees.directory,
-    worktrunk_command: root.worktrees?.worktrunk_command ?? SETTINGS_DEFAULTS.worktrees.worktrunk_command,
+    worktrunk_commands: root.worktrees?.worktrunk_commands ?? [...SETTINGS_DEFAULTS.worktrees.worktrunk_commands],
+    copy_ignored: root.worktrees?.copy_ignored ?? SETTINGS_DEFAULTS.worktrees.copy_ignored,
     timeout_ms: root.worktrees?.timeout_ms ?? SETTINGS_DEFAULTS.worktrees.timeout_ms,
   }),
   counts: (root: Partial<SettingsFile>) => ({

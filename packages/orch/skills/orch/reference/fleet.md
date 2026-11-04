@@ -34,8 +34,9 @@ an agent in the wrong tab. Move skips the cap, so move only into a tab with room
 Run one agent per task that touches its own files, up to `fleet.max_agents_per_pack` live
 agents under one root orchestrator. Reach for `--worktree` when parallel agents might touch
 the same files by accident, then collect with `orch review`. Worktree agents sit in the same
-tab and the same `orch status` as any other; only their directory and branch differ. Tell them
-what to install: a worktree starts without gitignored files.
+tab and the same `orch status` as any other; only their directory and branch differ. A worktree
+starts with only the gitignored files `.worktreeinclude` names, so a task that needs others
+says what to install.
 
 Read `orch status --capacity` before each wave. It names the free slots and the orchestrators
 that hold the rest. Each orchestrator counts only its own agents, so two orchestrators at 5 and

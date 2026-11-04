@@ -1,13 +1,18 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, join } from "node:path";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
+import { removeTempDir } from "./helpers/tempdir.ts";
 import { worktreeProvider } from "../src/worktrees/registry.ts";
+import { includedIgnored } from "../src/worktrees/git.ts";
 import { resolveWorktreeIntent } from "../src/commands/spawn/flags.ts";
 import { parseCommand } from "../src/commands/registry.ts";
 import { settingsFromFile } from "../src/settings/read.ts";
 import { SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA } from "../src/settings/schema.ts";
 import type { WorktreeConfig, WorktreeExec, WorktreeProviderId } from "../src/types/worktree.ts";
 
-const CONFIG: WorktreeConfig = { ...SETTINGS_DEFAULTS.worktrees, timeout_ms: 1234 };
+const CONFIG: WorktreeConfig = { ...SETTINGS_DEFAULTS.worktrees, worktrunk_commands: [...SETTINGS_DEFAULTS.worktrees.worktrunk_commands], timeout_ms: 1234 };
 
 interface Call { readonly file: string; readonly args: readonly string[]; readonly timeoutMs: number | undefined }
 
@@ -69,7 +74,145 @@ describe("git provider", () => {
   });
 });
 
+const ENVIRONMENT = { path: process.env.PATH, bin: process.env.WORKTRUNK_BIN };
+const directories: string[] = [];
+
+function restoreEnvironment(): void {
+  process.env.PATH = ENVIRONMENT.path;
+  if (ENVIRONMENT.bin === undefined) delete process.env.WORKTRUNK_BIN;
+  else process.env.WORKTRUNK_BIN = ENVIRONMENT.bin;
+}
+
+/** A PATH holding exactly these executables, with no WORKTRUNK_BIN. */
+function pathOf(...binaries: string[]): void {
+  const directory = mkdtempSync(join(tmpdir(), "orch-worktrunk-path-"));
+  directories.push(directory);
+  for (const binary of binaries) {
+    const file = join(directory, binary);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, "#!/bin/sh\n");
+    chmodSync(file, 0o755);
+  }
+  process.env.PATH = binaries.map((binary) => dirname(join(directory, binary))).join(delimiter);
+  delete process.env.WORKTRUNK_BIN;
+}
+
+function ranBinary(): string | undefined {
+  const { provider, calls } = recorded("worktrunk", () => JSON.stringify({ path: "/p" }));
+  provider.create(REQUEST);
+  return calls[0]?.file;
+}
+
+describe("finding the worktrunk binary", () => {
+  afterEach(() => {
+    restoreEnvironment();
+    while (directories.length) removeTempDir(directories.pop()!);
+  });
+
+  test("the first listed name on PATH wins", () => {
+    pathOf("wt", "wkt");
+    expect(ranBinary()).toBe("wkt");
+    pathOf("wt");
+    expect(ranBinary()).toBe("wt");
+  });
+
+  test("WORKTRUNK_BIN beats the list", () => {
+    pathOf("wkt");
+    process.env.WORKTRUNK_BIN = "/opt/worktrunk/wt";
+    expect(ranBinary()).toBe("/opt/worktrunk/wt");
+  });
+
+  test("Windows Terminal is never taken for worktrunk", () => {
+    pathOf("WindowsApps/wt");
+    const { provider, calls } = recorded("worktrunk");
+    expect(provider.unavailable()).toContain("worktrees.worktrunk_commands");
+    expect(() => provider.create(REQUEST)).toThrow("could not find worktrunk");
+    expect(calls).toEqual([]);
+  });
+
+  /** What orch runs when the user's setting says `entries`. */
+  function ranWith(entries: string[]): Call | undefined {
+    const calls: Call[] = [];
+    const exec: WorktreeExec = (file, args, timeoutMs) => { calls.push({ file, args, timeoutMs }); return JSON.stringify({ path: "/p" }); };
+    worktreeProvider("worktrunk", { ...CONFIG, worktrunk_commands: entries }, exec).create(REQUEST);
+    return calls[0];
+  }
+
+  test("a name the user added is found", () => {
+    pathOf("worktrunk-cli");
+    expect(ranWith(["worktrunk-cli"])?.file).toBe("worktrunk-cli");
+  });
+
+  test("a command the user gave keeps its own arguments", () => {
+    pathOf("git");
+    const call = ranWith(["git wt"]);
+    expect(call?.file).toBe("git");
+    expect(call?.args.slice(0, 4)).toEqual(["wt", "-C", REQUEST.from, "switch"]);
+  });
+
+  test("a path the user gave is used as it stands, spaces included", () => {
+    pathOf();
+    const directory = mkdtempSync(join(tmpdir(), "orch worktrunk path-"));
+    directories.push(directory);
+    const binary = join(directory, "worktrunk");
+    writeFileSync(binary, "#!/bin/sh\n");
+    expect(ranWith([binary])?.file).toBe(binary);
+  });
+
+  test("nothing found says how to tell orch, and runs nothing", () => {
+    pathOf();
+    const { provider, calls } = recorded("worktrunk");
+    expect(provider.unavailable()).toContain("orch settings worktrees.worktrunk_commands");
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("provisioning a git worktree", () => {
+  const directory = (): string => {
+    const made = mkdtempSync(join(tmpdir(), "orch-provision-"));
+    directories.push(made);
+    return made;
+  };
+  afterEach(() => { while (directories.length) removeTempDir(directories.pop()!); });
+
+  test("an entry on either side narrows the other", () => {
+    expect(includedIgnored([".env", "node_modules/", "pkg/"], [".env", "dist/", "node_modules/", "pkg/gen.ts"])).toEqual([".env", "node_modules/", "pkg/gen.ts"]);
+    expect(includedIgnored(["node_modules/a/"], ["node_modules/"])).toEqual(["node_modules/a/"]);
+  });
+
+  test("what is included but not ignored stays behind", () => {
+    expect(includedIgnored(["notes.txt"], [".env"])).toEqual([]);
+  });
+
+  test("no .worktreeinclude runs nothing and copies nothing", () => {
+    const { provider, calls } = recorded("git");
+    provider.provision({ source: directory(), worktree: directory(), base: "main" });
+    expect(calls).toEqual([]);
+  });
+
+  test("copies files and directories, keeps links, skips what exists and orch's own directory", () => {
+    const source = directory();
+    const worktree = directory();
+    writeFileSync(join(source, ".worktreeinclude"), "*\n");
+    writeFileSync(join(source, ".env"), "SECRET=1\n");
+    mkdirSync(join(source, "node_modules", ".bin"), { recursive: true });
+    writeFileSync(join(source, "node_modules", "a.js"), "a\n");
+    symlinkSync("../a.js", join(source, "node_modules", ".bin", "a"));
+    mkdirSync(join(source, ".orch-worktrees", "other"), { recursive: true });
+    writeFileSync(join(worktree, ".env"), "KEEP=1\n");
+    const { provider } = recorded("git", () => ".env\nnode_modules/\n.orch-worktrees/other/\n");
+    provider.provision({ source, worktree, base: "main" });
+    expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEEP=1\n");
+    expect(readFileSync(join(worktree, "node_modules", "a.js"), "utf8")).toBe("a\n");
+    expect(readlinkSync(join(worktree, "node_modules", ".bin", "a"))).toBe("../a.js");
+    expect(existsSync(join(worktree, ".orch-worktrees"))).toBe(false);
+  });
+});
+
 describe("worktrunk provider", () => {
+  beforeEach(() => { process.env.WORKTRUNK_BIN = "wkt"; });
+  afterEach(restoreEnvironment);
+
   test("takes the path worktrunk chose and never prompts or moves a shell", () => {
     const { provider, calls } = recorded("worktrunk", () => JSON.stringify({ action: "created", branch: "orch/alpha", path: "/elsewhere/repo.orch-alpha" }));
     expect(provider.create(REQUEST)).toBe("/elsewhere/repo.orch-alpha");
@@ -81,15 +224,14 @@ describe("worktrunk provider", () => {
     }]);
   });
 
-  test("runs the configured binary", () => {
-    const calls: string[] = [];
-    const exec: WorktreeExec = (file) => { calls.push(file); return JSON.stringify({ path: "/p" }); };
-    worktreeProvider("worktrunk", { ...CONFIG, worktrunk_command: "wt" }, exec).create(REQUEST);
-    expect(calls).toEqual(["wt"]);
-  });
-
   test("a reply with no path is refused", () => {
     expect(() => recorded("worktrunk", () => "{}").provider.create(REQUEST)).toThrow();
+  });
+
+  test("provisions from the base, and only what .worktreeinclude names", () => {
+    const { provider, calls } = recorded("worktrunk");
+    provider.provision({ source: "/repo", worktree: "/repo.orch-alpha", base: "feature" });
+    expect(calls[0]?.args).toEqual(["-C", "/repo.orch-alpha", "step", "copy-ignored", "--from", "feature", "--require-include", "--yes", "--format", "json"]);
   });
 
   test("lands from inside the worktree, keeping commits and the worktree", () => {

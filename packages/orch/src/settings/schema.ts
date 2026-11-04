@@ -108,7 +108,7 @@ export const SETTINGS_DEFAULTS = {
   // the project's own commands, which the orchestrator knows and the human need not type.
   agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
   tiling: { first_split: "rows" },
-  worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_command: "wkt", timeout_ms: 300_000 },
+  worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300_000 },
   counts: { tail: 20, peek: 25 },
   // `.agents/skills` is the cross-harness standard, so the real files live there once and
   // a harness that reads its own directory instead gets a link into the store.
@@ -298,7 +298,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     provider: z.enum(WORKTREE_PROVIDER_IDS).optional(),
     branch_prefix: z.string().min(1).optional(),
     directory: z.string().min(1).optional(),
-    worktrunk_command: z.string().min(1).optional(),
+    worktrunk_commands: z.array(z.string().min(1)).min(1).optional(),
+    copy_ignored: z.boolean().optional(),
     timeout_ms: PositiveInt.optional(),
   }).optional(),
   /** What `-n <count>` shows when a command is given none. */

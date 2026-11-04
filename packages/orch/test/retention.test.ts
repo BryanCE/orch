@@ -65,7 +65,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
     doctor: { unclaimed_after_ms: 120_000 },
     tiling: { first_split: "rows" },
-    worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_command: "wkt", timeout_ms: 300000 },
+    worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
     counts: { tail: 20, peek: 25 },
     skills: { install: true, store: "~/.agents/skills", link: [] },
   };
@@ -199,7 +199,7 @@ describe("retention sweep", () => {
     seedLiveProcess(orchDir, holder);
     db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${agentId},${agentId},${"pi"},${"/tmp"},${"reserved-agent"},${Date.parse(old)},${"session"})`);
     db.run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${agentId},${Date.parse(old)},NULL)`);
-    db.run(sql`INSERT INTO agent_worktrees(agent_id,path,branch) VALUES (${agentId},${"/tmp/worktree"},${"orch/expired"})`);
+    db.run(sql`INSERT INTO agent_worktrees(agent_id,path,branch,base,provider) VALUES (${agentId},${"/tmp/worktree"},${"orch/expired"},${"main"},${"git"})`);
     db.run(sql`INSERT INTO agent_plexers(agent_id,plexer_id) VALUES (${agentId},${"headless"})`);
     acquireLease(orchDir, agentId, holder, Date.parse(old));
 

@@ -40,7 +40,7 @@ function branches(repo: string): string[] {
     .split("\n").map((line) => line.trim()).filter((line) => line !== "");
 }
 
-const CONFIG: WorktreeConfig = SETTINGS_DEFAULTS.worktrees;
+const CONFIG: WorktreeConfig = { ...SETTINGS_DEFAULTS.worktrees, worktrunk_commands: [...SETTINGS_DEFAULTS.worktrees.worktrunk_commands] };
 
 function git(directory: string, ...args: string[]): string {
   return execFileSync("git", ["-C", directory, "-c", "user.name=orch-test", "-c", "user.email=orch-test@localhost", ...args], { encoding: "utf8" }).trim();
@@ -89,6 +89,29 @@ describe.each<WorktreeProviderId>(["git", "worktrunk"])("agent worktrees through
     const { cwd, worktree } = createAgentWorktree({ provider, config: CONFIG }, join(repo, "pkg"), "alpha");
     expect(cwd).toBe(join(worktree.path, "pkg"));
     expect(existsSync(join(cwd, "file.txt"))).toBe(true);
+  });
+
+  test(".worktreeinclude brings gitignored files in, and only those", () => {
+    const repo = fixture("orch-worktree-include-");
+    mkdirSync(join(repo, "pkg"));
+    commitFile(repo, ".gitignore", ".env\ndist/\npkg/gen.ts\n", "ignore");
+    writeFileSync(join(repo, ".env"), "SECRET=1\n");
+    writeFileSync(join(repo, "pkg", "gen.ts"), "generated\n");
+    mkdirSync(join(repo, "dist"));
+    writeFileSync(join(repo, "dist", "out.js"), "built\n");
+    commitFile(repo, ".worktreeinclude", ".env\npkg/gen.ts\n", "include");
+    const { worktree } = createAgentWorktree({ provider, config: CONFIG }, repo, "alpha");
+    expect(existsSync(join(worktree.path, ".env"))).toBe(true);
+    expect(existsSync(join(worktree.path, "pkg", "gen.ts"))).toBe(true);
+    expect(existsSync(join(worktree.path, "dist"))).toBe(false);
+  });
+
+  test("no .worktreeinclude brings nothing in", () => {
+    const repo = fixture("orch-worktree-no-include-");
+    commitFile(repo, ".gitignore", ".env\n", "ignore");
+    writeFileSync(join(repo, ".env"), "SECRET=1\n");
+    const { worktree } = createAgentWorktree({ provider, config: CONFIG }, repo, "alpha");
+    expect(existsSync(join(worktree.path, ".env"))).toBe(false);
   });
 
   test("a leftover branch is refused with what to do about it", () => {

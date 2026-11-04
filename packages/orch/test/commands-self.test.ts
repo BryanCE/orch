@@ -15,6 +15,7 @@ const SETTINGS = { defaults: { adapter: "pi", backend: "headless" } };
 
 const workerSettings = (maxDepth: number): OrchSettings => ({
   ...SETTINGS_DEFAULTS,
+  worktrees: { ...SETTINGS_DEFAULTS.worktrees, worktrunk_commands: [...SETTINGS_DEFAULTS.worktrees.worktrunk_commands] },
   runtime: "node",
   enabled: { adapters: ["pi"], backends: ["headless"] },
   locked_commands: { commands: [], applies_to: ["orch", "slave"] },

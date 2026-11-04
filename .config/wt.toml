@@ -1,0 +1,3 @@
+# Agents share the primary checkout's dependencies through symlinks. Nothing is copied.
+[pre-start]
+deps = "ln -sfn {{ primary_worktree_path }}/node_modules node_modules && ln -sfn {{ primary_worktree_path }}/packages/web/node_modules packages/web/node_modules"

@@ -59,10 +59,15 @@ export function branchExists(root: string, branch: string): boolean {
   return git(root, ["branch", "--list", branch]) !== "";
 }
 
+/** The top of the checkout `directory` sits in, which a linked worktree has its own of. */
+export function checkoutRoot(directory: string): string {
+  return realpathSync(git(directory, ["rev-parse", "--show-toplevel"]));
+}
+
 /** Where `directory` sits inside its own checkout, so an agent launched from a
  *  package starts in that package of its worktree. */
 export function checkoutSubdirectory(directory: string): string {
-  const inside = relative(realpathSync(git(directory, ["rev-parse", "--show-toplevel"])), realpathSync(directory));
+  const inside = relative(checkoutRoot(directory), realpathSync(directory));
   return inside.startsWith(`..${sep}`) ? "" : inside;
 }
 

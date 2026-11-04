@@ -104,9 +104,10 @@ export async function checkWorktreeProvider(settings: OrchSettings | null): Prom
   const label = "Worktree provider";
   if (settings === null) return { id: "worktree-provider", label, status: "skip", detail: "no settings.json" };
   const { provider: id } = settings.worktrees;
-  return worktreeProvider(id, settings.worktrees).isAvailable()
+  const reason = worktreeProvider(id, settings.worktrees).unavailable();
+  return reason === null
     ? { id: "worktree-provider", label, status: "ok", detail: `${id} is available` }
-    : { id: "worktree-provider", label, status: "fail", detail: `worktrees.provider is ${id} but its binary ${settings.worktrees.worktrunk_command} is not on PATH; fix: install it, point worktrees.worktrunk_command at it, or set worktrees.provider to another tool` };
+    : { id: "worktree-provider", label, status: "fail", detail: reason };
 }
 
 export async function checkWorktreeGitignore(settings: OrchSettings | null): Promise<CheckResult> {

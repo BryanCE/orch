@@ -14,8 +14,11 @@ export interface WorktreeConfig {
   readonly branch_prefix: string;
   /** Where a provider that leaves the location to orch puts a worktree, under the repository root. */
   readonly directory: string;
-  /** The worktrunk binary. */
-  readonly worktrunk_command: string;
+  /** How to run worktrunk, first one found wins: a name, a path, or a command with its own
+   *  arguments. A shell alias is invisible to orch, so this is where it gets spelled out. */
+  readonly worktrunk_commands: string[];
+  /** Bring the gitignored files `.worktreeinclude` names into every new worktree. */
+  readonly copy_ignored: boolean;
   /** How long one provider command may run, hooks included, in milliseconds. */
   readonly timeout_ms: number;
 }
@@ -41,6 +44,13 @@ export interface WorktreeCreateRequest {
   readonly base: string;
 }
 
+export interface WorktreeProvisionRequest {
+  /** The checkout the worktree forked from: where its gitignored files are. */
+  readonly source: string;
+  readonly worktree: string;
+  readonly base: string;
+}
+
 export interface WorktreeLandRequest {
   readonly root: string;
   readonly worktree: string;
@@ -63,9 +73,12 @@ export interface WorktreeProvider {
   readonly id: WorktreeProviderId;
   /** The directory under the repository root this provider fills, or null when the tool picks. */
   readonly repositoryDirectory: string | null;
-  isAvailable(): boolean;
+  /** Why this tool cannot run on this machine, or null when it can. */
+  unavailable(): string | null;
   /** Make the worktree and its branch; returns the worktree's path. */
   create(request: WorktreeCreateRequest): string;
+  /** Bring across what `.worktreeinclude` names and git left behind. No such file, no copy. */
+  provision(request: WorktreeProvisionRequest): void;
   /** Put the branch's commits on the base. Refusing leaves both branches as they were. */
   land(request: WorktreeLandRequest): WorktreeLanding;
   remove(request: WorktreeRemoveRequest): void;

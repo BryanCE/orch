@@ -67,7 +67,7 @@ const settings = (preferred: string[]): OrchSettings => ({
   hosts: {},
   spaces: {},
   tiling: { first_split: "rows" },
-  worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_command: "wkt", timeout_ms: 300000 },
+  worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
   counts: { tail: 20, peek: 25 },
   skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
   agents: { writable_settings: [] },

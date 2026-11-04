@@ -2,6 +2,7 @@ import { and, eq, exists, isNotNull, isNull, notExists, or, sql, type SQL } from
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { QueryBuilder, alias, check, index, integer, primaryKey, real, sqliteTable, sqliteView, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { CALLER_KINDS } from "../types/policy.ts";
+import { WORKTREE_PROVIDER_IDS } from "../types/worktree.ts";
 
 /**
  * Every table, typed.
@@ -162,6 +163,8 @@ export const agentWorktrees = sqliteTable("agent_worktrees", {
   agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
   path: text("path").notNull(),
   branch: text("branch").notNull(),
+  base: text("base").notNull(),
+  provider: text("provider", { enum: WORKTREE_PROVIDER_IDS }).notNull(),
 });
 
 export const agentEndings = sqliteTable("agent_endings", {

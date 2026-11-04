@@ -66,15 +66,12 @@ export interface AgentRow {
   ending?: AgentEnding | null;
 }
 
+import type { AgentWorktree } from "./worktree.ts";
+
 export type ClaimResult =
   | { kind: "stamped" }
   | { kind: "unchanged" }
   | { kind: "refused"; reason: "unknown-agent" | "claimed-by-other" };
-
-export interface AgentWorktree {
-  path: string;
-  branch: string;
-}
 
 export interface HostPlexerRow {
   hostId: string;
@@ -256,7 +253,7 @@ export interface SpawnRegistration {
    * means the spawner keeps the lease it took at launch.
    */
   owner?: string;
-  worktree?: { path: string; branch: string };
+  worktree?: AgentWorktree;
   /**
    * Environment: the OS process this agent runs in, on this host.
    *

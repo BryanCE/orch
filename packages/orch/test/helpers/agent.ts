@@ -56,7 +56,7 @@ export function seedAgent(key: string, facts: AgentFacts = {}, directory: OrchDi
     spawner: facts.spawnedBy ?? null,
     ...(facts.owner === undefined ? {} : { owner: facts.owner }),
     ...(facts.worktree !== undefined && facts.branch !== undefined
-      ? { worktree: { path: facts.worktree, branch: facts.branch } }
+      ? { worktree: { path: facts.worktree, branch: facts.branch, base: "main", provider: "git" } }
       : {}),
     process: { pid: DEAD_PID, startToken: null },
   });

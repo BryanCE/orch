@@ -5,6 +5,7 @@ worktrees no agent runs in.
 
     orch clean --worktrees
 
-`--all` with `--worktrees` also discards unmerged commits. Run `orch review` first to keep
+Orch's worktrees are the ones on a branch under `worktrees.branch_prefix`, wherever the tool
+put them. `--all` with `--worktrees` also discards unmerged commits. Run `orch review` first to keep
 that work. `--all` skips live agents; close them first. A spawned agent is refused and asks
 the human or its orch to run clean.

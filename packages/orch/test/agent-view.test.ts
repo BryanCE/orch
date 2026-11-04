@@ -40,7 +40,7 @@ describe("the agent composer", () => {
       // A capless agent is one with no shortcut, never one orch cannot talk to:
       // absence is the answer, and "local" is not a place (Rule 11).
       expect(environmentOf(directory, "a1")).toEqual({
-        plexer: null, handle: null, space: null, worktree: null, branch: null,
+        plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null,
       });
     });
   });
@@ -51,10 +51,10 @@ describe("the agent composer", () => {
       setAgentPlexer(directory, "a1", "herdr");
       setHandle(directory, "a1", 20, "w1:p1");
       setSpace(directory, "a1", 20, "s1");
-      setWorktree(directory, "a1", "/repo/.wt/a1", "feat/a1");
+      setWorktree(directory, "a1", { path: "/repo/.wt/a1", branch: "feat/a1", base: "main", provider: "git" });
 
       expect(environmentOf(directory, "a1")).toEqual({
-        plexer: "herdr", handle: "w1:p1", space: "s1", worktree: "/repo/.wt/a1", branch: "feat/a1",
+        plexer: "herdr", handle: "w1:p1", space: "s1", worktree: "/repo/.wt/a1", branch: "feat/a1", worktreeBase: "main", worktreeProvider: "git",
       });
 
       // The pane moved. The agent did not become a different agent — which is

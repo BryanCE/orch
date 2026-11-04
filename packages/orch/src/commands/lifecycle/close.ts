@@ -229,6 +229,14 @@ function closeTargetOf(wire: CloseTargetWire): CloseTarget {
   };
 }
 
+/** Close one agent as another command's step: refused or failed ends that command. */
+export async function closeAgentQuietly(services: Services, target: string): Promise<void> {
+  const answer = await readRpc(services, "close-targets", { caller: callerCredential(), targets: [target], all: false });
+  if (answer.refusal !== null) die(answer.refusal);
+  const { results, ok } = await closeEachTarget(services, answer.targets.map(closeTargetOf), true);
+  if (ok !== results.length) die(`could not close ${target}: ${results.map((result) => result.error).join("; ")}`);
+}
+
 export async function cmdClose(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("close", args);
   const { flags, positional } = invocation;

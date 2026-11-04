@@ -291,7 +291,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     expect(placement).toEqual({ space: null, workspace: undefined, homeToOpen: { subject, grant: HOME_ACTION } });
     expect(home.created).toEqual([]);
 
-    const opened = await openFleetHome({ services, backend, home: { subject, grant: HOME_ACTION }, cwd: "/home/bryan/work", env: { ROOT_AGENT: "1" } });
+    const opened = await openFleetHome({ services, backend, home: { subject, grant: HOME_ACTION }, cwd: "/repo/.orch-worktrees/alpha", labelDirectory: "/home/bryan/work", env: { ROOT_AGENT: "1" } });
 
     expect(home.created[0]?.subject).toEqual(subject);
     expect(home.created[0]?.request.env).toEqual({ ROOT_AGENT: "1" });
@@ -322,7 +322,7 @@ describe("spawn resolves orch's space and the plexer's workspace apart (E8, E9, 
     const subject: HomeSubject = { kind: "pack", id: orch };
     const first = await resolveSpawnPlacement(request);
     expect(first.homeToOpen).toEqual({ subject, grant: HOME_ACTION });
-    const opened = await openFleetHome({ services, backend, home: { subject, grant: HOME_ACTION }, cwd: "/work", env: {} });
+    const opened = await openFleetHome({ services, backend, home: { subject, grant: HOME_ACTION }, cwd: "/work", labelDirectory: "/repo", env: {} });
     const second = await resolveSpawnPlacement(request);
 
     expect(second).toEqual({ space: null, workspace: opened.coordinate, homeToOpen: null });
@@ -393,13 +393,13 @@ describe("a human's approval to open a home is spent only by a home that opened"
     approveHome(dir);
     const home = { subject: { kind: "pack", id: orch } satisfies HomeSubject, grant: HOME_ACTION };
 
-    const refusal = await openFleetHome({ services, backend: homedBackend(new FailingHomeRole(), false), home, cwd: "/work", env: {} })
+    const refusal = await openFleetHome({ services, backend: homedBackend(new FailingHomeRole(), false), home, cwd: "/work", labelDirectory: "/repo", env: {} })
       .then(() => null, (error: unknown) => errorMessage(error));
     expect(refusal).toContain("could not open a home for this fleet");
     expect(grantIsApproved(dir, HOME_ACTION)).toBe(true);
 
     const retry = new RecordingHomeRole();
-    const opened = await openFleetHome({ services, backend: homedBackend(retry, false), home, cwd: "/work", env: {} });
+    const opened = await openFleetHome({ services, backend: homedBackend(retry, false), home, cwd: "/work", labelDirectory: "/repo", env: {} });
     expect(homeHandle(dir, home.subject, "herdr")).toBe(opened.coordinate);
     expect(grantIsApproved(dir, HOME_ACTION)).toBe(false);
   });
@@ -410,7 +410,7 @@ describe("a human's approval to open a home is spent only by a home that opened"
     const orch = seedOrch(dir, "packroot08");
     const home = { subject: { kind: "pack", id: orch } satisfies HomeSubject, grant: HOME_ACTION };
 
-    const refusal = await openFleetHome({ services, backend: homedBackend(new RecordingHomeRole(), false), home, cwd: "/work", env: {} })
+    const refusal = await openFleetHome({ services, backend: homedBackend(new RecordingHomeRole(), false), home, cwd: "/work", labelDirectory: "/repo", env: {} })
       .then(() => null, (error: unknown) => errorMessage(error));
     expect(refusal).toContain("already spent");
     expect(homeHandle(dir, home.subject, "herdr")).toBeNull();

@@ -63,8 +63,9 @@ function reportGoneHandle(handle: OrcaHandle, deliver: () => void): void {
   }
 }
 
-function launchLine(env: Readonly<Record<string, string>>, command: string): string {
-  return ["env", ...Object.entries(env).map(([key, value]) => `${key}=${shellQuote(value)}`), command].join(" ");
+/** A terminal opens where Orca says, and a split where its parent sits, so the line itself goes to the agent's directory. */
+function launchLine(cwd: string, env: Readonly<Record<string, string>>, command: string): string {
+  return ["cd", shellQuote(cwd), "&&", "env", ...Object.entries(env).map(([key, value]) => `${key}=${shellQuote(value)}`), command].join(" ");
 }
 
 /** tmux key names orch sends, as the bytes Orca's pty reads. */
@@ -266,7 +267,7 @@ export class OrcaBackend implements Backend<OrcaHandle> {
     }).handle;
     try {
       // The pane shell is POSIX today; a Windows Orca host is a later adapter decision.
-      this.agentInput.submit(handle, launchLine(env, command));
+      this.agentInput.submit(handle, launchLine(cwd, env, command));
     } catch (error: unknown) {
       if (adopted === null) this.placement.close(handle);
       throw error;

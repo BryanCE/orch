@@ -182,7 +182,7 @@ Some useful ones:
 - `orch wait <agent>`: block until the agent is `done`
 - `orch pipe <from> <to>`: hand one agent's result to another agent
 - `orch queue add "<task>"` then `orch work`: a durable queue that gives tasks to idle agents
-- `orch spawn <names> --worktree`: give each agent its own git worktree, then merge with `orch review`
+- `orch spawn <names> --worktree`: give each agent its own git worktree, made by git or worktrunk, then land it with `orch review`
 
 ## Concepts
 

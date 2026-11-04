@@ -34,6 +34,23 @@ function verifyCommandsClause(verifyCommands: readonly string[], cwd: string | u
   return ` Verify with, over only the files you edited: ${commands.join(", ")}.` + (cwd === undefined ? "" : ` Work only inside ${cwd}.`);
 }
 
+/** Where a worker sits, as the header needs it. */
+export interface WorkerPlace {
+  readonly cwd: string;
+  readonly environment: { readonly branch: string | null };
+}
+
+export function workerPlaceContext(place: WorkerPlace | undefined): Pick<WorkerHeaderContext, "cwd" | "worktreeBranch"> {
+  if (place === undefined) return {};
+  const { branch } = place.environment;
+  return { cwd: place.cwd, ...(branch === null ? {} : { worktreeBranch: branch }) };
+}
+
+/** Review reads commits, so a worker in a worktree is told uncommitted work reaches nobody. */
+function worktreeClause(branch: string | undefined): string {
+  return branch === undefined ? "" : ` You run in your own git worktree on branch ${branch}. Commit your work to that branch before you report: review reads commits and nothing else.`;
+}
+
 /** Tell the worker whether it may create another provenance level. */
 function workerSpawnClause(maySpawn: boolean): string {
   return maySpawn ? " You may `orch spawn`; your children may not." : " Never spawn subagents.";
@@ -85,6 +102,7 @@ export function workerHeaderFor(adapter: AgentAdapter | undefined, context: Part
     : context.spawnerRepliable ? "" : WORKER_HEADER_NO_SPAWNER_CLAUSE;
   return WORKER_HEADER_BASE
     + verifyCommandsClause(context.verifyCommands ?? [], context.cwd)
+    + worktreeClause(context.worktreeBranch)
     + workerSpawnClause(context.maySpawn === true)
     + ask + spawner + gatedCommandsClause(context.gatedCommands ?? []);
 }

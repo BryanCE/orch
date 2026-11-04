@@ -183,7 +183,7 @@ async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settin
     try {
       const { id, ack } = await dispatchToAgent(services, logger, agent.key, plan.prompt, {
         adapter: resolveAdapterOrDie(plan.adapter),
-        context: { maySpawn, cwd: settings.cwd, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
+        context: { maySpawn, cwd: agent.cwd, ...(agent.branch === null ? {} : { worktreeBranch: agent.branch }), spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
       });
       dispatches.push({ name: agent.name, key: agent.key, id, ack });
       if (!settings.json) writeDelivery({ target: agent.key, name: agent.name, action: "dispatch", id, ack }, {

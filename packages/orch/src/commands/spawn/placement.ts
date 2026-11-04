@@ -4,7 +4,7 @@ import { resolveAdapterOrDie } from "../selection.ts";
 import { mintAgentId } from "../../backends/identity.ts";
 import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
 import { nextTilePlacement } from "../../backends/tiling.ts";
-import { createAgentWorktree } from "../../worktree.ts";
+import { createAgentWorktree, discardFreshWorktree, type WorktreeIntent } from "../../worktrees/agent.ts";
 import { errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
 import { die } from "../target.ts";
@@ -21,6 +21,7 @@ import type { CallerSelf } from "../self.ts";
 import { readFleet, type FleetSnapshot } from "../fleet.ts";
 import { admissionFleet } from "./admission.ts";
 import type { HomeSubject } from "../../types/backend.ts";
+import type { AgentWorktree } from "../../types/worktree.ts";
 import type { SpawnAgentPlan, SpawnSettings } from "./flags.ts";
 
 
@@ -30,8 +31,8 @@ import type { SpawnAgentPlan, SpawnSettings } from "./flags.ts";
  * first slice name, which this used to take, said only what the first agent was
  * doing at the time.
  */
-function homeName(cwd: string, subject: HomeSubject): string {
-  return basename(cwd) || subject.id;
+function homeName(directory: string, subject: HomeSubject): string {
+  return basename(directory) || subject.id;
 }
 
 /**
@@ -90,11 +91,11 @@ function callerCoordinate(backend: Backend, callerHandle: string | null): string
  *  that agent launches in it: a second group beside an empty root is the tab
  *  nobody asked for. */
 export async function openFleetHome(request: OpenFleetHomeRequest): Promise<CreatedHome> {
-  const { services, backend, home: { subject, grant }, cwd, env } = request;
+  const { services, backend, home: { subject, grant }, cwd, labelDirectory, env } = request;
   const role = backend.spaceHome;
   if (role === null) die(`${backend.id} cannot open a home for this fleet`);
   try {
-    return await openHome({ services, subject, plexerId: backend.id, home: role, cwd, label: homeName(cwd, subject), env, grant });
+    return await openHome({ services, subject, plexerId: backend.id, home: role, cwd, label: homeName(labelDirectory, subject), env, grant });
   } catch (error: unknown) {
     die(`could not open a home for this fleet: ${errorMessage(error)}`);
   }
@@ -151,10 +152,10 @@ async function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpe
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
     spawner: spec.spawner,
     owner: spec.owner,
-    worktree: spec.worktree && spec.branch ? { path: spec.worktree, branch: spec.branch } : undefined,
+    worktree: spec.worktree,
     process: spec.backend.process.running(handle),
   });
-  return { key, handle: String(handle), name: spec.name };
+  return { key, handle: String(handle), name: spec.name, cwd: spec.cwd, branch: spec.worktree?.branch ?? null };
 }
 
 export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec, fleet?: FleetSnapshot): Promise<CreatedAgent> {
@@ -179,13 +180,35 @@ function tileAgentIntoGroup(services: DaemonClient, spec: Omit<TabSpawnSpec, "pl
   return spawnOneIntoTab(services, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) }, fleet);
 }
 
+/** Where one agent works: its own worktree when the launch asked for one. */
+export interface AgentWorkspace {
+  readonly cwd: string;
+  readonly worktree: AgentWorktree | undefined;
+}
+
+/** Make the agent's workspace and have its harness trust it. A worktree is a
+ *  directory no harness has seen, so every launch path comes through here. */
+export function prepareWorkspace(from: string, intent: WorktreeIntent | null, name: string, adapter: AgentAdapter, cmd: string): AgentWorkspace {
+  const workspace = intent === null ? { cwd: from, worktree: undefined } : createAgentWorktree(intent, from, name);
+  adapter.workspaceTrust?.preTrustWorkspace(workspace.cwd, cmd);
+  return workspace;
+}
+
+/** Take back a worktree whose agent never came up, so a retry can use the name. */
+export function discardUnusedWorkspace(logger: Logger, intent: WorktreeIntent | null, worktree: AgentWorktree | undefined): void {
+  if (intent === null || worktree === undefined) return;
+  discardFreshWorktree(worktree, intent.config, (message) => { logger.warn("spawn.worktree-discard-failed", { message }); });
+}
+
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, fleet: FleetSnapshot, role: GroupLayoutRole): Promise<CreatedAgent> {
+async function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, fleet: FleetSnapshot, role: GroupLayoutRole): Promise<CreatedAgent> {
   const name = plan.name;
-  const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-  return tileAgentIntoGroup(services, {
+  const adapter = resolveAdapterOrDie(plan.adapter);
+  const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
+  try {
+    return await tileAgentIntoGroup(services, {
     backend,
-    adapter: resolveAdapterOrDie(plan.adapter),
+    adapter,
     adapterId: plan.adapter,
     name,
     cwd,
@@ -198,11 +221,14 @@ function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: Spawn
     tools: settings.tools,
     workers: settings.workers,
     cmd: settings.commandFlag ? plan.cmd : undefined,
-    worktree: settings.worktree ? cwd : undefined,
-    branch: settings.worktree ? `orch/${name}` : undefined,
+    worktree,
     spawner: self.id,
     owner: self.id ?? undefined,
-  }, settings.tiling.first_split, role, fleet);
+    }, settings.tiling.first_split, role, fleet);
+  } catch (error: unknown) {
+    discardUnusedWorkspace(services.logger, settings.worktree, worktree);
+    throw error;
+  }
 }
 
 /** Fill a group with named agents. An agent that fails to come up is named and the

@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "858650ed-dc40-4f91-9510-6eb7881ae228",
+  "id": "aec44547-19fd-41df-ad2f-32faa2763c96",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -735,6 +735,26 @@
       "default": null,
       "generated": null,
       "name": "branch",
+      "entityType": "columns",
+      "table": "agent_worktrees"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "base",
+      "entityType": "columns",
+      "table": "agent_worktrees"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider",
       "entityType": "columns",
       "table": "agent_worktrees"
     },

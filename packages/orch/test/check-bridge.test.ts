@@ -200,6 +200,14 @@ describe("10.2 adapter control strategies are dispatcher-only (checkDispatcherCa
   });
 });
 
+describe("worktree providers are reached through their registry (checkCoreScopeLine)", () => {
+  test("core importing a concrete provider fails, the registry passes", () => {
+    expect(checkCoreScopeLine('import { worktrunkWorktrees } from "../worktrees/worktrunk.ts";', "src/commands/review.ts")).toContain("worktree provider");
+    expect(checkCoreScopeLine('import { gitWorktrees } from "../worktrees/git.ts";', "src/commands/review.ts")).toContain("worktree provider");
+    expect(checkCoreScopeLine('import { worktreeProvider } from "../worktrees/registry.ts";', "src/commands/review.ts")).toBeUndefined();
+  });
+});
+
 describe("10.4 string-form identity branches are forbidden in core (checkCoreScopeLine)", () => {
   const relPath = "src/commands/somewhere.ts";
 

@@ -78,7 +78,7 @@ function writeEnvironment(directory: OrchDir, agentId: string, now: number, host
   // `model` recorded NULL for every spawn, because the launch hands over the bare
   // id — so the row said the fleet ran at no effort while every pin said `high`.
   setTuning(directory, agentId, now, { model: input.model, thinking: input.thinking });
-  if (input.worktree) setWorktree(directory, agentId, input.worktree.path, input.worktree.branch);
+  if (input.worktree) setWorktree(directory, agentId, input.worktree);
 }
 
 /** A7 — a space is the user's to create; a spawn into an unknown one is refused

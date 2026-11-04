@@ -632,6 +632,7 @@ export function checkEnvironmentCapabilityLine(line: string, relPath: string): s
 }
 
 const CORE_ADAPTER_IMPORT = new RegExp(`from\\s+["'][^"']*\\/(?:${alternation(HARNESS_IDS)})(?:\\.ts)?["']`);
+const CORE_WORKTREE_PROVIDER_IMPORT = /from\s+["'][^"']*worktrees\/(?:git|worktrunk)(?:\.ts)?["']/;
 const CORE_BACKEND_IMPORT = new RegExp(`from\\s+["'][^"']*backends\\/(?:${alternation(PLEXER_IDS)})\\/`);
 /** Agent-id literals a backend must not spell (Eh13's kind map is the one exemption). */
 const HARNESS_ID_LITERAL = new RegExp(`["']\\b(?:${alternation(HARNESS_IDS)})\\b["']`);
@@ -647,6 +648,9 @@ export function checkCoreScopeLine(line: string, relPath: string): string | unde
   if (presenceViolation) return presenceViolation;
   if (CORE_ADAPTER_IMPORT.test(line)) {
     return "concrete adapter imports are forbidden in core; resolve via src/adapters/registry.ts";
+  }
+  if (CORE_WORKTREE_PROVIDER_IMPORT.test(line)) {
+    return "concrete worktree provider imports are forbidden in core; resolve via src/worktrees/registry.ts";
   }
   if (CORE_BACKEND_IMPORT.test(line)) {
     return "concrete backend imports are forbidden in core; resolve via src/backends/registry.ts";

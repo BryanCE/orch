@@ -60,14 +60,12 @@ export interface TaskOptions {
   harness?: string;
   /** Only an agent whose model matches this glob takes the task. */
   model?: string;
-  cwd?: string;
-  worktree?: boolean;
   constraints?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
 /** The `typeof` each scalar task option must have when present. */
-const TASK_OPTION_TYPES: Readonly<Record<string, "string" | "boolean">> = { agent: "string", harness: "string", model: "string", cwd: "string", worktree: "boolean" };
+const TASK_OPTION_TYPES: Readonly<Record<string, "string">> = { agent: "string", harness: "string", model: "string" };
 
 export function isTaskOptions(value: unknown): value is TaskOptions {
   if (!isRecord(value)) return false;

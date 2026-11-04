@@ -394,7 +394,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   // target ambiguous (dispatch/steer/reset all fail post-first-run).
   const key = dispatchSettings.ent.key;
   const { model, thinking } = await prepareSession(services, dispatchSettings, tuning, { key, name: effectiveName, steal: gov.steal === true });
-  const headerContext = workerHeaderContextOf(self, settings, dispatchSettings.view?.cwd);
+  const headerContext = workerHeaderContextOf(self, settings, dispatchSettings.view ?? undefined);
   const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: resolveAdapterOrDie(dispatchSettings.adapter), context: headerContext, gov });
   if (dispatchSettings.view === null) await recordAdoptedAgent(services, self, key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two

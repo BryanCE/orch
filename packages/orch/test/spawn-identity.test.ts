@@ -218,7 +218,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
     // And it comes back through the ONE composed read, beside the plexer it is
     // independent of. Nothing parses either of them out of `key`.
     expect(agentView(dir, key)?.environment).toEqual({
-      plexer: "herdr", handle: "%42", space: "wsA", worktree: null, branch: null,
+      plexer: "herdr", handle: "%42", space: "wsA", worktree: null, branch: null, worktreeBase: null, worktreeProvider: null,
     });
   });
 
@@ -236,7 +236,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
     // Not a NULL column, not the invented place called "local": no row at all.
     expect(spaceRows(dir, key)).toEqual([]);
     expect(agentView(dir, key)?.environment).toEqual({
-      plexer: null, handle: null, space: null, worktree: null, branch: null,
+      plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null,
     });
   });
 

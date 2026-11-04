@@ -220,6 +220,8 @@ export interface WorkerHeaderContext {
   maySpawn: boolean;
   /** The agent's own directory: `{cwd}` and `{wincwd}` in a verify command become it. */
   cwd?: string;
+  /** The worktree branch the agent runs on: only what it commits there reaches review. */
+  worktreeBranch?: string;
   gatedCommands?: readonly string[];
   /** The commands that prove a slice is finished. Empty: the header asks for
    *  whatever the repository already has, because orch was told no verb. */

@@ -235,6 +235,13 @@ const settingsValueExtractors = {
     unclaimed_after_ms: root.doctor?.unclaimed_after_ms ?? SETTINGS_DEFAULTS.doctor.unclaimed_after_ms,
   }),
   tiling: (root: Partial<SettingsFile>) => ({ first_split: root.tiling?.first_split ?? SETTINGS_DEFAULTS.tiling.first_split }),
+  worktrees: (root: Partial<SettingsFile>) => ({
+    provider: root.worktrees?.provider ?? SETTINGS_DEFAULTS.worktrees.provider,
+    branch_prefix: root.worktrees?.branch_prefix ?? SETTINGS_DEFAULTS.worktrees.branch_prefix,
+    directory: root.worktrees?.directory ?? SETTINGS_DEFAULTS.worktrees.directory,
+    worktrunk_command: root.worktrees?.worktrunk_command ?? SETTINGS_DEFAULTS.worktrees.worktrunk_command,
+    timeout_ms: root.worktrees?.timeout_ms ?? SETTINGS_DEFAULTS.worktrees.timeout_ms,
+  }),
   counts: (root: Partial<SettingsFile>) => ({
     tail: root.counts?.tail ?? SETTINGS_DEFAULTS.counts.tail,
     peek: root.counts?.peek ?? SETTINGS_DEFAULTS.counts.peek,
@@ -273,6 +280,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
     daemon: settingsValueExtractors.daemon(root),
     doctor: settingsValueExtractors.doctor(root),
     tiling: settingsValueExtractors.tiling(root),
+    worktrees: settingsValueExtractors.worktrees(root),
     counts: settingsValueExtractors.counts(root),
     skills: settingsValueExtractors.skills(root),
   };

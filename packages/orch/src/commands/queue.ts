@@ -1,9 +1,7 @@
-import { randomUUID } from "node:crypto";
 import type { TaskRec, TaskScopeSelection } from "../queue.ts";
 import { rpcCall } from "../daemon/client/rpc.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
-import { createAgentWorktree } from "../worktree.ts";
 import { isAdapterId } from "../adapters/adapter.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
 import { askDaemon, callDaemon } from "./daemon.ts";
@@ -90,14 +88,6 @@ function withoutHostFlag(args: readonly string[], host: string): string[] {
   return args.filter((part) => part !== "--host" && part !== host);
 }
 
-/** The enqueue options a fresh worktree adds, or none. */
-function worktreeOptions(wanted: boolean): Record<string, unknown> {
-  if (!wanted) return {};
-  const name = `queue-${randomUUID()}`;
-  const worktreePath = createAgentWorktree(process.cwd(), name);
-  return { worktree: true, cwd: worktreePath, branch: `orch/${name}` };
-}
-
 /** The harness and model an agent must run to take the task, present ones only. */
 function takerOptions(flags: ParsedFlags): Record<string, string> {
   const harness = flags.value("--harness");
@@ -117,7 +107,7 @@ async function queueAdd(services: DaemonClient, invocation: Invocation, args: st
   }
   const enqueuedBy = await callerId(services);
   const scope = await scopeFromFlags(services, scopeFlags(flags));
-  const opts = { ...worktreeOptions(flags.has("--worktree")), ...takerOptions(flags) };
+  const opts = takerOptions(flags);
   const { task } = await rpcCall(services.orchDir, "enqueue", { enqueuedBy, text, opts, scope });
   writeQueueTask(task, flags.has("--json"), `Added task ${task.id}.`);
 }

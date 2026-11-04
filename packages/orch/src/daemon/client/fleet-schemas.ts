@@ -13,6 +13,8 @@ const AGENT_ENVIRONMENT = z.object({
   space: z.string().nullable(),
   worktree: z.string().nullable(),
   branch: z.string().nullable(),
+  worktreeBase: z.string().nullable(),
+  worktreeProvider: z.string().nullable(),
 }) satisfies z.ZodType<AgentEnvironment>;
 
 const AGENT_HOLDER = z.object({

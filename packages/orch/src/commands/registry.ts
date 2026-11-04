@@ -149,7 +149,6 @@ const QUEUE: readonly CommandSpec[] = [
           { ...HARNESS, help: "Only an agent on this harness takes it." },
           { ...MODEL, placeholder: "<glob>", help: "Only an agent whose model matches this glob (*haiku*) takes it." },
           { name: "--host", arity: "one", placeholder: "<host>", help: "Enqueue on a configured remote host." },
-          { name: "--worktree", arity: "none", help: "Run it in a fresh git worktree." },
         ],
       },
       { name: "list", summary: "Queued, claimed, and settled tasks.", flags: [] },
@@ -175,11 +174,11 @@ const QUEUE: readonly CommandSpec[] = [
 const REVIEW: readonly CommandSpec[] = [
   {
     name: "review", section: "review",
-    summary: "Review done worktree agents.",
+    summary: "Review finished worktree agents.",
     flags: [],
     subcommands: [
-      { name: "list", summary: "Done worktree agents with commits ahead of their base.", flags: [] },
-      { name: "approve", args: "<target>", summary: "Merge the branch and remove the worktree.", flags: [] },
+      { name: "list", summary: "Finished worktree agents with commits ahead of their base.", flags: [] },
+      { name: "approve", args: "<target>", summary: "Land the branch on its base, close the agent, remove the worktree.", flags: [] },
       {
         name: "reject", args: "<target> -m \"<feedback>\"",
         summary: "Re-dispatch feedback into the same worktree.",
@@ -188,6 +187,9 @@ const REVIEW: readonly CommandSpec[] = [
     ],
   },
 ];
+
+const WORKTREE: FlagSpec = { name: "--worktree", arity: "none", help: "A git worktree per agent, forked from the branch checked out here." };
+const WORKTREE_PROVIDER: FlagSpec = { name: "--worktree-provider", arity: "one", placeholder: "<git|worktrunk>", help: "The tool that makes it. Implies --worktree. Default: the worktrees.provider setting." };
 
 const TAB_STEAL: FlagSpec = { ...STEAL, help: "Act on a tab holding an agent a live foreign holder leases." };
 
@@ -206,10 +208,10 @@ const AGENTS: readonly CommandSpec[] = [
       { name: "--file", arity: "many", placeholder: "<path>|-", help: "The task file. One, or one per name. '-' reads stdin." },
       { name: "--with", arity: "many", placeholder: "[<name>=]<path>", help: "A context file or directory. Must exist." },
       { name: "--tasks", arity: "one", placeholder: "<path>", help: "A JSON array of task strings, one per name." },
-      { name: "--worktree", arity: "none", help: "A git worktree per agent." },
+      WORKTREE, WORKTREE_PROVIDER,
     ],
   },
-  { name: "tile", section: "agents", args: "<tab> <name>", summary: "Add one named agent to an existing tab.", flags: [MODEL, DIR, CMD, THINKING, HARNESS, PLEXER] },
+  { name: "tile", section: "agents", args: "<tab> <name>", summary: "Add one named agent to an existing tab.", flags: [MODEL, DIR, CMD, THINKING, HARNESS, PLEXER, WORKTREE, WORKTREE_PROVIDER] },
   {
     name: "rename", section: "agents", args: "<target> <name>",
     summary: "Set the agent name. --pane sets the border label.",

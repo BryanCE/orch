@@ -9,6 +9,7 @@ import { displayValue } from "../settings/display.ts";
 import { commandOutput } from "./shared.ts";
 import { isWsl } from "../host.ts";
 import { errorMessage } from "../util.ts";
+import { worktreeProvider } from "../worktrees/registry.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
@@ -97,16 +98,30 @@ export async function checkOrchDirLocation(orchDir: OrchDir): Promise<CheckResul
   };
 }
 
-export async function checkWorktreeGitignore(): Promise<CheckResult> {
-  const worktrees = path.join(process.cwd(), ".orch-worktrees");
-  if (!filesystem.existsSync(worktrees)) return { id: "worktree-gitignore", label: "Worktree gitignore", status: "skip", detail: ".orch-worktrees does not exist" };
-  const result = await commandOutput("git", ["check-ignore", "-q", ".orch-worktrees"]);
+/** The configured worktree tool, declared against what is on this machine. */
+export async function checkWorktreeProvider(settings: OrchSettings | null): Promise<CheckResult> {
+  await Promise.resolve();
+  const label = "Worktree provider";
+  if (settings === null) return { id: "worktree-provider", label, status: "skip", detail: "no settings.json" };
+  const { provider: id } = settings.worktrees;
+  return worktreeProvider(id, settings.worktrees).isAvailable()
+    ? { id: "worktree-provider", label, status: "ok", detail: `${id} is available` }
+    : { id: "worktree-provider", label, status: "fail", detail: `worktrees.provider is ${id} but its binary ${settings.worktrees.worktrunk_command} is not on PATH; fix: install it, point worktrees.worktrunk_command at it, or set worktrees.provider to another tool` };
+}
+
+export async function checkWorktreeGitignore(settings: OrchSettings | null): Promise<CheckResult> {
+  if (settings === null) return { id: "worktree-gitignore", label: "Worktree gitignore", status: "skip", detail: "no settings.json" };
+  const directory = worktreeProvider(settings.worktrees.provider, settings.worktrees).repositoryDirectory;
+  if (directory === null) return { id: "worktree-gitignore", label: "Worktree gitignore", status: "skip", detail: `${settings.worktrees.provider} keeps worktrees outside the repository` };
+  const worktrees = path.join(process.cwd(), directory);
+  if (!filesystem.existsSync(worktrees)) return { id: "worktree-gitignore", label: "Worktree gitignore", status: "skip", detail: `${directory} does not exist` };
+  const result = await commandOutput("git", ["check-ignore", "-q", directory]);
   return result.ok
-    ? { id: "worktree-gitignore", label: "Worktree gitignore", status: "ok", detail: ".orch-worktrees is gitignored" }
+    ? { id: "worktree-gitignore", label: "Worktree gitignore", status: "ok", detail: `${directory} is gitignored` }
     : {
         id: "worktree-gitignore",
         label: "Worktree gitignore",
         status: "warn",
-        detail: ".orch-worktrees is not gitignored; fix: printf '\n.orch-worktrees/\n' >> .gitignore",
+        detail: `${directory} is not gitignored; fix: printf '\n${directory}/\n' >> .gitignore`,
       };
 }

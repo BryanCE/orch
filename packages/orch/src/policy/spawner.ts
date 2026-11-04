@@ -2,7 +2,7 @@ import { LAUNCH_ENV } from "../identity/launch.ts";
 import { ENVIRONMENT_ENV } from "../agent/environment.ts";
 import { projectRoot } from "../util.ts";
 import type { BackendSpawnOpts } from "../types/backend.ts";
-import { workerRules } from "../worker-prompt.ts";
+import { workerPlaceContext, workerRules, type WorkerPlace } from "../worker-prompt.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { WorkerHeaderContext } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -21,8 +21,8 @@ export function maySpawnBelow(self: CallerSelf, maxDepth: number): boolean {
 }
 
 /** The header context for a worker this caller dispatches to. */
-export function workerHeaderContextOf(self: CallerSelf, settings: OrchSettings, cwd: string | undefined): WorkerHeaderContext {
-  return { maySpawn: maySpawnBelow(self, settings.fleet.max_depth), ...(cwd === undefined ? {} : { cwd }), spawnerRepliable: self.id !== null, ...workerRules(settings) };
+export function workerHeaderContextOf(self: CallerSelf, settings: OrchSettings, place: WorkerPlace | undefined): WorkerHeaderContext {
+  return { maySpawn: maySpawnBelow(self, settings.fleet.max_depth), ...workerPlaceContext(place), spawnerRepliable: self.id !== null, ...workerRules(settings) };
 }
 
 /**

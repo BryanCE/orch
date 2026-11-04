@@ -64,7 +64,7 @@ describe("spawn agent registration", () => {
 
   test("worktree row is present only for a worktree launch", () => {
     const dir = fixture();
-    register(dir, { worktree: { path: "/trees/worker", branch: "orch/worker" } });
+    register(dir, { worktree: { path: "/trees/worker", branch: "orch/worker", base: "main", provider: "git" } });
     expect(row(orm(dir), sql`SELECT path, branch FROM agent_worktrees WHERE agent_id = ${"worker0001"}`))
       .toEqual({ path: "/trees/worker", branch: "orch/worker" });
 

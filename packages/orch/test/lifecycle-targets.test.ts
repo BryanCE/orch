@@ -23,7 +23,7 @@ function view(id: string, name: string, handle: string | null = null): AgentView
     spawnedBy: null, spawnedByName: null,
     rootAgentId: id,
     heldBy: null,
-    environment: { plexer: handle === null ? null : "herdr", handle, space: null, worktree: null, branch: null },
+    environment: { plexer: handle === null ? null : "herdr", handle, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null },
     tuning: { model: null, thinking: null },
     endedAt: null,
   };

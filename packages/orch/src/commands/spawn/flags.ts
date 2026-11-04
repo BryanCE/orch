@@ -1,4 +1,3 @@
-import { resolveSetting } from "../../settings/read.ts";
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
 import { resolveBackend } from "../../backends/registry.ts";
 import { agentFlags, pickAdapter, resolveTuningOrDie } from "../selection.ts";
@@ -14,6 +13,8 @@ import type { AgentFlags, AgentSettings } from "../../types/command.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 import type { ContextReference } from "../../types/core.ts";
 import { adapterCommand } from "./models.ts";
+import { isWorktreeProviderId, WORKTREE_PROVIDER_IDS } from "../../types/worktree.ts";
+import type { WorktreeIntent } from "../../worktrees/agent.ts";
 import { resolveSpawnNames } from "./names.ts";
 import { contextReference, readPromptFile } from "../prompt-file.ts";
 import { usageError, type CommandAt } from "../../cli/usage.ts";
@@ -31,7 +32,7 @@ export type SpawnFlags = Omit<AgentFlags, "adapterFlag" | "modelFlag"> & {
   /** The harness command `--cmd` named, or null for the adapter's own. */
   cmd: string | null;
   space: string | null;
-  worktreeFlag?: boolean;
+  worktree: WorktreeFlags;
   /** Initial task each agent starts on. */
   promptFlags: string[];
   /** Paths the initial tasks are read from, or "-" for stdin. */
@@ -46,6 +47,24 @@ export type SpawnFlags = Omit<AgentFlags, "adapterFlag" | "modelFlag"> & {
   positional: string[];
 };
 
+/** What the worktree flags of `spawn` and `tile` said. */
+export interface WorktreeFlags {
+  readonly wanted: boolean;
+  readonly provider: string | undefined;
+}
+
+export function worktreeFlags(flags: Pick<ReturnType<typeof parseCommand>["flags"], "has" | "value">): WorktreeFlags {
+  return { wanted: flags.has("--worktree"), provider: flags.value("--worktree-provider") };
+}
+
+/** Naming a provider asks for a worktree; `defaults.worktree` asks for one on every launch. */
+export function resolveWorktreeIntent(at: CommandAt, flags: WorktreeFlags, settings: OrchSettings): WorktreeIntent | null {
+  const { wanted, provider } = flags;
+  if (provider !== undefined && !isWorktreeProviderId(provider)) throw usageError(at, `--worktree-provider takes one of ${WORKTREE_PROVIDER_IDS.join(", ")}`);
+  if (!wanted && provider === undefined && !settings.defaults.worktree) return null;
+  return { provider: provider ?? settings.worktrees.provider, config: settings.worktrees };
+}
+
 export function parseSpawnFlags(args: string[]): SpawnFlags {
   const invocation = parseCommand("spawn", args);
   const { flags, positional } = invocation;
@@ -58,7 +77,7 @@ export function parseSpawnFlags(args: string[]): SpawnFlags {
     cwd: flags.value("--dir") ?? process.cwd(),
     cmd: flags.value("--cmd") ?? null,
     space: flags.value("--space") ?? null,
-    ...(flags.has("--worktree") ? { worktreeFlag: true } : {}),
+    worktree: worktreeFlags(flags),
     promptFlags: [...flags.values("--prompt")],
     promptFiles: [...flags.values("--file")],
     modelFlags: [...flags.values("--model")],
@@ -98,7 +117,8 @@ export type SpawnSettings = Pick<AgentSettings, "backend"> & {
   prefix: string;
   /** One resolved plan per agent. */
   agents: readonly SpawnAgentPlan[];
-  worktree: boolean;
+  /** Null when these agents run in the directory they were launched from. */
+  worktree: WorktreeIntent | null;
   fleet: OrchSettings["fleet"];
   tiling: OrchSettings["tiling"];
 };
@@ -193,7 +213,7 @@ function planAgent(flags: SpawnFlags, settings: OrchSettings, agent: { name: str
 
 export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings): SpawnSettings {
   const backend = resolveSpawnBackend(flags, settings);
-  const worktree = resolveSetting({ flag: flags.worktreeFlag, settings: settings.defaults.worktree, fallback: settings.defaults.worktree });
+  const worktree = resolveWorktreeIntent(flags.at, flags.worktree, settings);
   const names = resolveSpawnNames(flags.at, flags.positional);
   const n = names.length;
   const references = referencesByAgent(flags.withPaths, names);

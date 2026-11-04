@@ -10,6 +10,7 @@ import type { SettingsManager } from "./services.ts";
 import type { OrchRuntime } from "../runtimes.ts";
 import type { Role, ThinkingLevel } from "./policy.ts";
 import type { TileFirstSplit } from "./backend.ts";
+import type { WorktreeConfig } from "./worktree.ts";
 
 /** The shared agent-state vocabulary used by presence, events, and notify sinks. */
 export const NOTIFY_STATES = AGENT_STATES;
@@ -70,6 +71,7 @@ export interface OrchSettings {
   daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number; work_tick_ms: number; liveness_poll_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number; report_timeout_ms: number };
   doctor: { unclaimed_after_ms: number };
   tiling: { first_split: TileFirstSplit };
+  worktrees: WorktreeConfig;
   counts: { tail: number; peek: number };
   skills: { install: boolean; store: string; link: string[] };
 }

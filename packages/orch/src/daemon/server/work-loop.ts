@@ -19,7 +19,7 @@ import { deliverTaskResult } from "./result-delivery.ts";
 import { loadPresence, presenceEntry } from "../../presence/store.ts";
 import { pendingQuestions, type QuestionRow } from "../../store/question-rows.ts";
 import { selectAgentStatus } from "../../store/status-rows.ts";
-import { workerHeaderFor, workerRules } from "../../worker-prompt.ts";
+import { workerHeaderFor, workerPlaceContext, workerRules } from "../../worker-prompt.ts";
 import { abstractAgentLabel } from "../../notify/format.ts";
 import { getAdapter } from "../../adapters/registry.ts";
 import { isAgentId } from "../../backends/identity.ts";
@@ -101,7 +101,7 @@ function buildTaskHeader(orchDir: OrchDir, view: ReturnType<typeof agentView>, o
   const spawnerRepliable = typeof spawnerKey === "string" && agentProcessLive(orchDir, spawnerKey);
   const adapterId = view?.harnessId;
   const rules = workerRules(options.settings.current());
-  return workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...(view === null ? {} : { cwd: view.cwd }), ...rules });
+  return workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...workerPlaceContext(view ?? undefined), ...rules });
 }
 
 function prepareTaskDispatch(options: WorkOptions, entry: PresenceEntry, task: TaskRec, orchDir: OrchDir) {

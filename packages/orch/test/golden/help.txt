@@ -34,7 +34,7 @@ QUEUE
   orch work [flags]                             Assign queued tasks to idle agents.
 
 REVIEW
-  orch review <list|approve|reject>             Review done worktree agents.
+  orch review <list|approve|reject>             Review finished worktree agents.
 
 AGENTS (never steals focus except 'focus')
   orch spawn <name>... [flags]                  One fleet, one command. The names are the agents.

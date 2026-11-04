@@ -81,7 +81,7 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
         view: {
           id: "worker0001", name: "worker", label: null, harnessId: "pi", cwd: "/w", createdAt: 1, kind: "agent",
           spawnedBy: "deadorch01", spawnedByName: "claude session", rootAgentId: "deadorch01", heldBy: null,
-          environment: { plexer: null, handle: null, space: null, worktree: null, branch: null },
+          environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null },
           tuning: { model: null, thinking: null }, endedAt: null,
         },
       }),

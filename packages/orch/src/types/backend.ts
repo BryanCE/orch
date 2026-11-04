@@ -4,6 +4,7 @@ import type { HeadlessHandle } from "./plexer.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentId } from "../backends/identity.ts";
 import type { Logger, OrchDir } from "./core.ts";
+import type { AgentWorktree } from "./worktree.ts";
 
 /** Facts detected about the plexer containing the current process. */
 export interface DetectedPlexer {
@@ -274,7 +275,7 @@ export interface BackendSpawnOpts {
   /** The launching agent's id, recorded as provenance by a backend that registers its own agents. */
   readonly spawner?: string | null;
   /** The git worktree the agent runs in, recorded by a backend that registers its own agents. */
-  readonly worktree?: { readonly path: string; readonly branch: string };
+  readonly worktree?: AgentWorktree;
   /** Explicit worker tool allowlist, when the launcher applies one. */
   readonly tools?: string;
   /** What this worker may load; the adapter maps it onto its harness's flags. */

@@ -18,7 +18,7 @@ import { checkHelpDocs } from "./help-docs.ts";
 import { checkProvenanceDepth } from "./provenance-depth.ts";
 import { checkUnclaimedAgents } from "./unclaimed-agents.ts";
 import { checkHarnessModels } from "./models.ts";
-import { checkCommandLocks, checkSettingsFile, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore } from "./settings-file.ts";
+import { checkCommandLocks, checkSettingsFile, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore, checkWorktreeProvider } from "./settings-file.ts";
 import { checkStore } from "./store.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
 import { checkDaemonLock, checkDaemonPresence, checkDaemonRegistration, checkDaemonSocket, checkDaemonStaleness, checkOsExecutors } from "./daemon.ts";
@@ -155,7 +155,8 @@ export async function runDoctor(services: Pick<Services, "orchDir" | "logger" | 
     settingsDependent(orchDir, settings, "remote-ssh", "Remote SSH reachability", (current) => checkRemoteReachability(current, sshRunner)),
     settingsDependent(orchDir, settings, "remote-orch-version", "Remote orch version/schema", (current) => checkRemoteVersion(current, sshRunner)),
     settingsDependent(orchDir, settings, "remote-orch-dir", "Remote ORCH_DIR", (current) => checkRemoteOrchDir(current, sshRunner)),
-    isolated("worktree-gitignore", "Worktree gitignore", checkWorktreeGitignore),
+    settingsDependent(orchDir, settings, "worktree-gitignore", "Worktree gitignore", checkWorktreeGitignore),
+    settingsDependent(orchDir, settings, "worktree-provider", "Worktree provider", checkWorktreeProvider),
   ]);
 }
 

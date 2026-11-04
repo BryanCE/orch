@@ -8,7 +8,8 @@ import { environmentOf, refreshAgent } from "./agent-view.ts";
 import { currentProcess, recordProcessIn, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
 import { acquireLease } from "./lease-rows.ts";
-import type { AgentInput, AgentRow, AgentWorktree, ClaimResult, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
+import type { AgentWorktree } from "../types/worktree.ts";
+import type { AgentInput, AgentRow, ClaimResult, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
 import type { HostOs } from "../types/host.ts";
 import type { CallerKind } from "../types/policy.ts";
 import { isHostOs } from "../host.ts";
@@ -106,16 +107,16 @@ export function endAgent(orchDir: OrchDir, agentId: string, endedAt: number, clo
 }
 
 /** Record that an agent runs from a git worktree. No row means the repo itself. */
-export function setWorktree(orchDir: OrchDir, agentId: string, path: string, branch: string): void {
-  orm(orchDir).insert(agentWorktrees).values({ agentId, path, branch })
-    .onConflictDoUpdate({ target: agentWorktrees.agentId, set: { path, branch } })
+export function setWorktree(orchDir: OrchDir, agentId: string, worktree: AgentWorktree): void {
+  orm(orchDir).insert(agentWorktrees).values({ agentId, ...worktree })
+    .onConflictDoUpdate({ target: agentWorktrees.agentId, set: worktree })
     .run();
   refreshAgent(orchDir, agentId);
 }
 
 export function worktreeOf(orchDir: OrchDir, agentId: string): AgentWorktree | null {
   const row = orm(orchDir)
-    .select({ path: agentWorktrees.path, branch: agentWorktrees.branch })
+    .select({ path: agentWorktrees.path, branch: agentWorktrees.branch, base: agentWorktrees.base, provider: agentWorktrees.provider })
     .from(agentWorktrees)
     .where(eq(agentWorktrees.agentId, agentId))
     .get();

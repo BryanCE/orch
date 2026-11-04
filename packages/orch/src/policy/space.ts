@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { resolve } from "node:path";
+import { repositoryRootOf } from "../worktrees/repository.ts";
 import { agentView } from "../store/agent-view.ts";
 import type { SpaceResolver, WallDecision } from "../types/policy.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -61,21 +61,13 @@ export function operatorControls(
 /**
  * The repo an agent's `cwd` sits in. A7: with no space set, THIS is the
  * reachability boundary — unspaced does not mean "reaches every agent on the
- * machine". A directory outside any repository is its own boundary, which is
- * the honest answer rather than widening to the filesystem.
- *
- * Walked rather than shelled out to `git rev-parse`: this runs on every peer
- * resolution, and a subprocess per check is not affordable there.
+ * machine". A worktree belongs to its repository, wherever its tool put it. A
+ * directory outside any repository is its own boundary, which is the honest
+ * answer rather than widening to the filesystem.
  */
 function repoRootOf(cwd: string | null | undefined): string | null {
   if (cwd === null || cwd === undefined || cwd.length === 0) return null;
-  let directory = resolve(cwd);
-  for (;;) {
-    if (existsSync(join(directory, ".git"))) return directory;
-    const parent = dirname(directory);
-    if (parent === directory) return resolve(cwd);
-    directory = parent;
-  }
+  return repositoryRootOf(cwd) ?? resolve(cwd);
 }
 
 function repoRootFor(orchDir: OrchDir, key: string | null | undefined): string | null {

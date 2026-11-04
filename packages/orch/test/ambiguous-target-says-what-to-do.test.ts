@@ -28,7 +28,7 @@ function view(id: string, name: string): AgentView {
   return {
     id, name, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1, kind: "agent",
     spawnedBy: null, spawnedByName: null, rootAgentId: id, heldBy: null,
-    environment: { plexer: null, handle: null, space: null, worktree: null, branch: null },
+    environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null },
     tuning: { model: null, thinking: null },
     endedAt: null,
   };

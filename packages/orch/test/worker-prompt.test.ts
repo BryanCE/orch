@@ -22,6 +22,13 @@ afterEach(() => {
 });
 
 describe("worker prompt capability composition", () => {
+  test("a worker on a worktree branch is told review reads commits, and the verify path is its own", () => {
+    const header = workerHeaderFor(undefined, { cwd: "/repo.orch-alpha", worktreeBranch: "orch/alpha", verifyCommands: ["bun check"] });
+    expect(header).toContain("on branch orch/alpha");
+    expect(header).toContain("Work only inside /repo.orch-alpha.");
+    expect(workerHeaderFor(undefined, { cwd: "/repo" })).not.toContain("worktree");
+  });
+
   test("spawn clause follows maySpawn and stripping preserves the task", () => {
     const never = workerPrompt("bare task", false, getAdapter("pi"), { maySpawn: false });
     expect(never.toLowerCase()).toContain("never spawn");

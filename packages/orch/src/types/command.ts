@@ -4,6 +4,7 @@ import type { CallerKind, ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentView, GrantAction } from "./store.ts";
 import type { Entity, LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
+import type { AgentWorktree } from "./worktree.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 export interface DispatchToAgentOptions {
   raw?: boolean;
@@ -139,7 +140,15 @@ export interface AgentSettings {
   preferredModels: readonly string[];
 }
 
-export interface CreatedAgent { key: string; handle: string; name: string }
+export interface CreatedAgent {
+  key: string;
+  handle: string;
+  name: string;
+  /** The directory the agent works in. */
+  cwd: string;
+  /** Its worktree branch, or null when it runs in the checkout it was launched from. */
+  branch: string | null;
+}
 
 export interface TabSpawnSpec {
   backend: Backend;
@@ -174,8 +183,7 @@ export interface TabSpawnSpec {
   workers?: WorkerPolicy;
   /** Verbatim launch command from `--cmd`; absent lets the adapter build it. */
   cmd?: string;
-  worktree?: string;
-  branch?: string;
+  worktree?: AgentWorktree;
   /** The launching agent's id; null for an unregistered caller. */
   spawner: string | null;
   /** Owner lease for the launched agent. */
@@ -331,10 +339,11 @@ export interface OpenFleetHomeRequest {
   readonly services: DaemonClient;
   readonly backend: Backend;
   readonly home: HomeToOpen;
-  /** Where the fleet works, and the name its home is opened under: a workspace
-   *  called after the repo is one a human can find, and the tab label names a
-   *  slice, which is a different noun. */
+  /** The first agent's directory: the home's root place is where it launches. */
   readonly cwd: string;
+  /** The directory the home is named after: a workspace called after the repo is
+   *  one a human can find, and the tab label names a slice, a different noun. */
+  readonly labelDirectory: string;
   /** The first agent's environment. The home's root place launches that agent. */
   readonly env: Readonly<Record<string, string>>;
 }
@@ -379,6 +388,6 @@ export interface PreparedAgent {
   readonly cwd: string;
   readonly key: string;
   readonly env: Readonly<Record<string, string>>;
-  readonly branch: string | undefined;
+  readonly worktree: AgentWorktree | undefined;
   handle: BackendHandle | undefined;
 }

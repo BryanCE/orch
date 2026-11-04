@@ -6,7 +6,6 @@ import { parseCommand } from "../registry.ts";
 import { mintAgentId } from "../../backends/identity.ts";
 import { resolveBackend } from "../../backends/registry.ts";
 import { nextTilePlacement, planTilePlacement, readGroupLayout } from "../../backends/tiling.ts";
-import { createAgentWorktree } from "../../worktree.ts";
 import { errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
 import { die } from "../target.ts";
@@ -16,14 +15,14 @@ import type { Backend, BackendGroup, CreatedHome, GroupHomeRole, GroupLayoutRole
 import type { CreatedAgent, PreparedAgent, SpawnPlacement, TabSpawnSpec } from "../../types/command.ts";
 import type { DaemonClient, Services } from "../../types/services.ts";
 import { readFleet, type FleetSnapshot } from "../fleet.ts";
-import type { OrchDir } from "../../types/core.ts";
 import type { OrchSettings } from "../../types/settings.ts";
-import { resolveSpawnAgentSettings, resolveSpawnSettings, parseSpawnFlags } from "./flags.ts";
+import { resolveSpawnAgentSettings, resolveSpawnSettings, resolveWorktreeIntent, parseSpawnFlags, worktreeFlags } from "./flags.ts";
 import type { SpawnSettings } from "./flags.ts";
+import type { WorktreeIntent } from "../../worktrees/agent.ts";
 import { admissionFleet, assertSpawnCapacity, assertSpawnPolicy, assertNewSpaceGranted, assertTabCapacity, admitSpawn } from "./admission.ts";
-import { admitLaunchModel, pinModels } from "./models.ts";
+import { adapterCommand, admitLaunchModel, pinModels } from "./models.ts";
 import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
-import { findGroupInSpace, growFleetIntoGroup, openFleetHome, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab } from "./placement.ts";
+import { discardUnusedWorkspace, findGroupInSpace, growFleetIntoGroup, openFleetHome, prepareWorkspace, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab } from "./placement.ts";
 import { confirmFleetCameUp, planFor, printLayout, registeredCount, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
 import { usageError } from "../../cli/usage.ts";
@@ -49,8 +48,7 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
     const plan = settings.agents[index];
     if (plan === undefined) die(`missing spawn plan for ${name}`);
     const adapter = resolveAdapterOrDie(plan.adapter);
-    const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-    adapter.workspaceTrust?.preTrustWorkspace(cwd, plan.cmd);
+    const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
     try {
       // ONE key per agent: mint the name-based identity BEFORE launch and pass
       // it as the launch credential, exactly like the placed path (spawnOneIntoTab).
@@ -64,7 +62,7 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
         name,
         // The daemon launches the process, but the spawner is this CLI's caller.
         spawner: self.id,
-        worktree: settings.worktree ? { path: cwd, branch: `orch/${name}` } : undefined,
+        worktree,
         adapter: plan.adapter,
         cwd,
         model: plan.model,
@@ -72,17 +70,18 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
         // A JSON array over the wire, never a joined string: the harness's own quicklist
         // syntax is the adapter's to write, at the far end of the launch.
         preferredModels: [...plan.preferredModels],
-        prompt: workerPrompt(plan.prompt ?? "", false, adapter, { maySpawn, cwd, spawnerRepliable: self.id !== null, ...workerRules(settingsFile) }),
+        prompt: workerPrompt(plan.prompt ?? "", false, adapter, { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null, ...workerRules(settingsFile) }),
         tools: settings.tools,
         workers: settings.workers,
         env: compactionEnv(adapter, plan.model, settings.workers),
       }, {}, settingsFile.timeouts.adapter_command_ms);
       // A headless agent is placed nowhere, so its key is the handle every display uses.
-      created.push({ key, handle: key, name });
+      created.push({ key, handle: key, name, cwd, branch: worktree?.branch ?? null });
     } catch (error: unknown) {
       // Stop asking for more, but report the agents already launched: a caller told
       // only "failed" retries the whole spawn and ends up with a duplicate fleet.
       const message = errorMessage(error);
+      discardUnusedWorkspace(services.logger, settings.worktree, worktree);
       services.logger.error("spawn.failed", { backend: settings.backend, name, error: message });
       process.stdout.write(`${settings.backend} spawn failed for ${name}: ${message}\n`);
       break;
@@ -125,10 +124,11 @@ function answerNoEnvironmentRole(json: boolean, text: string): void {
 }
 
 /** Tile one agent, or end the command with the reason it could not. */
-async function tileOrDie(services: Services, spec: TabSpawnSpec, fleet: FleetSnapshot): Promise<CreatedAgent> {
+async function tileOrDie(services: Services, spec: TabSpawnSpec, fleet: FleetSnapshot, intent: WorktreeIntent | null): Promise<CreatedAgent> {
   try {
     return await spawnOneIntoTab(services, spec, fleet);
   } catch (e: unknown) {
+    discardUnusedWorkspace(services.logger, intent, spec.worktree);
     die(`tile failed: ${errorMessage(e)}`);
   }
 }
@@ -144,17 +144,23 @@ function reportTiled(json: boolean, spec: TabSpawnSpec, agent: CreatedAgent, lay
 }
 
 /** Mint every identity, worktree and environment up front, before a tab exists. */
-function prepareAgents(orchDir: OrchDir, settings: SpawnSettings, names: readonly string[]): PreparedAgent[] {
-  return names.map((name) => {
-    const plan = planFor(settings, name);
-    const cwd = settings.worktree ? createAgentWorktree(settings.cwd, name) : settings.cwd;
-    const adapter = resolveAdapterOrDie(plan.adapter);
-    adapter.workspaceTrust?.preTrustWorkspace(cwd, plan.cmd);
-    const key = mintAgentId();
-    const branch = settings.worktree ? `orch/${name}` : undefined;
-    const env = spawnEnv(orchDir, key, adapter, plan.model, settings.workers);
-    return { name, cwd, key, env, branch, handle: undefined };
-  });
+function prepareAgents(services: Pick<Services, "orchDir" | "logger">, settings: SpawnSettings, names: readonly string[]): PreparedAgent[] {
+  const prepared: PreparedAgent[] = [];
+  try {
+    for (const name of names) {
+      const plan = planFor(settings, name);
+      const adapter = resolveAdapterOrDie(plan.adapter);
+      const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
+      const key = mintAgentId();
+      const env = spawnEnv(services.orchDir, key, adapter, plan.model, settings.workers);
+      prepared.push({ name, cwd, key, env, worktree, handle: undefined });
+    }
+  } catch (error: unknown) {
+    // No tab exists yet, so a fleet that cannot get all its worktrees leaves none behind.
+    for (const item of prepared) discardUnusedWorkspace(services.logger, settings.worktree, item.worktree);
+    throw error;
+  }
+  return prepared;
 }
 
 /** Create the group and hand its root place to the first prepared agent. */
@@ -222,7 +228,7 @@ async function launchPrepared(
         backend, adapter: resolveAdapterOrDie(plan.adapter), adapterId: plan.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         model: plan.model, thinking: plan.thinking, preferredModels: plan.preferredModels,
         tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? plan.cmd : undefined,
-        worktree: settings.worktree ? item.cwd : undefined, branch: item.branch,
+        worktree: item.worktree,
         spawner: self.id, owner: self.id ?? undefined,
         intoHandle: item.handle, key: item.key, env: item.env,
       }, fleet));
@@ -283,7 +289,7 @@ async function seatFleet(services: DaemonClient, backend: Backend, groupHome: Gr
   if (placement.homeToOpen === null) {
     return { group: createSpawnGroup(groupHome, placement.workspace, label, prepared), workspace: placement.workspace };
   }
-  const home = await openFleetHome({ services, backend, home: placement.homeToOpen, cwd: settings.cwd, env: prepared[0]!.env });
+  const home = await openFleetHome({ services, backend, home: placement.homeToOpen, cwd: prepared[0]!.cwd, labelDirectory: settings.cwd, env: prepared[0]!.env });
   return { group: seatFleetInHome(backend, groupHome, home, label, prepared), workspace: home.coordinate };
 }
 
@@ -322,10 +328,12 @@ async function spawnIntoNewTab(
 ): Promise<void> {
   const { self, fleet, settingsFile, settings, backend, groupHome, placement } = context;
   assertTabCapacity(settings, label, 0, names.length);
-  const prepared = prepareAgents(services.orchDir, settings, names);
+  const prepared = prepareAgents(services, settings, names);
   const { group, workspace } = await seatFleet(services, backend, groupHome, placement, settings, label, prepared);
   const placeFailures = placeRemainingAgents(services.logger, backend, prepared, group.id, workspace, settings.tiling.first_split);
   const { created, failures } = await launchPrepared(services, prepared, { settings, backend, space: placement.space, workspace, groupId: group.id, self, fleet });
+  const launched = new Set(created.map((agent) => agent.key));
+  for (const item of prepared) if (!launched.has(item.key)) discardUnusedWorkspace(services.logger, settings.worktree, item.worktree);
   if (created.length === 0) {
     try { groupHome.close(group.id); } catch { /* best effort */ }
     die(`all spawns failed: ${[...placeFailures, ...failures].join("; ")}`);
@@ -373,12 +381,16 @@ export async function cmdTile(services: Services, args: string[]) {
   const workspace = tab.workspace ?? undefined;
   assertSpawnCapacity(settingsFile, space, 1, views, presence);
   assertTabCapacity(settingsFile, tab.label ?? tab.id, layout.placements.length, 1);
+  const intent = resolveWorktreeIntent(invocation, worktreeFlags(flags), settingsFile);
+  const launchCommand = flags.value("--cmd") ?? adapterCommand(adapter, settingsFile, { model, thinking, preferredModels });
+  const { cwd, worktree } = prepareWorkspace(flags.value("--dir") ?? process.cwd(), intent, autoName, selectedAdapter, launchCommand);
   const spec: TabSpawnSpec = {
     backend: selectedBackend,
     adapter: selectedAdapter,
     adapterId: adapter,
     name: autoName,
-    cwd: flags.value("--dir") ?? process.cwd(),
+    cwd,
+    worktree,
     space,
     workspace,
     group: tab.id,
@@ -395,7 +407,7 @@ export async function cmdTile(services: Services, args: string[]) {
     spawner: self.id,
     owner: self.id ?? undefined,
   };
-  const agent = await tileOrDie(services, spec, fleet);
+  const agent = await tileOrDie(services, spec, fleet, intent);
   reportTiled(json, spec, agent, layout.group);
   await pinModels(services, services.logger, [{ key: agent.key, handle: agent.handle, name: autoName, model, thinking }]);
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WORKTREE_PROVIDER_IDS } from "../../types/worktree.ts";
 import { isRecord } from "../../util.ts";
 import { HOST_OS_VALUES } from "../../types/host.ts";
 import { isPeerView } from "../../agent/peers.ts";
@@ -22,6 +23,8 @@ import type { HomeSubject } from "../../types/backend.ts";
 import type { CloseTargetWire } from "../../entities/close-targets.ts";
 import type { ReapCandidate, StatusRow } from "../../types/command.ts";
 import { isPackIntakeRec, isTaskOptions, isTaskRec, type PackIntakeRec, type TaskOptions, type TaskRec } from "../../types/queue.ts";
+
+const agentWorktreeSchema = z.object({ path: z.string(), branch: z.string(), base: z.string(), provider: z.enum(WORKTREE_PROVIDER_IDS) });
 
 const RPC_ERROR_CODES = [
   "INVALID_REQUEST", "INVALID_PARAMS", "METHOD_NOT_FOUND", "HANDLER_ERROR",
@@ -163,7 +166,7 @@ const SPAWN_REGISTRATION = z.object({
   thinking: z.custom<ThinkingLevel>(isThinkingLevel).optional(),
   spawner: z.string().nullable(),
   owner: z.string().optional(),
-  worktree: z.object({ path: z.string(), branch: z.string() }).optional(),
+  worktree: agentWorktreeSchema.optional(),
   process: z.object({ pid: z.number().int(), startToken: z.string().nullable() }),
 }) satisfies z.ZodType<SpawnRegistration>;
 
@@ -302,7 +305,7 @@ export const RPC_PARAMS = {
     key: nonBlank,
     name: nonBlank,
     spawner: z.string().nullable(),
-    worktree: z.object({ path: z.string(), branch: z.string() }).optional(),
+    worktree: agentWorktreeSchema.optional(),
     adapter: nonBlank,
     model: nonBlank,
     thinking: z.custom<ThinkingLevel>(isThinkingLevel),

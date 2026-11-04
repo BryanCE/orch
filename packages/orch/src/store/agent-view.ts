@@ -83,30 +83,27 @@ function currentPlexer(orchDir: OrchDir, agentId: string): string | null {
     .where(eq(agentPlexers.agentId, agentId)).get()?.value ?? null;
 }
 
-function worktreePaths(orchDir: OrchDir): ByAgent<string> {
-  return byAgent(ormForRead(orchDir)?.select({ agentId: agentWorktrees.agentId, value: agentWorktrees.path }).from(agentWorktrees).all() ?? []);
-}
+type WorktreeColumn = "path" | "branch" | "base" | "provider";
 
-function worktreePath(orchDir: OrchDir, agentId: string): string | null {
-  return ormForRead(orchDir)?.select({ value: agentWorktrees.path }).from(agentWorktrees)
-    .where(eq(agentWorktrees.agentId, agentId)).get()?.value ?? null;
-}
-
-function worktreeBranches(orchDir: OrchDir): ByAgent<string> {
-  return byAgent(ormForRead(orchDir)?.select({ agentId: agentWorktrees.agentId, value: agentWorktrees.branch }).from(agentWorktrees).all() ?? []);
-}
-
-function worktreeBranch(orchDir: OrchDir, agentId: string): string | null {
-  return ormForRead(orchDir)?.select({ value: agentWorktrees.branch }).from(agentWorktrees)
-    .where(eq(agentWorktrees.agentId, agentId)).get()?.value ?? null;
+/** One fact of the agent's worktree as an environment axis. No row means no worktree. */
+function worktreeAxis<const Key extends string>(key: Key, column: WorktreeColumn) {
+  return {
+    key,
+    read: (orchDir: OrchDir): ByAgent<string> =>
+      byAgent(ormForRead(orchDir)?.select({ agentId: agentWorktrees.agentId, value: agentWorktrees[column] }).from(agentWorktrees).all() ?? []),
+    readOne: (orchDir: OrchDir, agentId: string): string | null =>
+      ormForRead(orchDir)?.select({ value: agentWorktrees[column] }).from(agentWorktrees).where(eq(agentWorktrees.agentId, agentId)).get()?.value ?? null,
+  };
 }
 
 export const ENVIRONMENT_AXES = [
   { key: "plexer", read: currentPlexers, readOne: currentPlexer },
   { key: "handle", read: currentHandles, readOne: currentHandle },
   { key: "space", read: currentSpaces, readOne: currentSpace },
-  { key: "worktree", read: worktreePaths, readOne: worktreePath },
-  { key: "branch", read: worktreeBranches, readOne: worktreeBranch },
+  worktreeAxis("worktree", "path"),
+  worktreeAxis("branch", "branch"),
+  worktreeAxis("worktreeBase", "base"),
+  worktreeAxis("worktreeProvider", "provider"),
 ] as const satisfies readonly EnvironmentAxis[];
 
 type AxisValues = Map<EnvironmentAxisKey, Map<string, string>>;

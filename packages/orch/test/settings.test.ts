@@ -90,6 +90,7 @@ describe("loadSettings", () => {
       daemon: { tcp_port: 4321, work_tick_ms: 7_000 },
       doctor: { unclaimed_after_ms: 123_456 },
       tiling: { first_split: "columns" },
+      worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_command: "wkt", timeout_ms: 300000 },
       counts: { tail: 40 },
       logging: { slow_tool_ms: 250, stall_ms: 100, stall_poll_ms: 250 },
     });
@@ -127,6 +128,7 @@ describe("loadSettings", () => {
       daemon: { tcp_port: 4321, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 7_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       doctor: { unclaimed_after_ms: 123_456 },
       tiling: { first_split: "columns" },
+      worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_command: "wkt", timeout_ms: 300000 },
       counts: { tail: 40, peek: 25 },
       logging: { level: "info", slow_tool_ms: 250, stall_ms: 100, stall_poll_ms: 250 },
       skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
@@ -238,6 +240,7 @@ describe("loadSettings", () => {
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       doctor: { unclaimed_after_ms: 120_000 },
       tiling: { first_split: "rows" },
+      worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_command: "wkt", timeout_ms: 300000 },
       counts: { tail: 20, peek: 25 },
       logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
       skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
@@ -255,6 +258,7 @@ describe("loadSettings", () => {
       daemon: { idle_shutdown_minutes: 0 },
       doctor: { unclaimed_after_ms: 120_000 },
       tiling: { first_split: "columns" },
+      worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_command: "wkt", timeout_ms: 300000 },
       skills: { install: false },
     });
 
@@ -267,6 +271,7 @@ describe("loadSettings", () => {
       timeouts: { dispatch_ack_ms: 10_000, wait_ms: 1234, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, reset_ready_ms: 75_000, reset_poll_ms: 250 },
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 0, outbox_drain_ms: 1000, work_tick_ms: 5_000, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       tiling: { first_split: "columns" },
+      worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_command: "wkt", timeout_ms: 300000 },
       skills: { install: false, store: "~/.agents/skills", link: ["~/.claude/skills"] },
     });
   });

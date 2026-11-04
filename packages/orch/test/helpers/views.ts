@@ -9,7 +9,7 @@ export interface AgentViewFixtureOverrides extends Omit<Partial<AgentView>, "id"
 export function agentViewFixture(id: string, overrides: AgentViewFixtureOverrides = {}): AgentView {
   const { environment: environmentOverrides, tuning: tuningOverrides, ...baseOverrides } = overrides;
   const environment: AgentEnvironment = {
-    plexer: "headless", handle: null, space: null, worktree: null, branch: null,
+    plexer: "headless", handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null,
     ...environmentOverrides,
   };
   const tuning: AgentTuning = { model: null, thinking: null, ...tuningOverrides };

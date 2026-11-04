@@ -108,6 +108,8 @@ CREATE TABLE `agent_worktrees` (
 	`agent_id` text PRIMARY KEY,
 	`path` text NOT NULL,
 	`branch` text NOT NULL,
+	`base` text NOT NULL,
+	`provider` text NOT NULL,
 	CONSTRAINT `fk_agent_worktrees_agent_id_agents_id_fk` FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON DELETE CASCADE
 );
 --> statement-breakpoint

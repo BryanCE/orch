@@ -9,7 +9,10 @@ import { usageError } from "../cli/usage.ts";
 import type { Invocation } from "../cli/spec.ts";
 import type { FleetSnapshot } from "./fleet.ts";
 import type { Services } from "../types/services.ts";
-import { repositoryBranch, repositoryCommonRoot, worktreeReviewSummary, mergeReviewBranch, removeMergedWorktree } from "../worktree.ts";
+import { repositoryCommonRoot, worktreeHasChanges, worktreeReviewSummary } from "../worktrees/repository.ts";
+import { worktreeProvider } from "../worktrees/registry.ts";
+import { isWorktreeProviderId, type WorktreeProviderId } from "../types/worktree.ts";
+import { closeAgentQuietly } from "./lifecycle/close.ts";
 
 interface ReviewItem {
   target: string;
@@ -25,6 +28,9 @@ interface ReviewItem {
   commitsAhead: number;
   adapter: string;
   repoRoot: string;
+  provider: WorktreeProviderId;
+  /** The agent has ended: its work stands, and there is nobody left to send feedback to. */
+  ended: boolean;
 }
 
 
@@ -44,7 +50,7 @@ async function reviewList(services: Services, invocation: Invocation): Promise<v
   const { flags, positional } = invocation;
   if (positional.length) throw usageError(invocation);
   const fleet = await readFleet(services);
-  const items = reviewItems(fleet);
+  const items = reviewItems(fleet, branchPrefix(services));
   if (flags.has("--json")) {
     process.stdout.write(JSON.stringify(items.map(({ repoRoot: _repoRoot, ...item }) => item), null, 2) + "\n");
     return;
@@ -57,22 +63,35 @@ async function reviewList(services: Services, invocation: Invocation): Promise<v
   process.stdout.write(renderTable(["TARGET", "BRANCH", "AHEAD", "TASK", "SUMMARY"], rows, [20, 24, 5, 40, 60]) + "\n");
 }
 
+function branchPrefix(services: Services): string {
+  return services.settings.current().worktrees.branch_prefix;
+}
+
 /** The one review target a subcommand names, or its usage line. */
 async function reviewedItem(services: Services, invocation: Invocation): Promise<ReviewItem> {
   const { positional } = invocation;
   const target = positional[0];
   if (!target || positional.length !== 1) throw usageError(invocation);
-  return findReviewItem(await readFleet(services), target);
+  return findReviewItem(await readFleet(services), target, branchPrefix(services));
 }
 
 async function reviewApprove(services: Services, invocation: Invocation): Promise<void> {
   const { flags } = invocation;
   const item = await reviewedItem(services, invocation);
+  if (worktreeHasChanges(item.worktree)) {
+    die(`${item.target} has uncommitted changes in ${item.worktree}. Reject it with feedback so the agent commits them, or commit them there yourself.`);
+  }
+  const provider = worktreeProvider(item.provider, services.settings.current().worktrees);
+  const { repoRoot: root, worktree, branch, base } = item;
   try {
-    const strategy = mergeReviewBranch(item.repoRoot, item.branch);
-    removeMergedWorktree(item.repoRoot, item.worktree, item.branch);
+    const strategy = provider.land({ root, worktree, branch, base });
+    // The agent's directory is about to go: nothing it does after this lands anywhere.
+    if (!item.ended) await closeAgentQuietly(services, item.key);
+    // Clean and landed, so there is nothing to lose. `discard` because `git branch -d`
+    // judges a branch against the root's HEAD, and the base may be checked out elsewhere.
+    provider.remove({ root, worktree, branch, discard: true });
     if (flags.has("--json")) process.stdout.write(JSON.stringify({ target: item.target, approved: true, strategy }) + "\n");
-    else process.stdout.write(`Approved ${item.target}: merged (${strategy}) and removed worktree.\n`);
+    else process.stdout.write(`Approved ${item.target}: landed on ${base} (${strategy}), closed the agent and removed the worktree.\n`);
   } catch (error: unknown) {
     die(errorMessage(error));
   }
@@ -84,6 +103,7 @@ async function reviewReject(services: Services, invocation: Invocation): Promise
   if (!feedback) throw usageError(invocation, "-m needs the feedback to send");
   const fleet = await readFleet(services);
   const item = await reviewedItem(services, invocation);
+  if (item.ended) die(`Cannot reject ${item.target}: the agent has ended. Its branch ${item.branch} is still there to land or clear.`);
   if (!indexPresenceById(fleet.presence).get(item.key)) die(`Cannot reject ${item.target}: agent presence is missing.`);
   await writeRpc(services, "steer", { target: item.key, text: feedback });
   if (flags.has("--json")) process.stdout.write(JSON.stringify({ target: item.target, rejected: true }) + "\n");
@@ -92,7 +112,7 @@ async function reviewReject(services: Services, invocation: Invocation): Promise
 
 async function reviewInteractive(services: Services): Promise<void> {
   const fleet = await readFleet(services);
-  const items = reviewItems(fleet);
+  const items = reviewItems(fleet, branchPrefix(services));
   if (!items.length) {
     process.stdout.write("No worktree reviews pending.\n");
     return;
@@ -126,28 +146,29 @@ async function reviewInteractive(services: Services): Promise<void> {
   }
 }
 
-function reviewItems(fleet: FleetSnapshot): ReviewItem[] {
+function reviewItems(fleet: FleetSnapshot, prefix: string): ReviewItem[] {
   // A1: worktree and branch are ENVIRONMENT axes composed onto an agent, and
   // presence joins to that agent by its minted id — not by a pane key.
   const presence = indexPresenceById(fleet.presence);
   const items: ReviewItem[] = [];
-  for (const view of fleet.views.filter((view) => view.endedAt === null)) {
-    const { worktree, branch } = view.environment;
-    if (worktree === null || branch === null) continue;
+  for (const view of fleet.views) {
+    const { worktree, branch, worktreeBase: base, worktreeProvider: provider } = view.environment;
+    if (worktree === null || branch === null || base === null || provider === null || !isWorktreeProviderId(provider)) continue;
     const entry = presence.get(view.id);
-    if (entry?.status?.state !== "done") continue;
+    // Closing a finished agent is the normal end of its turn; its branch still waits for review.
+    const ended = view.endedAt !== null;
+    if (!ended && entry?.status?.state !== "done") continue;
     try {
       const baseRoot = repositoryCommonRoot(worktree);
-      const base = repositoryBranch(baseRoot);
       const details = worktreeReviewSummary(worktree, base, branch);
       if (details.commitsAhead === 0) continue;
-      const status = entry.status;
+      const status = entry?.status;
       const adapter = view.harnessId;
       if (!adapter) continue;
       const key = addressOf(view, presence);
-      const resultSummary = entry.result ? collapse(entry.result) : "";
+      const resultSummary = entry?.result ? collapse(entry.result) : "";
       items.push({
-        target: reviewTarget({ key, branch }),
+        target: reviewTarget(key, branch, prefix),
         key,
         branch,
         worktree,
@@ -159,6 +180,8 @@ function reviewItems(fleet: FleetSnapshot): ReviewItem[] {
         commitsAhead: details.commitsAhead,
         adapter,
         repoRoot: baseRoot,
+        provider,
+        ended,
       });
     } catch {
       // Stale or removed worktrees are not reviewable.
@@ -167,14 +190,13 @@ function reviewItems(fleet: FleetSnapshot): ReviewItem[] {
   return items;
 }
 
-function findReviewItem(fleet: FleetSnapshot, target: string): ReviewItem {
-  const item = reviewItems(fleet).find((candidate) => [candidate.target, candidate.key, candidate.branch, candidate.worktree].includes(target));
+function findReviewItem(fleet: FleetSnapshot, target: string, prefix: string): ReviewItem {
+  const item = reviewItems(fleet, prefix).find((candidate) => [candidate.target, candidate.key, candidate.branch, candidate.worktree].includes(target));
   if (!item) die(`No reviewable worktree matches "${target}". Run 'orch review list'.`);
   return item;
 }
 
-function reviewTarget(agent: { key: string; branch: string | null }): string {
-  const branch = agent.branch ?? "";
-  return branch.startsWith("orch/") ? branch.slice("orch/".length) : branch || agent.key;
+function reviewTarget(key: string, branch: string, prefix: string): string {
+  return branch.startsWith(prefix) ? branch.slice(prefix.length) : branch || key;
 }
 

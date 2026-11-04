@@ -4,6 +4,7 @@ import { ADAPTER_IDS } from "../types/adapter.ts";
 import { HERDR_SINK_ID } from "../backends/backend.ts";
 import { BACKEND_IDS, TILE_FIRST_SPLITS } from "../types/backend.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
+import { WORKTREE_PROVIDER_IDS } from "../types/worktree.ts";
 import { ORCH_RUNTIMES } from "../runtimes.ts";
 import { FIXED_PATH_MESSAGE, hasFixedPath } from "../policy/command-paths.ts";
 import { COMMAND_PATTERN_MESSAGE, isCommandPattern } from "../policy/command-gate.ts";
@@ -107,6 +108,7 @@ export const SETTINGS_DEFAULTS = {
   // the project's own commands, which the orchestrator knows and the human need not type.
   agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
   tiling: { first_split: "rows" },
+  worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_command: "wkt", timeout_ms: 300_000 },
   counts: { tail: 20, peek: 25 },
   // `.agents/skills` is the cross-harness standard, so the real files live there once and
   // a harness that reads its own directory instead gets a link into the store.
@@ -290,6 +292,14 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
    * every split after it halves the biggest pane's longer side regardless. */
   tiling: z.strictObject({
     first_split: z.enum(TILE_FIRST_SPLITS).optional(),
+  }).optional(),
+  /** How an agent's worktree is made. `defaults.worktree` says whether a launch wants one. */
+  worktrees: z.strictObject({
+    provider: z.enum(WORKTREE_PROVIDER_IDS).optional(),
+    branch_prefix: z.string().min(1).optional(),
+    directory: z.string().min(1).optional(),
+    worktrunk_command: z.string().min(1).optional(),
+    timeout_ms: PositiveInt.optional(),
   }).optional(),
   /** What `-n <count>` shows when a command is given none. */
   counts: z.strictObject({

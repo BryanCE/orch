@@ -247,6 +247,11 @@ export interface StatusRow extends LeaseStatusPayload {
   host: HostIdentity;
   /** Set when that host is another machine whose link is down: its agent reads unknown. */
   hostOffline?: HostOffline;
+  /** The host whose orchd asked this one to run the agent, by name; null when it was asked
+   *  for on this host. */
+  askedBy: string | null;
+  /** Why the agent ended, as its host recorded it; null while it runs, or when nothing said. */
+  endReason: string | null;
 }
 
 /** One option row of a catalogue multiselect. */

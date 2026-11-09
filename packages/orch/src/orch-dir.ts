@@ -1,5 +1,5 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { homeDir } from "./shared/home.ts";
 import type { OrchDir } from "./types/core.ts";
 
 /** The one place a path becomes an orch dir. Called where a path crosses in from outside
@@ -11,5 +11,5 @@ export function orchDirAt(path: string): OrchDir {
 
 /** The ONE read of ORCH_DIR. Every other module receives the directory as a value. */
 export function envOrchDir(): OrchDir {
-  return orchDirAt(process.env.ORCH_DIR ?? join(homedir(), ".orch"));
+  return orchDirAt(process.env.ORCH_DIR ?? join(homeDir(), ".orch"));
 }

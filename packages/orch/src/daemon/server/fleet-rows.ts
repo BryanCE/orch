@@ -169,6 +169,8 @@ export function statusRowFromEntity(
   leaseFacts: LeaseFacts,
   questionOf: (agentId: string) => string | undefined,
   processOf: (agentId: string) => RowProcess | undefined,
+  /** The host that asked this orchd to run an agent, by name; null when it was asked for here. */
+  askedByOf: (agentId: string) => string | null,
   orchDir: OrchDir,
   caller: string | null,
 ): StatusRow {
@@ -194,11 +196,12 @@ export function statusRowFromEntity(
     backend: entity.backend,
     bridgeAttached: null,
     spaceId: agent?.environment.space ?? entity.space,
+    askedBy: askedByOf(entity.key),
   };
 }
 
 type UsageFacts = Pick<StatusRow, "cost" | "ctxPercent" | "dispatchId" | "tokens">;
-type LiveFacts = UsageFacts & Pick<StatusRow, "model" | "state" | "stateFallback" | "exited" | "alive" | "task" | "lastText">;
+type LiveFacts = UsageFacts & Pick<StatusRow, "model" | "state" | "stateFallback" | "exited" | "alive" | "task" | "lastText" | "endReason">;
 
 /** What the run has spent, and which dispatch it is. */
 function usageFacts(pres: PresenceEntry | null, sview: SessionView | null): UsageFacts {
@@ -225,6 +228,8 @@ function liveFacts(entity: Entity, agentView: AgentView | undefined, questionOf:
     alive,
     task: collapse(deriveViewTask(pres, sview, questionOf, entity.key)),
     lastText: collapse(deriveViewLast(pres, sview)),
+    // An ended agent's last reported error is why it ended.
+    endReason: exited || !alive ? pres?.status?.lastError ?? null : null,
     ...usageFacts(pres, sview),
   };
 }

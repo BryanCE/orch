@@ -221,6 +221,7 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "peer-drive": return parseOne(method, RPC_PARAMS[method], id, value);
     case "peer-read": return parseOne(method, RPC_PARAMS[method], id, value);
     case "peer-questions": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "peer-status": return parseOne(method, RPC_PARAMS[method], id, value);
     case "agent-read": return parseOne(method, RPC_PARAMS[method], id, value);
     case "agent-pane": return parseOne(method, RPC_PARAMS[method], id, value);
     case "agent-wait": return parseOne(method, RPC_PARAMS[method], id, value);

@@ -46,7 +46,7 @@ function entity(): Entity {
 /** The row as `buildFleetStatus` composes it: the lease is read off the composed fleet, never a second store read. */
 function composed(dir: OrchDir): { row: ReturnType<typeof statusRowFromEntity>; label: string | null } {
   const views = agentViewIndex(dir);
-  const row = statusRowFromEntity(entity(), views, fleetLeaseFacts(dir, views), () => undefined, () => undefined, dir, null);
+  const row = statusRowFromEntity(entity(), views, fleetLeaseFacts(dir, views), () => undefined, () => undefined, () => null, dir, null);
   return { row, label: ownerLabel(row, fleetNames([row], views, {})) };
 }
 

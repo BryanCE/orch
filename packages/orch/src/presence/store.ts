@@ -22,6 +22,8 @@ import { agents } from "../db/schema.ts";
 import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../store/status-rows.ts";
 import { latestResultTexts, onRunUpserted, settledDispatchIds } from "../store/run-rows.ts";
 import type { AgentView } from "../types/store.ts";
+import type { HostId } from "../types/host.ts";
+import type { LinkedHost } from "../types/process.ts";
 import type { OrchDir } from "../types/core.ts";
 import type { AgentPlace, HereAgent } from "../types/agent-place.ts";
 import type { Liveness, PlaceFreeStatusPatch, PresenceEntry, StatusPatch } from "../types/presence.ts";
@@ -232,6 +234,32 @@ interface HeldPresence {
 const held = new Map<OrchDir, HeldPresence>();
 registerMemoReset(() => held.clear());
 
+/** Agents here whose program is being swapped for a new one, by orch dir. The old process is
+ *  gone by design and the new one is not recorded yet, so nothing may read the agent as dead. */
+const swapping = new Map<OrchDir, Set<string>>();
+
+function livenessOf(root: OrchDir, agentId: string, place: AgentPlace, process: StoredProcess | undefined, linked?: ReadonlyMap<HostId, LinkedHost>): Liveness {
+  if (swapping.get(root)?.has(agentId) === true) return "unknown";
+  return placedLiveness(root, place, process, linked);
+}
+
+/** Swap an agent's program: `swap` ends the old process and records the new one. Until it
+ *  settles the agent's liveness is unknown, which is never dead, so no liveness tick ends it,
+ *  reaps it or closes its writes in the gap. */
+export async function whileSwappingProcess<T>(root: OrchDir, agentId: string, swap: () => Promise<T>): Promise<T> {
+  const ids = swapping.get(root) ?? new Set<string>();
+  swapping.set(root, ids);
+  ids.add(agentId);
+  refreshProcess(root, agentId);
+  try {
+    return await swap();
+  } finally {
+    ids.delete(agentId);
+    if (ids.size === 0) swapping.delete(root);
+    refreshProcess(root, agentId);
+  }
+}
+
 function heldPresence(root: OrchDir): HeldPresence {
   const existing = held.get(root);
   if (existing) return existing;
@@ -243,7 +271,7 @@ function heldPresence(root: OrchDir): HeldPresence {
   for (const [agentId, place] of places) {
     const process = place.kind === "here" ? recorded.get(agentId) : undefined;
     if (process !== undefined) processes.set(agentId, process);
-    liveness.set(agentId, placedLiveness(root, place, process, linked));
+    liveness.set(agentId, livenessOf(root, agentId, place, process, linked));
   }
   const presence: HeldPresence = {
     statuses: new Map(selectAgentStatuses(root).map((row) => [row.agentId, row])),
@@ -335,7 +363,7 @@ export function refreshProcess(root: OrchDir, agentId: string): void {
   current.places.set(agentId, place);
   if (process === undefined) current.processes.delete(agentId);
   else current.processes.set(agentId, process);
-  current.liveness.set(agentId, placedLiveness(root, place, process));
+  current.liveness.set(agentId, livenessOf(root, agentId, place, process));
 }
 
 /** Re-ask about every held agent: one here from its process, one on another host from that
@@ -349,7 +377,7 @@ export function probeAllProcesses(root: OrchDir): boolean {
     if (current.liveness.get(agentId) !== liveness) changed = true;
     current.liveness.set(agentId, liveness);
   };
-  for (const [agentId, place] of current.places) settle(agentId, placedLiveness(root, place, current.processes.get(agentId), linked));
+  for (const [agentId, place] of current.places) settle(agentId, livenessOf(root, agentId, place, current.processes.get(agentId), linked));
   return changed;
 }
 

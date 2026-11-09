@@ -45,6 +45,6 @@ describe("headless status visibility", () => {
   });
 
   test("reports the number of live agents outside the caller's ownership", () => {
-    expect(formatNoRowsMessage({ otherLive: 2 })).toBe("you hold 0; 2 live agents belong to other orchs\n");
+    expect(formatNoRowsMessage({ otherLive: 2, roots: { terminals: { yours: false, others: 0 }, sessions: { yours: false, others: 0 } } })).toBe("you hold 0 agents; 2 live agents belong to other orchs\n");
   });
 });

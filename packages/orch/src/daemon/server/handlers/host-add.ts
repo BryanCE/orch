@@ -2,7 +2,7 @@
 // confirmed, make orch's own key, and run the one login that puts that key in place on the host.
 // The login asks for the person's password on its terminal, so orchd holds it in a PTY and
 // streams its screen to the `orch host add` that asked, which types into it.
-import { homedir } from "node:os";
+import { homeDir } from "../../../shared/home.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
 import { orchPublicKey, scanHostKeys, trustHostKeys } from "../../../hosts/keys.ts";
 import { announcesWindows, authorizeArgv, authorizeStep } from "../../../hosts/authorize.ts";
@@ -53,7 +53,7 @@ export function authorizeHostHandler(state: DaemonState): RpcHandler<"host-autho
     await held.start(key, {
       file: links.ssh_command,
       args: authorizeArgv(state.directory, params.host, links, publicKey, hostIdentity().id),
-      cwd: homedir(),
+      cwd: homeDir(),
       env: process.env,
     });
     const login: HeldTerminal = { kind: "login", id: key };

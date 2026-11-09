@@ -10,7 +10,7 @@ export function statusRowFixture(overrides: Partial<StatusRow> = {}): StatusRow 
     spawnedBy: null, worktree: null, branch: null, cwd: null, focused: false,
     model: "-", state: "unknown", stateFallback: false, exited: false, alive: true,
     cost: 0, ctxPercent: null, task: null, dispatchId: null, lastText: null, backendStatus: null,
-    backend: null, bridgeAttached: null, tokens: null, host: hostIdentity(),
+    backend: null, bridgeAttached: null, tokens: null, host: hostIdentity(), askedBy: null, endReason: null,
     ...overrides,
   };
 }

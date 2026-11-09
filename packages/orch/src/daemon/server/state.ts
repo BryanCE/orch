@@ -7,7 +7,7 @@ import { fleetLeaseFacts } from "../../agent/drive-state.ts";
 import { bridgeAttached } from "../../control/bridge-links.ts";
 import { buildFleetStatus } from "./fleet-status.ts";
 import type { FleetStatus, RpcServer } from "../../types/daemon.ts";
-import type { PtyHolder } from "../../types/pty.ts";
+import type { HeldPtysByPid, PtyHolder } from "../../types/pty.ts";
 import type { SettingsWatch } from "../../types/settings.ts";
 import type { DaemonServices } from "../../types/services.ts";
 import type { WakeSignal } from "./wake.ts";
@@ -42,7 +42,7 @@ export interface DaemonState {
   /** The SSH links to every host settings names. */
   readonly hosts: HostLinks;
   /** The PTY of every agent this orchd runs as an interactive session. */
-  readonly held: PtyHolder;
+  readonly held: PtyHolder & HeldPtysByPid;
   fatalLogged: boolean;
 }
 

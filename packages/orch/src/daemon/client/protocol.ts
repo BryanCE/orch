@@ -368,9 +368,9 @@ const LIFECYCLE_REQUEST = z.discriminatedUnion("verb", [
 ]);
 export type LifecycleRequest = z.infer<typeof LIFECYCLE_REQUEST>;
 
-/** How a reload or restart went: back with a live bridge, or why not; and the command a
- *  restart launched, once it got that far. */
-const LIFECYCLE_OUTCOME = z.object({ ok: z.boolean(), reason: z.string().nullable(), command: z.string().nullable() });
+/** How a reload or restart went: back with a live bridge, or why not; the command a restart
+ *  launched, and the harness and tuning the agent's store moved it onto, once it got that far. */
+const LIFECYCLE_OUTCOME = z.object({ ok: z.boolean(), reason: z.string().nullable(), command: z.string().nullable(), relaunched: RELAUNCH.nullable() });
 export type LifecycleOutcome = z.infer<typeof LIFECYCLE_OUTCOME>;
 
 /** Whether an agent reached the state a wait asked for in time, and the state it was last in. */
@@ -575,6 +575,8 @@ const statusRow = z.object({
   rootAgentId: z.string().nullable().optional(),
   host: HOST_IDENTITY,
   hostOffline: z.object({ lastSeen: z.number().nullable() }).optional(),
+  askedBy: z.string().nullable(),
+  endReason: z.string().nullable(),
   warning: z.string().optional(),
   lease: z.object({ holderId: z.string(), holderAlive: z.boolean() }).nullable(),
   leaseKnown: z.boolean(),
@@ -731,6 +733,8 @@ export const RPC_PARAMS = {
   "peer-read": z.object({ key: nonBlank, read: AGENT_READ }),
   /** From a linked host's orchd: the pending questions of the agents it asked this host to run. */
   "peer-questions": z.object({}),
+  /** From a linked host's orchd: the status rows of the agents it asked this host to run. */
+  "peer-status": z.object({}),
   /** Read an agent's result or session tail wherever it runs: here, or over its host's link. */
   "agent-read": z.object({ caller: CALLER, key: nonBlank, read: AGENT_READ }),
   /** Work the pane an agent sits in, wherever it runs: here, or through its host's orchd. */
@@ -927,6 +931,7 @@ export const RPC_RESULTS = {
   "peer-drive": PEER_DRIVE_RESULT,
   "peer-read": AGENT_READING,
   "peer-questions": z.object({ questions: z.array(z.custom<PendingQuestionView>(isPendingQuestionView)) }),
+  "peer-status": fleetStatus,
   /** `host` names the linked host the agent runs on; null when it runs here. */
   "agent-read": z.object({ host: z.string().nullable(), reading: AGENT_READING }),
   "agent-pane": PANE_OUTCOME,

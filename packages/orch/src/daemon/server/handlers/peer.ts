@@ -17,7 +17,7 @@ import type { HostedProcess, LocalProcess } from "../../../types/process.ts";
 import type { RpcRequestContext } from "../../../types/daemon.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 
-function requirePeer(context: RpcRequestContext): HostId {
+export function requirePeer(context: RpcRequestContext): HostId {
   if (context.peer === undefined) throw new RpcError("IDENTITY_REQUIRED", "only a linked host's orchd may ask this");
   return context.peer;
 }

@@ -70,6 +70,18 @@ export function emitAndNotify(
   logger?: Logger,
 ): void {
   if (isRepeatTransition(event, now)) return;
+  deliverEvent(emit, sinks, event, orchDir, settings, logger);
+}
+
+/** Stamp one event with this orchd's per-agent ordinal and hand it to the stream and the sinks. */
+function deliverEvent(
+  emit: (event: NotifyEvent) => void,
+  sinks: NotifyEntry[],
+  event: NotifyEvent,
+  orchDir: OrchDir | undefined,
+  settings: SettingsManager,
+  logger?: Logger,
+): void {
   const space = event.space ?? spaceLabelForKey(event.key);
   const seq = (published.get(event.key) ?? 0) + 1;
   published.set(event.key, seq);
@@ -83,4 +95,11 @@ export function emitAndNotify(
 export function publishFromOrchd(state: DaemonState, event: NotifyEvent): void {
   const settings = state.services.settings;
   emitAndNotify((value) => state.server?.emit(value), settings.current().notify, event, state.directory, settings, Date.now(), state.services.logger);
+}
+
+/** Publish, as orchd, an event a linked host's orchd published about its own agent. That orchd
+ *  already held back a repeat, so every event it sends is published here. */
+export function publishRelayed(state: DaemonState, event: NotifyEvent): void {
+  const settings = state.services.settings;
+  deliverEvent((value) => state.server?.emit(value), settings.current().notify, event, state.directory, settings, state.services.logger);
 }

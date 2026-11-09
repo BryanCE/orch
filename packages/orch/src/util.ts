@@ -1,9 +1,9 @@
 import { accessSync, chmodSync, constants, existsSync, linkSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { homedir } from "node:os";
 import { delimiter, dirname, join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostOs } from "./host.ts";
+import { homeDir } from "./shared/home.ts";
 import { isRecord } from "./json.ts";
 
 export const ARROW = "→";
@@ -12,7 +12,7 @@ export const ARROW = "→";
 export function toolDir(envVar: string, ...underHome: string[]): string {
   const override = process.env[envVar];
   if (override) return override;
-  return join(homedir(), ...underHome);
+  return join(homeDir(), ...underHome);
 }
 
 /** A directory whose manifest declares the `orch` bin: orch's own package, not a harness's. */

@@ -1,7 +1,8 @@
 import type { OrchDir } from "../../types/core.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
+import { homeDir } from "../../shared/home.ts";
 import { hostOs } from "../../host.ts";
 import { isRecord } from "../../util.ts";
 import type { DaemonDiscoveryFiles, DaemonRuntimeFiles } from "../../types/daemon.ts";
@@ -13,7 +14,7 @@ export function daemonDiscoveryFiles(): DaemonDiscoveryFiles {
   const root = process.env.ORCH_DAEMON_DISCOVERY_DIR
     ?? process.env.XDG_RUNTIME_DIR
     ?? (hostOs() === "windows" ? process.env.LOCALAPPDATA : undefined)
-    ?? join(tmpdir(), `orchd-${homedir().replace(/[^a-zA-Z0-9_.-]/g, "_")}`);
+    ?? join(tmpdir(), `orchd-${homeDir().replace(/[^a-zA-Z0-9_.-]/g, "_")}`);
   return { registration: join(root, "orchd.registration") };
 }
 

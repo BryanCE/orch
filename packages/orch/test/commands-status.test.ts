@@ -4,7 +4,7 @@ import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { displayStatusState, formatNoRowsMessage, formatSpace, parseStatusOptions, scopeFleetRows } from "../src/commands/status/options.ts";
-import { normalizeStatusRow, readStatusResult, resolveStatusAgent } from "../src/commands/status/fetch.ts";
+import { normalizeStatusRow, readStatusResult, resolveStatusAgent, rowCounts } from "../src/commands/status/fetch.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
 import { fleetNames, statusRowFromEntity } from "../src/daemon/server/fleet-rows.ts";
 import { ownerLabel } from "../src/commands/status/table.ts";
@@ -49,7 +49,7 @@ function composedRow(
   views: Parameters<typeof statusRowFromEntity>[1],
   questionOf: (agentId: string) => string | undefined = () => undefined,
 ): StatusRow {
-  return statusRowFromEntity(entity, views, fleetLeaseFacts(syntheticOrchDir, views), questionOf, () => undefined, syntheticOrchDir, null);
+  return statusRowFromEntity(entity, views, fleetLeaseFacts(syntheticOrchDir, views), questionOf, () => undefined, () => null, syntheticOrchDir, null);
 }
 
 describe("commands/status", () => {
@@ -68,8 +68,21 @@ describe("commands/status", () => {
   });
 
   test("empty message reports the live agents outside the caller's ownership", () => {
-    expect(formatNoRowsMessage({ otherLive: 3 })).toBe("you hold 0; 3 live agents belong to other orchs\n");
-    expect(formatNoRowsMessage({ otherLive: 1 })).toBe("you hold 0; 1 live agent belongs to other orchs\n");
+    const noRoots = { terminals: { yours: false, others: 0 }, sessions: { yours: false, others: 0 } };
+    expect(formatNoRowsMessage({ otherLive: 3, roots: noRoots })).toBe("you hold 0 agents; 3 live agents belong to other orchs\n");
+    expect(formatNoRowsMessage({ otherLive: 1, roots: noRoots })).toBe("you hold 0 agents; 1 live agent belongs to other orchs\n");
+    // A terminal or a harness session is a root, nobody's agent: only spawned agents another orch holds count.
+    const rows = [
+      statusRowFixture({ key: "op", kind: "operator", owned: false, alive: true }),
+      statusRowFixture({ key: "sess", kind: "session", owned: false, alive: true }),
+      statusRowFixture({ key: "theirs", kind: "agent", owned: false, alive: true }),
+      statusRowFixture({ key: "mine", kind: "agent", owned: true, alive: true }),
+    ];
+    const counts = rowCounts(rows, "op");
+    expect(counts.otherLive).toBe(1);
+    // The roots are named plainly: the caller's own terminal is said to be the caller's.
+    expect(counts.roots).toEqual({ terminals: { yours: true, others: 0 }, sessions: { yours: false, others: 1 } });
+    expect(formatNoRowsMessage({ otherLive: counts.otherLive, roots: counts.roots })).toBe("you hold 0 agents; 1 terminal: yours; 1 harness session: 1 other; 1 live agent belongs to other orchs\n");
   });
 
   test("dead rows never display stale live state", () => {
@@ -273,7 +286,7 @@ describe("commands/status", () => {
     const views = new Map([[seededEntity.key, agentViewFixture(seededEntity.key, { kind: "session", createdAt: 42 })]]);
     const host = testHost("bryan-swe-id", "BRYAN-SWE", "windows");
     const row = statusRowFromEntity({ ...seededEntity, host }, views, fleetLeaseFacts(syntheticOrchDir, views), () => undefined,
-      () => ({ pid: 4242, offline: null }), syntheticOrchDir, null);
+      () => ({ pid: 4242, offline: null }), () => null, syntheticOrchDir, null);
     expect(row).toMatchObject({ kind: "session", createdAt: 42, pid: 4242, host });
   });
   test("capacity footer uses configured caps and shows one pack per root", () => {

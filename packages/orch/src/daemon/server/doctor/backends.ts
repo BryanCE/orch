@@ -178,6 +178,7 @@ export function describeBackendEnvironments(
         placementInventory: backend.placementInventory,
         agentInput: backend.agentInput,
         foreground: backend.foreground,
+        relaunching: backend.relaunching,
         screen: backend.screen,
         zooming: backend.zooming,
         labeling: backend.labeling,

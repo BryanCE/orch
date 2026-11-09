@@ -161,6 +161,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { reportGoneHandle(handle, () => this.cli.ack(["pane", "send-keys", handle, ...keys], undefined, HERDR_INPUT_RETRY)); },
     focus: (handle: HerdrHandle): void => { this.cli.ack(["agent", "focus", handle]); },
   };
+  // A shell sits under the harness in its place: a relaunch is typed at it.
+  readonly relaunching = null;
   readonly foreground: ForegroundRole<HerdrHandle> = {
     read: (handle) => {
       const out = this.cli.exec(["pane", "process-info", "--pane", handle]);

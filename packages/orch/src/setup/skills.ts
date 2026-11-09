@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
 import * as files from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { ARROW, packageRoot } from "../util.ts";
 import { hostOs } from "../host.ts";
+import { homeDir } from "../shared/home.ts";
 
-const HOME = os.homedir();
 
 /** Windows needs a junction to link a directory without elevation; POSIX ignores the type. */
 const LINK_TYPE = hostOs() === "windows" ? "junction" : "dir";
@@ -27,9 +26,9 @@ export interface SkillRoots {
 /** Expand a configured skill root: `~` is the home directory, and a bare relative path
  *  resolves against it, so settings.json can name a location portably. */
 export function resolveSkillRoot(root: string): string {
-  if (root === "~") return HOME;
-  if (root.startsWith("~/")) return path.join(HOME, root.slice(2));
-  return path.resolve(HOME, root);
+  if (root === "~") return homeDir();
+  if (root.startsWith("~/")) return path.join(homeDir(), root.slice(2));
+  return path.resolve(homeDir(), root);
 }
 
 /** The packaged skill directory names, in the order they appear on disk. */

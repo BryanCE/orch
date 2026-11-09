@@ -141,6 +141,8 @@ export class OrcaBackend implements Backend<OrcaHandle> {
     },
   };
 
+  // A shell sits under the harness in its place: a relaunch is typed at it.
+  readonly relaunching = null;
   readonly foreground: ForegroundRole<OrcaHandle> = {
     read: (handle) => {
       const row = this.terminal(handle);

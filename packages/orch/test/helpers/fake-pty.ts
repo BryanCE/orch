@@ -28,12 +28,16 @@ export class FakePty implements PtyProcess {
 /** Hands out fake PTYs and keeps every one it made, newest last. */
 export class FakePtyProvider implements PtyProvider {
   readonly spawned: FakePty[] = [];
-  private nextPid: number;
+  private readonly nextPid: () => number;
 
-  constructor(firstPid = 4_000_000) { this.nextPid = firstPid; }
+  /** Pids count up from `firstPid`, or each comes from `firstPid` when it is a function. */
+  constructor(firstPid: number | (() => number) = 4_000_000) {
+    let next = typeof firstPid === "number" ? firstPid : 0;
+    this.nextPid = typeof firstPid === "number" ? () => next++ : firstPid;
+  }
 
   spawn(request: PtySpawnRequest): Promise<PtyProcess> {
-    const pty = new FakePty(this.nextPid++, request);
+    const pty = new FakePty(this.nextPid(), request);
     this.spawned.push(pty);
     return Promise.resolve(pty);
   }

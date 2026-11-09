@@ -1,6 +1,6 @@
 // The one handler table orchd serves: every RPC method, bound to one daemon state.
 // It lives apart from the boot so a test can serve the real daemon in-process.
-import { bootCodeHash, startedAt, fleetStatus } from "../state.ts";
+import { bootCodeHash, startedAt } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import { answer, dispatch, message, steer } from "./write.ts";
 import { clearSession, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
@@ -23,6 +23,7 @@ import { agentStatusOf, capacityOf, fleetSnapshot, processLive, runOf, runsOf } 
 import { resolveLifecycleEntity, resolveTargetEntity } from "./resolve.ts";
 import { closeTargets } from "./close.ts";
 import { callerSelf } from "./self.ts";
+import { peerStatus, statusAnywhere } from "./status.ts";
 import { ownedAgents } from "./owned.ts";
 import { harnessCatalogues, refreshCatalogues, syncHarnessFiles } from "./harness.ts";
 import { admitModelFor } from "../spawn/models.ts";
@@ -32,6 +33,7 @@ import { reexecSelf } from "../ownership.ts";
 import { publishFromOrchd } from "../events.ts";
 import { acceptPromptReport, acceptResultReport, acceptStatusReport } from "../status-report.ts";
 import { heldAgentHost } from "../status-events.ts";
+import { endHeldAgents } from "../held-ending.ts";
 import { insertControlOutcome } from "../../../store/control-outcome-rows.ts";
 import { appendOutcome } from "../../../presence/history.ts";
 import { settleControlOutcome } from "../../../control/outcome.ts";
@@ -109,7 +111,8 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "report-prompt": waking(state, (params) => acceptPromptReport(directory, params.key, params.prompt, publish)),
     "command-lock": ({ pid, ...params }) => lockCommand(directory, services.settings.current(), { ...params, process: hostedPid(pid) }, publish),
     "command-unlock": (params) => unlockCommand(directory, hostedPid(params.pid)),
-    status: (params) => fleetStatus(state, params.caller),
+    status: (params) => statusAnywhere(state, params),
+    "peer-status": (_params, _emit, context) => peerStatus(state, context),
     attach: (params) => {
       const key = params.key;
       return { attached: true, open: selectOpenOutboxForTarget(directory, key).length };
@@ -227,6 +230,8 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     },
     reload: () => {
       setTimeout(() => {
+        // The new process holds none of these PTYs: each agent in one ends, saying why.
+        endHeldAgents(state, "restarted");
         void state.server?.close().then(() => reexecSelf(directory));
       }, 10);
       return { ok: true };

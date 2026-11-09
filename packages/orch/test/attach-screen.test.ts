@@ -227,7 +227,7 @@ describe("attaching to a screen held here", () => {
 describe("attaching to a screen on a linked host", () => {
   test("relays the far holder's screen both ways, and ends when the host goes offline", async () => {
     const farHolder = new FakeScreenHolder();
-    const far = await startFarOrchd({ host: testHost("far-attach", "machine-far-attach"), commit: null, version: "0.1.0" }, farHolder);
+    const far = await startFarOrchd({ host: testHost("far-attach", "machine-far-attach"), commit: null, version: "0.1.0" }, { screens: farHolder });
     fars.push(far);
     const orchDir = nearDir();
     const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 1_000 } } });
@@ -264,7 +264,7 @@ describe("attaching to a screen on a linked host", () => {
 
   test("a far orchd refuses a screen its peer did not ask it to run", async () => {
     const farHolder = new FakeScreenHolder();
-    const far = await startFarOrchd({ host: testHost("far-refuse", "machine-far-refuse"), commit: null, version: "0.1.0" }, farHolder);
+    const far = await startFarOrchd({ host: testHost("far-refuse", "machine-far-refuse"), commit: null, version: "0.1.0" }, { screens: farHolder });
     fars.push(far);
     const orchDir = nearDir();
     const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 1_000 } } });

@@ -69,11 +69,14 @@ export function planViewers(request: ViewerPlanRequest): ViewerPlan | null {
     grantNewHome: () => assertNewSpaceGranted(services.orchDir, actor, settings, backend),
   });
   const requested = settings.agents.length;
-  // The tab here carries the agent's name and the host it runs on, as its pane does,
-  // unless the spawn names a tab.
+  // A tab the spawn names that is already open is filled as it is. A new tab names the host
+  // its agents run on, as each pane does: the tab the spawn names, or else the first agent's
+  // name, followed by `@<host>`.
   const first = settings.agents[0]?.name;
-  const tabLabel = settings.tab ?? (first !== undefined && settings.host !== null ? viewerLabel(first, settings.host.name) : null);
-  const existing = tabLabel === null ? undefined : findGroupInSpace(backend, placement.workspace, tabLabel);
+  const base = settings.tab ?? first ?? null;
+  const tabLabel = base === null || settings.host === null ? null : viewerLabel(base, settings.host.name);
+  const named = settings.tab === null || settings.tab === undefined ? undefined : findGroupInSpace(backend, placement.workspace, settings.tab);
+  const existing = named ?? (tabLabel === null ? undefined : findGroupInSpace(backend, placement.workspace, tabLabel));
   let tab: ViewerPlan["tab"];
   if (existing === undefined) {
     const { views, presence } = liveFleet(services.orchDir);

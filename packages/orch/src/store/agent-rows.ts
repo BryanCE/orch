@@ -153,6 +153,17 @@ export function originOf(orchDir: OrchDir, agentId: string): AgentOrigin | null 
   return row ?? null;
 }
 
+/** For every agent another host's orchd asked this one to run: that host's name, else its id
+ *  when this store never learned the name. One read for a whole fleet. */
+export function askingHostNames(orchDir: OrchDir): ReadonlyMap<string, string> {
+  const rows = orm(orchDir)
+    .select({ agentId: agentOrigins.agentId, hostId: agentOrigins.askedByHostId, name: hosts.name })
+    .from(agentOrigins)
+    .leftJoin(hosts, eq(hosts.id, agentOrigins.askedByHostId))
+    .all();
+  return new Map(rows.map((row) => [row.agentId, row.name ?? row.hostId]));
+}
+
 /** The git worktree an agent this orchd runs works in; null when it runs from the repo itself.
  *  A worktree is a directory on this machine, so only an agent here has one. */
 export function worktreeOf(orchDir: OrchDir, agent: HereAgent): AgentWorktree | null {

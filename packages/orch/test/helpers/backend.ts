@@ -71,6 +71,7 @@ export class FakePanedBackend implements Backend {
   readonly commandPlacement: CommandPlacementRole | null = null;
   readonly agentInput = null;
   /** The test runner stands in for every pane shell: the one pid a fixture can prove alive. */
+  readonly relaunching = null;
   readonly foreground: ForegroundRole = { read: () => ({ shellPid: process.pid, foregroundPid: null, processes: [] }) };
   readonly screen = null;
   readonly zooming = null;

@@ -113,8 +113,10 @@ async function deliverPrompt(orchDir: OrchDir, agent: HereAgent, adapter: AgentA
 /** Type the text into the agent's input. A harness that echoes each prompt it takes acks it that way. */
 function typePrompt(orchDir: OrchDir, agent: HereAgent, adapter: AgentAdapter, prompt: TypedPrompt, ackMs: number): ControlBoundaryOutcome {
   const route = resolveTargetRoute(orchDir, agent);
-  if (!route?.backend.placementInventory) return { outcome: "answer", reason: "not-placed", text: `${agent.id} is placed nowhere; ${prompt.kind} does not apply.` };
-  const input = route.backend.agentInput;
+  // Input is the capability, not a pane: an environment that holds the agent's terminal
+  // types into it as a pane would.
+  const input = route?.backend.agentInput ?? null;
+  if (route === undefined || (input === null && route.backend.placementInventory === null)) return { outcome: "answer", reason: "not-placed", text: `${agent.id} is placed nowhere; ${prompt.kind} does not apply.` };
   if (!input) return { outcome: "answer", reason: "no-environment-role", text: `this environment does not provide ${prompt.kind}` };
   input.submit(route.handle, prompt.text);
   if (!echoesPrompts(adapter)) return { outcome: "invoke", ack: "none" };

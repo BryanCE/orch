@@ -49,6 +49,7 @@ export function stubRpcHandlers(overrides: Partial<RpcHandlers> = {}): RpcHandle
     "peer-drive": notStubbed,
     "peer-read": notStubbed,
     "peer-questions": notStubbed,
+    "peer-status": notStubbed,
     "agent-read": notStubbed,
     "agent-pane": notStubbed,
     "agent-wait": notStubbed,

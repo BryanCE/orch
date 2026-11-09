@@ -144,7 +144,9 @@ export async function setModel(state: DaemonState, params: ParamsOf<"set-model">
 
 /** Switch the model of an agent this orchd runs, ruled on already. */
 export async function applyModel(state: DaemonState, agent: HereAgent, model: string): Promise<{ ok: true; applied: string }> {
-  await deliverControl(state.directory, state.services.settings.current(), state.services.models, agent, { kind: "model", model, id: randomUUID() });
+  const outcome = await deliverControl(state.directory, state.services.settings.current(), state.services.models, agent, { kind: "model", model, id: randomUUID() });
+  // A boundary answer is the refusal itself: reporting the model applied would hide it.
+  if (outcome.outcome === "answer") throw new Error(outcome.text);
   return { ok: true, applied: model };
 }
 
@@ -237,7 +239,9 @@ export async function clearHere(state: DaemonState, agent: HereAgent): Promise<R
 
 /** Apply a lifecycle verb to an agent this orchd runs, ruled on already. */
 export async function applyVerb(state: DaemonState, agent: HereAgent, verb: LifecycleVerb): Promise<{ ok: true; verb: LifecycleVerb }> {
-  await deliverControl(state.directory, state.services.settings.current(), state.services.models, agent, { kind: "lifecycle", verb });
+  const outcome = await deliverControl(state.directory, state.services.settings.current(), state.services.models, agent, { kind: "lifecycle", verb });
+  // A boundary answer is the refusal itself: waiting on a verb never sent only times out.
+  if (outcome.outcome === "answer") throw new Error(`cannot ${verb} ${agent.id}: ${outcome.text}`);
   return { ok: true, verb };
 }
 

@@ -5,7 +5,8 @@ import { closeOrphanedHostLinks } from "../../store/host-rows.ts";
 import { setLinkedProcessProbe } from "../../process-place.ts";
 import { bootCodeHash, socketAnswers } from "./state.ts";
 import { PtyHold } from "./held.ts";
-import { bindHeldInput } from "../../backends/registry.ts";
+import { endHeldAgents } from "./held-ending.ts";
+import { bindHeldPtys } from "../../backends/registry.ts";
 import { nodePtyProvider } from "../../pty/node-pty.ts";
 import type { DaemonState } from "./state.ts";
 import { outboxDeps } from "./handlers/write.ts";
@@ -55,6 +56,7 @@ async function shutDown(state: DaemonState, reason: string): Promise<void> {
   state.settingsWatch?.stop();
   state.hosts.closeAll();
   // Stopping ends every agent whose PTY this orchd holds; `orch daemon stop` asked first.
+  endHeldAgents(state, `stopped (${reason})`);
   state.held.killAll();
   state.workController.abort();
   await state.workLoop;
@@ -78,7 +80,7 @@ export async function startDaemon(): Promise<DaemonState> {
   const directory = services.orchDir;
   const held = new PtyHold(nodePtyProvider(), () => services.settings.current().pty);
   // A reset, reload or answer typed into a held agent reaches its PTY through the held backend.
-  bindHeldInput((pid, data) => held.writeToPid(pid, data));
+  bindHeldPtys(held);
   const state: DaemonState = {
     services,
     directory,

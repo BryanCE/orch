@@ -23,12 +23,18 @@ function groupOf(backend: Backend, handle: BackendHandle): string | null {
   return backend.placementInventory?.list().find((item) => String(item.handle) === String(handle))?.group ?? null;
 }
 
-/** Do `act` with the role a pane verb drives, or answer why the verb does not apply. */
-function onPane<T>(state: DaemonState, agent: HereAgent, command: string, roleOf: (backend: Backend) => T | null, act: (role: T, handle: BackendHandle, backend: Backend) => string | null): PaneOutcome {
+/** What a verb needs of the agent's place: its input, which an environment holding the agent's
+ *  terminal has with no pane, or a pane its plexer lists. */
+type PaneNeed = "input" | "pane";
+
+/** Do `act` with the role a pane verb drives, or answer why the verb does not apply. An
+ *  environment that lists no panes has none to show, focus, zoom or move. */
+function onPane<T>(state: DaemonState, agent: HereAgent, command: string, need: PaneNeed, roleOf: (backend: Backend) => T | null, act: (role: T, handle: BackendHandle, backend: Backend) => string | null): PaneOutcome {
   const route = resolveTargetRoute(state.directory, agent);
   const role = route === undefined ? null : roleOf(route.backend);
   const pane = route === undefined || role === null ? null : { role, ...route };
-  const plan = paneBoundary(agentView(state.directory, agent.id)?.name ?? agent.id, command, pane, route !== undefined);
+  const placed = route !== undefined && (need === "input" || route.backend.placementInventory !== null);
+  const plan = paneBoundary(agentView(state.directory, agent.id)?.name ?? agent.id, command, pane, placed);
   if (plan.outcome === "answer") return { kind: "answer", reason: plan.reason, text: plan.text };
   const { handle, backend } = plan.role;
   const group = act(plan.role.role, handle, backend);
@@ -80,17 +86,17 @@ function movePane(state: DaemonState, agent: HereAgent, action: Extract<PaneActi
 export function paneHere(state: DaemonState, agent: HereAgent, action: PaneAction): PaneOutcome {
   switch (action.kind) {
     case "keys":
-      return onPane(state, agent, "keys", (backend) => backend.agentInput, (input, handle) => { input.sendKeys(handle, action.keys); return null; });
+      return onPane(state, agent, "keys", "input", (backend) => backend.agentInput, (input, handle) => { input.sendKeys(handle, action.keys); return null; });
     case "focus":
-      return onPane(state, agent, "focus", (backend) => backend.agentInput, (input, handle) => { input.focus(handle); return null; });
+      return onPane(state, agent, "focus", "pane", (backend) => backend.agentInput, (input, handle) => { input.focus(handle); return null; });
     case "zoom":
-      return onPane(state, agent, "zoom", (backend) => backend.zooming, (zoom, handle) => { zoom.setZoom(handle, action.mode); return null; });
+      return onPane(state, agent, "zoom", "pane", (backend) => backend.zooming, (zoom, handle) => { zoom.setZoom(handle, action.mode); return null; });
     case "label":
-      return onPane(state, agent, "rename --pane", (backend) => backend.labeling, (labeling, handle) => { labeling.setLabel(handle, action.label); return null; });
+      return onPane(state, agent, "rename --pane", "pane", (backend) => backend.labeling, (labeling, handle) => { labeling.setLabel(handle, action.label); return null; });
     case "move":
-      return onPane(state, agent, "move", (backend) => backend.groupHome, (home, handle, backend) => movePane(state, agent, action, home, handle, backend));
+      return onPane(state, agent, "move", "pane", (backend) => backend.groupHome, (home, handle, backend) => movePane(state, agent, action, home, handle, backend));
     case "group":
-      return onPane(state, agent, "tab", (backend) => backend.placementInventory, (_inventory, handle, backend) => groupOf(backend, handle));
+      return onPane(state, agent, "tab", "pane", (backend) => backend.placementInventory, (_inventory, handle, backend) => groupOf(backend, handle));
     default: {
       const exhaustive: never = action;
       throw new Error(`unknown pane action ${String(exhaustive)}`);

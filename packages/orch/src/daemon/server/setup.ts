@@ -3,12 +3,12 @@
 import type { OrchDir } from "../../types/core.ts";
 import { execFileSync } from "node:child_process";
 import * as files from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { getBackend, resolveBackend } from "../../backends/registry.ts";
 import { resolveAdapter } from "../../adapters/registry.ts";
 import { installCommand, PREREQUISITES } from "../../shared/prerequisites.ts";
 import { hostOs, isNixOs } from "../../host.ts";
+import { homeDir } from "../../shared/home.ts";
 import { binaryStatus } from "./doctor/bins.ts";
 import { shebangRuntime, writeShebangRuntime } from "./doctor/runtime.ts";
 import { ORCH_DING_BIN } from "../../notify/ding.ts";
@@ -31,11 +31,6 @@ function collector(): { lines: string[]; say: Say } {
   return { lines, say: (line) => { lines.push(line); } };
 }
 
-/** $HOME first, at call time: `wireBinaries` writes real files under it, so a caller that
- *  redirects HOME must get the redirect. os.homedir() reads passwd, not the environment. */
-function home(): string {
-  return process.env.HOME ?? os.homedir();
-}
 
 /** The shell an install command is written for: PowerShell on Windows, sh elsewhere. */
 function installShell(cmd: string): [string, string[]] {
@@ -143,7 +138,7 @@ export function setupInstall(logger: Logger, params: ParamsOf<"setup-install">):
   for (const { bin, cmd } of missing.filter((candidate) => params.bins.includes(candidate.bin))) {
     runInstall(logger, bin, cmd, say);
     // fresh installs land in ~/.bun/bin or ~/.local/bin before the shell rc picks them up
-    process.env.PATH = [path.join(home(), ".bun", "bin"), path.join(home(), ".local", "bin"), process.env.PATH].join(path.delimiter);
+    process.env.PATH = [path.join(homeDir(), ".bun", "bin"), path.join(homeDir(), ".local", "bin"), process.env.PATH].join(path.delimiter);
     const now = binaryPath(bin);
     say(now ? `  ok      ${bin}  (${now})` : `  ${bin} still not on PATH - open a new shell and re-run orch setup`);
   }
@@ -246,7 +241,7 @@ function repointBin(bin: BinOnPath, pkgRoot: string, copy: boolean, say: Say): v
 /** Wire the `orch`/`orch-ding` bins onto PATH (repo-clone case; `bun add -g` already links bins). */
 export function wireBinaries(pkgRoot: string, copy: boolean, say: Say): void {
   say("bins:");
-  const binDir = path.join(home(), ".local", "bin");
+  const binDir = path.join(homeDir(), ".local", "bin");
   for (const [name, rel] of [
     ["orch", path.join("dist", "bin", "orch.js")],
     [ORCH_DING_BIN, path.join("dist", "bin", `${ORCH_DING_BIN}.js`)],

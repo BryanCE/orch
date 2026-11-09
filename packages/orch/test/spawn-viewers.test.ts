@@ -140,6 +140,16 @@ describe("a far spawn shows each agent in a pane of the caller's plexer", () => 
     });
   });
 
+  test("--tab naming a new tab opens it named for the host its agents run on", () => {
+    const svc = services();
+    const backend = new ViewerBackend();
+    withRegisteredBackend(backend, () => {
+      const plan = planViewers({ services: svc, settings: farSpawn(svc, ["one"], ["--tab", "work"]), environment: IN_PLEXER, actor: null });
+      openViewers(plan!, { orchDir: svc.orchDir, logger: svc.logger, cwd: "/here", notes: [] }, "far", [started("agent00001", "one")]);
+      expect(backend.createdGroups.map((created) => created.label)).toEqual(["work@far"]);
+    });
+  });
+
   test("a tab without room refuses the spawn before anything launches", () => {
     const svc = services({ max_agents_per_tab: 2 });
     const backend = new ViewerBackend({ tabs: new Map([["@7", ["%70", "%71"]]]) });

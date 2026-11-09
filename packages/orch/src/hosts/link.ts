@@ -500,9 +500,14 @@ class HostLink {
       clearTimeout(pending.timer);
       pending.reject(new Error(`${this.name} went offline: ${reason}`));
     }
+    // A link still wanted redials, and its screens stream again once it is back
+    // (`reattachScreens`); one closed on purpose ends every viewer of its screens here.
+    if (this.wanted) {
+      this.scheduleRetry();
+      return;
+    }
     const screens = [...this.screens.keys()];
     for (const key of screens) this.takeScreen(key, { kind: "end", reason: `${this.name} went offline` });
-    if (this.wanted) this.scheduleRetry();
   }
 
   /** Full jitter over a doubling wait, capped: hosts that drop together never redial together. */

@@ -80,6 +80,16 @@ export interface AgentNamingRole<Handle = BackendHandle> { renameAgent(handle: H
 
 export interface AgentStatusRole<Handle = BackendHandle> { wait(handle: Handle, status: string, timeoutMs: number): void; }
 
+/**
+ * Relaunches the program an agent's place runs, for an environment whose place IS that program
+ * with no shell under it: a harness that quits ends its place, so no prompt comes back to type a
+ * relaunch at. The role ends the program and runs `command` in a fresh place with the same
+ * directory and environment, and answers the new place's handle and process.
+ */
+export interface RelaunchRole<Handle = BackendHandle> {
+  relaunch(handle: Handle, command: string): Promise<{ readonly handle: Handle; readonly process: LocalProcess }>;
+}
+
 /** Request to create one plexer group (herdr tab, tmux window). */
 export interface CreateGroupRequest {
   /** The plexer's coordinate to open the group in, or undefined when orch
@@ -434,6 +444,9 @@ export interface Backend<Handle = BackendHandle> {
   /** Explicit environment fast path; normal dispatch never uses this channel. */
   readonly agentInput: AgentInputRole<Handle> | null;
   readonly foreground: ForegroundRole<Handle> | null;
+  /** Relaunches a place whose program is the harness itself. A place with a shell under the
+   *  harness has none: a relaunch is typed at that shell once the harness quits. */
+  readonly relaunching: RelaunchRole<Handle> | null;
   readonly screen: ScreenRole<Handle> | null;
   readonly zooming: ZoomRole<Handle> | null;
   readonly labeling: LabelRole<Handle> | null;

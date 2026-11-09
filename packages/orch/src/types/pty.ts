@@ -67,6 +67,16 @@ export function heldId(terminal: HeldTerminal): string {
   }
 }
 
+/** The PTYs this orchd holds, as a backend role reaches them: by the pid a held agent's handle
+ *  records, since roles address an agent by its handle. */
+export interface HeldPtysByPid {
+  /** Type into the PTY whose program has `pid`. False when no PTY held here runs it. */
+  writeToPid(pid: number, data: string): boolean;
+  /** End the program with `pid` and, once it has exited, start `args` in a new PTY under the
+   *  same id, with the same program, directory and environment. Null when no PTY held here runs it. */
+  relaunchPid(pid: number, args: readonly string[]): Promise<{ readonly pid: number } | null>;
+}
+
 /**
  * Every PTY this orchd holds, by the id it was started under. The attach stream reads a
  * snapshot, then follows the live feed; input and resize come back through it. A PTY is
@@ -90,6 +100,8 @@ export interface PtyHolder {
   /** End the program started under `id`. */
   kill(id: string): void;
   count(): number;
+  /** The id of every PTY held, in the order they started. */
+  ids(): readonly string[];
   /** End every held PTY: orchd is stopping. */
   killAll(): void;
 }

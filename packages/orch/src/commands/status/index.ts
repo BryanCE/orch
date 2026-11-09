@@ -46,7 +46,7 @@ async function writeStatusRows(services: Services, options: StatusOptions, calle
   const settings = services.settings.currentOrNull();
   const footer = settings === null ? null : (await capacityLine(services, orchId, settings)).line;
   if (shouldShowNoRows(options, result.rows, caller.id)) {
-    process.stdout.write(formatNoRowsMessage({ otherLive: result.otherLive }));
+    process.stdout.write(formatNoRowsMessage({ otherLive: result.otherLive, roots: result.roots }));
   } else {
     process.stdout.write(formatStatusTable(result, { all: options.all, host: result.host, callerId: caller.id, human: options.human, columns: options.hide.columns }) + "\n");
   }

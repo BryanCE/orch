@@ -31,12 +31,14 @@ function formatCallerTable(): string {
   ]), { all: false, host: false, callerId: "caller", columns: new Set() });
 }
 
+/** The cell under `header` on the table's `lineIndex`th line counting the header and the rule,
+ *  with each row's provenance line beneath it skipped: 2 is the first row, 3 the second. */
 function cellUnder(table: string, header: string, lineIndex: number): string {
   const widths = columnWidths(table);
   const lines = table.split("\n");
   const index = cells(lines[0] ?? "", widths).indexOf(header);
   expect(index).toBeGreaterThanOrEqual(0);
-  return cells(lines[lineIndex] ?? "", widths)[index] ?? "";
+  return cells(lines[2 + (lineIndex - 2) * 2] ?? "", widths)[index] ?? "";
 }
 
 // F6: "unleased agents must read as 'no orch driving it', never as yours".

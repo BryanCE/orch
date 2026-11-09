@@ -1,4 +1,4 @@
-import { bindHeldInput, heldBackend } from "../src/backends/held/index.ts";
+import { bindHeldPtys, heldBackend } from "../src/backends/held/index.ts";
 import { describe, expect, test } from "bun:test";
 import { PtyHold } from "../src/daemon/server/held.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
@@ -93,7 +93,7 @@ describe("the PTY holder", () => {
   test("the held backend types a submit and keys into the PTY running the handle's pid", async () => {
     const { hold, provider } = holder();
     const { pid } = await hold.start("agent-a", REQUEST);
-    bindHeldInput((target, data) => hold.writeToPid(target, data));
+    bindHeldPtys(hold);
     heldBackend.agentInput.submit(String(pid), "/new");
     heldBackend.agentInput.sendKeys(String(pid), ["Escape", "C-c"]);
     expect(provider.last().written).toEqual(["/new", "\r", "\x1b", "\x03"]);

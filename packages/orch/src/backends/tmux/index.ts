@@ -98,6 +98,8 @@ export class TmuxBackend implements Backend<TmuxHandle> {
       if (bestEffortTmux(["select-window", "-t", handle]) === null || bestEffortTmux(["select-pane", "-t", handle]) === null) throw new Error(`tmux failed to focus ${handle}`);
     },
   };
+  // A shell sits under the harness in its place: a relaunch is typed at it.
+  readonly relaunching = null;
   readonly foreground: ForegroundRole<TmuxHandle> = {
     read: (handle: TmuxHandle) => {
       const shellPid = Number(execTmux(["display-message", "-p", "-t", handle, "#{pane_pid}"]).trim());

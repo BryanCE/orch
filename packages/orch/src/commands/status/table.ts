@@ -4,11 +4,14 @@ import { dim } from "../../tui/screen.ts";
 import { DEAD_HOLDER_DRIVER, NO_ORCH_DRIVER } from "../../shared/drive-state.ts";
 import { formatSpace, displayStatusState, NO_STATUS_HIDE, isTTY, callerNameLabel, ownsLiveWorker } from "./options.ts";
 import { modelShort } from "../../policy/thinking.ts";
-import { formatHostOffline } from "../../format.ts";
+import { formatAge, formatHostOffline } from "../../format.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { FleetNames, FleetStatus } from "../../types/daemon.ts";
 
 const DETACHED_ENVIRONMENT = "headless";
+
+/** A host's name is shown whole: two hosts whose names share a prefix must never read alike. */
+const HOST_CAP = Number.POSITIVE_INFINITY;
 
 /** Who drives the row, as the OWNER column says it: the holder's name, or why there is none. */
 export function ownerLabel(row: StatusRow, names: FleetNames): string | null {
@@ -62,10 +65,50 @@ function localIdCell(row: StatusRow): string {
   return (row.agentId ?? row.key) + (row.focused ? "*" : "");
 }
 
+/** Where the agent sits: its pane here, else the environment it runs in, wherever that is. */
 function environmentCell(row: StatusRow): string {
   const handle = row.paneId;
-  if (handle === null || handle.startsWith("{")) return DETACHED_ENVIRONMENT;
+  if (handle === null || handle.startsWith("{")) return row.backend ?? DETACHED_ENVIRONMENT;
   return handle;
+}
+
+/** What a row is, stated from the kind orch recorded for it. */
+function whatItIs(row: StatusRow): string {
+  switch (row.kind) {
+    case "operator":
+      return "operator terminal";
+    case "session":
+      return `${row.agent ?? "harness"} session`;
+    case "agent":
+      return "spawned agent";
+    case null:
+      return "pane orch did not spawn";
+    default: {
+      const exhaustive: never = row.kind;
+      throw new Error(`unknown row kind ${String(exhaustive)}`);
+    }
+  }
+}
+
+/** Who made it: a root was started here; a spawned agent names its spawner, and the host that
+ *  asked for it when another host's orchd did. */
+function whoMadeIt(row: StatusRow, names: FleetNames, callerId: string | null): string {
+  const asked = row.askedBy === null ? "" : `asked for by host ${row.askedBy}, `;
+  if (row.kind !== "agent") return row.key === callerId ? "started here (you)" : "started here";
+  if (row.spawnedBy === null) return `${asked}no spawner recorded`;
+  if (row.spawnedBy === callerId) return `${asked}spawned by you`;
+  return `${asked}spawned by ${names.agents[row.spawnedBy] ?? row.spawnedBy}`;
+}
+
+/** The line under each row: what it is, who made it, where it runs (its host, whole, and its
+ *  directory), and when orch made it; then, whole, that its host is offline or why it ended. */
+function provenanceLine(row: StatusRow, names: FleetNames, callerId: string | null, columns: ReadonlySet<string>): string {
+  // `--hide cwd` keeps the directory off this line too.
+  const where = columns.has("cwd") ? row.host.name : `${row.host.name}:${row.cwd ?? "-"}`;
+  const when = row.createdAt === null ? "creation unrecorded" : `created ${formatAge(row.createdAt)} ago`;
+  // Whatever the LAST column cuts short of an offline host or an ending is said here whole.
+  const note = row.hostOffline !== undefined || row.endReason !== null ? [lastText(row)] : [];
+  return `  ${[whatItIs(row), whoMadeIt(row, names, callerId), where, when, ...note].join(" | ")}`;
 }
 
 function localNameCell(row: StatusRow, names: FleetNames, flags: TableFlags, callerId: string | null, ownsOthers: boolean): string {
@@ -91,8 +134,14 @@ function tableContextCell(row: StatusRow): string {
 /** The LAST cell: what the agent last said, or, while its host's link is down, that the
  *  host is offline and when it was last seen. */
 function tableLastCell(row: StatusRow): string {
-  const text = row.hostOffline === undefined ? collapse(row.lastText ?? "") : formatHostOffline(row.host.name, row.hostOffline.lastSeen);
-  return truncate(text, 50);
+  return truncate(lastText(row), 50);
+}
+
+/** What the row last says: that its host is offline, else why it ended, else what it last said. */
+function lastText(row: StatusRow): string {
+  if (row.hostOffline !== undefined) return formatHostOffline(row.host.name, row.hostOffline.lastSeen);
+  if (row.endReason !== null) return `ended: ${collapse(row.endReason)}`;
+  return collapse(row.lastText ?? "");
 }
 
 function humanTableCells(row: StatusRow, names: FleetNames, host: boolean, callerId: string | null, name: string): string[] {
@@ -146,12 +195,12 @@ function tableColumns(flags: TableFlags, host: boolean): { headers: string[]; ca
   if (flags.human) {
     return {
       headers: [...(host ? ["HOST"] : []), "NAME", "HARNESS", "CWD", "WORKTREE", "BRANCH", "OWNER", "STATE"],
-      caps: [...(host ? [10] : []), 32, 10, 30, 24, 20, 32, 12],
+      caps: [...(host ? [HOST_CAP] : []), 32, 10, 30, 24, 20, 32, 12],
     };
   }
   return {
     headers: [...(host ? ["HOST"] : []), "ID", "ENV", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
-    caps: [...(host ? [10] : []), 12, 10, 32, ...ownerBranchCaps(flags), 8, 6, 20, 10, 6, 4, 24, 34],
+    caps: [...(host ? [HOST_CAP] : []), 12, 10, 32, ...ownerBranchCaps(flags), 8, 6, 20, 10, 6, 4, 24, 34],
   };
 }
 
@@ -159,10 +208,14 @@ function visibleColumns<T>(cells: readonly T[], headers: readonly string[], colu
   return cells.filter((_, index) => !columns.has((headers[index] ?? "").toLowerCase()));
 }
 
-function appendRenderedRows(out: string[], rendered: readonly string[], rows: readonly StatusRow[]): void {
+function appendRenderedRows(out: string[], rendered: readonly string[], rows: readonly StatusRow[], provenance: (row: StatusRow) => string): void {
   for (let index = 0; index < rows.length; index++) {
+    const row = rows[index];
+    if (row === undefined) continue;
     const line = rendered[index + 2] ?? "";
-    out.push(rows[index]?.exited ? (isTTY ? dim(line) : line) : line);
+    out.push(row.exited ? (isTTY ? dim(line) : line) : line);
+    const under = provenance(row);
+    out.push(isTTY ? dim(under) : under);
   }
 }
 
@@ -182,7 +235,7 @@ export function renderStatusTable(fleet: FleetStatus, flags: TableFlags, options
   const cells = rows.map((row) => visibleColumns(tableRow(row, names, flags, options.host, options.callerId ?? null, ownsOthers), headers, options.columns));
   const rendered = renderTable(visibleColumns(headers, headers, options.columns), cells, visibleColumns(caps, headers, options.columns)).split("\n");
   const out: string[] = [rendered[0] ?? "", rendered[1] ?? ""];
-  appendRenderedRows(out, rendered, rows);
+  appendRenderedRows(out, rendered, rows, (row) => provenanceLine(row, names, options.callerId ?? null, options.columns));
   const owner = hasOwnerFooter(fleet, flags, options.columns, options.callerId ?? null);
   if (owner !== null) out.push(`owner: ${owner}`);
   return out.join("\n");

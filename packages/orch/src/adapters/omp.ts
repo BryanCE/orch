@@ -1,8 +1,8 @@
-import * as os from "node:os";
 import * as path from "node:path";
 import { isRecord } from "../util.ts";
 import { bridgeExtensionArgv, bridgeModelArgv, diagnoseExtensionLink, installExtensionLink, PiBridgeAdapter, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
+import { homeDir } from "../shared/home.ts";
 import type { AgentAdapter, HarnessModel, ModelCatalogue, ShimInstallOpts, SpawnOpts } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { ExtensionName, Logger, OrchDir } from "../types/core.ts";
@@ -16,8 +16,10 @@ import type { OrchSettings } from "../types/settings.ts";
 // omp's. A machine with omp and no pi installed runs this whole file.
 
 /** omp's own config root, and the directory under it orch links its bundle into. */
-const OMP_AGENT_DIR = path.join(os.homedir(), ".omp", "agent");
-const OMP_EXTENSION_DIR = path.join(OMP_AGENT_DIR, "extensions");
+/** omp's config root, read at call time so a redirected HOME is honoured. */
+function ompAgentDir(): string {
+  return path.join(homeDir(), ".omp", "agent");
+}
 /** omp's shipped bundle, built from extensions/omp/. */
 const OMP_EXTENSION: ExtensionName = "omp-bridge";
 
@@ -49,7 +51,7 @@ function parseOmpModelsOutput(stdout: string): readonly HarnessModel[] {
 
 /** omp's `-e` tokens for one worker. */
 function ompExtensionArgv(opts: SpawnOpts): string[] {
-  return bridgeExtensionArgv("omp", OMP_EXTENSION_DIR, OMP_EXTENSION, opts.workers);
+  return bridgeExtensionArgv("omp", path.join(ompAgentDir(), "extensions"), OMP_EXTENSION, opts.workers);
 }
 
 /** omp's tool-gating tokens for one worker. omp's `--no-tools` drops built-in tools
@@ -104,17 +106,17 @@ class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
 
   /** Verify the extension link and bundle written by installShim. */
   diagnoseShim(_orchDir: OrchDir): CheckResult {
-    return diagnoseExtensionLink(this.id, OMP_EXTENSION_DIR, OMP_EXTENSION);
+    return diagnoseExtensionLink(this.id, path.join(ompAgentDir(), "extensions"), OMP_EXTENSION);
   }
 
   /** Read omp's persisted default model from ~/.omp/agent/settings.json. */
   defaultModelString(): string | undefined {
-    return settingsDefaultModel(OMP_AGENT_DIR);
+    return settingsDefaultModel(ompAgentDir());
   }
 
   /** Link the prebuilt omp-bridge bundle into omp's extension directory. */
   installShim(_orchDir: OrchDir, opts?: ShimInstallOpts): void {
-    installExtensionLink(this.id, OMP_EXTENSION_DIR, OMP_EXTENSION, opts);
+    installExtensionLink(this.id, path.join(ompAgentDir(), "extensions"), OMP_EXTENSION, opts);
   }
 }
 

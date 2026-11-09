@@ -100,6 +100,8 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly commandPlacement = null;
   readonly placementInventory = null;
   readonly agentInput = null;
+  // Its process is the harness itself and it takes no input: nothing relaunches in place.
+  readonly relaunching = null;
   readonly foreground: ForegroundRole<HeadlessHandle> | null = null;
   readonly screen = null;
   readonly zooming = null;

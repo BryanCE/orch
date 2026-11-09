@@ -4,6 +4,7 @@ import type { LeaseFacts } from "../../shared/drive-state.ts";
 import { buildEntities, sortEntities } from "../../entities/inventory.ts";
 import { liveViews, agentViewIndex } from "../../store/agent-view.ts";
 import { pendingQuestion } from "../../store/question-rows.ts";
+import { askingHostNames } from "../../store/agent-rows.ts";
 import { currentProcesses, type StoredProcess } from "../../store/interval-rows.ts";
 import { hostOffline, linkedHosts } from "../../store/host-rows.ts";
 import { hostOfPlace, placeAgentIfAny } from "../../process-place.ts";
@@ -51,7 +52,8 @@ export function buildFleetStatus(settings: OrchSettings, options: FleetStatusOpt
   options.onPhase?.("index");
   const entities = sortEntities(buildEntities(directory, settings));
   options.onPhase?.("entities");
-  const rows = entities.map((entity) => statusRowFromEntity(entity, views, leaseFacts, (id) => pendingQuestion(directory, id)?.question, processOf, directory, options.caller));
+  const asking = askingHostNames(directory);
+  const rows = entities.map((entity) => statusRowFromEntity(entity, views, leaseFacts, (id) => pendingQuestion(directory, id)?.question, processOf, (id) => asking.get(id) ?? null, directory, options.caller));
   options.onPhase?.("rows");
   // Names come off the whole index: an ended spawner or holder is still named.
   const names = fleetNames(rows, fleet, settings.spaces);

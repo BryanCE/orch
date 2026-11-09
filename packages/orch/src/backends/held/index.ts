@@ -20,8 +20,8 @@ import { hostShell } from "../../host.ts";
 import { hostedHere } from "../../local-process.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
-import type { AgentInputRole, Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole } from "../../types/backend.ts";
-import type { PtyHolder } from "../../types/pty.ts";
+import type { AgentInputRole, Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole, RelaunchRole } from "../../types/backend.ts";
+import type { HeldPtysByPid, PtyHolder } from "../../types/pty.ts";
 
 const HELD_BACKEND: BackendId = "held";
 
@@ -36,14 +36,30 @@ function heldPid(handle: HeldHandle): number | null {
   return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 
-/** Types into a held PTY by its program's pid; false when no PTY held here runs it. orchd binds
- *  it to the PTYs it holds when it starts, since those live in orchd's memory alone. */
-type HeldWrite = (pid: number, data: string) => boolean;
-let heldWrite: HeldWrite | null = null;
+/** orchd's PTYs, by the pid a held handle records. orchd binds them when it starts, since
+ *  they live in orchd's memory alone. */
+let heldPtys: HeldPtysByPid | null = null;
 
-/** Give the held backend orchd's PTYs to type into. */
-export function bindHeldInput(write: HeldWrite): void {
-  heldWrite = write;
+/** Give the held backend orchd's PTYs to type into and relaunch. */
+export function bindHeldPtys(ptys: HeldPtysByPid): void {
+  heldPtys = ptys;
+}
+
+function boundPtys(): HeldPtysByPid {
+  if (heldPtys === null) throw new Error("only orchd holds PTYs, so only orchd can reach one");
+  return heldPtys;
+}
+
+/** A held PTY runs its command through this host's shell, as a pane would run it. */
+function shellRun(command: string): { readonly file: string; readonly args: readonly string[] } {
+  const [file, ...args] = hostShell();
+  return { file, args: [...args, command] };
+}
+
+function requirePid(handle: HeldHandle): number {
+  const pid = heldPid(handle);
+  if (pid === null) throw new Error(`held handle ${handle} is not a pid`);
+  return pid;
 }
 
 /** The bytes a terminal reads for each key name a caller sends. */
@@ -54,10 +70,8 @@ const KEY_BYTES: Readonly<Record<string, string>> = {
 };
 
 function typeInto(handle: HeldHandle, data: string): void {
-  const pid = heldPid(handle);
-  if (pid === null) throw new Error(`held handle ${handle} is not a pid`);
-  if (heldWrite === null) throw new Error("only orchd holds PTYs, so only orchd can type into one");
-  if (!heldWrite(pid, data)) throw new Error(`no PTY held here runs pid ${pid}`);
+  const pid = requirePid(handle);
+  if (!boundPtys().writeToPid(pid, data)) throw new Error(`no PTY held here runs pid ${pid}`);
 }
 
 /** Input to a held agent goes straight into its PTY, as a terminal attached to it would send it. */
@@ -69,8 +83,20 @@ const heldInput: AgentInputRole<HeldHandle> = {
   sendKeys: (handle, keys) => {
     for (const key of keys) typeInto(handle, KEY_BYTES[key] ?? key);
   },
-  // A held agent has no pane to bring forward.
-  focus: () => undefined,
+  // Focus is a pane verb, refused before it gets here: a held agent lists no pane.
+  focus: (handle) => { throw new Error(`held agent ${handle} has no pane to bring forward`); },
+};
+
+/** The PTY's program is the harness, through this host's shell: a relaunch ends it and runs the
+ *  command the same way, in a new PTY with the same directory and environment. */
+const heldRelaunch: RelaunchRole<HeldHandle> = {
+  relaunch: async (handle, command) => {
+    const pid = requirePid(handle);
+    const relaunched = await boundPtys().relaunchPid(pid, shellRun(command).args);
+    if (relaunched === null) throw new Error(`no PTY held here runs pid ${pid}`);
+    const next = String(relaunched.pid);
+    return { handle: next, process: heldBackend.process.running(next) };
+  },
 };
 
 export class HeldBackend implements Backend<HeldHandle> {
@@ -92,6 +118,7 @@ export class HeldBackend implements Backend<HeldHandle> {
   readonly placementInventory = null;
   readonly agentInput: AgentInputRole<HeldHandle> = heldInput;
   readonly foreground = null;
+  readonly relaunching: RelaunchRole<HeldHandle> = heldRelaunch;
   readonly screen = null;
   readonly zooming = null;
   readonly labeling = null;
@@ -127,10 +154,8 @@ export async function startHeldAgent(holder: PtyHolder, adapter: AgentAdapter, o
   const key = opts.key;
   if (!isAgentId(key)) throw new Error(`cannot hold a ${String(adapter.id)} agent under ${JSON.stringify(key)}: a held agent runs under its minted id`);
   const command = createInteractiveCommand(adapter, opts);
-  const [file, ...shellArgs] = hostShell();
   const { pid } = await holder.start(key, {
-    file,
-    args: [...shellArgs, command],
+    ...shellRun(command),
     cwd: opts.cwd ?? process.cwd(),
     env: { ...process.env, ...agentLaunchEnv(opts, HELD_ENVIRONMENT_STAMP) },
   });

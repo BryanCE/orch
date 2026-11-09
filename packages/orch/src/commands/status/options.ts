@@ -90,11 +90,37 @@ export function callerNameLabel(name: string, row: StatusRow, callerId: string |
   return row.key === callerId ? `${name} (you${ownsOthers ? `, ${term("orch")}` : ""})` : name;
 }
 
-export function formatNoRowsMessage(info: { otherLive: number }): string {
+/** The live roots of one kind: whether the caller is one of them, and how many others there are. */
+export interface RootCount {
+  readonly yours: boolean;
+  readonly others: number;
+}
+
+/** The live roots in the fleet: terminals and harness sessions. Roots are nobody's agents. */
+export interface RootTally {
+  readonly terminals: RootCount;
+  readonly sessions: RootCount;
+}
+
+function rootPhrase(singular: string, plural: string, count: RootCount): string | null {
+  const total = count.others + (count.yours ? 1 : 0);
+  if (total === 0) return null;
+  const whose = [count.yours ? "yours" : null, count.others > 0 ? `${count.others} ${count.others === 1 ? "other" : "others"}` : null]
+    .filter((part): part is string => part !== null).join(" and ");
+  return `${total} ${total === 1 ? singular : plural}: ${whose}`;
+}
+
+export function formatNoRowsMessage(info: { otherLive: number; roots: RootTally }): string {
   const singular = info.otherLive === 1;
   const noun = singular ? "live agent" : "live agents";
   const verb = singular ? "belongs" : "belong";
-  return `you hold 0; ${info.otherLive} ${noun} ${verb} to other ${term("orch")}s\n`;
+  const parts = [
+    "you hold 0 agents",
+    rootPhrase("terminal", "terminals", info.roots.terminals),
+    rootPhrase("harness session", "harness sessions", info.roots.sessions),
+    `${info.otherLive} ${noun} ${verb} to other ${term("orch")}s`,
+  ];
+  return `${parts.filter((part): part is string => part !== null).join("; ")}\n`;
 }
 
 export function displayStatusState(row: Pick<StatusRow, "state" | "alive" | "exited">): string {

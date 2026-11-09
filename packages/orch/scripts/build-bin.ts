@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,13 +29,25 @@ const STAMPED_ENTRYPOINT = "dist/bin/orch.js";
 
 const PACKAGE_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 
-/** The commit the checkout is on, `-dirty` when it has uncommitted changes; null outside a
- *  git checkout, such as a build from a published tarball. */
+/** `git diff --quiet` exits with this when the tree differs; anything else above 0 is git failing. */
+const GIT_DIFF_DIFFERS = 1;
+
+/** Whether tracked files differ from HEAD in their content. File modes and CRLF line endings
+ *  do not count: a checkout on a Windows disk read from WSL shows every file executable and,
+ *  checked out by Windows git, every line ending CR, and neither is a change to the code. */
+function contentChanged(): boolean {
+  const diff = spawnSync("git", ["-c", "core.fileMode=false", "diff", "--quiet", "--ignore-cr-at-eol", "HEAD", "--"], { cwd: PACKAGE_ROOT, stdio: "ignore" });
+  if (diff.status === 0) return false;
+  if (diff.status === GIT_DIFF_DIFFERS) return true;
+  throw new Error(`git diff failed with status ${String(diff.status)}`);
+}
+
+/** The commit the checkout is on, `-dirty` when its code has uncommitted changes; null
+ *  outside a git checkout, such as a build from a published tarball. */
 export function checkoutCommit(): string | null {
   try {
-    const git = (args: string[]): string => execFileSync("git", args, { cwd: PACKAGE_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    const commit = git(["rev-parse", "--short", "HEAD"]);
-    return git(["status", "--porcelain", "--untracked-files=no"]) === "" ? commit : `${commit}${DIRTY_SUFFIX}`;
+    const commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: PACKAGE_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return contentChanged() ? `${commit}${DIRTY_SUFFIX}` : commit;
   } catch {
     return null;
   }

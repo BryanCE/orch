@@ -86,15 +86,16 @@ function spawnedResult(settings: SpawnSettings, created: readonly CreatedAgent[]
   };
 }
 
-// Headless agents run their prompt and exit. A spawn on a linked host is headless there, and
-// its agents are shown here in panes of the caller's own plexer.
+// Headless agents run their prompt and exit. A spawn on a linked host runs each agent in a PTY
+// that host's orchd holds, and shows it here in a pane of the caller's own plexer.
 async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn">, self: CallerSelf, settings: SpawnSettings, environment: AgentEnvironment, notes: SpawnNotes): Promise<SpawnResult> {
   const services = state.services;
   const settingsFile = services.settings.current();
   if (settings.commandFlag) throw new SpawnRefusalError("--cmd requires a backend that places agents; headless launches use the selected adapter.");
-  // A headless agent has no TTY to idle on: it runs its prompt and exits, so work
-  // dispatched after launch would arrive at a dead process.
-  if (settings.agents.some((agent) => !agent.prompt?.trim())) throw new SpawnRefusalError(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" or --file <path> (a headless agent runs it and exits)`);
+  // A headless agent here has no TTY to idle on: it runs its prompt and exits, so work
+  // dispatched after launch would arrive at a dead process. An agent on a linked host runs in
+  // a PTY that host's orchd holds, and idles there waiting for a dispatch like any other.
+  if (settings.host === null && settings.agents.some((agent) => !agent.prompt?.trim())) throw new SpawnRefusalError(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" or --file <path> (a headless agent runs it and exits)`);
   // Headless agents have no placement environment; without an explicit space, use NULL
   // rather than inventing a space that the caller's environment does not belong to.
   const space = settings.space ?? null;

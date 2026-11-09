@@ -9,7 +9,7 @@ import { confirmDelivery } from "../../../control/ack.ts";
 import { echoAwaited } from "../../../control/echo.ts";
 import type { ControlAck } from "../../../types/control.ts";
 import { checkWall, operatorControls } from "../../../policy/space.ts";
-import { emitAndNotify } from "../events.ts";
+import { publishFromOrchd } from "../events.ts";
 import { deliverOutboxMessage } from "../outbox.ts";
 import { acceptMail, mailDelivery } from "../mail.ts";
 import { normalizeControlTarget } from "../../../control/normalize-target.ts";
@@ -55,7 +55,7 @@ function deliverToSessionStream(state: DaemonState, target: string, action: stri
     return "gone";
   }
   const event = sessionMessageEvent(directory, target, id, text);
-  emitAndNotify((published) => state.server?.emit(published), state.services.settings.current().notify, event, directory, state.services.settings, Date.now(), state.services.logger);
+  publishFromOrchd(state, event);
   log.info("dispatch.delivered", { target, action, reason: "session-stream" });
   return "acked";
 }

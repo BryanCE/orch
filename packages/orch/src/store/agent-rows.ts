@@ -3,14 +3,14 @@ import { and, asc, eq, isNotNull, isNull, type SQL } from "drizzle-orm";
 import { mintAgentId } from "../backends/identity.ts";
 import { isRecord } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
-import { agentEndings, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
+import { agentEndings, agentOrigins, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf, refreshAgent } from "./agent-view.ts";
 import { currentProcess, recordProcessIn, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
 import { acquireLease } from "./lease-rows.ts";
 import type { AgentWorktree } from "../types/worktree.ts";
 import type { AgentInput, AgentRow, ClaimResult, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
-import type { HostId, HostIdentity } from "../types/host.ts";
+import type { AgentOrigin, HostId, HostIdentity } from "../types/host.ts";
 import type { CallerKind } from "../types/policy.ts";
 import { isHostOs } from "../host.ts";
 import { OPERATOR_HARNESS_ID } from "../identity/operator.ts";
@@ -113,6 +113,21 @@ export function setWorktree(orchDir: OrchDir, agentId: string, worktree: AgentWo
     .onConflictDoUpdate({ target: agentWorktrees.agentId, set: worktree })
     .run();
   refreshAgent(orchDir, agentId);
+}
+
+/** Stamp the host and agent that asked for this one. Written once, with the agent row. */
+export function setOrigin(orchDir: OrchDir, agentId: string, origin: AgentOrigin): void {
+  orm(orchDir).insert(agentOrigins).values({ agentId, hostId: origin.host, spawnerId: origin.spawner }).run();
+}
+
+/** The host and agent that asked for this one; null when it was asked for on this host. */
+export function originOf(orchDir: OrchDir, agentId: string): AgentOrigin | null {
+  const row = orm(orchDir)
+    .select({ host: agentOrigins.hostId, spawner: agentOrigins.spawnerId })
+    .from(agentOrigins)
+    .where(eq(agentOrigins.agentId, agentId))
+    .get();
+  return row ?? null;
 }
 
 export function worktreeOf(orchDir: OrchDir, agentId: string): AgentWorktree | null {

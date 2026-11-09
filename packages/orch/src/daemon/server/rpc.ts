@@ -15,13 +15,14 @@ import type { EndpointPaths, RpcEventEmitter, RpcHandlers, RpcRequestContext, Rp
 import type { IdentityMethod, ParamsOf, RpcMethod } from "../client/protocol.ts";
 import { RpcError, encodeLine, endpointPaths, errorResponse, framedLineReader, lineResponse, parseRequest, writeEncodedLine, type RpcRequest } from "../client/wire.ts";
 import { ReplayBuffer } from "./replay.ts";
+import { originOf } from "../../store/agent-rows.ts";
 import { isRegisterSessionResponse } from "../client/registration.ts";
 import { registerSession, claimIdentity } from "./session-registry.ts";
 
 interface ConnectionState {
   identity?: SessionAgentIdentity;
   bridge?: { key: string; link: BridgeLink };
-  /** The host whose orchd holds this connection, once it said hello with this orchd's token. */
+  /** The host whose orchd holds this connection, once it sent `peer-hello` with this orchd's token. */
   peer?: HostId;
 }
 
@@ -29,12 +30,13 @@ interface ConnectionState {
 interface ServerShared {
   readonly subscriptions: Set<Socket>;
   readonly replayBuffer: ReplayBuffer;
-  readonly peers: Set<Socket>;
+  /** Every peer connection, with the host it speaks for. */
+  readonly peers: Map<Socket, HostId>;
   readonly greeting: () => HostGreeting;
 }
 
 /** Bind a connection to the host whose orchd holds it. Only `orch host serve` on this host
- *  can say hello: it holds this orchd's token, and it reads the origin from the forced command
+ *  can send `peer-hello`: it holds this orchd's token, and it reads the origin from the forced command
  *  that host's key is pinned to, so a peer cannot claim to be another host. */
 function peerHello(socket: Socket, request: Extract<RpcRequest, { method: "peer-hello" }>, state: ConnectionState, shared: ServerShared, daemonToken: string, logger: Logger): void {
   if (request.params.token !== daemonToken) {
@@ -42,7 +44,7 @@ function peerHello(socket: Socket, request: Extract<RpcRequest, { method: "peer-
     return;
   }
   state.peer = request.params.origin;
-  shared.peers.add(socket);
+  shared.peers.set(socket, request.params.origin);
   logger.info("peer.linked", { origin: request.params.origin });
   lineResponse(socket, { kind: "reply", id: request.id, result: shared.greeting() });
 }
@@ -178,7 +180,8 @@ function handleLine(
   if (request.method === "subscribe-events") {
     const since = request.params.since;
     if (since !== undefined) {
-      const replay = shared.replayBuffer.since(since);
+      // A peer follows only the agents its host asked this one to run.
+      const replay = shared.replayBuffer.since(since, state.peer);
       if (replay.gap && replay.oldestSeq !== undefined) lineResponse(socket, { kind: "gap", oldestSeq: replay.oldestSeq });
       for (const buffered of replay.events) lineResponse(socket, { kind: "event", ...buffered });
     }
@@ -269,7 +272,7 @@ export async function startRpcServer(
   ensurePrivateDir(orchDir);
   const paths = endpointPaths(orchDir);
   const subscriptions = new Set<Socket>();
-  const peers = new Set<Socket>();
+  const peers = new Map<Socket, HostId>();
   const sockets = new Set<Socket>();
   const connectionCleanups = new Set<() => void>();
   const replayBuffer = new ReplayBuffer(orchDir);
@@ -278,7 +281,16 @@ export async function startRpcServer(
   const unsubscribeBus = bus.on((event) => {
     const buffered = replayBuffer.push(event);
     const encoded = encodeLine({ kind: "event", ...buffered });
-    for (const socket of subscriptions) writeEncodedLine(socket, encoded);
+    // Looked up once per event, and only when a peer subscribes.
+    let origin: HostId | null | undefined;
+    for (const socket of subscriptions) {
+      const peer = peers.get(socket);
+      if (peer !== undefined) {
+        origin ??= originOf(orchDir, event.key)?.host ?? null;
+        if (origin !== peer) continue;
+      }
+      writeEncodedLine(socket, encoded);
+    }
   });
   const daemonToken = writeDaemonToken(paths.token);
   const shared: ServerShared = { subscriptions, replayBuffer, peers, greeting: options.greeting ?? hostGreeting };
@@ -392,7 +404,7 @@ function makeRpcServer(
   sockets: Set<Socket>,
   connectionCleanups: Set<() => void>,
   subscriptions: Set<Socket>,
-  peers: Set<Socket>,
+  peers: Map<Socket, HostId>,
   bus: EventBus,
   unsubscribeBus: () => void,
   paths: { socket: string; port: string; token: string },

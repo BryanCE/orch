@@ -65,7 +65,7 @@ export interface RpcServerOptions {
   logger: Logger;
   /** Report a bridge attach after its RPC reply has been written. */
   onBridgeAttached?: (key: string) => void;
-  /** What this orchd answers a peer's hello with; this host's own greeting by default. */
+  /** What this orchd answers a peer's `peer-hello` with; this host's own greeting by default. */
   greeting?: () => HostGreeting;
 };
 

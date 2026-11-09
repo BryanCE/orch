@@ -4,7 +4,7 @@ import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
 import type { ProcessInstance } from "./process.ts";
 import type { OutboxPayload } from "../control/bridge-message.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
-import type { HostId, HostIdentity } from "./host.ts";
+import type { AgentOrigin, HostId, HostIdentity } from "./host.ts";
 
 export interface AgentInput {
   id: string;
@@ -242,6 +242,10 @@ export interface SpawnRegistration {
   thinking?: ThinkingLevel;
   /** The register-session id of the spawning session, when it has one. */
   spawner: string | null;
+  /** The host and agent that asked for this spawn, when another host's orchd did; the
+   *  spawner is then theirs, never a row here. Absent: asked for on this host, and the
+   *  agent inherits its spawner's origin, if any. */
+  origin?: AgentOrigin;
   /**
    * Ownership: the orch that HOLDS this agent once it is running.
    *

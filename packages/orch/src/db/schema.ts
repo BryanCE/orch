@@ -144,6 +144,14 @@ export const hostLinks = sqliteTable("host_links", {
   check("host_links_seen", sql`${table.lastSeen} >= ${table.since}`),
 ]);
 
+/** The last event this orchd took from each linked host's orchd: the far orchd's own
+ *  sequence number, so a dropped link resumes right after it. A cell, moved forward as
+ *  events arrive. No row: nothing taken from that host yet. */
+export const hostEventCursors = sqliteTable("host_event_cursors", {
+  hostId: text("host_id").$type<HostId>().notNull().primaryKey().references(() => hosts.id, { onDelete: "cascade" }),
+  seq: integer("seq").notNull(),
+});
+
 export const spaces = sqliteTable("spaces", {
   id: text("id").notNull().primaryKey(),
   name: text("name").notNull(),
@@ -196,6 +204,16 @@ export const agentEndings = sqliteTable("agent_endings", {
   endedAt: integer("ended_at").notNull(),
   closedBy: text("closed_by").references(() => agents.id),
 });
+
+/** IMMUTABLE provenance for an agent another host's orchd asked this one to run, and for
+ *  everything that agent spawns here: the host that asked, and the agent there whose spawn
+ *  started it. Neither lives in this store, so neither is a reference. No row: asked for
+ *  on this host. */
+export const agentOrigins = sqliteTable("agent_origins", {
+  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  hostId: text("host_id").$type<HostId>().notNull(),
+  spawnerId: text("spawner_id"),
+}, (table) => [index("agent_origins_by_host").on(table.hostId)]);
 
 /** The agent's current state as it last reported it over the socket. One row per
  *  agent, replaced in place: a cell, not a log. History is orchd's status.jsonl.

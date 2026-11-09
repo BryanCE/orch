@@ -12,13 +12,14 @@ import { forgetRemoteLiveness, recordRemoteLiveness } from "../process-place.ts"
 import { currentProcesses } from "../store/interval-rows.ts";
 import { formatAge } from "../format.ts";
 import { errorMessage } from "../util.ts";
-import { bindHostName, closeHostLink, hostIdOfName, latestHostLink, openHostLink, touchHostLink } from "../store/host-rows.ts";
+import { bindHostName, closeHostLink, hostEventCursor, hostIdOfName, latestHostLink, openHostLink, setHostEventCursor, touchHostLink } from "../store/host-rows.ts";
 import { spawnRemoteOrch } from "./ssh.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { HostGreeting, HostLinkView } from "../types/host.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
 import type { HostId } from "../types/host.ts";
 import type { HostedProcess, LinkedHost } from "../types/process.ts";
+import type { NotifyEvent } from "../types/notify.ts";
 
 /** One line from the far orchd, or null for one that is not daemon RPC. */
 function parseLine(raw: string): RpcLine | null {
@@ -57,11 +58,11 @@ const sshSpawner: LinkSpawner = (orchDir, host, links, args) => linkProcessOf(sp
  *  pinning which host this link speaks for. */
 const SERVE_ARGS = ["host", "serve"] as const;
 
-/** The id of the hello `orch host serve` sends for this link; the far orchd's reply to it is
+/** The id of the `peer-hello` `orch host serve` sends for this link; the far orchd's reply to it is
  *  the greeting. Every request this side sends counts up from the next one. */
 const HELLO_ID = 0;
 
-/** The far orchd's answer to the hello: its greeting, or why it could not be read. */
+/** The far orchd's answer to `peer-hello`: its greeting, or why it could not be read. */
 function greetingOf(line: RpcLine): { greeting: HostGreeting } | { reason: string } | null {
   if (line.kind === "error" && line.id === HELLO_ID) return { reason: line.error.message };
   if (line.kind !== "reply" || line.id !== HELLO_ID) return null;
@@ -78,10 +79,14 @@ type HostLinkState =
   | { readonly kind: "up"; readonly greeting: HostGreeting; readonly since: number }
   | { readonly kind: "down"; readonly reason: string; readonly at: number };
 
+/** Where an event a linked host's orchd sent about one of this host's agents lands. */
+export type HostEventSink = (host: LinkedHost, event: NotifyEvent) => void;
+
 export interface HostLinkDeps {
   readonly orchDir: OrchDir;
   readonly settings: () => OrchSettings;
   readonly logger: Logger;
+  readonly events: HostEventSink;
   readonly spawn?: LinkSpawner;
   readonly now?: () => number;
 }
@@ -120,6 +125,8 @@ class HostLink {
   private wanted = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  /** The far orchd's sequence number of the last event taken over this link. */
+  private lastSeq: number | null = null;
 
   constructor(readonly name: string, private host: HostSettings, private readonly deps: HostLinkDeps) {}
 
@@ -253,16 +260,40 @@ class HostLink {
       case "error":
         if (line.id !== null) this.settlePending(line.id, { error: responseError(line) });
         return;
-      // This side subscribes to nothing yet, and no bridge attaches over a link.
       case "event":
-      case "delivery":
+        this.take(line.event, line.seq);
+        return;
       case "gap":
+        this.deps.logger.warn("host.events-lost", { host: this.name, after: this.lastSeq, oldestSeq: line.oldestSeq });
+        return;
+      // No bridge attaches over a link.
+      case "delivery":
         return;
       default: {
         const exhaustive: never = line;
         throw new Error(`unknown rpc line ${String(exhaustive)}`);
       }
     }
+  }
+
+  /** Follow the far orchd's events about the agents this host asked it to run, from just
+   *  after the last one taken, so nothing a dropped link missed is lost or taken twice. */
+  private subscribe(hostId: HostId): void {
+    this.lastSeq = hostEventCursor(this.deps.orchDir, hostId);
+    // Before any event was taken, every one the far orchd still keeps is new here.
+    this.call("subscribe-events", { since: this.lastSeq ?? 0 })
+      .catch((error: unknown) => { this.deps.logger.warn("host.subscribe-failed", { host: this.name, error: errorMessage(error) }); });
+  }
+
+  /** One event from the far orchd: handed to this orchd, then the cursor moves past it. */
+  private take(event: NotifyEvent, seq: number | undefined): void {
+    if (this.state.kind !== "up") return;
+    if (seq !== undefined && this.lastSeq !== null && seq <= this.lastSeq) return;
+    const host = this.state.greeting.host;
+    this.deps.events({ id: host.id, name: this.name }, event);
+    if (seq === undefined) return;
+    this.lastSeq = seq;
+    setHostEventCursor(this.deps.orchDir, host.id, seq);
   }
 
   private attempt(): Promise<HostGreeting> {
@@ -301,23 +332,23 @@ class HostLink {
       framedLineReader(child.stdout, (raw) => {
         const line = parseLine(raw);
         if (line === null) return;
-        const hello = greetingOf(line);
-        if (hello === null) {
+        const answer = greetingOf(line);
+        if (answer === null) {
           this.receive(line);
           return;
         }
-        if ("reason" in hello) {
-          endedBecause = hello.reason === "unreadable"
+        if ("reason" in answer) {
+          endedBecause = answer.reason === "unreadable"
             ? `${this.name} answered with a greeting this orch cannot read, so it runs orch built from another commit. Build this machine's commit there`
-            : `${this.name} refused the link: ${hello.reason}`;
+            : `${this.name} refused the link: ${answer.reason}`;
           settle({ reason: endedBecause });
           child.kill();
           return;
         }
         {
           stderr = [];
-          const refusal = this.linkUp(hello.greeting);
-          if (refusal === null) settle({ greeting: hello.greeting });
+          const refusal = this.linkUp(answer.greeting);
+          if (refusal === null) settle({ greeting: answer.greeting });
           else {
             // Another machine answered on this route. Redialing reaches it again, so
             // the link stays down until someone looks.
@@ -349,6 +380,7 @@ class HostLink {
     this.state = { kind: "up", greeting, since: now };
     this.failures = 0;
     this.startPinging(greeting.host.id);
+    this.subscribe(greeting.host.id);
     this.deps.logger.info("host.link-up", { host: this.name, hostId: greeting.host.id, version: greeting.version, commit: greeting.commit });
     return null;
   }
@@ -449,6 +481,17 @@ export class HostLinks {
     await link.requireUp();
     const [alive] = await link.alive([process]);
     return alive === true;
+  }
+
+  /** Bring up the link to every configured host that runs an agent recorded here, so its
+   *  events reach this orchd from the moment it starts. */
+  follow(): void {
+    const hosts = new Set([...currentProcesses(this.deps.orchDir).values()].map((row) => row.host));
+    for (const name of Object.keys(this.deps.settings().hosts)) {
+      const hostId = hostIdOfName(this.deps.orchDir, name);
+      if (hostId === null || !hosts.has(hostId)) continue;
+      this.link(name).connect().catch((error: unknown) => { this.deps.logger.warn("host.follow-failed", { host: name, error: errorMessage(error) }); });
+    }
   }
 
   /** Every configured host, linked or not, in name order. */

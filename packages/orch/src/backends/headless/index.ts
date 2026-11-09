@@ -288,6 +288,7 @@ export function headlessRegistration(harnessId: string, key: string, opts: Backe
     model: opts.model ?? "",
     thinking: opts.thinking,
     spawner: opts.spawner ?? null,
+    origin: opts.origin,
     worktree: opts.worktree,
     process: launched.process,
     host,

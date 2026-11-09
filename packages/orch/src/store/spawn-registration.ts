@@ -1,6 +1,6 @@
 import type { OrchDir } from "../types/core.ts";
 import { eq } from "drizzle-orm";
-import { agentById, ensureHarness, ensureHost, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
+import { agentById, ensureHarness, ensureHost, ensurePlexer, insertAgent, originOf, setOrigin, setWorktree } from "./agent-rows.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
@@ -48,6 +48,10 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
     name: input.name,
     createdAt: now,
   });
+  // Provenance: stated by a spawn another host asked for, inherited from a spawner that
+  // carries one, so the asking host's whole tree stays its own.
+  const origin = input.origin ?? (spawnerId === null ? null : originOf(directory, spawnerId));
+  if (origin !== null) setOrigin(directory, agentId, origin);
   writeEnvironment(directory, agentId, now, host.id, input);
   // Ownership is the LAST word: `owner` is who holds the agent now, the spawner
   // only the fallback for a launch that named nobody else. An agent never holds

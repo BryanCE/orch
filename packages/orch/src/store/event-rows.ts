@@ -1,7 +1,8 @@
 import type { OrchDir } from "../types/core.ts";
-import { asc, gt, lt, max } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt, max, sql } from "drizzle-orm";
 import { orm, queueWrite, registerMemoReset } from "./connection.ts";
-import { events } from "../db/schema.ts";
+import { agentOrigins, events } from "../db/schema.ts";
+import type { HostId } from "../types/host.ts";
 import type { StoredEvent } from "../types/store.ts";
 
 type EventRow = typeof events.$inferSelect;
@@ -46,8 +47,14 @@ function forgetEventSeqs(): void {
 
 registerMemoReset(forgetEventSeqs);
 
-export function selectEventsSince(orchDir: OrchDir, seq: number, limit: number): StoredEvent[] {
-  return orm(orchDir).select().from(events).where(gt(events.seq, seq))
+/** Events after `seq`, oldest first. With `origin`, only events about agents that host asked
+ *  this one to run, filtered here so the limit counts only those. */
+export function selectEventsSince(orchDir: OrchDir, seq: number, limit: number, origin?: HostId): StoredEvent[] {
+  const after = gt(events.seq, seq);
+  const about = origin === undefined
+    ? after
+    : and(after, inArray(sql`json_extract(${events.payload}, '$.key')`, orm(orchDir).select({ id: agentOrigins.agentId }).from(agentOrigins).where(eq(agentOrigins.hostId, origin))));
+  return orm(orchDir).select().from(events).where(about)
     .orderBy(asc(events.seq)).limit(limit).all().map(rowToStoredEvent);
 }
 

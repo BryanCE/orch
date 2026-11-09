@@ -2,7 +2,7 @@ import type { OrchDir } from "../types/core.ts";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction, type Orm } from "./connection.ts";
 import { ensureHost } from "./agent-rows.ts";
-import { hostLinks, hostNames } from "../db/schema.ts";
+import { hostEventCursors, hostLinks, hostNames } from "../db/schema.ts";
 import type { HostId, HostIdentity } from "../types/host.ts";
 import type { LinkedHost } from "../types/process.ts";
 
@@ -38,6 +38,18 @@ export function hostIdOfName(orchDir: OrchDir, name: string): HostId | null {
 /** Forget which host a name meant, so the next host to answer on its route binds it. */
 export function unbindHostName(orchDir: OrchDir, name: string): void {
   orm(orchDir).delete(hostNames).where(eq(hostNames.name, name)).run();
+}
+
+/** The far orchd's sequence number of the last event taken from a host; null before the first. */
+export function hostEventCursor(orchDir: OrchDir, hostId: HostId): number | null {
+  return orm(orchDir).select({ seq: hostEventCursors.seq }).from(hostEventCursors).where(eq(hostEventCursors.hostId, hostId)).get()?.seq ?? null;
+}
+
+/** Record that every event from a host up to `seq` has been taken. */
+export function setHostEventCursor(orchDir: OrchDir, hostId: HostId, seq: number): void {
+  orm(orchDir).insert(hostEventCursors).values({ hostId, seq })
+    .onConflictDoUpdate({ target: hostEventCursors.hostId, set: { seq } })
+    .run();
 }
 
 /** Close a host's open link row. `until > since` forbids closing a row at its own start,

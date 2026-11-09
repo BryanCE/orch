@@ -1,6 +1,7 @@
 import type { DaemonState } from "../../src/daemon/server/state.ts";
 import { createWakeSignal } from "../../src/daemon/server/wake.ts";
 import { HostLinks } from "../../src/hosts/link.ts";
+import { applyHostEvent } from "../../src/daemon/server/host-events.ts";
 import { rpcHandlers } from "../../src/daemon/server/handlers/table.ts";
 import { startRpcServer } from "../../src/daemon/server/rpc.ts";
 import type { OrchDir } from "../../src/types/core.ts";
@@ -27,7 +28,7 @@ export async function servedServices(options: TestServicesOptions, servers: RpcS
 
 /** A daemon that has booted nothing: no server, no loop, no timers. */
 export function idleDaemonState(services: Services, directory: OrchDir): DaemonState {
-  return {
+  const state: DaemonState = {
     services,
     directory,
     workController: new AbortController(),
@@ -38,8 +39,14 @@ export function idleDaemonState(services: Services, directory: OrchDir): DaemonS
     outboxDrain: undefined,
     loopWatchdog: undefined,
     settingsWatch: undefined,
-    hosts: new HostLinks({ orchDir: directory, settings: () => services.settings.current(), logger: services.logger }),
+    hosts: new HostLinks({
+      orchDir: directory,
+      settings: () => services.settings.current(),
+      logger: services.logger,
+      events: (host, event) => { applyHostEvent(state, host, event); },
+    }),
     lastActivityAt: 0,
     fatalLogged: false,
   };
+  return state;
 }

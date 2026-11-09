@@ -98,6 +98,16 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
  *  caller a key it cannot dispatch to yet. A stalled agent sets the exit code there. */
 async function reportHeadlessSpawn(services: Pick<Services, "orchDir" | "logger">, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[]): Promise<void> {
   reportShortfall(services.logger, settings.agents.length, created.length);
+  // An agent on another host comes up to that host's orchd, never this one, so nothing here
+  // can watch for it. That orchd's reply was the launch; its events reach `orch monitor` here.
+  if (settings.host !== null) {
+    if (settings.json) {
+      process.stdout.write(JSON.stringify({ backend: settings.backend, host: settings.host.name, agents: created, requested: settings.agents.length, created: created.length, registered: null }) + "\n");
+      return;
+    }
+    for (const agent of created) process.stdout.write(`${agent.key}  ${agent.name} - started on ${settings.host.name}. orch monitor follows it.\n`);
+    return;
+  }
   const confirmed = await confirmFleetCameUp(services.orchDir, services.logger, settings, created, settingsFile.timeouts);
   if (!settings.json) return;
   process.stdout.write(JSON.stringify({

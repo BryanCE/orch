@@ -7,7 +7,7 @@ import { admitModel } from "../../../policy/model.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
 import { headlessBackend, headlessRegistration } from "../../../backends/registry.ts";
 import { deliverControl } from "../../../control/dispatch.ts";
-import { emitAndNotify } from "../events.ts";
+import { publishFromOrchd } from "../events.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { agentById, endAgent, reclaimAgent, setHarness } from "../../../store/agent-rows.ts";
 import { setHandle, setTuning } from "../../../store/interval-rows.ts";
@@ -19,6 +19,7 @@ import { governWrite } from "./write.ts";
 import type { DaemonState } from "../state.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
+import type { AgentOrigin, HostId } from "../../../types/host.ts";
 import type { PendingQuestionView } from "../../../types/daemon.ts";
 import { addTask } from "../../../queue.ts";
 import type { TaskRec } from "../../../types/queue.ts";
@@ -37,7 +38,9 @@ export function enqueue(state: DaemonState, params: ParamsOf<"enqueue">): { task
   return { task };
 }
 
-export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): Promise<ResultOf<"spawn-headless">> {
+/** `peer` is the host whose orchd asked for this spawn over its link: the agent runs here and
+ *  carries that host and its spawner as its origin. Absent: asked for on this host. */
+export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">, peer?: HostId): Promise<ResultOf<"spawn-headless">> {
   const directory = state.directory;
   const key = params.key;
   const adapterId = params.adapter;
@@ -48,11 +51,17 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
   // entry shares a prefix. Both end with the fleet on a model nobody asked for.
   const model = admitModel(state.services.settings.current(), adapter, state.services.models, params.model);
   const thinking = params.thinking;
-  if (params.host !== undefined) return spawnOnHost(state, params.host, { ...params, model });
+  if (params.host !== undefined) {
+    if (peer !== undefined) throw new Error(`cannot spawn ${key}: a host's orchd asks only for a spawn here, never on a third host`);
+    return spawnOnHost(state, params.host, { ...params, model });
+  }
+  const origin: AgentOrigin | undefined = peer === undefined ? undefined : { host: peer, spawner: params.spawner };
   const handle = headlessBackend.spawn(adapter, {
     key,
     name: params.name,
-    spawner: params.spawner,
+    // A peer's spawner is an agent on its own host, never one here.
+    spawner: origin === undefined ? params.spawner : null,
+    origin,
     worktree: params.worktree,
     env: params.env,
     orchDir: directory,
@@ -105,7 +114,6 @@ export async function setModel(state: DaemonState, params: ParamsOf<"set-model">
  *  nothing is published twice: closing what is gone is a no-op, never an error. */
 export function closeAgent(state: DaemonState, params: ParamsOf<"agent-closed">): { ok: true } {
   const directory = state.directory;
-  const settings = state.services.settings;
   const key = params.key;
   const view = agentView(directory, key);
   if (view?.endedAt !== null) return { ok: true };
@@ -127,7 +135,7 @@ export function closeAgent(state: DaemonState, params: ParamsOf<"agent-closed">)
     newState: "closed",
     ts: new Date().toISOString(),
   };
-  emitAndNotify((published) => state.server?.emit(published), settings.current().notify, event, directory, settings, Date.now(), state.services.logger);
+  publishFromOrchd(state, event);
   return { ok: true };
 }
 

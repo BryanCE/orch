@@ -3,6 +3,7 @@ import { appendEvent, oldestEventSeq, selectEventsSince } from "../../store/even
 import type { NotifyEvent } from "../../types/notify.ts";
 import { notifyEventSchema } from "../../notify/event.ts";
 import type { BufferedEvent, ReplayResult } from "../../types/daemon.ts";
+import type { HostId } from "../../types/host.ts";
 
 /** Maximum number of durable events returned by one replay request. Retention is configured
  * separately; this bound prevents a subscriber from being flooded by an unbounded replay. */
@@ -16,13 +17,14 @@ export class ReplayBuffer {
     return { event, seq: stored.seq };
   }
 
-  since(seq: number): ReplayResult {
+  /** Events after `seq`; with `origin`, only those about agents that host asked this one to run. */
+  since(seq: number, origin?: HostId): ReplayResult {
     const oldestSeq = oldestEventSeq(this.orchDir);
     // `seq` is the last sequence the subscriber has. The row immediately before
     // the oldest retained row is still contiguous; only an earlier request has a gap.
     const gap = oldestSeq !== undefined && seq < oldestSeq - 1;
     return {
-      events: selectEventsSince(this.orchDir, seq, REPLAY_WINDOW).flatMap(({ event, seq: eventSeq }) => {
+      events: selectEventsSince(this.orchDir, seq, REPLAY_WINDOW, origin).flatMap(({ event, seq: eventSeq }) => {
         const parsed = notifyEventSchema.safeParse(event);
         return parsed.success ? [{ event: parsed.data, seq: eventSeq }] : [];
       }),

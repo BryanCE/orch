@@ -1,17 +1,21 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import { HostLinks, type LinkSpawner } from "../src/hosts/link.ts";
+import { HostLinks, type HostEventSink, type LinkSpawner } from "../src/hosts/link.ts";
 import { startFarOrchd, type FarOrchd } from "./helpers/far-orchd.ts";
-import { latestHostLink } from "../src/store/host-rows.ts";
+import { hostEventCursor, latestHostLink } from "../src/store/host-rows.ts";
+import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
+import { mintAgentId } from "../src/backends/identity.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { errorMessage } from "../src/util.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { testServices } from "./helpers/services.ts";
-import type { HostGreeting } from "../src/types/host.ts";
+import type { AgentOrigin, HostGreeting } from "../src/types/host.ts";
+import type { NotifyEvent } from "../src/types/notify.ts";
+import type { LinkedHost } from "../src/types/process.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { testHost, hosted } from "./helpers/host.ts";
-import { hostIdFrom } from "../src/host.ts";
+import { hostIdFrom, hostIdentity } from "../src/host.ts";
 
 const dirs: OrchDir[] = [];
 /** Directories that are not this machine's orch dir: far hosts', and a stand-in orchd's. */
@@ -68,11 +72,11 @@ function refusal(promise: Promise<unknown>): Promise<string | null> {
   return promise.then(() => null, (error: unknown) => errorMessage(error));
 }
 
-function hostLinks(spawn: LinkSpawner): HostLinks {
+function hostLinks(spawn: LinkSpawner, events: HostEventSink = () => undefined): HostLinks {
   const orchDir = tempOrchDir("orch-host-link-");
   dirs.push(orchDir);
   const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 500 } } });
-  const made = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn });
+  const made = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn, events });
   links.push(made);
   return made;
 }
@@ -131,5 +135,65 @@ describe("a link to another host", () => {
   test("refuses a name settings does not give a host", () => {
     const hosts = hostLinks(farHost("far-4"));
     expect(() => hosts.link("nowhere")).toThrow("no host named nowhere in settings.hosts; configured: box");
+  });
+});
+
+/** An agent the far orchd runs, asked for by `origin`; no origin is one asked for there. */
+function farAgent(far: FarOrchd, origin: AgentOrigin | null): string {
+  const key = mintAgentId();
+  registerSpawnedAgent(far.orchDir, {
+    key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null,
+    process: { pid: process.pid, startToken: `far-${key}` }, host: far.greeting.host,
+    ...(origin === null ? {} : { origin }),
+  });
+  return key;
+}
+
+type Transition = Extract<NotifyEvent, { type: "transition" }>;
+
+function transition(key: string, oldState: Transition["oldState"], newState: Transition["newState"]): Transition {
+  return { type: "transition", key, ts: new Date().toISOString(), agent: key, tab: null, model: null, oldState, newState };
+}
+
+/** Resolves once `count` events have arrived. */
+function received(events: { host: LinkedHost; event: NotifyEvent }[], count: number): Promise<void> {
+  return new Promise((resolve) => {
+    const poll = (): void => { if (events.length >= count) resolve(); else setTimeout(poll, 5); };
+    poll();
+  });
+}
+
+describe("events over a link", () => {
+  test("this host follows the far orchd's events about agents it asked for there, and only those, resuming after a drop", async () => {
+    const far = await startFarOrchd(greeting("far-5"));
+    fars.push(far);
+    const mine = farAgent(far, { host: hostIdentity().id, spawner: null });
+    const another = farAgent(far, { host: hostIdFrom("another-origin"), spawner: null });
+    const theirs = farAgent(far, null);
+    const events: { host: LinkedHost; event: NotifyEvent }[] = [];
+    const hosts = hostLinks(far.spawner(), (host, event) => { events.push({ host, event }); });
+    const link = hosts.link("box");
+
+    // Published before the link came up: the subscription replays it.
+    far.emit(transition(mine, "idle", "working"));
+    far.emit(transition(another, "idle", "working"));
+    far.emit(transition(theirs, "idle", "working"));
+    await link.connect();
+    await received(events, 1);
+    far.emit(transition(mine, "working", "idle"));
+    await received(events, 2);
+    expect(events.map(({ host, event }) => [host.name, event.key, event.newState])).toEqual([["box", mine, "working"], ["box", mine, "idle"]]);
+    const cursor = hostEventCursor(dirs[0]!, hostIdFrom("far-5"));
+    expect(cursor).not.toBeNull();
+
+    // Missed while down, taken once on the redial, and nothing already taken comes again.
+    link.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    far.emit(transition(mine, "idle", "done"));
+    await link.connect();
+    await received(events, 3);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(events.map(({ event }) => event.newState)).toEqual(["working", "idle", "done"]);
+    expect(hostEventCursor(dirs[0]!, hostIdFrom("far-5"))).toBeGreaterThan(cursor ?? 0);
   });
 });

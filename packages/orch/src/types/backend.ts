@@ -5,6 +5,7 @@ import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentId } from "../backends/identity.ts";
 import type { Logger, OrchDir } from "./core.ts";
 import type { AgentWorktree } from "./worktree.ts";
+import type { AgentOrigin } from "./host.ts";
 
 /** Facts detected about the plexer containing the current process. */
 export interface DetectedPlexer {
@@ -269,6 +270,9 @@ export interface BackendSpawnOpts {
   readonly env?: Readonly<Record<string, string>>;
   /** The launching agent's id, recorded as provenance by a backend that registers its own agents. */
   readonly spawner?: string | null;
+  /** The host and agent that asked for this spawn, when another host's orchd did; recorded as
+   *  provenance by a backend that registers its own agents. */
+  readonly origin?: AgentOrigin;
   /** The git worktree the agent runs in, recorded by a backend that registers its own agents. */
   readonly worktree?: AgentWorktree;
   /** Explicit worker tool allowlist, when the launcher applies one. */

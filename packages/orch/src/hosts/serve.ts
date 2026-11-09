@@ -1,5 +1,5 @@
 // The far end of a host link: `orch host serve`, run over ssh by another host's orchd. It is a
-// pipe and nothing else. It starts this host's orchd if none is running, says hello to it as
+// pipe and nothing else. It starts this host's orchd if none is running, sends it `peer-hello` as
 // the peer its forced command names, then copies the link's bytes to that orchd and back until
 // either side ends. Everything a linked orchd asks of this host, this host's orchd answers.
 import { readFileSync } from "node:fs";

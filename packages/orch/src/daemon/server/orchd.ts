@@ -19,7 +19,8 @@ import { absentSettingsMessage, logLevelFor } from "../../settings/read.ts";
 import { createServices } from "../../services.ts";
 import { watchSettings } from "../../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
-import { emitAndNotify } from "./events.ts";
+import { publishFromOrchd } from "./events.ts";
+import { applyHostEvent } from "./host-events.ts";
 import { startLivenessTick } from "./status-report.ts";
 import { forgetCapacity } from "./capacity.ts";
 import { errorMessage, errorTrace } from "../../util.ts";
@@ -84,7 +85,12 @@ export async function startDaemon(): Promise<DaemonState> {
     livenessTick: undefined,
     loopWatchdog: undefined,
     settingsWatch: undefined,
-    hosts: new HostLinks({ orchDir: directory, settings: () => services.settings.current(), logger: services.logger }),
+    hosts: new HostLinks({
+      orchDir: directory,
+      settings: () => services.settings.current(),
+      logger: services.logger,
+      events: (host, event) => { applyHostEvent(state, host, event); },
+    }),
     lastActivityAt: Date.now(),
     fatalLogged: false,
   };
@@ -148,6 +154,8 @@ export async function startDaemon(): Promise<DaemonState> {
   closeOrphanedHostLinks(directory);
   // A caller on a linked host proves its process over that host's link.
   setLinkedProcessProbe((hostId, process) => state.hosts.processIsLive(hostId, process));
+  // Follow every host that runs an agent this one asked for, from the moment orchd starts.
+  state.hosts.follow();
 
   // orchd gates every spawn on the catalogues; reading them at boot keeps that gate off the
   // harness binaries, and re-stamps whatever went stale while no daemon was running.
@@ -202,7 +210,7 @@ export async function startDaemon(): Promise<DaemonState> {
         }
       }
     }
-    emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings, Date.now(), services.logger);
+    publishFromOrchd(state, event);
     state.wake.wake();
   };
   const livenessPollMs = services.settings.current().daemon.liveness_poll_ms;
@@ -219,7 +227,7 @@ export async function startDaemon(): Promise<DaemonState> {
     signal: state.workController.signal,
     continuous: true,
     logger: services.logger,
-    onEvent: (event) => { state.lastActivityAt = Date.now(); emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings, Date.now(), services.logger); },
+    onEvent: (event) => { state.lastActivityAt = Date.now(); publishFromOrchd(state, event); },
   }).finally(() => { state.workLoopRunning = false; });
 
   // The outbox drains on orchd's OWN clock. Piggy-backing it on `acceptWrite`

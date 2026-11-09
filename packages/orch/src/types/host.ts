@@ -22,6 +22,15 @@ export type HostId = string & { readonly __brand: "HostId" };
  *  box are two hosts, because each OS mints its own. The name is for people. */
 export interface HostIdentity { readonly id: HostId; readonly name: string; readonly os: HostOs; }
 
+/** Who asked for an agent, when another host's orchd asked this one to run it: that host,
+ *  and the agent there whose spawn started it. Immutable provenance. Everything the agent
+ *  spawns here carries the same origin, so that host can follow the whole tree. */
+export interface AgentOrigin {
+  readonly host: HostId;
+  /** The spawning agent on that host; it lives in that host's store, never this one. */
+  readonly spawner: string | null;
+}
+
 /** What the far end of a host link says first: which host it is, and which orch build
  *  answers there. */
 export interface HostGreeting {

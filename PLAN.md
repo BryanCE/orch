@@ -50,8 +50,8 @@ follows it).
 ## 2. Spawn on a host is the far orchd's spawn
 
 - [x] `orch spawn --host <name>` asks the far orchd to spawn, through the link.
-- [ ] The spawn carries the provenance stamp `{origin host, spawner agent}`.
-- [ ] The far orchd records the agent as its own: process, environment, logs, status. Its row
+- [x] The spawn carries the provenance stamp `{origin host, spawner agent}`.
+- [x] The far orchd records the agent as its own: process, environment, logs, status. Its row
       carries the provenance stamp, and so does everything that agent spawns.
 - [ ] The spawning orchd stores the reference row: agent id, host id, spawner, created at.
       Schema change: **Bryan** runs `bun db:gen`.
@@ -62,9 +62,9 @@ follows it).
 
 ## 3. Subscriptions
 
-- [ ] Your orchd subscribes over each link to the far orchd's events for agents it spawned,
+- [x] Your orchd subscribes over each link to the far orchd's events for agents it spawned,
       resuming by sequence number after a drop.
-- [ ] Those events drive status, results, notifications and alerts here.
+- [x] Those events drive status, results, notifications and alerts here.
 - [ ] A linked host whose link is down: its agents read unknown, never dead; status shows when
       the host was last seen.
 - [ ] `orch status` lists far agents from the reference rows plus the latest events.
@@ -116,5 +116,9 @@ follows it).
 ## Later
 
 - [ ] herdr machines as an opt-in plexer route, only when the user configures it
+- [ ] Post-quantum key exchange on every link. A WSL host today is reached through Windows'
+      sshd, which negotiates the encryption. `orch host add` sets up WSL's own sshd and links
+      through Windows with ProxyJump, Windows' key line forwarding-only to that one port.
+      A `links.kex_algorithms` setting, post-quantum only by default, refuses a quiet fallback.
 - [ ] `orch update`: install new npm releases and run store migrations
 - [ ] Hosts on more than one tailnet or account

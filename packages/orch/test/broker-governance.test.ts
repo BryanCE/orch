@@ -12,14 +12,14 @@ import { processStartToken } from "../src/process-identity.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
-import { testHost } from "./helpers/host.ts";
+import { hostIdentity } from "../src/host.ts";
 
 const dirs: OrchDir[] = [];
 function freshDir(): OrchDir {
   const dir = tempOrchDir("orch-gov-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
-  ensureHost(dir, testHost("host", "host", "linux"), 1);
+  ensureHost(dir, hostIdentity(), 1);
   return dir;
 }
 
@@ -40,13 +40,13 @@ function liveOrch(dir: OrchDir, id: string): void {
   agent(dir, id);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
-  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${token})`);
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${hostIdentity().id},${process.pid},${token})`);
 }
 
 /** An orch with a recorded process that is provably NOT this process instance. */
 function deadOrch(dir: OrchDir, id: string): void {
   agent(dir, id);
-  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${"not-this-process-instance"})`);
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${hostIdentity().id},${process.pid},${"not-this-process-instance"})`);
 }
 
 /** Environment is a satellite of the identity, on its own timeline. */

@@ -46,7 +46,7 @@ describe("one spelling per shared fact", () => {
   });
 
   test("removed identity method has no source spelling", () => {
-    const matches = walk(join(packageRoot, "src")).flatMap((file) => readFileSync(file, "utf8").match(/\bhello\b/g) ?? []);
+    const matches = walk(join(packageRoot, "src")).flatMap((file) => readFileSync(file, "utf8").match(/(?<!peer-)\bhello\b/g) ?? []);
     expect(matches).toHaveLength(0);
   });
 

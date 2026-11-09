@@ -17,7 +17,7 @@ import { closeTargets } from "./close.ts";
 import { callerSelf } from "./self.ts";
 import { ownedAgents } from "./owned.ts";
 import { reexecSelf } from "../../client/process.ts";
-import { emitAndNotify } from "../events.ts";
+import { publishFromOrchd } from "../events.ts";
 import { acceptPromptReport, acceptResultReport, acceptStatusReport } from "../status-report.ts";
 import { insertControlOutcome } from "../../../store/control-outcome-rows.ts";
 import { appendOutcome } from "../../../presence/history.ts";
@@ -47,7 +47,7 @@ function waking<P, R>(state: DaemonState, handler: (params: P) => R): (params: P
 export function rpcHandlers(state: DaemonState): RpcHandlers {
   const directory = state.directory;
   const services = state.services;
-  const publish = (event: NotifyEvent): void => emitAndNotify((value) => state.server?.emit(value), services.settings.current().notify, event, directory, services.settings, Date.now(), services.logger);
+  const publish = (event: NotifyEvent): void => { publishFromOrchd(state, event); };
   return {
     "daemon-status": () => ({
       pid: process.pid,
@@ -101,7 +101,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     enqueue: (params) => enqueue(state, params),
     steer: governed(state, (params) => steer(state, params)),
     message: governed(state, (params) => message(state, params)),
-    "spawn-headless": governed(state, (params) => spawnHeadless(state, params)),
+    "spawn-headless": governed(state, (params, _emit, context) => spawnHeadless(state, params, context.peer)),
     "set-model": governed(state, (params) => setModel(state, params)),
     lifecycle: governed(state, (params) => applyLifecycle(state, params)),
     "agent-closed": governed(state, waking(state, (params) => closeAgent(state, params))),

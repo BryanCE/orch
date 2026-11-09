@@ -4,6 +4,7 @@ import { abstractAgentLabel, spaceLabelForKey } from "../../notify/format.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import type { NotifyEntry } from "../../types/settings.ts";
 import type { SettingsManager } from "../../types/services.ts";
+import type { DaemonState } from "./state.ts";
 
 /** How many events this daemon has published for each agent. The publish point is the
  * one place every event passes through, so the ordinal it stamps is unique per agent. */
@@ -76,4 +77,10 @@ export function emitAndNotify(
   const canonical: NotifyEvent = { ...named, seq };
   emit(canonical);
   if (orchDir !== undefined) notify(orchDir, settings.currentOrNull(), sinks, canonical, logger);
+}
+
+/** Publish one event as orchd: to every subscriber on its socket and every configured sink. */
+export function publishFromOrchd(state: DaemonState, event: NotifyEvent): void {
+  const settings = state.services.settings;
+  emitAndNotify((value) => state.server?.emit(value), settings.current().notify, event, state.directory, settings, Date.now(), state.services.logger);
 }

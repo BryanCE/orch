@@ -112,6 +112,17 @@ export class PtyHold implements PtyHolder {
     entry.terminal.resize(cols, rows);
   }
 
+  /** Type into the PTY whose program has `pid`: a backend role addresses a held agent by the
+   *  handle it recorded, which is that pid. False when no PTY held here runs it. */
+  writeToPid(pid: number, data: string): boolean {
+    for (const entry of this.entries.values()) {
+      if (entry.pty.pid !== pid) continue;
+      entry.pty.write(data);
+      return true;
+    }
+    return false;
+  }
+
   kill(key: string): void {
     this.entry(key).pty.kill();
   }

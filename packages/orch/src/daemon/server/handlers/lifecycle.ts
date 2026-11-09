@@ -159,6 +159,9 @@ export function closeAgent(state: DaemonState, params: ParamsOf<"agent-closed">)
   const directory = state.directory;
   const key = params.key;
   const view = agentView(directory, key);
+  // Closing ends its panes here too, even for an agent that had already stopped: a pane
+  // following an agent on another host would otherwise wait on a screen that never comes.
+  state.hosts.endScreen(key, `${view?.name ?? key} was closed`);
   if (view?.endedAt !== null) return { ok: true };
   // The status row is the boundary: a state it does not carry, or one orch
   // does not know, means the agent had already left.

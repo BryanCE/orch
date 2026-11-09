@@ -1,3 +1,4 @@
+import { bindHeldInput, heldBackend } from "../src/backends/held/index.ts";
 import { describe, expect, test } from "bun:test";
 import { PtyHold } from "../src/daemon/server/held.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
@@ -87,6 +88,16 @@ describe("the PTY holder", () => {
     hold.resize(login("agent-a"), 80, 24);
     expect(provider.last().written).toEqual(["ls\r"]);
     expect(provider.last().sizes).toEqual([{ cols: 80, rows: 24 }]);
+  });
+
+  test("the held backend types a submit and keys into the PTY running the handle's pid", async () => {
+    const { hold, provider } = holder();
+    const { pid } = await hold.start("agent-a", REQUEST);
+    bindHeldInput((target, data) => hold.writeToPid(target, data));
+    heldBackend.agentInput.submit(String(pid), "/new");
+    heldBackend.agentInput.sendKeys(String(pid), ["Escape", "C-c"]);
+    expect(provider.last().written).toEqual(["/new", "\r", "\x1b", "\x03"]);
+    expect(() => heldBackend.agentInput.submit("999999", "x")).toThrow("no PTY held here runs pid 999999");
   });
 
   test("kill ends the program and the PTY is no longer held", async () => {

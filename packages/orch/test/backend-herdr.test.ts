@@ -270,7 +270,7 @@ describe("HerdrBackend", () => {
     expect(placed.handle).toBe("w0:p3");
     expect(herdrArgv).toEqual([
       ["pane", "split", "w0:p1", "--direction", "right", "--cwd", testDir, "--env", `ORCH_DIR=${testDir}`, "--no-focus"],
-      ["pane", "run", "w0:p3", "'/opt/orch'\\''s/orch.js' 'attach' 'agent00001'"],
+      ["pane", "run", "w0:p3", "exec '/opt/orch'\\''s/orch.js' 'attach' 'agent00001'"],
     ]);
   });
 
@@ -279,7 +279,7 @@ describe("HerdrBackend", () => {
     const placed = backend.commandPlacement.open({ cwd: testDir, workspace: "ws-test", intoHandle: "w0:p9", command: ["orch", "attach", "agent00001"] });
 
     expect(placed.handle).toBe("w0:p9");
-    expect(herdrArgv).toEqual([["pane", "run", "w0:p9", "'orch' 'attach' 'agent00001'"]]);
+    expect(herdrArgv).toEqual([["pane", "run", "w0:p9", "exec 'orch' 'attach' 'agent00001'"]]);
   });
 
   test("a group is created with the environment its own pane will launch under", () => {

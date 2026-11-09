@@ -5,6 +5,7 @@ import { closeOrphanedHostLinks } from "../../store/host-rows.ts";
 import { setLinkedProcessProbe } from "../../process-place.ts";
 import { bootCodeHash, socketAnswers } from "./state.ts";
 import { PtyHold } from "./held.ts";
+import { bindHeldInput } from "../../backends/registry.ts";
 import { nodePtyProvider } from "../../pty/node-pty.ts";
 import type { DaemonState } from "./state.ts";
 import { outboxDeps } from "./handlers/write.ts";
@@ -75,6 +76,9 @@ export async function startDaemon(): Promise<DaemonState> {
   const client = createServices({ proc: "orchd" });
   const services: DaemonServices = { ...client, models: createModelCatalogue(client.orchDir, client.logger) };
   const directory = services.orchDir;
+  const held = new PtyHold(nodePtyProvider(), () => services.settings.current().pty);
+  // A reset, reload or answer typed into a held agent reaches its PTY through the held backend.
+  bindHeldInput((pid, data) => held.writeToPid(pid, data));
   const state: DaemonState = {
     services,
     directory,
@@ -93,7 +97,7 @@ export async function startDaemon(): Promise<DaemonState> {
       logger: services.logger,
       events: (host, event) => { applyHostEvent(state, host, event); },
     }),
-    held: new PtyHold(nodePtyProvider(), () => services.settings.current().pty),
+    held,
     fatalLogged: false,
   };
   if (invokedAsMain()) {

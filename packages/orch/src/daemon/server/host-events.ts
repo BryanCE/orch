@@ -23,7 +23,11 @@ export function applyHostEvent(state: DaemonState, host: LinkedHost, event: Noti
   if (agentLocation(directory, event.key)?.host === host.id) {
     const now = Date.now();
     if (event.type === "transition" || event.type === "asking") recordAgentState(directory, event.key, { state: event.newState }, now);
-    if (endsAgent(event) && agentView(directory, event.key)?.endedAt === null) endAgent(directory, event.key, now, null);
+    if (endsAgent(event)) {
+      if (agentView(directory, event.key)?.endedAt === null) endAgent(directory, event.key, now, null);
+      // Its panes here stop showing it: each viewer's `orch attach` exits, and the pane with it.
+      state.hosts.endScreen(event.key, `${event.agent ?? event.key} ${event.newState} on ${host.name}`);
+    }
   }
   // The far orchd named the host its agent runs on; the event is published here as it came.
   publishFromOrchd(state, event);

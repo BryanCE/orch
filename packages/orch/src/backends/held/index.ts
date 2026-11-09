@@ -20,7 +20,7 @@ import { hostShell } from "../../host.ts";
 import { hostedHere } from "../../local-process.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
-import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole } from "../../types/backend.ts";
+import type { AgentInputRole, Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole } from "../../types/backend.ts";
 import type { PtyHolder } from "../../types/pty.ts";
 
 const HELD_BACKEND: BackendId = "held";
@@ -35,6 +35,43 @@ function heldPid(handle: HeldHandle): number | null {
   const pid = Number(handle);
   return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
+
+/** Types into a held PTY by its program's pid; false when no PTY held here runs it. orchd binds
+ *  it to the PTYs it holds when it starts, since those live in orchd's memory alone. */
+type HeldWrite = (pid: number, data: string) => boolean;
+let heldWrite: HeldWrite | null = null;
+
+/** Give the held backend orchd's PTYs to type into. */
+export function bindHeldInput(write: HeldWrite): void {
+  heldWrite = write;
+}
+
+/** The bytes a terminal reads for each key name a caller sends. */
+const KEY_BYTES: Readonly<Record<string, string>> = {
+  Enter: "\r", Escape: "\x1b", Tab: "\t", BSpace: "\x7f", Space: " ",
+  "C-c": "\x03", "C-d": "\x04", "C-u": "\x15", "C-l": "\x0c",
+  Up: "\x1b[A", Down: "\x1b[B", Right: "\x1b[C", Left: "\x1b[D",
+};
+
+function typeInto(handle: HeldHandle, data: string): void {
+  const pid = heldPid(handle);
+  if (pid === null) throw new Error(`held handle ${handle} is not a pid`);
+  if (heldWrite === null) throw new Error("only orchd holds PTYs, so only orchd can type into one");
+  if (!heldWrite(pid, data)) throw new Error(`no PTY held here runs pid ${pid}`);
+}
+
+/** Input to a held agent goes straight into its PTY, as a terminal attached to it would send it. */
+const heldInput: AgentInputRole<HeldHandle> = {
+  submit: (handle, text) => {
+    typeInto(handle, text);
+    typeInto(handle, KEY_BYTES.Enter ?? "\r");
+  },
+  sendKeys: (handle, keys) => {
+    for (const key of keys) typeInto(handle, KEY_BYTES[key] ?? key);
+  },
+  // A held agent has no pane to bring forward.
+  focus: () => undefined,
+};
 
 export class HeldBackend implements Backend<HeldHandle> {
   readonly id = HELD_BACKEND;
@@ -53,7 +90,7 @@ export class HeldBackend implements Backend<HeldHandle> {
   readonly placement = null;
   readonly commandPlacement = null;
   readonly placementInventory = null;
-  readonly agentInput = null;
+  readonly agentInput: AgentInputRole<HeldHandle> = heldInput;
   readonly foreground = null;
   readonly screen = null;
   readonly zooming = null;

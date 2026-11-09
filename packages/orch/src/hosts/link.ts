@@ -290,6 +290,21 @@ class HostLink {
       .catch((error: unknown) => { this.deps.logger.debug("host.screen-detach-failed", { host: this.name, key, error: errorMessage(error) }); });
   }
 
+  /** End every viewer here of an agent's screen: the agent ended, or its host no longer has it.
+   *  Each viewer's `orch attach` exits with `reason`, and its pane goes with it. */
+  endScreen(key: string, reason: string): void {
+    this.takeScreen(key, { kind: "end", reason });
+  }
+
+  /** The link came back: ask the far orchd to stream each screen viewers here still follow.
+   *  A screen whose agent is gone there ends here, so no pane waits on a stream that never comes. */
+  private reattachScreens(): void {
+    for (const [key, screen] of this.screens) {
+      this.call("peer-attach-screen", { key, cols: screen.cols, rows: screen.rows })
+        .catch((error: unknown) => { this.endScreen(key, `${this.name} no longer streams ${key}: ${errorMessage(error)}`); });
+    }
+  }
+
   /** A piece of a screen from the far orchd, to every viewer here following it. */
   private takeScreen(key: string, chunk: ScreenChunk): void {
     const screen = this.screens.get(key);
@@ -437,6 +452,7 @@ class HostLink {
     this.failures = 0;
     this.startPinging(greeting.host.id);
     this.subscribe(greeting.host.id);
+    this.reattachScreens();
     this.deps.logger.info("host.link-up", { host: this.name, hostId: greeting.host.id, version: greeting.version, commit: greeting.commit });
     return null;
   }
@@ -546,6 +562,11 @@ export class HostLinks {
       if (hostId === null || !hosts.has(hostId)) continue;
       this.link(name).connect().catch((error: unknown) => { this.deps.logger.warn("host.follow-failed", { host: name, error: errorMessage(error) }); });
     }
+  }
+
+  /** End every viewer here of an agent's screen, on whichever link streams it: the agent ended. */
+  endScreen(key: string, reason: string): void {
+    for (const link of this.links.values()) link.endScreen(key, reason);
   }
 
   /** Every configured host, linked or not, in name order. */

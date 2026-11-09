@@ -188,13 +188,15 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   };
   /** herdr opens no pane with a command of its own, and its `agent start` runs only
    *  herdr's executable for a harness kind, so the command is typed into the
-   *  pane's shell. A pane this opened is closed again when that fails. */
+   *  pane's shell, as `exec`: the command replaces the shell, so the pane ends when
+   *  the command does, the way a tmux pane opened with a command does. A pane this
+   *  opened is closed again when typing fails. */
   readonly commandPlacement: CommandPlacementRole<HerdrHandle> = {
     open: (request) => {
       const adopted = typeof request.intoHandle === "string" ? request.intoHandle : null;
       const handle = adopted ?? this.placement.open(request).handle;
       try {
-        this.cli.ack(["pane", "run", handle, shellLine(request.command)], undefined, HERDR_INPUT_RETRY);
+        this.cli.ack(["pane", "run", handle, `exec ${shellLine(request.command)}`], undefined, HERDR_INPUT_RETRY);
       } catch (error: unknown) {
         if (adopted === null) this.placement.close(handle);
         throw error;

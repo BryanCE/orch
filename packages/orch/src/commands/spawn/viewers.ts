@@ -69,11 +69,15 @@ export async function planViewers(request: ViewerPlanRequest): Promise<ViewerPla
     grantNewHome: () => assertNewSpaceGranted(services, settings, backend),
   });
   const requested = settings.agents.length;
-  const existing = settings.tab === null ? undefined : findGroupInSpace(backend, placement.workspace, settings.tab);
+  // The tab here carries the agent's name and the host it runs on, as its pane does,
+  // unless the spawn names a tab.
+  const first = settings.agents[0]?.name;
+  const tabLabel = settings.tab ?? (first !== undefined && settings.host !== null ? viewerLabel(first, settings.host.name) : null);
+  const existing = tabLabel === null ? undefined : findGroupInSpace(backend, placement.workspace, tabLabel);
   let tab: ViewerPlan["tab"];
   if (existing === undefined) {
     const { views, presence } = admissionFleet(fleet);
-    const label = settings.tab ?? freeTabLabel(liveTabLabels(backend, views, presence));
+    const label = tabLabel ?? freeTabLabel(liveTabLabels(backend, views, presence));
     assertTabCapacity(settings, label, 0, requested);
     tab = { label };
   } else {
@@ -116,7 +120,7 @@ export function openViewers(plan: ViewerPlan, orchDir: OrchDir, logger: Logger, 
         handle = String(plan.role.open({ cwd, workspace: plan.workspace, group, split: tile.split, targetHandle: tile.targetHandle, env, command }).handle);
       }
       panes.set(agent.key, handle);
-      labelViewer(plan.labeling, logger, handle, `${agent.name}@${host}`);
+      labelViewer(plan.labeling, logger, handle, viewerLabel(agent.name, host));
     } catch (error: unknown) {
       const message = errorMessage(error);
       logger.warn("spawn.viewer-failed", { backend: plan.backend.id, name: agent.name, error: message });
@@ -124,6 +128,11 @@ export function openViewers(plan: ViewerPlan, orchDir: OrchDir, logger: Logger, 
     }
   }
   return panes;
+}
+
+/** What a viewer's tab and pane are called here: the agent's name and the host it runs on. */
+function viewerLabel(name: string, host: string): string {
+  return `${name}@${host}`;
 }
 
 /** Name the pane for the agent and the host it runs on, where the plexer labels places. */

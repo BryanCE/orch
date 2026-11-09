@@ -114,6 +114,7 @@ describe("a far spawn shows each agent in a pane of the caller's plexer", () => 
 
       expect(backend.createdGroups).toHaveLength(1);
       expect(backend.createdGroups[0]!.workspace).toBe("s1");
+      expect(backend.createdGroups[0]!.label).toBe("one@far");
       expect(backend.ran.map((request) => request.command)).toEqual([
         [orchEntrypoint(), "attach", "agent00001"],
         [orchEntrypoint(), "attach", "agent00002"],

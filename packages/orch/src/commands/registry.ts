@@ -338,7 +338,7 @@ const MAINTENANCE: readonly CommandSpec[] = [
         flags: [
           { name: "--dest", arity: "one", placeholder: "<user@host>", help: "Where ssh connects. The host may be an IP, a tailnet name, or any name DNS resolves." },
           { name: "--port", arity: "one", placeholder: "<port>", help: "ssh port, when not 22." },
-          { name: "--shell", arity: "one", placeholder: "<posix|wsl>", help: "wsl for a Windows host running orch in WSL." },
+          { name: "--shell", arity: "one", placeholder: "<posix|wsl|windows>", help: "Where orch runs there; on a Windows host, add asks when this is not given." },
         ],
       },
       { name: "key", args: "<host>", summary: "Print the authorized_keys line that lets orch into a host.", flags: [] },

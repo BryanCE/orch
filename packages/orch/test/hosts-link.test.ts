@@ -88,7 +88,7 @@ describe("a link to another host", () => {
 
   test("says orch is missing there when the far shell cannot find it", async () => {
     const hosts = hostLinks(noOrch);
-    expect(await refusal(hosts.link("box").requireUp())).toBe("box is offline: orch is not installed on box, or is not on the PATH its login shell sets. orch has never reached it.");
+    expect(await refusal(hosts.link("box").requireUp())).toBe("box is offline: orch is not installed on box, or is not on the PATH that account's shell sets. Run orch host add box again to see which orch it finds. orch has never reached it.");
   });
 
   test("goes down when the far side ends, and a question to it fails rather than waits", async () => {

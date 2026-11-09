@@ -231,7 +231,7 @@ const HELP: Readonly<Record<string, string>> = {
   "timeouts.lock_poll_ms": "How often orch lock asks orchd whether the lock is free, in milliseconds.",
   "timeouts.reset_ready_ms": "How long reset waits for an agent to become ready, in milliseconds.",
   "timeouts.reset_poll_ms": "How often reset checks whether an agent is ready, in milliseconds.",
-  hosts: "Other machines orch runs agents on, by name. dest is user@host, the host an IP or a name; port when not 22; shell is wsl for a Windows host running orch in WSL; orch_dir is ORCH_DIR there when not the default. orch host add writes these.",
+  hosts: "Other machines orch runs agents on, by name. dest is user@host, the host an IP or a name; port when not 22; shell is wsl for a Windows host running orch inside WSL, windows for one running orch on Windows; orch_dir is ORCH_DIR there when not the default. orch host add writes these.",
   "links.ssh_command": "The ssh client orch runs to reach a host. ssh.exe lets an orch in WSL use Windows OpenSSH.",
   "links.ssh_keygen_command": "The program orch runs to make its own ssh key and read host key fingerprints.",
   "links.ssh_keyscan_command": "The program orch runs to fetch a host's key when you add the host.",

@@ -67,8 +67,9 @@ interface Pending {
  *  refusals a new host gives are named with the step that clears them. */
 function failureReason(name: string, code: number | null, stderr: readonly string[]): string {
   const lastStderr = stderr.at(-1) ?? null;
-  if (code === COMMAND_NOT_FOUND || (lastStderr !== null && /orch: (?:command )?not found/.test(lastStderr))) {
-    return `orch is not installed on ${name}, or is not on the PATH its login shell sets`;
+  // sh says `orch: not found`, cmd `'orch' is not recognized`, PowerShell `The term 'orch' is not recognized`.
+  if (code === COMMAND_NOT_FOUND || stderr.some((line) => /orch: (?:command )?not found|'orch' is not recognized/.test(line))) {
+    return `orch is not installed on ${name}, or is not on the PATH that account's shell sets. Run orch host add ${name} again to see which orch it finds`;
   }
   if (lastStderr?.includes("Permission denied (publickey")) {
     return `${name} refused orch's key. Put the line 'orch host key ${name}' prints into ~/.ssh/authorized_keys there`;

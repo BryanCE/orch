@@ -6,9 +6,10 @@ export type HostOs = (typeof HOST_OS_VALUES)[number];
 /** What this process runs on, resolved once at a composition root. */
 export interface Host { readonly os: HostOs; readonly wsl: boolean; }
 
-/** The shell an ssh session lands in on a host. `posix` runs orch from a login `sh`;
- *  `wsl` is a Windows host whose OpenSSH lands in Windows and runs orch inside WSL. */
-export const HOST_SHELLS = ["posix", "wsl"] as const;
+/** Where orch is installed on a host, which decides how ssh starts it there. `posix` is a
+ *  Linux or macOS host; `wsl` is a Windows host whose OpenSSH lands in Windows and runs orch
+ *  inside WSL; `windows` is a Windows host running orch on Windows itself. */
+export const HOST_SHELLS = ["posix", "wsl", "windows"] as const;
 export type HostShell = (typeof HOST_SHELLS)[number];
 
 /** Which machine a process runs on. The id is the OS's own machine id, hashed: two

@@ -35,7 +35,7 @@ export const HostSchema = z.strictObject({
    *  orch reads no ~/.ssh/config, so an alias from one names nothing here. */
   dest: z.string().min(1),
   port: PositiveInt.optional(),
-  /** The shell ssh lands in there; posix unless the host is Windows running orch in WSL. */
+  /** Where orch is installed there: posix unless the host runs Windows, then wsl or windows. */
   shell: z.enum(HOST_SHELLS).optional(),
   /** ORCH_DIR on that host, when it is not the default there. */
   orch_dir: z.string().min(1).optional(),

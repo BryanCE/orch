@@ -13,7 +13,8 @@ import { formatAge } from "../format.ts";
 import { installedCodeHash, serveHostLink } from "../hosts/serve.ts";
 import { spawnSync } from "node:child_process";
 import { orchPublicKey, scanHostKeys, trustHostKeys, type HostScan } from "../hosts/keys.ts";
-import { authorizeArgv, authorizeStep, hostShellFor } from "../hosts/authorize.ts";
+import { announcesWindows, authorizeArgv, authorizeStep, reportedOrch } from "../hosts/authorize.ts";
+import { promptSelect } from "../setup/io.ts";
 import { writeSettingsValue } from "../settings/write.ts";
 import { errorMessage } from "../util.ts";
 import { HOST_SHELLS, type HostLinkView, type HostShell } from "../types/host.ts";
@@ -110,14 +111,46 @@ function presentedKeys(host: HostSettings, links: OrchSettings["links"]): HostSc
   die(`${host.dest} presented no host key`);
 }
 
-/** Log in once as the person and put orch's key in place there. Whether it worked. */
-function installKey(services: Services, host: HostSettings, publicKey: string): boolean {
+/** Log in once as the person and put orch's key in place there. What the host printed,
+ *  shown as it arrives; null when the login failed. */
+function installKey(services: Services, host: HostSettings, publicKey: string): string | null {
   const links = services.settings.current().links;
-  const login = spawnSync(links.ssh_command, authorizeArgv(services.orchDir, host, links, publicKey), { stdio: "inherit" });
-  return login.status === 0;
+  // ssh asks for a password on the terminal itself, so only stdout is taken.
+  const login = spawnSync(links.ssh_command, authorizeArgv(services.orchDir, host, links, publicKey), { stdio: ["inherit", "pipe", "inherit"], encoding: "utf8" });
+  process.stdout.write(login.stdout);
+  return login.status === 0 ? login.stdout : null;
 }
 
-/** Add a host: confirm the key it presents, trust it, and say what to authorize there.
+/** Where orch runs on a Windows host. The person says; WSL first, the way orch is usually run there. */
+async function askWindowsShell(name: string): Promise<HostShell> {
+  const answer = await promptSelect<HostShell>(`${name} runs Windows. Where is the orch you want it to run?`, [
+    { value: "wsl", label: "Inside WSL" },
+    { value: "windows", label: "On Windows" },
+  ], "wsl");
+  if (answer === null) die(`${name} was not added.`);
+  return answer;
+}
+
+/** Where on a host the orch is that its shell found, for the person reading. */
+function placeOn(name: string, host: HostSettings): string {
+  if (host.shell === "wsl") return `inside WSL on ${name}`;
+  if (host.shell === "windows") return `on Windows on ${name}`;
+  return `on ${name}`;
+}
+
+/** Why the orch a host reported cannot answer the link; null when it can. */
+function unusableOrch(name: string, host: HostSettings, orch: string | null): string | null {
+  const place = placeOn(name, host);
+  if (orch === null) return `orch's key is in place, but there is no orch ${place}. Install orch there, then run: orch host check ${name}`;
+  // WSL sees the Windows PATH under /mnt; an orch there is Windows' install, not WSL's.
+  if (host.shell === "wsl" && orch.startsWith("/mnt/")) {
+    return `orch's key is in place, but the only orch ${place} is ${orch}, which is Windows' install. Install orch inside WSL there, then run: orch host check ${name}`;
+  }
+  return null;
+}
+
+/** Add a host: confirm the key it presents, trust it, log in once to put orch's key in
+ *  place, and check that the orch it will start answers.
  *  The human's alone, at a terminal: it decides which machines orch may reach. */
 async function addHost(services: Services, invocation: Invocation): Promise<void> {
   if ((await whoAmI(services)).kind !== "operator") die("orch host add is the human's to run: it decides which machines orch may reach.");
@@ -127,21 +160,24 @@ async function addHost(services: Services, invocation: Invocation): Promise<void
   const stated = hostFromFlags(invocation);
   const links = services.settings.current().links;
   const scan = presentedKeys(stated, links);
-  const shell = hostShellFor(stated.shell, scan.banner);
-  const host: HostSettings = { ...stated, ...(shell === "wsl" ? { shell } : {}) };
-  process.stdout.write(`\n${host.dest} presents:\n\n${scan.keys.map((key) => `  ${key.fingerprint}`).join("\n")}\n\n`);
-  if (stated.shell === undefined && shell === "wsl") process.stdout.write(`${name} runs Windows, so orch will run inside WSL there.\n\n`);
+  process.stdout.write(`\n${stated.dest} presents:\n\n${scan.keys.map((key) => `  ${key.fingerprint}`).join("\n")}\n\n`);
   const answer = await confirm({ message: `Trust these keys for ${name}?`, initialValue: false });
   if (isCancel(answer) || answer !== true) die(`${name} was not added.`);
+  const shell = stated.shell ?? (announcesWindows(scan.banner) ? await askWindowsShell(name) : "posix");
+  const host: HostSettings = { ...stated, ...(shell === "posix" ? {} : { shell }) };
   trustHostKeys(services.orchDir, host, links, scan.keys);
   const publicKey = orchPublicKey(services.orchDir, links);
   writeSettingsValue(services.settings, `hosts.${name}`, host);
   process.stdout.write(`\nLogging in to ${name} once, as ${host.dest}, to install orch's key. Type that account's password if ssh asks.\n\n`);
-  if (!installKey(services, host, publicKey)) {
+  const output = installKey(services, host, publicKey);
+  if (output === null) {
     process.stdout.write(`\nThat login did not install it. Do it by hand instead:\n\n${authorizeInstructions(name, host, publicKey)}`);
     return;
   }
-  process.stdout.write("\nChecking the link...\n\n");
+  const orch = reportedOrch(output);
+  const problem = unusableOrch(name, host, orch);
+  if (problem !== null) die(problem);
+  process.stdout.write(`\nThe link will run ${orch ?? ""} ${placeOn(name, host)}.\n\nChecking the link...\n\n`);
   await checkHost(services, name, false);
 }
 

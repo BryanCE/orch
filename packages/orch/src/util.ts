@@ -52,6 +52,11 @@ export function packageRoot(): string {
   return heldRoot;
 }
 
+/** The installed orch entrypoint; its shebang names the declared runtime. */
+export function orchEntrypoint(): string {
+  return join(packageRoot(), "dist", "bin", "orch.js");
+}
+
 export interface PackageManifest {
   readonly name: string;
   readonly version: string;

@@ -130,7 +130,7 @@ describe("hello records the environment in full", () => {
     // Windows-side session is the case this repo lives with). Every fact B9
     // names travels in the claim.
     const claim = sessionClaim(directory);
-    for (const field of ["harness", "cwd", "space", "plexer", "handle", "hostName", "hostOs"]) {
+    for (const field of ["harness", "cwd", "space", "plexer", "handle", "hostId", "hostName", "hostOs"]) {
       expect(Object.keys(claim)).toContain(field);
     }
     expect(claim.space).toBe("server");

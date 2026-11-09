@@ -9,6 +9,7 @@ import { ORCH_RUNTIMES } from "../runtimes.ts";
 import { FIXED_PATH_MESSAGE, hasFixedPath } from "../policy/command-paths.ts";
 import { COMMAND_PATTERN_MESSAGE, isCommandPattern } from "../policy/command-gate.ts";
 import { ROLES } from "../types/policy.ts";
+import { HOST_SHELLS } from "../types/host.ts";
 import { MAIL_DELIVERIES, NOTIFICATION_POSITIONS, NOTIFY_STATES, type NotifyState } from "../types/settings.ts";
 import type { OrchDir } from "../types/core.ts";
 
@@ -30,10 +31,14 @@ export const CompactionTableSchema = z.partialRecord(z.enum(ADAPTER_IDS), z.reco
 export const ExtensionExclusionsSchema = z.partialRecord(z.enum(ADAPTER_IDS), z.array(z.string().min(1)));
 
 export const HostSchema = z.strictObject({
-  /** SSH destination (for example, user@example.org). */
+  /** Where ssh connects: user@host, the host an IP, a tailnet name, or any name DNS resolves.
+   *  orch reads no ~/.ssh/config, so an alias from one names nothing here. */
   dest: z.string().min(1),
-  orch_dir: z.string().optional(),
-  timeout_ms: z.number().int().positive().optional(),
+  port: PositiveInt.optional(),
+  /** The shell ssh lands in there; posix unless the host is Windows running orch in WSL. */
+  shell: z.enum(HOST_SHELLS).optional(),
+  /** ORCH_DIR on that host, when it is not the default there. */
+  orch_dir: z.string().min(1).optional(),
 });
 
 /** The states a notify entry delivers on when it declares no `on` list of its own:
@@ -97,12 +102,16 @@ export const SETTINGS_DEFAULTS = {
   notification: { position: "top-left", title_chars: 60 },
   locked_commands: { applies_to: ROLES },
   denied_commands: { applies_to: ROLES.filter((role) => role !== "orch") },
+  // Reaching another machine is the human's call: an agent's ssh waits for orch grant.
+  // orchd's own links to settings.hosts never pass through a harness, so they are not gated.
+  gated_commands: ["ssh", "ssh.exe", "scp", "sftp", "rsync"],
   settings_file: { typo_max_edits: 2 },
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
   daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
   doctor: { unclaimed_after_ms: 120_000 },
+  links: { ssh_command: "ssh", ssh_keygen_command: "ssh-keygen", ssh_keyscan_command: "ssh-keyscan", connect_timeout_s: 10, keepalive_interval_s: 15, keepalive_count: 3, request_timeout_ms: 10_000, ping_interval_ms: 30_000, retry_floor_ms: 1_000, retry_cap_ms: 300_000 },
   workers: { inherit_extensions: true, builtin_tools: true, compact_at_tokens: {} },
   // What a registered caller (an agent or a harness session) may write with `orch settings`:
   // the project's own commands, which the orchestrator knows and the human need not type.
@@ -271,6 +280,19 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     typo_max_edits: z.number().int().min(0).optional(),
   }).optional(),
   hosts: z.record(z.string(), HostSchema).optional(),
+  /** The SSH link orchd holds to each host in `hosts`. */
+  links: z.strictObject({
+    ssh_command: z.string().min(1).optional(),
+    ssh_keygen_command: z.string().min(1).optional(),
+    ssh_keyscan_command: z.string().min(1).optional(),
+    connect_timeout_s: PositiveInt.optional(),
+    keepalive_interval_s: PositiveInt.optional(),
+    keepalive_count: PositiveInt.optional(),
+    request_timeout_ms: PositiveInt.optional(),
+    ping_interval_ms: PositiveInt.optional(),
+    retry_floor_ms: PositiveInt.optional(),
+    retry_cap_ms: PositiveInt.optional(),
+  }).optional(),
   spaces: z.record(z.string(), z.string()).optional(),
   daemon: z.strictObject({
     tcp_port: PositiveInt.optional(),

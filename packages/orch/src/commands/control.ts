@@ -10,7 +10,7 @@ import { callDaemon, governanceFlags, readRpc, writeRpc } from "./daemon.ts";
 import { parseCommand } from "./registry.ts";
 import type { Invocation } from "../cli/spec.ts";
 import { usageError } from "../cli/usage.ts";
-import { die, remoteWrite, resultText, targetHost } from "./target.ts";
+import { die, resultText } from "./target.ts";
 import { readFleet, type FleetSnapshot } from "./fleet.ts";
 import { registeredId, whoAmI, refuseNonOperatorOverride, type CallerSelf } from "./self.ts";
 import { callerCredential } from "../identity/credential.ts";
@@ -26,7 +26,6 @@ import type { AdapterId } from "../types/adapter.ts";
 import type { RecordedProcess } from "../types/backend.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
-import type { OrchSettings } from "../types/settings.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
 import type { AgentView } from "../types/store.ts";
@@ -67,8 +66,6 @@ interface DispatchSettings {
 interface TextCommand {
   readonly json: boolean;
   readonly gov: WriteGovernance;
-  /** The `--space` the target resolves in, as typed. */
-  readonly space: string | undefined;
   readonly target: string;
   readonly text: string;
 }
@@ -79,21 +76,7 @@ function parseTextCommand(verb: "steer" | "answer", args: string[]): TextCommand
   const target = positional[0];
   const text = positional.slice(1).join(" ");
   if (!target || !text) throw usageError(invocation);
-  return { json: flags.has("--json"), gov: governanceFlags(flags), space: flags.value("--space"), target, text };
-}
-
-/** Run the verb on the host that holds the target, with the caller's flags. */
-function forwardText(hosts: OrchSettings["hosts"], remote: { host: string; target: string }, verb: "steer" | "answer", command: TextCommand): void {
-  const flags = [...(command.gov.steal ? ["--steal"] : []), ...(command.space === undefined ? [] : ["--space", command.space]), ...(command.json ? ["--json"] : [])];
-  remoteWrite(hosts, remote.host, verb, [remote.target, command.text, ...flags]);
-}
-
-/** Forward a text command when its target belongs to another host. */
-function forwardTextToHost(hosts: OrchSettings["hosts"], verb: "steer" | "answer", command: TextCommand): boolean {
-  const remote = targetHost(hosts, command.target);
-  if (!remote) return false;
-  forwardText(hosts, remote, verb, command);
-  return true;
+  return { json: flags.has("--json"), gov: governanceFlags(flags), target, text };
 }
 
 /** A target a drive verb may take from a live holder with --steal. */
@@ -105,8 +88,6 @@ export async function cmdSteer(services: Services, args: string[]): Promise<void
   const self = await whoAmI(services);
   const command = parseTextCommand("steer", args);
   const { json, gov, target, text } = command;
-  const hosts = services.settings.current().hosts;
-  if (forwardTextToHost(hosts, "steer", command)) return;
   const resolved = await resolveDriveTarget(services, self, target, gov);
   const result = await writeRpc(services, "steer", { target: resolved.entity.key, text }, gov);
   reportDelivery(services, result, { target: resolved.entity.key, name: targetName(resolved), action: "steer" }, { json, suffix: ` ${ARROW} ${truncate(collapse(text), 60)}` });
@@ -228,8 +209,6 @@ export async function cmdAnswer(services: Services, args: string[]): Promise<voi
   const self = await whoAmI(services);
   const command = parseTextCommand("answer", args);
   const { json, gov, target, text } = command;
-  const hosts = services.settings.current().hosts;
-  if (forwardTextToHost(hosts, "answer", command)) return;
   const resolved = await resolveDriveTarget(services, self, target, gov);
   if (!resolved.entity.presence) die(`Target "${target}" has no agent dir.`);
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
@@ -289,17 +268,6 @@ export async function dispatchToAgent(services: Pick<Services, "orchDir" | "sett
   const log = logger.forCorrelation(delivered.id);
   (isAgentId(key) ? log.forAgent(key) : log).info("dispatch.cli-accepted", { target: key });
   return { accepted: true, id: delivered.id, ack: delivered.ack };
-}
-
-/** Forward the whole command to the host that owns the target, and say whether it went. */
-function forwardedToTargetHost(hosts: OrchSettings["hosts"], args: string[], target: string | undefined): boolean {
-  const remote = target ? targetHost(hosts, target) : null;
-  if (!remote || !target) return false;
-  const remoteArgs = [...args];
-  const index = remoteArgs.indexOf(target);
-  if (index >= 0) remoteArgs[index] = remote.target;
-  remoteWrite(hosts, remote.host, "dispatch", remoteArgs);
-  return true;
 }
 
 /**
@@ -382,8 +350,6 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const invocation = parseCommand("dispatch", args);
   const gov = governanceFlags(invocation.flags);
   const flags = dispatchFlags(invocation);
-  const settings = services.settings.current();
-  if (forwardedToTargetHost(settings.hosts, args, flags.positional[0])) return;
   const dispatchSettings = await resolveDispatchSettings(services, self, invocation, flags, gov);
   const currentName = targetName({ view: dispatchSettings.view, entity: dispatchSettings.ent });
   const effectiveName = flags.rename ?? currentName;
@@ -394,7 +360,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   // target ambiguous (dispatch/steer/reset all fail post-first-run).
   const key = dispatchSettings.ent.key;
   const { model, thinking } = await prepareSession(services, dispatchSettings, tuning, { key, name: effectiveName, steal: gov.steal === true });
-  const headerContext = workerHeaderContextOf(self, settings, dispatchSettings.view ?? undefined);
+  const headerContext = workerHeaderContextOf(self, services.settings.current(), dispatchSettings.view ?? undefined);
   const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: resolveAdapterOrDie(dispatchSettings.adapter), context: headerContext, gov });
   if (dispatchSettings.view === null) await recordAdoptedAgent(services, self, key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two

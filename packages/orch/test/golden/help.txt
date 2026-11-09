@@ -63,6 +63,7 @@ TABS AND SPACES
 
 MAINTENANCE
   orch daemon <start|stop|status|reload>        The resident daemon (orchd).
+  orch host <list|add|key|check|forget|serve>   Other machines orch runs agents on, and the SSH link to each.
   orch doctor [flags]                           Check the install and fix it.
   orch clean [flags]                            Remove dead agent dirs and orphaned worktrees.
   orch setup [flags]                            Onboarding wizard.

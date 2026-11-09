@@ -71,7 +71,7 @@ function tcpPort(server: RpcServer): number {
 }
 
 function hello(token: unknown): unknown {
-  return { id: 1, method: "register-session", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs() } };
+  return { id: 1, method: "register-session", params: { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs() } };
 }
 
 describe("both transports carry one mechanism", () => {

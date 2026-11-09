@@ -21,12 +21,12 @@ describe("settings precedence", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, {
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
-      hosts: { gpu1: { dest: "bryan@gpu1", orch_dir: "/srv/orch", timeout_ms: 30 } },
+      hosts: { gpu1: { dest: "bryan@gpu1", orch_dir: "/srv/orch" } },
     });
 
     expect(fileSettingsManager(directory).current()).toMatchObject({
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
-      hosts: { gpu1: { dest: "bryan@gpu1", orch_dir: "/srv/orch", timeout_ms: 30 } },
+      hosts: { gpu1: { dest: "bryan@gpu1", orch_dir: "/srv/orch" } },
     });
   });
 

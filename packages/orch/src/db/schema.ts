@@ -120,6 +120,29 @@ export const hostPlexers = sqliteTable("host_plexers", {
   check("host_plexers_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
 ]);
 
+/** The name `settings.hosts` gives a host, bound to the id that host first answered as.
+ *  A route that later answers as another id reached a different machine and is refused. */
+export const hostNames = sqliteTable("host_names", {
+  name: text("name").notNull().primaryKey(),
+  hostId: text("host_id").notNull().references(() => hosts.id, { onDelete: "cascade" }),
+  boundAt: integer("bound_at").notNull(),
+});
+
+/** Each stretch of time orch held a live link to another host's orch. Open while the link
+ *  is up; `last_seen` is the last instant the far side answered, so a link orchd never
+ *  closed (it died) still says when it was last known up. */
+export const hostLinks = sqliteTable("host_links", {
+  hostId: text("host_id").notNull().references(() => hosts.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  lastSeen: integer("last_seen").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.hostId, table.since] }),
+  uniqueIndex("one_open_link").on(table.hostId).where(sql`until IS NULL`),
+  check("host_links_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+  check("host_links_seen", sql`${table.lastSeen} >= ${table.since}`),
+]);
+
 export const spaces = sqliteTable("spaces", {
   id: text("id").notNull().primaryKey(),
   name: text("name").notNull(),

@@ -95,7 +95,7 @@ describe("CLI offline routing", () => {
     const dir = tempDir("orch-routing-cli-");
     // orch has no built-in configuration: the command reads its composition from this ORCH_DIR.
     writeSettingsFixture(dir, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "pi" } });
-    const output = await captureStdout(() => cmdStatusVerb(createServices({ orchDir: dir }), ["--offline", "--local", "--json"]));
+    const output = await captureStdout(() => cmdStatusVerb(createServices({ orchDir: dir }), ["--offline", "--json"]));
     expect(JSON.parse(output)).toEqual({ names: { agents: {}, spaces: {} }, rows: [] });
     // A started or dialed orchd leaves its runtime files behind; offline leaves none.
     expect(daemonOwnershipFiles(dir).filter((file) => existsSync(file))).toEqual([]);

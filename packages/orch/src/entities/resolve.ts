@@ -4,9 +4,7 @@ import { selfIdentityOf } from "../identity/self.ts";
 import { callerKindOf } from "../policy/caller.ts";
 import { holdsLease } from "../store/lease-rows.ts";
 import { ambiguousTargetRefusal, die } from "../refusal.ts";
-import { errorMessage } from "../util.ts";
 import type { OrchSettings } from "../types/settings.ts";
-import { parseTarget, type TargetRef } from "./target.ts";
 import { buildEntities } from "./inventory.ts";
 import { scopeEntitiesToSpaceFor } from "./space.ts";
 
@@ -62,32 +60,29 @@ function nameHolders(entities: Entity[], localTarget: string): Entity[] {
   return running.length > 0 ? running : named;
 }
 
-function matchInPool(entities: Entity[], localTarget: string, target: string, host?: string | null): Entity | null {
-  const withHost = (entity: Entity): Entity => (host ? { ...entity, host } : entity);
-
-  const addressed = entities.filter((entity) => entity.key === localTarget || entity.paneId === localTarget);
-  const exact = dedupeEntities([...addressed, ...nameHolders(entities, localTarget)]);
-  if (exact.length === 1) return withHost(exact[0]!);
+function matchInPool(entities: Entity[], target: string): Entity | null {
+  const addressed = entities.filter((entity) => entity.key === target || entity.paneId === target);
+  const exact = dedupeEntities([...addressed, ...nameHolders(entities, target)]);
+  if (exact.length === 1) return exact[0]!;
   if (exact.length > 1) ambiguous(target, exact);
 
   const suffix = dedupeEntities(entities.filter((entity) => [entity.key, entity.paneId].filter(Boolean).some((id) => {
     const value = id!;
     const short = value.slice(value.lastIndexOf(":") + 1);
-    return value === localTarget || value.endsWith(":" + localTarget) || short.startsWith(localTarget) || value.endsWith(localTarget);
+    return value === target || value.endsWith(":" + target) || short.startsWith(target) || value.endsWith(target);
   })));
-  if (suffix.length === 1) return withHost(suffix[0]!);
+  if (suffix.length === 1) return suffix[0]!;
   if (suffix.length > 1) ambiguous(target, suffix);
 
-  const byAgent = dedupeEntities(entities.filter((entity) => entity.agent === localTarget));
-  if (byAgent.length === 1) return withHost(byAgent[0]!);
+  const byAgent = dedupeEntities(entities.filter((entity) => entity.agent === target));
+  if (byAgent.length === 1) return byAgent[0]!;
   if (byAgent.length > 1) ambiguous(target, byAgent);
   return null;
 }
 
 // Every control/read target resolves within the caller's own space by
 // default — crossing the wall is never an accident of typing a foreign key.
-// A host-prefixed (<host>/<target>) or --all target opts out; headless runs
-// (no current space) are unscoped.
+// An --all target opts out; headless runs (no current space) are unscoped.
 export function resolveTargetFor(
   root: OrchDir,
   settings: OrchSettings,
@@ -95,35 +90,25 @@ export function resolveTargetFor(
   target: string,
   opts?: { all?: boolean; crossSpace?: boolean },
 ): Entity {
-  const ref = parseTargetOrDie(target, settings);
-  const localTarget = ref.target;
   const everything = buildEntities(root, settings);
   const crossSpace = opts?.crossSpace === true;
-  const crossWall = opts?.all === true || crossSpace || ref.host !== null;
+  const crossWall = opts?.all === true || crossSpace;
   const pool = scopeEntitiesToSpaceFor(root, credential, everything, { all: crossWall });
 
-  const match = matchInPool(pool, localTarget, target, ref.host);
+  const match = matchInPool(pool, target);
   if (match) {
     if (callerMayResolveFor(root, credential, match)) return match;
     refuseForeignTarget(target);
   }
 
-  if (!crossWall) refuseBehindWall(root, credential, everything, localTarget, target);
+  if (!crossWall) refuseBehindWall(root, credential, everything, target);
   refuseForeignTarget(target);
 }
 
-function parseTargetOrDie(target: string, settings: OrchSettings): TargetRef {
-  try {
-    return parseTarget(target, settings.hosts);
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
-}
-
 /** A target outside the caller's space: an operator learns why the wall refused it, anyone else that nothing matched. */
-function refuseBehindWall(root: OrchDir, credential: CallerCredential, everything: Entity[], localTarget: string, target: string): never {
+function refuseBehindWall(root: OrchDir, credential: CallerCredential, everything: Entity[], target: string): never {
   if (callerKindOf(root, credential) !== "operator") refuseForeignTarget(target);
-  const foreign = matchInPool(everything, localTarget, target);
+  const foreign = matchInPool(everything, target);
   if (foreign) {
     // The wall decision lives in policy/space.ts alone; this only relays it.
     const decision = checkWall(root, selfIdentityOf(root, credential)?.id ?? null, foreign.key, { crossSpace: false });

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { HELD_LOCKS_ENV, heldPatterns, lockedCommandLine, matchedPatterns, wholeCommandMatch } from "../src/policy/command-gate.ts";
+import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 
 describe("matchedPatterns", () => {
   const patterns = ["bun test", "git push"];
@@ -20,6 +21,32 @@ describe("matchedPatterns", () => {
 
   test("ignores a blank pattern", () => {
     expect(matchedPatterns("anything", ["", "  "])).toEqual([]);
+  });
+
+  test("matches a program run by its full path", () => {
+    expect(matchedPatterns("/usr/bin/bun test src", patterns)).toEqual(["bun test"]);
+    expect(matchedPatterns("C:\\tools\\bun test", patterns)).toEqual(["bun test"]);
+  });
+});
+
+describe("the ssh family is gated by default", () => {
+  const gated = SETTINGS_DEFAULTS.gated_commands;
+
+  test("an agent's ssh, scp, sftp or rsync goes to the human for a grant", () => {
+    for (const command of ["ssh prod uptime", "scp a prod:/tmp", "sftp prod", "rsync -a . prod:/srv", "cd x && ssh -p 2222 me@10.0.0.4"]) {
+      expect(lockedCommandLine(command, gated), command).toBeDefined();
+    }
+  });
+
+  test("Windows ssh run from WSL by its full path is gated too", () => {
+    expect(lockedCommandLine("/mnt/c/Windows/System32/OpenSSH/ssh.exe prod", gated)).toBeDefined();
+    expect(lockedCommandLine("ssh.exe prod", gated)).toBeDefined();
+  });
+
+  test("reading ssh files or pushing with git is not reaching a machine", () => {
+    for (const command of ["cat ~/.ssh/config", "ls ~/.ssh", "git push origin main", "grep sshd_config notes.md"]) {
+      expect(lockedCommandLine(command, gated), command).toBeUndefined();
+    }
   });
 });
 

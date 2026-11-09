@@ -116,8 +116,6 @@ export interface Entity {
   ended: boolean;
   /** Space from the backend view or orch's spawned registry. */
   space: string | null;
-  /** Set when this entity was addressed with a configured host prefix. */
-  host?: string;
 }
 
 export interface ToolCallContentBlock {
@@ -185,27 +183,6 @@ export interface Recipient {
   harness: string | null;
   multiplexer: string | null;
   transportId: string;
-}
-
-export type RemoteFailureKind = "dead-host" | "timeout" | "non-json" | "invalid-config";
-
-export interface RemoteFailure {
-  kind: RemoteFailureKind;
-  host: string;
-  message: string;
-  stderr?: string;
-  stdout?: string;
-}
-
-export type RemoteResult =
-  | { ok: true; value: unknown }
-  | { ok: false; failure: RemoteFailure };
-
-export interface SshResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  code?: number;
 }
 
 /** Filesystem scope a shim invocation is granted. Paths must be absolute. */

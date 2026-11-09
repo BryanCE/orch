@@ -15,6 +15,7 @@ import type { Services } from "../../types/services.ts";
 import type { WakeSignal } from "./wake.ts";
 import { phaseClock } from "./phase-clock.ts";
 import type { LoopWatchdog } from "./loop-watchdog.ts";
+import type { HostLinks } from "../../hosts/link.ts";
 
 /** The one spelling of "is this lease's holder still running". A start token
  *  proves the pid is the SAME process instance, not a recycled number. */
@@ -39,6 +40,8 @@ export interface DaemonState {
   livenessTick?: { stop(): void };
   loopWatchdog: LoopWatchdog | undefined;
   settingsWatch: SettingsWatch | undefined;
+  /** The SSH links to every host settings names. */
+  readonly hosts: HostLinks;
   lastActivityAt: number;
   fatalLogged: boolean;
 }
@@ -101,6 +104,9 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     "record-home": touchHandler(state, handlers["record-home"]),
     "clear-home": touchHandler(state, handlers["clear-home"]),
     grants: touchHandler(state, handlers.grants),
+    hosts: touchHandler(state, handlers.hosts),
+    "host-check": touchHandler(state, handlers["host-check"]),
+    "host-forget": touchHandler(state, handlers["host-forget"]),
     grant: touchHandler(state, handlers.grant),
     "admit-home": touchHandler(state, handlers["admit-home"]),
     "queue-list": touchHandler(state, handlers["queue-list"]),

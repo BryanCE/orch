@@ -1,6 +1,5 @@
 // A human's approval of one exact action, recorded by orchd. The prompt runs in
 // the caller's terminal; the rows that record the answer are written here.
-import { hostOs } from "../../../host.ts";
 import { ensureHost } from "../../../store/agent-rows.ts";
 import { approveGrantRequest, denyGrantRequest, grantIsApproved, pendingGrantRequest, pendingGrantRequests, recordGrantRequest } from "../../../store/grant-rows.ts";
 import type { OrchDir } from "../../../types/core.ts";
@@ -18,8 +17,8 @@ export function decideGrant(directory: OrchDir, params: ParamsOf<"grant">): Resu
     denyGrantRequest(directory, request.id);
     return { id: request.id, decision: "deny", expiresAt: null };
   }
-  ensureHost(directory, params.host, params.host, hostOs(), Date.now());
-  return { id: request.id, decision: "approve", expiresAt: approveGrantRequest(directory, request.id, params.host) };
+  ensureHost(directory, params.host.id, params.host.name, params.host.os, Date.now());
+  return { id: request.id, decision: "approve", expiresAt: approveGrantRequest(directory, request.id, params.host.id) };
 }
 
 /** Whether an unspent approval of exactly this action exists, or record the

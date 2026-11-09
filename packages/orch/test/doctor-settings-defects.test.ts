@@ -132,7 +132,7 @@ describe("doctor settings defects", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { fleet: { max_dpeth: 8 } });
 
-    const results = await runTestDoctor(directory, { sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
+    const results = await runTestDoctor(directory);
     const result = results.find((entry) => entry.id === "spawn-limits");
     if (result === undefined) throw new Error("missing spawn-limits result");
 

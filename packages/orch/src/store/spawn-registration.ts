@@ -1,8 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { eq } from "drizzle-orm";
 import { agentById, ensureHarness, ensureHost, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
-import { hostname } from "node:os";
-import { hostOs } from "../host.ts";
+import { hostIdentity } from "../host.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
@@ -34,8 +33,8 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
   // space silently succeed.
   if (input.space !== undefined) requireSpace(directory, input.space);
   ensureHarness(directory, input.harnessId, input.harnessId, now);
-  const host = hostname();
-  ensureHost(directory, host, host, hostOs(), now);
+  const host = hostIdentity();
+  ensureHost(directory, host.id, host.name, host.os, now);
   // The plexer is STATED, never derived from whether a pane exists: a headless
   // agent runs in the headless plexer just as truly as a herdr agent runs in
   // herdr, and a capless agent states none. Deriving it from `pane` is what
@@ -49,7 +48,7 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
     name: input.name,
     createdAt: now,
   });
-  writeEnvironment(directory, agentId, now, host, input);
+  writeEnvironment(directory, agentId, now, host.id, input);
   // Ownership is the LAST word: `owner` is who holds the agent now, the spawner
   // only the fallback for a launch that named nobody else. An agent never holds
   // its own lease (`agent_leases_not_self`). A holder is an agent orch already

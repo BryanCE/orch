@@ -2,6 +2,7 @@
 import type { OrchDir } from "../../types/core.ts";
 import { z } from "zod";
 import { type Socket } from "node:net";
+import type { Readable } from "node:stream";
 import { liveDaemonRegistration } from "./process.ts";
 import { daemonRuntimeFiles } from "./runtime-files.ts";
 import type { EndpointPaths } from "../../types/daemon.ts";
@@ -188,6 +189,9 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "record-home": return parseOne(method, RPC_PARAMS[method], id, value);
     case "clear-home": return parseOne(method, RPC_PARAMS[method], id, value);
     case "grants": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "hosts": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "host-check": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "host-forget": return parseOne(method, RPC_PARAMS[method], id, value);
     case "grant": return parseOne(method, RPC_PARAMS[method], id, value);
     case "admit-home": return parseOne(method, RPC_PARAMS[method], id, value);
     case "queue-list": return parseOne(method, RPC_PARAMS[method], id, value);
@@ -241,10 +245,12 @@ function makeRequest<M extends RpcMethod>(method: M, id: number | null, params: 
   return { id, method, params };
 }
 
-export function framedLineReader(socket: Socket, onLine: (line: string) => void): void {
+/** Call `onLine` with each newline-terminated line a stream carries: a socket, or a
+ *  child's stdout when the far end is reached through a process (`ssh`). */
+export function framedLineReader(stream: Readable, onLine: (line: string) => void): void {
   let buffer = "";
-  socket.setEncoding("utf8");
-  socket.on("data", (chunk: string) => {
+  stream.setEncoding("utf8");
+  stream.on("data", (chunk: string) => {
     buffer += chunk;
     let newline = buffer.indexOf("\n");
     while (newline >= 0) {

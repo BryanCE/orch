@@ -27,7 +27,7 @@ async function runInteractiveDoctor(initial: CheckResult[], services: Pick<Servi
       "fixes applied",
       () => { for (const r of toApply) r.fix!.apply(); },
     );
-    results = await runDoctor(services, {});
+    results = await runDoctor(services);
     renderDoctorResults(results);
   }
   failExit(results);
@@ -38,13 +38,13 @@ export async function cmdDoctor(services: Services, args: string[]) {
   const json = flags.has("--json");
   const yes = flags.has("--yes");
   const fix = flags.has("--fix") || yes;
-  const initial = await runDoctor(services, {});
+  const initial = await runDoctor(services);
   // A TTY session that did not demand json or an unattended -y apply gets the
   // interactive fix menu (bare `doctor` and `doctor --fix` both land here).
   if (!json && !yes && process.stdin.isTTY) return runInteractiveDoctor(initial, services);
   // Unattended: -y (or --fix with no TTY to prompt on) applies every fix, and every fix those uncover.
   const { results, applied: changes } = fix
-    ? await applyFixesUntilSettled(initial, () => runDoctor(services, {}))
+    ? await applyFixesUntilSettled(initial, () => runDoctor(services))
     : { results: initial, applied: [] };
   if (json) {
     process.stdout.write(JSON.stringify({ results, changes }, null, 2) + "\n");

@@ -5,7 +5,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { displayStatusState, formatNoRowsMessage, formatSpace, parseStatusOptions, scopeFleetRows } from "../src/commands/status/options.ts";
 import { normalizeStatusRow, readStatusResult, resolveStatusAgent } from "../src/commands/status/fetch.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
-import { fleetNames, statusRowFromEntity, warningStatusRow } from "../src/commands/status/rows.ts";
+import { fleetNames, statusRowFromEntity } from "../src/commands/status/rows.ts";
 import { ownerLabel } from "../src/commands/status/table.ts";
 import { modelShort } from "../src/policy/thinking.ts";
 import { deriveDriveState, fleetLeaseFacts } from "../src/agent/drive-state.ts";
@@ -297,9 +297,8 @@ describe("commands/status", () => {
     expect(formatCapacityLine(capacity, "root")).toBe("pack you 2/10 - space main 3/6 - machine 3/10");
   });
 
-  test("formats workspace labels and warnings", () => {
+  test("formats workspace labels", () => {
     expect(formatSpace("w", "Workspace")).toBe("Workspace (w)");
     expect(formatSpace(null, null)).toBe("-");
-    expect(warningStatusRow("remote", "down")).toMatchObject({ key: "warning:remote", state: "warning", warning: "down" });
   });
 });

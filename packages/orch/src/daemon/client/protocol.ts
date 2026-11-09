@@ -11,6 +11,7 @@ import { AGENT_STATES } from "../../agent-state.ts";
 import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
 import { CALLER_KINDS, type ThinkingLevel, type WorkerPolicy } from "../../types/policy.ts";
 import type { CallerCredential, CallerSession, TokenTotals } from "../../types/core.ts";
+import { HOST_LINK_STATES, type HostGreeting, type HostIdentity, type HostLinkView } from "../../types/host.ts";
 import type { FleetCapacity } from "../../policy/capacity.ts";
 import { isAgentNotice, type AgentNotice } from "../../control/bridge-message.ts";
 import type { PaneLabels } from "../../types/plexer.ts";
@@ -44,6 +45,21 @@ const CALLER = z.object({
   process: z.object({ pid: z.number().int(), startToken: z.string().nullable() }),
 }) satisfies z.ZodType<CallerCredential>;
 
+/** A host as the store records it: its id, the name people read, its OS. */
+export const HOST_IDENTITY = z.object({ id: z.string(), name: z.string(), os: z.enum(HOST_OS_VALUES) }) satisfies z.ZodType<HostIdentity>;
+
+export const HOST_GREETING = z.object({ host: HOST_IDENTITY, codeHash: z.string().nullable(), version: z.string() }).strict() satisfies z.ZodType<HostGreeting>;
+
+const HOST_LINK_VIEW = z.object({
+  name: z.string(),
+  dest: z.string(),
+  state: z.enum(HOST_LINK_STATES),
+  hostId: z.string().nullable(),
+  greeting: HOST_GREETING.nullable(),
+  reason: z.string().nullable(),
+  lastSeen: z.number().nullable(),
+}) satisfies z.ZodType<HostLinkView>;
+
 /** What orchd stored when it registered the caller's row: the process it keys
  *  liveness and token-less identity on, and the session token it matches. */
 const STORED_IDENTITY = z.object({
@@ -51,7 +67,7 @@ const STORED_IDENTITY = z.object({
     pid: z.number().int(),
     startToken: z.string().nullable(),
     since: z.number(),
-    host: z.object({ id: z.string(), name: z.string(), os: z.enum(HOST_OS_VALUES) }).nullable(),
+    host: HOST_IDENTITY.nullable(),
     alive: z.boolean(),
   }).nullable(),
   sessionToken: z.string().nullable(),
@@ -146,6 +162,9 @@ const SESSION_CLAIM = z.object({
   plexerVersion: z.string().optional(),
   handle: z.string().optional(),
   space: z.string().nullish(),
+  /** The caller's own host: it states it, because it may run on a different side of
+   *  the box than orchd (a Windows session dialing a WSL orchd). */
+  hostId: nonBlank,
   hostName: z.string(),
   hostOs: z.enum(HOST_OS_VALUES),
 });
@@ -334,7 +353,10 @@ export const RPC_PARAMS = {
   "record-home": GOVERNANCE.extend({ subject: HOME_SUBJECT, plexerId: nonBlank, handle: nonBlank, grant: GRANT_ACTION.optional() }),
   "clear-home": GOVERNANCE.extend({ subject: HOME_SUBJECT }),
   grants: z.undefined(),
-  grant: GOVERNANCE.extend({ target: nonBlank, decision: z.enum(["approve", "deny"]), host: nonBlank }),
+  hosts: z.undefined(),
+  "host-check": z.object({ name: nonBlank }),
+  "host-forget": z.object({ name: nonBlank }),
+  grant: GOVERNANCE.extend({ target: nonBlank, decision: z.enum(["approve", "deny"]), host: HOST_IDENTITY }),
   "admit-home": GOVERNANCE.extend({ action: GRANT_ACTION }),
   "queue-list": z.object({ history: z.boolean() }),
   "queue-cancel": GOVERNANCE.extend({ target: nonBlank, by: nonBlank }),
@@ -424,6 +446,9 @@ export const RPC_RESULTS = {
   "record-home": OK,
   "clear-home": OK,
   grants: z.object({ requests: z.array(GRANT_REQUEST) }),
+  hosts: z.object({ hosts: z.array(HOST_LINK_VIEW) }),
+  "host-check": HOST_LINK_VIEW,
+  "host-forget": z.object({ name: z.string() }),
   grant: z.object({ id: z.string(), decision: z.enum(["approve", "deny"]), expiresAt: z.number().nullable() }),
   "admit-home": z.union([z.object({ granted: z.literal(true) }), z.object({ granted: z.literal(false), requestId: z.string() })]),
   "queue-list": z.object({ tasks: z.array(z.custom<TaskRec>(isTaskRec)) }),

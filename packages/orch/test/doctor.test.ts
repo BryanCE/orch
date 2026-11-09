@@ -62,13 +62,13 @@ describe("runDoctor", () => {
     // doctor is the command you run WHEN orch is broken, so an install that has never been set up
     // must still get a full report: absence of settings is the answer for a check whose
     // subject is a settings section, never a defect.
-    const results = await runTestDoctor(tempDir(), { sshRunner: () => ({ ok: true, stdout: "", stderr: "", code: 0 }) });
+    const results = await runTestDoctor(tempDir());
 
     for (const entry of results.filter((row) => row.status === "fail")) {
       expect(entry.detail).not.toContain("settings.json");
     }
     expect(check(results, "settings")).toMatchObject({ status: "ok", detail: "no settings.json" });
-    for (const id of ["spawn-limits", "command-locks", "notifiers", "notify-sinks", "remote-ssh", "remote-orch-version", "remote-orch-dir"]) {
+    for (const id of ["spawn-limits", "command-locks", "notifiers", "notify-sinks"]) {
       expect(check(results, id).status).not.toBe("fail");
     }
   }, FULL_DOCTOR_TIMEOUT_MS);

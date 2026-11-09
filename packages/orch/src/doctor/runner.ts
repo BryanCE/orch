@@ -3,7 +3,6 @@ import { fileSettingsManager } from "../settings/manager.ts";
 import { settingsDefects } from "../settings/defects.ts";
 import { settingsPath } from "../settings/schema.ts";
 import { errorMessage } from "../util.ts";
-import { runSSH } from "../remote.ts";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
 import { OPERATOR_HARNESS_ID } from "../identity/operator.ts";
@@ -22,7 +21,6 @@ import { checkCommandLocks, checkSettingsFile, checkOrchDirLocation, checkSpawnL
 import { checkStore } from "./store.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
 import { checkDaemonLock, checkDaemonPresence, checkDaemonRegistration, checkDaemonSocket, checkDaemonStaleness, checkOsExecutors } from "./daemon.ts";
-import { checkRemoteOrchDir, checkRemoteReachability, checkRemoteVersion } from "./remote.ts";
 import { checkRuntime } from "./runtime.ts";
 import { loadPresence } from "../presence/store.ts";
 import { agentView } from "../store/agent-view.ts";
@@ -32,7 +30,7 @@ import type { Services } from "../types/services.ts";
 export type { CheckResult } from "../types/doctor.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
-import type { CheckResult, DoctorOptions, SshRunner } from "../types/doctor.ts";
+import type { CheckResult } from "../types/doctor.ts";
 
 async function isolated(id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
   try {
@@ -77,13 +75,8 @@ async function checkLiveFleetPairs(orchDir: OrchDir, settings: OrchSettings, log
   }));
 }
 
-export async function runDoctor(services: Pick<Services, "orchDir" | "logger" | "models">, sshRunnerOrOptions: SshRunner | DoctorOptions): Promise<CheckResult[]> {
+export async function runDoctor(services: Pick<Services, "orchDir" | "logger" | "models">): Promise<CheckResult[]> {
   const { orchDir, logger } = services;
-  // `yes` is a command-level concern; accepting it here keeps programmatic doctor
-  // runs explicit while preserving the runner's read-only diagnostic contract.
-  const sshRunner = typeof sshRunnerOrOptions === "function"
-    ? sshRunnerOrOptions
-    : (sshRunnerOrOptions.sshRunner ?? runSSH);
   // Read settings only to derive provider checks. An unconfigured install has no enabled
   // providers, and checkSettingsFile owns the user-facing failure result, so neither an absent nor a
   // malformed settings.json can prevent the neutral checks from running. doctor is the command
@@ -152,9 +145,6 @@ export async function runDoctor(services: Pick<Services, "orchDir" | "logger" | 
     isolated("orchd-lock", "orchd lock", () => checkDaemonLock(orchDir)),
     isolated("orchd-socket", "orchd socket", () => checkDaemonSocket(orchDir)),
     isolated("os-executors", "OS-side executors", checkOsExecutors),
-    settingsDependent(orchDir, settings, "remote-ssh", "Remote SSH reachability", (current) => checkRemoteReachability(current, sshRunner)),
-    settingsDependent(orchDir, settings, "remote-orch-version", "Remote orch version/schema", (current) => checkRemoteVersion(current, sshRunner)),
-    settingsDependent(orchDir, settings, "remote-orch-dir", "Remote ORCH_DIR", (current) => checkRemoteOrchDir(current, sshRunner)),
     settingsDependent(orchDir, settings, "worktree-gitignore", "Worktree gitignore", checkWorktreeGitignore),
     settingsDependent(orchDir, settings, "worktree-provider", "Worktree provider", checkWorktreeProvider),
   ]);

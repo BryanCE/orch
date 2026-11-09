@@ -19,7 +19,7 @@ describe("doctor settings preservation", () => {
     const file = join(dir, "settings.json");
     const custom = '{"custom":true, "models":{"pi":"keep-me"}}\n';
     writeFileSync(file, custom);
-    await runTestDoctor(dir, { yes: true });
+    await runTestDoctor(dir);
     expect(readFileSync(file, "utf8")).toBe(custom);
   });
 });

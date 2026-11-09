@@ -211,7 +211,7 @@ const settingsValueExtractors = {
     commands: root.locked_commands?.commands ?? [],
     applies_to: root.locked_commands?.applies_to ?? SETTINGS_DEFAULTS.locked_commands.applies_to,
   }),
-  gated_commands: (root: Partial<SettingsFile>) => root.gated_commands ?? [],
+  gated_commands: (root: Partial<SettingsFile>) => root.gated_commands ?? [...SETTINGS_DEFAULTS.gated_commands],
   denied_commands: (root: Partial<SettingsFile>) => ({
     commands: root.denied_commands?.commands ?? [],
     applies_to: root.denied_commands?.applies_to ?? SETTINGS_DEFAULTS.denied_commands.applies_to,
@@ -220,6 +220,10 @@ const settingsValueExtractors = {
     typo_max_edits: root.settings_file?.typo_max_edits ?? SETTINGS_DEFAULTS.settings_file.typo_max_edits,
   }),
   hosts: (root: Partial<SettingsFile>) => root.hosts ?? {},
+  links: (root: Partial<SettingsFile>) => ({
+    ...SETTINGS_DEFAULTS.links,
+    ...root.links,
+  }),
   spaces: (root: Partial<SettingsFile>) => root.spaces ?? {},
   daemon: (root: Partial<SettingsFile>) => ({
     tcp_port: root.daemon?.tcp_port ?? SETTINGS_DEFAULTS.daemon.tcp_port,
@@ -277,6 +281,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
     denied_commands: settingsValueExtractors.denied_commands(root),
     settings_file: settingsValueExtractors.settings_file(root),
     hosts: settingsValueExtractors.hosts(root),
+    links: settingsValueExtractors.links(root),
     spaces: settingsValueExtractors.spaces(root),
     daemon: settingsValueExtractors.daemon(root),
     doctor: settingsValueExtractors.doctor(root),

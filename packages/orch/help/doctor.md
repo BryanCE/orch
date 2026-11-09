@@ -1,6 +1,6 @@
 Run doctor after an install or an update, or when a command refuses because something is
 missing. It checks what `settings.json` declares against the machine: harnesses, plexers,
-the daemon, notification sinks, and hosts.
+the daemon, and notification sinks.
 
     orch doctor -y
 

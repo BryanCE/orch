@@ -151,9 +151,9 @@ async function diagnoseAdapters(orchDir: OrchDir, settings: OrchSettings, logger
 
 async function runDoctorPass(services: Pick<Services, "orchDir" | "logger" | "models">, interactive: boolean): Promise<CheckResult[]> {
   process.stdout.write("Running doctor checks...\n");
-  let doctorResults = await runDoctor(services, {});
+  let doctorResults = await runDoctor(services);
   // Re-run after a reap so the passed/total count reflects the reaped records, not the pre-reap state.
-  if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(services, {});
+  if (await offerReapMalformedRecords(doctorResults, interactive)) doctorResults = await runDoctor(services);
   process.stdout.write(`Doctor: ${doctorResults.filter((result) => result.status === "ok" || result.status === "skip").length}/${doctorResults.length} checks passed\n`);
   return doctorResults;
 }

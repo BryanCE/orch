@@ -111,10 +111,4 @@ describe("the rendered status table carries the owner column", () => {
     expect(cells(table.split("\n")[0] ?? "", widths)).not.toContain("OWNER");
     expect(table).toContain("owner: no orch driving it (holder gone)");
   });
-
-  test("the owner column is dropped when only a warning row is there to fill it", () => {
-    const table = localStatusTable(fleetFixture([statusRow({ warning: "host away", task: "host away" })]), false);
-    const widths = columnWidths(table);
-    expect(cells(table.split("\n")[0] ?? "", widths)).not.toContain("OWNER");
-  });
 });

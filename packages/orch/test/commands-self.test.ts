@@ -30,6 +30,7 @@ const workerSettings = (maxDepth: number): OrchSettings => ({
   agents: { writable_settings: [] },
   notify: [],
   hosts: {},
+  links: SETTINGS_DEFAULTS.links,
   spaces: {},
 });
 

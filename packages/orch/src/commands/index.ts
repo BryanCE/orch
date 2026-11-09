@@ -10,6 +10,7 @@ import { cmdRename } from "./lifecycle/rename.ts";
 import { cmdAbort, cmdClose } from "./lifecycle/close.ts";
 import { cmdFocus, cmdKeys, cmdMove, cmdPane, cmdPeek, cmdTab, cmdZoom } from "./panes.ts";
 import { cmdSpace } from "./space.ts";
+import { cmdHost } from "./host.ts";
 import { cmdQuestions, cmdResult, cmdSession, cmdTail } from "./results.ts";
 import { cmdRuns } from "./runs.ts";
 import { cmdEvents, cmdMonitor, cmdNotify } from "./events.ts";
@@ -57,7 +58,7 @@ const STALE_GUARD_COMMANDS = new Set([
 
 /** Commands that never dial orchd, plus `status`, which registers itself unless `--offline`. */
 const REGISTRATION_EXEMPT = new Set([
-  "setup", "doctor", "settings", "daemon", "logs", "models", "status",
+  "setup", "doctor", "settings", "daemon", "logs", "models", "status", "host",
   "help", "-h", "--help", "version", "-V", "--version",
 ]);
 
@@ -86,8 +87,10 @@ function preflightSkew(directory: OrchDir, argv: string[]): string[] {
 /** Commands that must keep working before setup has recorded anything. `setup` records the
  * composition and `doctor` diagnoses an install that does not work yet - they are how a user
  * reaches a configured state, so neither may ever be refused for being unconfigured. `orch settings` is how a person repairs a settings.json that will not load, so the gate that reads settings.json can never be what stops them reaching it. */
+/** `host` is exempt because its far end, `orch host serve`, runs over ssh on a machine
+ *  that may never have been set up, with no terminal to walk a wizard on. */
 function exemptFromSetupGate(cmd: string | undefined): boolean {
-  return cmd === "setup" || cmd === "doctor" || cmd === "settings" || cmd === "status" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version";
+  return cmd === "host" || cmd === "setup" || cmd === "doctor" || cmd === "settings" || cmd === "status" || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "version" || cmd === "-V" || cmd === "--version";
 }
 
 /** True on a clean slate: no selections recorded yet, a TTY to prompt on, and a command that needs them.
@@ -173,6 +176,7 @@ export const commandHandlers: Record<string, Handler> = {
   zoom: (services, args) => cmdZoom(services, args),
   move: (services, args) => cmdMove(services, args),
   space: cmdSpace,
+  host: cmdHost,
   clean: (services, args) => cmdClean(services, args),
   grant: cmdGrant,
   lock: cmdLock,

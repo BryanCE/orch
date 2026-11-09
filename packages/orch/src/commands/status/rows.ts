@@ -223,14 +223,3 @@ function liveFacts(entity: Entity, agentView: AgentView | undefined, questionOf:
     ...usageFacts(pres, sview),
   };
 }
-
-export function warningStatusRow(host: string, warning: string): StatusRow {
-  return {
-    key: `warning:${host}`, paneId: null, managed: false, owned: false, kind: null, createdAt: null, pid: null, name: "WARNING", lease: null, leaseKnown: false,
-    spawnedBy: null, worktree: null, branch: null, cwd: null, tab: null, agent: null,
-    focused: false, model: "", state: "warning", stateFallback: false,
-    exited: false, alive: false, cost: 0, ctxPercent: null, task: warning, dispatchId: null, lastText: null,
-    backendStatus: null, backend: null,
-    bridgeAttached: null, tokens: null, host, warning,
-  };
-}

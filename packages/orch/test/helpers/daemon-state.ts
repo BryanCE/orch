@@ -1,5 +1,6 @@
 import type { DaemonState } from "../../src/daemon/server/state.ts";
 import { createWakeSignal } from "../../src/daemon/server/wake.ts";
+import { HostLinks } from "../../src/hosts/link.ts";
 import { rpcHandlers } from "../../src/daemon/server/handlers/table.ts";
 import { startRpcServer } from "../../src/daemon/server/rpc.ts";
 import type { OrchDir } from "../../src/types/core.ts";
@@ -37,6 +38,7 @@ export function idleDaemonState(services: Services, directory: OrchDir): DaemonS
     outboxDrain: undefined,
     loopWatchdog: undefined,
     settingsWatch: undefined,
+    hosts: new HostLinks({ orchDir: directory, settings: () => services.settings.current(), logger: services.logger }),
     lastActivityAt: 0,
     fatalLogged: false,
   };

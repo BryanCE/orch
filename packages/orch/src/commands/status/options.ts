@@ -175,7 +175,6 @@ export interface StatusOptions {
   hide: StatusHide;
   /** The target named with `--agent`, still unresolved; undefined means the fleet. */
   agent?: string;
-  local: boolean;
   offline: boolean;
   live: boolean;
   capacity: boolean;
@@ -196,7 +195,6 @@ export function parseStatusOptions(args: readonly string[]): StatusOptions {
     only: only === null ? null : new Set(only),
     hide: statusHide(readNameList(invocation, "--hide", flags.value("--hide"))),
     ...(agent === undefined ? {} : { agent }),
-    local: flags.has("--local"),
     offline: flags.has("--offline"),
     live: flags.has("--live"),
     capacity: flags.has("--capacity"),

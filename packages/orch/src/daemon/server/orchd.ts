@@ -1,5 +1,7 @@
 
 import "../../store/suppress-sqlite-warning.ts";
+import { HostLinks } from "../../hosts/link.ts";
+import { closeOrphanedHostLinks } from "../../store/host-rows.ts";
 import { bootCodeHash, idleShutdownDue, liveAgentCount, socketAnswers, touchOnCall } from "./state.ts";
 import type { DaemonState } from "./state.ts";
 import { outboxDeps } from "./handlers/write.ts";
@@ -49,6 +51,7 @@ async function shutDown(state: DaemonState, reason: string): Promise<void> {
   state.livenessTick?.stop();
   state.loopWatchdog?.stop();
   state.settingsWatch?.stop();
+  state.hosts.closeAll();
   state.workController.abort();
   await state.workLoop;
   await state.server?.close();
@@ -80,6 +83,7 @@ export async function startDaemon(): Promise<DaemonState> {
     livenessTick: undefined,
     loopWatchdog: undefined,
     settingsWatch: undefined,
+    hosts: new HostLinks({ orchDir: directory, settings: () => services.settings.current(), logger: services.logger }),
     lastActivityAt: Date.now(),
     fatalLogged: false,
   };
@@ -139,6 +143,9 @@ export async function startDaemon(): Promise<DaemonState> {
     throw error;
   }
 
+  // A link dies with the orchd that held it: the last instant each was seen is when it ended.
+  closeOrphanedHostLinks(directory);
+
   // orchd gates every spawn on the catalogues; reading them at boot keeps that gate off the
   // harness binaries, and re-stamps whatever went stale while no daemon was running.
   warmAdapterCatalogues(state.services.models);
@@ -153,6 +160,7 @@ export async function startDaemon(): Promise<DaemonState> {
     },
     onChange: (settings) => {
       forgetCapacity(directory);
+      state.hosts.reconcile(settings);
       services.logger.setLevel(logLevelFor(settings));
       if (settingsLoaded) state.services.logger.info("config.reloaded");
       // A model settings change reaches the next spawn, never a running agent: re-asking the

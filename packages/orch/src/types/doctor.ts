@@ -1,7 +1,7 @@
 import type { OrchRuntime } from "../runtimes.ts";
 import type { AgentStatusRow } from "../store/status-rows.ts";
 import type { ServerReport } from "./backend.ts";
-import type { OrchDir, SshResult } from "./core.ts";
+import type { OrchDir } from "./core.ts";
 
 /** Shared result shape returned by doctor checks and adapter diagnostics. */
 export interface FixDescriptor {
@@ -65,8 +65,6 @@ export interface DeclaredVsRealityDependencies {
   readonly agentStatus: (orchDir: OrchDir, id: string) => AgentStatusRow | undefined;
 }
 
-export type SshRunner = (destination: string, command: string, options?: { timeoutMs?: number }) => SshResult;
-
 /**
  * Verify the DECLARED runtime against installed reality — the check the runtime
  * key exists for. No runtime is privileged here: the defect is the MISMATCH, not
@@ -103,8 +101,3 @@ export interface RuntimeObservations {
   entrypoint?: () => { path: string; runtime: OrchRuntime | null } | null;
 }
 
-/** Run independent environment diagnostics; individual check failures never reject this function. */
-export interface DoctorOptions {
-  readonly yes?: boolean;
-  readonly sshRunner?: SshRunner;
-}

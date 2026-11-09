@@ -120,10 +120,11 @@ describe("loadSettings", () => {
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       notification: { position: "top-left", title_chars: 60 },
       locked_commands: { commands: [], applies_to: ["orch", "slave"] },
-      gated_commands: [],
+      gated_commands: ["ssh", "ssh.exe", "scp", "sftp", "rsync"],
       denied_commands: { commands: [], applies_to: ["slave"] },
       settings_file: { typo_max_edits: 2 },
       hosts: { gpu1: { dest: "bryan@gpu1" } },
+      links: { ssh_command: "ssh", ssh_keygen_command: "ssh-keygen", ssh_keyscan_command: "ssh-keyscan", connect_timeout_s: 10, keepalive_interval_s: 15, keepalive_count: 3, request_timeout_ms: 10_000, ping_interval_ms: 30_000, retry_floor_ms: 1_000, retry_cap_ms: 300_000 },
       spaces: { wD: "Design" },
       daemon: { tcp_port: 4321, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 7_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       doctor: { unclaimed_after_ms: 123_456 },
@@ -232,10 +233,11 @@ describe("loadSettings", () => {
       notify: [],
       notification: { position: "top-left", title_chars: 60 },
       locked_commands: { commands: [], applies_to: ["orch", "slave"] },
-      gated_commands: [],
+      gated_commands: ["ssh", "ssh.exe", "scp", "sftp", "rsync"],
       denied_commands: { commands: [], applies_to: ["slave"] },
       settings_file: { typo_max_edits: 2 },
       hosts: {},
+      links: { ssh_command: "ssh", ssh_keygen_command: "ssh-keygen", ssh_keyscan_command: "ssh-keyscan", connect_timeout_s: 10, keepalive_interval_s: 15, keepalive_count: 3, request_timeout_ms: 10_000, ping_interval_ms: 30_000, retry_floor_ms: 1_000, retry_cap_ms: 300_000 },
       spaces: {},
       daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
       doctor: { unclaimed_after_ms: 120_000 },
@@ -286,7 +288,7 @@ describe("loadSettings", () => {
 
   test("rejects a host without dest", () => {
     const directory = tempDir();
-    writeSettingsFixture(directory, { hosts: { gpu1: { timeout_ms: 5000 } } });
+    writeSettingsFixture(directory, { hosts: { gpu1: { orch_dir: "/srv/orch" } } });
 
     expect(() => fileSettingsManager(directory).current()).toThrow(/dest/);
   });

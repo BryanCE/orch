@@ -19,7 +19,6 @@ const PLEXER: FlagSpec = { name: "--plexer", arity: "one", placeholder: "<plexer
 const DIR: FlagSpec = { name: "--dir", arity: "one", placeholder: "<path>", help: "Directory the agent starts in. Default: the spawner's own." };
 const CMD: FlagSpec = { name: "--cmd", arity: "one", placeholder: "<command>", help: "Harness command to launch. Default: the harness's own." };
 const COUNT: FlagSpec = { name: "-n", arity: "one", placeholder: "<count>", help: "How many." };
-const LOCAL: FlagSpec = { name: "--local", arity: "none", help: "Skip configured remote hosts." };
 const ONLY: FlagSpec = { name: "--only", arity: "one", placeholder: "<state,...>", help: "Keep only rows in these states." };
 const HIDE: FlagSpec = { name: "--hide", arity: "one", placeholder: "<state,...>", help: "Drop rows in these states." };
 
@@ -51,7 +50,6 @@ const OBSERVE: readonly CommandSpec[] = [
       { name: "--agent", arity: "one", placeholder: "<target>", help: "Show one agent, whatever its state." },
       ONLY,
       { ...HIDE, placeholder: "<column|state,...>", help: "Drop these columns, and rows in these states." },
-      LOCAL,
       { name: "--offline", arity: "none", help: "Read presence files only. Never dials or starts orchd." },
       { name: "--live", arity: "none", help: "Full-screen table redrawn on every daemon event. TTY only; q or esc quits." },
     ],
@@ -62,7 +60,7 @@ const OBSERVE: readonly CommandSpec[] = [
   {
     name: "questions", section: "observe",
     summary: "Agents blocked on a question.",
-    flags: [LOCAL, { ...ALL, help: "Operator-only. Every agent on the machine." }],
+    flags: [{ ...ALL, help: "Operator-only. Every agent on the machine." }],
   },
   {
     name: "runs", section: "observe", args: "[<target>]",
@@ -148,7 +146,6 @@ const QUEUE: readonly CommandSpec[] = [
           { ...SPACE, help: "Scope the task to a space." },
           { ...HARNESS, help: "Only an agent on this harness takes it." },
           { ...MODEL, placeholder: "<glob>", help: "Only an agent whose model matches this glob (*haiku*) takes it." },
-          { name: "--host", arity: "one", placeholder: "<host>", help: "Enqueue on a configured remote host." },
         ],
       },
       { name: "list", summary: "Queued, claimed, and settled tasks.", flags: [] },
@@ -328,6 +325,26 @@ const MAINTENANCE: readonly CommandSpec[] = [
       { name: "stop", summary: "SIGTERM the daemon that holds this ORCH_DIR's lock.", flags: [] },
       { name: "status", summary: "pid, uptime, code hash, transport, and subsystem health.", flags: [] },
       { name: "reload", summary: "Re-exec the daemon on the freshly installed code.", flags: [] },
+    ],
+  },
+  {
+    name: "host", section: "maintenance",
+    summary: "Other machines orch runs agents on, and the SSH link to each.",
+    flags: [],
+    subcommands: [
+      { name: "list", summary: "Each configured host, its link, and when it was last seen.", flags: [] },
+      {
+        name: "add", args: "<host>", summary: "Add a host: confirm its key, and get the line that lets orch in.",
+        flags: [
+          { name: "--dest", arity: "one", placeholder: "<user@host>", help: "Where ssh connects. The host may be an IP, a tailnet name, or any name DNS resolves." },
+          { name: "--port", arity: "one", placeholder: "<port>", help: "ssh port, when not 22." },
+          { name: "--shell", arity: "one", placeholder: "<posix|wsl>", help: "wsl for a Windows host running orch in WSL." },
+        ],
+      },
+      { name: "key", args: "<host>", summary: "Print the authorized_keys line that lets orch into a host.", flags: [] },
+      { name: "check", args: "<host>", summary: "Bring a host's link up and say which machine answered.", flags: [] },
+      { name: "forget", args: "<host>", summary: "Forget which machine a host name meant, after that machine was replaced.", flags: [] },
+      { name: "serve", summary: "The far end of a link. orchd runs it over ssh.", flags: [] },
     ],
   },
   {

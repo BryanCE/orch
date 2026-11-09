@@ -1,5 +1,4 @@
 import type { OrchDir } from "../../types/core.ts";
-import { hostname } from "node:os";
 import { readFileSync } from "node:fs";
 import { callerSession } from "../../adapters/session-env.ts";
 import type { CallerSession } from "../../types/core.ts";
@@ -9,7 +8,7 @@ import { detectPlexer } from "../../backends/detect.ts";
 import { endpointPaths } from "./wire.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";
 import { RPC_RESULTS, type SessionClaim } from "./protocol.ts";
-import { hostOs } from "../../host.ts";
+import { hostIdentity } from "../../host.ts";
 
 /** Validate every field carried by a session registration before trusting it. */
 export function isRegisterSessionResponse(value: unknown): value is RegisterSessionResponse {
@@ -62,6 +61,7 @@ export function sessionClaim(orchDir: OrchDir, label?: string, harnessSession?: 
   const harness = harnessSession?.harness ?? configuredHarness ?? session?.harnessId ?? OPERATOR_HARNESS_ID;
   const sessionToken = harnessSession?.sessionToken ?? session?.sessionId ?? null;
   const environment = callerEnvironment();
+  const host = hostIdentity();
   return {
     token,
     pid: harnessSession?.pid ?? sessionProcessPid(session),
@@ -73,7 +73,8 @@ export function sessionClaim(orchDir: OrchDir, label?: string, harnessSession?: 
     plexerVersion: environment.plexerVersion,
     handle: environment.handle,
     space: nonEmpty(process.env.ORCH_SPACE?.trim()) ?? null,
-    hostName: hostname(),
-    hostOs: hostOs(),
+    hostId: host.id,
+    hostName: host.name,
+    hostOs: host.os,
   };
 }

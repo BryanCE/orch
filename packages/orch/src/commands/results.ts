@@ -1,9 +1,7 @@
 import { isAgentId } from "../backends/identity.ts";
 import { spaceOf } from "../policy/space.ts";
 import { ARROW, collapse, isRecord, truncate } from "../util.ts";
-import { renderTable } from "../table.ts";
-import { runRemoteAsync, runSSH } from "../remote.ts";
-import { die, remoteCommandArgs, resultText, targetHost } from "./target.ts";
+import { die, resultText } from "./target.ts";
 import { readRpc } from "./daemon.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { displayName, resolveEntity, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
@@ -20,12 +18,11 @@ import type { PendingQuestionView } from "../types/daemon.ts";
 import { CommandRefusal } from "../refusal.ts";
 import { writeEmptyOrJson } from "./panes.ts";
 import { readCount } from "../cli/count.ts";
+import { formatAge } from "../format.ts";
 
 function resultLogger(logger: Logger, key?: string) {
   return key !== undefined && isAgentId(key) ? logger.forAgent(key) : logger;
 }
-
-interface QuestionRow { key: string; name: string | null; age: string; question: string; id?: string; ts?: string; space?: string; host?: string; warning?: string }
 
 type ResultSource = "presence" | "dispatch" | "history" | "session";
 type ResultLookup =
@@ -78,18 +75,6 @@ function endedRunResult(services: Services, ent: Entity, resolved: ResolvedTarge
   return { kind: "missing", reason: `Dispatch ${dispatchId} ended (${state}) and reported no text.` };
 }
 
-function lookupRemoteResult(services: Services, self: CallerSelf, settings: ReturnType<Services["settings"]["current"]>, remote: NonNullable<ReturnType<typeof targetHost>>, steal: boolean): ResultLookup {
-  refuseNonOperatorOverride(self, "remote targets");
-  const host = settings.hosts[remote.host];
-  const destination = host?.dest;
-  if (!host || !destination) die(`Host "${remote.host}" has no SSH destination.`);
-  const result = runSSH(destination, remoteCommandArgs(host, "result", [remote.target, ...(steal ? ["--steal"] : []), "--json"]), { timeoutMs: host.timeout_ms });
-  if (!result.ok) die(`Host "${remote.host}" is unreachable: ${result.stderr.trim() || "ssh failed"}`);
-  let payload: unknown;
-  try { payload = JSON.parse(result.stdout); } catch { payload = result.stdout.trimEnd(); }
-  return { kind: "found", source: "presence", payload };
-}
-
 async function resolveResultTarget(services: Services, target: string): Promise<ResolvedTarget | ResultLookup> {
   try {
     return await resolveEntity(services, target);
@@ -131,9 +116,6 @@ async function lookupResolvedResult(services: Services, self: CallerSelf, target
 }
 
 async function lookupResultBody(services: Services, self: CallerSelf, target: string, steal: boolean): Promise<ResultLookup> {
-  const settings = services.settings.current();
-  const remote = targetHost(settings.hosts, target);
-  if (remote) return lookupRemoteResult(services, self, settings, remote, steal);
   const resolved = await resolveResultTarget(services, target);
   if ("kind" in resolved) return resolved;
   return lookupResolvedResult(services, self, target, resolved, steal);
@@ -200,37 +182,7 @@ export async function cmdQuestions(services: Services, args: string[]): Promise<
   const options: QuestionOptions = { all: flags.has("--all"), json: flags.has("--json") };
   const self = await whoAmI(services);
   if (options.all) refuseNonOperatorOverride(self, "--all");
-  const hosts = services.settings.current().hosts;
-  if (flags.has("--local") || self.kind !== "operator" || Object.keys(hosts).length === 0) {
-    await cmdQuestionsLocal(services, options);
-    return;
-  }
-  const rows: QuestionRow[] = [...await localQuestionRows(services, options)];
-  const remoteResults = await Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
-    name,
-    result: await runRemoteAsync(name, host, ["questions"], { timeoutMs: host.timeout_ms }),
-  })));
-  for (const { name, result } of remoteResults) {
-    if (!result.ok) {
-      rows.push(warningQuestionRow(name, result.failure.message));
-      continue;
-    }
-    if (!Array.isArray(result.value)) {
-      rows.push(warningQuestionRow(name, `Host "${name}" returned an invalid questions payload.`));
-      continue;
-    }
-    for (const value of result.value) if (isQuestionRow(value)) rows.push({ ...value, host: name });
-  }
-  if (options.json) {
-    process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
-    return;
-  }
-  if (!rows.length) {
-    process.stdout.write("No pending questions.\n");
-    return;
-  }
-  const tableRows = rows.map((row) => [row.host ?? "-", row.key, row.name ?? "-", row.age, row.question]);
-  process.stdout.write(renderTable(["HOST", "ID", "NAME", "AGE", "QUESTION"], tableRows, [10, 24, 20, 8, 100]) + "\n");
+  await writeQuestions(services, options);
 }
 
 interface PendingQuestion { view: PendingQuestionView }
@@ -241,7 +193,7 @@ async function collectPendingQuestions(services: Services, all: boolean): Promis
   return { pending: answer.questions.map((view) => ({ view })) };
 }
 
-async function cmdQuestionsLocal(services: Services, { all, json }: QuestionOptions): Promise<void> {
+async function writeQuestions(services: Services, { all, json }: QuestionOptions): Promise<void> {
   const { pending } = await collectPendingQuestions(services, all);
   const orchDir = services.orchDir;
   const rows = pending.map(({ view }) => ({
@@ -266,40 +218,6 @@ async function cmdQuestionsLocal(services: Services, { all, json }: QuestionOpti
       })
       .join("\n\n") + "\n"
   );
-}
-
-export function formatAge(ts: unknown): string {
-  const when = typeof ts === "number"
-    ? ts
-    : new Date(typeof ts === "string" ? ts : JSON.stringify(ts) ?? "").getTime();
-  if (!Number.isFinite(when)) return "?";
-  const seconds = Math.max(0, Math.floor((Date.now() - when) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
-}
-
-async function localQuestionRows(services: Services, { all }: QuestionOptions): Promise<QuestionRow[]> {
-  const { pending } = await collectPendingQuestions(services, all);
-  const orchDir = services.orchDir;
-  return pending.map(({ view }) => ({
-    key: view.key, name: view.name, age: formatAge(view.askedAt),
-    question: view.question, id: view.questionId, ts: new Date(view.askedAt).toISOString(),
-    space: spaceOf(orchDir, view.key) ?? "-",
-  }));
-}
-
-function warningQuestionRow(host: string, warning: string): QuestionRow {
-  return { key: `warning:${host}`, name: "WARNING", age: "-", question: warning, host, warning };
-}
-
-function isQuestionRow(value: unknown): value is QuestionRow {
-  if (!isRecord(value)) return false;
-  return typeof value.key === "string"
-    && (value.name === null || typeof value.name === "string")
-    && typeof value.age === "string"
-    && typeof value.question === "string";
 }
 
 /** Resolve the target's adapter and require a declared session-tail capability, or die. */

@@ -7,7 +7,7 @@ import { ADAPTER_IDS } from "../types/adapter.ts";
 import { askDaemon, callDaemon } from "./daemon.ts";
 import { resolveEntity } from "./resolve.ts";
 import { callerId } from "./self.ts";
-import { die, remoteWrite } from "./target.ts";
+import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { Invocation, ParsedFlags } from "../cli/spec.ts";
@@ -83,11 +83,6 @@ function scopeFlags(flags: ParsedFlags): QueueScopeFlags {
   return scope;
 }
 
-/** The queue add argv with `--host <name>` taken out, for replay on that host. */
-function withoutHostFlag(args: readonly string[], host: string): string[] {
-  return args.filter((part) => part !== "--host" && part !== host);
-}
-
 /** The harness and model an agent must run to take the task, present ones only. */
 function takerOptions(flags: ParsedFlags): Record<string, string> {
   const harness = flags.value("--harness");
@@ -96,15 +91,10 @@ function takerOptions(flags: ParsedFlags): Record<string, string> {
   return { ...(harness === undefined ? {} : { harness }), ...(model === undefined ? {} : { model }) };
 }
 
-async function queueAdd(services: DaemonClient, invocation: Invocation, args: string[]): Promise<void> {
+async function queueAdd(services: DaemonClient, invocation: Invocation): Promise<void> {
   const { flags, positional } = invocation;
   const text = positional.join(" ");
   if (!text) throw usageError(invocation);
-  const host = flags.value("--host");
-  if (host !== undefined) {
-    remoteWrite(services.settings.current().hosts, host, "queue", ["add", ...withoutHostFlag(args.slice(1), host)]);
-    return;
-  }
   const enqueuedBy = await callerId(services);
   const scope = await scopeFromFlags(services, scopeFlags(flags));
   const opts = takerOptions(flags);
@@ -194,7 +184,7 @@ export async function cmdQueue(services: Services, args: string[]): Promise<void
   const invocation = parseCommand("queue", args);
   switch (invocation.command.name) {
     case "add":
-      await queueAdd(services, invocation, args);
+      await queueAdd(services, invocation);
       return;
     case "list":
     case "history":

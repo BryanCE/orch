@@ -256,8 +256,8 @@ export interface StatusRow extends LeaseStatusPayload {
   spaceId?: string | null;
   /** Immutable provenance root (pack) identity. */
   rootAgentId?: string | null;
+  /** The host the agent's process runs on, by name. */
   host?: string;
-  warning?: string;
 }
 
 export interface LifecycleTarget {

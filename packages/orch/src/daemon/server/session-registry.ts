@@ -1,5 +1,4 @@
 import type { OrchDir } from "../../types/core.ts";
-import { hostname } from "node:os";
 import { agentIdByProcess, claimAgent, getOrCreateSessionAgent, liveProcessPids } from "../../store/agent-rows.ts";
 import { orphanAgents } from "../../policy/orphan.ts";
 import { ancestorPids, freshStartToken, processStartToken } from "../../process-identity.ts";
@@ -31,11 +30,12 @@ function verifiedSessionProcess(claim: SessionClaim): { pid: number; startToken:
   return { pid, startToken, harness, cwd };
 }
 
-function claimedEnvironment(claim: SessionClaim): { sessionToken: string | null; label: string; host: string; plexerId: string | null; plexerVersion: string | null; handle: string | null; space: string | null } {
+function claimedEnvironment(claim: SessionClaim): { sessionToken: string | null; label: string; hostId: string; hostName: string; plexerId: string | null; plexerVersion: string | null; handle: string | null; space: string | null } {
   return {
     sessionToken: claim.sessionToken && claim.sessionToken.length > 0 ? claim.sessionToken : null,
     label: claim.label?.trim() ?? "",
-    host: claim.hostName.trim().length > 0 ? claim.hostName.trim() : hostname(),
+    hostId: claim.hostId.trim(),
+    hostName: claim.hostName.trim().length > 0 ? claim.hostName.trim() : claim.hostId.trim(),
     plexerId: claim.plexer?.trim() ?? null,
     plexerVersion: claim.plexerVersion?.trim() ?? null,
     handle: claim.handle && claim.handle.trim().length > 0 ? claim.handle.trim() : null,
@@ -85,7 +85,7 @@ export function registerSession(orchDir: OrchDir, params: ParamsOf<"register-ses
   const identity = getOrCreateSessionAgent(orchDir, {
     pid: facts.pid, startToken: facts.startToken, sessionToken: facts.environment.sessionToken,
     harnessId: facts.harness, cwd: facts.cwd, label: facts.environment.label || `${facts.harness} session ${facts.pid}`,
-    hostId: facts.environment.host, hostName: facts.environment.host, hostOs: facts.hostOs,
+    hostId: facts.environment.hostId, hostName: facts.environment.hostName, hostOs: facts.hostOs,
     plexerId: facts.environment.plexerId, plexerVersion: facts.environment.plexerVersion, handle: facts.environment.handle,
     space: facts.environment.space, spawnedBy: alreadyRegistered ? null : startedInside(orchDir, facts.pid), now: Date.now(),
   });

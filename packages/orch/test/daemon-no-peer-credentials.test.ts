@@ -95,7 +95,7 @@ describe("the daemon asks for a token and nothing else", () => {
     // had crept in.
     const reply = await ask(endpointPaths(orchDir).socket, {
       id: 1, method: "register-session",
-      params: { token, pid: stranger, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs() },
+      params: { token, pid: stranger, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs() },
     });
     expect(reply.error).toBeUndefined();
     expect(reply.result).toBeDefined();
@@ -107,7 +107,7 @@ describe("the daemon asks for a token and nothing else", () => {
 
     const reply = await ask(endpointPaths(orchDir).socket, {
       id: 1, method: "register-session",
-      params: { token: "", pid: stranger, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs() },
+      params: { token: "", pid: stranger, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs() },
     });
     expect(reply).toMatchObject({ error: { code: "IDENTITY_REQUIRED" } });
   });

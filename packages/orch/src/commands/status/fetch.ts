@@ -1,8 +1,5 @@
-import { runRemoteAsync } from "../../remote.ts";
 import { readRpc } from "../daemon.ts";
 import { resolveEntity } from "../resolve.ts";
-import { isFleetStatus } from "../../daemon/client/protocol.ts";
-import { warningStatusRow } from "./rows.ts";
 import { buildFleetStatus } from "./offline.ts";
 import { scopeFleetRows, displayStatusState } from "./options.ts";
 import type { CallerScope, FleetScope, StatusOptions } from "./options.ts";
@@ -20,7 +17,7 @@ interface FleetSnapshot extends FleetStatus {
 }
 
 export interface StatusResult extends FleetSnapshot {
-  /** Whether the table needs the HOST column for a merged local/remote listing. */
+  /** Whether the table needs the HOST column: the fleet runs on more than one host. */
   host: boolean;
 }
 
@@ -30,7 +27,7 @@ export function normalizeStatusRow(row: StatusRow): StatusRow {
   return { ...row, state: displayStatusState(row) };
 }
 
-/** The counts a status run reports about rows, local or remote. */
+/** The counts a status run reports about rows. */
 function rowCounts(rows: readonly StatusRow[]): { alive: number; otherLive: number; backendAnswered: boolean } {
   return {
     alive: rows.filter((row) => row.alive).length,
@@ -61,50 +58,6 @@ async function localStatus(settings: OrchSettings | null, services: DaemonClient
   return { ...fleet, rows: scopeFleetRows(fleet.rows, scope) };
 }
 
-/** Ids are minted, so two hosts never share one: the maps union without collision. */
-function mergeNames(all: readonly FleetNames[]): FleetNames {
-  const agents: Record<string, string> = {};
-  const spaces: Record<string, string> = {};
-  for (const names of all) {
-    Object.assign(agents, names.agents);
-    Object.assign(spaces, names.spaces);
-  }
-  return { agents, spaces };
-}
-
-type RemoteStatusResult = Awaited<ReturnType<typeof runRemoteAsync>>;
-
-async function remoteStatusResults(hosts: OrchSettings["hosts"], offline: boolean): Promise<{ name: string; result: RemoteStatusResult }[]> {
-  return Promise.all(Object.entries(hosts).map(async ([name, host]) => ({
-    name,
-    result: await runRemoteAsync(name, host, ["status", ...(offline ? ["--offline"] : [])], { timeoutMs: host.timeout_ms }),
-  })));
-}
-
-function remoteFleet(result: RemoteStatusResult): FleetStatus | null {
-  return result.ok && isFleetStatus(result.value) ? result.value : null;
-}
-
-function remoteRowsFromResult(name: string, result: RemoteStatusResult, narrowing: FleetScope): StatusRow[] {
-  if (!result.ok) return [warningStatusRow(name, result.failure.message)];
-  const fleet = remoteFleet(result);
-  if (fleet === null) return [warningStatusRow(name, `Host "${name}" returned an invalid status payload.`)];
-  return fleet.rows.map((value) => normalizeStatusRow(value))
-    .filter((row) => narrowing.space === undefined || row.spaceId === narrowing.space)
-    .filter((row) => narrowing.agentKey === undefined || row.key === narrowing.agentKey)
-    .map((row) => ({ ...row, host: name }));
-}
-
-function mergeRemoteStatusRows(local: readonly StatusRow[], remoteResults: readonly { name: string; result: RemoteStatusResult }[], narrowing: FleetScope): StatusRow[] {
-  return [...local, ...remoteResults.flatMap(({ name, result }) => remoteRowsFromResult(name, result, narrowing))];
-}
-
-function remoteSummary(remoteResults: readonly { result: RemoteStatusResult }[]): { names: FleetNames; rows: StatusRow[]; alive: number; otherLive: number; backendAnswered: boolean } {
-  const fleets = remoteResults.map(({ result }) => remoteFleet(result)).filter((fleet): fleet is FleetStatus => fleet !== null);
-  const rows = fleets.flatMap((fleet) => fleet.rows);
-  return { names: mergeNames(fleets.map((fleet) => fleet.names)), rows, ...rowCounts(rows) };
-}
-
 /** The rows `status` keeps, from its flags, its caller, and the key `--agent` resolved to. */
 function statusScope(options: StatusOptions, caller: CallerScope, agentKey: string | undefined): FleetScope {
   return {
@@ -124,23 +77,11 @@ export async function readStatusResult(
   agentKey?: string,
 ): Promise<StatusResult> {
   const settings = services.settings.currentOrNull();
-  const hosts = settings === null ? {} : settings.hosts;
-  const scope = statusScope(options, caller, agentKey);
-  if (options.local || caller.kind !== "operator" || Object.keys(hosts).length === 0) {
-    const local = await localStatus(settings, services, options, scope);
-    return { ...local, host: false };
-  }
-  const localSnapshot = await localStatus(settings, services, options, scope);
-  const remoteResults = await remoteStatusResults(hosts, options.offline);
-  const rows = mergeRemoteStatusRows(localSnapshot.rows, remoteResults, scope);
-  const remote = remoteSummary(remoteResults);
-  return {
-    names: mergeNames([localSnapshot.names, remote.names]),
-    rows,
-    agentsSeen: localSnapshot.agentsSeen + remote.rows.length,
-    alive: localSnapshot.alive + remote.alive,
-    otherLive: localSnapshot.otherLive + remote.otherLive,
-    backendAnswered: localSnapshot.backendAnswered || remote.backendAnswered,
-    host: true,
-  };
+  const local = await localStatus(settings, services, options, statusScope(options, caller, agentKey));
+  return { ...local, host: spansHosts(local.rows) };
+}
+
+/** A fleet whose agents run on more than one host needs the HOST column to tell them apart. */
+function spansHosts(rows: readonly StatusRow[]): boolean {
+  return new Set(rows.flatMap((row) => row.host === undefined ? [] : [row.host])).size > 1;
 }

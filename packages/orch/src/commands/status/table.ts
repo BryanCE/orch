@@ -11,7 +11,6 @@ const DETACHED_ENVIRONMENT = "headless";
 
 /** Who drives the row, as the OWNER column says it: the holder's name, or why there is none. */
 export function ownerLabel(row: StatusRow, names: FleetNames): string | null {
-  if (row.warning) return null;
   if (row.lease === null) return NO_ORCH_DRIVER;
   if (!row.lease.holderAlive) return DEAD_HOLDER_DRIVER;
   return names.agents[row.lease.holderId] ?? row.lease.holderId;
@@ -59,19 +58,17 @@ function tableOptionalCells(row: StatusRow, names: FleetNames, flags: TableFlags
 }
 
 function localIdCell(row: StatusRow): string {
-  if (row.warning) return "-";
   return (row.agentId ?? row.key) + (row.focused ? "*" : "");
 }
 
 function environmentCell(row: StatusRow): string {
-  if (row.warning) return "-";
   const handle = row.paneId;
   if (handle === null || handle.startsWith("{")) return DETACHED_ENVIRONMENT;
   return handle;
 }
 
 function localNameCell(row: StatusRow, names: FleetNames, flags: TableFlags, callerId: string | null, ownsOthers: boolean): string {
-  const baseName = row.name ?? (row.warning ? "WARNING" : "");
+  const baseName = row.name ?? "";
   const name = callerNameLabel(baseName, row, callerId, ownsOthers);
   return flags.showSpace ? `${formatSpace(row.spaceId, row.spaceId ? names.spaces[row.spaceId] : null)} / ${name}` : name;
 }
@@ -110,7 +107,7 @@ function standardTableCells(row: StatusRow, names: FleetNames, flags: TableFlags
 }
 
 function tableRow(row: StatusRow, names: FleetNames, flags: TableFlags, host: boolean, callerId: string | null, ownsOthers: boolean): string[] {
-  const baseName = row.name ?? (row.warning ? "WARNING" : "-");
+  const baseName = row.name ?? "-";
   const name = callerNameLabel(baseName, row, callerId, ownsOthers);
   return flags.human
     ? humanTableCells(row, names, host, callerId, name)

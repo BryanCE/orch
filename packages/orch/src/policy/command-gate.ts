@@ -1,14 +1,16 @@
 // A locked or gated shell command runs only through `orch lock`, which asks orchd
 // before it starts. Each harness integration rewrites a matching command into that
 // wrapper; this module is the one place that decides what matches and how it wraps.
-import { join } from "node:path";
-import { packageRoot, shellQuote } from "../util.ts";
+import { orchEntrypoint, shellQuote } from "../util.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 /** Env var the wrapper exports to its child: the patterns an ancestor already holds. */
 export const HELD_LOCKS_ENV = "ORCH_HELD_LOCKS";
 
 const BOUNDARY = "[\\s;&|(){}'\"`]";
+/** Where a pattern may begin: a boundary, or a path separator, so a program run by its
+ *  full path (`/mnt/c/Windows/System32/OpenSSH/ssh.exe`) matches its bare name. */
+const PATTERN_START = "[\\s;&|(){}'\"`/\\\\]";
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -23,7 +25,7 @@ function patternWords(pattern: string): string {
 }
 
 function patternRegExp(pattern: string): RegExp {
-  return new RegExp(`(?:^|${BOUNDARY})${patternWords(pattern)}(?=$|${BOUNDARY})`);
+  return new RegExp(`(?:^|${PATTERN_START})${patternWords(pattern)}(?=$|${BOUNDARY})`);
 }
 
 function wholeCommandRegExp(pattern: string): RegExp {
@@ -57,11 +59,6 @@ export function gatedPatterns(settings: Pick<OrchSettings, "locked_commands" | "
 
 /** A command the agent already sent through `orch lock` itself. */
 const ASKED_LOCK = /^\s*orch\s+lock\s+--\s/;
-
-/** The installed orch entrypoint; its shebang names the declared runtime. */
-function orchEntrypoint(): string {
-  return join(packageRoot(), "dist", "bin", "orch.js");
-}
 
 /** The command line that runs `command` under the lock, or undefined when nothing matches. */
 export function lockedCommandLine(command: string, patterns: readonly string[]): string | undefined {

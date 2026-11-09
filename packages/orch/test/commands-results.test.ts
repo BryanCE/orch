@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
-import { formatAge, cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
+import { cmdQuestions, cmdResult, cmdTail, cmdSession } from "../src/commands/results.ts";
+import { formatAge } from "../src/format.ts";
 import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { seedLiveProcess } from "./helpers/agent.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
@@ -113,7 +114,7 @@ describe("commands/results", () => {
     const askedAt = Date.parse("2026-09-11T00:00:00.000Z");
     try {
       const output = await captureStdoutAsync(() => withQuestionsServer(root, [{ questionId: "q1", agentId: key, key, name: "question-agent", question: "need input", askedAt }], async () => {
-        await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--all", "--json"]);
+        await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all", "--json"]);
       }));
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key, name: "question-agent", space: "-", id: "q1", question: "need input", ts: "2026-09-11T00:00:00.000Z" })]);
@@ -134,14 +135,14 @@ describe("commands/results", () => {
       const output = await captureStdoutAsync(async () => {
         await withQuestionsServer(root, [
           { questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
-        ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--all", "--json"]); });
+        ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all", "--json"]); });
       });
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live" })]);
       const text = await captureStdoutAsync(async () => {
         await withQuestionsServer(root, [
           { questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
-        ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--all"]); });
+        ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all"]); });
       });
       expect(text).toMatch(/^-  \S+\nlive\n$/);
       expect(text).not.toContain("liveques01");
@@ -161,7 +162,7 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     try {
-      const refusal = await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--local", "--json"]).then(() => null, (failure: unknown) => errorMessage(failure));
+      const refusal = await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--json"]).then(() => null, (failure: unknown) => errorMessage(failure));
       expect(refusal).toContain("orch daemon unavailable");
     } finally {
       if (previousEntrypoint === undefined) delete process.env.ORCHD_ENTRYPOINT; else process.env.ORCHD_ENTRYPOINT = previousEntrypoint;

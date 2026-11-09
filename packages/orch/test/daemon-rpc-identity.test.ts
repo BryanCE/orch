@@ -26,7 +26,7 @@ function tempDir(): OrchDir {
 }
 
 function params(token: string, sessionToken: string): SessionClaim {
-  return { token, sessionToken, pid: process.pid, harness: "pi", cwd: process.cwd(), hostName: "test-host", hostOs: hostOs() };
+  return { token, sessionToken, pid: process.pid, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs() };
 }
 
 afterEach(async () => {

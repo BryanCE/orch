@@ -86,14 +86,21 @@ function isHostShell(value: string): value is HostShell {
 }
 
 /** The host entry `add` writes, from its flags. */
-function hostFromFlags(invocation: Invocation): HostSettings {
-  const dest = invocation.flags.value("--dest");
+/** The host as the flags state it, over what settings already hold for it: adding a host
+ *  again keeps its destination, port, shell and orch_dir unless a flag changes them. */
+function hostFromFlags(invocation: Invocation, saved: HostSettings | undefined): HostSettings {
+  const dest = invocation.flags.value("--dest") ?? saved?.dest;
   if (dest === undefined) throw usageError(invocation);
   const port = invocation.flags.value("--port");
   const shell = invocation.flags.value("--shell");
   if (port !== undefined && !/^[1-9][0-9]*$/.test(port)) die(`--port ${port} is not a port number`);
   if (shell !== undefined && !isHostShell(shell)) die(`--shell ${shell} is not one of ${HOST_SHELLS.join(", ")}`);
-  return { dest, ...(port === undefined ? {} : { port: Number(port) }), ...(shell === undefined ? {} : { shell }) };
+  return {
+    ...saved,
+    dest,
+    ...(port === undefined ? {} : { port: Number(port) }),
+    ...(shell === undefined ? {} : { shell }),
+  };
 }
 
 /** The line to put in authorized_keys on a host, and where it goes. */
@@ -168,7 +175,7 @@ async function addHost(services: Services, invocation: Invocation): Promise<void
   if (!process.stdin.isTTY) die("orch host add asks you to confirm the host's key; run it in a terminal.");
   const name = requiredWord(invocation, 0);
   if (!HOST_NAME.test(name)) die(`host name ${name} must be letters, digits, - and _`);
-  const stated = hostFromFlags(invocation);
+  const stated = hostFromFlags(invocation, services.settings.current().hosts[name]);
   const links = services.settings.current().links;
   const scan = presentedKeys(stated, links);
   process.stdout.write(`\n${stated.dest} presents:\n\n${scan.keys.map((key) => `  ${key.fingerprint}`).join("\n")}\n\n`);

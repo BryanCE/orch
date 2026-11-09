@@ -2,7 +2,18 @@ import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { hostname, release } from "node:os";
-import { HOST_OS_VALUES, type Host, type HostIdentity, type HostOs } from "./types/host.ts";
+import { HOST_OS_VALUES, type Host, type HostId, type HostIdentity, type HostOs } from "./types/host.ts";
+
+/** Whether a value is a host id: non-blank text with no surrounding space. */
+export function isHostId(value: unknown): value is HostId {
+  return typeof value === "string" && value.length > 0 && value.trim() === value;
+}
+
+/** The one mint for a host id: from this host's own identity, a stored row, or a wire value. */
+export function hostIdFrom(value: string): HostId {
+  if (!isHostId(value)) throw new Error(`not a host id: ${JSON.stringify(value)}`);
+  return value;
+}
 
 export function isHostOs(value: unknown): value is HostOs {
   return HOST_OS_VALUES.some((os) => os === value);
@@ -51,14 +62,20 @@ function linuxMachineId(): string | null {
   return null;
 }
 
-function windowsMachineId(): string | null {
-  const out = execFileSync("reg", ["query", "HKLM\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid"], { encoding: "utf8", windowsHide: true });
+/** Windows' machine id, read with `reg`: `reg` on Windows, `reg.exe` from inside WSL. */
+function windowsMachineId(command = "reg"): string | null {
+  const out = execFileSync(command, ["query", "HKLM\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid"], { encoding: "utf8", windowsHide: true });
   return /MachineGuid\s+REG_SZ\s+(\S+)/.exec(out)?.[1] ?? null;
 }
 
 function darwinMachineId(): string | null {
   const out = execFileSync("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], { encoding: "utf8" });
   return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(out)?.[1] ?? null;
+}
+
+/** A machine id as orch publishes it: hashed, so the raw id other software keys on never leaves the box. */
+function publishedHostId(machine: string): HostId {
+  return hostIdFrom(createHash("sha256").update(`orch-host:${machine}`).digest("hex").slice(0, 32));
 }
 
 function machineId(os: HostOs): string {
@@ -78,7 +95,25 @@ let identity: HostIdentity | undefined;
 export function hostIdentity(): HostIdentity {
   if (identity !== undefined) return identity;
   const os = hostOs();
-  const id = createHash("sha256").update(`orch-host:${machineId(os)}`).digest("hex").slice(0, 32);
+  const id = publishedHostId(machineId(os));
   identity = { id, name: isWsl() ? `${hostname()}-wsl` : hostname(), os };
   return identity;
+}
+
+let box: ReadonlySet<HostId> | undefined;
+
+/** The hosts whose processes the OS here answers for: this host, and from inside WSL the
+ *  Windows side of the same machine, whose pids WSL reaches through interop. Every other
+ *  host is somewhere else, reached over a link or not at all. */
+export function boxHostIds(): ReadonlySet<HostId> {
+  if (box !== undefined) return box;
+  const ids = new Set<HostId>([hostIdentity().id]);
+  if (isWsl()) {
+    try {
+      const windows = windowsMachineId("reg.exe");
+      if (windows !== null) ids.add(publishedHostId(windows));
+    } catch { /* interop off: the Windows side is not reachable from here */ }
+  }
+  box = ids;
+  return box;
 }

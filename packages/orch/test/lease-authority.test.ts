@@ -20,6 +20,7 @@ import { idleDaemonState } from "./helpers/daemon-state.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
 import { row } from "./helpers/rows.ts";
+import { hostIdentity } from "../src/host.ts";
 const dirs: OrchDir[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 afterEach(() => {
@@ -31,7 +32,7 @@ function fixture(): OrchDir {
   const dir = tempOrchDir("orch-lease-authority-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
-  ensureHost(dir, "host", "host", "linux", 1);
+  ensureHost(dir, hostIdentity(), 1);
   return dir;
 }
 
@@ -44,7 +45,7 @@ function live(dir: OrchDir, id: string, name = id): void {
   agent(dir, id, name);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
-  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${token})`);
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${hostIdentity().id},${process.pid},${token})`);
 }
 
 /** An agent with a recorded process that is provably NOT this process instance. */
@@ -54,7 +55,7 @@ function daemonState(directory: OrchDir) {
 
 function dead(dir: OrchDir, id: string, name = id): void {
   agent(dir, id, name);
-  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${"not-this-process-instance"})`);
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${hostIdentity().id},${process.pid},${"not-this-process-instance"})`);
 }
 
 // C3 - An orch can never touch another orch's agents: not their panes, not their
@@ -217,7 +218,7 @@ describe("C4e naming at creation", () => {
     const dir = fixture();
     const identity = getOrCreateSessionAgent(dir, {
       pid: process.pid, startToken: "token-a", sessionToken: "session-a", harnessId: "pi",
-      cwd: dir, label: "pi session", hostId: "host", hostName: "host", hostOs: "linux", now: 5,
+      cwd: dir, label: "pi session", host: hostIdentity(), now: 5,
     });
     const row = resolveTarget(dir, identity.id);
     expect(row.name).toBe(`pi-${identity.id.slice(0, 8)}`);
@@ -261,7 +262,7 @@ describe("C5 a transfer does not disturb the agent", () => {
     dead(dir, "old-orch");
     agent(dir, "new-orch");
     agent(dir, "worker", "worker", "old-orch");
-    orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"worker"},${1},${"host"},${424242},${"worker-token"})`);
+    orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"worker"},${1},${hostIdentity().id},${424242},${"worker-token"})`);
     const statusPath = join(presenceAgentDir("worker", dir), "status.json");
     mkdirSync(presenceAgentDir("worker", dir), { recursive: true });
     writeFileSync(statusPath, JSON.stringify({ state: "working", task: "keep me" }));

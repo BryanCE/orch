@@ -2,6 +2,7 @@ import type { OrchRuntime } from "../runtimes.ts";
 import type { AgentStatusRow } from "../store/status-rows.ts";
 import type { ServerReport } from "./backend.ts";
 import type { OrchDir } from "./core.ts";
+import type { HostedProcess } from "./process.ts";
 
 /** Shared result shape returned by doctor checks and adapter diagnostics. */
 export interface FixDescriptor {
@@ -60,7 +61,8 @@ export interface PlexerInventoryEntry {
 }
 
 export interface DeclaredVsRealityDependencies {
-  readonly processAlive: (pid: number, startToken: string | null) => boolean;
+  /** Whether a recorded process is alive, wherever it runs; unknown counts as alive. */
+  readonly processAlive: (orchDir: OrchDir, process: HostedProcess) => boolean;
   readonly plexerInventory: (plexerId: string) => readonly PlexerInventoryEntry[] | null;
   readonly agentStatus: (orchDir: OrchDir, id: string) => AgentStatusRow | undefined;
 }

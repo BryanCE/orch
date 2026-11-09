@@ -11,6 +11,8 @@ import * as tables from "../db/schema.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { recordedInstanceIsLive } from "../process-identity.ts";
 import { ensurePrivateDir, errorMessage, isRecord, packageRoot, reinstallCommand } from "../util.ts";
+import { localProcessOf } from "../local-process.ts";
+import { hostIdFrom } from "../host.ts";
 
 /** One open file: the drizzle handle every caller queries through, beside the
  *  driver it was built on. The driver is reached for exactly two things drizzle
@@ -90,6 +92,7 @@ function assertReturnArrays(client: DatabaseSync): void {
 
 interface LiveProcessRow {
   readonly agent_id: string;
+  readonly host_id: string;
   readonly pid: number;
   readonly start_token: string | null;
   readonly kind: string;
@@ -97,7 +100,7 @@ interface LiveProcessRow {
 
 function isLiveProcessRow(value: unknown): value is LiveProcessRow {
   if (!isRecord(value)) return false;
-  return typeof value.agent_id === "string" && typeof value.pid === "number"
+  return typeof value.agent_id === "string" && typeof value.host_id === "string" && typeof value.pid === "number"
     && (typeof value.start_token === "string" || value.start_token === null)
     && typeof value.kind === "string";
 }
@@ -149,12 +152,16 @@ export function livePresenceHolders(orchDir: OrchDir): LiveHolders {
   try {
     opened = createDatabase(databasePath(orchDir), true);
     const rows = opened.client.prepare(
-      "SELECT p.agent_id, p.pid, p.start_token, a.kind FROM agent_processes p JOIN agents a ON a.id = p.agent_id WHERE p.until IS NULL",
+      "SELECT p.agent_id, p.host_id, p.pid, p.start_token, a.kind FROM agent_processes p JOIN agents a ON a.id = p.agent_id WHERE p.until IS NULL",
     ).all();
     const workers: string[] = [];
     const registered: string[] = [];
     for (const row of rows) {
-      if (!isLiveProcessRow(row) || !recordedInstanceIsLive(row.pid, row.start_token)) continue;
+      if (!isLiveProcessRow(row)) continue;
+      // A process on another host is not the OS here's to answer for: it counts as live,
+      // because unknown is never dead.
+      const local = localProcessOf({ host: hostIdFrom(row.host_id), pid: row.pid, startToken: row.start_token });
+      if (local !== null && !recordedInstanceIsLive(local)) continue;
       (row.kind === "agent" ? workers : registered).push(row.agent_id);
     }
     return { workers, registered };

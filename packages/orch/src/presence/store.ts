@@ -14,9 +14,9 @@ import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-r
 import { forgetEchoes } from "../control/echo.ts";
 import { deleteSettledTasksOf } from "../store/task-rows.ts";
 import { deleteGrantsOf } from "../store/grant-rows.ts";
-import { currentProcess, currentProcesses, type ProcessRow } from "../store/interval-rows.ts";
-import { processLiveness } from "../process-liveness.ts";
-import { linkedHostIds } from "../store/host-rows.ts";
+import { currentProcess, currentProcesses, type StoredProcess } from "../store/interval-rows.ts";
+import { processLiveness } from "../process-place.ts";
+import { linkedHosts } from "../store/host-rows.ts";
 import { agents } from "../db/schema.ts";
 import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../store/status-rows.ts";
 import { latestResultTexts, onRunUpserted, settledDispatchIds } from "../store/run-rows.ts";
@@ -211,7 +211,7 @@ interface HeldPresence {
   readonly statuses: Map<string, AgentStatusRow>;
   readonly results: Map<string, string>;
   readonly settled: Set<string>;
-  readonly processes: Map<string, ProcessRow>;
+  readonly processes: Map<string, StoredProcess>;
   readonly liveness: Map<string, Liveness>;
 }
 
@@ -222,7 +222,7 @@ function heldPresence(root: OrchDir): HeldPresence {
   const existing = held.get(root);
   if (existing) return existing;
   const processes = currentProcesses(root);
-  const linked = linkedHostIds(root);
+  const linked = linkedHosts(root);
   const liveness = new Map<string, Liveness>();
   for (const [agentId, process] of processes) liveness.set(agentId, processLiveness(root, process, linked));
   const presence: HeldPresence = {
@@ -304,7 +304,7 @@ export function refreshProcess(root: OrchDir, agentId: string): void {
 export function probeAllProcesses(root: OrchDir): boolean {
   const current = held.get(root);
   if (!current) return false;
-  const linked = linkedHostIds(root);
+  const linked = linkedHosts(root);
   let changed = false;
   for (const [agentId, process] of current.processes) {
     const liveness = processLiveness(root, process, linked);

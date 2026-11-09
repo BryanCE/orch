@@ -7,7 +7,6 @@ import { orm } from "../../../store/connection.ts";
 import { agents } from "../../../db/schema.ts";
 import { agentById, childrenOf, liveAgents, renameAgent } from "../../../store/agent-rows.ts";
 import { adoptLease, currentLease, expireLease, leasesByOrch, releaseLease } from "../../../store/lease-rows.ts";
-import { recordedProcessIsLive } from "../../../store/interval-rows.ts";
 import { reapAgentRecord } from "../../../presence/store.ts";
 import { deriveDriveState, DEAD_HOLDER_DRIVER } from "../../../agent/drive-state.ts";
 import { assertValidAgentName } from "../../../policy/name.ts";
@@ -16,6 +15,7 @@ import type { AgentRow } from "../../../types/store.ts";
 import type { LeaseOptions, ReapCandidate, ReapCandidateInput, ReapOwnership } from "../../../types/command.ts";
 import type { Governance, ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { DaemonState } from "../state.ts";
+import { recordedProcessIsLive } from "../../../process-place.ts";
 
 /** The orch a lease verb acts as. A caller with no registered identity holds nothing. */
 function actorOrDie(params: Governance): string {

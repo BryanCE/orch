@@ -12,6 +12,7 @@ import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { askFrom, daemonClientForPeers } from "./helpers/daemon-client.ts";
 import { peerView } from "../src/daemon/server/peer-view.ts";
 import type { ParamsOf, ResultOf } from "../src/daemon/client/protocol.ts";
+import { testHost } from "./helpers/host.ts";
 
 const IDENTITY_ENV = [
   "ORCH_DIR",
@@ -94,7 +95,7 @@ describe("spawner provenance", () => {
     const orchDir = tempOrchDir();
     const session = getOrCreateSessionAgent(orchDir, {
       pid: 4242, startToken: "tok", sessionToken: "e2277e83-74d9", harnessId: "claude",
-      cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
+      cwd: "/w", label: "claude session", host: testHost("h", "h", "linux"), now: 1,
     });
     const key = "stamp0001a";
     seedSpace(orchDir, "wF");

@@ -7,11 +7,12 @@ import { processStartToken } from "../src/process-identity.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { HostGreeting } from "../src/types/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { testHost, hosted } from "./helpers/host.ts";
 
 const dirs: OrchDir[] = [];
 afterEach(() => { while (dirs.length) removeTempDir(dirs.pop()!); });
 
-const GREETING: HostGreeting = { host: { id: "far-host", name: "far", os: "linux" }, commit: "fa3f71f", version: "0.1.0" };
+const GREETING: HostGreeting = { host: testHost("far-host", "far"), commit: "fa3f71f", version: "0.1.0" };
 
 /** Serve a link in-process and collect every frame it writes back. */
 function served(): { send: (frame: HostFrame) => void; frames: () => Promise<HostFrame[]>; end: () => void } {
@@ -51,7 +52,7 @@ describe("orch host serve", () => {
   test("answers whether each process on this host is alive, by pid and start token, in order", async () => {
     const link = served();
     const startToken = processStartToken(process.pid) ?? null;
-    link.send({ kind: "request", id: 1, method: "alive", params: { processes: [{ pid: process.pid, startToken }, { pid: process.pid, startToken: "not-this-process" }] } });
+    link.send({ kind: "request", id: 1, method: "alive", params: { processes: [hosted(process.pid, startToken, GREETING.host.id), hosted(process.pid, "not-this-process", GREETING.host.id)] } });
     const frames = await link.frames();
     expect(frames).toContainEqual({ kind: "reply", id: 1, result: { alive: [true, false] } });
     link.end();
@@ -76,8 +77,8 @@ describe("orch host serve", () => {
     const exited = new Promise<NodeJS.Signals | null>((resolve) => { child.once("exit", (_code, signal) => resolve(signal)); });
     await new Promise((resolve) => setTimeout(resolve, 50));
     const link = served();
-    link.send({ kind: "request", id: 4, method: "signal", params: { pid, startToken: "not-this-instance" } });
-    link.send({ kind: "request", id: 5, method: "signal", params: { pid, startToken: processStartToken(pid) ?? null } });
+    link.send({ kind: "request", id: 4, method: "signal", params: hosted(pid, "not-this-instance", GREETING.host.id) });
+    link.send({ kind: "request", id: 5, method: "signal", params: hosted(pid, processStartToken(pid) ?? null, GREETING.host.id) });
     const frames = await link.frames();
     expect(frames).toContainEqual({ kind: "reply", id: 4, result: { outcome: "gone" } });
     expect(frames).toContainEqual({ kind: "reply", id: 5, result: { outcome: "signalled" } });

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { hostOs } from "../host.ts";
-import { processStartToken } from "../process-identity.ts";
+import { ownProcess } from "../local-process.ts";
 import { HELD_LOCKS_ENV, heldPatterns } from "../policy/command-gate.ts";
 import { sleep } from "../util.ts";
 import { askDaemon, readRpc } from "./daemon.ts";
@@ -59,13 +59,13 @@ export async function cmdLock(services: Services, args: string[]): Promise<void>
   const command = separator === -1 ? "" : args.slice(separator + 1).join(" ");
   if (invocation.positional.length || !command.trim()) throw usageError(invocation);
   const self = await whoAmI(services);
-  const startToken = processStartToken(process.pid) ?? null;
+  const lockProcess = ownProcess();
   const held = heldPatterns(process.env);
-  const taken = await awaitLock(services, { command, cwd: process.cwd(), pid: process.pid, startToken, agent: self.id, held, waitingSince: Date.now() });
+  const taken = await awaitLock(services, { command, cwd: process.cwd(), process: lockProcess, agent: self.id, held, waitingSince: Date.now() });
   try {
     process.exitCode = await runShell(command, [...held, ...taken]);
   } finally {
     // An unlock orchd never heard is stale once this process exits; the next taker replaces it.
-    if (taken.length) await askDaemon(services, "command-unlock", { pid: process.pid, startToken }).catch(() => undefined);
+    if (taken.length) await askDaemon(services, "command-unlock", { process: lockProcess }).catch(() => undefined);
   }
 }

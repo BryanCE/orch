@@ -62,7 +62,7 @@ export class FakePanedBackend implements Backend {
   private killed = false;
   readonly process: ProcessRole = new LocalProcessRole(() => process.pid, {
     isAlive: () => !this.killed,
-    signal: (pid, signal) => { this.signalled.push({ pid, signal }); this.killed = true; },
+    signal: (target, signal) => { this.signalled.push({ pid: target.pid, signal }); this.killed = true; },
   });
   readonly capture = createCaptureRole(envOrchDir());
   readonly placement: PlacementRole;

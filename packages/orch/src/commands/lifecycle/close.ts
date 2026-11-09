@@ -15,13 +15,14 @@ import { resolveLifecycle, targetName } from "../resolve.ts";
 import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
 import { usageError } from "../../cli/usage.ts";
-import type { Backend, BackendHandle, PlacementRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
+import type { Backend, BackendHandle, PlacementRole, ProcessRole, LocalProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
 import { STREAM_VERBS } from "../events.ts";
+import { localProcessOf, observedHere } from "../../local-process.ts";
 
 /** Whether the recorded process instance is still present after a close attempt.
  *  The environment that runs the process is the one asked whether it is gone. */
-function processRemains(role: ProcessRole, recorded: RecordedProcess): boolean {
+function processRemains(role: ProcessRole, recorded: LocalProcess): boolean {
   const exited = retryingSync(
     "await closed process",
     () => role.state(recorded) !== "alive",
@@ -45,12 +46,12 @@ async function endClosedAgent(services: CloseServices, key: string): Promise<str
 
 /** End a process that runs on a linked host: orchd sends the signal over that host's link,
  *  and the host checks the recorded instance before it signals. A pid here names nothing. */
-async function closeOverLink(services: CloseServices, target: CloseTarget & { readonly linkedHost: string }): Promise<CloseAttempt> {
+async function closeOverLink(services: CloseServices, target: CloseTarget, host: string): Promise<CloseAttempt> {
   try {
     const { outcome } = await askDaemon(services, "host-signal", { key: target.key }, hostCallTimeoutMs(services));
     return { failure: null, signalled: outcome === "signalled", closedByBackend: false, alreadyAbsent: outcome === "gone" };
   } catch (error: unknown) {
-    return { failure: `could not reach ${target.linkedHost} to end ${target.name}: ${errorMessage(error)}`, signalled: false, closedByBackend: false, alreadyAbsent: false };
+    return { failure: `could not reach ${host} to end ${target.name}: ${errorMessage(error)}`, signalled: false, closedByBackend: false, alreadyAbsent: false };
   }
 }
 
@@ -64,6 +65,12 @@ interface CloseOutcome {
 }
 
 
+/** A close target's recorded process, from where this close runs. */
+type RecordedHere =
+  | { readonly kind: "none" }
+  | { readonly kind: "here"; readonly process: LocalProcess }
+  | { readonly kind: "elsewhere"; readonly hostName: string };
+
 /** One agent a close was asked to end, with everything needed to end it. */
 interface CloseTarget {
   readonly backend: Backend | null;
@@ -71,9 +78,9 @@ interface CloseTarget {
   /** The current environment handle, or null when the pane interval is closed. */
   readonly handle: BackendHandle | null;
   readonly key: string;
-  readonly recorded: RecordedProcess | null;
-  /** The linked host the recorded process runs on; null when it runs here. */
-  readonly linkedHost: string | null;
+  /** Where the recorded process runs: here, where this close signals it itself, or on
+   *  another host, where only orchd over that host's link may. */
+  readonly recorded: RecordedHere;
   /** Whether a pane operation is meaningful here — false when the plexer no
    *  longer lists the handle (U1), so orch never asks it to close a lost pane. */
   readonly placeKnown: boolean;
@@ -93,7 +100,7 @@ interface CloseAttempt {
  *  until that same (pid, start_token) is gone, not until kill(2) is accepted.
  *  The signal goes through the environment's own process role — the same port
  *  that started the process — never a raw kill at this call site. */
-function closeByProcess(role: ProcessRole, recorded: RecordedProcess): CloseAttempt {
+function closeByProcess(role: ProcessRole, recorded: LocalProcess): CloseAttempt {
   try {
     role.kill(recorded, "SIGTERM");
   } catch (error: unknown) {
@@ -137,7 +144,7 @@ function stillListed(target: CloseTarget): string | null {
  *  carries what its own close needs, so the attempt re-derives nothing. */
 type CloseRoute =
   | { readonly kind: "pane"; readonly placer: PlacementRole; readonly handle: BackendHandle }
-  | { readonly kind: "process"; readonly role: ProcessRole; readonly recorded: RecordedProcess }
+  | { readonly kind: "process"; readonly role: ProcessRole; readonly recorded: LocalProcess }
   | { readonly kind: "none" };
 
 /** Whoever HOLDS the agent ends it: a placed agent's recorded process is the
@@ -147,8 +154,8 @@ function closeRoute(target: CloseTarget, placer: PlacementRole | null): CloseRou
     return { kind: "pane", placer, handle: target.handle };
   }
   const role = target.backend?.process ?? null;
-  const recorded = target.recorded;
-  if (recorded === null || role === null) return { kind: "none" };
+  if (target.recorded.kind !== "here" || role === null) return { kind: "none" };
+  const recorded = target.recorded.process;
   // A dead or recycled pid is the same answer as no record at all.
   return role.state(recorded) === "alive" ? { kind: "process", role, recorded } : { kind: "none" };
 }
@@ -178,7 +185,7 @@ function killEventStreams(): number {
     pids = execFileSync("pgrep", ["-f", `orch (${STREAM_VERBS.join("|")})`]).toString().trim().split("\n").filter(Boolean).map(Number);
   } catch { /* no stream running */ }
   const kill = pids.filter((pid) => !isOwnProcess(pid));
-  for (const pid of kill) { try { signalOtherProcess(pid, "SIGTERM"); } catch { /* already gone */ } }
+  for (const pid of kill) { try { signalOtherProcess(observedHere(pid, null), "SIGTERM"); } catch { /* already gone */ } }
   return kill.length;
 }
 
@@ -200,10 +207,9 @@ async function closeEachTarget(services: CloseServices, targets: readonly CloseT
     seen.add(target.key);
     const handle = target.handle === null ? null : describeHandle(target.handle);
     const name = target.name;
-    const linkedHost = target.linkedHost;
-    const { failure: processFailure, signalled, closedByBackend } = linkedHost === null
-      ? attemptClose(target)
-      : await closeOverLink(services, { ...target, linkedHost });
+    const { failure: processFailure, signalled, closedByBackend } = target.recorded.kind === "elsewhere"
+      ? await closeOverLink(services, target, target.recorded.hostName)
+      : attemptClose(target);
     const failure = processFailure ?? await endClosedAgent(services, target.key);
     if (failure !== null) {
       lifecycleLogger(logger, target.key).error("close.failed", { handle, error: failure });
@@ -238,11 +244,21 @@ function reportClose(
   if (requested && ok !== requested) process.exitCode = 1;
 }
 
+function recordedHere(wire: CloseTargetWire): RecordedHere {
+  if (wire.recorded === null) return { kind: "none" };
+  const local = localProcessOf(wire.recorded);
+  if (local !== null) return { kind: "here", process: local };
+  return { kind: "elsewhere", hostName: wire.hostName ?? wire.recorded.host };
+}
+
 function closeTargetOf(wire: CloseTargetWire): CloseTarget {
   return {
-    ...wire,
+    key: wire.key,
+    name: wire.name,
+    placeKnown: wire.placeKnown,
     backend: wire.backendId === null ? null : getBackend(wire.backendId) ?? null,
     handle: wire.handle,
+    recorded: recordedHere(wire),
   };
 }
 

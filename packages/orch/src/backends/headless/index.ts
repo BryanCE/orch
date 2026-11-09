@@ -15,10 +15,11 @@ import { hostIdentity } from "../../host.ts";
 import type { HostIdentity } from "../../types/host.ts";
 import type { SpawnRegistration } from "../../types/store.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
-import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
+import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole, LocalProcess } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
+import type { ProcessInstance } from "../../types/process.ts";
 
 const HEADLESS_BACKEND: BackendId = "headless";
 
@@ -133,7 +134,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly spaceHome = null;
   private readonly orchDir: OrchDir | undefined;
   private readonly isPidAlive: (pid: number) => boolean;
-  private readonly killer: (pid: number, signal: "SIGTERM") => void;
+  private readonly killer: (process: LocalProcess, signal: "SIGTERM") => void;
   readonly process: ProcessRole<HeadlessHandle>;
 
   /** Headless is a detached process; it needs no external binary. */
@@ -152,9 +153,9 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     this.killer = deps.killer ?? signalOtherProcess;
     this.process = new LocalProcessRole<HeadlessHandle>(headlessPid, {
       isAlive: this.isPidAlive,
-      signal: (pid, signal) => {
-        if (signal === "SIGTERM") this.killer(pid, signal);
-        else signalOtherProcess(pid, signal);
+      signal: (process, signal) => {
+        if (signal === "SIGTERM") this.killer(process, signal);
+        else signalOtherProcess(process, signal);
       },
     });
   }
@@ -168,7 +169,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
 
   /** Start the adapter's restricted worker command detached, redirecting output to a log,
    *  and record nothing: the caller records it, here or on the host that asked for it. */
-  launch(adapter: AgentAdapter, opts: BackendSpawnOpts): { readonly handle: HeadlessHandle; readonly process: RecordedProcess } {
+  launch(adapter: AgentAdapter, opts: BackendSpawnOpts): { readonly handle: HeadlessHandle; readonly process: LocalProcess } {
     const directory = orchDirectory(opts.orchDir);
     // The caller mints the serialized identity BEFORE launch (one key per agent)
     // and passes it via LAUNCH_ENV; the backend never mints a second one. The
@@ -272,7 +273,7 @@ export const headlessBackend = new HeadlessBackend();
 
 /** The record of a headless agent: launched here, or on the host that launched it for this
  *  orchd. `launched` is its handle as recorded and its process; `host` is where that runs. */
-export function headlessRegistration(harnessId: string, key: string, opts: BackendSpawnOpts, launched: { readonly handle: string; readonly process: RecordedProcess }, host: HostIdentity): SpawnRegistration {
+export function headlessRegistration(harnessId: string, key: string, opts: BackendSpawnOpts, launched: { readonly handle: string; readonly process: ProcessInstance }, host: HostIdentity): SpawnRegistration {
   return {
     key,
     harnessId,

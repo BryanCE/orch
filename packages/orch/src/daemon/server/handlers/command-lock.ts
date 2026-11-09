@@ -1,13 +1,13 @@
 // orchd's answer to `orch lock`: refuse a gated command no human approved, make a
 // locked one wait while a live process holds its pattern, else take every pattern
 // at once so two wrappers can never each hold half of what the other needs.
-import { recordedInstanceIsLive } from "../../../process-identity.ts";
+import { processLiveness } from "../../../process-place.ts";
 import { matchedPatterns, wholeCommandMatch } from "../../../policy/command-gate.ts";
 import { agentById } from "../../../store/agent-rows.ts";
 import { isAgentState } from "../../../agent-state.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { presenceEntry, recordAgentStatus } from "../../../presence/store.ts";
-import { releaseCommandLocks, selectCommandLocks, takeCommandLocks, type CommandLockRow } from "../../../store/command-lock-rows.ts";
+import { lockHolder, releaseCommandLocks, selectCommandLocks, takeCommandLocks, type CommandLockRow } from "../../../store/command-lock-rows.ts";
 import { grantIsApproved, requestGrant, spendGrant } from "../../../store/grant-rows.ts";
 import { transitionEventFromRow } from "../status-events.ts";
 import type { AgentState } from "../../../agent-state.ts";
@@ -24,7 +24,8 @@ type LockSettings = Pick<OrchSettings, "locked_commands" | "gated_commands" | "d
 type Publish = (event: NotifyEvent) => void;
 
 function heldBy(params: LockParams): (row: CommandLockRow) => boolean {
-  return (row) => row.pid === params.pid && row.startToken === params.startToken;
+  const { host, pid, startToken } = params.process;
+  return (row) => row.hostId === host && row.pid === pid && row.startToken === startToken;
 }
 
 function holderName(directory: OrchDir, row: CommandLockRow): string {
@@ -90,13 +91,14 @@ export function lockCommand(directory: OrchDir, settings: LockSettings, params: 
   const wanted = wantedPatterns(directory, settings.locked_commands, params, agent);
   const rows = selectCommandLocks(directory, wanted);
   const own = heldBy(params);
-  const blocking = rows.find((row) => !own(row) && recordedInstanceIsLive(row.pid, row.startToken));
+  // A holder on a host orch cannot ask right now still holds: unknown is never dead.
+  const blocking = rows.find((row) => !own(row) && processLiveness(directory, lockHolder(row)) !== "dead");
   const waitedMs = Date.now() - params.waitingSince;
   if (blocking) return blockedVerdict(directory, settings.timeouts.lock_wait_ms, waitedMs, blocking, agent, publish);
 
   const acquiredAt = Date.now();
   const fresh = wanted.filter((pattern) => !rows.some((row) => row.pattern === pattern && own(row)));
-  const taken = fresh.map((pattern) => ({ pattern, pid: params.pid, startToken: params.startToken, agentId: agent, command: params.command, acquiredAt }));
+  const taken = fresh.map((pattern) => ({ pattern, hostId: params.process.host, pid: params.process.pid, startToken: params.process.startToken, agentId: agent, command: params.command, acquiredAt }));
   takeCommandLocks(directory, taken, rows.filter((row) => !own(row)).map((row) => row.pattern));
   if (gated) spendGrant(directory, action, agent);
   if (agent !== null && stateOf(directory, agent) === "waiting") moveAgent(directory, agent, "waiting", "working", `got "${wanted.join('", "')}" after ${seconds(waitedMs)}`, publish);
@@ -104,6 +106,6 @@ export function lockCommand(directory: OrchDir, settings: LockSettings, params: 
 }
 
 export function unlockCommand(directory: OrchDir, params: ParamsOf<"command-unlock">): ResultOf<"command-unlock"> {
-  releaseCommandLocks(directory, params.pid, params.startToken);
+  releaseCommandLocks(directory, params.process);
   return { ok: true };
 }

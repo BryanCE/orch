@@ -7,8 +7,8 @@ import type { OrchDir } from "../types/core.ts";
 // the in-harness peer listing all read the same lease facts from the same
 // place — a second copy would be a second truth about who owns an agent.
 import { agentView } from "../store/agent-view.ts";
-import { currentProcesses, recordedProcessIsLive, type ProcessRow } from "../store/interval-rows.ts";
-import { processLiveness } from "../process-liveness.ts";
+import { currentProcesses, type StoredProcess } from "../store/interval-rows.ts";
+import { processLiveness, recordedProcessIsLive } from "../process-place.ts";
 import type { DriveState, DriveStateOptions } from "../types/agent.ts";
 import type { AgentView } from "../types/store.ts";
 
@@ -62,7 +62,7 @@ export function storeLeaseFacts(directory: OrchDir): LeaseFacts {
  *  open processes read once, and each holder's liveness asked once. */
 export function fleetLeaseFacts(directory: OrchDir, views: ReadonlyMap<string, AgentView>): LeaseFacts {
   // Read on the first holder asked about: a fleet with no lease opens no store.
-  let processes: ReadonlyMap<string, ProcessRow> | undefined;
+  let processes: ReadonlyMap<string, StoredProcess> | undefined;
   const holderLiveness = new Map<string, boolean>();
   const holderAlive = (holderId: string): boolean => {
     const known = holderLiveness.get(holderId);

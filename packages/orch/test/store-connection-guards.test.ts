@@ -11,6 +11,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent, seedLiveProcess, seedOperator } from "./helpers/agent.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
+import { testHost } from "./helpers/host.ts";
 const dirs: OrchDir[] = [];
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
@@ -180,7 +181,7 @@ describe("a slave never reaps or recreates the store", () => {
     if (token === undefined) throw new Error("test process has no start token");
     const session = getOrCreateSessionAgent(dir, {
       pid: process.pid, startToken: token, sessionToken: "guard-session", harnessId: "pi", cwd: process.cwd(),
-      label: "pi session", hostId: "test-host", hostName: "test-host", hostOs: "linux", now: 1,
+      label: "pi session", host: testHost("test-host", "test-host", "linux"), now: 1,
     }).id;
 
     const holders = livePresenceHolders(dir);

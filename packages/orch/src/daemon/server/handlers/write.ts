@@ -18,13 +18,13 @@ import { isAgentGone } from "../../../control/agent-gone.ts";
 import { bridgeAttached } from "../../../control/bridge-links.ts";
 import { isOutboxPayload } from "../../../control/bridge-message.ts";
 import { agentView } from "../../../store/agent-view.ts";
-import { agentProcessLive } from "../../../store/interval-rows.ts";
 import { leaseHolderIsAlive } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import type { Governance, ParamsOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
 import type { OutboxDelivery, OutboxDeps } from "../../../types/daemon.ts";
 import { pendingQuestion, settleQuestion } from "../../../store/question-rows.ts";
+import { recordedProcessIsLive } from "../../../process-place.ts";
 
 /** Build the event carrying mail for a live session with no bridge route. */
 function sessionMessageEvent(directory: OrchDir, key: string, id: string, text: string): NotifyEvent {
@@ -50,7 +50,7 @@ function sessionMessageEvent(directory: OrchDir, key: string, id: string, text: 
  *  never touched; a dead target has no stream, so the write is gone. */
 function deliverToSessionStream(state: DaemonState, target: string, action: string, id: string, text: string, log: Logger): OutboxDelivery {
   const directory = state.directory;
-  if (!agentProcessLive(directory, target)) {
+  if (!recordedProcessIsLive(directory, target)) {
     log.warn("dispatch.gone", { target, reason: "no delivery route" });
     return "gone";
   }

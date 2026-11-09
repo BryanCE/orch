@@ -4,6 +4,7 @@ import { callerSession } from "../../adapters/session-env.ts";
 import type { CallerSession } from "../../types/core.ts";
 import { OPERATOR_HARNESS_ID } from "../../identity/operator.ts";
 import { sessionProcessPid } from "../../identity/credential.ts";
+import { processStartToken } from "../../process-identity.ts";
 import { detectPlexer } from "../../backends/detect.ts";
 import { endpointPaths } from "./wire.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";
@@ -61,10 +62,11 @@ export function sessionClaim(orchDir: OrchDir, label?: string, harnessSession?: 
   const harness = harnessSession?.harness ?? configuredHarness ?? session?.harnessId ?? OPERATOR_HARNESS_ID;
   const sessionToken = harnessSession?.sessionToken ?? session?.sessionId ?? null;
   const environment = callerEnvironment();
-  const host = hostIdentity();
+  const pid = harnessSession?.pid ?? sessionProcessPid(session);
   return {
     token,
-    pid: harnessSession?.pid ?? sessionProcessPid(session),
+    pid,
+    startToken: processStartToken(pid) ?? null,
     sessionToken,
     harness,
     cwd: process.cwd(),
@@ -73,8 +75,6 @@ export function sessionClaim(orchDir: OrchDir, label?: string, harnessSession?: 
     plexerVersion: environment.plexerVersion,
     handle: environment.handle,
     space: nonEmpty(process.env.ORCH_SPACE?.trim()) ?? null,
-    hostId: host.id,
-    hostName: host.name,
-    hostOs: host.os,
+    host: hostIdentity(),
   };
 }

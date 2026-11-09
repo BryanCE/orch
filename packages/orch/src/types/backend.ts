@@ -207,18 +207,13 @@ export interface StartRequest {
   readonly detached?: boolean;
 }
 
-/** Process identity returned at launch; pid alone is never sufficient. */
-export interface StartedProcess {
-  readonly pid: number;
-  readonly startToken: string;
-}
+/** Process identity returned at launch, here, with the start token that proves it. */
+export type StartedProcess = LocalProcess & { readonly startToken: string };
 
-/** Process identity recorded for a running agent. */
-export interface RecordedProcess {
-  readonly pid: number;
-  /** Proof this pid is still the instance orch launched; null when the OS would not say. */
-  readonly startToken: string | null;
-}
+/** A process environment roles start, probe and signal: always one the OS on this box
+ *  answers for. A recorded process reaches a role only after `placeProcess` says it is local. */
+import type { LocalProcess } from "./process.ts";
+export type { LocalProcess };
 
 export type ProcessState = "alive" | "dead" | "replaced";
 
@@ -226,9 +221,9 @@ export interface ProcessRole<Handle = BackendHandle> {
   start(request: StartRequest): StartedProcess;
   /** The process the agent at this handle runs in: a place's shell, a detached
    *  harness, whatever this environment knows its own handle to run. */
-  running(handle: Handle): RecordedProcess;
-  state(process: RecordedProcess): ProcessState;
-  kill(process: RecordedProcess, signal: NodeJS.Signals): void;
+  running(handle: Handle): LocalProcess;
+  state(process: LocalProcess): ProcessState;
+  kill(process: LocalProcess, signal: NodeJS.Signals): void;
 }
 
 
@@ -462,7 +457,7 @@ export interface LocalProcessRoleDeps {
   readonly isAlive?: (pid: number) => boolean;
   readonly startToken?: (pid: number) => string | undefined;
   readonly spawn?: (request: StartRequest) => StartedProcess;
-  readonly signal?: (pid: number, signal: NodeJS.Signals) => void;
+  readonly signal?: (process: LocalProcess, signal: NodeJS.Signals) => void;
 }
 
 /** One attempt of one external tool command, as the exec seam saw it. */

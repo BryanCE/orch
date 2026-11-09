@@ -6,6 +6,7 @@ import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
 import { orm, withTransaction } from "./connection.ts";
 import type { SpawnRegistration } from "../types/store.ts";
+import type { HostId } from "../types/host.ts";
 
 /**
  * Write the normalized agent model for one successfully spawned process.
@@ -33,7 +34,7 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
   if (input.space !== undefined) requireSpace(directory, input.space);
   ensureHarness(directory, input.harnessId, input.harnessId, now);
   const host = input.host;
-  ensureHost(directory, host.id, host.name, host.os, now);
+  ensureHost(directory, host, now);
   // The plexer is STATED, never derived from whether a pane exists: a headless
   // agent runs in the headless plexer just as truly as a herdr agent runs in
   // herdr, and a capless agent states none. Deriving it from `pane` is what
@@ -62,10 +63,10 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
 
 /** Every environment axis a spawn states, each on its own interval table:
  *  plexer, handle, process, space, tuning, worktree. */
-function writeEnvironment(directory: OrchDir, agentId: string, now: number, host: string, input: SpawnRegistration): void {
+function writeEnvironment(directory: OrchDir, agentId: string, now: number, host: HostId, input: SpawnRegistration): void {
   if (input.backendId !== undefined) setAgentPlexer(directory, agentId, input.backendId);
   if (input.handle !== undefined) setHandle(directory, agentId, now, input.handle);
-  recordProcess(directory, agentId, now, { hostId: host, pid: input.process.pid, startToken: input.process.startToken });
+  recordProcess(directory, agentId, now, { host, pid: input.process.pid, startToken: input.process.startToken });
   // The space is an axis in its own right, on its own timeline: an agent can be
   // moved between spaces without touching the plexer it sits in, and neither is
   // part of the identity that named it. Writing the plexer here and leaving the

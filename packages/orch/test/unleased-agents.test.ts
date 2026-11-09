@@ -7,6 +7,7 @@ import { orphanAgents } from "../src/policy/orphan.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
+import { hostIdentity } from "../src/host.ts";
 const directories: OrchDir[] = [];
 
 afterEach(() => {
@@ -17,7 +18,7 @@ afterEach(() => {
 function sessionRow(orchDir: OrchDir, pid: number, startToken: string, sessionToken: string | null): string {
   return getOrCreateSessionAgent(orchDir, {
     pid, startToken, sessionToken, harnessId: "pi", cwd: "/repo", label: "session",
-    hostId: "host", hostName: "host", hostOs: "linux", now: 2,
+    host: hostIdentity(), now: 2,
   }).id;
 }
 

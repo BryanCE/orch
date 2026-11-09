@@ -10,6 +10,8 @@ import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { testHost } from "./helpers/host.ts";
+import { hostIdFrom } from "../src/host.ts";
 /**
  * What is possible changes when WHAT IS THERE changes: a move (a new environment
  * record) or an upgrade (a new `host_plexers` row).
@@ -99,32 +101,32 @@ describe("the environment dictates what is possible, and nothing negotiates it (
 
   test("an UPGRADE is a NEW host_plexers row, not an overwrite of the old one", () => {
     const dir = fixture();
-    ensureHost(dir, "host0001", "host0001", "linux", 1);
+    ensureHost(dir, testHost("host0001", "host0001", "linux"), 1);
     ensurePlexer(dir, "herdr", "herdr");
-    ensureHostPlexer(dir, "host0001", "herdr", "0.9.0", 10);
+    ensureHostPlexer(dir, hostIdFrom("host0001"), "herdr", "0.9.0", 10);
 
-    ensureHostPlexer(dir, "host0001", "herdr", "1.0.0", 20);
+    ensureHostPlexer(dir, hostIdFrom("host0001"), "herdr", "1.0.0", 20);
 
-    const rows = hostPlexers(dir, "host0001", "herdr");
+    const rows = hostPlexers(dir, hostIdFrom("host0001"), "herdr");
     expect(rows).toEqual([
-      { hostId: "host0001", plexerId: "herdr", since: 10, until: 20, version: "0.9.0" },
-      { hostId: "host0001", plexerId: "herdr", since: 20, until: null, version: "1.0.0" },
+      { hostId: hostIdFrom("host0001"), plexerId: "herdr", since: 10, until: 20, version: "0.9.0" },
+      { hostId: hostIdFrom("host0001"), plexerId: "herdr", since: 20, until: null, version: "1.0.0" },
     ]);
   });
 
   test("re-declaring the SAME version is not an upgrade and opens no second row", () => {
     const dir = fixture();
-    ensureHost(dir, "host0002", "host0002", "linux", 1);
+    ensureHost(dir, testHost("host0002", "host0002", "linux"), 1);
     ensurePlexer(dir, "herdr", "herdr");
-    ensureHostPlexer(dir, "host0002", "herdr", "1.0.0", 10);
+    ensureHostPlexer(dir, hostIdFrom("host0002"), "herdr", "1.0.0", 10);
 
-    ensureHostPlexer(dir, "host0002", "herdr", "1.0.0", 20);
+    ensureHostPlexer(dir, hostIdFrom("host0002"), "herdr", "1.0.0", 20);
 
     // `one_install` admits exactly one open row. A hello that re-states what is
     // already true must not churn the interval, or every registration would read
     // as a fresh install.
-    expect(hostPlexers(dir, "host0002", "herdr")).toEqual([
-      { hostId: "host0002", plexerId: "herdr", since: 10, until: null, version: "1.0.0" },
+    expect(hostPlexers(dir, hostIdFrom("host0002"), "herdr")).toEqual([
+      { hostId: hostIdFrom("host0002"), plexerId: "herdr", since: 10, until: null, version: "1.0.0" },
     ]);
   });
 

@@ -10,7 +10,10 @@ import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
 import { FakePanedBackend, withRegisteredBackend } from "./helpers/backend.ts";
+import type { HostedProcess } from "../src/types/process.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { hostIdentity } from "../src/host.ts";
+import { ensureHost } from "../src/store/agent-rows.ts";
 const directories: OrchDir[] = [];
 function fixture(): OrchDir {
   const dir = tempOrchDir("orch-doctor-reality-");
@@ -24,11 +27,12 @@ function agent(dir: OrchDir, id: string, spawnedBy: string | null = null): void 
   orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,spawned_by,created_at,kind) VALUES (${id},${spawnedBy ?? id},${"pi"},${dir},${id},${spawnedBy},${1},${"agent"})`);
 }
 function recordProcess(dir: OrchDir, id: string, pid: number, token: string | null): void {
-  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${pid},${token})`);
+  ensureHost(dir, hostIdentity(), 1);
+  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${hostIdentity().id},${pid},${token})`);
 }
 
 const testDependencies = {
-  processAlive: (pid: number) => pid === process.pid,
+  processAlive: (_orchDir: OrchDir, recorded: HostedProcess) => recorded.pid === process.pid,
   plexerInventory: () => [],
   agentStatus: () => undefined,
 };

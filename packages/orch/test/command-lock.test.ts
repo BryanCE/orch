@@ -14,12 +14,14 @@ import type { OrchDir } from "../src/types/core.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { Role } from "../src/types/policy.ts";
 import type { ParamsOf, ResultOf } from "../src/daemon/client/protocol.ts";
+import { hosted, testHost } from "./helpers/host.ts";
+import { hostIdFrom } from "../src/host.ts";
 
 const dirs: OrchDir[] = [];
 const DENIED: Role[] = ["slave"];
 const EVERY_AGENT: Role[] = ["orch", "slave"];
 const SETTINGS = { locked_commands: { commands: ["bun test"], applies_to: EVERY_AGENT }, gated_commands: ["git push"], denied_commands: { commands: ["bun check"], applies_to: DENIED }, timeouts: { lock_wait_ms: 180_000 } };
-const LIVE = { pid: process.pid, startToken: processStartToken(process.pid) ?? null };
+const LIVE = hosted(process.pid, processStartToken(process.pid) ?? null);
 
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
@@ -32,7 +34,7 @@ function tempDir(): OrchDir {
 }
 
 function request(command: string, pid: number, startToken: string | null = "caller", held: string[] = []): ParamsOf<"command-lock"> {
-  return { command, cwd: "/repo", pid, startToken, agent: null, held, waitingSince: Date.now() };
+  return { command, cwd: "/repo", process: hosted(pid, startToken), agent: null, held, waitingSince: Date.now() };
 }
 
 function lock(dir: OrchDir, params: ParamsOf<"command-lock">, events: NotifyEvent[] = []): ResultOf<"command-lock"> {
@@ -53,7 +55,7 @@ describe("command-lock", () => {
     const dir = tempDir();
     expect(lock(dir, request("bun test a.ts", LIVE.pid, LIVE.startToken))).toEqual({ verdict: "run", patterns: ["bun test"] });
     expect(selectCommandLocks(dir, ["bun test"])).toHaveLength(1);
-    unlockCommand(dir, LIVE);
+    unlockCommand(dir, { process: LIVE });
     expect(selectCommandLocks(dir, ["bun test"])).toHaveLength(0);
   });
 
@@ -65,7 +67,7 @@ describe("command-lock", () => {
 
   test("a lock whose holder is gone is replaced", () => {
     const dir = tempDir();
-    takeCommandLocks(dir, [{ pattern: "bun test", pid: 999_999, startToken: "gone", agentId: null, command: "bun test", acquiredAt: 1 }], []);
+    takeCommandLocks(dir, [{ pattern: "bun test", hostId: LIVE.host, pid: 999_999, startToken: "gone", agentId: null, command: "bun test", acquiredAt: 1 }], []);
     expect(lock(dir, request("bun test", 2))).toEqual({ verdict: "run", patterns: ["bun test"] });
     expect(selectCommandLocks(dir, ["bun test"])[0]?.pid).toBe(2);
   });
@@ -81,8 +83,8 @@ describe("command-lock", () => {
     const refused = lock(dir, request("git push", 2));
     if (refused.verdict !== "refused") throw new Error("expected a refusal");
     expect(lock(dir, request("git push", 2))).toEqual(refused);
-    ensureHost(dir, "host", "host", hostOs(), Date.now());
-    approveGrantRequest(dir, refused.requestId, "host");
+    ensureHost(dir, testHost("host", "host", hostOs()), Date.now());
+    approveGrantRequest(dir, refused.requestId, hostIdFrom("host"));
     expect(lock(dir, request("git push", 2))).toEqual({ verdict: "run", patterns: [] });
     expect(lock(dir, request("git push", 2)).verdict).toBe("refused");
   });
@@ -144,7 +146,7 @@ describe("command-lock", () => {
     const dir = tempDir();
     const agent = waitingAgent(dir);
     lock(dir, { ...request("bun test", 2), agent });
-    unlockCommand(dir, LIVE);
+    unlockCommand(dir, { process: LIVE });
     const events: NotifyEvent[] = [];
     expect(lock(dir, { ...request("bun test", 2), agent }, events).verdict).toBe("run");
     expect(selectAgentStatus(dir, agent)?.state).toBe("working");

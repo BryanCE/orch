@@ -12,6 +12,7 @@ import { roleOf } from "../src/policy/vocabulary.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { sql } from "drizzle-orm";
+import { testHost } from "./helpers/host.ts";
 
 /**
  * A pack starts at ONE member, a registered session is an orch of a pack of one.
@@ -42,7 +43,7 @@ describe("a pack is the provenance root", () => {
     withStore((directory) => {
       const session = getOrCreateSessionAgent(directory, {
         pid: 4242, startToken: "tok", sessionToken: "sess-1", harnessId: "claude",
-        cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
+        cwd: "/w", label: "claude session", host: testHost("h", "h", "linux"), now: 1,
       });
 
       // Rule 11: an orch IS an agent. A session that has registered is the root

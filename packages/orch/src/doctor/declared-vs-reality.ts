@@ -1,7 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { existsSync } from "node:fs";
 import { getBackend } from "../backends/registry.ts";
-import { recordedInstanceIsLive } from "../process-identity.ts";
+import { processLiveness } from "../process-place.ts";
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { databasePath, orm } from "../store/connection.ts";
 import { agentEndings, agentHandles, agentLeases, agentPlexers, agentProcesses, agents } from "../db/schema.ts";
@@ -12,7 +12,7 @@ import { selectAgentStatus } from "../store/status-rows.ts";
 import type { CheckResult, DeclaredVsRealityDependencies, PlexerInventoryEntry } from "../types/doctor.ts";
 
 const DEFAULT_DEPENDENCIES: DeclaredVsRealityDependencies = {
-  processAlive: recordedInstanceIsLive,
+  processAlive: (orchDir, process) => processLiveness(orchDir, process) !== "dead",
   plexerInventory: defaultInventory,
   agentStatus: selectAgentStatus,
 };
@@ -21,7 +21,7 @@ const DEFAULT_DEPENDENCIES: DeclaredVsRealityDependencies = {
  *  a stated reality, which is the whole point of comparing declared to real. */
 function recordedProcessAlive(orchDir: OrchDir, agentId: string, dependencies: DeclaredVsRealityDependencies): boolean {
   const row = currentProcess(orchDir, agentId);
-  return row !== undefined && dependencies.processAlive(row.pid, row.startToken);
+  return row !== undefined && dependencies.processAlive(orchDir, row);
 }
 
 function defaultInventory(plexerId: string): readonly PlexerInventoryEntry[] {

@@ -8,7 +8,7 @@ import { pendingQuestion } from "../../store/question-rows.ts";
 import { loadPresence, spawnedRecords } from "../../presence/store.ts";
 import { selfId, spaceOfAgent } from "../../identity/self.ts";
 import { callerKind } from "../../policy/caller.ts";
-import { currentProcesses, type ProcessRow } from "../../store/interval-rows.ts";
+import { currentProcesses, type StoredProcess } from "../../store/interval-rows.ts";
 import { hostById } from "../../store/agent-rows.ts";
 import { fleetNames, statusRowFromEntity, type RowProcess } from "./rows.ts";
 import type { CallerScope } from "./options.ts";
@@ -35,12 +35,12 @@ interface FleetStatusOptions {
 
 /** Each agent row's open process, read once on the first row that has one, so a fleet with no rows opens no store. */
 function processLookup(directory: OrchDir, views: ReadonlyMap<string, AgentView>): (agentId: string) => RowProcess | undefined {
-  let processes: ReadonlyMap<string, ProcessRow> | undefined;
+  let processes: ReadonlyMap<string, StoredProcess> | undefined;
   return (agentId) => {
     if (!views.has(agentId)) return undefined;
     processes ??= currentProcesses(directory);
     const process = processes.get(agentId);
-    return process && { pid: process.pid, host: hostById(directory, process.hostId)?.name };
+    return process && { pid: process.pid, host: hostById(directory, process.host)?.name };
   };
 }
 

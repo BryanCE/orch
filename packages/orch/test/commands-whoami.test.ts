@@ -9,6 +9,7 @@ import { captureStdout } from "./helpers/stdout.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import type { ResultOf } from "../src/daemon/client/protocol.ts";
+import { testHost } from "./helpers/host.ts";
 
 /** whoami prints everything orchd holds for this caller, beside the credential it sent. */
 
@@ -27,7 +28,7 @@ async function whoami(self: ResultOf<"self">, args: string[] = []): Promise<stri
 
 function storedFor(pid: number): NonNullable<ResultOf<"self">["stored"]> {
   return {
-    process: { pid, startToken: "1", since: 0, host: { id: "host", name: "BRYAN-SWE", os: "linux" }, liveness: "alive" },
+    process: { pid, startToken: "1", since: 0, host: testHost("host", "BRYAN-SWE"), liveness: "alive" },
     sessionToken: null,
     claimedAt: null,
   };

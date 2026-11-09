@@ -12,10 +12,15 @@ export interface Host { readonly os: HostOs; readonly wsl: boolean; }
 export const HOST_SHELLS = ["posix", "wsl", "windows"] as const;
 export type HostShell = (typeof HOST_SHELLS)[number];
 
+/** Which machine, by the id its own OS mints. Minted only by `hostIdFrom` in `src/host.ts`,
+ *  which every boundary (this host's own identity, a stored row, a wire value) goes
+ *  through, so a bare string can never stand in for one. */
+export type HostId = string & { readonly __brand: "HostId" };
+
 /** Which machine a process runs on. The id is the OS's own machine id, hashed: two
  *  machines that share a hostname never merge, and the Windows and WSL sides of one
  *  box are two hosts, because each OS mints its own. The name is for people. */
-export interface HostIdentity { readonly id: string; readonly name: string; readonly os: HostOs; }
+export interface HostIdentity { readonly id: HostId; readonly name: string; readonly os: HostOs; }
 
 /** What the far end of a host link says first: which host it is, and which orch build
  *  answers there. */
@@ -42,7 +47,7 @@ export interface HostLinkView {
   readonly dest: string;
   readonly state: HostLinkStateKind;
   /** The id this name is bound to; null until the host first answered. */
-  readonly hostId: string | null;
+  readonly hostId: HostId | null;
   readonly greeting: HostGreeting | null;
   readonly reason: string | null;
   /** When the far side last answered, over any link this or an earlier orchd held. */

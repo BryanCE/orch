@@ -9,6 +9,7 @@ import { hostOsOf } from "../src/host.ts";
 import { isRecord } from "../src/util.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { testHost } from "./helpers/host.ts";
 
 const dirs: OrchDir[] = [];
 const packageRoot = join(import.meta.dir, "..");
@@ -31,7 +32,7 @@ describe("one spelling per shared fact", () => {
     expect(hostOsOf("linux")).toBe("linux");
     expect(hostOsOf("win32")).toBe(hostOsOf("win32"));
 
-    ensureHost(directory, "host", "Host", hostOsOf("win32"), 1);
+    ensureHost(directory, testHost("host", "Host", hostOsOf("win32")), 1);
     const stored = orm(directory).select({ os: hosts.os }).from(hosts).get();
     expect(stored?.os).toBe("windows");
   });

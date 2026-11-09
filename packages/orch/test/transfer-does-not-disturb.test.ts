@@ -15,6 +15,7 @@ import { outbox } from "../src/db/schema.ts";
 
 import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { hostIdentity } from "../src/host.ts";
 /**
  * A transfer must not disturb the agent or its attached link. Ownership is a
  * lease and nothing else (A1), so handing one over writes `agent_leases` and
@@ -41,7 +42,7 @@ function workingAgent(): { directory: OrchDir; worker: string; before: ReturnTyp
   orm(directory);
   ensureHarness(directory, "pi", "pi", 1);
   ensurePlexer(directory, "herdr", "herdr", 1);
-  ensureHost(directory, "h", "h", "linux", 1);
+  ensureHost(directory, hostIdentity(), 1);
   seedSpace(directory, "server");
 
   for (const id of ["orch-a", "orch-b"]) {
@@ -53,7 +54,7 @@ function workingAgent(): { directory: OrchDir; worker: string; before: ReturnTyp
   setSpace(directory, "worker", 10, "server");
   setTuning(directory, "worker", 10, { model: "openai-codex/gpt-5.6-luna", thinking: "high" });
   orm(directory)
-    .run(sql`INSERT INTO agent_processes (agent_id, since, until, host_id, pid, start_token) VALUES (${"worker"},${10},NULL,${"h"},${process.pid},${"tok"})`);
+    .run(sql`INSERT INTO agent_processes (agent_id, since, until, host_id, pid, start_token) VALUES (${"worker"},${10},NULL,${hostIdentity().id},${process.pid},${"tok"})`);
   seedStatus(directory, "worker", { key: "worker", agent: "pi", pid: process.pid, state: "working", sessionPath: "/s/session-1" });
   acquireLease(directory, "worker", "orch-a", 20);
 

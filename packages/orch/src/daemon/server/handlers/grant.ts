@@ -17,7 +17,7 @@ export function decideGrant(directory: OrchDir, params: ParamsOf<"grant">): Resu
     denyGrantRequest(directory, request.id);
     return { id: request.id, decision: "deny", expiresAt: null };
   }
-  ensureHost(directory, params.host.id, params.host.name, params.host.os, Date.now());
+  ensureHost(directory, params.host, Date.now());
   return { id: request.id, decision: "approve", expiresAt: approveGrantRequest(directory, request.id, params.host.id) };
 }
 

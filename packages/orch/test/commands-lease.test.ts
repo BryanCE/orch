@@ -27,6 +27,7 @@ import { testServices } from "./helpers/services.ts";
 import { idleDaemonState, servedServices } from "./helpers/daemon-state.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
+import { testHost } from "./helpers/host.ts";
 const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 const SETTINGS = { defaults: { adapter: "pi", backend: "headless" } };
@@ -49,7 +50,7 @@ function fixture(): OrchDir {
   const dir = tempOrchDir("orch-lease-command-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
-  ensureHost(dir, "host", "host", "linux", 1);
+  ensureHost(dir, testHost("host", "host", "linux"), 1);
   return dir;
 }
 function agent(dir: OrchDir, id: string, name = id, spawnedBy: string | null = null): void {

@@ -5,6 +5,7 @@ import { agentById, endAgent, getOrCreateSessionAgent, insertAgent } from "../sr
 import { currentProcess } from "../src/store/interval-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { testHost } from "./helpers/host.ts";
 
 const tempDirs: OrchDir[] = [];
 
@@ -22,7 +23,7 @@ function fixture(): OrchDir {
 function session(orchDir: OrchDir, pid: number, startToken: string, sessionToken: string, label: string, now: number) {
   return getOrCreateSessionAgent(orchDir, {
     pid, startToken, sessionToken, harnessId: "pi", cwd: "/repo", label,
-    hostId: "host", hostName: "Host", hostOs: "linux", now,
+    host: testHost("host", "Host", "linux"), now,
   });
 }
 
@@ -38,7 +39,7 @@ describe("session refresh identity continuity", () => {
 
     expect(refreshed.id).toBe(first.id);
     expect(agentById(orchDir, first.id)).toMatchObject({ label: "refreshed", sessionToken: "session-b" });
-    expect(currentProcess(orchDir, first.id)).toMatchObject({ pid: 42, startToken: "start-a", since: 1_000, until: null });
+    expect(currentProcess(orchDir, first.id)).toMatchObject({ pid: 42, startToken: "start-a", since: 1_000 });
     expect(currentLease(orchDir, first.id)).toEqual(leaseBefore);
 
   });
@@ -50,7 +51,7 @@ describe("session refresh identity continuity", () => {
     const resumed = session(orchDir, 43, "start-b", "session-a", "resumed", 2_000);
 
     expect(resumed.id).toBe(first.id);
-    expect(currentProcess(orchDir, first.id)).toMatchObject({ pid: 43, startToken: "start-b", since: 2_000, until: null });
+    expect(currentProcess(orchDir, first.id)).toMatchObject({ pid: 43, startToken: "start-b", since: 2_000 });
   });
 
   test("a new token and a new process mint a new agent", () => {

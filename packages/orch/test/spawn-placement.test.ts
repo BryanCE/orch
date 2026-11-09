@@ -5,7 +5,7 @@ import { callDaemon } from "../src/commands/daemon.ts";
 import { homeHandle } from "../src/store/home-rows.ts";
 import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
 import { approveGrantRequest, grantIsApproved, requestGrant } from "../src/store/grant-rows.ts";
-import { hostOs } from "../src/host.ts";
+import { hostIdFrom, hostOs } from "../src/host.ts";
 import { errorMessage } from "../src/util.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { seedSpace } from "./helpers/space.ts";
@@ -18,6 +18,7 @@ import type { GrantAction } from "../src/types/store.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
+import { testHost } from "./helpers/host.ts";
 /**
  * The spawn half.
  *
@@ -137,8 +138,8 @@ function gate(): { asked: number; grantNewHome: () => Promise<GrantAction> } {
 
 /** The human approving {@link HOME_ACTION} from a terminal. */
 function approveHome(dir: OrchDir): void {
-  ensureHost(dir, "host", "host", hostOs(), Date.now());
-  approveGrantRequest(dir, requestGrant(dir, HOME_ACTION, null).id, "host");
+  ensureHost(dir, testHost("host", "host", hostOs()), Date.now());
+  approveGrantRequest(dir, requestGrant(dir, HOME_ACTION, null).id, hostIdFrom("host"));
 }
 
 describe("outside every plexer, spawn is headless unless the human chose one", () => {

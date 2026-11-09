@@ -1,18 +1,19 @@
 import { spawn as spawnProcess } from "node:child_process";
 import { freshStartToken, processIsAlive, recordedInstanceIsLive } from "../process-identity.ts";
 import type { InstanceProbe } from "../process-identity.ts";
-import type { ForegroundRole, ProcessRole, RecordedProcess, StartRequest, StartedProcess } from "../types/backend.ts";
+import type { ForegroundRole, ProcessRole, LocalProcess, StartRequest, StartedProcess } from "../types/backend.ts";
 import type { BackendHandle, LocalProcessRoleDeps } from "../types/backend.ts";
+import { observedHere } from "../local-process.ts";
 
 /** The process orch is running in, and the one that invoked it. */
 export function isOwnProcess(pid: number): boolean {
   return pid === process.pid || pid === process.ppid;
 }
 
-/** The default signal: never orch itself, never its parent. */
-export function signalOtherProcess(pid: number, signal: NodeJS.Signals): void {
-  if (isOwnProcess(pid)) throw new Error(`cannot signal process ${pid}: orch is running in it`);
-  process.kill(pid, signal);
+/** The default signal: never orch itself, never its parent, never a process on another host. */
+export function signalOtherProcess(target: LocalProcess, signal: NodeJS.Signals): void {
+  if (isOwnProcess(target.pid)) throw new Error(`cannot signal process ${target.pid}: orch is running in it`);
+  process.kill(target.pid, signal);
 }
 
 function startLocalProcess(request: StartRequest): StartedProcess {
@@ -32,7 +33,7 @@ function startLocalProcess(request: StartRequest): StartedProcess {
     throw new Error(`process ${executable} did not provide a start token`);
   }
   child.unref();
-  return { pid, startToken };
+  return { ...observedHere(pid, startToken), startToken };
 }
 
 /** Node process implementation shared by every composed environment provider. */
@@ -40,7 +41,7 @@ export class LocalProcessRole<Handle = BackendHandle> implements ProcessRole<Han
   private readonly alive: (pid: number) => boolean;
   private readonly token: (pid: number) => string | undefined;
   private readonly startProcess: (request: StartRequest) => StartedProcess;
-  private readonly signalProcess: (pid: number, signal: NodeJS.Signals) => void;
+  private readonly signalProcess: (process: LocalProcess, signal: NodeJS.Signals) => void;
 
   private readonly probe: InstanceProbe;
 
@@ -56,22 +57,22 @@ export class LocalProcessRole<Handle = BackendHandle> implements ProcessRole<Han
     return this.startProcess(request);
   }
 
-  running(handle: Handle): RecordedProcess {
+  running(handle: Handle): LocalProcess {
     const pid = this.pidOf(handle);
     // A handle with no process cannot be recorded as an agent.
     if (pid === null) throw new Error(`this environment reports no process for ${String(handle)}`);
-    return { pid, startToken: this.token(pid) ?? null };
+    return observedHere(pid, this.token(pid) ?? null);
   }
 
-  state(process: RecordedProcess): "alive" | "dead" | "replaced" {
-    if (recordedInstanceIsLive(process.pid, process.startToken, this.probe)) return "alive";
+  state(process: LocalProcess): "alive" | "dead" | "replaced" {
+    if (recordedInstanceIsLive(process, this.probe)) return "alive";
     return this.alive(process.pid) ? "replaced" : "dead";
   }
 
-  kill(process: RecordedProcess, signal: NodeJS.Signals): void {
+  kill(process: LocalProcess, signal: NodeJS.Signals): void {
     const state = this.state(process);
     if (state !== "alive") throw new Error(`cannot kill process ${process.pid}: process instance is ${state}`);
-    this.signalProcess(process.pid, signal);
+    this.signalProcess(process, signal);
   }
 }
 

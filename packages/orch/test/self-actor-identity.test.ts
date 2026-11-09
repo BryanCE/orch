@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { agentIdBySessionToken, getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { testHost } from "./helpers/host.ts";
 
 const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
@@ -19,7 +20,7 @@ function store(): OrchDir {
 function register(dir: OrchDir, sessionToken: string | null, pid: number) {
   return getOrCreateSessionAgent(dir, {
     pid, startToken: `tok-${pid}`, sessionToken, harnessId: "claude", cwd: "/w",
-    label: "claude session", hostId: "h", hostName: "h", hostOs: "linux", now: 1,
+    label: "claude session", host: testHost("h", "h", "linux"), now: 1,
   });
 }
 

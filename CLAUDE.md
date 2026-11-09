@@ -105,3 +105,11 @@ Asking this question again is a firing offence. Read `src/policy/close-authority
 - An orphan has a spawner and no live holder (`isOrphan`). A root is never one. Bare `orch adopt` lists orphans; `orch adopt <name>...` and `--all` take only orphans, or one named agent with `--steal`.
 - Drive verbs (`dispatch`, `steer`, `model`, `reset`, `reload`, `restart`, `broadcast`) are gated on a live foreign holder. `--all` on a drive verb is every agent the caller holds an OPEN lease on (`ownedAgentKeys`) and is operator-only (`forbidNonOperatorOverride`): a spawned agent or a harness session is refused. A raw terminal holds nothing until it spawns or adopts.
 - Tests make the runner an operator with `seedOperator()` (`test/helpers/agent.ts`): it registers the runner's parent process the way `register-session` does. A fixture's holder is seeded with `seedOrch()` before it holds. Never through an env var.
+
+# RULE 20. AN AGENT'S LOGS ARE READ THROUGH ORCH, FROM ANY HOST, AND SAY WHICH HOST.
+An agent's output stays on the host its process runs on. orch never copies it and never asks anyone to log in there to read it.
+- orch records where every agent runs: the host of its process (`agent_processes.host_id`) and its log path on that host. An agent spawned from this machine is this machine's to read, wherever it runs.
+- One reader. Given an agent, it reads the log here when the agent runs here, and over that host's link when it runs on a linked host. `orch tail`, `orch peek`, `orch result` and every other log reader go through it. Nothing opens an agent's log path directly.
+- Every read names its host: output from an agent on another host says which host it came from.
+- A linked host that is offline is reported as offline, with when it was last seen. Never an empty log, never a missing-file error.
+- A human and an agent read logs the same way: through `orch`, by agent name, from the machine that spawned it.

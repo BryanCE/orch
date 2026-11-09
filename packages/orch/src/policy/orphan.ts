@@ -1,9 +1,9 @@
 import { liveAgents } from "../store/agent-rows.ts";
 import { currentLease } from "../store/lease-rows.ts";
-import { recordedProcessIsLive } from "../store/interval-rows.ts";
 import type { OrchDir } from "../types/core.ts";
 import type { AgentRow } from "../types/store.ts";
 import type { UnleasedAgent } from "../types/daemon.ts";
+import { recordedProcessIsLive } from "../process-place.ts";
 
 /** An orphan has a spawner and no live holder. A root, like a terminal or a harness session, is never one. */
 export function isOrphan(orchDir: OrchDir, agent: Pick<AgentRow, "id" | "spawnedBy">): boolean {

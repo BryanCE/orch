@@ -2,6 +2,7 @@ import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import type { NotifyEvent } from "./notify.ts";
 import type { NotificationSettings } from "./settings.ts";
 import type { RetryPolicy } from "./core.ts";
+import type { LocalProcess } from "./process.ts";
 
 /** Canonical state-change payload a bridge hands to the notifier. */
 export type BridgeNotifyEvent = NotifyEvent;
@@ -140,5 +141,5 @@ export interface HeadlessHandle {
 export interface HeadlessBackendDeps {
   /** Injected process liveness check and signaler, primarily for hermetic tests. */
   pidAlive?: (pid: number) => boolean;
-  killer?: (pid: number, signal: "SIGTERM") => void;
+  killer?: (process: LocalProcess, signal: "SIGTERM") => void;
 }

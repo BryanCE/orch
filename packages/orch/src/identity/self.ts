@@ -19,8 +19,7 @@ export function selfIdentityOf(orchDir: OrchDir, credential: CallerCredential): 
   // No token: the session IS a process — the harness's own, or the shell that
   // ran this command. Registration filed it under that process, so this
   // resolves the same way, and a plain terminal inside a plexer has an id.
-  if (credential.process.startToken === null) return null;
-  const id = agentIdByProcess(orchDir, credential.process.pid, credential.process.startToken);
+  const id = agentIdByProcess(orchDir, credential.process);
   return id === null ? null : { id };
 }
 

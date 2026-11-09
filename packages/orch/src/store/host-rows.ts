@@ -3,7 +3,8 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction, type Orm } from "./connection.ts";
 import { ensureHost } from "./agent-rows.ts";
 import { hostLinks, hostNames } from "../db/schema.ts";
-import type { HostIdentity } from "../types/host.ts";
+import type { HostId, HostIdentity } from "../types/host.ts";
+import type { LinkedHost } from "../types/process.ts";
 
 /**
  * The hosts orch reaches over SSH: the name settings gives each, bound to the host id
@@ -14,7 +15,7 @@ import type { HostIdentity } from "../types/host.ts";
 /** What binding a settings name to the host that answered on its route decided. */
 export type HostBinding =
   | { readonly kind: "bound" }
-  | { readonly kind: "mismatch"; readonly boundId: string };
+  | { readonly kind: "mismatch"; readonly boundId: HostId };
 
 /** Bind `name` to the host that answered as `host`, recording that host. The first answer
  *  binds the name; a later answer from another id is a different machine and is refused. */
@@ -23,14 +24,14 @@ export function bindHostName(orchDir: OrchDir, name: string, host: HostIdentity,
     const db = orm(orchDir);
     const bound = db.select({ hostId: hostNames.hostId }).from(hostNames).where(eq(hostNames.name, name)).get();
     if (bound !== undefined && bound.hostId !== host.id) return { kind: "mismatch", boundId: bound.hostId };
-    ensureHost(orchDir, host.id, host.name, host.os, now);
+    ensureHost(orchDir, host, now);
     if (bound === undefined) db.insert(hostNames).values({ name, hostId: host.id, boundAt: now }).run();
     return { kind: "bound" };
   });
 }
 
 /** The host id a settings name is bound to, or null before that host first answered. */
-export function hostIdOfName(orchDir: OrchDir, name: string): string | null {
+export function hostIdOfName(orchDir: OrchDir, name: string): HostId | null {
   return orm(orchDir).select({ hostId: hostNames.hostId }).from(hostNames).where(eq(hostNames.name, name)).get()?.hostId ?? null;
 }
 
@@ -41,7 +42,7 @@ export function unbindHostName(orchDir: OrchDir, name: string): void {
 
 /** Close a host's open link row. `until > since` forbids closing a row at its own start,
  *  so a link opened this same millisecond closes one later. */
-function closeOpenLink(db: Orm, hostId: string, at: number): void {
+function closeOpenLink(db: Orm, hostId: HostId, at: number): void {
   const open = db.select({ since: hostLinks.since }).from(hostLinks)
     .where(and(eq(hostLinks.hostId, hostId), isNull(hostLinks.until))).get();
   if (open === undefined) return;
@@ -50,7 +51,7 @@ function closeOpenLink(db: Orm, hostId: string, at: number): void {
 }
 
 /** Record that the link to a host came up. */
-export function openHostLink(orchDir: OrchDir, hostId: string, now: number): void {
+export function openHostLink(orchDir: OrchDir, hostId: HostId, now: number): void {
   withTransaction(orchDir, () => {
     const db = orm(orchDir);
     closeOpenLink(db, hostId, now);
@@ -62,13 +63,13 @@ export function openHostLink(orchDir: OrchDir, hostId: string, now: number): voi
 }
 
 /** Record that the far side of an open link answered at `now`. */
-export function touchHostLink(orchDir: OrchDir, hostId: string, now: number): void {
+export function touchHostLink(orchDir: OrchDir, hostId: HostId, now: number): void {
   orm(orchDir).update(hostLinks).set({ lastSeen: now })
     .where(and(eq(hostLinks.hostId, hostId), isNull(hostLinks.until))).run();
 }
 
 /** Record that the link to a host went down at `now`. */
-export function closeHostLink(orchDir: OrchDir, hostId: string, now: number): void {
+export function closeHostLink(orchDir: OrchDir, hostId: HostId, now: number): void {
   withTransaction(orchDir, () => closeOpenLink(orm(orchDir), hostId, now));
 }
 
@@ -89,18 +90,14 @@ export interface HostLinkRecord {
   readonly lastSeen: number;
 }
 
-export function latestHostLink(orchDir: OrchDir, hostId: string): HostLinkRecord | null {
+export function latestHostLink(orchDir: OrchDir, hostId: HostId): HostLinkRecord | null {
   const row = orm(orchDir).select({ since: hostLinks.since, until: hostLinks.until, lastSeen: hostLinks.lastSeen }).from(hostLinks)
     .where(eq(hostLinks.hostId, hostId)).orderBy(desc(hostLinks.since)).limit(1).get();
   return row ?? null;
 }
 
-/** The settings name a linked host is bound to, or null for a host orch reaches no link to. */
-export function hostNameOfId(orchDir: OrchDir, hostId: string): string | null {
-  return orm(orchDir).select({ name: hostNames.name }).from(hostNames).where(eq(hostNames.hostId, hostId)).get()?.name ?? null;
-}
-
-/** Every host id a configured name is bound to: the hosts orch reaches over a link. */
-export function linkedHostIds(orchDir: OrchDir): ReadonlySet<string> {
-  return new Set(orm(orchDir).select({ hostId: hostNames.hostId }).from(hostNames).all().map((row) => row.hostId));
+/** The hosts orch reaches over a link, by id: every host a configured name is bound to. */
+export function linkedHosts(orchDir: OrchDir): ReadonlyMap<HostId, LinkedHost> {
+  const rows = orm(orchDir).select({ id: hostNames.hostId, name: hostNames.name }).from(hostNames).all();
+  return new Map(rows.map((row) => [row.id, { id: row.id, name: row.name }]));
 }

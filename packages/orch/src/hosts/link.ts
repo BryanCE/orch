@@ -10,7 +10,7 @@ import { endpointPaths, framedLineReader } from "../daemon/client/wire.ts";
 import { connectDaemon } from "../daemon/client/rpc.ts";
 import { hostIdentity } from "../host.ts";
 import { RelayDialer } from "./relay.ts";
-import { forgetRemoteLiveness, recordRemoteLiveness } from "../process-liveness.ts";
+import { forgetRemoteLiveness, recordRemoteLiveness } from "../process-place.ts";
 import { currentProcesses } from "../store/interval-rows.ts";
 import { formatAge } from "../format.ts";
 import { errorMessage } from "../util.ts";
@@ -20,6 +20,8 @@ import { encodeHostFrame, HOST_RESULTS, isUnreadableGreeting, parseHostFrame, ty
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { HostGreeting, HostLinkView } from "../types/host.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
+import type { HostId } from "../types/host.ts";
+import type { HostedProcess, LinkedHost } from "../types/process.ts";
 
 /** The far side as a process: its pipes, and how it ended. */
 export interface LinkProcess {
@@ -150,6 +152,7 @@ export class HostLink {
   /** Whether each process is alive on this host, in order. Rejects while the link is down:
    *  the answer is unknown. */
   alive(params: HostParamsOf<"alive">): Promise<HostResultOf<"alive">> {
+    params.processes.forEach((process) => this.requireHere(process));
     return this.send("alive", params).then((value) => {
       const result = HOST_RESULTS.alive.parse(value);
       if (result.alive.length !== params.processes.length) throw new Error(`${this.name} answered for ${result.alive.length} processes, asked about ${params.processes.length}`);
@@ -158,11 +161,12 @@ export class HostLink {
   }
 
   /** Ask the host about every agent process orch has recorded there, and keep the answers. */
-  private async checkProcesses(hostId: string): Promise<void> {
-    const processes = [...currentProcesses(this.deps.orchDir).values()].filter((row) => row.hostId === hostId);
-    const asked = processes.map(({ pid, startToken }) => ({ pid, startToken }));
+  private async checkProcesses(hostId: HostId): Promise<void> {
+    const asked: HostedProcess[] = [...currentProcesses(this.deps.orchDir).values()]
+      .filter((row) => row.host === hostId)
+      .map(({ host, pid, startToken }) => ({ host, pid, startToken }));
     const { alive } = await this.alive({ processes: asked });
-    recordRemoteLiveness(hostId, asked.map((process, index) => ({ ...process, alive: alive[index] === true })));
+    recordRemoteLiveness(hostId, asked.map((process, index) => ({ process, alive: alive[index] === true })));
   }
 
   /** The ORCH_DIR agents on this host use to reach this orchd; null until the relay is open. */
@@ -241,7 +245,14 @@ export class HostLink {
 
   /** End a recorded process instance on this host. Rejects while the link is down. */
   signal(params: HostParamsOf<"signal">): Promise<HostResultOf<"signal">> {
+    this.requireHere(params);
     return this.send("signal", params).then((value) => HOST_RESULTS.signal.parse(value));
+  }
+
+  /** Refuse to ask this host about a process recorded on another one. */
+  private requireHere(process: HostedProcess): void {
+    const bound = hostIdOfName(this.deps.orchDir, this.name);
+    if (bound !== process.host) throw new Error(`process ${process.pid} is recorded on host ${process.host}, not on ${this.name}`);
   }
 
   /** Start a headless agent on this host for this orchd, once the relay it reports through
@@ -288,7 +299,7 @@ export class HostLink {
     const links = this.deps.settings().links;
     const child = (this.deps.spawn ?? sshSpawner)(this.deps.orchDir, this.host, links, SERVE_ARGS);
     this.process = child;
-    // What the far side wrote since it last said hello: everything it printed before
+    // What the far side wrote since it last greeted: everything it printed before
     // failing to start, or what ssh said when an up link dropped.
     let stderr: string[] = [];
     // Why orch ended the far process itself; ssh's own exit says nothing about that.
@@ -370,7 +381,7 @@ export class HostLink {
   }
 
   /** Each tick proves the link answers, then asks after the agents there. */
-  private startPinging(hostId: string): void {
+  private startPinging(hostId: HostId): void {
     const tick = (): void => {
       this.ping()
         .then(() => {
@@ -454,6 +465,16 @@ export class HostLinks {
       link.retarget(host);
     }
     return link;
+  }
+
+  /** Whether a process instance runs on a linked host, asked now over its link. A host
+   *  with no configured name, or one that cannot be reached, answers no. */
+  async processIsLive(host: LinkedHost, process: HostedProcess): Promise<boolean> {
+    if (this.deps.settings().hosts[host.name] === undefined) return false;
+    const link = this.link(host.name);
+    await link.requireUp();
+    const { alive } = await link.alive({ processes: [process] });
+    return alive[0] === true;
   }
 
   /** Every configured host, linked or not, in name order. */

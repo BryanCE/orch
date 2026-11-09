@@ -6,6 +6,7 @@ import { clearSpace, currentHandle, currentProcess, currentSpace, currentTuning,
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
+import { hostIdFrom } from "../src/host.ts";
 const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
@@ -15,7 +16,7 @@ function fixture(): OrchDir {
   const db = orm(dir);
   db.insert(harnesses).values({ id: "pi", name: "pi", enabledAt: null }).run();
   db.insert(plexers).values({ id: "herdr", name: "herdr", enabledAt: null }).run();
-  db.insert(hosts).values({ id: "h", name: "host", os: "linux", createdAt: 0 }).run();
+  db.insert(hosts).values({ id: hostIdFrom("h"), name: "host", os: "linux", createdAt: 0 }).run();
   db.insert(spaces).values({ id: "s", name: "space", createdBy: null, createdAt: 0 }).run();
   db.insert(agents).values({ id: "a", spawnedBy: null, rootAgentId: "a", harnessId: "pi", cwd: "/", name: "a", label: null, kind: "session", createdAt: 0 }).run();
   return dir;
@@ -56,25 +57,25 @@ describe("interval satellites", () => {
 
   test("process restart history closes at the successor since", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 10, { hostId: "h", pid: 7, startToken: "first" });
-    recordProcess(dir, "a", 25, { hostId: "h", pid: 8, startToken: "second" });
+    recordProcess(dir, "a", 10, { host: hostIdFrom("h"), pid: 7, startToken: "first" });
+    recordProcess(dir, "a", 25, { host: hostIdFrom("h"), pid: 8, startToken: "second" });
     expect(orm(dir).select().from(agentProcesses).orderBy(asc(agentProcesses.since)).all()).toEqual([
-      { agentId: "a", since: 10, until: 25, hostId: "h", pid: 7, startToken: "first" },
-      { agentId: "a", since: 25, until: null, hostId: "h", pid: 8, startToken: "second" },
+      { agentId: "a", since: 10, until: 25, hostId: hostIdFrom("h"), pid: 7, startToken: "first" },
+      { agentId: "a", since: 25, until: null, hostId: hostIdFrom("h"), pid: 8, startToken: "second" },
     ]);
   });
 
   test("process rows carry host and process identity", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 10, { hostId: "h", pid: 7, startToken: "tok" });
-    expect(currentProcess(dir, "a")).toMatchObject({ hostId: "h", pid: 7, startToken: "tok" });
+    recordProcess(dir, "a", 10, { host: hostIdFrom("h"), pid: 7, startToken: "tok" });
+    expect(currentProcess(dir, "a")).toMatchObject({ host: hostIdFrom("h"), pid: 7, startToken: "tok" });
     endProcess(dir, "a", 20);
     expect(currentProcess(dir, "a")).toBeUndefined();
   });
 
   test("process start_token round-trips", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 10, { hostId: "h", pid: 7, startToken: "round-trip" });
+    recordProcess(dir, "a", 10, { host: hostIdFrom("h"), pid: 7, startToken: "round-trip" });
     expect(currentProcess(dir, "a")?.startToken).toBe("round-trip");
   });
 
@@ -111,8 +112,8 @@ describe("interval satellites", () => {
 
   test("interval instants are stored as INTEGER values", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 1, { hostId: "h", pid: 1, startToken: "first-instance" });
-    recordProcess(dir, "a", 2, { hostId: "h", pid: 2, startToken: "relaunch" });
+    recordProcess(dir, "a", 1, { host: hostIdFrom("h"), pid: 1, startToken: "first-instance" });
+    recordProcess(dir, "a", 2, { host: hostIdFrom("h"), pid: 2, startToken: "relaunch" });
     setHandle(dir, "a", 3, "one");
     setHandle(dir, "a", 4, "two");
     setSpace(dir, "a", 5, "s");
@@ -129,8 +130,8 @@ describe("interval satellites", () => {
 
   test("process wrapper rolls back predecessor close when successor fails", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 10, { hostId: "h", pid: 7, startToken: "tok" });
-    expect(() => recordProcess(dir, "a", 20, { hostId: "missing", pid: 8, startToken: "new" })).toThrow();
+    recordProcess(dir, "a", 10, { host: hostIdFrom("h"), pid: 7, startToken: "tok" });
+    expect(() => recordProcess(dir, "a", 20, { host: hostIdFrom("missing"), pid: 8, startToken: "new" })).toThrow();
     expect(orm(dir).select({ since: agentProcesses.since, until: agentProcesses.until, pid: agentProcesses.pid })
       .from(agentProcesses).where(eq(agentProcesses.agentId, "a")).all()).toEqual([{ since: 10, until: null, pid: 7 }]);
   });

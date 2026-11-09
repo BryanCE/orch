@@ -13,6 +13,8 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { testServices } from "./helpers/services.ts";
 import type { HostGreeting } from "../src/types/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { testHost, hosted } from "./helpers/host.ts";
+import { hostIdFrom } from "../src/host.ts";
 
 const dirs: OrchDir[] = [];
 /** Directories that are not this machine's orch dir: far hosts', and a stand-in orchd's. */
@@ -26,7 +28,7 @@ afterEach(() => {
 });
 
 function greeting(id: string): HostGreeting {
-  return { host: { id, name: `machine-${id}`, os: "linux" }, commit: null, version: "0.1.0" };
+  return { host: testHost(id, `machine-${id}`), commit: null, version: "0.1.0" };
 }
 
 /** A far side that runs `orch host serve` in-process, answering as `id`, with an orch dir of its own. */
@@ -133,10 +135,10 @@ describe("a link to another host", () => {
   test("comes up, binds the name to the machine that answered, and records the link", async () => {
     const hosts = hostLinks(farHost("far-1"));
     const answered = await hosts.link("box").connect();
-    expect(answered.host.id).toBe("far-1");
+    expect(answered.host.id).toBe(hostIdFrom("far-1"));
     const [view] = hosts.views();
     expect(view).toMatchObject({ name: "box", dest: "box", state: "up", hostId: "far-1" });
-    expect(latestHostLink(dirs[0]!, "far-1")?.until).toBeNull();
+    expect(latestHostLink(dirs[0]!, hostIdFrom("far-1"))?.until).toBeNull();
   });
 
   test("asks the far side whether a process there is alive", async () => {
@@ -144,7 +146,7 @@ describe("a link to another host", () => {
     const link = hosts.link("box");
     await link.connect();
     const startToken = processStartToken(process.pid) ?? null;
-    expect(await link.alive({ processes: [{ pid: process.pid, startToken }] })).toEqual({ alive: [true] });
+    expect(await link.alive({ processes: [hosted(process.pid, startToken, hostIdFrom("far-2"))] })).toEqual({ alive: [true] });
   });
 
   test("refuses a different machine answering on a name another machine holds", async () => {
@@ -171,7 +173,7 @@ describe("a link to another host", () => {
     link.close();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(link.current().kind).toBe("down");
-    expect(latestHostLink(dirs[0]!, "far-3")?.until).not.toBeNull();
+    expect(latestHostLink(dirs[0]!, hostIdFrom("far-3"))?.until).not.toBeNull();
     expect(await refusal(link.ping())).toMatch(/^box is not linked/);
   });
 

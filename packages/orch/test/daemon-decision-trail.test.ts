@@ -14,6 +14,7 @@ import type { LogRecord, OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
+import { testHost } from "./helpers/host.ts";
 
 const dirs: OrchDir[] = [];
 const previousLogLevel = process.env.ORCH_LOG_LEVEL;
@@ -33,7 +34,7 @@ function fixture(): OrchDir {
   process.env.ORCH_LOG_LEVEL = "debug";
   process.env.ORCH_DIR = directory;
   ensureHarness(directory, "pi", "Pi");
-  ensureHost(directory, "host", "Host", "linux", 1);
+  ensureHost(directory, testHost("host", "Host", "linux"), 1);
   return directory;
 }
 

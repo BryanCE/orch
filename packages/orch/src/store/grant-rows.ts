@@ -5,6 +5,7 @@ import { orm, withTransaction } from "./connection.ts";
 import { grantApprovals, grantDenials, grantRequestParams, grantRequests, grantSpends, grantStates } from "../db/schema.ts";
 import type { GrantAction, GrantRequest } from "../types/store.ts";
 import { isGrantKind } from "../policy/grant-sentence.ts";
+import type { HostId } from "../types/host.ts";
 
 /**
  * Human consent for actions an agent may not take on its own.
@@ -112,7 +113,7 @@ export function pendingGrantRequest(orchDir: OrchDir, id: string): GrantRequest 
 
 /** Approve one exact action. `hostId` records where the human answered, which is
  *  the machine that must have had a terminal for the approval to exist at all. */
-export function approveGrantRequest(orchDir: OrchDir, requestId: string, hostId: string): number {
+export function approveGrantRequest(orchDir: OrchDir, requestId: string, hostId: HostId): number {
   const approvedAt = Date.now();
   const expiresAt = approvedAt + GRANT_TTL_MS;
   orm(orchDir).insert(grantApprovals).values({ requestId, approvedAt, expiresAt, hostId }).run();

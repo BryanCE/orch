@@ -1,10 +1,10 @@
 import type { OrchDir } from "../types/core.ts";
 import { and, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction, type Orm } from "./connection.ts";
-import { processLiveness } from "../process-liveness.ts";
 import { refreshAgent } from "./agent-view.ts";
 import { agentHandles, agentPlexers, agentProcesses, agentSpaces, agentTunings } from "../db/schema.ts";
-import type { ProcessValues, TuningValues } from "../types/store.ts";
+import type { TuningValues } from "../types/store.ts";
+import type { HostedProcess } from "../types/process.ts";
 
 /**
  * The four axes an agent carries on its own timeline.
@@ -14,7 +14,12 @@ import type { ProcessValues, TuningValues } from "../types/store.ts";
  * intervals must meet exactly — an open row beside another is what the
  * `one_live_*` unique indexes refuse.
  */
-export type ProcessRow = typeof agentProcesses.$inferSelect;
+/** An agent's recorded process: where it runs, and since when orch recorded it. */
+export interface StoredProcess extends HostedProcess { readonly since: number }
+
+function storedProcessOf(row: typeof agentProcesses.$inferSelect): StoredProcess {
+  return { host: row.hostId, pid: row.pid, startToken: row.startToken, since: row.since };
+}
 export type HandleRow = typeof agentHandles.$inferSelect;
 export type AgentSpaceRow = typeof agentSpaces.$inferSelect;
 export type TuningRow = typeof agentTunings.$inferSelect;
@@ -34,14 +39,14 @@ function closeOpen(db: Orm, table: IntervalTable, agentId: string, now: number):
   return closesAt;
 }
 
-export function recordProcessIn(db: Orm, agentId: string, now: number, values: ProcessValues): void {
+export function recordProcessIn(db: Orm, agentId: string, now: number, values: HostedProcess): void {
   const since = closeOpen(db, agentProcesses, agentId, now);
   db.insert(agentProcesses).values({
-    agentId, since, until: null, hostId: values.hostId, pid: values.pid, startToken: values.startToken,
+    agentId, since, until: null, hostId: values.host, pid: values.pid, startToken: values.startToken,
   }).run();
 }
 
-export function recordProcess(orchDir: OrchDir, agentId: string, now: number, values: ProcessValues): void {
+export function recordProcess(orchDir: OrchDir, agentId: string, now: number, values: HostedProcess): void {
   withTransaction(orchDir, () => recordProcessIn(orm(orchDir), agentId, now, values));
   refreshAgent(orchDir, agentId);
 }
@@ -99,15 +104,16 @@ export function setAgentPlexer(orchDir: OrchDir, agentId: string, plexerId: stri
   refreshAgent(orchDir, agentId);
 }
 
-export function currentProcess(orchDir: OrchDir, agentId: string): ProcessRow | undefined {
-  return orm(orchDir).select().from(agentProcesses)
+export function currentProcess(orchDir: OrchDir, agentId: string): StoredProcess | undefined {
+  const row = orm(orchDir).select().from(agentProcesses)
     .where(and(eq(agentProcesses.agentId, agentId), isNull(agentProcesses.until))).get();
+  return row === undefined ? undefined : storedProcessOf(row);
 }
 
 /** Every agent's open process, by agent id, in one read. */
-export function currentProcesses(orchDir: OrchDir): Map<string, ProcessRow> {
+export function currentProcesses(orchDir: OrchDir): Map<string, StoredProcess> {
   const rows = orm(orchDir).select().from(agentProcesses).where(isNull(agentProcesses.until)).all();
-  return new Map(rows.map((row) => [row.agentId, row]));
+  return new Map(rows.map((row) => [row.agentId, storedProcessOf(row)]));
 }
 
 export function currentHandle(orchDir: OrchDir, agentId: string): HandleRow | undefined {
@@ -125,25 +131,3 @@ export function currentTuning(orchDir: OrchDir, agentId: string): TuningRow | un
     .where(and(eq(agentTunings.agentId, agentId), isNull(agentTunings.until))).get();
 }
 
-/**
- * Whether the agent's OPEN process interval still names a live process.
- *
- * One spelling, imported: the lease gate (`orchd`), the drive-state renderer and
- * the doctor all ask this, and three copies of it is three chances to disagree
- * about whether a holder is dead — which is the difference between refusing a
- * dispatch and allowing it (Rule 11: a dead holder is not a collision).
- *
- * The recorded start token is checked against the live process, so a pid reused
- * by an unrelated process reads as DEAD. A process on a linked host orch cannot ask
- * about right now counts as live: unknown is never dead.
- */
-export function recordedProcessIsLive(orchDir: OrchDir, agentId: string): boolean {
-  const row = currentProcess(orchDir, agentId);
-  return row !== undefined && processLiveness(orchDir, row) !== "dead";
-}
-
-/** {@link recordedProcessIsLive} addressed by a presence key. A key that
- *  names no registered agent has no process and is dead. */
-export function agentProcessLive(orchDir: OrchDir, key: string): boolean {
-  return recordedProcessIsLive(orchDir, key);
-}

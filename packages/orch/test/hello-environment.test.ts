@@ -13,6 +13,7 @@ import { sql } from "drizzle-orm";
 import { row } from "./helpers/rows.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { testHost } from "./helpers/host.ts";
 /**
  * `hello` is also where the ENVIRONMENT is recorded in full — harness, plexer,
  * directory, space, OS side. It is NOT filled in later or inferred at use,
@@ -46,7 +47,7 @@ function storeDir(): OrchDir {
 function register(directory: OrchDir, extra: { space?: string | null; plexerId?: string | null; handle?: string | null; now?: number } = {}) {
   return getOrCreateSessionAgent(directory, {
     pid: 4242, startToken: "tok", sessionToken: "sess-1", harnessId: "claude",
-    cwd: "/w", label: "claude session", hostId: "h", hostName: "h", hostOs: "linux",
+    cwd: "/w", label: "claude session", host: testHost("h", "h", "linux"),
     plexerId: extra.plexerId ?? null, plexerVersion: extra.plexerId ? "1.0" : null,
     handle: extra.handle ?? null, space: extra.space ?? null, now: extra.now ?? 1,
   });
@@ -130,7 +131,7 @@ describe("hello records the environment in full", () => {
     // Windows-side session is the case this repo lives with). Every fact B9
     // names travels in the claim.
     const claim = sessionClaim(directory);
-    for (const field of ["harness", "cwd", "space", "plexer", "handle", "hostId", "hostName", "hostOs"]) {
+    for (const field of ["harness", "cwd", "space", "plexer", "handle", "host"]) {
       expect(Object.keys(claim)).toContain(field);
     }
     expect(claim.space).toBe("server");

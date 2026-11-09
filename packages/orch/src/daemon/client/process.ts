@@ -11,7 +11,8 @@ import {
   unlinkSync,
 } from "node:fs";
 import * as path from "node:path";
-import { processInstanceMatches, processIsAlive, processStartToken } from "../../process-identity.ts";
+import { processIsAlive, processStartToken, recordedInstanceIsLive } from "../../process-identity.ts";
+import { observedHere } from "../../local-process.ts";
 import { retryingAsync, retryingSync } from "../../retry.ts";
 import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, packageRoot } from "../../util.ts";
 import { hostOs, isHostOs } from "../../host.ts";
@@ -79,7 +80,7 @@ export function readDaemonRegistration(): DaemonRegistration | null {
 
 export function liveDaemonRegistration(orchDir?: OrchDir): DaemonRegistration | null {
   const registration = readDaemonRegistration();
-  if (!registration || !processInstanceMatches(registration.pid, registration.startToken)) return null;
+  if (!registration || !recordedInstanceIsLive(observedHere(registration.pid, registration.startToken))) return null;
   if (orchDir !== undefined && path.resolve(orchDir) !== path.resolve(registration.orchDir)) return null;
   return registration;
 }
@@ -133,7 +134,7 @@ export function acquireDaemonRegistration(orchDir: OrchDir): DaemonRegistrationR
   let blockedRegistration: DaemonRegistration | undefined;
   const result = acquireExclusiveFile("acquire daemon registration", file, `${JSON.stringify(registration)}\n`, () => {
     const existing = readDaemonRegistration();
-    if (existing && processInstanceMatches(existing.pid, existing.startToken)) {
+    if (existing && recordedInstanceIsLive(observedHere(existing.pid, existing.startToken))) {
       blockedRegistration = existing;
       return false;
     }
@@ -159,7 +160,7 @@ export function daemonStartRefusal(live: DaemonRegistration): string {
 
 export function releaseDaemonRegistration(): void {
   const existing = readDaemonRegistration();
-  if (!existing || existing.pid !== process.pid || !processInstanceMatches(existing.pid, existing.startToken)) return;
+  if (!existing || existing.pid !== process.pid || !recordedInstanceIsLive(observedHere(existing.pid, existing.startToken))) return;
   try {
     unlinkSync(registrationPath());
   } catch (error: unknown) {
@@ -196,7 +197,7 @@ function processIdentityMatches(record: LockRecord): boolean {
  */
 export function provenDaemonPid(orchDir: OrchDir): number | undefined {
   const record = readLock(lockPath(orchDir));
-  if (record) return record.startToken && processInstanceMatches(record.pid, record.startToken) ? record.pid : undefined;
+  if (record) return record.startToken && recordedInstanceIsLive(observedHere(record.pid, record.startToken)) ? record.pid : undefined;
   const registration = liveDaemonRegistration(orchDir);
   return registration?.pid;
 }
@@ -300,7 +301,7 @@ const localExecutor: OsExecutor = {
     if (orchDir === undefined) throw new Error("daemon start requires orchDir");
     return daemonize(orchDirAt(orchDir), entrypoint, args);
   },
-  isAlive: (pid, startToken) => startToken === undefined ? processIsAlive(pid) : processInstanceMatches(pid, startToken),
+  isAlive: (pid, startToken) => startToken === undefined ? processIsAlive(pid) : recordedInstanceIsLive(observedHere(pid, startToken)),
   kill: (pid, graceMs) => terminateDaemon(pid, graceMs),
 };
 

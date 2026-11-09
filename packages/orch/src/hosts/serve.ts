@@ -6,11 +6,13 @@ import type { Readable, Writable } from "node:stream";
 import { buildCommit } from "../build-stamp.ts";
 import { framedLineReader } from "../daemon/client/wire.ts";
 import { recordedInstanceIsLive } from "../process-identity.ts";
+import { localProcessOf, observedHere } from "../local-process.ts";
+import type { HostedProcess, LocalProcess } from "../types/process.ts";
 import { signalOtherProcess } from "../backends/process.ts";
 import { hostIdentity } from "../host.ts";
 import { errorMessage, packageManifest } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
-import type { HostGreeting } from "../types/host.ts";
+import type { HostGreeting, HostIdentity } from "../types/host.ts";
 import { RelayListener } from "./relay.ts";
 import { launchForOrigin, type OpenRelay } from "./launch.ts";
 import { encodeHostFrame, HOST_PARAMS, isHostMethod, parseHostFrame, type HostFrame, type HostMethod, type HostResultOf } from "./protocol.ts";
@@ -26,14 +28,25 @@ export interface ServeOptions {
   readonly greeting?: HostGreeting;
 }
 
+
 /** One link's far end: its requests answered, its relay held. */
 class LinkServer {
   private readonly relay: RelayListener;
   /** Which orchd this link carries, and where its agents live here; null until it asks. */
   private opened: OpenRelay | null = null;
 
-  constructor(private readonly orchDir: OrchDir, private readonly write: (frame: HostFrame) => void) {
+  constructor(private readonly orchDir: OrchDir, private readonly host: HostIdentity, private readonly write: (frame: HostFrame) => void) {
     this.relay = new RelayListener(write);
+  }
+
+  /** A process the origin asked about, as this host's OS sees it. The origin names the host
+   *  each process runs on; one that is not the host this link greeted as is a mixup on the
+   *  other end, refused. */
+  private ownProcess(process: HostedProcess): LocalProcess {
+    if (process.host === this.host.id) return observedHere(process.pid, process.startToken);
+    const local = localProcessOf(process);
+    if (local === null) throw new Error(`process ${process.pid} is recorded on host ${process.host}, not on ${this.host.name}`);
+    return local;
   }
 
   receive(line: string): void {
@@ -82,7 +95,7 @@ class LinkServer {
         return { at: Date.now() } satisfies HostResultOf<"ping">;
       case "alive": {
         const { processes } = HOST_PARAMS.alive.parse(params);
-        return { alive: processes.map(({ pid, startToken }) => recordedInstanceIsLive(pid, startToken)) } satisfies HostResultOf<"alive">;
+        return { alive: processes.map((process) => recordedInstanceIsLive(this.ownProcess(process))) } satisfies HostResultOf<"alive">;
       }
       case "relay": {
         const { origin, token } = HOST_PARAMS.relay.parse(params);
@@ -91,9 +104,9 @@ class LinkServer {
         return { orchDir } satisfies HostResultOf<"relay">;
       }
       case "signal": {
-        const recorded = HOST_PARAMS.signal.parse(params);
-        if (!recordedInstanceIsLive(recorded.pid, recorded.startToken)) return { outcome: "gone" } satisfies HostResultOf<"signal">;
-        signalOtherProcess(recorded.pid, "SIGTERM");
+        const recorded = this.ownProcess(HOST_PARAMS.signal.parse(params));
+        if (!recordedInstanceIsLive(recorded)) return { outcome: "gone" } satisfies HostResultOf<"signal">;
+        signalOtherProcess(recorded, "SIGTERM");
         return { outcome: "signalled" } satisfies HostResultOf<"signal">;
       }
       case "launch": {
@@ -111,8 +124,9 @@ class LinkServer {
 
 /** Serve one link over `input` and `output` until `input` ends. */
 export function serveHostLink(input: Readable, output: Writable, options: ServeOptions): Promise<void> {
-  const server = new LinkServer(options.orchDir, (frame) => { output.write(encodeHostFrame(frame)); });
-  output.write(encodeHostFrame({ kind: "greeting", greeting: options.greeting ?? hostGreeting() }));
+  const greeting = options.greeting ?? hostGreeting();
+  const server = new LinkServer(options.orchDir, greeting.host, (frame) => { output.write(encodeHostFrame(frame)); });
+  output.write(encodeHostFrame({ kind: "greeting", greeting }));
   framedLineReader(input, (line) => { server.receive(line.trim()); });
   return new Promise((resolve) => {
     const done = (): void => {

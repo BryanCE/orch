@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { errnoCode } from "./util.ts";
 import { hostOs } from "./host.ts";
+import type { LocalProcess } from "./types/process.ts";
 
 const FIELD_READ_TIMEOUT_MS = 5_000;
 
@@ -161,14 +162,11 @@ export function ancestorPids(pid: number): number[] {
   return chain;
 }
 
-/** True only when `pid` is alive AND provably the instance that produced `startToken`. */
-export function processInstanceMatches(pid: number, startToken: string): boolean {
-  return recordedInstanceIsLive(pid, startToken);
-}
-
 /** The one place that decides what an unproven recorded process means: without a
- *  token there is nothing to hold the pid to, so bare liveness is the answer. */
-export function recordedInstanceIsLive(pid: number, startToken: string | null, probe: InstanceProbe = OS_PROBE): boolean {
+ *  token there is nothing to hold the pid to, so bare liveness is the answer. Only a
+ *  process the OS here answers for can be asked: see `src/process-place.ts`. */
+export function recordedInstanceIsLive(process: LocalProcess, probe: InstanceProbe = OS_PROBE): boolean {
+  const { pid, startToken } = process;
   if (!probe.isAlive(pid)) {
     knownStartTokens.delete(pid);
     return false;

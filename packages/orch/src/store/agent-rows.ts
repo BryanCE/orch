@@ -10,10 +10,11 @@ import { closeOutboxForTarget } from "./outbox-rows.ts";
 import { acquireLease } from "./lease-rows.ts";
 import type { AgentWorktree } from "../types/worktree.ts";
 import type { AgentInput, AgentRow, ClaimResult, HostPlexerRow, SessionAgentIdentity, SessionAgentInput } from "../types/store.ts";
-import type { HostOs } from "../types/host.ts";
+import type { HostId, HostIdentity } from "../types/host.ts";
 import type { CallerKind } from "../types/policy.ts";
 import { isHostOs } from "../host.ts";
 import { OPERATOR_HARNESS_ID } from "../identity/operator.ts";
+import type { HostedProcess } from "../types/process.ts";
 
 /** An agent joined to the ending it may not have. The join is left, so `ending`
  *  is null for every live agent and carries the instant for a closed one. */
@@ -156,35 +157,38 @@ export function isLiveAgentIdentity(orchDir: OrchDir, value: unknown): value is 
   return liveAgentId(orchDir, eq(agents.id, value.id)) !== null;
 }
 
-function liveProcessAgentId(orchDir: OrchDir, pid: number, startToken: string, extra: SQL | undefined): string | null {
+/** A process instance names an agent only on its own host, and only with a start token:
+ *  the same pid on two hosts is two processes, and a bare pid proves nothing. */
+function liveProcessAgentId(orchDir: OrchDir, process: HostedProcess, extra: SQL | undefined): string | null {
+  if (process.startToken === null) return null;
   const row = orm(orchDir).select({ id: agents.id }).from(agents)
     .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
     .where(and(
-      eq(agentProcesses.pid, pid), eq(agentProcesses.startToken, startToken),
+      eq(agentProcesses.hostId, process.host), eq(agentProcesses.pid, process.pid), eq(agentProcesses.startToken, process.startToken),
       isNull(agentEndings.agentId), extra,
     ))
     .limit(1).get();
   return row?.id ?? null;
 }
 
-/** Every pid an un-ended agent row runs as now. */
-export function liveProcessPids(orchDir: OrchDir): Set<number> {
+/** Every pid an un-ended agent row runs as now on one host. */
+export function liveProcessPids(orchDir: OrchDir, host: HostId): Set<number> {
   return new Set(orm(orchDir).select({ pid: agentProcesses.pid }).from(agentProcesses)
     .leftJoin(agentEndings, eq(agentEndings.agentId, agentProcesses.agentId))
-    .where(and(isNull(agentProcesses.until), isNull(agentEndings.agentId))).all().map((row) => row.pid));
+    .where(and(eq(agentProcesses.hostId, host), isNull(agentProcesses.until), isNull(agentEndings.agentId))).all().map((row) => row.pid));
 }
 
 /** The live agent registered as this process instance, or null. */
-export function agentIdByProcess(orchDir: OrchDir, pid: number, startToken: string): string | null {
-  return liveProcessAgentId(orchDir, pid, startToken, undefined);
+export function agentIdByProcess(orchDir: OrchDir, process: HostedProcess): string | null {
+  return liveProcessAgentId(orchDir, process, undefined);
 }
 
 /** The live session agent for one process instance and harness. A worker can
  * share a process-shaped record, so the session token and harness facts are
  * both part of this continuity lookup. */
-function sessionAgentIdByProcess(orchDir: OrchDir, pid: number, startToken: string, harnessId: string): string | null {
-  return liveProcessAgentId(orchDir, pid, startToken,
+function sessionAgentIdByProcess(orchDir: OrchDir, process: HostedProcess, harnessId: string): string | null {
+  return liveProcessAgentId(orchDir, process,
     and(eq(agents.harnessId, harnessId), isNotNull(agents.sessionToken)));
 }
 
@@ -250,7 +254,7 @@ function placeSession(orchDir: OrchDir, agentId: string, input: SessionAgentInpu
 function recordPlexer(orchDir: OrchDir, input: SessionAgentInput): void {
   if (!input.plexerId) return;
   ensurePlexer(orchDir, input.plexerId, input.plexerId);
-  if (input.plexerVersion) ensureHostPlexer(orchDir, input.hostId, input.plexerId, input.plexerVersion, input.now);
+  if (input.plexerVersion) ensureHostPlexer(orchDir, input.host.id, input.plexerId, input.plexerVersion, input.now);
 }
 
 /** A registering caller with no harness is a raw terminal: the operator. */
@@ -260,8 +264,9 @@ function registeredKind(harnessId: string): Exclude<CallerKind, "agent"> {
 
 export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInput): SessionAgentIdentity & { readonly repointed: boolean; readonly agent: SessionAgentIdentity } {
   ensureHarness(orchDir, input.harnessId, input.harnessId, input.now);
-  ensureHost(orchDir, input.hostId, input.hostName, input.hostOs, input.now);
+  ensureHost(orchDir, input.host, input.now);
   recordPlexer(orchDir, input);
+  const process: HostedProcess = { host: input.host.id, pid: input.pid, startToken: input.startToken };
   let repointedAgentId: string | null = null;
   const identity = withTransaction<SessionAgentIdentity>(orchDir, () => {
     const db = orm(orchDir);
@@ -269,8 +274,8 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
     const existingByToken = token === null ? null : liveAgentId(orchDir, eq(agents.sessionToken, token));
     const existing = existingByToken
       ?? (token === null
-        ? agentIdByProcess(orchDir, input.pid, input.startToken)
-        : sessionAgentIdByProcess(orchDir, input.pid, input.startToken, input.harnessId));
+        ? agentIdByProcess(orchDir, process)
+        : sessionAgentIdByProcess(orchDir, process, input.harnessId));
     if (existing !== null) {
       if (token !== null && existingByToken === null) {
         db.update(agents).set({ label: input.label, sessionToken: token }).where(eq(agents.id, existing)).run();
@@ -282,8 +287,8 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
       // closes as the current one opens; the same instance registered again
       // keeps its open interval.
       const open = currentProcess(orchDir, existing);
-      if (open?.pid !== input.pid || open.startToken !== input.startToken) {
-        recordProcessIn(orm(orchDir), existing, input.now, { hostId: input.hostId, pid: input.pid, startToken: input.startToken });
+      if (open?.host !== process.host || open.pid !== process.pid || open.startToken !== process.startToken) {
+        recordProcessIn(orm(orchDir), existing, input.now, process);
       }
       return { id: existing, label: input.label, kind: "session" };
     }
@@ -296,7 +301,7 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
       sessionToken: token, createdAt: input.now,
     }).run();
     db.insert(agentProcesses).values({
-      agentId: id, since: input.now, until: null, hostId: input.hostId, pid: input.pid, startToken: input.startToken,
+      agentId: id, since: input.now, until: null, hostId: process.host, pid: process.pid, startToken: process.startToken,
     }).run();
     // Whoever started it holds it, as a spawner holds its spawn.
     if (parent) acquireLease(orchDir, id, parent.id, input.now);
@@ -316,12 +321,12 @@ export function ensureHarness(orchDir: OrchDir, id: string, name: string, enable
 export function ensurePlexer(orchDir: OrchDir, id: string, name: string, enabledAt: number | null = null): void {
   orm(orchDir).insert(plexers).values({ id, name, enabledAt }).onConflictDoNothing().run();
 }
-export function ensureHost(orchDir: OrchDir, id: string, name: string, os: HostOs, createdAt: number): void {
-  orm(orchDir).insert(hosts).values({ id, name, os, createdAt }).onConflictDoNothing().run();
+export function ensureHost(orchDir: OrchDir, host: HostIdentity, createdAt: number): void {
+  orm(orchDir).insert(hosts).values({ id: host.id, name: host.name, os: host.os, createdAt }).onConflictDoNothing().run();
 }
 
 /** One registered host. The `hosts_os` check holds `os` to the known values; a row that breaks it is refused. */
-export function hostById(orchDir: OrchDir, id: string): { id: string; name: string; os: HostOs } | null {
+export function hostById(orchDir: OrchDir, id: HostId): HostIdentity | null {
   const row = orm(orchDir).select().from(hosts).where(eq(hosts.id, id)).get();
   if (!row) return null;
   if (!isHostOs(row.os)) throw new Error(`host ${id} has an unknown os ${row.os}`);
@@ -330,7 +335,7 @@ export function hostById(orchDir: OrchDir, id: string): { id: string; name: stri
 
 /** Record the currently installed version for one host/plexer pair. Upgrading
  * closes the old interval before opening exactly one new row. */
-export function ensureHostPlexer(orchDir: OrchDir, hostId: string, plexerId: string, version: string, since: number): void {
+export function ensureHostPlexer(orchDir: OrchDir, hostId: HostId, plexerId: string, version: string, since: number): void {
   const normalized = version.trim();
   if (!normalized) throw new Error("host plexer version must not be empty");
   withTransaction(orchDir, () => {
@@ -345,7 +350,7 @@ export function ensureHostPlexer(orchDir: OrchDir, hostId: string, plexerId: str
 }
 
 /** Read host plexer history, or only the current open row when requested. */
-export function hostPlexers(orchDir: OrchDir, hostId?: string, plexerId?: string): HostPlexerRow[] {
+export function hostPlexers(orchDir: OrchDir, hostId?: HostId, plexerId?: string): HostPlexerRow[] {
   const query = orm(orchDir).select().from(hostPlexerTable);
   const rows = hostId === undefined
     ? (plexerId === undefined ? query : query.where(eq(hostPlexerTable.plexerId, plexerId)))

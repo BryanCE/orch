@@ -7,6 +7,7 @@ import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { seedOrch } from "./helpers/agent.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { testServices } from "./helpers/services.ts";
+import { hosted } from "./helpers/host.ts";
 
 function fixture(): { root: OrchDir; state: ReturnType<typeof idleDaemonState> } {
   const value = process.env.ORCH_DIR;
@@ -33,7 +34,7 @@ describe("stampGovernance", () => {
     const caller: CallerCredential = {
       launch: id,
       session: null,
-      process: { pid: 1, startToken: null },
+      process: hosted(1),
     };
     const params: Governance = { caller };
     const stamped = stampGovernance(state, params);
@@ -46,7 +47,7 @@ describe("stampGovernance", () => {
     const caller: CallerCredential = {
       launch: null,
       session: null,
-      process: { pid: 1, startToken: null },
+      process: hosted(1),
     };
     const params: Governance = { caller, actor: "x" };
     const stamped = stampGovernance(state, params);
@@ -58,7 +59,7 @@ describe("stampGovernance", () => {
     const caller: CallerCredential = {
       launch: null,
       session: { harnessId: "claude", sessionId: "tok", pid: 1 },
-      process: { pid: 1, startToken: null },
+      process: hosted(1),
     };
     expect(() => stampGovernance(state, { caller, steal: true })).toThrow(/operator-only/);
   });

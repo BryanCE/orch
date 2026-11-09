@@ -29,7 +29,7 @@ import type { RpcHandlers, RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { isRecord } from "../src/util.ts";
-import { hostOs } from "../src/host.ts";
+import { hostIdentity, hostOs } from "../src/host.ts";
 import { listTasks } from "../src/queue.ts";
 
 import { row } from "./helpers/rows.ts";
@@ -313,7 +313,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs() });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null });
     expect(reply.result).toMatchObject({
       unleased: [
         { id: "closed", name: "closed-worker" },
@@ -321,7 +321,7 @@ describe("daemon RPC", () => {
         { id: "leased", name: "leased-worker" },
       ],
     });
-    const repeat = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs() });
+    const repeat = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null });
     expect(repeat.result).toMatchObject({ unleased: [] });
   });
 
@@ -330,7 +330,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs() });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null });
     expect(reply.result).toMatchObject({ unleased: [] });
   });
 
@@ -339,7 +339,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs(), label: "web client" });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null, label: "web client" });
     expect(reply.id).toBe(1);
     if (!isLiveAgentIdentity(dir, reply.result)) throw new Error(`TCP hello returned a non-identity: ${JSON.stringify(reply)}`);
     expect(reply.result.label).toBe("web client");
@@ -369,7 +369,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const claim = (pid: number, label: string) => ({ token, pid, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs(), label });
+    const claim = (pid: number, label: string) => ({ token, pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null, label });
     const first = await tcpHello(server, claim(process.pid, "first"));
     const same = await tcpHello(server, claim(process.pid, "renamed"));
     const other = await tcpHello(server, claim(process.ppid, "other"));
@@ -382,7 +382,7 @@ describe("daemon RPC", () => {
     const dir = tempOrchDir();
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
-    expect(await tcpHello(server, { token: "", pid: process.pid, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs() })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
+    expect(await tcpHello(server, { token: "", pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
   });
 
   test("refuses a TCP hello with a wrong token", async () => {
@@ -390,7 +390,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     // A complete claim, so the wire accepts the shape and the handler is what refuses it.
-    expect(await tcpHello(server, { token: "wrong-token", pid: process.pid, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs() })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
+    expect(await tcpHello(server, { token: "wrong-token", pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
   });
 
   test("writes the daemon token with owner-only permissions", async () => {

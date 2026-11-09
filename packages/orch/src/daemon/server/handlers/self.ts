@@ -19,7 +19,7 @@ function storedProcess(directory: OrchDir, id: string): StoredIdentity["process"
     pid: process.pid,
     startToken: process.startToken,
     since: process.since,
-    host: hostById(directory, process.hostId),
+    host: hostById(directory, process.host),
     liveness: presenceEntry(directory, id)?.liveness ?? "dead",
   };
 }

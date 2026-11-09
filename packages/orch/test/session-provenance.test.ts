@@ -32,24 +32,24 @@ function claimDir(): OrchDir {
 }
 
 /** Register this test process as a pi session, the way the pi bridge registers pi. */
-function registerPiSession(directory: OrchDir): string {
+async function registerPiSession(directory: OrchDir): Promise<string> {
   const claim = sessionClaim(directory, undefined, { harness: "pi", sessionToken: "pi-session", pid: process.pid });
-  return registerSession(directory, claim, DAEMON_TOKEN).id;
+  return (await registerSession(directory, claim, DAEMON_TOKEN)).id;
 }
 
 describe("a harness session records the terminal it started in", () => {
-  test("a pi typed into a registered terminal is that terminal's, and the terminal holds it", () => {
+  test("a pi typed into a registered terminal is that terminal's, and the terminal holds it", async () => {
     const directory = claimDir();
     const terminal = seedOperator(directory);
-    const session = registerPiSession(directory);
+    const session = await registerPiSession(directory);
     expect(agentById(directory, session)?.spawnedBy).toBe(terminal);
     expect(agentById(directory, session)?.rootAgentId).toBe(terminal);
     expect(currentLease(directory, session)?.orchId).toBe(terminal);
   }, 30_000);
 
-  test("a harness started outside any registered terminal is a root", () => {
+  test("a harness started outside any registered terminal is a root", async () => {
     const directory = claimDir();
-    const session = registerPiSession(directory);
+    const session = await registerPiSession(directory);
     expect(agentById(directory, session)?.spawnedBy).toBeNull();
     expect(currentLease(directory, session)).toBeNull();
   }, 30_000);

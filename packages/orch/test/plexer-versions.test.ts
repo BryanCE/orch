@@ -8,6 +8,8 @@ import { backendVersionsVerdict } from "../src/doctor/backends.ts";
 import { ensureHost, ensurePlexer, ensureHostPlexer, hostPlexers } from "../src/store/agent-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { testHost } from "./helpers/host.ts";
+import { hostIdFrom } from "../src/host.ts";
 
 const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
@@ -29,12 +31,12 @@ describe("plexer version support", () => {
   test("rotates one open host install row when the plexer changes version", () => {
     const d = fixture();
     ensurePlexer(d, "herdr", "herdr");
-    ensureHost(d, "host", "host", "linux", 1_000);
-    ensureHostPlexer(d, "host", "herdr", "0.8.1", 2_000);
-    ensureHostPlexer(d, "host", "herdr", "0.8.2", 3_000);
-    expect(hostPlexers(d, "host", "herdr")).toEqual([
-      { hostId: "host", plexerId: "herdr", since: 2_000, until: 3_000, version: "0.8.1" },
-      { hostId: "host", plexerId: "herdr", since: 3_000, until: null, version: "0.8.2" },
+    ensureHost(d, testHost("host", "host", "linux"), 1_000);
+    ensureHostPlexer(d, hostIdFrom("host"), "herdr", "0.8.1", 2_000);
+    ensureHostPlexer(d, hostIdFrom("host"), "herdr", "0.8.2", 3_000);
+    expect(hostPlexers(d, hostIdFrom("host"), "herdr")).toEqual([
+      { hostId: hostIdFrom("host"), plexerId: "herdr", since: 2_000, until: 3_000, version: "0.8.1" },
+      { hostId: hostIdFrom("host"), plexerId: "herdr", since: 3_000, until: null, version: "0.8.2" },
     ]);
   });
 

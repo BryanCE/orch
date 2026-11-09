@@ -10,7 +10,7 @@ import { commandHandlers } from "../src/commands/index.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { recordAgentStatus, spawnedRecords } from "../src/presence/store.ts";
-import { claimAgent } from "../src/store/agent-rows.ts";
+import { claimAgent, ensureHost } from "../src/store/agent-rows.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { selfId } from "../src/identity/self.ts";
@@ -32,6 +32,7 @@ import { testServices } from "../test/helpers/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { Services } from "../src/types/services.ts";
+import { hostIdentity } from "../src/host.ts";
 const fixtureSettings = {
   enabled: { adapters: ["pi"], backends: ["headless"] },
   defaults: { adapter: "pi", backend: "headless" },
@@ -84,9 +85,9 @@ function commandServices(dir: OrchDir): Promise<Services> {
 function recordProcess(dir: OrchDir, key: string, pid: number, startToken: string): void {
   const db = orm(dir);
   db.run(sql`INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)`);
-  db.run(sql`INSERT OR IGNORE INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)`);
+  ensureHost(dir, hostIdentity(), 1);
   db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${key},${key},${"pi"},${dir},${key},${1},${"session"})`);
-  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
+  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${hostIdentity().id},${pid},${startToken})`);
 }
 
 /** What the CLI boundary would print for one verb: its stdout and exit code, or

@@ -6,7 +6,6 @@ import { loadPresence, presenceEntry } from "../../../presence/store.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
 import { scopeCapacity } from "../../../policy/capacity.ts";
 import { agentViews } from "../../../store/agent-view.ts";
-import { agentProcessLive } from "../../../store/interval-rows.ts";
 import { selectRun, selectRuns } from "../../../store/run-rows.ts";
 import { selectAgentStatus } from "../../../store/status-rows.ts";
 import type { CallerCredential, OrchDir } from "../../../types/core.ts";
@@ -14,6 +13,7 @@ import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { DaemonState } from "../state.ts";
 import { heldCapacity } from "../capacity.ts";
 import { phaseClock } from "../phase-clock.ts";
+import { recordedProcessIsLive } from "../../../process-place.ts";
 
 export function fleetSnapshot(state: DaemonState, params: ParamsOf<"fleet">): ResultOf<"fleet"> {
   const directory = state.directory;
@@ -58,5 +58,5 @@ export function agentStatusOf(directory: OrchDir, params: ParamsOf<"agent-status
 }
 
 export function processLive(directory: OrchDir, params: ParamsOf<"process-live">): ResultOf<"process-live"> {
-  return { live: agentProcessLive(directory, params.target) };
+  return { live: recordedProcessIsLive(directory, params.target) };
 }

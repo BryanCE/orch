@@ -12,6 +12,7 @@ import { agentView } from "../src/store/agent-view.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { SpawnOpts } from "../src/types/adapter.ts";
 import { processStartToken } from "../src/process-identity.ts";
+import { observedHere } from "../src/local-process.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
@@ -167,29 +168,29 @@ describe("HeadlessBackend", () => {
     const calls: { pid: number; signal: string }[] = [];
     const hermetic = new HeadlessBackend({
       pidAlive: () => true,
-      killer: (pid, signal) => calls.push({ pid, signal }),
+      killer: (target, signal) => calls.push({ pid: target.pid, signal }),
     });
     const token = processStartToken(process.pid)!;
 
-    hermetic.process.kill({ pid: process.pid, startToken: token }, "SIGTERM");
+    hermetic.process.kill(observedHere(process.pid, token), "SIGTERM");
 
     expect(calls).toEqual([{ pid: process.pid, signal: "SIGTERM" }]);
   });
 
   test("refuses to signal a pid whose process instance was replaced", () => {
     const calls: number[] = [];
-    const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (pid) => calls.push(pid) });
+    const hermetic = new HeadlessBackend({ pidAlive: () => true, killer: (target) => calls.push(target.pid) });
 
-    expect(() => hermetic.process.kill({ pid: process.pid, startToken: "not-this-instance" }, "SIGTERM"))
+    expect(() => hermetic.process.kill(observedHere(process.pid, "not-this-instance"), "SIGTERM"))
       .toThrow(/replaced/);
     expect(calls).toEqual([]);
   });
 
   test("never signals a dead pid", () => {
     const calls: number[] = [];
-    const hermetic = new HeadlessBackend({ pidAlive: () => false, killer: (pid) => calls.push(pid) });
+    const hermetic = new HeadlessBackend({ pidAlive: () => false, killer: (target) => calls.push(target.pid) });
 
-    expect(() => hermetic.process.kill({ pid: 41003, startToken: "any" }, "SIGTERM")).toThrow(/dead/);
+    expect(() => hermetic.process.kill(observedHere(41003, "any"), "SIGTERM")).toThrow(/dead/);
     expect(calls).toEqual([]);
   });
 });

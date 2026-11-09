@@ -1,8 +1,9 @@
+import { processStartToken } from "../src/process-identity.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
-import { hostOs } from "../src/host.ts";
+import { hostIdentity } from "../src/host.ts";
 import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { rpcCall } from "../src/daemon/client/rpc.ts";
@@ -26,7 +27,7 @@ function tempDir(): OrchDir {
 }
 
 function params(token: string, sessionToken: string): SessionClaim {
-  return { token, sessionToken, pid: process.pid, harness: "pi", cwd: process.cwd(), hostId: "test-host", hostName: "test-host", hostOs: hostOs() };
+  return { token, sessionToken, pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: processStartToken(process.pid) ?? null };
 }
 
 afterEach(async () => {

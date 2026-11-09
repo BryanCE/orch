@@ -23,7 +23,6 @@ import { workerHeaderFor, workerPlaceContext, workerRules } from "../../worker-p
 import { abstractAgentLabel } from "../../notify/format.ts";
 import { getAdapter } from "../../adapters/registry.ts";
 import { isAgentId } from "../../backends/identity.ts";
-import { agentProcessLive } from "../../store/interval-rows.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { sweepExpiredRows } from "./retention.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
@@ -31,6 +30,7 @@ import type { NotifyEvent } from "../../types/notify.ts";
 import type { TaskState } from "../../types/queue.ts";
 import type { WorkOptions } from "../../types/daemon.ts";
 import { orchDirAt } from "../../orch-dir.ts";
+import { recordedProcessIsLive } from "../../process-place.ts";
 export type { WorkOptions };
 
 function agentIdle(entry: PresenceEntry): boolean {
@@ -98,7 +98,7 @@ function buildTaskHeader(orchDir: OrchDir, view: ReturnType<typeof agentView>, o
   // still writing live presence can receive the reply the clause instructs, and
   // a presence key is that spawner's minted id.
   const spawnerKey = view?.spawnedBy;
-  const spawnerRepliable = typeof spawnerKey === "string" && agentProcessLive(orchDir, spawnerKey);
+  const spawnerRepliable = typeof spawnerKey === "string" && recordedProcessIsLive(orchDir, spawnerKey);
   const adapterId = view?.harnessId;
   const rules = workerRules(options.settings.current());
   return workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...workerPlaceContext(view ?? undefined), ...rules });

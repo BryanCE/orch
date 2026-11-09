@@ -1,7 +1,7 @@
 // The frames a host link carries: one JSON object per line, between orchd on the
 // machine you run from and `orch host serve` on the host it reaches over SSH.
 import { z } from "zod";
-import { HOST_GREETING, HOST_IDENTITY, RPC_PARAMS } from "../daemon/client/protocol.ts";
+import { HOST_GREETING, HOST_IDENTITY, HOSTED_PROCESS, PROCESS_INSTANCE, RPC_PARAMS } from "../daemon/client/protocol.ts";
 import { isRecord } from "../util.ts";
 import { SIGNAL_OUTCOMES } from "../types/host.ts";
 import type { HostGreeting } from "../types/host.ts";
@@ -11,12 +11,13 @@ const GREETING = z.object({ greeting: HOST_GREETING }).strict();
 /** Requests orchd sends over a link, each with its params and its result. */
 export const HOST_PARAMS = {
   ping: z.object({}).strict(),
-  /** Whether each of these processes is alive there, answered in the same order. */
-  alive: z.object({ processes: z.array(z.object({ pid: z.number().int().positive(), startToken: z.string().nullable() }).strict()) }).strict(),
+  /** Whether each of these processes is alive there, answered in the same order. Each names
+   *  its host; the far end refuses a process that is not its own. */
+  alive: z.object({ processes: z.array(HOSTED_PROCESS) }).strict(),
   /** Carry orchd's RPC for agents there: the host orchd runs on, and its token. */
   relay: z.object({ origin: HOST_IDENTITY, token: z.string().min(1) }).strict(),
   /** End this recorded process instance there with SIGTERM; a different process on a reused pid is left alone. */
-  signal: z.object({ pid: z.number().int().positive(), startToken: z.string().nullable() }).strict(),
+  signal: HOSTED_PROCESS,
   /** Start a headless agent there for that orchd: the launch facts a local headless spawn takes. */
   launch: RPC_PARAMS["spawn-headless"].pick({ key: true, name: true, adapter: true, model: true, thinking: true, prompt: true, cwd: true, env: true, preferredModels: true, tools: true, workers: true }).strict(),
 } as const;
@@ -28,7 +29,7 @@ export const HOST_RESULTS = {
   relay: z.object({ orchDir: z.string() }).strict(),
   signal: z.object({ outcome: z.enum(SIGNAL_OUTCOMES) }).strict(),
   /** The agent's handle, as recorded, and its process there. */
-  launch: z.object({ handle: z.string(), process: z.object({ pid: z.number().int().positive(), startToken: z.string().nullable() }).strict() }).strict(),
+  launch: z.object({ handle: z.string(), process: PROCESS_INSTANCE }).strict(),
 } as const;
 
 export type HostMethod = keyof typeof HOST_PARAMS;

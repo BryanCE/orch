@@ -10,7 +10,7 @@ import { pendingQuestion } from "../store/question-rows.ts";
 import { agentView } from "../store/agent-view.ts";
 import { admitModel } from "../policy/model.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
-import { agentProcessLive, setTuning } from "../store/interval-rows.ts";
+import { setTuning } from "../store/interval-rows.ts";
 import { awaitControlOutcome } from "./outcome.ts";
 import { pushToBridge } from "./bridge-links.ts";
 import { echoAwaited, expectEcho, type TypedPrompt } from "./echo.ts";
@@ -18,6 +18,7 @@ import type { OrchSettings } from "../types/settings.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AdapterCommand, AgentAdapter, LifecycleVerb, ModelCatalogue } from "../types/adapter.ts";
 import type { ControlAction, ControlBoundaryOutcome } from "../types/control.ts";
+import { recordedProcessIsLive } from "../process-place.ts";
 
 /**
  * Control-plane dispatcher (L5 facade). Runs inside the daemon only; the CLI
@@ -77,7 +78,7 @@ function runAdapterCommand(command: AdapterCommand, timeoutMs: number): Promise<
  */
 /** The store decides liveness; a live agent whose bridge is not yet attached queues, it is not gone. */
 function requireLiveAgent(orchDir: OrchDir, target: string, adapter: AgentAdapter, action: string): void {
-  if (!agentProcessLive(orchDir, target)) throw new AgentGoneError(target, `${adapter.id} process is gone; ${action} needs a respawn`);
+  if (!recordedProcessIsLive(orchDir, target)) throw new AgentGoneError(target, `${adapter.id} process is gone; ${action} needs a respawn`);
 }
 
 /**

@@ -1,18 +1,19 @@
 import type { OrchDir } from "../../src/types/core.ts";
 import { registerSpawnedAgent } from "../../src/store/spawn-registration.ts";
 import { agentById, ensureHarness, ensureHost, ensurePlexer, getOrCreateSessionAgent, insertAgent } from "../../src/store/agent-rows.ts";
-import { hostIdentity, hostOs } from "../../src/host.ts";
+import { hostIdentity } from "../../src/host.ts";
 import { OPERATOR_HARNESS_ID } from "../../src/identity/operator.ts";
 import { sessionProcessPid } from "../../src/identity/credential.ts";
 import { processStartToken } from "../../src/process-identity.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace } from "../../src/store/interval-rows.ts";
 import { adoptLease, currentLease } from "../../src/store/lease-rows.ts";
-import type { RecordedProcess } from "../../src/types/backend.ts";
+import type { LocalProcess } from "../../src/types/backend.ts";
+import { observedHere } from "../../src/local-process.ts";
 import type { AgentFacts } from "../../src/types/presence.ts";
 
 /** The test runner: the one pid a fixture can count on being alive. */
-export function runnerProcess(): RecordedProcess {
-  return { pid: process.pid, startToken: null };
+export function runnerProcess(): LocalProcess {
+  return observedHere(process.pid, null);
 }
 
 /** A pid no process holds, so a seeded record reads as a dead one. */
@@ -35,7 +36,7 @@ export function seedOperator(directory: OrchDir, now = Date.now()): string {
   if (startToken === undefined) throw new Error(`no start token for the runner's parent pid ${pid}`);
   return getOrCreateSessionAgent(directory, {
     pid, startToken, sessionToken: null, harnessId: OPERATOR_HARNESS_ID, cwd: process.cwd(),
-    label: `${OPERATOR_HARNESS_ID} session ${pid}`, hostId: hostIdentity().id, hostName: hostIdentity().name, hostOs: hostOs(), now,
+    label: `${OPERATOR_HARNESS_ID} session ${pid}`, host: hostIdentity(), now,
   }).id;
 }
 
@@ -68,9 +69,10 @@ export function seedAgent(key: string, facts: AgentFacts = {}, directory: OrchDi
  * inserted its row directly instead of through `seedAgent`.
  */
 export function seedLiveProcess(directory: OrchDir, agentId: string, now = Date.now()): void {
-  const host = "test-host";
-  ensureHost(directory, host, host, hostOs(), now);
-  recordProcess(directory, agentId, now, { hostId: host, ...runnerProcess() });
+  // The runner runs on this machine, so its process is recorded on this machine's host.
+  const host = hostIdentity();
+  ensureHost(directory, host, now);
+  recordProcess(directory, agentId, now, { host: host.id, ...runnerProcess() });
 }
 
 /**

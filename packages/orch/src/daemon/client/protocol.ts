@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { WORKTREE_PROVIDER_IDS } from "../../types/worktree.ts";
 import { isRecord } from "../../util.ts";
-import { HOST_OS_VALUES } from "../../types/host.ts";
+import { HOST_OS_VALUES, type HostId } from "../../types/host.ts";
+import { isHostId } from "../../host.ts";
+import type { HostedProcess } from "../../types/process.ts";
 import { isPeerView } from "../../agent/peers.ts";
 import { isPaneLabels } from "../../agent/environment.ts";
 import { isLifecycleVerb } from "../../adapters/adapter.ts";
@@ -39,14 +41,23 @@ export function isRpcErrorCode(value: unknown): value is RpcErrorCode {
 
 const CALLER_SESSION = z.object({ harnessId: z.string(), sessionId: z.string().nullable(), pid: z.number().int().nullable() }) satisfies z.ZodType<CallerSession>;
 /** What a caller says about itself with no store; orchd resolves it to an agent. */
+/** A host id off the wire: checked here, a `HostId` from here on. */
+const HOST_ID = z.custom<HostId>(isHostId, "must be a host id");
+
+/** A pid and its start token, meaningless without the host it runs on. */
+export const PROCESS_INSTANCE = z.object({ pid: z.number().int().positive(), startToken: z.string().nullable() });
+
+/** One process instance on one host. */
+export const HOSTED_PROCESS = PROCESS_INSTANCE.extend({ host: HOST_ID }) satisfies z.ZodType<HostedProcess>;
+
 const CALLER = z.object({
   launch: z.string().nullable(),
   session: CALLER_SESSION.nullable(),
-  process: z.object({ pid: z.number().int(), startToken: z.string().nullable() }),
+  process: HOSTED_PROCESS,
 }) satisfies z.ZodType<CallerCredential>;
 
 /** A host as the store records it: its id, the name people read, its OS. */
-export const HOST_IDENTITY = z.object({ id: z.string(), name: z.string(), os: z.enum(HOST_OS_VALUES) }) satisfies z.ZodType<HostIdentity>;
+export const HOST_IDENTITY = z.object({ id: HOST_ID, name: z.string(), os: z.enum(HOST_OS_VALUES) }) satisfies z.ZodType<HostIdentity>;
 
 export const HOST_GREETING = z.object({ host: HOST_IDENTITY, commit: z.string().nullable(), version: z.string() }).strict() satisfies z.ZodType<HostGreeting>;
 
@@ -54,7 +65,7 @@ const HOST_LINK_VIEW = z.object({
   name: z.string(),
   dest: z.string(),
   state: z.enum(HOST_LINK_STATES),
-  hostId: z.string().nullable(),
+  hostId: HOST_ID.nullable(),
   greeting: HOST_GREETING.nullable(),
   reason: z.string().nullable(),
   lastSeen: z.number().nullable(),
@@ -153,7 +164,7 @@ const RESULT_REPORT = z.object({
 
 const SESSION_CLAIM = z.object({
   token: z.string(),
-  pid: z.number(),
+  pid: z.number().int().positive(),
   sessionToken: z.string().nullish(),
   harness: z.string(),
   cwd: z.string(),
@@ -163,10 +174,11 @@ const SESSION_CLAIM = z.object({
   handle: z.string().optional(),
   space: z.string().nullish(),
   /** The caller's own host: it states it, because it may run on a different side of
-   *  the box than orchd (a Windows session dialing a WSL orchd). */
-  hostId: nonBlank,
-  hostName: z.string(),
-  hostOs: z.enum(HOST_OS_VALUES),
+   *  the box than orchd (a Windows session dialing a WSL orchd), or on a linked host. */
+  host: HOST_IDENTITY,
+  /** The start token of `pid`, read by the caller on its own host. orchd reads it again
+   *  itself for a caller here; for a caller on a linked host it asks that host. */
+  startToken: z.string().nullable(),
 });
 export type SessionClaim = z.infer<typeof SESSION_CLAIM>;
 
@@ -186,7 +198,7 @@ const SPAWN_REGISTRATION = z.object({
   spawner: z.string().nullable(),
   owner: z.string().optional(),
   worktree: agentWorktreeSchema.optional(),
-  process: z.object({ pid: z.number().int(), startToken: z.string().nullable() }),
+  process: PROCESS_INSTANCE,
   host: HOST_IDENTITY,
 }) satisfies z.ZodType<SpawnRegistration>;
 
@@ -197,8 +209,8 @@ const CLOSE_TARGET = z.object({
   name: z.string(),
   backendId: z.string().nullable(),
   handle: z.string().nullable(),
-  recorded: z.object({ pid: z.number().int(), startToken: z.string().nullable() }).nullable(),
-  linkedHost: z.string().nullable(),
+  recorded: HOSTED_PROCESS.nullable(),
+  hostName: z.string().nullable(),
   placeKnown: z.boolean(),
 }) satisfies z.ZodType<CloseTargetWire>;
 
@@ -306,8 +318,8 @@ export const RPC_PARAMS = {
   "report-status": z.object({ key: nonBlank, status: STATUS_PATCH }),
   "report-result": z.object({ key: nonBlank, result: RESULT_REPORT }),
   "report-prompt": z.object({ key: nonBlank, prompt: z.string() }),
-  "command-lock": z.object({ command: nonBlank, cwd: nonBlank, pid: z.number().int().positive(), startToken: z.string().nullable(), agent: z.string().nullable(), held: z.array(z.string()), waitingSince: z.number() }),
-  "command-unlock": z.object({ pid: z.number().int().positive(), startToken: z.string().nullable() }),
+  "command-lock": z.object({ command: nonBlank, cwd: nonBlank, process: HOSTED_PROCESS, agent: z.string().nullable(), held: z.array(z.string()), waitingSince: z.number() }),
+  "command-unlock": z.object({ process: HOSTED_PROCESS }),
   enqueue: z.object({
     enqueuedBy: nonBlank,
     text: nonBlank,

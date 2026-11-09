@@ -8,9 +8,10 @@ import { listTasks } from "../src/queue.ts";
 import type { GrantAction } from "../src/types/store.ts";
 import { approveGrantRequest, grantIsApproved, recordGrantRequest, spendGrant } from "../src/store/grant-rows.ts";
 import { ensureHost } from "../src/store/agent-rows.ts";
-import { hostOs } from "../src/host.ts";
+import { hostOs, hostIdFrom } from "../src/host.ts";
 import { seedLiveProcess, seedOrch } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { testHost } from "./helpers/host.ts";
 
 /** The store holds running state only. A dead agent's settled work is history,
  *  so it never pins the agent's row; work still in flight does. */
@@ -58,16 +59,16 @@ describe("reap drops a dead agent's settled work", () => {
   test("spent and pending grants go; an approval still spendable stays", () => {
     const d = fixture();
     seedLiveProcess(d, "boss");
-    ensureHost(d, "host", "host", hostOs(), Date.now());
+    ensureHost(d, testHost("host", "host", hostOs()), Date.now());
     const spent = recordGrantRequest(d, action("spent"), "worker");
-    approveGrantRequest(d, spent.id, "host");
+    approveGrantRequest(d, spent.id, hostIdFrom("host"));
     spendGrant(d, action("spent"), "worker");
     recordGrantRequest(d, action("pending"), "worker");
     expect(reapDeadAgentRecords(d)).toEqual(["worker"]);
 
     seedOrch(d, "asker");
     const open = recordGrantRequest(d, action("open"), "asker");
-    approveGrantRequest(d, open.id, "host");
+    approveGrantRequest(d, open.id, hostIdFrom("host"));
     expect(reapDeadAgentRecords(d)).toEqual([]);
     expect(grantIsApproved(d, action("open"))).toBe(true);
   });

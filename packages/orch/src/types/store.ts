@@ -1,10 +1,10 @@
 // Type-only: `typeof` over a runtime binding, erased at compile time, so this
 // creates no runtime edge out of the types layer.
 import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
-import type { RecordedProcess } from "./backend.ts";
+import type { ProcessInstance } from "./process.ts";
 import type { OutboxPayload } from "../control/bridge-message.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
-import type { HostIdentity, HostOs } from "./host.ts";
+import type { HostId, HostIdentity } from "./host.ts";
 
 export interface AgentInput {
   id: string;
@@ -33,9 +33,8 @@ export interface SessionAgentInput {
   harnessId: string;
   cwd: string;
   label: string;
-  hostId: string;
-  hostName: string;
-  hostOs: HostOs;
+  /** The host the session's process runs on, as that host names itself. */
+  host: HostIdentity;
   /** Plexer observed by the registering session, when it runs in one. */
   plexerId?: string | null;
   plexerVersion?: string | null;
@@ -74,7 +73,7 @@ export type ClaimResult =
   | { kind: "refused"; reason: "unknown-agent" | "claimed-by-other" };
 
 export interface HostPlexerRow {
-  hostId: string;
+  hostId: HostId;
   plexerId: string;
   since: number;
   until: number | null;
@@ -170,8 +169,6 @@ export interface GrantRequest {
   readonly requestedAt: number;
 }
 
-export interface ProcessValues extends RecordedProcess { hostId:string }
-
 export interface TuningValues { model:string; thinking?:string|null }
 
 export interface OutboxMessageInput {
@@ -262,7 +259,7 @@ export interface SpawnRegistration {
    * never consulted. The environment's own process statement is recorded; it
    * must die with the agent.
    */
-  process: RecordedProcess;
+  process: ProcessInstance;
   /** The host the process runs on, as that host names itself. */
   host: HostIdentity;
   now?: number;

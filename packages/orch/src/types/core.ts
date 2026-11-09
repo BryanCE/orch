@@ -3,6 +3,7 @@
 import type { EXTENSION_SOURCE_DIR } from "../bridge-bundles/metadata.ts";
 
 import type { PresenceEntry } from "./presence.ts";
+import type { HostedProcess } from "./process.ts";
 
 /** `$ORCH_DIR`: the directory holding settings.json, orch.db, agents/ and the orchd runtime
  *  files. Branded so a settings file, a project root, a cwd or any other string cannot be
@@ -259,7 +260,8 @@ export interface SelfIdentity {
 export interface CallerCredential {
   readonly launch: string | null;
   readonly session: CallerSession | null;
-  readonly process: { readonly pid: number; readonly startToken: string | null };
+  /** The caller's process, on the host it runs on. */
+  readonly process: HostedProcess;
 }
 
 /** One candidate an ambiguous target matched, and what distinguishes it. */

@@ -1,0 +1,1 @@
+ALTER TABLE `command_locks` ADD `host_id` text NOT NULL;

@@ -2,6 +2,7 @@
 import "../../store/suppress-sqlite-warning.ts";
 import { HostLinks } from "../../hosts/link.ts";
 import { closeOrphanedHostLinks } from "../../store/host-rows.ts";
+import { setLinkedProcessProbe } from "../../process-place.ts";
 import { bootCodeHash, idleShutdownDue, liveAgentCount, socketAnswers, touchOnCall } from "./state.ts";
 import type { DaemonState } from "./state.ts";
 import { outboxDeps } from "./handlers/write.ts";
@@ -145,6 +146,8 @@ export async function startDaemon(): Promise<DaemonState> {
 
   // A link dies with the orchd that held it: the last instant each was seen is when it ended.
   closeOrphanedHostLinks(directory);
+  // A caller on a linked host proves its process over that host's link.
+  setLinkedProcessProbe((hostId, process) => state.hosts.processIsLive(hostId, process));
 
   // orchd gates every spawn on the catalogues; reading them at boot keeps that gate off the
   // harness binaries, and re-stamps whatever went stale while no daemon was running.

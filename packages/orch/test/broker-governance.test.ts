@@ -12,13 +12,14 @@ import { processStartToken } from "../src/process-identity.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
+import { testHost } from "./helpers/host.ts";
 
 const dirs: OrchDir[] = [];
 function freshDir(): OrchDir {
   const dir = tempOrchDir("orch-gov-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
-  ensureHost(dir, "host", "host", "linux", 1);
+  ensureHost(dir, testHost("host", "host", "linux"), 1);
   return dir;
 }
 

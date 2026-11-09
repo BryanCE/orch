@@ -3,6 +3,7 @@ import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { QueryBuilder, alias, check, index, integer, primaryKey, real, sqliteTable, sqliteView, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { CALLER_KINDS } from "../types/policy.ts";
 import { WORKTREE_PROVIDER_IDS } from "../types/worktree.ts";
+import type { HostId } from "../types/host.ts";
 
 /**
  * Every table, typed.
@@ -102,14 +103,14 @@ export const plexers = sqliteTable("plexers", {
 });
 
 export const hosts = sqliteTable("hosts", {
-  id: text("id").notNull().primaryKey(),
+  id: text("id").$type<HostId>().notNull().primaryKey(),
   name: text("name").notNull(),
   os: text("os").notNull(),
   createdAt: integer("created_at").notNull(),
 }, (table) => [check("hosts_os", sql`${table.os} IN ('linux','windows','darwin')`)]);
 
 export const hostPlexers = sqliteTable("host_plexers", {
-  hostId: text("host_id").notNull().references(() => hosts.id, { onDelete: "cascade" }),
+  hostId: text("host_id").$type<HostId>().notNull().references(() => hosts.id, { onDelete: "cascade" }),
   plexerId: text("plexer_id").notNull().references(() => plexers.id),
   since: integer("since").notNull(),
   until: integer("until"),
@@ -124,7 +125,7 @@ export const hostPlexers = sqliteTable("host_plexers", {
  *  A route that later answers as another id reached a different machine and is refused. */
 export const hostNames = sqliteTable("host_names", {
   name: text("name").notNull().primaryKey(),
-  hostId: text("host_id").notNull().references(() => hosts.id, { onDelete: "cascade" }),
+  hostId: text("host_id").$type<HostId>().notNull().references(() => hosts.id, { onDelete: "cascade" }),
   boundAt: integer("bound_at").notNull(),
 });
 
@@ -132,7 +133,7 @@ export const hostNames = sqliteTable("host_names", {
  *  is up; `last_seen` is the last instant the far side answered, so a link orchd never
  *  closed (it died) still says when it was last known up. */
 export const hostLinks = sqliteTable("host_links", {
-  hostId: text("host_id").notNull().references(() => hosts.id, { onDelete: "cascade" }),
+  hostId: text("host_id").$type<HostId>().notNull().references(() => hosts.id, { onDelete: "cascade" }),
   since: integer("since").notNull(),
   until: integer("until"),
   lastSeen: integer("last_seen").notNull(),
@@ -241,7 +242,7 @@ export const agentProcesses = sqliteTable("agent_processes", {
   agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
   since: integer("since").notNull(),
   until: integer("until"),
-  hostId: text("host_id").notNull().references(() => hosts.id),
+  hostId: text("host_id").$type<HostId>().notNull().references(() => hosts.id),
   pid: integer("pid").notNull(),
   startToken: text("start_token"),
 }, (table) => [
@@ -405,7 +406,7 @@ export const grantApprovals = sqliteTable("grant_approvals", {
   requestId: text("request_id").notNull().primaryKey().references(() => grantRequests.id, { onDelete: "cascade" }),
   approvedAt: integer("approved_at").notNull(),
   expiresAt: integer("expires_at").notNull(),
-  hostId: text("host_id").notNull().references(() => hosts.id),
+  hostId: text("host_id").$type<HostId>().notNull().references(() => hosts.id),
 }, (table) => [check("grant_approvals_expiry", sql`${table.expiresAt} > ${table.approvedAt}`)]);
 
 export const grantDenials = sqliteTable("grant_denials", {
@@ -424,6 +425,7 @@ export const grantSpends = sqliteTable("grant_spends", {
 /** One `locked_commands` pattern held by one live `orch lock` process instance. */
 export const commandLocks = sqliteTable("command_locks", {
   pattern: text("pattern").notNull().primaryKey(),
+  hostId: text("host_id").$type<HostId>().notNull(),
   pid: integer("pid").notNull(),
   startToken: text("start_token"),
   agentId: text("agent_id").references(() => agents.id, { onDelete: "cascade" }),

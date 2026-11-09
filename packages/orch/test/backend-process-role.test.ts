@@ -3,6 +3,7 @@ import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
 import { LocalProcessRole, signalOtherProcess } from "../src/backends/process.ts";
+import { observedHere } from "../src/local-process.ts";
 
 const children: number[] = [];
 
@@ -33,7 +34,7 @@ describe("ProcessRole", () => {
     const role = new LocalProcessRole(() => 41, {
       isAlive: () => true,
       startToken: () => token,
-      spawn: () => ({ pid: 41, startToken: "first" }),
+      spawn: () => ({ ...observedHere(41, "first"), startToken: "first" }),
       signal: () => undefined,
     });
     const started = role.start({ argv: ["ignored"] });
@@ -47,7 +48,7 @@ describe("ProcessRole", () => {
       (handle: string) => handle === "agent" ? 42 : null,
       { startToken: () => "instance-token" },
     );
-    expect(role.running("agent")).toEqual({ pid: 42, startToken: "instance-token" });
+    expect(role.running("agent")).toEqual(observedHere(42, "instance-token"));
   });
 
   test("running throws when the environment reports no process", () => {
@@ -57,18 +58,18 @@ describe("ProcessRole", () => {
 
   test("running records a null token when the OS cannot provide one", () => {
     const role = new LocalProcessRole<string>(() => 42, { startToken: () => undefined });
-    expect(role.running("agent")).toEqual({ pid: 42, startToken: null });
+    expect(role.running("agent")).toEqual(observedHere(42, null));
   });
 
   test("the default signal refuses orch's own process and its parent", () => {
-    expect(() => signalOtherProcess(process.pid, "SIGTERM")).toThrow(/orch is running in it/);
-    expect(() => signalOtherProcess(process.ppid, "SIGTERM")).toThrow(/orch is running in it/);
+    expect(() => signalOtherProcess(observedHere(process.pid, null), "SIGTERM")).toThrow(/orch is running in it/);
+    expect(() => signalOtherProcess(observedHere(process.ppid, null), "SIGTERM")).toThrow(/orch is running in it/);
   });
 
   test("kill signals a live record that carries no start token", () => {
     const signalled: number[] = [];
-    const role = new LocalProcessRole(() => 41, { isAlive: () => true, startToken: () => "now", signal: (pid) => { signalled.push(pid); } });
-    role.kill({ pid: 41, startToken: null }, "SIGTERM");
+    const role = new LocalProcessRole(() => 41, { isAlive: () => true, startToken: () => "now", signal: (target) => { signalled.push(target.pid); } });
+    role.kill(observedHere(41, null), "SIGTERM");
     expect(signalled).toEqual([41]);
   });
 });

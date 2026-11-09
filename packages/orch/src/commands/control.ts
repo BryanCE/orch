@@ -24,7 +24,7 @@ import { contextReference, readPromptFile } from "./prompt-file.ts";
 import { getBackend } from "../backends/registry.ts";
 import type { Services } from "../types/services.ts";
 import type { AdapterId } from "../types/adapter.ts";
-import type { RecordedProcess } from "../types/backend.ts";
+import type { LocalProcess } from "../types/backend.ts";
 import { type PresenceEntry, notDead } from "../types/presence.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
@@ -306,7 +306,7 @@ async function recordAdoptedAgent(services: Services, self: CallerSelf, key: str
 /** The process an adopted agent runs in, as the environment it already sits in
  *  states it. An agent whose environment can address nothing has no process orch
  *  can watch, and adopting it would register a row that reads as dead at once. */
-function adoptedProcess(ent: Entity): RecordedProcess {
+function adoptedProcess(ent: Entity): LocalProcess {
   const backend = ent.backend === null ? undefined : getBackend(ent.backend);
   if (backend === undefined || ent.paneId === null) die(`cannot adopt ${displayName(ent.name, ent.key)}: it sits in no pane orch can read, so orch cannot watch it. Spawn it with orch instead.`);
   return backend.process.running(ent.paneId);

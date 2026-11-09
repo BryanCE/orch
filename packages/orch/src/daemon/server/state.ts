@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import { rpcCall } from "../client/rpc.ts";
 import { loadPresence } from "../../presence/store.ts";
 import { agentViewIndex } from "../../store/agent-view.ts";
-import { recordedProcessIsLive } from "../../store/interval-rows.ts";
 import { fleetLeaseFacts } from "../../agent/drive-state.ts";
 import { bridgeAttached } from "../../control/bridge-links.ts";
 import { buildFleetStatus } from "../../commands/status/offline.ts";
@@ -16,6 +15,7 @@ import type { WakeSignal } from "./wake.ts";
 import { phaseClock } from "./phase-clock.ts";
 import type { LoopWatchdog } from "./loop-watchdog.ts";
 import type { HostLinks } from "../../hosts/link.ts";
+import { recordedProcessIsLive } from "../../process-place.ts";
 
 /** The one spelling of "is this lease's holder still running". A start token
  *  proves the pid is the SAME process instance, not a recycled number. */

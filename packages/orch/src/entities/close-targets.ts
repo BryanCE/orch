@@ -6,9 +6,10 @@ import { callerKindOf } from "../policy/caller.ts";
 import { selfIdentityOf } from "../identity/self.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { currentProcess } from "../store/interval-rows.ts";
-import { hostNameOfId } from "../store/host-rows.ts";
+import { hostById } from "../store/agent-rows.ts";
 import { loadPresence } from "../presence/store.ts";
-import type { Backend, BackendHandle, RecordedProcess } from "../types/backend.ts";
+import type { Backend, BackendHandle } from "../types/backend.ts";
+import type { HostedProcess } from "../types/process.ts";
 import type { CallerCredential, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
@@ -18,22 +19,24 @@ export interface CloseTargetWire {
   readonly name: string;
   readonly backendId: string | null;
   readonly handle: string | null;
-  readonly recorded: RecordedProcess | null;
-  /** The linked host the recorded process runs on, by its settings name; null when it runs
-   *  here. Such a process is signalled over that host's link, never by a pid here. */
-  readonly linkedHost: string | null;
+  /** The recorded process, on the host it runs on. The closer signals it itself only when
+   *  that host is its own box; any other host's process goes to orchd, over that host's link. */
+  readonly recorded: HostedProcess | null;
+  /** The name of the host the recorded process runs on, for what a close reports. */
+  readonly hostName: string | null;
   readonly placeKnown: boolean;
 }
 
 /** Read the launch identity from the normalized agent process interval. Presence
  * status carries liveness only and can never authorize a signal. */
-function recordedProcess(orchDir: OrchDir, key: string): Pick<CloseTargetWire, "recorded" | "linkedHost"> {
+function recordedProcess(orchDir: OrchDir, key: string): Pick<CloseTargetWire, "recorded" | "hostName"> {
   try {
     const row = currentProcess(orchDir, key);
-    if (row === undefined) return { recorded: null, linkedHost: null };
-    return { recorded: { pid: row.pid, startToken: row.startToken }, linkedHost: hostNameOfId(orchDir, row.hostId) };
+    if (row === undefined) return { recorded: null, hostName: null };
+    const recorded: HostedProcess = { host: row.host, pid: row.pid, startToken: row.startToken };
+    return { recorded, hostName: hostById(orchDir, row.host)?.name ?? null };
   } catch {
-    return { recorded: null, linkedHost: null };
+    return { recorded: null, hostName: null };
   }
 }
 

@@ -10,7 +10,7 @@ import { formatAge } from "../format.ts";
 import { errorMessage } from "../util.ts";
 import { bindHostName, closeHostLink, hostIdOfName, latestHostLink, openHostLink, touchHostLink } from "../store/host-rows.ts";
 import { spawnRemoteOrch } from "./ssh.ts";
-import { encodeHostFrame, HOST_RESULTS, parseHostFrame, type HostMethod, type HostParamsOf, type HostResultOf } from "./protocol.ts";
+import { encodeHostFrame, HOST_RESULTS, isUnreadableGreeting, parseHostFrame, type HostMethod, type HostParamsOf, type HostResultOf } from "./protocol.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { HostGreeting, HostLinkView } from "../types/host.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
@@ -218,7 +218,14 @@ export class HostLink {
 
       framedLineReader(child.stdout, (line) => {
         const frame = parseHostFrame(line.trim());
-        if (frame === null) return;
+        if (frame === null) {
+          if (isUnreadableGreeting(line.trim())) {
+            endedBecause = `${this.name} answered with a greeting this orch cannot read, so it runs orch built from another commit. Build this machine's commit there`;
+            settle({ reason: endedBecause });
+            child.kill();
+          }
+          return;
+        }
         if (frame.kind === "greeting") {
           stderr = [];
           const refusal = this.linkUp(frame.greeting);
@@ -255,7 +262,7 @@ export class HostLink {
     this.state = { kind: "up", greeting, since: now };
     this.failures = 0;
     this.startPinging(greeting.host.id);
-    this.deps.logger.info("host.link-up", { host: this.name, hostId: greeting.host.id, version: greeting.version, codeHash: greeting.codeHash });
+    this.deps.logger.info("host.link-up", { host: this.name, hostId: greeting.host.id, version: greeting.version, commit: greeting.commit });
     return null;
   }
 

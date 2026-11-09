@@ -10,14 +10,15 @@ import { usageError } from "../cli/usage.ts";
 import { requiredWord, writeEmptyOrJson } from "./panes.ts";
 import { renderTable } from "../table.ts";
 import { formatAge } from "../format.ts";
-import { installedCodeHash, serveHostLink } from "../hosts/serve.ts";
+import { serveHostLink } from "../hosts/serve.ts";
+import { buildCommit, DIRTY_SUFFIX } from "../build-stamp.ts";
 import { spawnSync } from "node:child_process";
 import { orchPublicKey, scanHostKeys, trustHostKeys, type HostScan } from "../hosts/keys.ts";
 import { announcesWindows, authorizeArgv, authorizeStep, reportedOrch } from "../hosts/authorize.ts";
 import { promptSelect } from "../setup/io.ts";
 import { writeSettingsValue } from "../settings/write.ts";
-import { errorMessage } from "../util.ts";
-import { HOST_SHELLS, type HostLinkView, type HostShell } from "../types/host.ts";
+import { errorMessage, packageManifest } from "../util.ts";
+import { HOST_SHELLS, type HostGreeting, type HostLinkView, type HostShell } from "../types/host.ts";
 import type { Invocation } from "../cli/spec.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
 import type { Services } from "../types/services.ts";
@@ -35,10 +36,21 @@ function lastSeenCell(view: HostLinkView): string {
   return view.lastSeen === null ? "never" : `${formatAge(view.lastSeen)} ago`;
 }
 
-/** Whether the far side runs a different orch build from this one. */
-function skewed(view: HostLinkView, localHash: string | null): boolean {
-  const remote = view.greeting?.codeHash ?? null;
-  return remote !== null && localHash !== null && remote !== localHash;
+function commitCell(commit: string | null): string {
+  return commit ?? "source";
+}
+
+/** What to say when the far side's orch may not be this one's. A release is its version:
+ *  every install of one carries the commit its package was built from. Past the version, a
+ *  build from a checkout is its commit, and two builds of one commit over uncommitted
+ *  changes may still differ. Null when they match, or when either runs from source. */
+function skewWarning(name: string, greeting: HostGreeting, local: { version: string; commit: string | null }): string | null {
+  if (greeting.version !== local.version) return `warning: ${name} runs orch ${greeting.version}; this machine runs ${local.version}.`;
+  const remote = greeting.commit;
+  if (remote === null || local.commit === null) return null;
+  if (remote !== local.commit) return `warning: ${name} runs orch built from ${remote}; this machine runs ${local.commit}.`;
+  if (remote.endsWith(DIRTY_SUFFIX)) return `warning: both sides were built from ${remote}, with uncommitted changes that may differ.`;
+  return null;
 }
 
 async function listHosts(services: Services, json: boolean): Promise<void> {
@@ -59,10 +71,9 @@ async function checkHost(services: Services, name: string, json: boolean): Promi
     process.stdout.write(`${view.name}: ${view.state}\n`);
     return;
   }
-  process.stdout.write(`${view.name}: up. Host ${greeting.host.name}, ${greeting.host.os}, id ${greeting.host.id}. orch ${greeting.version}.\n`);
-  if (skewed(view, installedCodeHash())) {
-    process.stdout.write(`warning: ${view.name} runs a different orch build from this machine. Install the same build there.\n`);
-  }
+  process.stdout.write(`${view.name}: up. Host ${greeting.host.name}, ${greeting.host.os}, id ${greeting.host.id}. orch ${greeting.version}, built from ${commitCell(greeting.commit)}.\n`);
+  const warning = skewWarning(view.name, greeting, { version: packageManifest().version, commit: buildCommit() });
+  if (warning !== null) process.stdout.write(`${warning}\n`);
 }
 
 async function forgetHost(services: Services, name: string, json: boolean): Promise<void> {

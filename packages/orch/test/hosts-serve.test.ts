@@ -5,7 +5,7 @@ import { encodeHostFrame, parseHostFrame, type HostFrame } from "../src/hosts/pr
 import { processStartToken } from "../src/process-identity.ts";
 import type { HostGreeting } from "../src/types/host.ts";
 
-const GREETING: HostGreeting = { host: { id: "far-host", name: "far", os: "linux" }, codeHash: "abc", version: "0.1.0" };
+const GREETING: HostGreeting = { host: { id: "far-host", name: "far", os: "linux" }, commit: "fa3f71f", version: "0.1.0" };
 
 /** Serve a link in-process and collect every frame it writes back. */
 function served(): { send: (frame: HostFrame) => void; frames: () => Promise<HostFrame[]>; end: () => void } {

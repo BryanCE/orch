@@ -37,6 +37,17 @@ export type HostFrame =
   | { readonly kind: "reply"; readonly id: number; readonly result: unknown }
   | { readonly kind: "failure"; readonly id: number; readonly message: string };
 
+/** Whether a line is a greeting in a shape this orch does not read: what an orch built from
+ *  another commit says first, when the greeting changed between the two. */
+export function isUnreadableGreeting(line: string): boolean {
+  try {
+    const value: unknown = JSON.parse(line);
+    return isRecord(value) && "greeting" in value && !GREETING.safeParse(value).success;
+  } catch {
+    return false;
+  }
+}
+
 export function parseHostFrame(line: string): HostFrame | null {
   let value: unknown;
   try {

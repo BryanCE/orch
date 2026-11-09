@@ -2,25 +2,18 @@
 // holds the link. It says which host it is, then answers requests about this machine
 // until the link closes. It never dials an orchd here and never starts one: the
 // agents it answers for belong to the orchd on the other end.
-import { existsSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
-import { computeCodeHash } from "../daemon/client/process.ts";
+import { buildCommit } from "../build-stamp.ts";
 import { framedLineReader } from "../daemon/client/wire.ts";
 import { recordedInstanceIsLive } from "../process-identity.ts";
 import { hostIdentity } from "../host.ts";
-import { errorMessage, orchEntrypoint, packageManifest } from "../util.ts";
+import { errorMessage, packageManifest } from "../util.ts";
 import type { HostGreeting } from "../types/host.ts";
 import { encodeHostFrame, HOST_PARAMS, isHostMethod, parseHostFrame, type HostMethod, type HostResultOf } from "./protocol.ts";
 
-/** Digest of this machine's installed orch entrypoint; null when orch runs from source. */
-export function installedCodeHash(): string | null {
-  const entrypoint = orchEntrypoint();
-  return existsSync(entrypoint) ? computeCodeHash(entrypoint) : null;
-}
-
 /** Which host this is and which orch build answers here. */
 export function hostGreeting(): HostGreeting {
-  return { host: hostIdentity(), codeHash: installedCodeHash(), version: packageManifest().version };
+  return { host: hostIdentity(), commit: buildCommit(), version: packageManifest().version };
 }
 
 function ping(): HostResultOf<"ping"> {

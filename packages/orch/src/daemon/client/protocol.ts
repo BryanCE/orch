@@ -48,7 +48,7 @@ const CALLER = z.object({
 /** A host as the store records it: its id, the name people read, its OS. */
 export const HOST_IDENTITY = z.object({ id: z.string(), name: z.string(), os: z.enum(HOST_OS_VALUES) }) satisfies z.ZodType<HostIdentity>;
 
-export const HOST_GREETING = z.object({ host: HOST_IDENTITY, codeHash: z.string().nullable(), version: z.string() }).strict() satisfies z.ZodType<HostGreeting>;
+export const HOST_GREETING = z.object({ host: HOST_IDENTITY, commit: z.string().nullable(), version: z.string() }).strict() satisfies z.ZodType<HostGreeting>;
 
 const HOST_LINK_VIEW = z.object({
   name: z.string(),

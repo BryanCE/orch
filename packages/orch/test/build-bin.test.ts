@@ -3,7 +3,8 @@ import { removeTempDir } from "./helpers/tempdir.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { BUILD_RUNTIME, stampBuildEntrypoint } from "../scripts/build-bin.ts";
+import { BUILD_RUNTIME, stampBuildCommit, stampBuildEntrypoint } from "../scripts/build-bin.ts";
+import { BUILD_COMMIT_SLOT, buildCommit } from "../src/build-stamp.ts";
 import { isRecord } from "../src/util.ts";
 
 const directories: string[] = [];
@@ -61,6 +62,32 @@ describe("build entrypoint", () => {
     // read-only and the mode reads back 0. The permission is asserted where the
     // filesystem can hold one; the shebang is asserted everywhere.
     if (process.platform !== "win32") expect(statSync(file).mode & 0o111).not.toBe(0);
+  });
+});
+
+describe("the commit a build was made from", () => {
+  test("is written over every slot in the bundle", () => {
+    const directory = mkdtempSync(join(tmpdir(), "orch-build-commit-"));
+    directories.push(directory);
+    const file = join(directory, "orch.js");
+    writeFileSync(file, `const a = "${BUILD_COMMIT_SLOT}";\nconst b = "${BUILD_COMMIT_SLOT}";\n`);
+
+    stampBuildCommit(file, "fa3f71f-dirty");
+
+    expect(readFileSync(file, "utf8")).toBe(`const a = "fa3f71f-dirty";\nconst b = "fa3f71f-dirty";\n`);
+  });
+
+  test("refuses a bundle that lost its slot, rather than ship unstamped", () => {
+    const directory = mkdtempSync(join(tmpdir(), "orch-build-commit-"));
+    directories.push(directory);
+    const file = join(directory, "orch.js");
+    writeFileSync(file, "export {}\n");
+
+    expect(() => stampBuildCommit(file, "fa3f71f")).toThrow("to stamp");
+  });
+
+  test("is none when orch runs from source", () => {
+    expect(buildCommit()).toBeNull();
   });
 });
 

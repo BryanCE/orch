@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 function greeting(id: string): HostGreeting {
-  return { host: { id, name: `machine-${id}`, os: "linux" }, codeHash: null, version: "0.1.0" };
+  return { host: { id, name: `machine-${id}`, os: "linux" }, commit: null, version: "0.1.0" };
 }
 
 /** A far side that runs `orch host serve` in-process, answering as `id`. */
@@ -42,6 +42,13 @@ const noOrch: LinkSpawner = () => {
   return { stdin: new PassThrough(), stdout: new PassThrough(), stderr, exited: Promise.resolve(127), kill: () => undefined };
 };
 
+/** A far side running orch from another commit, whose greeting has a shape this one does not read. */
+const otherBuild: LinkSpawner = () => {
+  const stdout = new PassThrough();
+  stdout.write(`${JSON.stringify({ greeting: { host: { id: "far-old", name: "old", os: "linux" }, codeHash: "abc", version: "0.1.0" } })}\n`);
+  return { stdin: new PassThrough(), stdout, stderr: new PassThrough(), exited: new Promise(() => undefined), kill: () => { stdout.end(); } };
+};
+
 /** The message a promise rejected with, or null when it resolved. */
 function refusal(promise: Promise<unknown>): Promise<string | null> {
   return promise.then(() => null, (error: unknown) => errorMessage(error));
@@ -57,6 +64,11 @@ function hostLinks(spawn: LinkSpawner): HostLinks {
 }
 
 describe("a link to another host", () => {
+  test("says the far side runs another build when its greeting cannot be read", async () => {
+    const reason = await refusal(hostLinks(otherBuild).link("box").connect());
+    expect(reason).toBe("box answered with a greeting this orch cannot read, so it runs orch built from another commit. Build this machine's commit there");
+  });
+
   test("comes up, binds the name to the machine that answered, and records the link", async () => {
     const hosts = hostLinks(farHost("far-1"));
     const answered = await hosts.link("box").connect();

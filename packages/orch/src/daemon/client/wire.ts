@@ -193,6 +193,8 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "host-check": return parseOne(method, RPC_PARAMS[method], id, value);
     case "host-forget": return parseOne(method, RPC_PARAMS[method], id, value);
     case "host-signal": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "peer-alive": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "peer-signal": return parseOne(method, RPC_PARAMS[method], id, value);
     case "grant": return parseOne(method, RPC_PARAMS[method], id, value);
     case "admit-home": return parseOne(method, RPC_PARAMS[method], id, value);
     case "queue-list": return parseOne(method, RPC_PARAMS[method], id, value);
@@ -227,6 +229,7 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "reload": return parseOne(method, RPC_PARAMS[method], id, value);
     case "register-session": return parseOne(method, RPC_PARAMS[method], id, value);
     case "claim-identity": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "peer-hello": return parseOne(method, RPC_PARAMS[method], id, value);
     default: {
       const exhaustive: never = method;
       throw new Error(`unknown RPC method: ${String(exhaustive)}`);

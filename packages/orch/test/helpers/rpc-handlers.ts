@@ -41,6 +41,8 @@ export function stubRpcHandlers(overrides: Partial<RpcHandlers> = {}): RpcHandle
     "host-check": notStubbed,
     "host-forget": notStubbed,
     "host-signal": notStubbed,
+    "peer-alive": notStubbed,
+    "peer-signal": notStubbed,
     grant: notStubbed,
     "admit-home": notStubbed,
     "queue-list": notStubbed,

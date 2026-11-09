@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createConnection, createServer, type Socket } from "node:net";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { HostLinks, type HostLinkDeps, type LinkSpawner } from "../src/hosts/link.ts";
-import { serveHostLink } from "../src/hosts/serve.ts";
+import { HostLinks, type LinkSpawner } from "../src/hosts/link.ts";
+import { startFarOrchd, type FarOrchd } from "./helpers/far-orchd.ts";
 import { latestHostLink } from "../src/store/host-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -21,9 +18,12 @@ const dirs: OrchDir[] = [];
 const otherDirs: OrchDir[] = [];
 const links: HostLinks[] = [];
 
-afterEach(() => {
+const fars: FarOrchd[] = [];
+
+afterEach(async () => {
   for (const link of links.splice(0)) link.closeAll();
   closeAllStores();
+  while (fars.length) await fars.pop()!.close();
   for (const dir of [...dirs.splice(0), ...otherDirs.splice(0)]) removeTempDir(dir);
 });
 
@@ -31,15 +31,20 @@ function greeting(id: string): HostGreeting {
   return { host: testHost(id, `machine-${id}`), commit: null, version: "0.1.0" };
 }
 
-/** A far side that runs `orch host serve` in-process, answering as `id`, with an orch dir of its own. */
+/** A far host: a real orchd in-process answering as `id`, reached through `orch host serve`. */
 function farHost(id: string): LinkSpawner {
-  const farOrchDir = tempOrchDir("orch-far-host-");
-  otherDirs.push(farOrchDir);
-  return () => {
+  const started = startFarOrchd(greeting(id)).then((far) => { fars.push(far); return far; });
+  return (orchDir, host, settings, args) => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();
     const stderr = new PassThrough();
-    const exited = serveHostLink(stdin, stdout, { orchDir: farOrchDir, greeting: greeting(id) }).then(() => 0);
+    const exited = started.then((far) => {
+      const link = far.spawner()(orchDir, host, settings, args);
+      stdin.pipe(link.stdin);
+      link.stdout.pipe(stdout);
+      stdin.once("end", () => { link.kill(); });
+      return link.exited;
+    }).then((code) => { stdout.end(); return code; });
     return { stdin, stdout, stderr, exited, kill: () => { stdin.end(); } };
   };
 }
@@ -54,7 +59,7 @@ const noOrch: LinkSpawner = () => {
 /** A far side running orch from another commit, whose greeting has a shape this one does not read. */
 const otherBuild: LinkSpawner = () => {
   const stdout = new PassThrough();
-  stdout.write(`${JSON.stringify({ greeting: { host: { id: "far-old", name: "old", os: "linux" }, codeHash: "abc", version: "0.1.0" } })}\n`);
+  stdout.write(`${JSON.stringify({ id: 0, result: { host: { id: "far-old", name: "old", os: "linux" }, codeHash: "abc", version: "0.1.0" } })}\n`);
   return { stdin: new PassThrough(), stdout, stderr: new PassThrough(), exited: new Promise(() => undefined), kill: () => { stdout.end(); } };
 };
 
@@ -63,68 +68,14 @@ function refusal(promise: Promise<unknown>): Promise<string | null> {
   return promise.then(() => null, (error: unknown) => errorMessage(error));
 }
 
-function hostLinks(spawn: LinkSpawner, relay: Pick<HostLinkDeps, "dialOrchd" | "daemonToken"> = {}): HostLinks {
+function hostLinks(spawn: LinkSpawner): HostLinks {
   const orchDir = tempOrchDir("orch-host-link-");
   dirs.push(orchDir);
   const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 500 } } });
-  const made = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn, ...relay });
+  const made = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn });
   links.push(made);
   return made;
 }
-
-function connected(path: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const socket = createConnection(path, () => { resolve(socket); });
-    socket.once("error", reject);
-  });
-}
-
-/** The first line a socket reads. */
-function firstLine(socket: Socket): Promise<string> {
-  return new Promise((resolve) => {
-    let buffered = "";
-    socket.setEncoding("utf8");
-    socket.on("data", (chunk: string) => {
-      buffered += chunk;
-      const newline = buffered.indexOf("\n");
-      if (newline >= 0) resolve(buffered.slice(0, newline));
-    });
-  });
-}
-
-async function until<T>(read: () => T | null): Promise<T> {
-  for (;;) {
-    const value = read();
-    if (value !== null) return value;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
-
-describe("orchd's RPC over a link", () => {
-  test("a client on the far host reaches this orchd through the relay, line by line, both ways", async () => {
-    // Stands in for this machine's orchd: answers each line it reads.
-    const orchdDir = tempOrchDir("orch-fake-orchd-");
-    otherDirs.push(orchdDir);
-    const orchdSocket = join(orchdDir, "orchd.sock");
-    const orchd = createServer((socket) => {
-      socket.setEncoding("utf8");
-      socket.on("data", (chunk: string) => { socket.write(chunk.replace(/^(.*)\n$/, "answered $1\n")); });
-    });
-    await new Promise<void>((resolve) => orchd.listen(orchdSocket, resolve));
-
-    const link = hostLinks(farHost("far-relay"), { dialOrchd: () => connected(orchdSocket), daemonToken: () => "orchd-token" }).link("box");
-    await link.connect();
-    const farOrchDir = await until(() => link.relayOrchDir());
-
-    expect(readFileSync(join(farOrchDir, "orchd.token"), "utf8")).toBe("orchd-token\n");
-    const client = await connected(join(farOrchDir, "orchd.sock"));
-    const reply = firstLine(client);
-    client.write("{\"id\":1,\"method\":\"self\"}\n");
-    expect(await reply).toBe("answered {\"id\":1,\"method\":\"self\"}");
-    client.end();
-    orchd.close();
-  });
-});
 
 describe("a link to another host", () => {
   test("says the far side runs another build when its greeting cannot be read", async () => {
@@ -146,7 +97,7 @@ describe("a link to another host", () => {
     const link = hosts.link("box");
     await link.connect();
     const startToken = processStartToken(process.pid) ?? null;
-    expect(await link.alive({ processes: [hosted(process.pid, startToken, hostIdFrom("far-2"))] })).toEqual({ alive: [true] });
+    expect(await link.alive([hosted(process.pid, startToken, hostIdFrom("far-2"))])).toEqual([true]);
   });
 
   test("refuses a different machine answering on a name another machine holds", async () => {

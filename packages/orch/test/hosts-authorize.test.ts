@@ -6,6 +6,7 @@ import { announcesWindows, authorizeArgv, authorizeStep, reportedOrch } from "..
 import { orchDirAt } from "../src/orch-dir.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { hostIdentity } from "../src/host.ts";
 
 const ORCH_DIR = orchDirAt(join("/tmp", "orch-authorize"));
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFake orch@home";
@@ -69,7 +70,7 @@ describe("the Windows script", () => {
 
   test("for Windows itself, finds orch on the Windows PATH and pins no shell", () => {
     const step = authorizeStep({ dest: "bryan@box", shell: "windows" }, KEY);
-    expect(step.command).toContain(`$k='restrict,command="orch host serve" ${KEY}'`);
+    expect(step.command).toContain(`$k='restrict,command="orch host serve --origin ${hostIdentity().id}" ${KEY}'`);
     expect(step.command).toContain("Get-Command orch");
     expect(step.command).not.toContain("wsl.exe");
   });
@@ -98,7 +99,7 @@ describe("the POSIX script, run", () => {
 
     const output = execFileSync("sh", ["-c", authorizeStep({ dest: "bryan@box" }, KEY).command], { encoding: "utf8", env: { PATH: process.env.PATH, HOME: home, SHELL: shell } });
 
-    expect(readFileSync(keys, "utf8")).toBe(`ssh-ed25519 AAAAOther me@laptop\nrestrict,command="${shell} -lic 'exec orch host serve'" ${KEY}\n`);
+    expect(readFileSync(keys, "utf8")).toBe(`ssh-ed25519 AAAAOther me@laptop\nrestrict,command="${shell} -lic 'exec orch host serve --origin ${hostIdentity().id}'" ${KEY}\n`);
     expect(reportedOrch(output)).toBe("/home/b/.nvm/bin/orch");
   });
 });

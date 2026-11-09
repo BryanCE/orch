@@ -12,6 +12,7 @@ import type { DriveState } from "./agent.ts";
 import type { AgentStatusRow } from "../store/status-rows.ts";
 import type { IdentityMethod, ParamsOf, ResultOf, RpcMethod } from "../daemon/client/protocol.ts";
 import type { WakeSignal } from "../daemon/server/wake.ts";
+import type { HostGreeting, HostId } from "./host.ts";
 
 export interface LockRecord {
   pid: number;
@@ -25,6 +26,8 @@ export type RpcEventEmitter = (event: NotifyEvent) => void;
 export interface RpcRequestContext {
   readonly transport: "unix" | "tcp";
   readonly identity?: SessionAgentIdentity;
+  /** The host whose orchd holds this connection over a link; absent for every local caller. */
+  readonly peer?: HostId;
 }
 
 export interface UnleasedAgent {
@@ -62,6 +65,8 @@ export interface RpcServerOptions {
   logger: Logger;
   /** Report a bridge attach after its RPC reply has been written. */
   onBridgeAttached?: (key: string) => void;
+  /** What this orchd answers a peer's hello with; this host's own greeting by default. */
+  greeting?: () => HostGreeting;
 };
 
 export interface BufferedEvent {
@@ -84,6 +89,8 @@ export interface RpcServer {
   subscriberCount(): number;
   /** How many bridge keys currently have an attached connection. */
   attachedBridgeCount(): number;
+  /** How many connections another host's orchd holds to this one. */
+  peerCount(): number;
   readonly transport: "unix" | "tcp";
   readonly socketPath: string;
   readonly portFile: string;

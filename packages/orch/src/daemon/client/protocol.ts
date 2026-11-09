@@ -374,6 +374,10 @@ export const RPC_PARAMS = {
   "host-forget": z.object({ name: nonBlank }),
   /** End an agent's process on the linked host it runs on: its recorded instance, over the link. */
   "host-signal": z.object({ key: nonBlank }),
+  /** From a linked host's orchd: whether each of these processes on this host is alive. */
+  "peer-alive": z.object({ processes: z.array(HOSTED_PROCESS) }),
+  /** From a linked host's orchd: end this recorded process instance on this host. */
+  "peer-signal": HOSTED_PROCESS,
   grant: GOVERNANCE.extend({ target: nonBlank, decision: z.enum(["approve", "deny"]), host: HOST_IDENTITY }),
   "admit-home": GOVERNANCE.extend({ action: GRANT_ACTION }),
   "queue-list": z.object({ history: z.boolean() }),
@@ -409,6 +413,9 @@ export const RPC_PARAMS = {
   reload: z.undefined(),
   "register-session": SESSION_CLAIM,
   "claim-identity": SESSION_CLAIM.extend({ id: z.string(), sessionToken: z.string() }),
+  /** Bind this connection to another host's orchd. Sent by `orch host serve` on this host,
+   *  which reads the origin from its forced command and the token from this orchd. */
+  "peer-hello": z.object({ origin: HOST_ID, token: z.string().min(1) }),
 } as const;
 
 export const RPC_RESULTS = {
@@ -443,7 +450,7 @@ export const RPC_RESULTS = {
   steer: ACCEPTED,
   message: ACCEPTED,
   answer: ACCEPTED,
-  "spawn-headless": z.object({ key: z.string(), pid: z.number() }),
+  "spawn-headless": z.object({ key: z.string(), handle: z.string(), process: PROCESS_INSTANCE }),
   "set-model": z.object({ ok: z.literal(true), applied: z.string() }),
   lifecycle: z.object({ ok: z.literal(true), verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
   "agent-closed": OK,
@@ -468,6 +475,8 @@ export const RPC_RESULTS = {
   "host-check": HOST_LINK_VIEW,
   "host-forget": z.object({ name: z.string() }),
   "host-signal": z.object({ outcome: z.enum(SIGNAL_OUTCOMES) }),
+  "peer-alive": z.object({ alive: z.array(z.boolean()) }),
+  "peer-signal": z.object({ outcome: z.enum(SIGNAL_OUTCOMES) }),
   grant: z.object({ id: z.string(), decision: z.enum(["approve", "deny"]), expiresAt: z.number().nullable() }),
   "admit-home": z.union([z.object({ granted: z.literal(true) }), z.object({ granted: z.literal(false), requestId: z.string() })]),
   "queue-list": z.object({ tasks: z.array(z.custom<TaskRec>(isTaskRec)) }),
@@ -500,6 +509,7 @@ export const RPC_RESULTS = {
   questions: z.object({ questions: z.array(z.custom<PendingQuestionView>(isPendingQuestionView)) }),
   "register-session": registerSessionResponse,
   "claim-identity": z.object({ id: z.string() }),
+  "peer-hello": HOST_GREETING,
 } as const;
 
 export type RpcMethod = keyof typeof RPC_PARAMS;
@@ -521,7 +531,9 @@ export type GovernedMethod =
   | "agent-closed" | "register-agent" | "detach" | "adopt" | "rename" | "reap" | "reap-candidates" | "reclaim" | "set-handle"
   | "space-create" | "space-rename" | "space-delete" | "record-home" | "clear-home" | "grant" | "admit-home"
   | "queue-cancel" | "queue-edit" | "queue-take-on" | "queue-reap" | "queue-intake" | "clean";
-export type IdentityMethod = "register-session" | "claim-identity";
+/** Methods that say who is on the other end of a connection. The RPC server answers them
+ *  itself, because what they decide belongs to the connection, not to a handler. */
+export type IdentityMethod = "register-session" | "claim-identity" | "peer-hello";
 
 function isPendingQuestionView(value: unknown): value is PendingQuestionView {
   if (!isRecord(value)) return false;

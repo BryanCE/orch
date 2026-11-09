@@ -7,6 +7,7 @@ import { orchSshFiles } from "./keys.ts";
 import { shellQuote } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
+import { hostIdentity } from "../host.ts";
 
 /** Whether a host's ssh server is Windows OpenSSH, from the version line it announced. */
 export function announcesWindows(banner: string | null): boolean {
@@ -61,7 +62,7 @@ function windowsCommand(host: HostSettings, publicKey: string): string {
   return [
     // PowerShell's first-run progress records come back over ssh as CLIXML noise.
     "$ProgressPreference='SilentlyContinue'",
-    `$k=${powershellQuote(authorizedKeysLine(host, publicKey))}`,
+    `$k=${powershellQuote(authorizedKeysLine(host, publicKey, hostIdentity().id))}`,
     `$b=${powershellQuote(keyBody(publicKey))}`,
     ...windowsLocateOrch(host),
     `if ((Get-LocalGroupMember Administrators).Name -like "*\\$env:USERNAME") { $f="$env:ProgramData\\ssh\\administrators_authorized_keys" } else { New-Item -ItemType Directory -Force "$HOME\\.ssh" | Out-Null; $f="$HOME\\.ssh\\authorized_keys" }`,
@@ -75,7 +76,7 @@ function windowsCommand(host: HostSettings, publicKey: string): string {
 
 function posixCommand(host: HostSettings, publicKey: string): string {
   return [
-    `s="$SHELL"; k=$(printf '%s' ${shellQuote(authorizedKeysLine(host, publicKey))} | sed "s|${LOGIN_SHELL_SLOT}|$s|"); f="$HOME/.ssh/authorized_keys"`,
+    `s="$SHELL"; k=$(printf '%s' ${shellQuote(authorizedKeysLine(host, publicKey, hostIdentity().id))} | sed "s|${LOGIN_SHELL_SLOT}|$s|"); f="$HOME/.ssh/authorized_keys"`,
     `mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh" && touch "$f"`,
     `{ grep -vF ${shellQuote(keyBody(publicKey))} "$f" || true; } > "$f.orch" && printf '%s\\n' "$k" >> "$f.orch" && mv "$f.orch" "$f" && chmod 600 "$f"`,
     `echo "orch's key is authorized here."`,

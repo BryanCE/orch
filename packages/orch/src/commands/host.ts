@@ -18,7 +18,8 @@ import { announcesWindows, authorizeArgv, authorizeStep, reportedOrch } from "..
 import { promptSelect } from "../setup/io.ts";
 import { writeSettingsValue } from "../settings/write.ts";
 import { errorMessage, packageManifest } from "../util.ts";
-import { HOST_SHELLS, type HostGreeting, type HostLinkView, type HostShell } from "../types/host.ts";
+import { HOST_SHELLS, type HostGreeting, type HostId, type HostLinkView, type HostShell } from "../types/host.ts";
+import { isHostId } from "../host.ts";
 import type { Invocation } from "../cli/spec.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
 import type { Services } from "../types/services.ts";
@@ -199,6 +200,13 @@ function printHostKey(services: Services, name: string): void {
   process.stdout.write(authorizeInstructions(name, host, orchPublicKey(services.orchDir, settings.links)));
 }
 
+/** The origin `orch host serve` speaks for, which only the forced command can name. */
+function pinnedOrigin(invocation: Invocation): HostId {
+  const origin = invocation.flags.value("--origin");
+  if (origin === undefined || !isHostId(origin)) throw usageError(invocation);
+  return origin;
+}
+
 export async function cmdHost(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("host", args);
   const json = invocation.flags.has("--json");
@@ -207,7 +215,12 @@ export async function cmdHost(services: Services, args: string[]): Promise<void>
     case "key": return printHostKey(services, requiredWord(invocation, 0));
     case "check": return checkHost(services, requiredWord(invocation, 0), json);
     case "forget": return forgetHost(services, requiredWord(invocation, 0), json);
-    case "serve": return serveHostLink(process.stdin, process.stdout, { orchDir: services.orchDir });
+    case "serve": return serveHostLink(process.stdin, process.stdout, {
+      orchDir: services.orchDir,
+      origin: pinnedOrigin(invocation),
+      logger: services.logger,
+      connectTimeoutMs: services.settings.current().links.request_timeout_ms,
+    });
     default:
       if (invocation.positional.length) throw usageError(invocation);
       return listHosts(services, json);

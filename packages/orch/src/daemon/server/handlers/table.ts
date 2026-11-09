@@ -32,6 +32,8 @@ import { activePaneHud } from "../../../backends/hud.ts";
 import { peerView } from "../peer-view.ts";
 import { governed } from "../governance.ts";
 import type { PaneLabels } from "../../../types/plexer.ts";
+import { peerHandlers } from "./peer.ts";
+import { hostIdentity } from "../../../host.ts";
 
 /** One handler that wakes the work loop once it has run. */
 function waking<P, R>(state: DaemonState, handler: (params: P) => R): (params: P) => R {
@@ -124,6 +126,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "host-check": (params) => checkHost(state, params),
     "host-forget": (params) => forgetHost(state, params),
     "host-signal": (params) => signalOnHost(state, params),
+    ...peerHandlers(hostIdentity),
     grant: governed(state, (params) => decideGrant(directory, params)),
     "admit-home": governed(state, (params) => admitHome(directory, params)),
     "queue-list": (params) => listQueued(directory, params),

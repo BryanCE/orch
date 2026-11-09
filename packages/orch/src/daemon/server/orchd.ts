@@ -237,7 +237,7 @@ export async function startDaemon(): Promise<DaemonState> {
     const liveAgents = liveAgentCount(directory);
     if (liveAgents > 0) state.lastActivityAt = Date.now();
     const msSinceActivity = Date.now() - state.lastActivityAt;
-    const connections = (state.server?.subscriberCount() ?? 0) + (state.server?.attachedBridgeCount() ?? 0);
+    const connections = (state.server?.subscriberCount() ?? 0) + (state.server?.attachedBridgeCount() ?? 0) + (state.server?.peerCount() ?? 0);
     if (!idleShutdownDue({ idleMinutes, liveAgents, connections, msSinceActivity })) return;
     clearInterval(idleCheck);
     void shutDown(state, `idle ${idleMinutes}m: no live agents, no connections`);

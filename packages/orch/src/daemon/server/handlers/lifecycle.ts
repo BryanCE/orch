@@ -17,7 +17,7 @@ import { isAgentState } from "../../../agent-state.ts";
 import { pendingQuestions, recordQuestion } from "../../../store/question-rows.ts";
 import { governWrite } from "./write.ts";
 import type { DaemonState } from "../state.ts";
-import type { ParamsOf } from "../../client/protocol.ts";
+import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
 import type { PendingQuestionView } from "../../../types/daemon.ts";
 import { addTask } from "../../../queue.ts";
@@ -37,7 +37,7 @@ export function enqueue(state: DaemonState, params: ParamsOf<"enqueue">): { task
   return { task };
 }
 
-export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): Promise<{ key: string; pid: number }> {
+export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): Promise<ResultOf<"spawn-headless">> {
   const directory = state.directory;
   const key = params.key;
   const adapterId = params.adapter;
@@ -66,19 +66,21 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     tools: params.tools,
     workers: params.workers,
   });
-  return { key, pid: handle.pid };
+  return { key, handle: JSON.stringify(handle), process: headlessBackend.process.running(handle) };
 }
 
-/** Start a headless agent on a linked host and record it here, with that host as where its
- *  process runs. The spawner holds it exactly as it holds an agent started here. */
-async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsOf<"spawn-headless">): Promise<{ key: string; pid: number }> {
+/** Start a headless agent on a linked host: that host's orchd spawns it, runs it and records
+ *  it. This orchd records it too, with that host as where its process runs, so the spawner
+ *  holds it exactly as it holds an agent started here. */
+async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsOf<"spawn-headless">): Promise<ResultOf<"spawn-headless">> {
   if (params.worktree !== undefined) throw new Error(`a worktree on ${hostName} is not made yet; spawn there without --worktree`);
   const link = state.hosts.link(hostName);
   const greeting = await link.requireUp();
-  const { key, name, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers } = params;
-  const launched = await link.launch({ key, name, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers });
+  // Governed here already; the far orchd runs it for this host, as this host's peer.
+  const { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers } = params;
+  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers });
   registerSpawnedAgent(state.directory, headlessRegistration(adapter, key, { ...params, orchDir: state.directory }, launched, greeting.host));
-  return { key, pid: launched.process.pid };
+  return launched;
 }
 
 // Throws when the agent refuses or never confirms; the RPC error carries that

@@ -345,7 +345,7 @@ const MAINTENANCE: readonly CommandSpec[] = [
       { name: "key", args: "<host>", summary: "Print the authorized_keys line that lets orch into a host.", flags: [] },
       { name: "check", args: "<host>", summary: "Bring a host's link up and say which machine answered.", flags: [] },
       { name: "forget", args: "<host>", summary: "Forget which machine a host name meant, after that machine was replaced.", flags: [] },
-      { name: "serve", summary: "The far end of a link. orchd runs it over ssh.", flags: [] },
+      { name: "serve", summary: "The far end of a link. orchd runs it over ssh.", flags: [{ name: "--origin", arity: "one", placeholder: "<host-id>", help: "The host whose orchd holds the link, pinned by the forced command." }] },
     ],
   },
   {

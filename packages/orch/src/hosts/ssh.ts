@@ -5,6 +5,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { orchSshFiles } from "./keys.ts";
 import { shellQuote } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
+import type { HostId } from "../types/host.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
 
 /** The words orch sends as a far command. Plain words need no quoting in any shell a
@@ -82,8 +83,8 @@ export function sshArgv(orchDir: OrchDir, host: HostSettings, links: OrchSetting
  *  nothing else: `restrict` drops forwarding, agent and pty, and `command=` replaces
  *  whatever the client asks for. A stolen orch key buys a link and no shell. The line
  *  holds {@link LOGIN_SHELL_SLOT} until the host fills it in. */
-export function authorizedKeysLine(host: HostSettings, publicKey: string): string {
-  const forced = remoteOrchCommand(host, ["host", "serve"]).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+export function authorizedKeysLine(host: HostSettings, publicKey: string, origin: HostId): string {
+  const forced = remoteOrchCommand(host, ["host", "serve", "--origin", origin]).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
   return `restrict,command="${forced}" ${publicKey}`;
 }
 

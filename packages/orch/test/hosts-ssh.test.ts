@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { authorizedKeysLine, LOGIN_SHELL_SLOT, remoteOrchCommand, sshArgv } from "../src/hosts/ssh.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
+import { hostIdFrom } from "../src/host.ts";
+
+const ORIGIN = hostIdFrom("origin-1");
 
 const ORCH_DIR = orchDirAt(join("/tmp", "orch-ssh-argv"));
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFake orch@home";
@@ -54,10 +57,10 @@ describe("the ssh command line a host link runs", () => {
 
 describe("the authorized_keys line for orch's key", () => {
   test("pins the key to orch host serve with nothing else allowed", () => {
-    expect(authorizedKeysLine({ dest: "box" }, KEY)).toBe(`restrict,command="${LOGIN_SHELL_SLOT} -lic 'exec orch host serve'" ${KEY}`);
+    expect(authorizedKeysLine({ dest: "box" }, KEY, ORIGIN)).toBe(`restrict,command="${LOGIN_SHELL_SLOT} -lic 'exec orch host serve --origin origin-1'" ${KEY}`);
   });
 
   test("escapes the inner quotes a WSL host's command carries", () => {
-    expect(authorizedKeysLine({ dest: "box", shell: "wsl" }, KEY)).toBe(`restrict,command="wsl.exe -e ${LOGIN_SHELL_SLOT} -lic \\"exec orch host serve\\"" ${KEY}`);
+    expect(authorizedKeysLine({ dest: "box", shell: "wsl" }, KEY, ORIGIN)).toBe(`restrict,command="wsl.exe -e ${LOGIN_SHELL_SLOT} -lic \\"exec orch host serve --origin origin-1\\"" ${KEY}`);
   });
 });

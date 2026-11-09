@@ -8,6 +8,8 @@ import type { BridgeDelivery } from "../../control/bridge-message.ts";
 import { ensurePrivateDir, errorMessage } from "../../util.ts";
 import { createEventBus, type EventBus } from "./event-bus.ts";
 import { hostOs } from "../../host.ts";
+import { hostGreeting } from "../../hosts/greeting.ts";
+import type { HostGreeting, HostId } from "../../types/host.ts";
 import type { SessionAgentIdentity } from "../../types/store.ts";
 import type { EndpointPaths, RpcEventEmitter, RpcHandlers, RpcRequestContext, RpcServer, RpcServerOptions } from "../../types/daemon.ts";
 import type { IdentityMethod, ParamsOf, RpcMethod } from "../client/protocol.ts";
@@ -19,6 +21,30 @@ import { registerSession, claimIdentity } from "./session-registry.ts";
 interface ConnectionState {
   identity?: SessionAgentIdentity;
   bridge?: { key: string; link: BridgeLink };
+  /** The host whose orchd holds this connection, once it said hello with this orchd's token. */
+  peer?: HostId;
+}
+
+/** What every connection on this server shares. */
+interface ServerShared {
+  readonly subscriptions: Set<Socket>;
+  readonly replayBuffer: ReplayBuffer;
+  readonly peers: Set<Socket>;
+  readonly greeting: () => HostGreeting;
+}
+
+/** Bind a connection to the host whose orchd holds it. Only `orch host serve` on this host
+ *  can say hello: it holds this orchd's token, and it reads the origin from the forced command
+ *  that host's key is pinned to, so a peer cannot claim to be another host. */
+function peerHello(socket: Socket, request: Extract<RpcRequest, { method: "peer-hello" }>, state: ConnectionState, shared: ServerShared, daemonToken: string, logger: Logger): void {
+  if (request.params.token !== daemonToken) {
+    lineResponse(socket, errorResponse(request.id, "IDENTITY_REQUIRED", "peer-hello requires this orchd's token"));
+    return;
+  }
+  state.peer = request.params.origin;
+  shared.peers.add(socket);
+  logger.info("peer.linked", { origin: request.params.origin });
+  lineResponse(socket, { kind: "reply", id: request.id, result: shared.greeting() });
 }
 
 function detachConnectionBridge(orchDir: OrchDir, state: ConnectionState): void {
@@ -98,14 +124,14 @@ function dispatchRequest(
 ): void {
   const startedAt = Date.now();
   Promise.resolve()
-    .then(() => invoke(handlers, request.method, request.params, emit, { transport, identity: state.identity }))
+    .then(() => invoke(handlers, request.method, request.params, emit, { transport, identity: state.identity, peer: state.peer }))
     .then((result) => {
       lineResponse(socket, { kind: "reply", id: request.id, result });
       logRpc(logger, request, transport, startedAt);
       notifyBridgeAttached?.();
     })
     .catch((error: unknown) => {
-      lineResponse(socket, errorResponse(request.id, "HANDLER_ERROR", errorMessage(error)));
+      lineResponse(socket, errorResponse(request.id, error instanceof RpcError ? error.code : "HANDLER_ERROR", errorMessage(error)));
       logRpc(logger, request, transport, startedAt, error);
       notifyBridgeAttached?.();
     });
@@ -115,8 +141,7 @@ function handleLine(
   socket: Socket,
   line: string,
   handlers: RpcHandlers,
-  subscriptions: Set<Socket>,
-  replayBuffer: ReplayBuffer,
+  shared: ServerShared,
   orchDir: OrchDir,
   transport: "unix" | "tcp",
   state: ConnectionState,
@@ -127,6 +152,10 @@ function handleLine(
   const request = parseRequest(line);
   if (!("method" in request)) {
     lineResponse(socket, request);
+    return;
+  }
+  if (request.method === "peer-hello") {
+    peerHello(socket, request, state, shared, daemonToken, logger);
     return;
   }
   if (request.method === "register-session" || request.method === "claim-identity") {
@@ -149,11 +178,11 @@ function handleLine(
   if (request.method === "subscribe-events") {
     const since = request.params.since;
     if (since !== undefined) {
-      const replay = replayBuffer.since(since);
+      const replay = shared.replayBuffer.since(since);
       if (replay.gap && replay.oldestSeq !== undefined) lineResponse(socket, { kind: "gap", oldestSeq: replay.oldestSeq });
       for (const buffered of replay.events) lineResponse(socket, { kind: "event", ...buffered });
     }
-    subscriptions.add(socket);
+    shared.subscriptions.add(socket);
   }
   const attach: AttachOutcome = request.method === "attach"
     ? attachRequest(orchDir, socket, request, state, transport, onBridgeAttached, logger)
@@ -167,8 +196,7 @@ function handleLine(
 function attachConnection(
   socket: Socket,
   handlers: RpcHandlers,
-  subscriptions: Set<Socket>,
-  replayBuffer: ReplayBuffer,
+  shared: ServerShared,
   orchDir: OrchDir,
   transport: "unix" | "tcp",
   daemonToken: string,
@@ -177,11 +205,12 @@ function attachConnection(
 ): () => void {
   const state: ConnectionState = {};
   const detach = () => {
-    subscriptions.delete(socket);
+    shared.subscriptions.delete(socket);
+    shared.peers.delete(socket);
     detachConnectionBridge(orchDir, state);
   };
   framedLineReader(socket, (line) =>
-    handleLine(socket, line.replace(/\r$/, ""), handlers, subscriptions, replayBuffer, orchDir, transport, state, daemonToken, onBridgeAttached, logger),
+    handleLine(socket, line.replace(/\r$/, ""), handlers, shared, orchDir, transport, state, daemonToken, onBridgeAttached, logger),
   );
   socket.on("close", detach);
   socket.on("error", detach);
@@ -240,6 +269,7 @@ export async function startRpcServer(
   ensurePrivateDir(orchDir);
   const paths = endpointPaths(orchDir);
   const subscriptions = new Set<Socket>();
+  const peers = new Set<Socket>();
   const sockets = new Set<Socket>();
   const connectionCleanups = new Set<() => void>();
   const replayBuffer = new ReplayBuffer(orchDir);
@@ -251,9 +281,10 @@ export async function startRpcServer(
     for (const socket of subscriptions) writeEncodedLine(socket, encoded);
   });
   const daemonToken = writeDaemonToken(paths.token);
+  const shared: ServerShared = { subscriptions, replayBuffer, peers, greeting: options.greeting ?? hostGreeting };
   const attachFor = (transport: "unix" | "tcp") => (socket: Socket): void => {
     sockets.add(socket);
-    const cleanup = attachConnection(socket, handlers, subscriptions, replayBuffer, orchDir, transport, daemonToken, options.onBridgeAttached, logger);
+    const cleanup = attachConnection(socket, handlers, shared, orchDir, transport, daemonToken, options.onBridgeAttached, logger);
     connectionCleanups.add(cleanup);
     socket.once("close", () => {
       sockets.delete(socket);
@@ -265,14 +296,14 @@ export async function startRpcServer(
   const server = createServer(attachUnix);
   if (await bindUnix(server, paths, reclaimableSocket(orchDir, options))) {
     const tcpServer = await startTcpServer(attachTcp, options, paths);
-    return makeRpcServer(server, tcpServer, sockets, connectionCleanups, subscriptions, bus, unsubscribeBus, paths, "unix", tcpEndpointOf(tcpServer));
+    return makeRpcServer(server, tcpServer, sockets, connectionCleanups, subscriptions, peers, bus, unsubscribeBus, paths, "unix", tcpEndpointOf(tcpServer));
   }
   try { server.close(); } catch {}
   const tcpServer = createServer(attachTcp);
   await listen(tcpServer, { host: "127.0.0.1", port: options.tcpPort ?? 0 });
   const boundPort = boundTcpPort(tcpServer);
   writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
-  return makeRpcServer(tcpServer, undefined, sockets, connectionCleanups, subscriptions, bus, unsubscribeBus, paths, "tcp", `tcp://127.0.0.1:${boundPort}`);
+  return makeRpcServer(tcpServer, undefined, sockets, connectionCleanups, subscriptions, peers, bus, unsubscribeBus, paths, "tcp", `tcp://127.0.0.1:${boundPort}`);
 }
 
 /**
@@ -361,6 +392,7 @@ function makeRpcServer(
   sockets: Set<Socket>,
   connectionCleanups: Set<() => void>,
   subscriptions: Set<Socket>,
+  peers: Set<Socket>,
   bus: EventBus,
   unsubscribeBus: () => void,
   paths: { socket: string; port: string; token: string },
@@ -378,6 +410,7 @@ function makeRpcServer(
     try { unlinkSync(paths.port); } catch {}
     try { unlinkSync(paths.token); } catch {}
     unsubscribeBus();
+    peers.clear();
     subscriptions.clear();
   };
   return {
@@ -385,6 +418,7 @@ function makeRpcServer(
     emit: (event) => bus.emit(event),
     subscriberCount: () => subscriptions.size,
     attachedBridgeCount: () => attachedBridgeKeys().length,
+    peerCount: () => peers.size,
     transport,
     socketPath: paths.socket,
     portFile: paths.port,

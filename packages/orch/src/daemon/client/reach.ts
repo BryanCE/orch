@@ -25,7 +25,6 @@ import { isLogRecord, logFile } from "../../log.ts";
 import { readSettingsFile, settingsValues } from "../../settings/read.ts";
 import { settingsPath } from "../../settings/schema.ts";
 import { sessionClaim } from "./registration.ts";
-import { LINKED_DAEMON_ENV } from "./runtime-files.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./wire.ts";
 import { rpcCall } from "./rpc.ts";
 import { isLiveAgentIdentity } from "../../store/agent-rows.ts";
@@ -182,8 +181,6 @@ export async function ensureDaemon(directory: OrchDir, logger: Logger): Promise<
   } else if (probe === "unreachable") {
     clearDaemonRuntime(directory);
   }
-  const linked = process.env[LINKED_DAEMON_ENV];
-  if (linked !== undefined && linked !== "") throw new Error(`this agent's orchd runs on ${linked} and is reached over its link, which is down; orch starts no orchd here`);
   daemonize(directory, daemonEntrypoint(), []);
   const started = await awaitDaemonProbe(directory, Date.now() + START_GRACE_MS);
   if (started === "answered") return;

@@ -108,6 +108,8 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     "host-check": touchHandler(state, handlers["host-check"]),
     "host-forget": touchHandler(state, handlers["host-forget"]),
     "host-signal": touchHandler(state, handlers["host-signal"]),
+    "peer-alive": touchHandler(state, handlers["peer-alive"]),
+    "peer-signal": touchHandler(state, handlers["peer-signal"]),
     grant: touchHandler(state, handlers.grant),
     "admit-home": touchHandler(state, handlers["admit-home"]),
     "queue-list": touchHandler(state, handlers["queue-list"]),

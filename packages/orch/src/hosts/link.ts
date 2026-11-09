@@ -490,7 +490,8 @@ class HostLink {
     if (this.pingTimer !== null) clearInterval(this.pingTimer);
     this.pingTimer = null;
     const now = this.now();
-    if (this.state.kind === "up") {
+    const wasUp = this.state.kind === "up";
+    if (wasUp) {
       closeHostLink(this.deps.orchDir, this.state.greeting.host.id, now);
       this.deps.logger.warn("host.link-down", { host: this.name, reason });
     }
@@ -503,6 +504,9 @@ class HostLink {
     // A link still wanted redials, and its screens stream again once it is back
     // (`reattachScreens`); one closed on purpose ends every viewer of its screens here.
     if (this.wanted) {
+      // Each viewer says so on its screen, once, as the link drops; the snapshot it gets back
+      // on reattach clears the notice.
+      if (wasUp) for (const key of this.screens.keys()) this.takeScreen(key, { kind: "data", data: `\r\n[orch] ${this.name} went offline: ${reason}. Reconnecting.\r\n` });
       this.scheduleRetry();
       return;
     }

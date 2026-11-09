@@ -21,9 +21,8 @@ import { hostIdentity } from "../src/hosts/identity.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { drainWrites } from "../src/store/connection.ts";
 import { readAgentAnywhere } from "../src/daemon/server/handlers/host.ts";
-import { idleDaemonState } from "./helpers/daemon-state.ts";
+import { nearOrchd, type NearOrchd } from "./helpers/held-far.ts";
 import type { CallerCredential } from "../src/types/core.ts";
-import type { DaemonState } from "../src/daemon/server/state.ts";
 import { answer as answerQuestion, dispatch } from "../src/daemon/server/handlers/write.ts";
 import { abortAnywhere, closeAnywhere } from "../src/daemon/server/handlers/drive.ts";
 import { clearSession, listPendingQuestions } from "../src/daemon/server/handlers/lifecycle.ts";
@@ -40,9 +39,11 @@ const otherDirs: OrchDir[] = [];
 const links: HostLinks[] = [];
 
 const fars: FarOrchd[] = [];
+const nears: NearOrchd[] = [];
 
 afterEach(async () => {
   for (const link of links.splice(0)) link.closeAll();
+  for (const near of nears.splice(0)) await near.close();
   closeAllStores();
   while (fars.length) await fars.pop()!.close();
   for (const dir of [...dirs.splice(0), ...otherDirs.splice(0)]) removeTempDir(dir);
@@ -224,33 +225,22 @@ describe("reading an agent wherever it runs", () => {
   test("an agent on a linked host is read from that host's store, and the answer names the host", async () => {
     const far = await startFarOrchd(greeting("far-7"));
     fars.push(far);
-    const orchDir = tempOrchDir("orch-agent-read-near-");
-    dirs.push(orchDir);
-    const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 500 } } });
-    const hosts = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn: far.spawner(), events: () => undefined });
-    links.push(hosts);
-    await hosts.link("box").connect();
     const key = farAgent(far, { askedBy: hostIdentity().id, spawner: null });
     upsertRun(far.orchDir, { dispatchId: `run-${key}`, agentKey: key, state: "done", startedAt: Date.now(), result: "read over the link" });
     drainWrites(far.orchDir);
-    registerHostedAgent(orchDir, { key, harnessId: "pi", cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null, host: far.greeting.host });
+    const near = await nearDriving(far, key);
     const operator: CallerCredential = { launch: null, session: null, pid: process.pid };
-    const answer = await readAgentAnywhere({ ...idleDaemonState(services, orchDir), hosts }, { caller: operator, key, read: { kind: "result" } });
+    const answer = await readAgentAnywhere(near.state, { caller: operator, key, read: { kind: "result" } });
     expect(answer).toEqual({ host: "box", reading: { kind: "result", lookup: { kind: "found", source: "presence", payload: "read over the link" } } });
   });
 });
 
 /** This host's orchd, linked to `far` as the host named box, recording `key` as an agent it
  *  asked `far` to run. */
-async function nearDriving(far: FarOrchd, key: string): Promise<{ orchDir: OrchDir; state: DaemonState }> {
-  const orchDir = tempOrchDir("orch-drive-near-");
-  dirs.push(orchDir);
-  const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 2_000 } } });
-  const hosts = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn: far.spawner(), events: () => undefined });
-  links.push(hosts);
-  await hosts.link("box").connect();
-  registerHostedAgent(orchDir, { key, harnessId: "pi", cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null, host: far.greeting.host });
-  return { orchDir, state: { ...idleDaemonState(services, orchDir), hosts } };
+async function nearDriving(far: FarOrchd, key: string): Promise<NearOrchd> {
+  const near = await nearOrchd(far, key, { spawner: null, cwd: "/tmp", model: "openai/gpt-5.6" });
+  nears.push(near);
+  return near;
 }
 
 describe("driving an agent wherever it runs", () => {

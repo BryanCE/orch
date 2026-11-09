@@ -3,26 +3,17 @@
 // Each must behave as it does for an agent here. The far agent's program is a real child
 // process standing in for its harness, so its liveness, its signals and its exit are real.
 import { afterEach, describe, expect, test } from "bun:test";
-import { spawn, type ChildProcess } from "node:child_process";
-import { constants } from "node:os";
-import { startFarOrchd, type FarOrchd } from "./helpers/far-orchd.ts";
-import { idleDaemonState } from "./helpers/daemon-state.ts";
-import { testDaemonServices } from "./helpers/services.ts";
+import { heldFarAgent, nearOrchd, startHeldFar, type HeldFar as HeldFarOrchd, type NearOrchd } from "./helpers/held-far.ts";
+import { ChildPtyProvider } from "./helpers/child-pty.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { testHost } from "./helpers/host.ts";
-import { HostLinks } from "../src/hosts/link.ts";
-import { applyHostEvent } from "../src/daemon/server/host-events.ts";
-import { spawnHeadless } from "../src/daemon/server/handlers/lifecycle.ts";
 import { applyLifecycle } from "../src/daemon/server/handlers/relaunch.ts";
 import { closeAnywhere } from "../src/daemon/server/handlers/drive.ts";
 import { waitAnywhere } from "../src/daemon/server/handlers/wait.ts";
 import { reap, rename } from "../src/daemon/server/handlers/lease.ts";
 import { acceptStatusReport, startLivenessTick } from "../src/daemon/server/status-report.ts";
-import { registerHostedAgent } from "../src/store/spawn-registration.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores } from "../src/store/connection.ts";
-import { mintAgentId } from "../src/shared/agent-id.ts";
-import { hostIdentity } from "../src/hosts/identity.ts";
 import { placeHere } from "../src/process-place.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import { errorMessage } from "../src/util.ts";
@@ -30,84 +21,17 @@ import type { AgentState } from "../src/agent-state.ts";
 import type { CallerCredential, OrchDir } from "../src/types/core.ts";
 import type { DaemonState } from "../src/daemon/server/state.ts";
 import type { HostGreeting } from "../src/types/host.ts";
-import type { ModelCatalogue } from "../src/types/adapter.ts";
-import type { PtyExit, PtyProcess, PtyProvider, PtySpawnRequest } from "../src/types/pty.ts";
 import type { ScreenChunk } from "../src/types/screen.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 
-const PI_MODELS = "provider model context max-out thinking images\nopenai gpt-5.6-luna 400K 128K yes yes\nopenai gpt-5.6-sol 400K 128K yes yes\n";
-const CLAUDE_MODELS = JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: "models", response: { models: [{ value: "haiku" }] } } });
-
-/** Every harness's model listing, from memory: admitting a model runs no harness. */
-const models: ModelCatalogue = {
-  read: (bin) => (bin === "claude" ? CLAUDE_MODELS : PI_MODELS),
-  warm: () => Promise.resolve(),
-  forget: () => undefined,
-};
-
-/** A PTY whose program is a real child process: a shell that waits for one line and exits 3.
- *  What is typed into the PTY is recorded; the test plays what the program prints. */
-class ChildPty implements PtyProcess {
-  readonly written: string[] = [];
-  readonly pid: number;
-  private readonly dataListeners: ((data: string) => void)[] = [];
-  private readonly exitListeners: ((exit: PtyExit) => void)[] = [];
-
-  constructor(readonly child: ChildProcess) {
-    if (child.pid === undefined) throw new Error("the stand-in harness did not start");
-    this.pid = child.pid;
-    child.once("exit", (code, signal) => {
-      const exit: PtyExit = { exitCode: code ?? 0, signal: signal === null ? null : constants.signals[signal] };
-      for (const listener of this.exitListeners) listener(exit);
-    });
-  }
-
-  write(data: string): void { this.written.push(data); }
-  resize(): void { /* the stand-in draws nothing */ }
-  kill(): void { this.child.kill("SIGTERM"); }
-  onData(listener: (data: string) => void): void { this.dataListeners.push(listener); }
-  onExit(listener: (exit: PtyExit) => void): void { this.exitListeners.push(listener); }
-
-  /** The program prints. */
-  emit(data: string): void { for (const listener of this.dataListeners) listener(data); }
-  /** The program reads its line and exits on its own. */
-  finish(): void { this.child.stdin?.end("\n"); }
-  /** Everything typed so far, as one string. */
-  typed(): string { return this.written.join(""); }
-}
-
-/** Starts a {@link ChildPty} for each held PTY and keeps them all, newest last. */
-class ChildPtyProvider implements PtyProvider {
-  readonly spawned: ChildPty[] = [];
-  /** Called with each PTY once it runs: a test's stand-in bridge reports from here. */
-  onSpawn: (pty: ChildPty, request: PtySpawnRequest) => void = () => undefined;
-
-  spawn(request: PtySpawnRequest): Promise<PtyProcess> {
-    const child = spawn("sh", ["-c", "read line; exit 3"], { stdio: ["pipe", "ignore", "ignore"] });
-    children.push(child);
-    const pty = new ChildPty(child);
-    this.spawned.push(pty);
-    this.onSpawn(pty, request);
-    return Promise.resolve(pty);
-  }
-
-  last(): ChildPty {
-    const pty = this.spawned.at(-1);
-    if (pty === undefined) throw new Error("no PTY was spawned");
-    return pty;
-  }
-}
-
 const dirs: OrchDir[] = [];
-const links: HostLinks[] = [];
-const fars: FarOrchd[] = [];
-const children: ChildProcess[] = [];
+const nears: NearOrchd[] = [];
+const fars: HeldFarOrchd<ChildPtyProvider>[] = [];
 const ticks: { stop(): void }[] = [];
 
 afterEach(async () => {
   for (const tick of ticks.splice(0)) tick.stop();
-  for (const link of links.splice(0)) link.closeAll();
-  for (const child of children.splice(0)) if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  for (const near of nears.splice(0)) await near.close();
   closeAllStores();
   while (fars.length) await fars.pop()!.close();
   while (dirs.length) removeTempDir(dirs.pop()!);
@@ -121,7 +45,7 @@ function greeting(id: string): HostGreeting {
 const operator: CallerCredential = { launch: null, session: null, pid: process.pid };
 
 interface HeldFar {
-  readonly far: FarOrchd;
+  readonly far: HeldFarOrchd<ChildPtyProvider>;
   readonly pty: ChildPtyProvider;
   readonly near: DaemonState;
   readonly key: string;
@@ -132,31 +56,16 @@ interface HeldFar {
 /** A far orchd holding one real agent this host asked it to run, idle and reported so, and
  *  this host's orchd linked to it as box, following its events. */
 async function heldFar(id: string): Promise<HeldFar> {
-  const pty = new ChildPtyProvider();
-  const far = await startFarOrchd(greeting(id), { pty, models, timeouts: { reset_ready_ms: 3_000, reset_poll_ms: 20, abort_gap_ms: 5 } });
+  const far = await startHeldFar(greeting(id), { ptys: new ChildPtyProvider(), timeouts: { reset_ready_ms: 3_000, reset_poll_ms: 20, abort_gap_ms: 5 } });
   fars.push(far);
-  const key = mintAgentId();
   const cwd = tempOrchDir("orch-held-cwd-");
   dirs.push(cwd);
-  await spawnHeadless(far.state, {
-    key, name: `held-${id}`, spawner: null, adapter: "pi", model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd,
-  }, hostIdentity().id);
+  const { key } = await heldFarAgent(far, { name: `held-${id}`, cwd });
   const report = (state: AgentState): void => { acceptStatusReport(far.orchDir, key, { state }, (event) => { far.emit(event); }); };
   report("idle");
-
-  const orchDir = tempOrchDir("orch-held-near-");
-  dirs.push(orchDir);
-  const services = testDaemonServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 3_000 } }, models });
-  let near: DaemonState | null = null;
-  const hosts = new HostLinks({
-    orchDir, settings: () => services.settings.current(), logger: services.logger, spawn: far.spawner(),
-    events: (host, event) => { if (near !== null) applyHostEvent(near, host, event); },
-  });
-  links.push(hosts);
-  near = { ...idleDaemonState(services, orchDir), hosts };
-  await hosts.link("box").connect();
-  registerHostedAgent(orchDir, { key, harnessId: "pi", cwd, name: `held-${id}`, model: "openai/gpt-5.6-luna", thinking: "medium", spawner: null, host: far.greeting.host });
-  return { far, pty, near, key, report };
+  const near = await nearOrchd(far, key, { name: `held-${id}`, cwd, spawner: null, followEvents: true, links: { request_timeout_ms: 3_000 } });
+  nears.push(near);
+  return { far, pty: far.ptys, near: near.state, key, report };
 }
 
 /** A viewer here following the agent's screen over the link, and every chunk it got. */

@@ -2,36 +2,24 @@
 // verb, its status row, its events and its screen, through the real link, answered as for an
 // agent held here.
 import { afterEach, describe, expect, test } from "bun:test";
-import { startFarOrchd, type FarOrchd } from "./helpers/far-orchd.ts";
-import { FakePtyProvider, type FakePty } from "./helpers/fake-pty.ts";
-import { idleDaemonState } from "./helpers/daemon-state.ts";
-import { testServices } from "./helpers/services.ts";
+import { heldFarAgent, nearOrchd, startHeldFar, type HeldFar as HeldFarOrchd, type NearOrchd } from "./helpers/held-far.ts";
+import type { FakePty } from "./helpers/fake-pty.ts";
 import { testHost } from "./helpers/host.ts";
-import { recordingLogger } from "./helpers/logger.ts";
-import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { HostLinks, type LinkProcess, type LinkSpawner } from "../src/hosts/link.ts";
-import { hostIdentity } from "../src/hosts/identity.ts";
-import { mintAgentId } from "../src/shared/agent-id.ts";
-import { spawnHeadless } from "../src/daemon/server/handlers/lifecycle.ts";
-import { registerHostedAgent } from "../src/store/spawn-registration.ts";
 import { closeAllStores, drainWrites } from "../src/store/connection.ts";
-import { rpcHandlers } from "../src/daemon/server/handlers/table.ts";
-import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { connectDaemon, rpcCall, subscribeEvents } from "../src/daemon/client/rpc.ts";
 import { encodeRequest, readJsonMessages, type RpcLine } from "../src/daemon/client/wire.ts";
 import { acceptResultReport, acceptStatusReport } from "../src/daemon/server/status-report.ts";
 import { publishFromOrchd } from "../src/daemon/server/events.ts";
 import { recordQuestion } from "../src/store/question-rows.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
-import { seedOperator } from "./helpers/agent.ts";
 import { endHeldAgents } from "../src/daemon/server/held-ending.ts";
 import { fleetStatus } from "../src/daemon/server/state.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
 import { scopeFleetRows } from "../src/commands/status/options.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import type { Socket } from "node:net";
 import type { ParamsOf, ResultOf, RpcMethod } from "../src/daemon/client/protocol.ts";
-import { applyHostEvent } from "../src/daemon/server/host-events.ts";
 import { agentReaderOf } from "../src/daemon/server/handlers/host.ts";
 import { readAgent } from "../src/agent/read.ts";
 import { placeHere } from "../src/process-place.ts";
@@ -41,31 +29,24 @@ import type { CallerCredential, OrchDir } from "../src/types/core.ts";
 import type { DaemonState } from "../src/daemon/server/state.ts";
 import type { HostGreeting } from "../src/types/host.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
-import type { EventSubscription, RpcServer } from "../src/types/daemon.ts";
+import type { EventSubscription } from "../src/types/daemon.ts";
 import type { ScreenChunk } from "../src/types/screen.ts";
 import type { StatusPatch } from "../src/types/presence.ts";
-import type { ModelCatalogue } from "../src/types/adapter.ts";
 
-const dirs: OrchDir[] = [];
-const fars: FarOrchd[] = [];
-const links: HostLinks[] = [];
-const servers: RpcServer[] = [];
+const fars: HeldFarOrchd[] = [];
+const nears: NearOrchd[] = [];
 const sockets: Socket[] = [];
 const subscriptions: EventSubscription[] = [];
 
 afterEach(async () => {
   for (const subscription of subscriptions.splice(0)) subscription.close();
   for (const socket of sockets.splice(0)) socket.destroy();
-  for (const link of links.splice(0)) link.closeAll();
-  for (const server of servers.splice(0)) await server.close();
+  for (const near of nears.splice(0)) await near.close();
   while (fars.length) await fars.pop()!.close();
   closeAllStores();
-  for (const dir of dirs.splice(0)) removeTempDir(dir);
 });
 
 const operator: CallerCredential = { launch: null, session: null, pid: process.pid };
-
-const PI_MODELS = "provider model context max-out thinking images\nopenai gpt-5.6-luna 400K 128K yes yes\n";
 
 function greeting(id: string, name = `machine-${id}`): HostGreeting {
   return { host: testHost(id, name), commit: null, version: "0.1.0" };
@@ -82,7 +63,7 @@ async function until(what: string, ready: () => boolean): Promise<void> {
 /** A far orchd holding one real agent in a PTY, and this host's orchd serving its real handler
  *  table, linked to it as the host named box and holding the reference row. */
 interface HeldFar {
-  readonly far: FarOrchd;
+  readonly far: HeldFarOrchd;
   /** End the far side of the link as a dropped connection would: the link is still wanted. */
   readonly drop: () => Promise<void>;
   /** How many times this host has dialed the far one. */
@@ -95,39 +76,13 @@ interface HeldFar {
 }
 
 async function heldFar(id: string, hostName?: string): Promise<HeldFar> {
-  // The PTY program is this runner, so the held process reads live, as a started harness does.
-  const provider = new FakePtyProvider(process.pid);
-  const far = await startFarOrchd(greeting(id, hostName), { pty: provider });
+  const far = await startHeldFar(greeting(id, hostName));
   fars.push(far);
-  const models: ModelCatalogue = { ...far.state.services.models, read: () => PI_MODELS };
-  const key = mintAgentId();
-  await spawnHeadless({ ...far.state, services: { ...far.state.services, models } }, {
-    key, name: "far-worker", spawner: null, adapter: "pi", model: "openai/gpt-5.6-luna", thinking: "high", prompt: null, cwd: far.orchDir,
-  }, hostIdentity().id);
-
-  const orchDir = tempOrchDir("orch-held-read-near-");
-  dirs.push(orchDir);
-  const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 2_000, retry_floor_ms: 1, retry_cap_ms: 20 } } });
-  const children: LinkProcess[] = [];
-  const spawn: LinkSpawner = (...args) => {
-    const child = far.spawner()(...args);
-    children.push(child);
-    return child;
-  };
-  const hosts = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn, events: (host, event) => { applyHostEvent(near, host, event); } });
-  links.push(hosts);
-  const near: DaemonState = { ...idleDaemonState(services, orchDir), hosts };
-  const server = await startRpcServer(orchDir, rpcHandlers(near), { logger: recordingLogger().logger });
-  near.server = server;
-  servers.push(server);
-  const you = seedOperator(orchDir);
-  registerHostedAgent(orchDir, { key, harnessId: "pi", cwd: far.orchDir, name: "far-worker", model: "openai/gpt-5.6-luna", thinking: "high", spawner: you, host: far.greeting.host });
-  await hosts.link("box").connect();
-  return { far, near, key, you, pty: provider.last(), drop: async () => {
-    const child = children.at(-1);
-    child?.kill();
-    await child?.exited;
-  }, dials: () => children.length };
+  const { key, pty } = await heldFarAgent(far, { name: "far-worker", thinking: "high" });
+  const near = await nearOrchd(far, key, { name: "far-worker", thinking: "high", followEvents: true, serve: true, links: { retry_floor_ms: 1, retry_cap_ms: 20 } });
+  nears.push(near);
+  if (near.operator === null) throw new Error("the near orchd seeded no operator");
+  return { far, near: near.state, key, you: near.operator, pty, drop: near.drop, dials: near.dials };
 }
 
 /** What the far agent's bridge reports to its own orchd, as it would over that host's socket. */
@@ -254,6 +209,7 @@ describe("attaching to an agent held on another host, from this host's orchd", (
     view.send("attach-screen", { caller: operator, key: held.key, cols: 80, rows: 24 });
     await until("the snapshot", () => view.screens().length === 1);
     await held.drop();
+    await until("the offline notice", () => view.screens().some((chunk) => chunk.kind === "data" && chunk.data.includes("[orch] box went offline")));
     await until("the link back", () => held.dials() === 2 && held.near.hosts.link("box").current().kind === "up");
     await until("a fresh snapshot", () => view.screens().filter((chunk) => chunk.kind === "snapshot").length === 2);
     held.pty.emit(" after");
@@ -324,7 +280,7 @@ describe("the status row of an agent held on another host", () => {
     // The far agent: spawned by this terminal, on the far host, in its directory there.
     expect(linesOf(table, held.key).under).toBe(`  spawned agent | spawned by you | BryansLaptop-far:${held.far.orchDir} | created 0s ago`);
     // This terminal: a root, started here, on this host.
-    expect(linesOf(table, held.you).under).toBe(`  operator terminal | started here (you) | ${hostIdentity().name}:${process.cwd()} | created 0s ago`);
+    expect(linesOf(table, held.you).under).toBe(`  operator terminal | started here, this is you | ${hostIdentity().name}:${process.cwd()} | created 0s ago`);
     // On the far orchd, the same agent names the host that asked for it.
     const there = fleetStatus(held.far.state, null);
     expect(statusRow(there.rows, held.key).askedBy).toBe(hostIdentity().name);

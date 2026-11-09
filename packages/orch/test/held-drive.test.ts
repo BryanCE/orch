@@ -28,7 +28,7 @@ const nears: NearOrchd[] = [];
 
 afterEach(async () => {
   detachFakeBridges();
-  for (const near of nears.splice(0)) near.close();
+  for (const near of nears.splice(0)) await near.close();
   closeAllStores();
   while (fars.length) await fars.pop()!.close();
 });

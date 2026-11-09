@@ -94,7 +94,7 @@ function whatItIs(row: StatusRow): string {
  *  asked for it when another host's orchd did. */
 function whoMadeIt(row: StatusRow, names: FleetNames, callerId: string | null): string {
   const asked = row.askedBy === null ? "" : `asked for by host ${row.askedBy}, `;
-  if (row.kind !== "agent") return row.key === callerId ? "started here (you)" : "started here";
+  if (row.kind !== "agent") return row.key === callerId ? "started here, this is you" : "started here";
   if (row.spawnedBy === null) return `${asked}no spawner recorded`;
   if (row.spawnedBy === callerId) return `${asked}spawned by you`;
   return `${asked}spawned by ${names.agents[row.spawnedBy] ?? row.spawnedBy}`;

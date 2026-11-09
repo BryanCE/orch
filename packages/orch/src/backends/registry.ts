@@ -7,7 +7,7 @@ import type { Backend } from "../types/backend.ts";
 /** The environment that places an agent nowhere, which a daemon-owned launch
  *  runs on. Re-exported here so core
  *  reaches it through this boundary instead of reaching into a backend. */
-export { headlessBackend } from "./headless/index.ts";
+export { headlessBackend, headlessRegistration } from "./headless/index.ts";
 
 const backends = new Map<string, Backend>();
 

@@ -1,7 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { and, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction, type Orm } from "./connection.ts";
-import { recordedInstanceIsLive } from "../process-identity.ts";
+import { processLiveness } from "../process-liveness.ts";
 import { refreshAgent } from "./agent-view.ts";
 import { agentHandles, agentPlexers, agentProcesses, agentSpaces, agentTunings } from "../db/schema.ts";
 import type { ProcessValues, TuningValues } from "../types/store.ts";
@@ -134,11 +134,12 @@ export function currentTuning(orchDir: OrchDir, agentId: string): TuningRow | un
  * dispatch and allowing it (Rule 11: a dead holder is not a collision).
  *
  * The recorded start token is checked against the live process, so a pid reused
- * by an unrelated process reads as DEAD.
+ * by an unrelated process reads as DEAD. A process on a linked host orch cannot ask
+ * about right now counts as live: unknown is never dead.
  */
 export function recordedProcessIsLive(orchDir: OrchDir, agentId: string): boolean {
   const row = currentProcess(orchDir, agentId);
-  return row !== undefined && recordedInstanceIsLive(row.pid, row.startToken);
+  return row !== undefined && processLiveness(orchDir, row) !== "dead";
 }
 
 /** {@link recordedProcessIsLive} addressed by a presence key. A key that

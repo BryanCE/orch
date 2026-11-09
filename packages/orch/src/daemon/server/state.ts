@@ -56,7 +56,7 @@ export function idleShutdownDue(input: { idleMinutes: number; liveAgents: number
 }
 
 export function liveAgentCount(directory: OrchDir): number {
-  return [...loadPresence(directory).values()].filter((entry) => entry.alive).length;
+  return [...loadPresence(directory).values()].filter((entry) => entry.liveness !== "dead").length;
 }
 
 /** Every served call proves the daemon is in use; the idle clock restarts. */
@@ -107,6 +107,7 @@ export function touchOnCall(state: DaemonState, handlers: RpcHandlers): RpcHandl
     hosts: touchHandler(state, handlers.hosts),
     "host-check": touchHandler(state, handlers["host-check"]),
     "host-forget": touchHandler(state, handlers["host-forget"]),
+    "host-signal": touchHandler(state, handlers["host-signal"]),
     grant: touchHandler(state, handlers.grant),
     "admit-home": touchHandler(state, handlers["admit-home"]),
     "queue-list": touchHandler(state, handlers["queue-list"]),

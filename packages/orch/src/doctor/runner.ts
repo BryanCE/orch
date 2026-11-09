@@ -52,7 +52,7 @@ async function settingsDependent(orchDir: OrchDir, settings: OrchSettings | null
 async function checkLiveFleetPairs(orchDir: OrchDir, settings: OrchSettings, logger: Logger): Promise<CheckResult[]> {
   const pairs = new Set<string>();
   for (const entry of loadPresence(orchDir).values()) {
-    if (!entry.alive) continue;
+    if (entry.liveness !== "alive") continue;
     const view = agentView(orchDir, entry.key);
     const adapter = view?.harnessId;
     // An operator shell is an agent with no adapter behind it; there is no shim to check.

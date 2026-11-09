@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { AgentEnvironment, AgentHolder, AgentTuning, AgentView, RunRecord } from "../../types/store.ts";
-import type { PresenceEntry } from "../../types/presence.ts";
+import { LIVENESS, type PresenceEntry } from "../../types/presence.ts";
 import { CALLER_KINDS } from "../../types/policy.ts";
 import type { AgentStatusRow } from "../../store/status-rows.ts";
 import type { Entity } from "../../types/core.ts";
@@ -61,7 +61,7 @@ export const PRESENCE_ENTRY = z.object({
   key: z.string(),
   status: AGENT_STATUS_ROW.nullable(),
   result: z.string().nullable(),
-  alive: z.boolean(),
+  liveness: z.enum(LIVENESS),
 }) satisfies z.ZodType<PresenceEntry>;
 
 export const AGENT_VIEW = z.object({

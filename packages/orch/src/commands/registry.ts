@@ -198,6 +198,7 @@ const AGENTS: readonly CommandSpec[] = [
       { name: "--tab", arity: "one", placeholder: "<tab>", help: "The tab label. Default: a random label like elk-glacier-01." },
       { ...MODEL, arity: "many", help: "The model. One, or one per name." },
       DIR, CMD, THINKING,
+      { name: "--host", arity: "one", placeholder: "<host>", help: "Run the agents on this host from settings.hosts, headless, in --dir there." },
       { ...HARNESS, arity: "many", help: "Harness id: pi, omp, claude, codex. One, or one per name." },
       PLEXER,
       { ...SPACE, help: "The orch space the agents join." },

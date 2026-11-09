@@ -6,6 +6,7 @@ import { callerKindOf } from "../policy/caller.ts";
 import { selfIdentityOf } from "../identity/self.ts";
 import { liveAgentViews } from "../store/agent-view.ts";
 import { currentProcess } from "../store/interval-rows.ts";
+import { hostNameOfId } from "../store/host-rows.ts";
 import { loadPresence } from "../presence/store.ts";
 import type { Backend, BackendHandle, RecordedProcess } from "../types/backend.ts";
 import type { CallerCredential, OrchDir } from "../types/core.ts";
@@ -18,17 +19,21 @@ export interface CloseTargetWire {
   readonly backendId: string | null;
   readonly handle: string | null;
   readonly recorded: RecordedProcess | null;
+  /** The linked host the recorded process runs on, by its settings name; null when it runs
+   *  here. Such a process is signalled over that host's link, never by a pid here. */
+  readonly linkedHost: string | null;
   readonly placeKnown: boolean;
 }
 
 /** Read the launch identity from the normalized agent process interval. Presence
  * status carries liveness only and can never authorize a signal. */
-function recordedProcess(orchDir: OrchDir, key: string): RecordedProcess | null {
+function recordedProcess(orchDir: OrchDir, key: string): Pick<CloseTargetWire, "recorded" | "linkedHost"> {
   try {
     const row = currentProcess(orchDir, key);
-    return row === undefined ? null : { pid: row.pid, startToken: row.startToken };
+    if (row === undefined) return { recorded: null, linkedHost: null };
+    return { recorded: { pid: row.pid, startToken: row.startToken }, linkedHost: hostNameOfId(orchDir, row.hostId) };
   } catch {
-    return null;
+    return { recorded: null, linkedHost: null };
   }
 }
 
@@ -72,7 +77,7 @@ function sweptCloseTargets(
       handle,
       key: address,
       name: view.name ?? address,
-      recorded: recordedProcess(orchDir, address),
+      ...recordedProcess(orchDir, address),
       // Unknown inventory still permits a real recorded handle to be handed to
       // the plexer; a null handle is never replaced with the agent id.
       placeKnown: handle !== null && paneState !== false,
@@ -97,7 +102,7 @@ function namedCloseTargets(
       handle,
       key: resolved.key,
       name: resolved.view?.name ?? resolved.entity.name ?? resolved.key,
-      recorded: recordedProcess(orchDir, resolved.key),
+      ...recordedProcess(orchDir, resolved.key),
       // A pane-capable backend's stale registry row may outlive its pane. Do
       // not invoke a provider with an opaque identity handle in that case.
       placeKnown: backend !== null && handle !== null

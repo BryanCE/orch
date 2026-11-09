@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 
 import { mintAgentId } from "../src/backends/identity.ts";
+import { hostIdentity } from "../src/host.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { herdrHud } from "../src/backends/herdr/hud.ts";
 import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
@@ -30,7 +31,7 @@ describe("the herdr HUD reads its pane from the composer, never from the key", (
 
   function seedPaneAgent(root: OrchDir, plexer: string, handle: string): string {
     const key = mintAgentId();
-    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: plexer, placed: true, handle, cwd: root, name: "recon", model: "test", spawner: null, process: { pid: process.pid, startToken: "herdr-hud-environment-fixture" } });
+    registerSpawnedAgent(root, { key, harnessId: "pi", backendId: plexer, placed: true, handle, cwd: root, name: "recon", model: "test", spawner: null, process: { pid: process.pid, startToken: "herdr-hud-environment-fixture" }, host: hostIdentity() });
     return key;
   }
 

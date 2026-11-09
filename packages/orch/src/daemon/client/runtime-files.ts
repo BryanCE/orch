@@ -4,6 +4,10 @@ import { homedir, tmpdir } from "node:os";
 import { hostOs } from "../../host.ts";
 import type { DaemonDiscoveryFiles, DaemonRuntimeFiles } from "../../types/daemon.ts";
 
+/** Set in the env of an agent whose orchd runs on another host and is reached over a host
+ *  link. Its value names that host. A client that sees it never starts an orchd here. */
+export const LINKED_DAEMON_ENV = "ORCH_LINKED_DAEMON";
+
 /** Machine-wide discovery is deliberately independent of `$ORCH_DIR`. Tests and
  *  installations may override the native runtime root, but clients never derive
  *  an address from their private store. */

@@ -1,8 +1,7 @@
 import type { OrchDir } from "../../src/types/core.ts";
-import { hostname } from "node:os";
 import { registerSpawnedAgent } from "../../src/store/spawn-registration.ts";
 import { agentById, ensureHarness, ensureHost, ensurePlexer, getOrCreateSessionAgent, insertAgent } from "../../src/store/agent-rows.ts";
-import { hostOs } from "../../src/host.ts";
+import { hostIdentity, hostOs } from "../../src/host.ts";
 import { OPERATOR_HARNESS_ID } from "../../src/identity/operator.ts";
 import { sessionProcessPid } from "../../src/identity/credential.ts";
 import { processStartToken } from "../../src/process-identity.ts";
@@ -36,7 +35,7 @@ export function seedOperator(directory: OrchDir, now = Date.now()): string {
   if (startToken === undefined) throw new Error(`no start token for the runner's parent pid ${pid}`);
   return getOrCreateSessionAgent(directory, {
     pid, startToken, sessionToken: null, harnessId: OPERATOR_HARNESS_ID, cwd: process.cwd(),
-    label: `${OPERATOR_HARNESS_ID} session ${pid}`, hostId: hostname(), hostName: hostname(), hostOs: hostOs(), now,
+    label: `${OPERATOR_HARNESS_ID} session ${pid}`, hostId: hostIdentity().id, hostName: hostIdentity().name, hostOs: hostOs(), now,
   }).id;
 }
 
@@ -59,6 +58,7 @@ export function seedAgent(key: string, facts: AgentFacts = {}, directory: OrchDi
       ? { worktree: { path: facts.worktree, branch: facts.branch, base: "main", provider: "git" } }
       : {}),
     process: { pid: DEAD_PID, startToken: null },
+    host: hostIdentity(),
   });
 }
 

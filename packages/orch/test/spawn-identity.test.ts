@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
+import { hostIdentity } from "../src/host.ts";
 import { normalizeControlTarget } from "../src/control/normalize-target.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { agentById, endAgent, ensureHarness } from "../src/store/agent-rows.ts";
@@ -210,7 +211,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
 
     registerSpawnedAgent(dir, {
       key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%42",
-      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: runnerProcess(), now: 10,
+      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: runnerProcess(), host: hostIdentity(), now: 10,
     });
 
     // The space is its own open interval, not a column beside the plexer.
@@ -230,7 +231,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
       // States no plexer and no space: a capless agent is in no plexer, and that
       // is an ANSWER, not a gap for a second writer to close.
       key, harnessId: "pi", placed: false,
-      cwd: "/repo", name: "detached-1", model: "openai/gpt-5", spawner: null, process: runnerProcess(), now: 10,
+      cwd: "/repo", name: "detached-1", model: "openai/gpt-5", spawner: null, process: runnerProcess(), host: hostIdentity(), now: 10,
     });
 
     // Not a NULL column, not the invented place called "local": no row at all.
@@ -247,7 +248,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
 
     registerSpawnedAgent(dir, {
       key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%42",
-      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: runnerProcess(), now: 10,
+      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: runnerProcess(), host: hostIdentity(), now: 10,
     });
     setSpace(dir, key, 20, "wsB");
 

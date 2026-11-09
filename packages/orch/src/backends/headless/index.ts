@@ -11,8 +11,11 @@ import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { LocalProcessRole, signalOtherProcess } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
+import { hostIdentity } from "../../host.ts";
+import type { HostIdentity } from "../../types/host.ts";
+import type { SpawnRegistration } from "../../types/store.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
-import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole } from "../../types/backend.ts";
+import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole, RecordedProcess } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
@@ -156,8 +159,16 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     });
   }
 
-  /** Start the adapter's restricted worker command detached, redirecting output to a log. */
+  /** Start the agent and record it in this orch dir's store. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HeadlessHandle {
+    const launched = this.launch(adapter, opts);
+    registerSpawnedAgent(orchDirectory(opts.orchDir), headlessRegistration(adapter.id, launched.handle.key, opts, { handle: JSON.stringify(launched.handle), process: launched.process }, hostIdentity()));
+    return launched.handle;
+  }
+
+  /** Start the adapter's restricted worker command detached, redirecting output to a log,
+   *  and record nothing: the caller records it, here or on the host that asked for it. */
+  launch(adapter: AgentAdapter, opts: BackendSpawnOpts): { readonly handle: HeadlessHandle; readonly process: RecordedProcess } {
     const directory = orchDirectory(opts.orchDir);
     // The caller mints the serialized identity BEFORE launch (one key per agent)
     // and passes it via LAUNCH_ENV; the backend never mints a second one. The
@@ -214,27 +225,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     const pid = child.pid;
     if (!pid) throw new Error(`adapter ${String(adapter.id)} did not provide a process id`);
     const handle = makeHeadlessHandle(pid, key);
-    const now = Date.now();
-    registerSpawnedAgent(directory, {
-      key,
-      harnessId: adapter.id,
-      backendId: HEADLESS_BACKEND,
-      // Placed nowhere, yet still addressable: the handle below is a concrete
-      // address for the process just started, and stating it here is what lets
-      // `list`/`close`/`handleFor` reach an agent with no screen without a
-      // SECOND write behind the registration.
-      placed: false,
-      handle: JSON.stringify(handle),
-      cwd: opts.cwd ?? process.cwd(),
-      name: opts.name ?? key,
-      model: opts.model ?? "",
-      thinking: opts.thinking,
-      spawner: opts.spawner ?? null,
-      worktree: opts.worktree,
-      process: this.process.running(handle),
-      now,
-    });
-    return handle;
+    return { handle, process: this.process.running(handle) };
   }
 
   /** Every registered headless handle with a fresh liveness result. Private:
@@ -278,3 +269,27 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
 
 /** Shared headless backend instance for command wiring. */
 export const headlessBackend = new HeadlessBackend();
+
+/** The record of a headless agent: launched here, or on the host that launched it for this
+ *  orchd. `launched` is its handle as recorded and its process; `host` is where that runs. */
+export function headlessRegistration(harnessId: string, key: string, opts: BackendSpawnOpts, launched: { readonly handle: string; readonly process: RecordedProcess }, host: HostIdentity): SpawnRegistration {
+  return {
+    key,
+    harnessId,
+    backendId: HEADLESS_BACKEND,
+    // Placed nowhere, yet still addressable: the handle is a concrete address for the
+    // process just started, and stating it here is what lets `list`/`close`/`handleFor`
+    // reach an agent with no screen without a SECOND write behind the registration.
+    placed: false,
+    handle: launched.handle,
+    cwd: opts.cwd ?? process.cwd(),
+    name: opts.name ?? key,
+    model: opts.model ?? "",
+    thinking: opts.thinking,
+    spawner: opts.spawner ?? null,
+    worktree: opts.worktree,
+    process: launched.process,
+    host,
+    now: Date.now(),
+  };
+}

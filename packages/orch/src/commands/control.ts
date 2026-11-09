@@ -1,4 +1,5 @@
 import { ARROW, collapse, errorMessage, isRecord, truncate } from "../util.ts";
+import { hostIdentity } from "../host.ts";
 import { writeDelivery, type Delivery } from "./delivery.ts";
 import { displayName, resolveEntity, resolveLifecycle, resolveOwnedTarget, targetName, type ResolvedTarget } from "./resolve.ts";
 import { renameAgent, renamedLine, type ChromeOutcome } from "./lifecycle/rename.ts";
@@ -24,7 +25,7 @@ import { getBackend } from "../backends/registry.ts";
 import type { Services } from "../types/services.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { RecordedProcess } from "../types/backend.ts";
-import type { PresenceEntry } from "../types/presence.ts";
+import { type PresenceEntry, notDead } from "../types/presence.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
@@ -130,7 +131,7 @@ export async function cmdBroadcast(services: Services, args: string[]) {
     const { keys } = await readRpc(services, "owned-agents", { caller: callerCredential() });
     for (const key of keys) {
       const pres = fleet.presence.find((entry) => entry.key === key);
-      if (pres?.alive) destinations.set(key, pres);
+      if (pres !== undefined && notDead(pres)) destinations.set(key, pres);
     }
   }
   for (const target of targets) {
@@ -298,6 +299,7 @@ async function recordAdoptedAgent(services: Services, self: CallerSelf, key: str
     spawner: self.id,
     owner: self.id ?? undefined,
     process: adoptedProcess(dispatchSettings.ent),
+    host: hostIdentity(),
   });
 }
 

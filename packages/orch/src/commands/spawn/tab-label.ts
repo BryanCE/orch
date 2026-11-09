@@ -1,6 +1,6 @@
 import { SpawnRefusalError } from "../../refusal.ts";
 import type { Backend } from "../../types/backend.ts";
-import type { PresenceEntry } from "../../types/presence.ts";
+import { type PresenceEntry, notDead } from "../../types/presence.ts";
 import type { AgentView } from "../../types/store.ts";
 
 export const TAB_FIRST_WORDS: readonly string[] = [
@@ -57,7 +57,7 @@ export function freeTabLabel(taken: ReadonlySet<string>, random: RandomSource = 
 /** Labels of the tabs on this plexer that hold an agent presence reports alive. */
 export function liveTabLabels(backend: Pick<Backend, "id" | "placementInventory">, views: ReadonlyMap<string, AgentView>, presence: ReadonlyMap<string, PresenceEntry>): Set<string> {
   const handles = new Set([...views.values()]
-    .filter((view) => view.environment.plexer === backend.id && presence.get(view.id)?.alive === true)
+    .filter((view) => view.environment.plexer === backend.id && notDead(presence.get(view.id)))
     .map((view) => view.environment.handle));
   return new Set((backend.placementInventory?.list() ?? [])
     .filter((target) => handles.has(String(target.handle)))

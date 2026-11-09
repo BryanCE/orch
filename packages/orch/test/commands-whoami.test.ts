@@ -27,7 +27,7 @@ async function whoami(self: ResultOf<"self">, args: string[] = []): Promise<stri
 
 function storedFor(pid: number): NonNullable<ResultOf<"self">["stored"]> {
   return {
-    process: { pid, startToken: "1", since: 0, host: { id: "host", name: "BRYAN-SWE", os: "linux" }, alive: true },
+    process: { pid, startToken: "1", since: 0, host: { id: "host", name: "BRYAN-SWE", os: "linux" }, liveness: "alive" },
     sessionToken: null,
     claimedAt: null,
   };

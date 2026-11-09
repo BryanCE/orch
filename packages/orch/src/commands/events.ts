@@ -279,7 +279,7 @@ async function eventsItems(services: Services, options: EventsOptions, fleet: Aw
     const views = new Map(fleet.views.map((view) => [view.id, view]));
     const presences = scopeToSpace(
       spaceOfIn(views),
-      fleet.presence.filter((presence) => presence.alive && looksLikePaneKey(presence.key)),
+      fleet.presence.filter((presence) => presence.liveness !== "dead" && looksLikePaneKey(presence.key)),
       (presence) => presence.key,
       self.space,
       { all: false },

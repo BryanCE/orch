@@ -3,14 +3,20 @@
 // facts kept apart that a remote agent's liveness needs. Whether the LINK is up is
 // this module's answer. Whether a PROCESS on that host is alive is the far side's
 // answer, and only while the link is up; with the link down it is unknown, never dead.
-import type { Readable, Writable } from "node:stream";
+import { readFileSync } from "node:fs";
+import type { Duplex, Readable, Writable } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { framedLineReader } from "../daemon/client/wire.ts";
+import { endpointPaths, framedLineReader } from "../daemon/client/wire.ts";
+import { connectDaemon } from "../daemon/client/rpc.ts";
+import { hostIdentity } from "../host.ts";
+import { RelayDialer } from "./relay.ts";
+import { forgetRemoteLiveness, recordRemoteLiveness } from "../process-liveness.ts";
+import { currentProcesses } from "../store/interval-rows.ts";
 import { formatAge } from "../format.ts";
 import { errorMessage } from "../util.ts";
 import { bindHostName, closeHostLink, hostIdOfName, latestHostLink, openHostLink, touchHostLink } from "../store/host-rows.ts";
 import { spawnRemoteOrch } from "./ssh.ts";
-import { encodeHostFrame, HOST_RESULTS, isUnreadableGreeting, parseHostFrame, type HostMethod, type HostParamsOf, type HostResultOf } from "./protocol.ts";
+import { encodeHostFrame, HOST_RESULTS, isUnreadableGreeting, parseHostFrame, type HostFrame, type HostMethod, type HostParamsOf, type HostResultOf } from "./protocol.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { HostGreeting, HostLinkView } from "../types/host.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
@@ -55,6 +61,10 @@ export interface HostLinkDeps {
   readonly logger: Logger;
   readonly spawn?: LinkSpawner;
   readonly now?: () => number;
+  /** A connection to this machine's orchd, for one relayed stream. */
+  readonly dialOrchd?: () => Promise<Duplex>;
+  /** This orchd's token, which a client on the far host presents as its own. */
+  readonly daemonToken?: () => string;
 }
 
 interface Pending {
@@ -91,8 +101,18 @@ export class HostLink {
   private wanted = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly relay: RelayDialer;
+  /** The ORCH_DIR an agent on the host uses to reach this orchd; null until the relay is open. */
+  private farOrchDir: string | null = null;
+  /** Settles once the host has opened the relay for this link, or failed to; null while down. */
+  private relayOpened: Promise<void> | null = null;
 
-  constructor(readonly name: string, private host: HostSettings, private readonly deps: HostLinkDeps) {}
+  constructor(readonly name: string, private host: HostSettings, private readonly deps: HostLinkDeps) {
+    const dial = deps.dialOrchd ?? (() => connectDaemon(deps.orchDir, deps.settings().links.request_timeout_ms));
+    this.relay = new RelayDialer((frame) => { this.write(frame); }, dial, (error) => {
+      deps.logger.warn("host.relay-dial-failed", { host: name, error: errorMessage(error) });
+    });
+  }
 
   current(): HostLinkState {
     return this.state;
@@ -127,9 +147,27 @@ export class HostLink {
     return this.send("ping", {}).then((value) => HOST_RESULTS.ping.parse(value));
   }
 
-  /** Whether a process on this host is alive. Rejects while the link is down: the answer is unknown. */
+  /** Whether each process is alive on this host, in order. Rejects while the link is down:
+   *  the answer is unknown. */
   alive(params: HostParamsOf<"alive">): Promise<HostResultOf<"alive">> {
-    return this.send("alive", params).then((value) => HOST_RESULTS.alive.parse(value));
+    return this.send("alive", params).then((value) => {
+      const result = HOST_RESULTS.alive.parse(value);
+      if (result.alive.length !== params.processes.length) throw new Error(`${this.name} answered for ${result.alive.length} processes, asked about ${params.processes.length}`);
+      return result;
+    });
+  }
+
+  /** Ask the host about every agent process orch has recorded there, and keep the answers. */
+  private async checkProcesses(hostId: string): Promise<void> {
+    const processes = [...currentProcesses(this.deps.orchDir).values()].filter((row) => row.hostId === hostId);
+    const asked = processes.map(({ pid, startToken }) => ({ pid, startToken }));
+    const { alive } = await this.alive({ processes: asked });
+    recordRemoteLiveness(hostId, asked.map((process, index) => ({ ...process, alive: alive[index] === true })));
+  }
+
+  /** The ORCH_DIR agents on this host use to reach this orchd; null until the relay is open. */
+  relayOrchDir(): string | null {
+    return this.farOrchDir;
   }
 
   /** Stop wanting the link and end it. */
@@ -167,7 +205,7 @@ export class HostLink {
 
   private send(method: HostMethod, params: unknown): Promise<unknown> {
     const process = this.process;
-    if (this.state.kind !== "up" || process === null) {
+    if (this.state.kind !== "up" || process === null || process.stdin.writableEnded) {
       return Promise.reject(new Error(`${this.name} is not linked, so orch cannot ask it`));
     }
     const id = this.nextId++;
@@ -181,6 +219,66 @@ export class HostLink {
       this.pending.set(id, { resolve, reject, timer });
       process.stdin.write(encodeHostFrame({ kind: "request", id, method, params }));
     });
+  }
+
+  private write(frame: HostFrame): void {
+    const stdin = this.process?.stdin;
+    if (stdin !== undefined && !stdin.writableEnded) stdin.write(encodeHostFrame(frame));
+  }
+
+  /** Ask the host to carry this orchd's RPC for agents there. */
+  private openRelay(): void {
+    const readToken = this.deps.daemonToken ?? (() => readFileSync(endpointPaths(this.deps.orchDir).token, "utf8").trim());
+    const opened = Promise.resolve()
+      .then(() => this.send("relay", { origin: hostIdentity(), token: readToken() }))
+      .then((value) => {
+        this.farOrchDir = HOST_RESULTS.relay.parse(value).orchDir;
+        this.deps.logger.info("host.relay-open", { host: this.name, orchDir: this.farOrchDir });
+      });
+    opened.catch((error: unknown) => { this.deps.logger.warn("host.relay-failed", { host: this.name, error: errorMessage(error) }); });
+    this.relayOpened = opened;
+  }
+
+  /** End a recorded process instance on this host. Rejects while the link is down. */
+  signal(params: HostParamsOf<"signal">): Promise<HostResultOf<"signal">> {
+    return this.send("signal", params).then((value) => HOST_RESULTS.signal.parse(value));
+  }
+
+  /** Start a headless agent on this host for this orchd, once the relay it reports through
+   *  is open there. */
+  async launch(params: HostParamsOf<"launch">): Promise<HostResultOf<"launch">> {
+    if (this.relayOpened === null) throw new Error(`${this.name} is not linked, so orch cannot start an agent there`);
+    await this.relayOpened;
+    return HOST_RESULTS.launch.parse(await this.send("launch", params));
+  }
+
+  /** A frame from the far end that is not about the link itself. */
+  private receive(frame: HostFrame): void {
+    switch (frame.kind) {
+      case "reply":
+        this.settlePending(frame.id, { value: frame.result });
+        return;
+      case "failure":
+        this.settlePending(frame.id, { message: frame.message });
+        return;
+      case "stream-open":
+        this.relay.open(frame.stream);
+        return;
+      case "stream-line":
+        this.relay.line(frame.stream, frame.line);
+        return;
+      case "stream-end":
+        this.relay.end(frame.stream);
+        return;
+      // The far end greets once, handled where the link comes up, and asks nothing.
+      case "greeting":
+      case "request":
+        return;
+      default: {
+        const exhaustive: never = frame;
+        throw new Error(`unknown host frame ${String(exhaustive)}`);
+      }
+    }
   }
 
   private attempt(): Promise<HostGreeting> {
@@ -240,7 +338,7 @@ export class HostLink {
           }
           return;
         }
-        if (frame.kind === "reply" || frame.kind === "failure") this.settlePending(frame.id, frame.kind === "reply" ? { value: frame.result } : { message: frame.message });
+        this.receive(frame);
       });
 
       void child.exited.then((code) => {
@@ -263,6 +361,7 @@ export class HostLink {
     this.failures = 0;
     this.startPinging(greeting.host.id);
     this.deps.logger.info("host.link-up", { host: this.name, hostId: greeting.host.id, version: greeting.version, commit: greeting.commit });
+    this.openRelay();
     return null;
   }
 
@@ -270,12 +369,18 @@ export class HostLink {
     return this.host.dest;
   }
 
+  /** Each tick proves the link answers, then asks after the agents there. */
   private startPinging(hostId: string): void {
-    this.pingTimer = setInterval(() => {
+    const tick = (): void => {
       this.ping()
-        .then(() => { touchHostLink(this.deps.orchDir, hostId, this.now()); })
+        .then(() => {
+          touchHostLink(this.deps.orchDir, hostId, this.now());
+          return this.checkProcesses(hostId);
+        })
         .catch((error: unknown) => { this.deps.logger.warn("host.ping-failed", { host: this.name, error: errorMessage(error) }); });
-    }, this.deps.settings().links.ping_interval_ms);
+    };
+    tick();
+    this.pingTimer = setInterval(tick, this.deps.settings().links.ping_interval_ms);
     this.pingTimer.unref?.();
   }
 
@@ -295,9 +400,13 @@ export class HostLink {
     this.process = null;
     if (this.pingTimer !== null) clearInterval(this.pingTimer);
     this.pingTimer = null;
+    this.relay.endAll();
+    this.farOrchDir = null;
+    this.relayOpened = null;
     const now = this.now();
     if (this.state.kind === "up") {
       closeHostLink(this.deps.orchDir, this.state.greeting.host.id, now);
+      forgetRemoteLiveness(this.state.greeting.host.id);
       this.deps.logger.warn("host.link-down", { host: this.name, reason });
     }
     this.state = { kind: "down", reason, at: now };

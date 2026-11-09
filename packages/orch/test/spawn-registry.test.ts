@@ -7,6 +7,7 @@ import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 import { runnerProcess } from "./helpers/agent.ts";
+import { hostIdentity } from "../src/host.ts";
 
 import { row } from "./helpers/rows.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -37,6 +38,7 @@ function register(dir: OrchDir, overrides: Partial<Parameters<typeof registerSpa
     thinking: "high",
     spawner: "orch-agent",
     process: runnerProcess(),
+    host: hostIdentity(),
     now: 10,
     ...overrides,
   });

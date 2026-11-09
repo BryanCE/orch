@@ -4,11 +4,22 @@ import type { BackendId } from "./backend.ts";
 import type { JsonRecord } from "./core.ts";
 import type { AgentStatusRow } from "../store/status-rows.ts";
 
+/** Whether an agent's process is alive. `unknown`: it runs on a linked host orch cannot ask
+ *  right now. Unknown is never dead: nothing is reaped, closed or replaced for it. */
+export const LIVENESS = ["alive", "dead", "unknown"] as const;
+export type Liveness = (typeof LIVENESS)[number];
+
 export interface PresenceEntry {
   key: string;
   status: AgentStatusRow | null;
   result: string | null;
-  alive: boolean;
+  liveness: Liveness;
+}
+
+/** Whether an agent may still be running: alive, or on a host orch cannot ask right now.
+ *  What everything that must not drop, close or replace a live agent asks. */
+export function notDead(entry: PresenceEntry | null | undefined): boolean {
+  return entry !== null && entry !== undefined && entry.liveness !== "dead";
 }
 
 /**

@@ -139,7 +139,7 @@ export function statusRow(overrides: Partial<AgentStatusRow> & { agentId: string
 export function presenceEntryFixture(overrides: Partial<PresenceEntry> = {}): PresenceEntry {
   return {
     key: "agent0001",
-    alive: true,
+    liveness: "alive",
     result: "done",
     status: null,
     ...overrides,

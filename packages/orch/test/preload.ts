@@ -1,6 +1,8 @@
 import { mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { LAUNCH_ENV } from "../src/identity/launch.ts";
 
 /**
  * Strip the ambient plexer's environment before any test file loads.
@@ -30,6 +32,16 @@ const prefixes = new Set([...plexerEnvPrefixes(), "TMUX"]);
 for (const name of Object.keys(process.env)) {
   const head = name.split("_")[0] ?? name;
   if (prefixes.has(head)) delete process.env[name];
+}
+
+/**
+ * Strip the ambient harness session the same way. Run from inside a Claude Code, pi,
+ * omp or codex session, every test inherited that session's marker, so a test
+ * that stands in for the human at a terminal was told it was an agent and refused. A test
+ * that wants a harness caller sets the marker itself.
+ */
+for (const name of [LAUNCH_ENV, ...Object.values(HARNESS_SESSION_ENV).flatMap((harness) => Object.values(harness))]) {
+  delete process.env[name];
 }
 
 /**

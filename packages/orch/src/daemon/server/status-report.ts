@@ -175,7 +175,7 @@ export function startLivenessTick(
     for (const entry of loadPresence(orchDir).values()) {
       const row = entry.status;
       if (row === null || row.state === "exited" || !isAgentState(row.state)) continue;
-      if (entry.alive) continue;
+      if (entry.liveness !== "dead") continue;
       const now = Date.now();
       const { current: updated } = recordAgentStatus(orchDir, row.agentId, { state: "exited", finishedAt: now }, now);
       logStateChange(orchDir, updated, now);

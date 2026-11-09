@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { mintAgentId } from "../src/backends/identity.ts";
+import { hostIdentity } from "../src/host.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores } from "../src/store/connection.ts";
@@ -63,6 +64,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%3",
       cwd: "/tmp", name: "solo-1", model: "openai/gpt-5.6", space: "wsOne",
       spawner: null, owner, process: { pid: process.pid, startToken: "one-writer-spawned-agent-fixture" },
+      host: hostIdentity(),
     });
 
     const view = agentView(dir, key);

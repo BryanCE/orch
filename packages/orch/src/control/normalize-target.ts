@@ -1,6 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { loadPresence } from "../presence/store.ts";
 import { agentView, agentViews } from "../store/agent-view.ts";
+import { notDead } from "../types/presence.ts";
 
 /**
  * Resolve any spelling of a target to the one canonical identity key.
@@ -31,7 +32,7 @@ export function normalizeControlTarget(orchDir: OrchDir, target: string): string
     view.name === target || view.environment.handle === target);
 
   const presence = loadPresence(orchDir);
-  const live = matches.filter((view) => presence.get(view.id)?.alive);
+  const live = matches.filter((view) => notDead(presence.get(view.id)));
   const resolved = live.length > 0 ? live : matches;
   const keys = new Set(resolved.map((view) => view.id));
 

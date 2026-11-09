@@ -48,7 +48,10 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
     const plan = settings.agents[index];
     if (plan === undefined) die(`missing spawn plan for ${name}`);
     const adapter = resolveAdapterOrDie(plan.adapter);
-    const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
+    // On another host, --dir names a directory there: nothing here is made or trusted for it.
+    const { cwd, worktree } = settings.host === null
+      ? prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd)
+      : { cwd: settings.cwd, worktree: undefined };
     try {
       // ONE key per agent: mint the name-based identity BEFORE launch and pass
       // it as the launch credential, exactly like the placed path (spawnOneIntoTab).
@@ -74,6 +77,7 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
         tools: settings.tools,
         workers: settings.workers,
         env: compactionEnv(adapter, plan.model, settings.workers),
+        ...(settings.host === null ? {} : { host: settings.host.name }),
       }, {}, settingsFile.timeouts.adapter_command_ms);
       // A headless agent is placed nowhere, so its key is the handle every display uses.
       created.push({ key, handle: key, name, cwd, branch: worktree?.branch ?? null });

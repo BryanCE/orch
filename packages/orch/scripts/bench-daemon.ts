@@ -30,6 +30,7 @@ import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
+import { hostIdentity } from "../src/host.ts";
 import { binaryPath, isRecord } from "../src/util.ts";
 import { ORCH_RUNTIMES, type OrchRuntime } from "../src/runtimes.ts";
 import { runningRuntime } from "../src/runtime.ts";
@@ -132,6 +133,7 @@ function seedFleet(agents: number, trace: boolean): Fleet {
     registerSpawnedAgent(orchDir, {
       key: id, harnessId: "pi", placed: false, cwd: orchDir, name: `bench-${index}`, model: "", spawner: null,
       process: { pid: process.pid, startToken: null },
+      host: hostIdentity(),
     });
     agentIds.push(id);
   }

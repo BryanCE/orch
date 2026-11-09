@@ -10,7 +10,7 @@ import type { DriveState } from "../../types/agent.ts";
 import type { PeerStatus, PeerView, PeerViewPeer } from "../../types/daemon.ts";
 import type { ProvenanceLookup } from "../../types/policy.ts";
 import type { AgentView } from "../../types/store.ts";
-import type { PresenceEntry } from "../../types/presence.ts";
+import { type PresenceEntry, notDead } from "../../types/presence.ts";
 
 /** The fleet, read once per view: every agent composed, and its presence. */
 interface Fleet {
@@ -61,7 +61,7 @@ function visibleKeys(fleet: Fleet, ownKey: string, keys: string[], allSpaces: bo
 export function peerView(orchDir: OrchDir, ownKey: string, keys: string[], allSpaces: boolean, callerProject?: string): PeerView {
   const fleet = readFleet(orchDir);
   const views = [...fleet.views.values()]
-    .filter((view) => view.id !== ownKey && fleet.presence.get(view.id)?.alive === true)
+    .filter((view) => view.id !== ownKey && notDead(fleet.presence.get(view.id)))
     .filter((view) => keys.length === 0 || keys.includes(view.id));
   const byKey = new Map(views.map((view) => [view.id, view]));
   const visible = visibleKeys(fleet, ownKey, views.map((view) => view.id), allSpaces, callerProject);

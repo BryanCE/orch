@@ -10,7 +10,7 @@ import type { OrchDir } from "../../types/core.ts";
 import type { LeaseFacts } from "../../agent/drive-state.ts";
 import type { AgentAdapter, SessionView } from "../../types/adapter.ts";
 import type { AgentTuning, AgentView } from "../../types/store.ts";
-import type { PresenceEntry } from "../../types/presence.ts";
+import { type PresenceEntry, notDead } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { LeaseStatusPayload, StatusRow } from "../../types/command.ts";
 import type { FleetNames } from "../../types/daemon.ts";
@@ -64,7 +64,8 @@ function deriveState(pres: PresenceEntry | null, ent: Entity, sview: SessionView
   if (!pres?.status) {
     return { state: ent.backendStatus ?? sview?.state ?? (sview ? "idle" : "unknown"), stateFallback: true, exited: false };
   }
-  if (!pres.alive) return { state: "exited", stateFallback: false, exited: true };
+  if (pres.liveness === "dead") return { state: "exited", stateFallback: false, exited: true };
+  if (pres.liveness === "unknown") return { state: "unknown", stateFallback: false, exited: false };
   return { state: pres.status.state === "asking" ? "asking" : pres.status.state ?? "unknown", stateFallback: false, exited: false };
 }
 
@@ -211,7 +212,7 @@ function liveFacts(entity: Entity, agentView: AgentView | undefined, questionOf:
   const adapter = getAdapter(agentView?.harnessId ?? entity.agent ?? "");
   const sview = pres?.status ? null : sessionViewFor(entity, adapter);
   const { state, stateFallback, exited } = deriveState(pres, entity, sview);
-  const alive = pres?.alive ?? false;
+  const alive = notDead(pres);
   return {
     model: deriveModelString(pres, sview, adapter, agentView?.tuning),
     state: displayStatusState({ state, alive, exited }),

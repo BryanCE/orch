@@ -37,7 +37,7 @@ function removeExpiredLogs(orchDir: OrchDir, cutoff: Date, logger?: Logger): num
     }
   }
   const liveKeys = [...loadPresence(orchDir).values()]
-    .filter((entry) => entry.alive)
+    .filter((entry) => entry.liveness !== "dead")
     .map((entry) => entry.key);
   let backendRemoved = 0;
   for (const backend of allBackends()) {

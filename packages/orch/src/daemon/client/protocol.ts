@@ -11,14 +11,14 @@ import { AGENT_STATES } from "../../agent-state.ts";
 import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
 import { CALLER_KINDS, type ThinkingLevel, type WorkerPolicy } from "../../types/policy.ts";
 import type { CallerCredential, CallerSession, TokenTotals } from "../../types/core.ts";
-import { HOST_LINK_STATES, type HostGreeting, type HostIdentity, type HostLinkView } from "../../types/host.ts";
+import { HOST_LINK_STATES, SIGNAL_OUTCOMES, type HostGreeting, type HostIdentity, type HostLinkView } from "../../types/host.ts";
 import type { FleetCapacity } from "../../policy/capacity.ts";
 import { isAgentNotice, type AgentNotice } from "../../control/bridge-message.ts";
 import type { PaneLabels } from "../../types/plexer.ts";
 import type { LifecycleVerb } from "../../types/adapter.ts";
 import type { FleetStatus, PeerView, PendingQuestionView } from "../../types/daemon.ts";
 import type { BridgeNotification } from "../../types/agent.ts";
-import type { ResultReport, StatusPatch } from "../../types/presence.ts";
+import { LIVENESS, type ResultReport, type StatusPatch } from "../../types/presence.ts";
 import { GRANT_KINDS, type GrantAction, type GrantRequest, type SpaceListing, type SpaceRow, type SpawnRegistration } from "../../types/store.ts";
 import type { HomeSubject } from "../../types/backend.ts";
 import type { CloseTargetWire } from "../../entities/close-targets.ts";
@@ -68,7 +68,7 @@ const STORED_IDENTITY = z.object({
     startToken: z.string().nullable(),
     since: z.number(),
     host: HOST_IDENTITY.nullable(),
-    alive: z.boolean(),
+    liveness: z.enum(LIVENESS),
   }).nullable(),
   sessionToken: z.string().nullable(),
   claimedAt: z.number().nullable(),
@@ -187,6 +187,7 @@ const SPAWN_REGISTRATION = z.object({
   owner: z.string().optional(),
   worktree: agentWorktreeSchema.optional(),
   process: z.object({ pid: z.number().int(), startToken: z.string().nullable() }),
+  host: HOST_IDENTITY,
 }) satisfies z.ZodType<SpawnRegistration>;
 
 const LEASE_RESULT = z.object({ id: z.string(), name: z.string() });
@@ -197,6 +198,7 @@ const CLOSE_TARGET = z.object({
   backendId: z.string().nullable(),
   handle: z.string().nullable(),
   recorded: z.object({ pid: z.number().int(), startToken: z.string().nullable() }).nullable(),
+  linkedHost: z.string().nullable(),
   placeKnown: z.boolean(),
 }) satisfies z.ZodType<CloseTargetWire>;
 
@@ -334,6 +336,8 @@ export const RPC_PARAMS = {
     preferredModels: z.array(nonBlank).optional(),
     tools: optionalText,
     workers: workerPolicy.optional(),
+    /** A host from settings.hosts to run the agent on, over its link; absent runs it here. */
+    host: nonBlank.optional(),
   }),
   "agent-closed": GOVERNANCE.extend({ key: nonBlank }),
   "register-agent": SPAWN_REGISTRATION.extend(GOVERNANCE.shape),
@@ -356,6 +360,8 @@ export const RPC_PARAMS = {
   hosts: z.undefined(),
   "host-check": z.object({ name: nonBlank }),
   "host-forget": z.object({ name: nonBlank }),
+  /** End an agent's process on the linked host it runs on: its recorded instance, over the link. */
+  "host-signal": z.object({ key: nonBlank }),
   grant: GOVERNANCE.extend({ target: nonBlank, decision: z.enum(["approve", "deny"]), host: HOST_IDENTITY }),
   "admit-home": GOVERNANCE.extend({ action: GRANT_ACTION }),
   "queue-list": z.object({ history: z.boolean() }),
@@ -449,6 +455,7 @@ export const RPC_RESULTS = {
   hosts: z.object({ hosts: z.array(HOST_LINK_VIEW) }),
   "host-check": HOST_LINK_VIEW,
   "host-forget": z.object({ name: z.string() }),
+  "host-signal": z.object({ outcome: z.enum(SIGNAL_OUTCOMES) }),
   grant: z.object({ id: z.string(), decision: z.enum(["approve", "deny"]), expiresAt: z.number().nullable() }),
   "admit-home": z.union([z.object({ granted: z.literal(true) }), z.object({ granted: z.literal(false), requestId: z.string() })]),
   "queue-list": z.object({ tasks: z.array(z.custom<TaskRec>(isTaskRec)) }),

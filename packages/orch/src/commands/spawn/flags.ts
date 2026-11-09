@@ -1,5 +1,5 @@
 import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
-import { resolveBackend } from "../../backends/registry.ts";
+import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
 import { agentFlags, pickAdapter, resolveTuningOrDie } from "../selection.ts";
 import { parseCommand } from "../registry.ts";
 import { readFileSync } from "node:fs";
@@ -31,6 +31,10 @@ export type SpawnFlags = Omit<AgentFlags, "adapterFlag" | "modelFlag"> & {
   cwd: string;
   /** The harness command `--cmd` named, or null for the adapter's own. */
   cmd: string | null;
+  /** A host from settings.hosts to run the agents on, or null for this machine. */
+  host: string | null;
+  /** What --dir said, or null when it said nothing. */
+  dirFlag: string | null;
   space: string | null;
   worktree: WorktreeFlags;
   /** Initial task each agent starts on. */
@@ -76,6 +80,8 @@ export function parseSpawnFlags(args: string[]): SpawnFlags {
     tab: flags.value("--tab") ?? null,
     cwd: flags.value("--dir") ?? process.cwd(),
     cmd: flags.value("--cmd") ?? null,
+    host: flags.value("--host") ?? null,
+    dirFlag: flags.value("--dir") ?? null,
     space: flags.value("--space") ?? null,
     worktree: worktreeFlags(flags),
     promptFlags: [...flags.values("--prompt")],
@@ -114,6 +120,8 @@ export type SpawnSettings = Pick<AgentSettings, "backend"> & {
   cwd: string;
   commandFlag: boolean;
   space: string | null;
+  /** The linked host the agents run on, headless; null runs them here. */
+  host: { readonly name: string } | null;
   prefix: string;
   /** One resolved plan per agent. */
   agents: readonly SpawnAgentPlan[];
@@ -212,8 +220,15 @@ function planAgent(flags: SpawnFlags, settings: OrchSettings, agent: { name: str
 }
 
 export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings): SpawnSettings {
-  const backend = resolveSpawnBackend(flags, settings);
-  const worktree = resolveWorktreeIntent(flags.at, flags.worktree, settings);
+  if (flags.host !== null) {
+    if (flags.dirFlag === null) throw usageError(flags.at, "--host needs --dir <path on that host>: this machine's directory names nothing there");
+    if (flags.backendFlag !== undefined) throw usageError(flags.at, "--host runs the agents with no plexer on that host; drop --plexer");
+    if (flags.worktree.wanted || flags.worktree.provider !== undefined) throw usageError(flags.at, "--host cannot make a worktree on that host yet; drop --worktree");
+    if (flags.cmd !== null) throw usageError(flags.at, "--host launches each harness's own command; drop --cmd");
+  }
+  // On another host the agents run with no pane: the backend that places nothing.
+  const backend = flags.host === null ? resolveSpawnBackend(flags, settings) : headlessBackend;
+  const worktree = flags.host === null ? resolveWorktreeIntent(flags.at, flags.worktree, settings) : null;
   const names = resolveSpawnNames(flags.at, flags.positional);
   const n = names.length;
   const references = referencesByAgent(flags.withPaths, names);
@@ -231,7 +246,7 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
   const firstAgent = agents[0];
   if (firstAgent === undefined) die("spawn requires at least one agent");
   const backendChosen = (flags.backendFlag ?? settings.defaults.backend ?? null) !== null;
-  return { backend: backend.id, tools, workers, json: flags.json, tab: flags.tab, backendChosen, cwd: flags.cwd, commandFlag: flags.cmd !== null, space: flags.space, prefix: firstAgent.name, agents, worktree, fleet: settings.fleet, tiling: settings.tiling };
+  return { backend: backend.id, tools, workers, json: flags.json, tab: flags.tab, backendChosen, cwd: flags.cwd, commandFlag: flags.cmd !== null, space: flags.space, host: flags.host === null ? null : { name: flags.host }, prefix: firstAgent.name, agents, worktree, fleet: settings.fleet, tiling: settings.tiling };
 }
 
 /** Live agents per space. Both maps are keyed by the minted id: a space is an

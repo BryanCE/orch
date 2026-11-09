@@ -34,7 +34,7 @@ function storeDir(): OrchDir {
  *  presence carries state, never a pid a fixture can pass off as one. */
 function presence(key: string, alive = true): PresenceEntry {
   seedStatus(storeDir(), key, { key });
-  return { key, status: statusRow({ agentId: key }), result: null, alive };
+  return { key, status: statusRow({ agentId: key }), result: null, liveness: alive ? "alive" : "dead" };
 }
 
 /** Both maps are keyed by the MINTED ID; presence joins to an agent by identity,

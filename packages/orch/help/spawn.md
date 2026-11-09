@@ -11,6 +11,7 @@ Traps:
 - Without `--tab`, the agents land in a new tab with a random label like `elk-glacier-01`.
   Name the tab after the area of work; an existing label gets the new panes.
 - A path written in the prompt does not move the agent. Reach for `--dir`.
+- `--host <name>` runs the agents on that host, headless, and needs `--dir`: a path on that host. They report here and you drive them from here. `orch host` lists the hosts.
 - Give edits to the same files to one agent. Reach for `--worktree` when parallel agents
   might touch the same files by accident, then collect with `orch review`. Each agent gets
   the branch `orch/<name>`, forked from what is checked out here, and sits in the same tab

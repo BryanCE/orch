@@ -192,6 +192,7 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "hosts": return parseOne(method, RPC_PARAMS[method], id, value);
     case "host-check": return parseOne(method, RPC_PARAMS[method], id, value);
     case "host-forget": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "host-signal": return parseOne(method, RPC_PARAMS[method], id, value);
     case "grant": return parseOne(method, RPC_PARAMS[method], id, value);
     case "admit-home": return parseOne(method, RPC_PARAMS[method], id, value);
     case "queue-list": return parseOne(method, RPC_PARAMS[method], id, value);

@@ -24,4 +24,8 @@ The first machine that answers on a name keeps it. If a different machine answer
 refuses the link rather than talk to the wrong box; `orch host forget work` clears the name
 after you replaced that machine.
 
+While a host's link is up, agents run there for this machine: `orch spawn <name> --host work --dir <path there> --prompt "<task>"`. They run headless on that host, report to this machine's orchd through the link, and show in `orch status` here like any other agent. You drive and close them from here.
+
+Whether such an agent is alive is asked over the link. When the link is down, orch does not know, so the agent shows as `unknown`, never as exited: nothing is reaped, closed or handed to another agent until the host answers again.
+
 An agent's own `ssh`, `scp`, `sftp` and `rsync` wait for your `orch grant` by default.

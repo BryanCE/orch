@@ -15,13 +15,14 @@ import { forgetEchoes } from "../control/echo.ts";
 import { deleteSettledTasksOf } from "../store/task-rows.ts";
 import { deleteGrantsOf } from "../store/grant-rows.ts";
 import { currentProcess, currentProcesses, type ProcessRow } from "../store/interval-rows.ts";
-import { recordedInstanceIsLive } from "../process-identity.ts";
+import { processLiveness } from "../process-liveness.ts";
+import { linkedHostIds } from "../store/host-rows.ts";
 import { agents } from "../db/schema.ts";
 import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../store/status-rows.ts";
 import { latestResultTexts, onRunUpserted, settledDispatchIds } from "../store/run-rows.ts";
 import type { AgentView } from "../types/store.ts";
 import type { OrchDir } from "../types/core.ts";
-import type { PresenceEntry, StatusPatch } from "../types/presence.ts";
+import type { Liveness, PresenceEntry, StatusPatch } from "../types/presence.ts";
 
 export function presenceDir(root: OrchDir): string {
   return presenceRoot(root);
@@ -105,7 +106,7 @@ function spawnerIds(root: OrchDir): Set<string> {
  *  that is a reference holding, never a failure. Answers with the ids removed. */
 export function reapDeadAgentRecords(root: OrchDir): string[] {
   const removed: string[] = [];
-  let dead = [...loadPresence(root).values()].filter((entry) => !entry.alive).map((entry) => entry.key);
+  let dead = [...loadPresence(root).values()].filter((entry) => entry.liveness === "dead").map((entry) => entry.key);
   while (dead.length > 0) {
     const referenced = spawnerIds(root);
     const leaves = dead.filter((id) => !referenced.has(id));
@@ -123,14 +124,16 @@ export function reapDeadAgentRecords(root: OrchDir): string[] {
   return removed;
 }
 
-/** Close every open write whose target has no live presence, answering with how
- *  many rows closed. The daemon retries an open write on every drain tick; a
- *  target that is dead, or whose directory is already gone, never acks one. */
+/** Close every open write whose target is dead or gone, answering with how many rows
+ *  closed. The daemon retries an open write on every drain tick; a target that is dead,
+ *  or whose directory is already gone, never acks one. A target orch cannot ask about
+ *  right now keeps its writes until it can. */
 export function closeOutboxForDeadTargets(root: OrchDir): number {
   const presence = loadPresence(root);
   let closed = 0;
   for (const target of selectOpenOutboxTargets(root)) {
-    if (presence.get(target)?.alive) continue;
+    const liveness = presence.get(target)?.liveness ?? "dead";
+    if (liveness !== "dead") continue;
     closed += closeOutboxForTarget(root, target);
   }
   return closed;
@@ -193,7 +196,7 @@ function lastWriteMs(dir: string): number {
  *  A directory that names no agent is not history and goes at any age. */
 export function reapExpiredPresenceDirs(root: OrchDir, olderThan: Date): string[] {
   const removed = reapMalformedPresenceDirs(root);
-  const live = new Set([...loadPresence(root).values()].filter((entry) => entry.alive).map((entry) => entry.key));
+  const live = new Set([...loadPresence(root).values()].filter((entry) => entry.liveness !== "dead").map((entry) => entry.key));
   for (const name of presenceDirectoryNames(root)) {
     if (live.has(name)) continue;
     const dir = join(presenceDir(root), name);
@@ -209,7 +212,7 @@ interface HeldPresence {
   readonly results: Map<string, string>;
   readonly settled: Set<string>;
   readonly processes: Map<string, ProcessRow>;
-  readonly alive: Map<string, boolean>;
+  readonly liveness: Map<string, Liveness>;
 }
 
 const held = new Map<OrchDir, HeldPresence>();
@@ -219,14 +222,15 @@ function heldPresence(root: OrchDir): HeldPresence {
   const existing = held.get(root);
   if (existing) return existing;
   const processes = currentProcesses(root);
-  const alive = new Map<string, boolean>();
-  for (const [agentId, process] of processes) alive.set(agentId, recordedInstanceIsLive(process.pid, process.startToken));
+  const linked = linkedHostIds(root);
+  const liveness = new Map<string, Liveness>();
+  for (const [agentId, process] of processes) liveness.set(agentId, processLiveness(root, process, linked));
   const presence: HeldPresence = {
     statuses: new Map(selectAgentStatuses(root).map((row) => [row.agentId, row])),
     results: latestResultTexts(root),
     settled: settledDispatchIds(root),
     processes,
-    alive,
+    liveness,
   };
   held.set(root, presence);
   return presence;
@@ -237,7 +241,7 @@ function entryFor(view: AgentView, current: HeldPresence): PresenceEntry {
     key: view.id,
     status: current.statuses.get(view.id) ?? null,
     result: current.results.get(view.id) ?? null,
-    alive: view.endedAt === null && current.alive.get(view.id) === true,
+    liveness: view.endedAt === null ? current.liveness.get(view.id) ?? "dead" : "dead",
   };
 }
 
@@ -282,28 +286,30 @@ export function refreshProcess(root: OrchDir, agentId: string): void {
     current.statuses.delete(agentId);
     current.results.delete(agentId);
     current.processes.delete(agentId);
-    current.alive.delete(agentId);
+    current.liveness.delete(agentId);
     return;
   }
   const process = currentProcess(root, agentId);
   if (process === undefined) {
     current.processes.delete(agentId);
-    current.alive.set(agentId, false);
+    current.liveness.set(agentId, "dead");
     return;
   }
   current.processes.set(agentId, process);
-  current.alive.set(agentId, recordedInstanceIsLive(process.pid, process.startToken));
+  current.liveness.set(agentId, processLiveness(root, process));
 }
 
-/** Re-ask the OS about every held process. True when any agent's liveness flipped. */
+/** Re-ask about every held process: the OS here, the last answers from linked hosts. True
+ *  when any agent's liveness changed. */
 export function probeAllProcesses(root: OrchDir): boolean {
   const current = held.get(root);
   if (!current) return false;
+  const linked = linkedHostIds(root);
   let changed = false;
   for (const [agentId, process] of current.processes) {
-    const alive = recordedInstanceIsLive(process.pid, process.startToken);
-    if (current.alive.get(agentId) !== alive) changed = true;
-    current.alive.set(agentId, alive);
+    const liveness = processLiveness(root, process, linked);
+    if (current.liveness.get(agentId) !== liveness) changed = true;
+    current.liveness.set(agentId, liveness);
   }
   return changed;
 }

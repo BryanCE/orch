@@ -4,7 +4,7 @@ import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
 import type { RecordedProcess } from "./backend.ts";
 import type { OutboxPayload } from "../control/bridge-message.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
-import type { HostOs } from "./host.ts";
+import type { HostIdentity, HostOs } from "./host.ts";
 
 export interface AgentInput {
   id: string;
@@ -263,6 +263,8 @@ export interface SpawnRegistration {
    * must die with the agent.
    */
   process: RecordedProcess;
+  /** The host the process runs on, as that host names itself. */
+  host: HostIdentity;
   now?: number;
 }
 

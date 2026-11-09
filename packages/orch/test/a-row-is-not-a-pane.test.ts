@@ -103,7 +103,7 @@ describe("a row is not evidence that a pane exists (U1, U4)", () => {
     // is still orch's, still listed, still addressable through its link.
     expect(entity).toBeDefined();
     expect(entity?.managed).toBe(true);
-    expect(entity?.presence?.alive).toBe(true);
+    expect(entity?.presence?.liveness === "alive").toBe(true);
   });
 
   test("a handle the plexer DOES list is kept", () => {

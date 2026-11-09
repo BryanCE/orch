@@ -31,7 +31,7 @@ function entityWithQuestion(): Entity {
     agent: "pi", focused: false, backendStatus: null, backend: null, sessionPath: null,
     presenceOnly: true, ended: false, space: null,
     presence: {
-      key: "agent00001", alive: true, result: " finished  ",
+      key: "agent00001", liveness: "alive", result: " finished  ",
       status: presenceStatusRow({ agentId: "agent00001", state: "asking", task: "Q: approve" }),
     },
   };

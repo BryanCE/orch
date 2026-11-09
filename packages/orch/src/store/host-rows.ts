@@ -94,3 +94,13 @@ export function latestHostLink(orchDir: OrchDir, hostId: string): HostLinkRecord
     .where(eq(hostLinks.hostId, hostId)).orderBy(desc(hostLinks.since)).limit(1).get();
   return row ?? null;
 }
+
+/** The settings name a linked host is bound to, or null for a host orch reaches no link to. */
+export function hostNameOfId(orchDir: OrchDir, hostId: string): string | null {
+  return orm(orchDir).select({ name: hostNames.name }).from(hostNames).where(eq(hostNames.hostId, hostId)).get()?.name ?? null;
+}
+
+/** Every host id a configured name is bound to: the hosts orch reaches over a link. */
+export function linkedHostIds(orchDir: OrchDir): ReadonlySet<string> {
+  return new Set(orm(orchDir).select({ hostId: hostNames.hostId }).from(hostNames).all().map((row) => row.hostId));
+}

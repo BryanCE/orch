@@ -8,7 +8,7 @@ import { ambiguousTargetRefusal, die } from "../refusal.ts";
 import { errorMessage } from "../util.ts";
 import type { Entity, OrchDir, CallerCredential } from "../types/core.ts";
 import type { AgentView } from "../types/store.ts";
-import type { PresenceEntry } from "../types/presence.ts";
+import { type PresenceEntry, notDead } from "../types/presence.ts";
 import type { Backend } from "../types/backend.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
@@ -26,7 +26,7 @@ export function resolveAgentView(
 ): AgentView | undefined {
   const candidates = views.filter((view) => agentTargetMatches(view, target)
     || addressOf(view, presence) === target);
-  const live = candidates.filter((view) => presence.get(view.id)?.alive === true);
+  const live = candidates.filter((view) => notDead(presence.get(view.id)));
   const preferred = live.length > 0 ? live : candidates;
   if (preferred.length > 1) {
     throw ambiguousTargetRefusal(target, preferred.map((view) => ({ key: view.id, name: view.name, detail: null })));
@@ -46,7 +46,7 @@ interface TargetResolution {
  *  beats a dead one; two live rows is an ambiguity, never a guess. */
 function directEntity(entities: readonly Entity[], target: string): Entity | undefined {
   const direct = entities.filter((entity) => entity.key === target || entity.paneId === target || entity.name === target);
-  const liveDirect = direct.filter((entity) => entity.presence?.alive === true);
+  const liveDirect = direct.filter((entity) => notDead(entity.presence));
   const matches = liveDirect.length > 0 ? liveDirect : direct;
   if (matches.length > 1) {
     die(ambiguousTargetRefusal(target, matches.map((entity) => ({ key: entity.key, name: entity.name, detail: entity.tabLabel }))).message);

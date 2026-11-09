@@ -1,7 +1,6 @@
 import type { OrchDir } from "../types/core.ts";
 import { eq } from "drizzle-orm";
 import { agentById, ensureHarness, ensureHost, ensurePlexer, insertAgent, setWorktree } from "./agent-rows.ts";
-import { hostIdentity } from "../host.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
@@ -33,7 +32,7 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
   // space silently succeed.
   if (input.space !== undefined) requireSpace(directory, input.space);
   ensureHarness(directory, input.harnessId, input.harnessId, now);
-  const host = hostIdentity();
+  const host = input.host;
   ensureHost(directory, host.id, host.name, host.os, now);
   // The plexer is STATED, never derived from whether a pane exists: a headless
   // agent runs in the headless plexer just as truly as a herdr agent runs in

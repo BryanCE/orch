@@ -7,6 +7,7 @@ import { ambiguousTargetRefusal, die } from "../refusal.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import { buildEntities } from "./inventory.ts";
 import { scopeEntitiesToSpaceFor } from "./space.ts";
+import { notDead } from "../types/presence.ts";
 
 function dedupeEntities(entities: Entity[]): Entity[] {
   const seen = new Set<string>();
@@ -25,7 +26,7 @@ function ambiguous(target: string, entities: Entity[]): never {
 
 /** An agent orch has not recorded an ending for and whose process has not gone. */
 function stillRunning(entity: Entity): boolean {
-  return !entity.ended && entity.presence?.alive !== false;
+  return !entity.ended && (entity.presence === null || notDead(entity.presence));
 }
 
 /** A session or spawned agent may resolve only an agent it currently holds.

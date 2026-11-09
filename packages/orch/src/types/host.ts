@@ -26,6 +26,11 @@ export interface HostGreeting {
   readonly version: string;
 }
 
+/** What a signal sent over a link found: the recorded process instance was there and got
+ *  it, or it was already gone. */
+export const SIGNAL_OUTCOMES = ["signalled", "gone"] as const;
+export type SignalOutcome = (typeof SIGNAL_OUTCOMES)[number];
+
 /** The kinds of state a host link is in: no attempt yet this orchd run, dialing,
  *  up, or down after an attempt failed. */
 export const HOST_LINK_STATES = ["idle", "connecting", "up", "down"] as const;

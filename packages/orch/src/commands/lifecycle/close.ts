@@ -7,7 +7,8 @@ import type { CloseTargetWire } from "../../entities/close-targets.ts";
 import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
 import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
-import { callDaemon, readRpc } from "../daemon.ts";
+import { askDaemon, callDaemon, readRpc } from "../daemon.ts";
+import { hostCallTimeoutMs } from "../host.ts";
 import { cmdSteer } from "../control.ts";
 import { die } from "../target.ts";
 import { resolveLifecycle, targetName } from "../resolve.ts";
@@ -42,6 +43,17 @@ async function endClosedAgent(services: CloseServices, key: string): Promise<str
   }
 }
 
+/** End a process that runs on a linked host: orchd sends the signal over that host's link,
+ *  and the host checks the recorded instance before it signals. A pid here names nothing. */
+async function closeOverLink(services: CloseServices, target: CloseTarget & { readonly linkedHost: string }): Promise<CloseAttempt> {
+  try {
+    const { outcome } = await askDaemon(services, "host-signal", { key: target.key }, hostCallTimeoutMs(services));
+    return { failure: null, signalled: outcome === "signalled", closedByBackend: false, alreadyAbsent: outcome === "gone" };
+  } catch (error: unknown) {
+    return { failure: `could not reach ${target.linkedHost} to end ${target.name}: ${errorMessage(error)}`, signalled: false, closedByBackend: false, alreadyAbsent: false };
+  }
+}
+
 /** One target's result from a multi-target close, with the reason it failed. */
 interface CloseOutcome {
   readonly target: string;
@@ -60,6 +72,8 @@ interface CloseTarget {
   readonly handle: BackendHandle | null;
   readonly key: string;
   readonly recorded: RecordedProcess | null;
+  /** The linked host the recorded process runs on; null when it runs here. */
+  readonly linkedHost: string | null;
   /** Whether a pane operation is meaningful here — false when the plexer no
    *  longer lists the handle (U1), so orch never asks it to close a lost pane. */
   readonly placeKnown: boolean;
@@ -186,7 +200,10 @@ async function closeEachTarget(services: CloseServices, targets: readonly CloseT
     seen.add(target.key);
     const handle = target.handle === null ? null : describeHandle(target.handle);
     const name = target.name;
-    const { failure: processFailure, signalled, closedByBackend } = attemptClose(target);
+    const linkedHost = target.linkedHost;
+    const { failure: processFailure, signalled, closedByBackend } = linkedHost === null
+      ? attemptClose(target)
+      : await closeOverLink(services, { ...target, linkedHost });
     const failure = processFailure ?? await endClosedAgent(services, target.key);
     if (failure !== null) {
       lifecycleLogger(logger, target.key).error("close.failed", { handle, error: failure });

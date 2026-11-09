@@ -5,7 +5,7 @@ import { holdsLease } from "../../../store/lease-rows.ts";
 import { randomUUID } from "node:crypto";
 import { admitModel } from "../../../policy/model.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
-import { headlessBackend } from "../../../backends/registry.ts";
+import { headlessBackend, headlessRegistration } from "../../../backends/registry.ts";
 import { deliverControl } from "../../../control/dispatch.ts";
 import { emitAndNotify } from "../events.ts";
 import { agentView } from "../../../store/agent-view.ts";
@@ -37,7 +37,7 @@ export function enqueue(state: DaemonState, params: ParamsOf<"enqueue">): { task
   return { task };
 }
 
-export function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): { key: string; pid: number } {
+export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">): Promise<{ key: string; pid: number }> {
   const directory = state.directory;
   const key = params.key;
   const adapterId = params.adapter;
@@ -48,6 +48,7 @@ export function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headle
   // entry shares a prefix. Both end with the fleet on a model nobody asked for.
   const model = admitModel(state.services.settings.current(), adapter, state.services.models, params.model);
   const thinking = params.thinking;
+  if (params.host !== undefined) return spawnOnHost(state, params.host, { ...params, model });
   const handle = headlessBackend.spawn(adapter, {
     key,
     name: params.name,
@@ -66,6 +67,18 @@ export function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headle
     workers: params.workers,
   });
   return { key, pid: handle.pid };
+}
+
+/** Start a headless agent on a linked host and record it here, with that host as where its
+ *  process runs. The spawner holds it exactly as it holds an agent started here. */
+async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsOf<"spawn-headless">): Promise<{ key: string; pid: number }> {
+  if (params.worktree !== undefined) throw new Error(`a worktree on ${hostName} is not made yet; spawn there without --worktree`);
+  const link = state.hosts.link(hostName);
+  const greeting = await link.requireUp();
+  const { key, name, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers } = params;
+  const launched = await link.launch({ key, name, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers });
+  registerSpawnedAgent(state.directory, headlessRegistration(adapter, key, { ...params, orchDir: state.directory }, launched, greeting.host));
+  return { key, pid: launched.process.pid };
 }
 
 // Throws when the agent refuses or never confirms; the RPC error carries that

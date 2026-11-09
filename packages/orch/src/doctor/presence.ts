@@ -95,7 +95,7 @@ function describeDeadAgent(orchDir: OrchDir, entry: PresenceEntry): string {
  *  liveness tick; a row that stays is held by a task or grant still in flight. */
 export async function checkDeadAgents(orchDir: OrchDir): Promise<CheckResult> {
   await Promise.resolve();
-  const dead = [...loadPresence(orchDir).values()].filter((entry) => !entry.alive);
+  const dead = [...loadPresence(orchDir).values()].filter((entry) => entry.liveness === "dead");
   if (!dead.length) return { id: "dead-agents", label: "Dead agent rows", status: "ok", detail: "no dead agents in the store" };
   return {
     id: "dead-agents",

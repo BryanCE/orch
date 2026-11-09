@@ -150,7 +150,7 @@ describe("commands/status", () => {
       key: "hless00001", paneId: null, name: null, tabLabel: null, focused: false,
       presenceOnly: true, space: "local",
       presence: {
-        key: "hless00001", alive: true, result: "answer",
+        key: "hless00001", liveness: "alive", result: "answer",
         status: statusRow({ agentId: "hless00001", state: "working", task: "task", cost: 1.25, contextPercent: 42 }),
       },
     });
@@ -162,7 +162,7 @@ describe("commands/status", () => {
       key: "hless00001", paneId: null, name: null, tabLabel: null, focused: false,
       presenceOnly: true, space: "local",
       presence: {
-        key: "hless00001", alive: false, result: null,
+        key: "hless00001", liveness: "dead", result: null,
         status: statusRow({ agentId: "hless00001", state: "working" }),
       },
     });
@@ -285,7 +285,7 @@ describe("commands/status", () => {
     const child = agentViewFixture("child", { name: "child", rootAgentId: "root", spawnedBy: "root", environment: { space: "main" } });
     const other = agentViewFixture("other", { name: "other", rootAgentId: "other", environment: { space: "main" } });
     const views = new Map([root, child, other].map((view) => [view.id, view]));
-    const presence = new Map([root, child, other].map((view) => [view.id, presenceEntryFixture({ key: view.id, alive: true })]));
+    const presence = new Map([root, child, other].map((view) => [view.id, presenceEntryFixture({ key: view.id, liveness: "alive" })]));
     const capacity = computeFleetCapacity(views, presence, {
       fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 3, max_agents_per_space: { main: 6 }, max_agents_total: 10, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false },
       spaces: { main: "main" },

@@ -52,9 +52,9 @@ describe("spawn rolls a tab label when --tab names none", () => {
       ["other", agentViewFixture("other", { environment: { plexer: "tmux", handle: "p3" } })],
     ]);
     const presence = new Map<string, PresenceEntry>([
-      ["live", presenceEntryFixture({ key: "live", alive: true })],
-      ["dead", presenceEntryFixture({ key: "dead", alive: false })],
-      ["other", presenceEntryFixture({ key: "other", alive: true })],
+      ["live", presenceEntryFixture({ key: "live", liveness: "alive" })],
+      ["dead", presenceEntryFixture({ key: "dead", liveness: "dead" })],
+      ["other", presenceEntryFixture({ key: "other", liveness: "alive" })],
     ]);
     const targets = [tabTarget("p1", "elk-glacier-01"), tabTarget("p2", "otter-ember-07"), tabTarget("p3", "fox-dune-03")];
     const backend: Pick<Backend, "id" | "placementInventory"> = { id: "herdr", placementInventory: { current: () => null, list: () => targets, coordinateOf: () => null } };

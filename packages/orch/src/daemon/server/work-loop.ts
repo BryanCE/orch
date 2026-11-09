@@ -35,7 +35,7 @@ export type { WorkOptions };
 
 function agentIdle(entry: PresenceEntry): boolean {
   const state = entry.status?.state;
-  return entry.alive && (state === "idle" || state === "done");
+  return entry.liveness === "alive" && (state === "idle" || state === "done");
 }
 
 /** One idle process, and the agent orch minted for it. */
@@ -204,7 +204,7 @@ function settleClaimedTasks(orchDir: OrchDir, settings: ReturnType<WorkOptions["
     const agent = runners.get(attempt.agentId)?.entry;
     // Failure closes this attempt. Scope, not the former runner, decides where
     // a retry may land; pack work therefore survives one member disappearing.
-    if (!agent || !agent.alive) {
+    if (!agent || agent.liveness === "dead") {
       const settled = recordTaskFailure(orchDir, task.id, `claiming agent ${attempt.agentId} is gone`);
       if (agent) emit(taskEvent(orchDir, agent, settled, task.state, settled.state, attempt.error ?? undefined));
       continue;

@@ -39,7 +39,7 @@ function storedLines(stored: Stored): string[] {
   return [
     process === null
       ? "stored process none"
-      : `stored process ${process.pid} on ${host ? `${host.name} (${host.os})` : "an unknown host"}, since ${formatTimestamp(process.since)}, ${process.alive ? "alive" : "dead"}`,
+      : `stored process ${process.pid} on ${host ? `${host.name} (${host.os})` : "an unknown host"}, since ${formatTimestamp(process.since)}, ${process.liveness}`,
     `stored session token ${stored.sessionToken ?? "none"}, claimed ${stored.claimedAt === null ? "never" : formatTimestamp(stored.claimedAt)}`,
   ];
 }

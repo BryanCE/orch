@@ -6,6 +6,7 @@ import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
 import { nextTilePlacement } from "../../backends/tiling.ts";
 import { createAgentWorktree, discardFreshWorktree, type WorktreeIntent } from "../../worktrees/agent.ts";
 import { errorMessage } from "../../util.ts";
+import { hostIdentity } from "../../host.ts";
 import { callDaemon } from "../daemon.ts";
 import { die } from "../target.ts";
 import { LAUNCH_ENV } from "../../identity/launch.ts";
@@ -154,6 +155,7 @@ async function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpe
     owner: spec.owner,
     worktree: spec.worktree,
     process: spec.backend.process.running(handle),
+    host: hostIdentity(),
   });
   return { key, handle: String(handle), name: spec.name, cwd: spec.cwd, branch: spec.worktree?.branch ?? null };
 }

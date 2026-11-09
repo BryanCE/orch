@@ -7,7 +7,7 @@ import { applyLifecycle, closeAgent, enqueue, listPendingQuestions, reclaim, rec
 import { adopt, detach, orphans, reap, reapCandidateList, rename } from "./lease.ts";
 import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
 import { admitHome, decideGrant, listGrants } from "./grant.ts";
-import { checkHost, forgetHost } from "./host.ts";
+import { checkHost, forgetHost, signalOnHost } from "./host.ts";
 import { lockCommand, unlockCommand } from "./command-lock.ts";
 import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, takeOnQueued } from "./queue.ts";
 import { cleanStore } from "./clean.ts";
@@ -123,6 +123,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     hosts: () => ({ hosts: state.hosts.views() }),
     "host-check": (params) => checkHost(state, params),
     "host-forget": (params) => forgetHost(state, params),
+    "host-signal": (params) => signalOnHost(state, params),
     grant: governed(state, (params) => decideGrant(directory, params)),
     "admit-home": governed(state, (params) => admitHome(directory, params)),
     "queue-list": (params) => listQueued(directory, params),

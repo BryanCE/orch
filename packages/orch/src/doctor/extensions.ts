@@ -34,7 +34,7 @@ export async function checkExtensionStaleness(orchDir: OrchDir, bundlePath?: str
   let liveWithHash = 0;
   for (const entry of entries.values()) {
     const extensionHash = entry.status?.extensionHash;
-    if (!entry.alive || typeof extensionHash !== "string") continue;
+    if (entry.liveness !== "alive" || typeof extensionHash !== "string") continue;
     liveWithHash += 1;
     if (!diskHashes.has(extensionHash)) stale.push(entry.key);
   }

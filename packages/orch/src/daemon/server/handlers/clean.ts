@@ -5,13 +5,14 @@ import { closeOutboxForDeadTargets, loadPresence, reapDeadAgentRecords, reapExpi
 import { livePresenceHolders } from "../../../store/connection.ts";
 import type { OrchDir } from "../../../types/core.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
+import { notDead } from "../../../types/presence.ts";
 
 /** The resolved worktree paths of every agent still alive: the ones `orch clean
  *  --worktrees` must leave in place. */
 function liveWorktreePaths(directory: OrchDir): string[] {
   const presence = loadPresence(directory);
   return [...spawnedRecords(directory).values()]
-    .filter((view) => view.environment.worktree !== null && presence.get(view.id)?.alive === true)
+    .filter((view) => view.environment.worktree !== null && notDead(presence.get(view.id)))
     .map((view) => path.resolve(view.environment.worktree!));
 }
 

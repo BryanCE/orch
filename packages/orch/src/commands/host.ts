@@ -26,8 +26,9 @@ import type { Services } from "../types/services.ts";
 /** A host name is one settings key: no dots, nothing a shell or a table would mangle. */
 const HOST_NAME = /^[A-Za-z0-9_-]+$/;
 
-/** How long `host check` waits: ssh's own connect timeout, then the far side's greeting. */
-function checkTimeoutMs(services: Services): number {
+/** How long a call that may bring a host's link up waits: ssh's own connect timeout, then
+ *  the far side's answer. */
+export function hostCallTimeoutMs(services: Pick<Services, "settings">): number {
   const links = services.settings.current().links;
   return links.connect_timeout_s * 1_000 + links.request_timeout_ms;
 }
@@ -59,7 +60,7 @@ async function listHosts(services: Services, json: boolean): Promise<void> {
 }
 
 async function checkHost(services: Services, name: string, json: boolean): Promise<void> {
-  const view = await readRpc(services, "host-check", { name }, checkTimeoutMs(services));
+  const view = await readRpc(services, "host-check", { name }, hostCallTimeoutMs(services));
   if (json) {
     process.stdout.write(JSON.stringify(view, null, 2) + "\n");
     return;
@@ -206,7 +207,7 @@ export async function cmdHost(services: Services, args: string[]): Promise<void>
     case "key": return printHostKey(services, requiredWord(invocation, 0));
     case "check": return checkHost(services, requiredWord(invocation, 0), json);
     case "forget": return forgetHost(services, requiredWord(invocation, 0), json);
-    case "serve": return serveHostLink(process.stdin, process.stdout);
+    case "serve": return serveHostLink(process.stdin, process.stdout, { orchDir: services.orchDir });
     default:
       if (invocation.positional.length) throw usageError(invocation);
       return listHosts(services, json);

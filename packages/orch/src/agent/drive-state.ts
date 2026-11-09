@@ -8,7 +8,7 @@ import type { OrchDir } from "../types/core.ts";
 // place — a second copy would be a second truth about who owns an agent.
 import { agentView } from "../store/agent-view.ts";
 import { currentProcesses, recordedProcessIsLive, type ProcessRow } from "../store/interval-rows.ts";
-import { recordedInstanceIsLive } from "../process-identity.ts";
+import { processLiveness } from "../process-liveness.ts";
 import type { DriveState, DriveStateOptions } from "../types/agent.ts";
 import type { AgentView } from "../types/store.ts";
 
@@ -69,7 +69,8 @@ export function fleetLeaseFacts(directory: OrchDir, views: ReadonlyMap<string, A
     if (known !== undefined) return known;
     processes ??= currentProcesses(directory);
     const recorded = processes.get(holderId);
-    const alive = recorded !== undefined && recordedInstanceIsLive(recorded.pid, recorded.startToken);
+    // A holder orch cannot ask about right now still holds: unknown is never dead.
+    const alive = recorded !== undefined && processLiveness(directory, recorded) !== "dead";
     holderLiveness.set(holderId, alive);
     return alive;
   };

@@ -1,6 +1,6 @@
 import { sameSpace } from "./space.ts";
 import type { AgentView } from "../types/store.ts";
-import type { PresenceEntry } from "../types/presence.ts";
+import { type PresenceEntry, notDead } from "../types/presence.ts";
 
 export function assertValidAgentName(name: string): void {
   if (!/^[a-z][a-z0-9_-]{0,31}$/.test(name)) {
@@ -28,6 +28,6 @@ export function assertNameFree(
   const taken = [...views.values()].find((view) =>
     view.name === name
     && sameSpace(view.environment.space, space)
-    && presence.get(view.id)?.alive === true);
+    && notDead(presence.get(view.id)));
   if (taken) throw new Error(`name "${name}" is already live as ${taken.id}; close it or pick another name`);
 }

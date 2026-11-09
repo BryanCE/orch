@@ -52,7 +52,7 @@ function fixtureMaps(agents: AgentView[]): { views: Map<string, AgentView>; pres
       key: view.id,
       status: null,
       result: null,
-      alive: true,
+      liveness: "alive",
     }])),
   };
 }

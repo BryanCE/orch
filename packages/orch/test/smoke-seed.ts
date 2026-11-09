@@ -10,6 +10,7 @@
  * usage: bun test/smoke-seed.ts <agent-id> <live-pid>   (ORCH_DIR set)
  */
 import { envOrchDir } from "../src/orch-dir.ts";
+import { hostIdentity } from "../src/host.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { recordAgentStatus } from "../src/presence/store.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
@@ -38,6 +39,7 @@ registerSpawnedAgent(root, {
   thinking: "medium",
   spawner: null,
   process: { pid: Number(pidText), startToken: null },
+  host: hostIdentity(),
 });
 
 recordAgentStatus(root, key, {

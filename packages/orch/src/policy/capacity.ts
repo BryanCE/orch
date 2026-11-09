@@ -1,6 +1,6 @@
 import { spaceName } from "./space.ts";
 import type { AgentView } from "../types/store.ts";
-import type { PresenceEntry } from "../types/presence.ts";
+import { type PresenceEntry, notDead } from "../types/presence.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 export interface CapacityRoot {
@@ -45,7 +45,7 @@ function presenceAliveViews(
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
 ): readonly AgentView[] {
-  return [...views.values()].filter((view) => view.endedAt === null && presence.get(view.id)?.alive === true);
+  return [...views.values()].filter((view) => view.endedAt === null && notDead(presence.get(view.id)));
 }
 
 /** Live agents grouped by orch space. Agents without a space are not in a space. */

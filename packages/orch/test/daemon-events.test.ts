@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -27,7 +28,7 @@ import type { NotifyEvent } from "../src/types/notify.ts";
 import type { NotifyEntry } from "../src/types/settings.ts";
 import type { StatusPatch } from "../src/types/presence.ts";
 import { sql } from "drizzle-orm";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { testServices } from "./helpers/services.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 import { isRecord } from "../src/util.ts";
@@ -48,7 +49,7 @@ function tempOrchDir(): OrchDir {
 function seedAgent(orchDir: OrchDir, agentId: string, options: { harnessId?: string; space?: string } = {}): void {
   const harnessId = options.harnessId ?? "pi";
   ensureHarness(orchDir, harnessId, harnessId);
-  insertAgent(orchDir, { id: agentId, spawnedBy: null, harnessId, cwd: orchDir, name: agentId, createdAt: 1 });
+  insertAgent(orchDir, { host: hostIdentity(), id: agentId, spawnedBy: null, harnessId, cwd: orchDir, name: agentId, createdAt: 1 });
   seedLiveProcess(orchDir, agentId);
   if (options.space !== undefined) {
     orm(orchDir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${options.space}, ${options.space}, ${1})`);
@@ -361,7 +362,7 @@ describe("daemon presence events", () => {
     const orchDir = tempOrchDir();
     const key = "agentrenam";
     ensureHarness(orchDir, "pi", "Pi");
-    insertAgent(orchDir, { id: key, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "Before", createdAt: 1 });
+    insertAgent(orchDir, { host: hostIdentity(), id: key, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "Before", createdAt: 1 });
     seedLiveProcess(orchDir, key);
     expect(renameAgent(orchDir, key, "After")).toBe(true);
     const row = statusRow({ agentId: key, state: "done" });
@@ -373,7 +374,7 @@ describe("daemon presence events", () => {
     const orchDir = tempOrchDir();
     const key = "askpayload";
     ensureHarness(orchDir, "pi", "Pi");
-    insertAgent(orchDir, { id: key, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "Ada's worker", createdAt: 1 });
+    insertAgent(orchDir, { host: hostIdentity(), id: key, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "Ada's worker", createdAt: 1 });
     seedLiveProcess(orchDir, key);
     const now = new Date("2026-02-03T04:05:06.000Z");
     const row = statusRow({

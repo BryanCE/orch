@@ -1,5 +1,5 @@
 import type { AdapterId } from "./adapter.ts";
-import type { AgentState } from "../adapters/adapter.ts";
+import type { AgentState } from "../shared/harness.ts";
 import type { BackendId } from "./backend.ts";
 import type { JsonRecord } from "./core.ts";
 import type { AgentStatusRow } from "../store/status-rows.ts";
@@ -86,6 +86,15 @@ export interface StatusPatch {
   finishedAt?: number | null;
   blockedMessage?: string | null;
 }
+
+/** The fields of a status report that describe the machine the agent runs on: its session
+ *  file, the files it works on, its project directory, the extension build it loaded. Only an
+ *  agent here writes them; on any other host they would name paths this machine does not have. */
+export type MachineStatusField = "sessionPath" | "currentFile" | "filesTouched" | "project" | "extensionHash";
+
+/** A status write that names no machine, for an agent wherever it runs: its state as orchd
+ *  or another host's events learned it. */
+export type PlaceFreeStatusPatch = Omit<StatusPatch, MachineStatusField> & Partial<Readonly<Record<MachineStatusField, never>>>;
 
 /** One settled turn, reported over the daemon socket. */
 export interface ResultReport {

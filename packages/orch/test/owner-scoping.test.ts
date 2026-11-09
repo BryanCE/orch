@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
@@ -288,7 +289,7 @@ describe("fleet ownership scoping", () => {
     const key = "kfrgnresu1";
     seedSpace(dir, "local");
     seedAgent(key, { backend: "headless", adapter: "pi", space: "local", handle: key, owner: "other-orchestrator" }, dir);
-    recordAgentStatus(dir, key, { state: "done" }, Date.now());
+    recordAgentStatus(dir, placeHere(dir, key), { state: "done" }, Date.now());
     upsertRun(dir, { dispatchId: "d-foreign", agentKey: key, state: "done", startedAt: Date.now(), result: "other session's answer" });
 
     const refused = await runVerb(dir, ["result", key]);

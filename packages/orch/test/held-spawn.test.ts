@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnHeadless } from "../src/daemon/server/handlers/lifecycle.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { heldBackend } from "../src/backends/registry.ts";
 import { hostIdFrom, hostShell } from "../src/host.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { selectOpenOutboxForTarget } from "../src/store/outbox-rows.ts";
+import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
+import { drainOutbox, redeliverOpenRows } from "../src/daemon/server/outbox.ts";
+import { outboxDeps } from "../src/daemon/server/handlers/write.ts";
 import type { ModelCatalogue } from "../src/types/adapter.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { Services } from "../src/types/services.ts";
@@ -14,10 +18,21 @@ import { testServices } from "./helpers/services.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 const dirs: OrchDir[] = [];
+const links: { readonly directory: OrchDir; readonly key: string; readonly link: BridgeLink }[] = [];
 
 afterEach(() => {
+  for (const { directory, key, link } of links.splice(0)) detachBridge(directory, key, link);
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
+
+/** What a bridge does when it dials orchd: hold a link for its key and take what is pushed. */
+function attachFakeBridge(directory: OrchDir, key: string): BridgeDelivery[] {
+  const deliveries: BridgeDelivery[] = [];
+  const link: BridgeLink = { push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
+  attachBridge(directory, key, link);
+  links.push({ directory, key, link });
+  return deliveries;
+}
 
 const PI_MODELS = "provider model context max-out thinking images\nopenai gpt-5.6-luna 400K 128K yes yes\n";
 
@@ -62,5 +77,34 @@ describe("a spawn another host asks for", () => {
 
     const queued = selectOpenOutboxForTarget(orchDir, key);
     expect(queued.map((row) => row.payload)).toEqual([{ action: "dispatch", text: "do the work" }]);
+  });
+
+  test("its queued first prompt waits for its bridge and reaches it once the bridge attaches", async () => {
+    const orchDir = tempOrchDir("orch-held-first-prompt-");
+    dirs.push(orchDir);
+    // The PTY program is this runner, so the held process reads as live, as a started harness does.
+    const state = idleDaemonState(servicesAt(orchDir), orchDir, new FakePtyProvider(process.pid));
+    const key = mintAgentId();
+
+    await spawnHeadless(state, {
+      key,
+      name: "far-worker",
+      spawner: "spawner-on-the-other-host",
+      adapter: "pi",
+      model: "openai/gpt-5.6-luna",
+      thinking: "medium",
+      prompt: "do the work",
+      cwd: orchDir,
+    }, hostIdFrom("the-other-host"));
+
+    // The wake drains the outbox before the harness has started its bridge: the prompt stays queued.
+    await drainOutbox(orchDir, outboxDeps(state));
+    const [queued] = selectOpenOutboxForTarget(orchDir, key);
+    if (queued === undefined) throw new Error("the first prompt left the outbox before any bridge attached");
+    expect(queued.payload).toEqual({ action: "dispatch", text: "do the work" });
+
+    const deliveries = attachFakeBridge(orchDir, key);
+    await redeliverOpenRows(orchDir, key, outboxDeps(state));
+    expect(deliveries).toEqual([{ id: queued.id, message: { action: "dispatch", text: "do the work" } }]);
   });
 });

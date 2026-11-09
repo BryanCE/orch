@@ -4,7 +4,7 @@ import { callerKindOf } from "../../../policy/caller.ts";
 import { depthOf } from "../../../policy/provenance.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { agentById, hostById } from "../../../store/agent-rows.ts";
-import { currentProcess } from "../../../store/interval-rows.ts";
+import { callerProcess } from "../../../store/interval-rows.ts";
 import { presenceEntry } from "../../../presence/store.ts";
 import type { OrchDir } from "../../../types/core.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
@@ -13,7 +13,8 @@ type StoredIdentity = NonNullable<ResultOf<"self">["stored"]>;
 
 /** The process orchd keys this agent's liveness on, with its host. */
 function storedProcess(directory: OrchDir, id: string): StoredIdentity["process"] {
-  const process = currentProcess(directory, id);
+  // The caller's own process, wherever it registered from: a caller is placed by its process.
+  const process = callerProcess(directory, id);
   if (process === undefined) return null;
   return {
     pid: process.pid,

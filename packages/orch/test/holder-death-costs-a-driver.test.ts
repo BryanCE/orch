@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
@@ -29,8 +30,8 @@ function fixture(): OrchDir {
   const db = orm(d);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES (${"h"},${"h"},${"linux"},${1})`);
-  insertAgent(d, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
-  insertAgent(d, { id: "worker", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2 });
+  insertAgent(d, { host: hostIdentity(), id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
+  insertAgent(d, { host: hostIdentity(), id: "worker", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2 });
   return d;
 }
 
@@ -85,7 +86,7 @@ describe("holder death costs a driver, not a life (D2)", () => {
 
   test("it receives no new work: the death hands the agent to nobody", () => {
     const d = fixture();
-    insertAgent(d, { id: "grandparent", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "grandparent", createdAt: 0 });
+    insertAgent(d, { host: hostIdentity(), id: "grandparent", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "grandparent", createdAt: 0 });
     acquireLease(d, "worker", "orch", 5);
     killHolder(d);
     detachAgent(d, "worker", "adopter", { now: 40 });

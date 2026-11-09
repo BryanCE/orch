@@ -1,17 +1,16 @@
-import type { HostIdentity } from "../types/host.ts";
 import type { SpawnRegistration } from "../types/store.ts";
 import type { BackendId, BackendSpawnOpts } from "../types/backend.ts";
-import type { ProcessInstance } from "../types/process.ts";
+import type { HostedProcess } from "../types/process.ts";
 
-/** What one launch started: its handle as recorded, and its process. */
+/** What one launch started: its handle as recorded, and its process on this host. */
 export interface LaunchedAgent {
   readonly handle: string;
-  readonly process: ProcessInstance;
+  readonly process: HostedProcess;
 }
 
 /** The record of an agent no plexer places, launched on this host. `backend` is the
- *  environment that runs it; `host` is this host. */
-export function unplacedRegistration(backend: BackendId, harnessId: string, key: string, opts: BackendSpawnOpts, launched: LaunchedAgent, host: HostIdentity): SpawnRegistration {
+ *  environment that runs it. */
+export function unplacedRegistration(backend: BackendId, harnessId: string, key: string, opts: BackendSpawnOpts, launched: LaunchedAgent): SpawnRegistration {
   return {
     key,
     harnessId,
@@ -29,7 +28,6 @@ export function unplacedRegistration(backend: BackendId, harnessId: string, key:
     origin: opts.origin,
     worktree: opts.worktree,
     process: launched.process,
-    host,
     now: Date.now(),
   };
 }

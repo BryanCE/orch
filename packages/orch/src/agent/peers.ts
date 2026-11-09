@@ -12,7 +12,7 @@ import { presenceAgentDir } from "../presence/history.ts";
 import { isRecord, optionalString, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
-import type { AgentPresence, BridgeToolResult, DaemonLink, DriveState, HarnessApi, HarnessContext, Peer, PeerResolution, PeerSummary } from "../types/agent.ts";
+import type { AgentPresence, BridgeToolResult, DaemonLink, HarnessApi, HarnessContext, Peer, PeerResolution, PeerSummary } from "../types/agent.ts";
 import type { PeerView } from "../types/daemon.ts";
 
 function peerModel(status: unknown): string | undefined {
@@ -27,30 +27,6 @@ function peerModel(status: unknown): string | undefined {
 // A key is one minted id: lowercase alphanumerics, nothing a filesystem has to
 // escape and nothing to split apart. So the presence directory name IS the key,
 // with no encoding step either way (see src/presence/store.ts).
-function isDriveState(value: unknown): value is DriveState {
-  return isRecord(value)
-    && (value.kind === "leased" || value.kind === "unleased")
-    && typeof value.owner === "string"
-    && typeof value.mine === "boolean";
-}
-
-export function isPeerView(value: unknown): value is PeerView {
-  if (!isRecord(value) || (value.peers !== undefined && !Array.isArray(value.peers)) || !Array.isArray(value.visible) || !isRecord(value.spaces) || !isRecord(value.drive)) return false;
-  return (value.peers === undefined || value.peers.every((peer) => isRecord(peer)
-    && typeof peer.key === "string"
-    && typeof peer.name === "string"
-    && typeof peer.harness === "string"
-    && (peer.spawnedBy === null || typeof peer.spawnedBy === "string")
-    && (peer.spawnedByName === null || typeof peer.spawnedByName === "string")
-    && (peer.worktree === null || typeof peer.worktree === "string")
-    && (peer.branch === null || typeof peer.branch === "string")
-    && (peer.status === null || isRecord(peer.status))
-    && (peer.result === null || typeof peer.result === "string")))
-    && value.visible.every((key) => typeof key === "string")
-    && Object.values(value.spaces).every((space) => space === null || typeof space === "string")
-    && Object.values(value.drive).every(isDriveState);
-}
-
 async function peerViewFor(daemon: DaemonLink, ownKey: string, keys: string[], allSpaces: boolean): Promise<PeerView | undefined> {
   const answer = await daemon.ask("peer-view", { ownKey, keys, allSpaces, projectRoot: projectRoot() });
   return answer;

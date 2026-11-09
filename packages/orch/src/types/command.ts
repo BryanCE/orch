@@ -1,11 +1,11 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
 import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
 import type { CallerKind, ThinkingLevel, WorkerPolicy } from "./policy.ts";
-import type { AgentView, GrantAction } from "./store.ts";
-import type { Entity, LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
+import type { GrantAction } from "./store.ts";
+import type { LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
 import type { AgentWorktree } from "./worktree.ts";
-import type { HostOffline } from "./host.ts";
+import type { HostIdentity, HostOffline } from "./host.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 export interface DispatchToAgentOptions {
   raw?: boolean;
@@ -257,21 +257,10 @@ export interface StatusRow extends LeaseStatusPayload {
   spaceId?: string | null;
   /** Immutable provenance root (pack) identity. */
   rootAgentId?: string | null;
-  /** The host the agent's process runs on, by name. */
-  host?: string;
+  /** The host the agent runs on, this machine included. */
+  host: HostIdentity;
   /** Set when that host is another machine whose link is down: its agent reads unknown. */
   hostOffline?: HostOffline;
-}
-
-export interface LifecycleTarget {
-  readonly entity: Entity;
-  /** The address orch reaches this agent by: its presence key, else its id. */
-  readonly key: string;
-  /** The composed agent, or null for a pane orch never minted an id for. */
-  readonly view: AgentView | null;
-  readonly backend: Backend;
-  /** Backend-native handle, or a headless pid/key signal handle. */
-  readonly handle: BackendHandle;
 }
 
 /** One option row of a catalogue multiselect. */

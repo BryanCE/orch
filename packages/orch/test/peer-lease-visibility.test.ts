@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
@@ -50,7 +51,7 @@ function fixture(): OrchDir {
   db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
   for (const id of [CALLER, HELD, LOOSE, ORPHAN, DEAD_ORCH]) {
     const name = id === HELD ? "held-1" : id === LOOSE ? "loose-1" : id === ORPHAN ? "orphan-1" : id;
-    insertAgent(directory, { id, harnessId: "pi", cwd: "/tmp", name, createdAt: 1 });
+    insertAgent(directory, { host: hostIdentity(), id, harnessId: "pi", cwd: "/tmp", name, createdAt: 1 });
   }
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");

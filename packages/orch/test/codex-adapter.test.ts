@@ -22,7 +22,7 @@ import {
   codexStateFallback,
 } from "../src/adapters/codex-events.ts";
 import { CodexAdapter, codexAdapter } from "../src/adapters/codex.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
 import type { OrchDir } from "../src/types/core.ts";

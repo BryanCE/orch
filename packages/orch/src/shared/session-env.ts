@@ -15,7 +15,7 @@
  */
 
 import { LAUNCH_ENV } from "../identity/launch.ts";
-import { ENVIRONMENT_ENV } from "../agent/environment.ts";
+import { ENVIRONMENT_ENV } from "./environment.ts";
 import { optionalString } from "../util.ts";
 import type { AgentAdapter } from "../types/adapter.ts";
 import type { CallerSession } from "../types/core.ts";

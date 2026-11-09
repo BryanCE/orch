@@ -1,3 +1,4 @@
+import { registerHostedAgent } from "../src/store/spawn-registration.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Writable } from "node:stream";
 import type { Socket } from "node:net";
@@ -9,7 +10,7 @@ import { attachHeld, screenHandlers } from "../src/daemon/server/handlers/screen
 import { HostLinks } from "../src/hosts/link.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { closeAllStores } from "../src/store/connection.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { hostIdentity } from "../src/host.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
@@ -216,9 +217,10 @@ describe("attaching to a screen on a linked host", () => {
     links.push(hosts);
     await hosts.link("box").connect();
     const key = mintAgentId();
-    const agent = { key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null, process: { pid: process.pid, startToken: `far-${key}` }, host: far.greeting.host };
-    registerSpawnedAgent(far.orchDir, { ...agent, origin: { host: hostIdentity().id, spawner: null } });
-    registerSpawnedAgent(orchDir, agent);
+    const agent = { key, harnessId: "pi", cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null };
+    // The far orchd runs in this process, so on its own store the agent is here.
+    registerSpawnedAgent(far.orchDir, { ...agent, placed: false, process: { host: hostIdentity().id, pid: process.pid, startToken: `far-${key}` }, origin: { askedBy: hostIdentity().id, spawner: null } });
+    registerHostedAgent(orchDir, { ...agent, host: far.greeting.host });
     farHolder.hold(key, "far screen");
     await serveScreens({ ...idleDaemonState(services, orchDir), hosts }, new FakeScreenHolder());
 
@@ -253,7 +255,7 @@ describe("attaching to a screen on a linked host", () => {
     const link = hosts.link("box");
     await link.connect();
     const key = mintAgentId();
-    registerSpawnedAgent(far.orchDir, { key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "m", spawner: null, process: { pid: process.pid, startToken: `far-${key}` }, host: far.greeting.host });
+    registerSpawnedAgent(far.orchDir, { key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "m", spawner: null, process: { host: hostIdentity().id, pid: process.pid, startToken: `far-${key}` }});
     farHolder.hold(key);
     const { started } = link.attachScreen(key, { cols: 80, rows: 24 }, () => undefined);
     let refusal = "";

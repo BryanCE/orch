@@ -51,7 +51,6 @@ const OBSERVE: readonly CommandSpec[] = [
       { name: "--agent", arity: "one", placeholder: "<target>", help: "Show one agent, whatever its state." },
       ONLY,
       { ...HIDE, placeholder: "<column|state,...>", help: "Drop these columns, and rows in these states." },
-      { name: "--offline", arity: "none", help: "Read presence files only. Never dials or starts orchd." },
       { name: "--live", arity: "none", help: "Full-screen table redrawn on every daemon event. TTY only; q or esc quits." },
     ],
   },

@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
 
@@ -35,7 +36,7 @@ function withStore(body: (directory: OrchDir) => void): void {
 
 /** `id` spawned by `spawnedBy`; the root is never passed in, only derived. */
 function spawn(directory: OrchDir, id: string, spawnedBy: string | null, at: number): void {
-  insertAgent(directory, { id, spawnedBy, harnessId: "pi", cwd: "/repo", name: id, createdAt: at });
+  insertAgent(directory, { host: hostIdentity(), id, spawnedBy, harnessId: "pi", cwd: "/repo", name: id, createdAt: at });
 }
 
 describe("a pack is the provenance root", () => {

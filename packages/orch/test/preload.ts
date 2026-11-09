@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { HARNESS_SESSION_ENV } from "../src/shared/session-env.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 
 /**

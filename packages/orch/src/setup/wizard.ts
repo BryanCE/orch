@@ -2,7 +2,7 @@ import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { allBackends } from "../backends/registry.ts";
-import { isRecommended } from "../adapters/prerequisites.ts";
+import { isRecommended } from "../shared/prerequisites.ts";
 import { idOptions, promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
 import type { HarnessModel } from "../types/adapter.ts";
 import type { NotifierChoice } from "../types/notify.ts";

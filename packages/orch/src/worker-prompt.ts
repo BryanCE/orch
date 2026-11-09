@@ -5,7 +5,7 @@
 import { truncate } from "./util.ts";
 import { term } from "./policy/vocabulary.ts";
 import { commandIn } from "./policy/command-paths.ts";
-import { echoesPrompts } from "./adapters/adapter.ts";
+import { echoesPrompts } from "./shared/harness.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
 import type { ContextReference, WorkerHeaderContext, WorkerRules } from "./types/core.ts";
 import type { OrchSettings } from "./types/settings.ts";
@@ -36,14 +36,13 @@ function verifyCommandsClause(verifyCommands: readonly string[], cwd: string | u
 
 /** Where a worker sits, as the header needs it. */
 export interface WorkerPlace {
-  readonly cwd: string;
-  readonly environment: { readonly branch: string | null };
+  readonly environment: { readonly cwd: string; readonly branch: string | null };
 }
 
 export function workerPlaceContext(place: WorkerPlace | undefined): Pick<WorkerHeaderContext, "cwd" | "worktreeBranch"> {
   if (place === undefined) return {};
-  const { branch } = place.environment;
-  return { cwd: place.cwd, ...(branch === null ? {} : { worktreeBranch: branch }) };
+  const { cwd, branch } = place.environment;
+  return { cwd, ...(branch === null ? {} : { worktreeBranch: branch }) };
 }
 
 /** Review reads commits, so a worker in a worktree is told uncommitted work reaches nobody. */

@@ -1,5 +1,5 @@
 import { allBackends, detectBackends } from "../backends/registry.ts";
-import { versionInRange } from "../backends/versions.ts";
+import { versionInRange } from "../shared/versions.ts";
 import type { ServerInfoRole, ServerReport } from "../types/backend.ts";
 import type { BackendVersionObservation, CheckResult, DoctorBackendReport } from "../types/doctor.ts";
 

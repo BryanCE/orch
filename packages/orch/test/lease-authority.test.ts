@@ -5,7 +5,7 @@ import { ensureHarness, ensureHost, getOrCreateSessionAgent, insertAgent, packMe
 import { acquireLease, adoptLease, currentLease, leaseHistory, openLeaseId, releaseLease } from "../src/store/lease-rows.ts";
 import { holderOf } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";
-import { leasePayloadFrom } from "../src/commands/status/rows.ts";
+import { leasePayloadFrom } from "../src/daemon/server/fleet-rows.ts";
 import { storeLeaseFacts } from "../src/agent/drive-state.ts";
 import { governWrite } from "../src/daemon/server/handlers/write.ts";
 import { presenceAgentDir } from "../src/presence/history.ts";
@@ -37,7 +37,7 @@ function fixture(): OrchDir {
 }
 
 function agent(dir: OrchDir, id: string, name = id, spawnedBy: string | null = null): void {
-  insertAgent(dir, { id, name, spawnedBy, harnessId: "pi", cwd: dir, createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id, name, spawnedBy, harnessId: "pi", cwd: dir, createdAt: 1 });
 }
 
 /** An agent whose recorded process instance is this test process: provably alive. */

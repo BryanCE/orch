@@ -7,8 +7,8 @@ import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata
 import { computeCodeHash } from "../daemon/client/process.ts";
 import { packageRoot, reinstallCommand } from "../util.ts";
 import { agentStateFrom } from "../agent-state.ts";
-import { NO_COMPACTION, type AgentState } from "./adapter.ts";
-import { HARNESS_SESSION_ENV } from "./session-env.ts";
+import { NO_COMPACTION, type AgentState } from "../shared/harness.ts";
+import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import type { AdapterCommand, AdapterId, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";

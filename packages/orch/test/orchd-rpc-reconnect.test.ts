@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import { describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -7,7 +8,7 @@ import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { subscribeEvents } from "../src/daemon/client/rpc.ts";
 import type { EventSubscription, RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 type RpcEvent = Parameters<RpcServer["emit"]>[0];
@@ -15,7 +16,7 @@ type TransitionEvent = Extract<RpcEvent, { type: "transition" }>;
 const fixtureAgent = mintAgentId();
 
 function transitionEvent(overrides: Partial<TransitionEvent> = {}): TransitionEvent {
-  return {
+  return { host: hostIdentity(),
     type: "transition",
     key: "event",
     ts: new Date(0).toISOString(),

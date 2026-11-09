@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
+import { mintAgentId, isAgentId } from "../src/shared/agent-id.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { TmuxBackend } from "../src/backends/tmux/index.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";

@@ -10,7 +10,7 @@
  */
 import { resolveSetting } from "../settings/read.ts";
 import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
-import { repickCommand } from "../adapters/prerequisites.ts";
+import { repickCommand } from "../shared/prerequisites.ts";
 import { resolveTuning, type Tuning } from "../policy/tuning.ts";
 import { SpawnRefusalError } from "../refusal.ts";
 import { errorMessage } from "../util.ts";

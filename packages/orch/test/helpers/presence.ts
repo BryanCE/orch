@@ -1,6 +1,7 @@
+import { placeHere } from "../../src/process-place.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 import { isAgentState } from "../../src/agent-state.ts";
-import { isAdapterId } from "../../src/adapters/adapter.ts";
+import { isAdapterId } from "../../src/shared/harness.ts";
 import { agentById } from "../../src/store/agent-rows.ts";
 import { recordAgentStatus } from "../../src/presence/store.ts";
 import type { AgentStatusRow } from "../../src/store/status-rows.ts";
@@ -96,7 +97,7 @@ export function seedStatus(root: OrchDir, key: string, status: Record<string, un
     const adapter = isAdapterId(status.agent) ? status.agent : undefined;
     seedAgent(key, adapter === undefined ? {} : { adapter }, root);
   }
-  recordAgentStatus(root, key, statusPatch(status), Date.now());
+  recordAgentStatus(root, placeHere(root, key), statusPatch(status), Date.now());
   return key;
 }
 

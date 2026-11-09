@@ -1,7 +1,9 @@
+import { hostIdentity } from "../src/host.ts";
+import { placeHere } from "../src/process-place.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { asc, eq, sql } from "drizzle-orm";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { agentHandles, agentProcesses, agentSpaces, agentTunings, agents, harnesses, hosts, plexers, spaces } from "../src/db/schema.ts";
+import { agentHandles, agentProcesses, agentSpaces, agentTunings, agents, agentHosts, harnesses, hosts, plexers, spaces } from "../src/db/schema.ts";
 import { clearSpace, currentHandle, currentProcess, currentSpace, currentTuning, endProcess, recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
@@ -18,7 +20,8 @@ function fixture(): OrchDir {
   db.insert(plexers).values({ id: "herdr", name: "herdr", enabledAt: null }).run();
   db.insert(hosts).values({ id: hostIdFrom("h"), name: "host", os: "linux", createdAt: 0 }).run();
   db.insert(spaces).values({ id: "s", name: "space", createdBy: null, createdAt: 0 }).run();
-  db.insert(agents).values({ id: "a", spawnedBy: null, rootAgentId: "a", harnessId: "pi", cwd: "/", name: "a", label: null, kind: "session", createdAt: 0 }).run();
+  db.insert(agents).values({ id: "a", spawnedBy: null, rootAgentId: "a", harnessId: "pi", name: "a", label: null, kind: "session", createdAt: 0 }).run();
+  db.insert(agentHosts).values({ agentId: "a", since: 0, until: null, hostId: hostIdentity().id, cwd: "/" }).run();
   return dir;
 }
 
@@ -36,8 +39,8 @@ describe("interval satellites", () => {
 
   test("half-open adjacency is legal", () => {
     const dir = fixture();
-    setHandle(dir, "a", 10, "one");
-    setHandle(dir, "a", 20, "two");
+    setHandle(dir, placeHere(dir, "a"), 10, "one");
+    setHandle(dir, placeHere(dir, "a"), 20, "two");
     expect(currentHandle(dir, "a")?.handle).toBe("two");
   });
 
@@ -51,32 +54,32 @@ describe("interval satellites", () => {
 
   test("agent plexer is immutable one-shot", () => {
     const dir = fixture();
-    setAgentPlexer(dir, "a", "herdr");
-    expect(() => setAgentPlexer(dir, "a", "herdr")).toThrow();
+    setAgentPlexer(dir, placeHere(dir, "a"), "herdr");
+    expect(() => setAgentPlexer(dir, placeHere(dir, "a"), "herdr")).toThrow();
   });
 
   test("process restart history closes at the successor since", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 10, { host: hostIdFrom("h"), pid: 7, startToken: "first" });
-    recordProcess(dir, "a", 25, { host: hostIdFrom("h"), pid: 8, startToken: "second" });
+    recordProcess(dir, placeHere(dir, "a"), 10, {  pid: 7, startToken: "first" });
+    recordProcess(dir, placeHere(dir, "a"), 25, {  pid: 8, startToken: "second" });
     expect(orm(dir).select().from(agentProcesses).orderBy(asc(agentProcesses.since)).all()).toEqual([
-      { agentId: "a", since: 10, until: 25, hostId: hostIdFrom("h"), pid: 7, startToken: "first" },
-      { agentId: "a", since: 25, until: null, hostId: hostIdFrom("h"), pid: 8, startToken: "second" },
+      { agentId: "a", since: 10, until: 25, pid: 7, startToken: "first" },
+      { agentId: "a", since: 25, until: null, pid: 8, startToken: "second" },
     ]);
   });
 
   test("process rows carry host and process identity", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 10, { host: hostIdFrom("h"), pid: 7, startToken: "tok" });
-    expect(currentProcess(dir, "a")).toMatchObject({ host: hostIdFrom("h"), pid: 7, startToken: "tok" });
-    endProcess(dir, "a", 20);
-    expect(currentProcess(dir, "a")).toBeUndefined();
+    recordProcess(dir, placeHere(dir, "a"), 10, {  pid: 7, startToken: "tok" });
+    expect(currentProcess(dir, placeHere(dir, "a"))).toMatchObject({ host: hostIdFrom("h"), pid: 7, startToken: "tok" });
+    endProcess(dir, placeHere(dir, "a"), 20);
+    expect(currentProcess(dir, placeHere(dir, "a"))).toBeUndefined();
   });
 
   test("process start_token round-trips", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 10, { host: hostIdFrom("h"), pid: 7, startToken: "round-trip" });
-    expect(currentProcess(dir, "a")?.startToken).toBe("round-trip");
+    recordProcess(dir, placeHere(dir, "a"), 10, {  pid: 7, startToken: "round-trip" });
+    expect(currentProcess(dir, placeHere(dir, "a"))?.startToken).toBe("round-trip");
   });
 
   test("space move history closes at the successor since", () => {
@@ -102,8 +105,8 @@ describe("interval satellites", () => {
 
   test("handle history preserves each renumbered handle", () => {
     const dir = fixture();
-    setHandle(dir, "a", 10, "pane-1");
-    setHandle(dir, "a", 20, "pane-2");
+    setHandle(dir, placeHere(dir, "a"), 10, "pane-1");
+    setHandle(dir, placeHere(dir, "a"), 20, "pane-2");
     expect(orm(dir).select().from(agentHandles).orderBy(asc(agentHandles.since)).all()).toEqual([
       { agentId: "a", since: 10, until: 20, handle: "pane-1" },
       { agentId: "a", since: 20, until: null, handle: "pane-2" },
@@ -112,10 +115,10 @@ describe("interval satellites", () => {
 
   test("interval instants are stored as INTEGER values", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 1, { host: hostIdFrom("h"), pid: 1, startToken: "first-instance" });
-    recordProcess(dir, "a", 2, { host: hostIdFrom("h"), pid: 2, startToken: "relaunch" });
-    setHandle(dir, "a", 3, "one");
-    setHandle(dir, "a", 4, "two");
+    recordProcess(dir, placeHere(dir, "a"), 1, {  pid: 1, startToken: "first-instance" });
+    recordProcess(dir, placeHere(dir, "a"), 2, {  pid: 2, startToken: "relaunch" });
+    setHandle(dir, placeHere(dir, "a"), 3, "one");
+    setHandle(dir, placeHere(dir, "a"), 4, "two");
     setSpace(dir, "a", 5, "s");
     setSpace(dir, "a", 6, "s");
     setTuning(dir, "a", 7, { model: "m1" });
@@ -130,8 +133,8 @@ describe("interval satellites", () => {
 
   test("process wrapper rolls back predecessor close when successor fails", () => {
     const dir = fixture();
-    recordProcess(dir, "a", 10, { host: hostIdFrom("h"), pid: 7, startToken: "tok" });
-    expect(() => recordProcess(dir, "a", 20, { host: hostIdFrom("missing"), pid: 8, startToken: "new" })).toThrow();
+    recordProcess(dir, placeHere(dir, "a"), 10, {  pid: 7, startToken: "tok" });
+    expect(() => recordProcess(dir, placeHere(dir, "a"), 20, {  pid: 8, startToken: "new" })).toThrow();
     expect(orm(dir).select({ since: agentProcesses.since, until: agentProcesses.until, pid: agentProcesses.pid })
       .from(agentProcesses).where(eq(agentProcesses.agentId, "a")).all()).toEqual([{ since: 10, until: null, pid: 7 }]);
   });

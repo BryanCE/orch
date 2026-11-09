@@ -39,7 +39,7 @@ export async function startFarOrchd(greeting: HostGreeting, screens: FakeScreenH
   const handlers = stubRpcHandlers({
     "daemon-status": () => daemonStatusFixture(),
     "subscribe-events": () => ({ subscribed: true }),
-    ...peerHandlers(() => greeting.host, orchDir, recordingLogger().logger),
+    ...peerHandlers(() => greeting.host, { orchDir, logger: recordingLogger().logger, held: () => state.held }),
     "peer-drive": (params, _emit, context) => peerDrive(state, params, context),
     ...heldScreenHandlers(orchDir, () => screens, () => SETTINGS_DEFAULTS.attach.queue_bytes),
   });

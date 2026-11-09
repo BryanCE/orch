@@ -10,7 +10,8 @@ import { agentView } from "../../store/agent-view.ts";
 import { selectAgentStatus, type AgentStatusRow } from "../../store/status-rows.ts";
 import { upsertRun } from "../../store/run-rows.ts";
 import { appendStatusHistory, writeResult } from "../../presence/history.ts";
-import { loadPresence, probeAllProcesses, reapDeadAgentRecords, recordAgentStatus, runIsSettled } from "../../presence/store.ts";
+import { loadPresence, probeAllProcesses, reapDeadAgentRecords, recordAgentState, recordAgentStatus, runIsSettled } from "../../presence/store.ts";
+import { placeHere } from "../../process-place.ts";
 import { askingEventFromRow, transitionEventFromRow } from "./status-events.ts";
 import { forgetCapacity } from "./capacity.ts";
 import { acknowledgeDelivery } from "../../control/ack.ts";
@@ -83,7 +84,8 @@ export function acceptStatusReport(
   now = Date.now(),
 ): { ok: true } {
   if (agentView(orchDir, key) === null) throw new Error(`agent ${key} does not exist`);
-  const { previous, current } = recordAgentStatus(orchDir, key, lockWaitKept(orchDir, key, patch), now);
+  // An agent reports to the orchd on its own host; a report about one elsewhere is refused.
+  const { previous, current } = recordAgentStatus(orchDir, placeHere(orchDir, key), lockWaitKept(orchDir, key, patch), now);
   logStateChange(orchDir, current, now);
   try {
     const run = runFromRow(orchDir, current, now);
@@ -177,7 +179,7 @@ export function startLivenessTick(
       if (row === null || row.state === "exited" || !isAgentState(row.state)) continue;
       if (entry.liveness !== "dead") continue;
       const now = Date.now();
-      const { current: updated } = recordAgentStatus(orchDir, row.agentId, { state: "exited", finishedAt: now }, now);
+      const { current: updated } = recordAgentState(orchDir, row.agentId, { state: "exited", finishedAt: now }, now);
       logStateChange(orchDir, updated, now);
       exited += 1;
       publish(transitionEventFromRow(orchDir, updated, row.state, "exited", new Date(now)));

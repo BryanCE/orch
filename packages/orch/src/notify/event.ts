@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AGENT_STATES, type AgentState } from "../agent-state.ts";
 import { TASK_STATES } from "../types/queue.ts";
 import type { NotifyEvent } from "../types/notify.ts";
+import { HOST_IDENTITY } from "../daemon/client/fleet-schemas.ts";
 
 const identity = {
   key: z.string(),
@@ -12,7 +13,7 @@ const identity = {
   space: z.string().optional(),
   tab: z.string().nullable(),
   model: z.string().nullable(),
-  host: z.string().optional(),
+  host: HOST_IDENTITY,
   spawnedBy: z.string().optional(),
   holder: z.string().optional(),
   spawnedByLabel: z.string().optional(),

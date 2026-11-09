@@ -1,3 +1,5 @@
+import { placeHere } from "../src/process-place.ts";
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { orm } from "../src/store/connection.ts";
 import { agentView } from "../src/store/agent-view.ts";
@@ -36,7 +38,7 @@ function fixture(): OrchDir {
 
 function seedAgent(dir: OrchDir, id: string): string {
   ensureHarness(dir, "pi", "pi", 1);
-  insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
   return id;
 }
 
@@ -54,12 +56,12 @@ describe("the environment dictates what is possible, and nothing negotiates it (
     // to `orch zoom` (E14) - it is not a capability orch looked up anywhere.
     expect(agentView(dir, agent)?.environment.handle).toBeNull();
 
-    setHandle(dir, agent, 10, "w1:p1");
+    setHandle(dir, placeHere(dir, agent), 10, "w1:p1");
     expect(agentView(dir, agent)?.environment.handle).toBe("w1:p1");
 
     // The move is the record. Nothing was asked of the plexer, and nothing was
     // written about what the agent may now do.
-    setHandle(dir, agent, 20, "w2:p7");
+    setHandle(dir, placeHere(dir, agent), 20, "w2:p7");
     expect(agentView(dir, agent)?.environment.handle).toBe("w2:p7");
     expect(openIntervals(dir, "agent_handles", agent)).toBe(1);
   });
@@ -67,8 +69,8 @@ describe("the environment dictates what is possible, and nothing negotiates it (
   test("a move closes the interval it left, so history says WHERE it was and WHEN", () => {
     const dir = fixture();
     const agent = seedAgent(dir, "moveagent2");
-    setHandle(dir, agent, 10, "w1:p1");
-    setHandle(dir, agent, 20, "w2:p7");
+    setHandle(dir, placeHere(dir, agent), 10, "w1:p1");
+    setHandle(dir, placeHere(dir, agent), 20, "w2:p7");
 
     const rows = orm(dir)
       .all(sql`SELECT handle, since, until FROM agent_handles WHERE agent_id = ${agent} ORDER BY since`)
@@ -88,9 +90,9 @@ describe("the environment dictates what is possible, and nothing negotiates it (
     const agent = seedAgent(dir, "moveagent3");
     seedSpace(dir, "space00001");
     setSpace(dir, agent, 5, "space00001");
-    setHandle(dir, agent, 10, "w1:p1");
+    setHandle(dir, placeHere(dir, agent), 10, "w1:p1");
 
-    setHandle(dir, agent, 20, "w2:p7");
+    setHandle(dir, placeHere(dir, agent), 20, "w2:p7");
 
     // A14/A15: the axes are independent satellites, so a move is a move - never
     // a rewrite of the agent that would take its other facts with it.

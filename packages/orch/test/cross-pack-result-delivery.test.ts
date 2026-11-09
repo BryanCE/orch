@@ -1,9 +1,10 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { acceptMail } from "../src/daemon/server/mail.ts";
 import { deliverTaskResult } from "../src/daemon/server/result-delivery.ts";
-import { isMailMessage } from "../src/control/bridge-message.ts";
+import { isMailMessage } from "../src/shared/bridge-message.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
 import { enqueueTask, insertAttempt, settleAttempt, taskState } from "../src/store/task-rows.ts";
@@ -39,9 +40,9 @@ function fixture(): OrchDir {
   writeSettingsFixture(directory, { fleet: { cross_space: false } });
   orm(directory).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
   orm(directory).run(sql`INSERT INTO spaces(id,name,created_at) VALUES (${"ask-space"},${"Ask space"},1),(${"run-space"},${"Run space"},1)`);
-  insertAgent(directory, { id: "asker", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "asker", createdAt: 1 });
-  insertAgent(directory, { id: "otherorch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "otherorch", createdAt: 2 });
-  insertAgent(directory, { id: "runner", spawnedBy: "otherorch", harnessId: "pi", cwd: "/repo", name: "runner", createdAt: 3 });
+  insertAgent(directory, { host: hostIdentity(), id: "asker", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "asker", createdAt: 1 });
+  insertAgent(directory, { host: hostIdentity(), id: "otherorch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "otherorch", createdAt: 2 });
+  insertAgent(directory, { host: hostIdentity(), id: "runner", spawnedBy: "otherorch", harnessId: "pi", cwd: "/repo", name: "runner", createdAt: 3 });
   return directory;
 }
 

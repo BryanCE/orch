@@ -1,20 +1,28 @@
-// The one reader of an agent's result and session, run by the orchd whose store holds the
-// agent: for a caller on this host, or for the linked host's orchd that asked for the agent.
-// It reads this store and the agent's session file here; it never asks another orchd.
-import { isAgentId } from "../backends/identity.ts";
+// The one reader of an agent, run by the orchd whose store holds the agent: for a caller on
+// this host, or for the linked host's orchd that asked for the agent. It reads this store, the
+// agent's session file, screen and log records here; it never asks another orchd.
+import { isAgentId } from "../shared/agent-id.ts";
+import { resolveTargetRoute } from "../control/dispatch.ts";
+import { paneBoundary } from "../control/pane-boundary.ts";
+import { describeHandle } from "../shared/plexer.ts";
+import { readLogRecords } from "../log.ts";
+import { sessionViewValue } from "../session-view.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { isRunEndState } from "../agent-state.ts";
 import { presenceEntry } from "../presence/store.ts";
 import { agentView } from "../store/agent-view.ts";
 import { selectRun, selectRuns } from "../store/run-rows.ts";
 import type { AgentAdapter, SessionView } from "../types/adapter.ts";
-import type { AgentRead, AgentReading, ResultLookup, TailLookup } from "../types/agent-read.ts";
+import type { AgentRead, AgentReading, ResultLookup, ScreenLookup, SessionLookup, TailLookup } from "../types/agent-read.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { PresenceEntry } from "../types/presence.ts";
+import type { PtyHolder } from "../types/pty.ts";
 
-/** One field of a session view, or null when the view or the field is absent. */
-export function sessionViewValue(view: SessionView | undefined, key: keyof SessionView): unknown {
-  return view?.[key] ?? null;
+/** What the reader reads with: this orch dir, its logger, and the PTYs this orchd holds. */
+export interface AgentReader {
+  readonly orchDir: OrchDir;
+  readonly logger: Logger;
+  readonly held: () => Pick<PtyHolder, "has" | "text">;
 }
 
 /** The logger for lines about one agent: its own when the key is an agent id. */
@@ -129,13 +137,47 @@ export function readAgentTail(orchDir: OrchDir, key: string, lines: number, logg
   return { kind: "found", sessionPath: subject.sessionPath, view: view.entries ? { ...view, entries: view.entries.slice(-lines) } : view };
 }
 
+/** Where the agent's session is, and what its harness reads of it. */
+function readAgentSession(orchDir: OrchDir, key: string, logger: Logger): SessionLookup {
+  const subject = subjectOf(orchDir, key, logger);
+  if (subject.sessionPath === null) return { kind: "missing", reason: `No session path known for "${subject.label}".` };
+  const adapter = subject.adapter;
+  if (!adapter?.sessionView) {
+    return { kind: "missing", reason: `Target "${subject.label}" (${adapter?.id ?? "unknown adapter"}) exposes no session tail; a session is read only through an adapter that declares one.` };
+  }
+  return { kind: "found", sessionPath: subject.sessionPath, view: readSession(subject, adapter) ?? null };
+}
+
+/** The last `lines` lines of the agent's screen: from the PTY this orchd holds for it, else
+ *  through its plexer's screen role. An agent with neither answers why. */
+function readAgentScreen(reader: AgentReader, key: string, lines: number): ScreenLookup {
+  const held = reader.held();
+  if (held.has(key)) return { kind: "found", handle: key, text: held.text(key, lines) };
+  const route = resolveTargetRoute(reader.orchDir, key);
+  const label = agentView(reader.orchDir, key)?.name ?? key;
+  const screen = route?.backend.screen;
+  const pane = route === undefined || !screen ? null : { screen, handle: route.handle };
+  const plan = paneBoundary(label, "peek", pane, route !== undefined);
+  if (plan.outcome === "answer") return { kind: "answer", reason: plan.reason, text: plan.text };
+  return { kind: "found", handle: describeHandle(plan.role.handle), text: plan.role.screen.read(plan.role.handle, lines) };
+}
+
 /** Answer one read of an agent this store holds. */
-export function readAgent(orchDir: OrchDir, key: string, read: AgentRead, logger: Logger): AgentReading {
+export function readAgent(reader: AgentReader, key: string, read: AgentRead): AgentReading {
+  const { orchDir, logger } = reader;
   switch (read.kind) {
     case "result":
       return { kind: "result", lookup: readAgentResult(orchDir, key, logger) };
     case "tail":
       return { kind: "tail", lookup: readAgentTail(orchDir, key, read.lines, logger) };
+    case "session":
+      return { kind: "session", lookup: readAgentSession(orchDir, key, logger) };
+    case "screen":
+      return { kind: "screen", lookup: readAgentScreen(reader, key, read.lines) };
+    case "log": {
+      const { kind: _kind, ...filter } = read;
+      return { kind: "log", records: readLogRecords(orchDir, { ...filter, agent: key }) };
+    }
     default: {
       const exhaustive: never = read;
       throw new Error(`unknown agent read ${String(exhaustive)}`);

@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 
@@ -5,7 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores } from "../src/store/connection.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { cmdReap } from "../src/commands/lease.ts";
 import { reapCandidates } from "../src/daemon/server/handlers/lease.ts";
 import type { ReapCandidateInput } from "../src/types/command.ts";
@@ -89,8 +90,8 @@ describe("cmdReap", () => {
     ensureHarness(directory, "pi", "pi", 1);
     const caller = mintAgentId();
     const dead = mintAgentId();
-    insertAgent(directory, { id: caller, name: "caller", spawnedBy: null, harnessId: "pi", cwd: directory, createdAt: 1 });
-    insertAgent(directory, { id: dead, name: "dead", spawnedBy: null, harnessId: "pi", cwd: directory, createdAt: 2 });
+    insertAgent(directory, { host: hostIdentity(), id: caller, name: "caller", spawnedBy: null, harnessId: "pi", cwd: directory, createdAt: 1 });
+    insertAgent(directory, { host: hostIdentity(), id: dead, name: "dead", spawnedBy: null, harnessId: "pi", cwd: directory, createdAt: 2 });
     process.env.ORCH_DIR = directory;
     process.env[LAUNCH_ENV] = caller;
     const services = await servedServices({ orchDir: directory, settings: null }, servers);

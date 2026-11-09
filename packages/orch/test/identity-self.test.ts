@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { selfIdentity } from "../src/identity/self.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";

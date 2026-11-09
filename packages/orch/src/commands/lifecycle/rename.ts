@@ -1,24 +1,15 @@
-import { isAgentId } from "../../backends/identity.ts";
-import { assertNameFree } from "../../policy/name.ts";
 import { ARROW, errorMessage } from "../../util.ts";
 import { callDaemon } from "../daemon.ts";
-import { readFleet } from "../fleet.ts";
-import { admissionFleet } from "../spawn/admission.ts";
-import { displayName, resolveLifecycle, refuseForeignHolder } from "../resolve.ts";
+import { displayName, placeLabel, resolveLifecycle, refuseForeignHolder, type ResolvedLifecycle } from "../resolve.ts";
 import { whoAmI } from "../self.ts";
-import { lifecycleLogger } from "./index.ts";
-import { describeHandle } from "../../backends/backend.ts";
+import { hostCallTimeoutMs } from "../host.ts";
 import { die } from "../target.ts";
 import { parseCommand } from "../registry.ts";
 import { usageError } from "../../cli/usage.ts";
-import type { Backend, BackendHandle } from "../../types/backend.ts";
 import type { AgentView } from "../../types/store.ts";
+import type { ChromeOutcome } from "../../daemon/client/protocol.ts";
+import type { WriteGovernance } from "../../types/command.ts";
 import type { Services } from "../../types/services.ts";
-
-export interface ChromeOutcome {
-  readonly chrome: "renamed" | "none" | "failed";
-  readonly chromeError: string | null;
-}
 
 export function renamedLine(oldName: string, newName: string, outcome: ChromeOutcome): string {
   const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
@@ -26,56 +17,34 @@ export function renamedLine(oldName: string, newName: string, outcome: ChromeOut
 }
 
 /**
- * Write the new label into orch's registry, then let the plexer SHOW it.
+ * Rename an agent: orchd writes the new name into orch's registry, then the agent's environment
+ * SHOWS it, where the agent runs. One on another host is renamed by that host's orchd, in its
+ * own store and pane.
  *
- * This used to relabel the agent and leave the pane BORDER reading the old name,
- * because a separate `--pane` invocation set the border — two names for one fact,
- * which Rule 9 forbids and a name is ONE piece of display metadata.
- * The operator watches the panes; a stale border is worse than an ordinal
- * because it actively lies about which worker holds which slice.
- *
- * orch's own name write commits FIRST and alone. The chrome is a separate action
- * whose failure is reported and never rewrites whether the rename happened
- * The response states the two outcomes separately.
+ * A name is ONE piece of display metadata: the border follows the name in the same verb, never
+ * a second `--pane` invocation. orch's own name write commits FIRST and alone; a border that could
+ * not follow is reported and never rewrites whether the rename happened.
  */
 export async function renameAgent(
   services: Pick<Services, "orchDir" | "settings" | "logger">,
-  backend: Backend,
-  handle: BackendHandle,
-  key: string,
+  resolved: Pick<ResolvedLifecycle, "key" | "view">,
   name: string,
-  view: AgentView | null,
+  gov: WriteGovernance = {},
 ): Promise<ChromeOutcome | null> {
+  const { key, view } = resolved;
   if (view === null) {
-    lifecycleLogger(services.logger, key).error("rename.unmanaged-agent", { target: key });
+    services.logger.error("rename.unmanaged-agent", { target: key });
     process.stdout.write(`orch rename: ${key} is not an orch-spawned agent; use --pane to relabel the pane.\n`);
     return null;
   }
-  const { views, presence } = admissionFleet(await readFleet(services, true));
-  assertNameFree(views, presence, name, view.environment.space ?? "");
-  if (!isAgentId(key)) return null;
-  await callDaemon(services, "rename", { target: key, name });
-  const role = backend.agentNaming;
-  if (!role) throw new Error("target environment has no agent naming role");
-  role.renameAgent(handle, name);
-  // The border follows the name in the SAME command. An environment with no
-  // pane naming has no border to sync, which is an answer, not a failure (E14).
-  const labeling = backend.labeling;
-  if (!labeling) return { chrome: "none", chromeError: null };
-  try {
-    labeling.setLabel(handle, name);
-    return { chrome: "renamed", chromeError: null };
-  } catch (error: unknown) {
-    const message = errorMessage(error);
-    lifecycleLogger(services.logger, key).warn("rename.chrome-failed", { handle: describeHandle(handle), error: message });
-    process.stdout.write(`orch rename: named "${name}", but the pane border was not updated: ${message}\n`);
-    return { chrome: "failed", chromeError: message };
-  }
+  const { chrome, chromeError } = await callDaemon(services, "rename", { target: key, name }, gov, hostCallTimeoutMs(services));
+  if (chrome === "failed") process.stdout.write(`orch rename: named "${name}", but the pane border was not updated: ${chromeError ?? "unknown error"}\n`);
+  return { chrome, chromeError };
 }
 
 function writeRenameOutput(
   targetName: string,
-  handle: BackendHandle,
+  handle: string,
   key: string,
   name: string,
   paneLabel: boolean,
@@ -85,7 +54,7 @@ function writeRenameOutput(
 ): void {
   if (json) {
     process.stdout.write(JSON.stringify({
-      target: describeHandle(handle), key, name, paneLabel, renamed: true,
+      target: handle, key, name, paneLabel, renamed: true,
       chrome: outcome.chrome, chromeError: outcome.chromeError,
     }) + "\n");
   } else if (!paneLabel && view !== null) {
@@ -94,7 +63,7 @@ function writeRenameOutput(
     const chrome = outcome.chrome === "failed" ? " (pane border NOT updated)" : "";
     process.stdout.write(paneLabel
       ? `Set ${targetName}'s pane label to "${name}"${chrome}.\n`
-      : `${describeHandle(handle)} ${ARROW} named "${name}"${chrome}.\n`);
+      : `${handle} ${ARROW} named "${name}"${chrome}.\n`);
   }
 }
 
@@ -109,9 +78,10 @@ export async function cmdRename(services: Services, args: string[]): Promise<voi
   if (!target || !name) throw usageError(invocation);
   const self = await whoAmI(services);
   const resolved = await resolveLifecycle(services, target);
-  const targetName = resolved.view === null ? describeHandle(resolved.handle) : displayName(resolved.view.name, resolved.key);
+  const handle = placeLabel(resolved);
+  const targetName = resolved.view === null ? handle : displayName(resolved.view.name, resolved.key);
   refuseForeignHolder(self, target, resolved, steal);
-  const { backend, handle, key } = resolved;
+  const key = resolved.key;
   // Renaming an agent moves a label only: orch's registry owns the name, the
   // identity key never changes, and every session/daemon route survives it.
   // --pane relabels the backend's pane chrome instead and leaves the name alone.
@@ -120,10 +90,11 @@ export async function cmdRename(services: Services, args: string[]): Promise<voi
     if (paneLabel) {
       // `--pane` is for deliberately giving the border something DIFFERENT. It
       // leaves orch's name alone; it is never the price of a correct display.
-      if (!backend.labeling) throw new Error("target environment has no pane naming role");
-      backend.labeling.setLabel(handle, name);
+      // orchd labels the pane where the agent runs.
+      const labelled = await callDaemon(services, "agent-pane", { target: key, action: { kind: "label", label: name } }, { steal }, hostCallTimeoutMs(services));
+      if (labelled.kind === "answer") throw new Error("target environment has no pane naming role");
       outcome = { chrome: "renamed", chromeError: null };
-    } else outcome = await renameAgent(services, backend, handle, key, name, resolved.view);
+    } else outcome = await renameAgent(services, resolved, name, { steal });
   } catch (error: unknown) {
     die(`orch rename: ${errorMessage(error)}`);
   }

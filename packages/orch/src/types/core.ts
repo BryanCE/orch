@@ -1,6 +1,7 @@
 // Type-only: `keyof typeof` over a runtime binding, erased at compile time, so
 // this creates no runtime edge out of the types layer.
 import type { EXTENSION_SOURCE_DIR } from "../bridge-bundles/metadata.ts";
+import type { HostIdentity } from "./host.ts";
 
 import type { PresenceEntry } from "./presence.ts";
 import type { HostedProcess } from "./process.ts";
@@ -117,6 +118,9 @@ export interface Entity {
   ended: boolean;
   /** Space from the backend view or orch's spawned registry. */
   space: string | null;
+  /** The host it runs on: its agent's host, or this host for a pane this machine's plexer
+   *  listed with no agent row. */
+  host: HostIdentity;
 }
 
 export interface ToolCallContentBlock {

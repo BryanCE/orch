@@ -13,10 +13,11 @@ import { createInteractiveCommand } from "../backend.ts";
 import { LocalProcessRole } from "../process.ts";
 import { unplacedRegistration, type LaunchedAgent } from "../registration.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
-import { environmentStamp } from "../../agent/environment.ts";
+import { environmentStamp } from "../../shared/environment.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
-import { hostIdentity, hostShell } from "../../host.ts";
+import { hostShell } from "../../host.ts";
+import { hostedHere } from "../../local-process.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole } from "../../types/backend.ts";
 import type { PtyHolder } from "../../types/pty.ts";
@@ -97,8 +98,9 @@ export async function startHeldAgent(holder: PtyHolder, adapter: AgentAdapter, o
   });
   const handle = String(pid);
   try {
-    const launched: LaunchedAgent = { handle, process: heldBackend.process.running(handle) };
-    registerSpawnedAgent(opts.orchDir, unplacedRegistration(HELD_BACKEND, adapter.id, key, opts, launched, hostIdentity()));
+    const running = heldBackend.process.running(handle);
+    const launched: LaunchedAgent = { handle, process: hostedHere(running.pid, running.startToken) };
+    registerSpawnedAgent(opts.orchDir, unplacedRegistration(HELD_BACKEND, adapter.id, key, opts, launched));
     return launched;
   } catch (error: unknown) {
     // An agent orch cannot record is one nothing could reach or close.

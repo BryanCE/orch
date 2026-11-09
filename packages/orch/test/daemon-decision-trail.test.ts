@@ -1,3 +1,5 @@
+import { placeHere } from "../src/process-place.ts";
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -7,7 +9,7 @@ import { orm } from "../src/store/connection.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { governWrite, deliverWrite } from "../src/daemon/server/handlers/write.ts";
 import { isLogRecord } from "../src/log.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { LogRecord, OrchDir } from "../src/types/core.ts";
@@ -39,7 +41,7 @@ function fixture(): OrchDir {
 }
 
 function agent(directory: OrchDir, id: string): void {
-  insertAgent(directory, { id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 1 });
+  insertAgent(directory, { host: hostIdentity(), id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 1 });
 }
 
 function daemonState(directory: OrchDir) {
@@ -120,7 +122,7 @@ describe("daemon decision trail", () => {
     // matcher chains as Thenable, and awaiting the call is the same assertion.
     // A boundary answer is terminal: it is a reply to a human, and no bridge
     // will ever append a marker for it, so it settles on the write (L7).
-    expect(await deliverWrite(daemonState(directory), target, { action: "steer", text: "hello" }, "dispatch-1")).toBe("acked");
+    expect(await deliverWrite(daemonState(directory), placeHere(directory, target), { action: "steer", text: "hello" }, "dispatch-1")).toBe("acked");
 
     const trail = records(directory);
     const record = trail.find((candidate) => candidate.event === "boundary.answer");

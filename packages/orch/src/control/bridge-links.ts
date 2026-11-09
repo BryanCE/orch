@@ -1,5 +1,5 @@
 import type { OrchDir } from "../types/core.ts";
-import type { BridgeDelivery } from "./bridge-message.ts";
+import type { BridgeDelivery } from "../shared/bridge-message.ts";
 import { normalizeControlTarget } from "./normalize-target.ts";
 
 /** One live bridge connection the daemon can push a delivery down. */

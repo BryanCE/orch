@@ -23,7 +23,7 @@ import { reapDeadAgentRecords } from "../src/presence/store.ts";
 import type { RunRecord } from "../src/types/store.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
-import type { BridgeMessage } from "../src/control/bridge-message.ts";
+import type { BridgeMessage } from "../src/shared/bridge-message.ts";
 import { testServices } from "./helpers/services.ts";
 
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });

@@ -8,7 +8,7 @@ import { claimAgent } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { sql } from "drizzle-orm";
 import { checkNotifiers, checkNotifySinks } from "../src/doctor/notify.ts";
-import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
+import { PREREQUISITES } from "../src/shared/prerequisites.ts";
 import { hostOs } from "../src/host.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";

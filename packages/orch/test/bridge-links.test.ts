@@ -10,9 +10,9 @@ import {
   pushToBridge as daemonPushToBridge,
 } from "../src/control/bridge-links.ts";
 import type { BridgeLink } from "../src/control/bridge-links.ts";
-import { isBridgeDelivery, isBridgeMessage } from "../src/control/bridge-message.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { isBridgeDelivery, isBridgeMessage } from "../src/shared/bridge-message.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";

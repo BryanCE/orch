@@ -166,7 +166,6 @@ export const agents = sqliteTable("agents", {
   spawnedBy: text("spawned_by").references((): AnySQLiteColumn => agents.id),
   rootAgentId: text("root_agent_id").notNull().references((): AnySQLiteColumn => agents.id),
   harnessId: text("harness_id").notNull().references(() => harnesses.id),
-  cwd: text("cwd").notNull(),
   name: text("name").notNull(),
   label: text("label"),
   /** IMMUTABLE provenance: written once by the path that made the row, never derived. */
@@ -205,23 +204,15 @@ export const agentEndings = sqliteTable("agent_endings", {
   closedBy: text("closed_by").references(() => agents.id),
 });
 
-/** Where an agent this orchd asked another host to run runs: that host. The agent's rows,
- *  process, logs and runs live there; this row is the reference, kept after the agent ends.
- *  Its spawner and creation instant are on `agents`. No row: the agent runs here. */
-export const agentHosts = sqliteTable("agent_hosts", {
-  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
-  hostId: text("host_id").$type<HostId>().notNull().references(() => hosts.id),
-}, (table) => [index("agent_hosts_by_host").on(table.hostId)]);
-
 /** IMMUTABLE provenance for an agent another host's orchd asked this one to run, and for
  *  everything that agent spawns here: the host that asked, and the agent there whose spawn
  *  started it. Neither lives in this store, so neither is a reference. No row: asked for
  *  on this host. */
 export const agentOrigins = sqliteTable("agent_origins", {
   agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
-  hostId: text("host_id").$type<HostId>().notNull(),
+  askedByHostId: text("asked_by_host_id").$type<HostId>().notNull(),
   spawnerId: text("spawner_id"),
-}, (table) => [index("agent_origins_by_host").on(table.hostId)]);
+}, (table) => [index("agent_origins_by_asking_host").on(table.askedByHostId)]);
 
 /** The agent's current state as it last reported it over the socket. One row per
  *  agent, replaced in place: a cell, not a log. History is orchd's status.jsonl.
@@ -264,11 +255,29 @@ export const agentPlexers = sqliteTable("agent_plexers", {
 
 // ── satellites: one independently-varying fact over one timeline ─────────────
 
-export const agentProcesses = sqliteTable("agent_processes", {
+/** Where every agent runs: the host, and the directory it runs in there. Every agent has
+ *  exactly one open row from the moment its row is written, this machine's agents included,
+ *  so no absence ever stands for a place. Host and directory change together: a session
+ *  that re-registers from another host or directory closes its row and opens the next.
+ *  An agent this orchd asked another host to run keeps its row here as the reference. */
+export const agentHosts = sqliteTable("agent_hosts", {
   agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
   since: integer("since").notNull(),
   until: integer("until"),
   hostId: text("host_id").$type<HostId>().notNull().references(() => hosts.id),
+  cwd: text("cwd").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.agentId, table.since] }),
+  uniqueIndex("one_agent_host").on(table.agentId).where(sql`until IS NULL`),
+  index("agent_hosts_by_host").on(table.hostId).where(sql`until IS NULL`),
+  check("agent_hosts_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
+
+/** The OS process an agent runs as, on the host its open `agent_hosts` row names. */
+export const agentProcesses = sqliteTable("agent_processes", {
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
   pid: integer("pid").notNull(),
   startToken: text("start_token"),
 }, (table) => [

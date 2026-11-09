@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { hostIdentity } from "../src/host.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { agentById, originOf } from "../src/store/agent-rows.ts";
@@ -26,7 +26,7 @@ function freshDir(): OrchDir {
 function spawned(key: string, spawner: string | null, origin?: AgentOrigin): SpawnRegistration {
   return {
     key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6",
-    spawner, process: { pid: process.pid, startToken: `origin-${key}` }, host: hostIdentity(),
+    spawner, process: { host: hostIdentity().id, pid: process.pid, startToken: `origin-${key}` }, 
     ...(origin === undefined ? {} : { origin }),
   };
 }
@@ -34,7 +34,7 @@ function spawned(key: string, spawner: string | null, origin?: AgentOrigin): Spa
 describe("agent origin", () => {
   test("a spawn another host asked for carries that host and its spawner, and names no spawner here", () => {
     const dir = freshDir();
-    const origin: AgentOrigin = { host: testHost("origin-host").id, spawner: mintAgentId() };
+    const origin: AgentOrigin = { askedBy: testHost("origin-host").id, spawner: mintAgentId() };
     const key = mintAgentId();
 
     registerSpawnedAgent(dir, spawned(key, null, origin));
@@ -45,7 +45,7 @@ describe("agent origin", () => {
 
   test("everything that agent spawns here carries the same origin", () => {
     const dir = freshDir();
-    const origin: AgentOrigin = { host: testHost("origin-host").id, spawner: mintAgentId() };
+    const origin: AgentOrigin = { askedBy: testHost("origin-host").id, spawner: mintAgentId() };
     const parent = mintAgentId();
     const child = mintAgentId();
     const grandchild = mintAgentId();

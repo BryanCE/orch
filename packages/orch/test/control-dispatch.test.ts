@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -9,11 +10,11 @@ import {
   detachBridge as daemonDetachBridge,
   type BridgeLink,
 } from "../src/control/bridge-links.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { settleControlOutcome } from "../src/control/outcome.ts";
 import { echoAwaited, forgetEchoes } from "../src/control/echo.ts";
 import { getBackend, registerBackend } from "../src/backends/registry.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { currentTuning, endProcess } from "../src/store/interval-rows.ts";
@@ -127,7 +128,7 @@ describe("deliverControl bridge dispatch", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     presence(directory, key, "pi");
-    endProcess(directory, key, Date.now());
+    endProcess(directory, placeHere(directory, key), Date.now());
     const deliveries = captureBridge(key);
 
     expect(await rejection(deliverControl(key, { kind: "steer", text: "lost", id: "steer-1" })))

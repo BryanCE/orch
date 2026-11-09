@@ -1,3 +1,4 @@
+import { hostIdentity } from "../../src/host.ts";
 import type { AgentView, AgentEnvironment, AgentTuning } from "../../src/types/store.ts";
 
 export interface AgentViewFixtureOverrides extends Omit<Partial<AgentView>, "id" | "environment" | "tuning"> {
@@ -10,6 +11,7 @@ export function agentViewFixture(id: string, overrides: AgentViewFixtureOverride
   const { environment: environmentOverrides, tuning: tuningOverrides, ...baseOverrides } = overrides;
   const environment: AgentEnvironment = {
     plexer: "headless", handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null,
+    host: hostIdentity(), cwd: "/repo",
     ...environmentOverrides,
   };
   const tuning: AgentTuning = { model: null, thinking: null, ...tuningOverrides };
@@ -18,7 +20,6 @@ export function agentViewFixture(id: string, overrides: AgentViewFixtureOverride
     name: id,
     label: null,
     harnessId: "pi",
-    cwd: "/repo",
     createdAt: 1,
     kind: "agent",
     spawnedBy: null,

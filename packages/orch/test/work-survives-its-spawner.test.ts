@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { getTableColumns, is, sql } from "drizzle-orm";
@@ -33,8 +34,8 @@ function fixture(): OrchDir {
 describe("work survives its spawner, always (D1)", () => {
   test("ending the spawner leaves the child live, unended and still listed", () => {
     const d = fixture();
-    insertAgent(d, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
-    insertAgent(d, { id: "child", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "child", createdAt: 2 });
+    insertAgent(d, { host: hostIdentity(), id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
+    insertAgent(d, { host: hostIdentity(), id: "child", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "child", createdAt: 2 });
     acquireLease(d, "child", "orch", 3);
 
     // The spawner ends. Nothing about that is a statement about the child.
@@ -49,9 +50,9 @@ describe("work survives its spawner, always (D1)", () => {
 
   test("a grandchild is untouched when the middle agent ends", () => {
     const d = fixture();
-    insertAgent(d, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
-    insertAgent(d, { id: "mid", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "mid", createdAt: 2 });
-    insertAgent(d, { id: "grand", spawnedBy: "mid", harnessId: "pi", cwd: "/repo", name: "grand", createdAt: 3 });
+    insertAgent(d, { host: hostIdentity(), id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
+    insertAgent(d, { host: hostIdentity(), id: "mid", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "mid", createdAt: 2 });
+    insertAgent(d, { host: hostIdentity(), id: "grand", spawnedBy: "mid", harnessId: "pi", cwd: "/repo", name: "grand", createdAt: 3 });
 
     orm(d).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${"mid"},${10},${null})`);
 
@@ -90,9 +91,9 @@ describe("work survives its spawner, always (D1)", () => {
 
   test("closing the spawner never writes an ending for anything it spawned", () => {
     const d = fixture();
-    insertAgent(d, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
-    insertAgent(d, { id: "a", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "a", createdAt: 2 });
-    insertAgent(d, { id: "b", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "b", createdAt: 3 });
+    insertAgent(d, { host: hostIdentity(), id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
+    insertAgent(d, { host: hostIdentity(), id: "a", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "a", createdAt: 2 });
+    insertAgent(d, { host: hostIdentity(), id: "b", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "b", createdAt: 3 });
     orm(d).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${"orch"},${10},${null})`);
 
     const endings = ormForRead(d)?.select({ agentId: agentEndings.agentId }).from(agentEndings).all() ?? [];

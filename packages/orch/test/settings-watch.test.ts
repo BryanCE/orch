@@ -1,9 +1,7 @@
 import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { utimesSync, writeFileSync } from "node:fs";
-
-import { join } from "node:path";
+import { writeFileSync } from "node:fs";
 import { settingsPath } from "../src/settings/schema.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { watchSettings } from "../src/settings/watch.ts";
@@ -77,7 +75,7 @@ describe("watchSettings", () => {
     expect(changes[1]!.fleet.max_depth).toBe(6);
   });
 
-  test("reloads on a touched reload.signal without a settings edit", async () => {
+  test("reloads when asked, without a settings edit", async () => {
     const orchDir = tempOrchDir();
     writeSettingsFixture(orchDir, { fleet: { max_depth: 2 } });
     let changes = 0;
@@ -86,9 +84,7 @@ describe("watchSettings", () => {
     watches.push(watch);
     expect(changes).toBe(1);
 
-    const signal = join(orchDir, "reload.signal");
-    writeFileSync(signal, "");
-    utimesSync(signal, new Date(), new Date());
+    watch.reload();
     expect(await waitFor(() => changes > 1)).toBe(true);
   });
 

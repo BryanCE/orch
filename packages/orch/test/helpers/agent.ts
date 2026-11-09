@@ -1,3 +1,4 @@
+import { placeHere } from "../../src/process-place.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 import { registerSpawnedAgent } from "../../src/store/spawn-registration.ts";
 import { agentById, ensureHarness, ensureHost, ensurePlexer, getOrCreateSessionAgent, insertAgent } from "../../src/store/agent-rows.ts";
@@ -24,7 +25,7 @@ export const DEAD_PID = 2147483646;
 export function seedOrch(directory: OrchDir, id: string, harnessId = "pi", now = Date.now()): void {
   if (agentById(directory, id)) return;
   ensureHarness(directory, harnessId, harnessId, now);
-  insertAgent(directory, { id, harnessId, cwd: process.cwd(), name: id, createdAt: now });
+  insertAgent(directory, { host: hostIdentity(), id, harnessId, cwd: process.cwd(), name: id, createdAt: now });
 }
 
 /** Register the test runner as an operator orch, the way `register-session` does
@@ -58,8 +59,7 @@ export function seedAgent(key: string, facts: AgentFacts = {}, directory: OrchDi
     ...(facts.worktree !== undefined && facts.branch !== undefined
       ? { worktree: { path: facts.worktree, branch: facts.branch, base: "main", provider: "git" } }
       : {}),
-    process: { pid: DEAD_PID, startToken: null },
-    host: hostIdentity(),
+    process: { host: hostIdentity().id, pid: DEAD_PID, startToken: null },
   });
 }
 
@@ -72,7 +72,7 @@ export function seedLiveProcess(directory: OrchDir, agentId: string, now = Date.
   // The runner runs on this machine, so its process is recorded on this machine's host.
   const host = hostIdentity();
   ensureHost(directory, host, now);
-  recordProcess(directory, agentId, now, { host: host.id, ...runnerProcess() });
+  recordProcess(directory, placeHere(directory, agentId), now, {  ...runnerProcess() });
 }
 
 /**
@@ -88,10 +88,10 @@ export function placeAgent(key: string, facts: AgentFacts = {}, directory: OrchD
   const now = Date.now();
   if (facts.backend !== undefined) {
     ensurePlexer(directory, facts.backend, facts.backend, now);
-    setAgentPlexer(directory, key, facts.backend);
+    setAgentPlexer(directory, placeHere(directory, key), facts.backend);
   }
   if (facts.space !== undefined) setSpace(directory, key, now, facts.space);
-  if (facts.handle !== undefined) setHandle(directory, key, now, facts.handle);
+  if (facts.handle !== undefined) setHandle(directory, placeHere(directory, key), now, facts.handle);
   if (facts.owner !== undefined && facts.owner !== key && currentLease(directory, key)?.orchId !== facts.owner) {
     seedOrch(directory, facts.owner, facts.adapter ?? "pi", now);
     adoptLease(directory, key, facts.owner, now);

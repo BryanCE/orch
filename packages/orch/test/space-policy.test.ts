@@ -1,3 +1,5 @@
+import { placeHere } from "../src/process-place.ts";
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -6,7 +8,7 @@ import { join } from "node:path";
 import { buildEntities } from "../src/entities/inventory.ts";
 import { entitySpace } from "../src/entities/space.ts";
 import { presenceAgentDir } from "../src/presence/history.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { agentById, ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { agentView, agentViewIndex } from "../src/store/agent-view.ts";
@@ -53,23 +55,23 @@ function placeAgent(
   options: { plexer?: string; space?: string; handle?: string } = {},
 ): string {
   const id = mintAgentId();
-  insertAgent(directory, { id, spawnedBy: null, harnessId: "pi", cwd: directory, name: id, createdAt: 1 });
+  insertAgent(directory, { host: hostIdentity(), id, spawnedBy: null, harnessId: "pi", cwd: directory, name: id, createdAt: 1 });
   if (options.plexer !== undefined) {
     ensurePlexer(directory, options.plexer, options.plexer, 1);
-    setAgentPlexer(directory, id, options.plexer);
+    setAgentPlexer(directory, placeHere(directory, id), options.plexer);
   }
   if (options.space !== undefined) {
     ensureSpaceRow(directory, options.space);
     setSpace(directory, id, 1, options.space);
   }
-  if (options.handle !== undefined) setHandle(directory, id, 1, options.handle);
+  if (options.handle !== undefined) setHandle(directory, placeHere(directory, id), 1, options.handle);
   return id;
 }
 
 /** An agent whose cwd is a specific repo root, optionally in a space. */
 function placeAgentIn(directory: OrchDir, cwd: string, space?: string): string {
   const id = mintAgentId();
-  insertAgent(directory, { id, spawnedBy: null, harnessId: "pi", cwd, name: id, createdAt: 1 });
+  insertAgent(directory, { host: hostIdentity(), id, spawnedBy: null, harnessId: "pi", cwd, name: id, createdAt: 1 });
   if (space !== undefined) {
     ensureSpaceRow(directory, space);
     setSpace(directory, id, 1, space);
@@ -103,7 +105,7 @@ describe("a space is user-created, and absence falls back to the repo root", () 
   test("placing an agent in a space nobody created is refused, not minted", () => {
     const dir = storeDir("orch-space-a7-mint-");
     const id = mintAgentId();
-    insertAgent(dir, { id, spawnedBy: null, harnessId: "pi", cwd: dir, name: id, createdAt: 1 });
+    insertAgent(dir, { host: hostIdentity(), id, spawnedBy: null, harnessId: "pi", cwd: dir, name: id, createdAt: 1 });
     // Creating a space is a statement the user makes ("these belong together").
     // An INSERT OR IGNORE behind a spawn makes every typo a new space and every
     // plexer coordinate a space name — which is how `wF` got shown as one.

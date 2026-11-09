@@ -1,7 +1,7 @@
 import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { z } from "zod";
 import { isRecord } from "../../util.ts";
-import { extractVersion } from "../versions.ts";
+import { extractVersion } from "../../shared/versions.ts";
 import { buildCommandFailure, findFreshCacheEntry, parseCliJson } from "../shared-cli.ts";
 import { DEFAULT_TOOL_RETRY, plexerExecOptions, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
 import { PLEXER_TIMEOUTS } from "../../config.ts";

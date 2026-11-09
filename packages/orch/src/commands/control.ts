@@ -1,17 +1,17 @@
 import { ARROW, collapse, errorMessage, isRecord, truncate } from "../util.ts";
-import { hostIdentity } from "../host.ts";
 import { writeDelivery, type Delivery } from "./delivery.ts";
 import { displayName, resolveEntity, resolveLifecycle, resolveOwnedTarget, targetName, type ResolvedTarget } from "./resolve.ts";
-import { renameAgent, renamedLine, type ChromeOutcome } from "./lifecycle/rename.ts";
-import { isAgentId } from "../backends/identity.ts";
-import { getAdapter } from "../adapters/registry.ts";
+import { renameAgent, renamedLine } from "./lifecycle/rename.ts";
+import type { ChromeOutcome } from "../daemon/client/protocol.ts";
 import { modelSpec } from "../policy/thinking.ts";
 import { workerHeaderContextOf } from "../policy/spawner.ts";
 import { callDaemon, governanceFlags, readRpc, writeRpc } from "./daemon.ts";
 import { parseCommand } from "./registry.ts";
 import type { Invocation } from "../cli/spec.ts";
 import { usageError } from "../cli/usage.ts";
-import { die, resultText } from "./target.ts";
+import { die } from "./target.ts";
+import { humanResult } from "./results.ts";
+import { readAgentThroughOrchd } from "./agent-read.ts";
 import { readFleet, type FleetSnapshot } from "./fleet.ts";
 import { registeredId, whoAmI, refuseNonOperatorOverride, type CallerSelf } from "./self.ts";
 import { callerCredential } from "../identity/credential.ts";
@@ -19,13 +19,10 @@ import { agentAdapter, agentFlags, requestedModel, resolveAdapterOrDie, resolveT
 import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
 import { clearSession } from "./lifecycle/reset.ts";
 import { admitAgentModel, pinModels, refuseModelChange } from "./spawn/models.ts";
-import { takesModel } from "../adapters/adapter.ts";
+import { takesModel } from "../shared/harness.ts";
 import { contextReference, readPromptFile } from "./prompt-file.ts";
-import { getBackend } from "../backends/registry.ts";
 import type { Services } from "../types/services.ts";
 import type { AdapterId } from "../types/adapter.ts";
-import type { LocalProcess } from "../types/backend.ts";
-import { type PresenceEntry, notDead } from "../types/presence.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../types/command.ts";
 import type { Entity } from "../types/core.ts";
@@ -121,27 +118,24 @@ export async function cmdBroadcast(services: Services, args: string[]) {
   if (!text) throw usageError(invocation);
   const explicitAll = all;
   if (!targets.length) all = true;
-  const destinations = new Map<string, PresenceEntry>();
+  const destinations = new Set<string>();
   const resolvedByKey = new Map<string, ResolvedTarget>();
   let fleet: FleetSnapshot | undefined;
   if (all) {
     registeredId(self);
     if (explicitAll) refuseNonOperatorOverride(self, "--all");
     fleet = await readFleet(services, true);
-    const { keys } = await readRpc(services, "owned-agents", { caller: callerCredential() });
-    for (const key of keys) {
-      const pres = fleet.presence.find((entry) => entry.key === key);
-      if (pres !== undefined && notDead(pres)) destinations.set(key, pres);
-    }
+    // orchd answers which held agents are live.
+    const { keys } = await readRpc(services, "owned-agents", { caller: callerCredential(), live: true });
+    for (const key of keys) destinations.add(key);
   }
   for (const target of targets) {
     const resolved = await resolveOwnedTarget(services, self, target, { override: steal });
-    if (!resolved.entity.presence) die(`Target "${target}" has no agent dir.`);
     resolvedByKey.set(resolved.entity.key, resolved);
-    destinations.set(resolved.entity.presence.key, resolved.entity.presence);
+    destinations.add(resolved.entity.key);
   }
   if (!destinations.size) die("No live agent dirs to broadcast to.");
-  const outcomes = await steerEach(services, [...destinations.values()], text);
+  const outcomes = await steerEach(services, [...destinations], text);
   const nameOf = (key: string): string => {
     const resolved = resolvedByKey.get(key);
     const view = resolved?.view ?? fleet?.views.find((entry) => entry.id === key);
@@ -152,13 +146,13 @@ export async function cmdBroadcast(services: Services, args: string[]) {
 
 /** Per target, never Promise.all + die: one agent refusing (one awaiting an
  *  answer refuses a steer) must not hide which of its siblings did receive the text. */
-function steerEach(services: Services, destinations: readonly PresenceEntry[], text: string): Promise<BroadcastOutcome[]> {
-  return Promise.all(destinations.map(async (pres): Promise<BroadcastOutcome> => {
+function steerEach(services: Services, destinations: readonly string[], text: string): Promise<BroadcastOutcome[]> {
+  return Promise.all(destinations.map(async (key): Promise<BroadcastOutcome> => {
     try {
-      const result = await callDaemon(services, "steer", { target: pres.key, text });
-      return { kind: "delivered", key: pres.key, result };
+      const result = await callDaemon(services, "steer", { target: key, text });
+      return { kind: "delivered", key, result };
     } catch (error: unknown) {
-      return { kind: "refused", key: pres.key, reason: errorMessage(error) };
+      return { kind: "refused", key, reason: errorMessage(error) };
     }
   }));
 }
@@ -171,7 +165,7 @@ function reportBroadcast(services: Services, outcomes: readonly BroadcastOutcome
       reportDelivery(services, outcome.result, { target: outcome.key, name, action: "broadcast" }, { json });
       continue;
     }
-    const log = isAgentId(outcome.key) ? services.logger.forAgent(outcome.key) : services.logger;
+    const log = services.logger.forAgent(outcome.key);
     log.warn("broadcast.refused", { reason: outcome.reason, target: outcome.key });
     refusals.push({ name, reason: outcome.reason });
     if (!json) process.stdout.write(`Refused ${name}: ${outcome.reason}\n`);
@@ -191,19 +185,16 @@ export async function cmdPipe(services: Services, args: string[]) {
   if (!src || !dst) throw usageError(invocation);
   void self;
   const resolvedSource = await resolveEntity(services, src);
-  const source = resolvedSource.entity;
-  if (!source.presence) die(`Target "${src}" has no agent dir.`);
-  const extractInput = { key: source.presence.key, sessionPath: source.sessionPath ?? undefined };
-  const adapter = getAdapter(resolvedSource.view?.harnessId ?? source.agent ?? "");
-  const resultTextValue = adapter?.extractResult(extractInput, services.orchDir) ?? resultText(source.presence.result);
+  const sourceKey = resolvedSource.entity.key;
+  const { reading } = await readAgentThroughOrchd(services, sourceKey, { kind: "result" });
+  const resultTextValue = reading.lookup.kind === "found" ? humanResult(reading.lookup.payload) : null;
   if (!resultTextValue) die(`No result text available for "${src}".`);
   const resolvedDestination = await resolveEntity(services, dst);
-  const destination = resolvedDestination.entity;
-  if (!destination.presence) die(`Target "${dst}" has no agent dir.`);
-  const sourceName = displayName(source.name, source.presence.key);
+  const destinationKey = resolvedDestination.entity.key;
+  const sourceName = targetName(resolvedSource);
   const text = pipedText(sourceName, instruction, resultTextValue);
-  const result = await writeRpc(services, "steer", { target: destination.presence.key, text });
-  reportDelivery(services, result, { target: destination.presence.key, name: displayName(destination.name, destination.presence.key), action: "pipe" }, { json, suffix: ` from ${sourceName}` });
+  const result = await writeRpc(services, "steer", { target: destinationKey, text });
+  reportDelivery(services, result, { target: destinationKey, name: targetName(resolvedDestination), action: "pipe" }, { json, suffix: ` from ${sourceName}` });
 }
 
 export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
@@ -211,11 +202,10 @@ export async function cmdAnswer(services: Services, args: string[]): Promise<voi
   const command = parseTextCommand("answer", args);
   const { json, gov, target, text } = command;
   const resolved = await resolveDriveTarget(services, self, target, gov);
-  if (!resolved.entity.presence) die(`Target "${target}" has no agent dir.`);
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
   // the CLI never invokes the adapter's answer strategy directly.
-  const result = await writeRpc(services, "answer", { target: resolved.entity.presence.key, text }, gov);
-  reportDelivery(services, result, { target: resolved.entity.presence.key, name: targetName(resolved), action: "answer" }, { json });
+  const result = await writeRpc(services, "answer", { target: resolved.entity.key, text }, gov);
+  reportDelivery(services, result, { target: resolved.entity.key, name: targetName(resolved), action: "answer" }, { json });
 }
 
 export async function cmdModel(services: Services, args: string[]): Promise<void> {
@@ -267,57 +257,44 @@ export async function dispatchToAgent(services: Pick<Services, "orchDir" | "sett
   // the daemon, so this is the first moment the CLI can name the dispatch it just
   // made — without this record half the system writes nothing anywhere, ever.
   const log = logger.forCorrelation(delivered.id);
-  (isAgentId(key) ? log.forAgent(key) : log).info("dispatch.cli-accepted", { target: key });
+  log.forAgent(key).info("dispatch.cli-accepted", { target: key });
   return { accepted: true, id: delivered.id, ack: delivered.ack };
 }
 
 /**
  * Record the row for an agent this dispatch just adopted. A spawned agent already
  * has one; an adopted agent needs it under the SAME key we dispatched to, carrying
- * the dispatcher's owner token or it stays open to every other orchestrator.
+ * the dispatcher's owner token or it stays open to every other orchestrator. orchd
+ * reads the process its pane runs.
  */
 async function recordAdoptedAgent(services: Services, self: CallerSelf, key: string, dispatchSettings: DispatchSettings, tuning: { model: string; thinking: ThinkingLevel }): Promise<void> {
-  await callDaemon(services, "register-agent", {
+  const ent = dispatchSettings.ent;
+  // An agent whose environment can address nothing has no process orch can watch, and
+  // adopting it would register a row that reads as dead at once.
+  if (ent.backend === null || ent.paneId === null) die(`cannot adopt ${displayName(ent.name, ent.key)}: it sits in no pane orch can read, so orch cannot watch it. Spawn it with orch instead.`);
+  await callDaemon(services, "adopt-agent", {
     key,
     harnessId: dispatchSettings.adapter,
-    // An entity that names no plexer is in no plexer, and that is the answer —
-    // never a sentinel id standing in for a missing one (Rule 11, and the
-    // `backendId` contract in SpawnRegistration). Absent here means no row in
-    // `agent_plexers`.
-    ...(dispatchSettings.ent.backend === null ? {} : { backendId: dispatchSettings.ent.backend }),
-    // orch did not place this agent, so it claims no place for it. Whatever
-    // address the environment already had is carried below as the handle.
-    placed: false,
-    ...(dispatchSettings.ent.paneId === null ? {} : { handle: dispatchSettings.ent.paneId }),
-    ...(dispatchSettings.ent.space === null ? {} : { space: dispatchSettings.ent.space }),
+    backendId: ent.backend,
+    handle: ent.paneId,
+    ...(ent.space === null ? {} : { space: ent.space }),
     cwd: process.cwd(),
-    name: dispatchSettings.ent.name ?? key,
+    name: ent.name ?? key,
     // The pair this dispatch just pinned, as resolved — never the raw flag, which
     // may still carry its `:effort` suffix.
     model: tuning.model,
     thinking: tuning.thinking,
     spawner: self.id,
     owner: self.id ?? undefined,
-    process: adoptedProcess(dispatchSettings.ent),
-    host: hostIdentity(),
   });
 }
 
-/** The process an adopted agent runs in, as the environment it already sits in
- *  states it. An agent whose environment can address nothing has no process orch
- *  can watch, and adopting it would register a row that reads as dead at once. */
-function adoptedProcess(ent: Entity): LocalProcess {
-  const backend = ent.backend === null ? undefined : getBackend(ent.backend);
-  if (backend === undefined || ent.paneId === null) die(`cannot adopt ${displayName(ent.name, ent.key)}: it sits in no pane orch can read, so orch cannot watch it. Spawn it with orch instead.`);
-  return backend.process.running(ent.paneId);
-}
-
 /** `dispatch --rename`: the same rename `orch rename` does, before the task is sent. */
-async function renameBeforeDispatch(services: Services, dispatchSettings: DispatchSettings, currentName: string, newName: string): Promise<void> {
+async function renameBeforeDispatch(services: Services, dispatchSettings: DispatchSettings, currentName: string, newName: string, gov: WriteGovernance): Promise<void> {
   let outcome: ChromeOutcome | null;
   try {
     const lifecycle = await resolveLifecycle(services, dispatchSettings.ent.key);
-    outcome = await renameAgent(services, lifecycle.backend, lifecycle.handle, lifecycle.key, newName, lifecycle.view);
+    outcome = await renameAgent(services, lifecycle, newName, gov);
   } catch (error: unknown) {
     die(`orch dispatch: ${errorMessage(error)}`);
   }
@@ -356,7 +333,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const currentName = targetName({ view: dispatchSettings.view, entity: dispatchSettings.ent });
   const effectiveName = flags.rename ?? currentName;
   const tuning = admitDispatchTuning(services, dispatchSettings, flags, currentName);
-  if (flags.rename !== undefined) await renameBeforeDispatch(services, dispatchSettings, currentName, flags.rename);
+  if (flags.rename !== undefined) await renameBeforeDispatch(services, dispatchSettings, currentName, flags.rename, gov);
   // Address the daemon by the one canonical identity, never the handle: a second
   // registry row keyed by handle forks the agent and makes every later control
   // target ambiguous (dispatch/steer/reset all fail post-first-run).

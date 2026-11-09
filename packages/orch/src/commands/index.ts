@@ -57,7 +57,7 @@ const STALE_GUARD_COMMANDS = new Set([
   "queue", "work", "model", "broadcast", "detach", "adopt", "reap", "space",
 ]);
 
-/** Commands that never dial orchd, plus `status`, which registers itself unless `--offline`. */
+/** Commands that never dial orchd, plus `status`, which registers itself. */
 const REGISTRATION_EXEMPT = new Set([
   "setup", "doctor", "settings", "daemon", "logs", "models", "status", "host",
   "help", "-h", "--help", "version", "-V", "--version",

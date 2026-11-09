@@ -14,7 +14,7 @@ import { notDead } from "../types/presence.ts";
  * A dead agent still resolves (close and cleanup need it), but a live one wins:
  * reusing a name whose previous holder exited must never be ambiguous.
  *
- * This lives beside the control plane rather than in `backends/identity.ts`
+ * This lives beside the control plane rather than in `shared/agent-id.ts`
  * because resolving a target is a LOOKUP over presence and the agent views, not
  * part of the id vocabulary. Keeping it there made `identity.ts` import
  * `presence/store.ts`, which imports `identity.ts` straight back — an

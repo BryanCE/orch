@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import { describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -9,7 +10,7 @@ import type { NotifyEvent } from "../src/types/notify.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 
 function event(name: string): NotifyEvent {
-  return {
+  return { host: hostIdentity(),
     type: "transition",
     key: name,
     ts: "2025-01-01T00:00:00.000Z",

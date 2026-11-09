@@ -1,5 +1,6 @@
+import { placeHere } from "../src/process-place.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { hostIdentity } from "../src/host.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { assertNameFree, assertValidAgentName } from "../src/policy/name.ts";
@@ -9,7 +10,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { endProcess, setSpace } from "../src/store/interval-rows.ts";
 import { runnerProcess } from "./helpers/agent.ts";
 import { loadPresence, spawnedRecords } from "../src/presence/store.ts";
-import { indexPresenceById } from "../src/entities/lookup.ts";
+import { indexPresenceById } from "../src/shared/lookup.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const directories: OrchDir[] = [];
@@ -28,7 +29,7 @@ function makeTempOrchDir(): OrchDir {
 function seedAgent(orchDir: OrchDir, name: string, space: string): string {
   const key = mintAgentId();
   seedSpace(orchDir, space);
-  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: orchDir, name, model: "test", space, spawner: null, process: runnerProcess(), host: hostIdentity() });
+  registerSpawnedAgent(orchDir, { key, harnessId: "pi", backendId: "herdr", placed: true, handle: `%${key}`, cwd: orchDir, name, model: "test", space, spawner: null, process: { ...runnerProcess(), host: hostIdentity().id }});
   return key;
 }
 
@@ -81,7 +82,7 @@ describe("a live name is claimed and a dead one is released", () => {
     const orchDir = makeTempOrchDir();
     const key = seedAgent(orchDir, "recon", "w1");
     seedStatus(orchDir, key, { agent: "pi", state: "idle" });
-    endProcess(orchDir, key, Date.now()); // the recorded process is gone
+    endProcess(orchDir, placeHere(orchDir, key), Date.now()); // the recorded process is gone
     const views = spawnedRecords(orchDir);
     const presence = indexPresenceById(loadPresence(orchDir).values());
 

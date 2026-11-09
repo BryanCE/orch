@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";

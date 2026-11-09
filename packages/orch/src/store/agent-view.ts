@@ -2,16 +2,19 @@ import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { ormForRead, registerMemoReset } from "./connection.ts";
 import { NO_TUNING } from "../policy/tuning.ts";
-import type { AgentEnvironment, AgentHolder, AgentTuning, AgentView, EnvironmentAxisKey } from "../types/store.ts";
+import type { AgentEnvironment, AgentHolder, AgentLocationAxes, AgentTuning, AgentView, EnvironmentAxisKey } from "../types/store.ts";
+import { isHostOs } from "../host.ts";
 import {
   agentEndings,
   agentHandles,
+  agentHosts,
   agentLeases,
   agentPlexers,
   agentSpaces,
   agentTunings,
   agentWorktrees,
   agents,
+  hosts,
 } from "../db/schema.ts";
 
 /**
@@ -24,6 +27,8 @@ import {
  * Environment is a COMPOSITION, never a table. Each axis has its own narrow
  * satellite with its own `since`/`until`; a missing axis is a missing row.
  * Adding an axis is one table plus one entry in {@link ENVIRONMENT_AXES}.
+ * The host and directory are the one exception to "missing": every agent has an
+ * open `agent_hosts` row, so they are read beside the axes and never null.
  *
  * The fleet is loaded from the store once per process, one query per table,
  * and held. A read is a lookup. A writer that changes an agent calls
@@ -114,15 +119,30 @@ function readAxes(orchDir: OrchDir): AxisValues {
   return axes;
 }
 
-function isComplete(composed: ComposingEnvironment): composed is AgentEnvironment {
+type AxisEnvironment = Readonly<Record<EnvironmentAxisKey, string | null>>;
+
+function isComplete(composed: ComposingEnvironment): composed is AxisEnvironment {
   return ENVIRONMENT_AXES.every((axis) => axis.key in composed);
 }
 
-function composeEnvironment(agentId: string, axes: AxisValues): AgentEnvironment {
+function composeEnvironment(agentId: string, axes: AxisValues, locations: ReadonlyMap<string, AgentLocationAxes>): AgentEnvironment {
   const composed: ComposingEnvironment = {};
   for (const axis of ENVIRONMENT_AXES) composed[axis.key] = axes.get(axis.key)?.get(agentId) ?? null;
   if (!isComplete(composed)) throw new Error("orch: an environment axis produced no value");
-  return composed;
+  const location = locations.get(agentId);
+  if (location === undefined) throw new Error(`orch: agent ${agentId} has no open host row: the store is corrupt. Reap the agent or rebuild the store.`);
+  return { ...composed, ...location };
+}
+
+/** Every agent's open `agent_hosts` row with its host's identity; `agentId` narrows to one. */
+function readLocations(orchDir: OrchDir, agentId?: string): Map<string, AgentLocationAxes> {
+  const open = and(isNull(agentHosts.until), agentId === undefined ? undefined : eq(agentHosts.agentId, agentId));
+  const rows = ormForRead(orchDir)?.select({ agentId: agentHosts.agentId, cwd: agentHosts.cwd, id: hosts.id, name: hosts.name, os: hosts.os })
+    .from(agentHosts).innerJoin(hosts, eq(hosts.id, agentHosts.hostId)).where(open).all() ?? [];
+  return new Map(rows.map((row) => {
+    if (!isHostOs(row.os)) throw new Error(`host ${row.id} has an unknown os ${row.os}`);
+    return [row.agentId, { host: { id: row.id, name: row.name, os: row.os }, cwd: row.cwd }];
+  }));
 }
 
 function currentTunings(orchDir: OrchDir): ByAgent<AgentTuning> {
@@ -162,6 +182,7 @@ interface FleetFacts {
   names: Map<string, string>;
   holders: Map<string, AgentHolder>;
   axes: AxisValues;
+  locations: Map<string, AgentLocationAxes>;
   tunings: Map<string, AgentTuning>;
   endings: Map<string, number>;
   views: Map<string, AgentView>;
@@ -179,6 +200,7 @@ function heldFleet(orchDir: OrchDir): FleetFacts {
     names: new Map(spawnerNames(orchDir, rows)),
     holders: new Map(currentHolders(orchDir)),
     axes: readAxes(orchDir),
+    locations: readLocations(orchDir),
     tunings: new Map(currentTunings(orchDir)),
     endings: new Map(endings(orchDir)),
     views: new Map(),
@@ -194,21 +216,21 @@ function composeView(hub: HubRow, facts: FleetFacts): AgentView {
     name: hub.name,
     label: hub.label,
     harnessId: hub.harnessId,
-    cwd: hub.cwd,
     createdAt: hub.createdAt,
     kind: hub.kind,
     spawnedBy: hub.spawnedBy,
     spawnedByName: hub.spawnedBy === null ? null : facts.names.get(hub.spawnedBy) ?? null,
     rootAgentId: hub.rootAgentId,
     heldBy: facts.holders.get(hub.id) ?? null,
-    environment: composeEnvironment(hub.id, facts.axes),
+    environment: composeEnvironment(hub.id, facts.axes, facts.locations),
     tuning: facts.tunings.get(hub.id) ?? NO_TUNING,
     endedAt: facts.endings.get(hub.id) ?? null,
   };
 }
 
 export function environmentOf(orchDir: OrchDir, agentId: string): AgentEnvironment {
-  return composeEnvironment(agentId, heldFleet(orchDir).axes);
+  const facts = heldFleet(orchDir);
+  return composeEnvironment(agentId, facts.axes, facts.locations);
 }
 
 export function holderOf(orchDir: OrchDir, agentId: string): AgentHolder | null {
@@ -237,6 +259,9 @@ function refreshSatellites(orchDir: OrchDir, facts: FleetFacts, agentId: string)
     .where(and(eq(agentLeases.agentId, agentId), isNull(agentLeases.until))).get();
   if (holder) facts.holders.set(agentId, holder);
   else facts.holders.delete(agentId);
+  const location = readLocations(orchDir, agentId).get(agentId);
+  if (location) facts.locations.set(agentId, location);
+  else facts.locations.delete(agentId);
   for (const axis of ENVIRONMENT_AXES) {
     const value = axis.readOne(orchDir, agentId);
     const values = facts.axes.get(axis.key);
@@ -265,6 +290,7 @@ function dropAgent(facts: FleetFacts, agentId: string): void {
   facts.holders.delete(agentId);
   facts.tunings.delete(agentId);
   facts.endings.delete(agentId);
+  facts.locations.delete(agentId);
   for (const values of facts.axes.values()) values.delete(agentId);
   facts.views.delete(agentId);
   recomposeChildren(facts, agentId);

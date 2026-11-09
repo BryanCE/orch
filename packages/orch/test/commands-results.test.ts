@@ -1,3 +1,5 @@
+import { placeHere } from "../src/process-place.ts";
+import { hostIdentity } from "../src/host.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
@@ -20,7 +22,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { testServices } from "./helpers/services.ts";
 import { servedServices } from "./helpers/daemon-state.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
-import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { HARNESS_SESSION_ENV } from "../src/shared/session-env.ts";
 import { errorMessage, isRecord } from "../src/util.ts";
 import { sql } from "drizzle-orm";
 import { recordAgentStatus } from "../src/presence/store.ts";
@@ -66,7 +68,7 @@ function testTarget(id: string): { key: string; space: string } {
 /** A registered agent in no space, alive through this runner's process. */
 function seedLiveAgent(root: OrchDir, key: string, harnessId = "pi"): void {
   ensureHarness(root, harnessId, harnessId, 1);
-  insertAgent(root, { id: key, name: key, spawnedBy: null, harnessId, cwd: root, createdAt: 1 });
+  insertAgent(root, { host: hostIdentity(), id: key, name: key, spawnedBy: null, harnessId, cwd: root, createdAt: 1 });
   seedLiveProcess(root, key);
 }
 
@@ -113,7 +115,7 @@ describe("commands/results", () => {
     seedLiveAgent(root, key);
     const askedAt = Date.parse("2026-09-11T00:00:00.000Z");
     try {
-      const output = await captureStdoutAsync(() => withQuestionsServer(root, [{ questionId: "q1", agentId: key, key, name: "question-agent", question: "need input", askedAt }], async () => {
+      const output = await captureStdoutAsync(() => withQuestionsServer(root, [{ host: hostIdentity(), questionId: "q1", agentId: key, key, name: "question-agent", question: "need input", askedAt }], async () => {
         await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all", "--json"]);
       }));
       const parsed: unknown = JSON.parse(output);
@@ -134,14 +136,14 @@ describe("commands/results", () => {
     try {
       const output = await captureStdoutAsync(async () => {
         await withQuestionsServer(root, [
-          { questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
+          { host: hostIdentity(), questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
         ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all", "--json"]); });
       });
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live" })]);
       const text = await captureStdoutAsync(async () => {
         await withQuestionsServer(root, [
-          { questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
+          { host: hostIdentity(), questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
         ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all"]); });
       });
       expect(text).toMatch(/^-  \S+\nlive\n$/);
@@ -181,7 +183,7 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     seedAgent(root, key, space);
-    recordAgentStatus(root, key, { state: "done" }, Date.now());
+    recordAgentStatus(root, placeHere(root, key), { state: "done" }, Date.now());
     upsertRun(root, { dispatchId: "result-dispatch-42", agentKey: key, state: "done", startedAt: Date.now(), result: "finished" });
     const output: string[] = [];
     // eslint-disable-next-line typescript/unbound-method
@@ -202,7 +204,7 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     seedAgent(root, key, space);
-    recordAgentStatus(root, key, { state: "done", dispatchId: "result-ended-46", lastText: "done: src/a.ts, verify clean" }, Date.now());
+    recordAgentStatus(root, placeHere(root, key), { state: "done", dispatchId: "result-ended-46", lastText: "done: src/a.ts, verify clean" }, Date.now());
     upsertRun(root, { dispatchId: "result-ended-46", agentKey: key, state: "done", startedAt: Date.now() });
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
@@ -219,7 +221,7 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     seedAgent(root, key, space);
-    recordAgentStatus(root, key, { state: "working", dispatchId: "result-running-47", lastText: "halfway" }, Date.now());
+    recordAgentStatus(root, placeHere(root, key), { state: "working", dispatchId: "result-running-47", lastText: "halfway" }, Date.now());
     upsertRun(root, { dispatchId: "result-running-47", agentKey: key, state: "working", startedAt: Date.now() });
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
@@ -237,7 +239,7 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     seedAgent(root, key, space);
-    recordAgentStatus(root, key, { state: "done" }, Date.now());
+    recordAgentStatus(root, placeHere(root, key), { state: "done" }, Date.now());
     const startedAt = Date.now();
     upsertRun(root, { dispatchId: "result-history-first", agentKey: key, state: "done", startedAt, result: "first dispatch" });
     upsertRun(root, { dispatchId: "result-history-second", agentKey: key, state: "done", startedAt: startedAt + 1, result: "second dispatch" });
@@ -261,7 +263,7 @@ describe("commands/results", () => {
     const session = join(dir, "session.jsonl");
     writeFileSync(session, JSON.stringify({ type: "message", message: { role: "assistant", content: "session final" } }) + "\n");
     seedAgent(root, key, space, "pi");
-    recordAgentStatus(root, key, { state: "done", sessionPath: session }, Date.now());
+    recordAgentStatus(root, placeHere(root, key), { state: "done", sessionPath: session }, Date.now());
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
       expect(await captureStdoutAsync(() => cmdResult(services, [key]))).toContain("(no reported result - read from the harness session)\nsession final\n");
@@ -277,7 +279,7 @@ describe("commands/results", () => {
     process.env.ORCH_DIR = root;
     seedSettings(root);
     seedAgent(root, key, space);
-    recordAgentStatus(root, key, { state: "done" }, Date.now());
+    recordAgentStatus(root, placeHere(root, key), { state: "done" }, Date.now());
     upsertRun(root, { dispatchId: "result-no-agent-44", agentKey: key, state: "done", startedAt: Date.now(), result: "finished without agent" });
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
@@ -297,7 +299,7 @@ describe("commands/results", () => {
     try {
       for (const [index, key] of targets.entries()) {
         seedAgent(root, key, "test");
-        recordAgentStatus(root, key, { state: "done" }, Date.now());
+        recordAgentStatus(root, placeHere(root, key), { state: "done" }, Date.now());
         upsertRun(root, { dispatchId: `result-many-${index}`, agentKey: key, state: "done", startedAt: Date.now(), result: `result-${index}` });
       }
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
@@ -320,7 +322,7 @@ describe("commands/results", () => {
     try {
       for (const [index, key] of targets.entries()) {
         seedAgent(root, key, "test");
-        recordAgentStatus(root, key, { state: "done" }, Date.now());
+        recordAgentStatus(root, placeHere(root, key), { state: "done" }, Date.now());
         upsertRun(root, { dispatchId: `result-json-${index}`, agentKey: key, state: "done", startedAt: Date.now(), result: `json-${index}` });
       }
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
@@ -345,7 +347,7 @@ describe("commands/results", () => {
     const known = "resultkn01";
     const missing = "resultms01";
     seedAgent(root, known, "test");
-    recordAgentStatus(root, known, { state: "done" }, Date.now());
+    recordAgentStatus(root, placeHere(root, known), { state: "done" }, Date.now());
     upsertRun(root, { dispatchId: "result-known-01", agentKey: known, state: "done", startedAt: Date.now(), result: "known-result" });
     process.exitCode = 0;
     try {
@@ -376,7 +378,7 @@ describe("commands/results", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "" }, { type: "text", text: "claude final" }] } }),
     ].join("\n") + "\n");
     seedAgent(root, key, space, "claude");
-    recordAgentStatus(root, key, { state: "done", sessionPath: transcript }, Date.now());
+    recordAgentStatus(root, placeHere(root, key), { state: "done", sessionPath: transcript }, Date.now());
     let joined = "";
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);
@@ -404,7 +406,7 @@ describe("commands/results", () => {
       JSON.stringify({ type: "message", timestamp: "2026-07-20T10:00:04Z", message: { role: "assistant", content: [{ type: "text", text: "final answer" }] } }),
     ].join("\n") + "\n");
     seedAgent(root, key, space);
-    recordAgentStatus(root, key, { state: "done", sessionPath: session }, Date.now());
+    recordAgentStatus(root, placeHere(root, key), { state: "done", sessionPath: session }, Date.now());
     return { root, key, restore: () => { if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old; removeTempDir(root); } };
   }
 
@@ -455,7 +457,7 @@ describe("commands/results", () => {
     const transcript = join(dir, "session.jsonl");
     writeFileSync(transcript, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "claude only" }] } }) + "\n");
     seedAgent(root, key, space, "claude");
-    recordAgentStatus(root, key, { state: "done", sessionPath: transcript }, Date.now());
+    recordAgentStatus(root, placeHere(root, key), { state: "done", sessionPath: transcript }, Date.now());
     let joined = "";
     try {
       const services = await servedServices({ orchDir: root, settings: SETTINGS_FIXTURE }, servers);

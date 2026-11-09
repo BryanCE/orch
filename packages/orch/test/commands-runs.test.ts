@@ -1,3 +1,5 @@
+import { placeHere } from "../src/process-place.ts";
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -18,7 +20,7 @@ import { sql } from "drizzle-orm";
 import { servedServices } from "./helpers/daemon-state.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { captureStdout } from "./helpers/stdout.ts";
-import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { HARNESS_SESSION_ENV } from "../src/shared/session-env.ts";
 import { isolateHarnessSession } from "./helpers/env.ts";
 
 let restoreHarnessSession: (() => void) | undefined;
@@ -61,10 +63,10 @@ function seedPresence(root: OrchDir, key: string): void {
   const dir = presenceAgentDir(key, root);
   mkdirSync(dir, { recursive: true });
   ensureHarness(root, "pi", "pi", 1);
-  insertAgent(root, { id: key, name: key, spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 1 });
+  insertAgent(root, { host: hostIdentity(), id: key, name: key, spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 1 });
   orm(root).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${"runs"}, ${"runs"}, ${1})`);
   setSpace(root, key, 1, "runs");
-  setHandle(root, key, 1, key);
+  setHandle(root, placeHere(root, key), 1, key);
   writeFileSync(join(dir, "status.json"), JSON.stringify({
     schema: PRESENCE_SCHEMA, key, pid: process.pid, agent: "pi", state: "done",
   }));

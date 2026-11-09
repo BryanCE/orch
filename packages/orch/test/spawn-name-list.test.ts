@@ -4,7 +4,7 @@ import { parseSpawnFlags } from "../src/commands/spawn/flags.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { loadPresence, spawnedRecords } from "../src/presence/store.ts";
-import { indexPresenceById } from "../src/entities/lookup.ts";
+import { indexPresenceById } from "../src/shared/lookup.ts";
 import { parseCommand } from "../src/commands/registry.ts";
 import { UsageError } from "../src/cli/spec.ts";
 

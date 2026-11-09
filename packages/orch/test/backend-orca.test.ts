@@ -3,7 +3,7 @@ import { OrcaBackend } from "../src/backends/orca/index.ts";
 import { orcaBinary } from "../src/backends/orca/cli.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import type { OrcaExecutor, OrcaTerminal } from "../src/types/plexer.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";

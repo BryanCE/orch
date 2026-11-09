@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
@@ -20,7 +21,7 @@ function tempDir(): OrchDir {
 
 function seedDeadAgent(orchDir: OrchDir, key: string, facts: { name: string; cwd: string; updatedAt?: number }): void {
   seedAgent(key, { adapter: "pi", cwd: facts.cwd, name: facts.name }, orchDir);
-  recordAgentStatus(orchDir, key, { state: "done", project: basename(facts.cwd) }, facts.updatedAt ?? Date.now());
+  recordAgentStatus(orchDir, placeHere(orchDir, key), { state: "done", project: basename(facts.cwd) }, facts.updatedAt ?? Date.now());
 }
 
 function deadResult(results: CheckResult[]): CheckResult {

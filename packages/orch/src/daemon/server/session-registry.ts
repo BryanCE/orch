@@ -5,7 +5,7 @@ import { OPERATOR_HARNESS_ID } from "../../identity/operator.ts";
 import { orphanAgents } from "../../policy/orphan.ts";
 import { freshStartToken } from "../../process-identity.ts";
 import { placeProcess, processIsLiveNow } from "../../process-place.ts";
-import { versionInRange } from "../../backends/versions.ts";
+import { versionInRange } from "../../shared/versions.ts";
 import { getBackend } from "../../backends/registry.ts";
 import type { HostIdentity } from "../../types/host.ts";
 import type { HostedProcess, ProcessPlace } from "../../types/process.ts";

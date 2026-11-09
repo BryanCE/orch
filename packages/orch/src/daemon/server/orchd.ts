@@ -29,7 +29,7 @@ import { errorMessage, errorTrace } from "../../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { drainOutbox, redeliverOpenRows } from "./outbox.ts";
-import { isAgentId } from "../../backends/identity.ts";
+import { isAgentId } from "../../shared/agent-id.ts";
 import { LAUNCH_ENV, readLaunchCredential } from "../../identity/launch.ts";
 import { refreshAdapterCatalogues, warmAdapterCatalogues } from "../../adapters/registry.ts";
 import type { NotifyEvent } from "../../types/notify.ts";

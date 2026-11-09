@@ -3,12 +3,16 @@
 import { bootCodeHash, startedAt, fleetStatus } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import { answer, dispatch, message, steer } from "./write.ts";
-import { applyLifecycle, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
+import { clearSession, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
 import { adopt, detach, orphans, reap, reapCandidateList, rename } from "./lease.ts";
 import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
 import { admitHome, decideGrant, listGrants } from "./grant.ts";
-import { checkHost, forgetHost, readAgentAnywhere } from "./host.ts";
+import { agentReaderOf, checkHost, forgetHost, readAgentAnywhere } from "./host.ts";
 import { abortAnywhere, closeAnywhere, peerDrive } from "./drive.ts";
+import { paneAnywhere } from "./pane.ts";
+import { adoptAgent } from "./adopt.ts";
+import { applyLifecycle } from "./relaunch.ts";
+import { waitAnywhere } from "./wait.ts";
 import { lockCommand, unlockCommand } from "./command-lock.ts";
 import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, takeOnQueued } from "./queue.ts";
 import { cleanStore } from "./clean.ts";
@@ -20,6 +24,7 @@ import { ownedAgents } from "./owned.ts";
 import { reexecSelf } from "../../client/process.ts";
 import { publishFromOrchd } from "../events.ts";
 import { acceptPromptReport, acceptResultReport, acceptStatusReport } from "../status-report.ts";
+import { eventHost } from "../status-events.ts";
 import { insertControlOutcome } from "../../../store/control-outcome-rows.ts";
 import { appendOutcome } from "../../../presence/history.ts";
 import { settleControlOutcome } from "../../../control/outcome.ts";
@@ -82,11 +87,11 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       const { newState } = event;
       const display = services.settings.current().notification;
       if (newState === "asking") {
-        const composed: NotifyEvent = { ...event, type: "asking", newState: "asking", askCount: 1, gaveUp: false };
+        const composed: NotifyEvent = { ...event, host: eventHost(directory, event.key), type: "asking", newState: "asking", askCount: 1, gaveUp: false };
         activePaneHud(event.key, directory).notify(composed, display);
         return { ok: true };
       }
-      const composed: NotifyEvent = { ...event, type: "transition", newState };
+      const composed: NotifyEvent = { ...event, host: eventHost(directory, event.key), type: "transition", newState };
       activePaneHud(event.key, directory).notify(composed, display);
       return { ok: true };
     },
@@ -107,6 +112,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "spawn-headless": governed(state, (params, _emit, context) => spawnHeadless(state, params, context.peer)),
     "set-model": governed(state, (params) => setModel(state, params)),
     lifecycle: governed(state, (params) => applyLifecycle(state, params)),
+    "clear-session": governed(state, (params) => clearSession(state, params)),
     abort: governed(state, (params) => abortAnywhere(state, params)),
     "agent-closed": governed(state, async (params) => {
       const closed = await closeAnywhere(state, params);
@@ -114,6 +120,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       return closed;
     }),
     "register-agent": governed(state, (params) => registerAgent(directory, params)),
+    "adopt-agent": governed(state, (params) => adoptAgent(state, params)),
     detach: governed(state, (params) => detach(state, params)),
     adopt: governed(state, (params) => adopt(state, params)),
     rename: governed(state, (params) => rename(state, params)),
@@ -134,8 +141,14 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "host-check": (params) => checkHost(state, params),
     "host-forget": (params) => forgetHost(state, params),
     "agent-read": (params) => readAgentAnywhere(state, params),
+    "agent-pane": governed(state, (params) => paneAnywhere(state, params)),
+    "agent-wait": (params) => waitAnywhere(state, params),
+    "settings-reload": () => {
+      state.settingsWatch?.reload();
+      return { ok: true };
+    },
     ...screenHandlers(state, () => state.held),
-    ...peerHandlers(hostIdentity, directory, services.logger),
+    ...peerHandlers(hostIdentity, agentReaderOf(state)),
     "peer-drive": (params, _emit, context) => peerDrive(state, params, context),
     grant: governed(state, (params) => decideGrant(directory, params)),
     "admit-home": governed(state, (params) => admitHome(directory, params)),

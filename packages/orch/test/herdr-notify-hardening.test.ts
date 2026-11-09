@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
@@ -66,7 +67,7 @@ const adapter = makeFakeAdapter({
 type TransitionEvent = Extract<NotifyEvent, { type: "transition" }>;
 
 function event(overrides: Partial<TransitionEvent> = {}): NotifyEvent {
-  const base: TransitionEvent = {
+  const base: TransitionEvent = { host: hostIdentity(),
     key: "p9",
     agent: null,
     tab: null,

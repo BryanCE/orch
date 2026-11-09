@@ -3,7 +3,7 @@ import type { Logger, OrchDir, TokenTotals } from "./core.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { CheckResult } from "./doctor.ts";
 import type { OrchSettings } from "./settings.ts";
-import type { BridgeAction } from "../control/bridge-message.ts";
+import type { BridgeAction } from "../shared/bridge-message.ts";
 import type { HostOs } from "./host.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */

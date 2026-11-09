@@ -55,7 +55,7 @@ interface NotificationPayload {
   body: string;
   space: string;
   spaceColor: string;
-  host: string | null;
+  host: string;
   key: string;
   agent: string | null;
   /** Human/registry display name. */
@@ -82,7 +82,7 @@ function notificationPayload(event: NotifyEvent, summaryChars: number): Notifica
     body,
     space,
     spaceColor: spaceColor(space),
-    host: event.host ?? null,
+    host: event.host.name,
     key: event.key,
     agent: eventAgent(event, space),
     name: event.name ?? null,

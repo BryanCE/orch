@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
 
@@ -65,9 +66,9 @@ describe("session agent visibility", () => {
     process.env.PI_SESSION_ID = "session-token";
     writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     ensureHarness(root, "pi", "pi", 1);
-    insertAgent(root, { id: "sessionaaa", name: "session", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 1 });
-    insertAgent(root, { id: "foreignaaa", name: "foreign", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 2 });
-    insertAgent(root, { id: "holderaaa", name: "holder", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 3 });
+    insertAgent(root, { host: hostIdentity(), id: "sessionaaa", name: "session", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 1 });
+    insertAgent(root, { host: hostIdentity(), id: "foreignaaa", name: "foreign", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 2 });
+    insertAgent(root, { host: hostIdentity(), id: "holderaaa", name: "holder", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 3 });
     orm(root).update(agents).set({ sessionToken: "session-token" }).where(eq(agents.id, "sessionaaa")).run();
     acquireLease(root, "foreignaaa", "holderaaa", 4);
     const served = await servedServices({ orchDir: root, settings: SETTINGS }, servers);
@@ -94,9 +95,9 @@ describe("session agent visibility", () => {
     process.env.PI_SESSION_ID = "session-token";
     writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     ensureHarness(root, "pi", "pi", 1);
-    insertAgent(root, { id: "sessionaaa", name: "session", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 1 });
-    insertAgent(root, { id: "foreignaaa", name: "foreign", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 2 });
-    insertAgent(root, { id: "holderaaa", name: "holder", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 3 });
+    insertAgent(root, { host: hostIdentity(), id: "sessionaaa", name: "session", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 1 });
+    insertAgent(root, { host: hostIdentity(), id: "foreignaaa", name: "foreign", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 2 });
+    insertAgent(root, { host: hostIdentity(), id: "holderaaa", name: "holder", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 3 });
     orm(root).update(agents).set({ sessionToken: "session-token" }).where(eq(agents.id, "sessionaaa")).run();
     acquireLease(root, "foreignaaa", "holderaaa", 4);
     upsertRun(root, { dispatchId: "foreign-run", agentKey: "foreignaaa", state: "done", startedAt: 5 });
@@ -115,14 +116,17 @@ describe("session agent visibility", () => {
 
   test.serial("a session cannot widen status with --all", async () => {
     const root = tempOrchDir("orch-session-status-");
+    const oldDir = process.env.ORCH_DIR;
     const oldMarker = process.env.PI_CODING_AGENT;
     const oldSession = process.env.PI_SESSION_ID;
+    process.env.ORCH_DIR = root;
     process.env.PI_CODING_AGENT = "1";
     delete process.env.PI_SESSION_ID;
     try {
+      const served = await servedServices({ orchDir: root, settings: SETTINGS }, servers);
       let failure: unknown;
       try {
-        await cmdStatus(services(root), parseStatusOptions(["--offline", "--all"]));
+        await cmdStatus(served, parseStatusOptions(["--all"]));
       } catch (error: unknown) {
         failure = error;
       }
@@ -130,6 +134,8 @@ describe("session agent visibility", () => {
         "--all is operator-only: a driving session may only touch agents it holds.",
       );
     } finally {
+      while (servers.length) await servers.pop()!.close();
+      if (oldDir === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = oldDir;
       if (oldMarker === undefined) delete process.env.PI_CODING_AGENT; else process.env.PI_CODING_AGENT = oldMarker;
       if (oldSession === undefined) delete process.env.PI_SESSION_ID; else process.env.PI_SESSION_ID = oldSession;
       removeTempDir(root);
@@ -146,10 +152,10 @@ describe("session agent visibility", () => {
     process.env.PI_SESSION_ID = "session-token";
     writeSettingsFixture(root, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     ensureHarness(root, "pi", "pi", 1);
-    insertAgent(root, { id: "sesshold1a", name: "session", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 1 });
-    insertAgent(root, { id: "heldagent1", name: "held-one", spawnedBy: "sesshold1a", harnessId: "pi", cwd: root, createdAt: 2 });
-    insertAgent(root, { id: "foreigntag1", name: "foreign", spawnedBy: "sesshold1a", harnessId: "pi", cwd: root, createdAt: 3 });
-    insertAgent(root, { id: "otherhold1a", name: "other", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 4 });
+    insertAgent(root, { host: hostIdentity(), id: "sesshold1a", name: "session", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 1 });
+    insertAgent(root, { host: hostIdentity(), id: "heldagent1", name: "held-one", spawnedBy: "sesshold1a", harnessId: "pi", cwd: root, createdAt: 2 });
+    insertAgent(root, { host: hostIdentity(), id: "foreigntag1", name: "foreign", spawnedBy: "sesshold1a", harnessId: "pi", cwd: root, createdAt: 3 });
+    insertAgent(root, { host: hostIdentity(), id: "otherhold1a", name: "other", spawnedBy: null, harnessId: "pi", cwd: root, createdAt: 4 });
     orm(root).update(agents).set({ sessionToken: "session-token" }).where(eq(agents.id, "sesshold1a")).run();
     acquireLease(root, "heldagent1", "sesshold1a", 4);
     acquireLease(root, "foreigntag1", "otherhold1a", 5);

@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cmdRename } from "../src/commands/lifecycle/rename.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { HARNESS_SESSION_ENV } from "../src/shared/session-env.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { orm } from "../src/store/connection.ts";

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 
 /**
  * Four facts never welded — identity, provenance, lease, environment. Never
@@ -19,7 +19,7 @@ import { mintAgentId } from "../src/backends/identity.ts";
 
 /** The module with its prose stripped. A doc comment explaining why a sentinel
  *  is forbidden must not read as that sentinel being used. */
-const CODE = readFileSync(new URL("../src/backends/identity.ts", import.meta.url), "utf8")
+const CODE = readFileSync(new URL("../src/shared/agent-id.ts", import.meta.url), "utf8")
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .replace(/\/\/.*$/gm, "");
 

@@ -1,7 +1,7 @@
 // orch's own grouping, written by orchd. A space is user-created, optional and
 // named by orch; a plexer may additionally HOLD it as a home. The plexer action
 // runs in the caller's session; the rows that record it are written here.
-import { mintAgentId } from "../../../backends/identity.ts";
+import { mintAgentId } from "../../../shared/agent-id.ts";
 import { clearHome, homeHandle, recordHome } from "../../../store/home-rows.ts";
 import { spendGrant } from "../../../store/grant-rows.ts";
 import { withTransaction } from "../../../store/connection.ts";

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import { errorMessage, pidAlive } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
-import { environmentStamp } from "../../agent/environment.ts";
+import { environmentStamp } from "../../shared/environment.ts";
 
 /** A detached agent has no pane: no labels to read, no blocked signal to relay. */
 const HEADLESS_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: null });
@@ -11,8 +11,8 @@ import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { LocalProcessRole, signalOtherProcess } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
-import { hostIdentity } from "../../host.ts";
 import { unplacedRegistration } from "../registration.ts";
+import { hostedHere } from "../../local-process.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole, LocalProcess } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
@@ -163,7 +163,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** Start the agent and record it in this orch dir's store. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HeadlessHandle {
     const launched = this.launch(adapter, opts);
-    registerSpawnedAgent(orchDirectory(opts.orchDir), unplacedRegistration(HEADLESS_BACKEND, adapter.id, launched.handle.key, opts, { handle: JSON.stringify(launched.handle), process: launched.process }, hostIdentity()));
+    registerSpawnedAgent(orchDirectory(opts.orchDir), unplacedRegistration(HEADLESS_BACKEND, adapter.id, launched.handle.key, opts, { handle: JSON.stringify(launched.handle), process: hostedHere(launched.process.pid, launched.process.startToken) }));
     return launched.handle;
   }
 

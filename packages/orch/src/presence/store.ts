@@ -7,24 +7,24 @@ import { join } from "node:path";
 // harness shims can bundle it without dragging in the sqlite graph.
 import { presenceRoot } from "./history.ts";
 import { agentView, agentViewIndex, agentViews, liveViews, onAgentRefreshed, refreshAgent } from "../store/agent-view.ts";
-import { isAgentId } from "../backends/identity.ts";
+import { isAgentId } from "../shared/agent-id.ts";
 import { eq, isNotNull } from "drizzle-orm";
 import { orm, registerMemoReset } from "../store/connection.ts";
 import { closeOutboxForTarget, selectOpenOutboxTargets } from "../store/outbox-rows.ts";
 import { forgetEchoes } from "../control/echo.ts";
 import { deleteSettledTasksOf } from "../store/task-rows.ts";
 import { deleteGrantsOf } from "../store/grant-rows.ts";
-import { currentProcess, currentProcesses, type StoredProcess } from "../store/interval-rows.ts";
-import { hostedAgentLiveness, placeProcess, processLiveness } from "../process-place.ts";
+import { agentLocations, currentProcess, currentProcesses, type StoredProcess } from "../store/interval-rows.ts";
+import { placeAgentIfAny, placeLocation, placedLiveness } from "../process-place.ts";
 import { linkedHosts } from "../store/host-rows.ts";
-import { agentHostIndex, hostOfAgent, originOf } from "../store/agent-rows.ts";
+import { originOf } from "../store/agent-rows.ts";
 import { agents } from "../db/schema.ts";
 import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../store/status-rows.ts";
 import { latestResultTexts, onRunUpserted, settledDispatchIds } from "../store/run-rows.ts";
 import type { AgentView } from "../types/store.ts";
 import type { OrchDir } from "../types/core.ts";
-import type { HostId } from "../types/host.ts";
-import type { Liveness, PresenceEntry, StatusPatch } from "../types/presence.ts";
+import type { AgentPlace, HereAgent } from "../types/agent-place.ts";
+import type { Liveness, PlaceFreeStatusPatch, PresenceEntry, StatusPatch } from "../types/presence.ts";
 
 export function presenceDir(root: OrchDir): string {
   return presenceRoot(root);
@@ -103,13 +103,13 @@ function spawnerIds(root: OrchDir): Set<string> {
     .where(isNotNull(agents.spawnedBy)).all().flatMap((row) => row.id === null ? [] : [row.id]));
 }
 
-/** Whether this orchd alone decides when an agent's rows go. Another host follows an agent
- *  that runs there (this row is its reference) and an agent it asked this host to run (its
- *  run records are read from here), so those rows stay after the agent ends, until a reap. */
+/** Whether this orchd alone decides when an agent's rows go: only an agent that runs here.
+ *  Another host follows an agent that runs there (this row is its reference) and an agent it
+ *  asked this host to run (its run records are read from here), so those rows stay after the
+ *  agent ends, until a reap. */
 function reapedHere(root: OrchDir, agentId: string): boolean {
-  if (originOf(root, agentId) !== null || hostOfAgent(root, agentId) !== null) return false;
-  const process = currentProcess(root, agentId);
-  return process === undefined || placeProcess(root, process).kind === "local";
+  if (originOf(root, agentId) !== null) return false;
+  return placeAgentIfAny(root, agentId)?.kind === "here";
 }
 
 /** Delete the rows of every agent whose process is gone, children before
@@ -222,9 +222,10 @@ interface HeldPresence {
   readonly statuses: Map<string, AgentStatusRow>;
   readonly results: Map<string, string>;
   readonly settled: Set<string>;
+  /** Where every agent runs. */
+  readonly places: Map<string, AgentPlace>;
+  /** The open process of every agent that runs here. Only those have one. */
   readonly processes: Map<string, StoredProcess>;
-  /** The agents another host runs for this orchd, with that host. None has a process here. */
-  readonly hosted: Map<string, HostId>;
   readonly liveness: Map<string, Liveness>;
 }
 
@@ -234,32 +235,38 @@ registerMemoReset(() => held.clear());
 function heldPresence(root: OrchDir): HeldPresence {
   const existing = held.get(root);
   if (existing) return existing;
-  const processes = currentProcesses(root);
-  const hosted = agentHostIndex(root);
   const linked = linkedHosts(root);
+  const places = new Map([...agentLocations(root)].map(([agentId, location]) => [agentId, placeLocation(agentId, location, linked)]));
+  const recorded = currentProcesses(root);
+  const processes = new Map<string, StoredProcess>();
   const liveness = new Map<string, Liveness>();
-  for (const [agentId, process] of processes) liveness.set(agentId, processLiveness(root, process, linked));
-  for (const [agentId, host] of hosted) liveness.set(agentId, hostedAgentLiveness(root, host));
+  for (const [agentId, place] of places) {
+    const process = place.kind === "here" ? recorded.get(agentId) : undefined;
+    if (process !== undefined) processes.set(agentId, process);
+    liveness.set(agentId, placedLiveness(root, place, process, linked));
+  }
   const presence: HeldPresence = {
     statuses: new Map(selectAgentStatuses(root).map((row) => [row.agentId, row])),
     results: latestResultTexts(root),
     settled: settledDispatchIds(root),
+    places,
     processes,
-    hosted,
     liveness,
   };
   held.set(root, presence);
   return presence;
 }
 
-/** An ended agent is dead. A live one reads what was last learned of it; an agent with no
- *  process here is dead only when it runs here, since one another host runs never has one. */
+/** An ended agent is dead. A live one reads what was last learned of it where it runs. Every
+ *  agent row is placed as it is written (`refreshProcess`), so a live one always has a liveness. */
 function entryFor(view: AgentView, current: HeldPresence): PresenceEntry {
+  const liveness = current.liveness.get(view.id);
+  if (view.endedAt === null && liveness === undefined) throw new Error(`orch: agent ${view.id} was never placed`);
   return {
     key: view.id,
     status: current.statuses.get(view.id) ?? null,
     result: current.results.get(view.id) ?? null,
-    liveness: view.endedAt === null ? current.liveness.get(view.id) ?? (current.hosted.has(view.id) ? "unknown" : "dead") : "dead",
+    liveness: view.endedAt === null && liveness !== undefined ? liveness : "dead",
   };
 }
 
@@ -277,12 +284,27 @@ export function presenceEntry(root: OrchDir, agentId: string): PresenceEntry | u
   return entryFor(view, heldPresence(root));
 }
 
+/** Record a status an agent here reported about itself, machine fields included. */
 export function recordAgentStatus(
   root: OrchDir,
-  agentId: string,
+  agent: HereAgent,
   patch: StatusPatch,
   now: number,
 ): { previous: AgentStatusRow | undefined; current: AgentStatusRow } {
+  return writeStatus(root, agent.id, patch, now);
+}
+
+/** Record a status that names no machine, for an agent wherever it runs. */
+export function recordAgentState(
+  root: OrchDir,
+  agentId: string,
+  patch: PlaceFreeStatusPatch,
+  now: number,
+): { previous: AgentStatusRow | undefined; current: AgentStatusRow } {
+  return writeStatus(root, agentId, patch, now);
+}
+
+function writeStatus(root: OrchDir, agentId: string, patch: StatusPatch, now: number): { previous: AgentStatusRow | undefined; current: AgentStatusRow } {
   const previous = heldPresence(root).statuses.get(agentId);
   const current = mergeAgentStatus(root, agentId, previous, patch, now);
   patchStatus(root, current);
@@ -300,32 +322,24 @@ export function runIsSettled(root: OrchDir, dispatchId: string): boolean {
 export function refreshProcess(root: OrchDir, agentId: string): void {
   const current = held.get(root);
   if (!current) return;
-  if (agentView(root, agentId) === null) {
+  const place = agentView(root, agentId) === null ? null : placeAgentIfAny(root, agentId);
+  if (place === null) {
     current.statuses.delete(agentId);
     current.results.delete(agentId);
+    current.places.delete(agentId);
     current.processes.delete(agentId);
-    current.hosted.delete(agentId);
     current.liveness.delete(agentId);
     return;
   }
-  const host = hostOfAgent(root, agentId);
-  if (host !== null) {
-    current.hosted.set(agentId, host);
-    current.liveness.set(agentId, hostedAgentLiveness(root, host));
-    return;
-  }
-  const process = currentProcess(root, agentId);
-  if (process === undefined) {
-    current.processes.delete(agentId);
-    current.liveness.set(agentId, "dead");
-    return;
-  }
-  current.processes.set(agentId, process);
-  current.liveness.set(agentId, processLiveness(root, process));
+  const process = place.kind === "here" ? currentProcess(root, place.agent) : undefined;
+  current.places.set(agentId, place);
+  if (process === undefined) current.processes.delete(agentId);
+  else current.processes.set(agentId, process);
+  current.liveness.set(agentId, placedLiveness(root, place, process));
 }
 
-/** Re-ask about every held agent: its process from the OS here, an agent another host runs
- *  from that host's link. True when any agent's liveness changed. */
+/** Re-ask about every held agent: one here from its process, one on another host from that
+ *  host's link. True when any agent's liveness changed. */
 export function probeAllProcesses(root: OrchDir): boolean {
   const current = held.get(root);
   if (!current) return false;
@@ -335,8 +349,7 @@ export function probeAllProcesses(root: OrchDir): boolean {
     if (current.liveness.get(agentId) !== liveness) changed = true;
     current.liveness.set(agentId, liveness);
   };
-  for (const [agentId, process] of current.processes) settle(agentId, processLiveness(root, process, linked));
-  for (const [agentId, host] of current.hosted) settle(agentId, hostedAgentLiveness(root, host));
+  for (const [agentId, place] of current.places) settle(agentId, placedLiveness(root, place, current.processes.get(agentId), linked));
   return changed;
 }
 

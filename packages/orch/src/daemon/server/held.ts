@@ -11,6 +11,7 @@
  * - `has(key)` says whether a PTY is held under the key.
  * - `snapshot(key)` is the screen plus up to `pty.scrollback_lines` of scrollback, as escape
  *   sequences that redraw it on an empty terminal.
+ * - `text(key, lines)` is the last `lines` lines of the screen and scrollback as plain text.
  * - `subscribe(key, onData, onExit)` follows the output from exactly where the current
  *   snapshot ends: a chunk reaches subscribers only once the terminal has taken it, so a
  *   snapshot taken and a subscription made in the same tick neither miss nor repeat a byte.
@@ -84,6 +85,13 @@ export class PtyHold implements PtyHolder {
 
   snapshot(key: string): string {
     return this.entry(key).serializer.serialize({ scrollback: this.settings().scrollback_lines });
+  }
+
+  text(key: string, lines: number): string {
+    const buffer = this.entry(key).terminal.buffer.active;
+    const shown: string[] = [];
+    for (let row = Math.max(0, buffer.length - lines); row < buffer.length; row++) shown.push(buffer.getLine(row)?.translateToString(true) ?? "");
+    return shown.join("\n");
   }
 
   subscribe(key: string, onData: (data: string) => void, onExit: (exit: PtyExit) => void): () => void {

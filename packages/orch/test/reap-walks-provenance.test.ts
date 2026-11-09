@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores, orm } from "../src/store/connection.ts";
@@ -26,9 +27,9 @@ function fixture(): OrchDir {
   const d = tempOrchDir("orch-reap-provenance-");
   dirs.push(d);
   orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
-  insertAgent(d, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
-  insertAgent(d, { id: "child", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "child", createdAt: 2 });
-  insertAgent(d, { id: "grand", spawnedBy: "child", harnessId: "pi", cwd: "/repo", name: "grand", createdAt: 3 });
+  insertAgent(d, { host: hostIdentity(), id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
+  insertAgent(d, { host: hostIdentity(), id: "child", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "child", createdAt: 2 });
+  insertAgent(d, { host: hostIdentity(), id: "grand", spawnedBy: "child", harnessId: "pi", cwd: "/repo", name: "grand", createdAt: 3 });
   return d;
 }
 

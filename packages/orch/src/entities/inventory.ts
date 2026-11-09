@@ -6,7 +6,9 @@ import type { Backend, BackendTarget } from "../types/backend.ts";
 import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchSettings } from "../types/settings.ts";
-import { viewForKey, addressOf, indexPresenceById } from "./lookup.ts";
+import { viewForKey, addressOf, indexPresenceById } from "../shared/lookup.ts";
+import { hostIdentity } from "../host.ts";
+import type { HostIdentity } from "../types/host.ts";
 
 /** The fleet as one read: every agent by id, the presence that names it, and
  *  what each reachable plexer says it still holds. */
@@ -64,7 +66,14 @@ function entityFromBackendTarget(
     // here is exactly how `wF` got shown as a name the user had chosen. orch's
     // space is read from orch's own record or it is absent.
     space: view?.environment.space ?? null,
+    host: entityHost(view),
   };
+}
+
+/** Where an entity runs: its agent's host; a pane with no agent row was listed by this
+ *  machine's own plexer, so it is on this host. */
+function entityHost(view: AgentView | undefined): HostIdentity {
+  return view?.environment.host ?? hostIdentity();
 }
 
 function entitiesFromBackend(backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
@@ -103,6 +112,7 @@ function presenceOnlyEntity(entry: PresenceEntry, fleet: Fleet): Entity {
     presence: entry,
     presenceOnly: true,
     space: view?.environment.space ?? null,
+    host: entityHost(view),
   };
 }
 
@@ -146,6 +156,7 @@ function entitiesFromStore(fleet: Fleet, entities: Entity[]): Entity[] {
       sessionPath: null,
       presenceOnly: true,
       space,
+      host: view.environment.host,
     });
   }
   return found;

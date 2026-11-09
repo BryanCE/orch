@@ -53,7 +53,7 @@ export function selectEventsSince(orchDir: OrchDir, seq: number, limit: number, 
   const after = gt(events.seq, seq);
   const about = origin === undefined
     ? after
-    : and(after, inArray(sql`json_extract(${events.payload}, '$.key')`, orm(orchDir).select({ id: agentOrigins.agentId }).from(agentOrigins).where(eq(agentOrigins.hostId, origin))));
+    : and(after, inArray(sql`json_extract(${events.payload}, '$.key')`, orm(orchDir).select({ id: agentOrigins.agentId }).from(agentOrigins).where(eq(agentOrigins.askedByHostId, origin))));
   return orm(orchDir).select().from(events).where(about)
     .orderBy(asc(events.seq)).limit(limit).all().map(rowToStoredEvent);
 }

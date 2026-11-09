@@ -1,8 +1,10 @@
+import { hostIdentity } from "../src/host.ts";
+import { testHost } from "./helpers/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { renderStatusTable } from "../src/commands/status/table.ts";
-import { statusRowFromEntity } from "../src/commands/status/rows.ts";
-import { buildFleetStatus } from "../src/commands/status/offline.ts";
+import { statusRowFromEntity } from "../src/daemon/server/fleet-rows.ts";
+import { buildFleetStatus } from "../src/daemon/server/fleet-status.ts";
 import { fleetLeaseFacts } from "../src/agent/drive-state.ts";
 import { seedStatus, statusRow as presenceStatusRow } from "./helpers/presence.ts";
 import { fleetFixture, statusRowFixture } from "./helpers/status-row.ts";
@@ -29,7 +31,7 @@ function entityWithQuestion(): Entity {
   return {
     key: "agent00001", paneId: null, managed: true, name: "worker", tabLabel: null,
     agent: "pi", focused: false, backendStatus: null, backend: null, sessionPath: null,
-    presenceOnly: true, ended: false, space: null,
+    presenceOnly: true, ended: false, space: null, host: hostIdentity(),
     presence: {
       key: "agent00001", liveness: "alive", result: " finished  ",
       status: presenceStatusRow({ agentId: "agent00001", state: "asking", task: "Q: approve" }),
@@ -50,8 +52,8 @@ describe("status rendering has one row shape and one table renderer", () => {
   });
 
   test("local and remote rows share the renderer; remote adds only HOST", () => {
-    const local = row({ host: "local" });
-    const remote = row({ host: "remote" });
+    const local = row({ host: testHost("local") });
+    const remote = row({ host: testHost("remote") });
     const flags = { showSpace: false, showOwner: false, showBranch: false };
     const localTable = renderStatusTable(fleetFixture([local]), flags, { host: false, columns: new Set() });
     const remoteTable = renderStatusTable(fleetFixture([remote]), flags, { host: true, columns: new Set() });

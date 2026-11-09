@@ -1,4 +1,4 @@
-import { hostOs, isNixOs } from "../host.ts";
+import type { HostOs } from "../types/host.ts";
 import type { InstallCommands, Prerequisite } from "../types/adapter.ts";
 
 function posix(command: string): InstallCommands {
@@ -30,10 +30,11 @@ export function isRecommended(id: string): boolean {
   return PREREQUISITES[id]?.recommended === true;
 }
 
-/** The command that installs a tool on this host. NixOS users install through Nix, so they get none. */
-export function installCommand(id: string): string | null {
-  if (isNixOs()) return null;
-  return PREREQUISITES[id]?.install?.[hostOs()] ?? null;
+/** The command that installs a tool on this host. NixOS users install through Nix, so they get none.
+ *  The caller states the host it runs on: this module reads no host facts itself. */
+export function installCommand(id: string, nixos: boolean, os: HostOs): string | null {
+  if (nixos) return null;
+  return PREREQUISITES[id]?.install?.[os] ?? null;
 }
 
 /** The one command that re-picks a harness's default and allowlist after its catalogue changes. */

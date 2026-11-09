@@ -39,7 +39,7 @@ describe("daemon identity RPCs", () => {
   test("claim-identity stamps a minted id", async () => {
     const dir = tempDir();
     ensureHarness(dir, "pi", "pi", 1);
-    insertAgent(dir, { id: "agent-minted", name: "worker", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { host: hostIdentity(), id: "agent-minted", name: "worker", harnessId: "pi", cwd: dir, createdAt: 1 });
     servers.push(await startRpcServer(dir, stubRpcHandlers(), { logger: recordingLogger().logger }));
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
     const result = await rpcCall(dir, "claim-identity", { ...params(token, "session-a"), id: "agent-minted", sessionToken: "session-a" });

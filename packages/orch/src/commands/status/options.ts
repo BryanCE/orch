@@ -155,12 +155,11 @@ export function filterRowKeys(row: StatusRow, columns: ReadonlySet<string>): Par
   return visible;
 }
 
-/** `--agent=<target>`: one agent to show, whatever its state. orchd resolves it, so `--offline` cannot. */
-function readAgentTarget(invocation: CommandAt, given: string | undefined, offline: boolean): string | undefined {
+/** `--agent=<target>`: one agent to show, whatever its state. orchd resolves it. */
+function readAgentTarget(invocation: CommandAt, given: string | undefined): string | undefined {
   const target = given?.trim();
   if (target === undefined) return undefined;
   if (target.length === 0) throw usageError(invocation, "--agent needs a target, e.g. --agent=ctx-edges");
-  if (offline) throw usageError(invocation, "--agent resolves through orchd; drop --offline");
   return target;
 }
 
@@ -175,7 +174,6 @@ export interface StatusOptions {
   hide: StatusHide;
   /** The target named with `--agent`, still unresolved; undefined means the fleet. */
   agent?: string;
-  offline: boolean;
   live: boolean;
   capacity: boolean;
   space?: string;
@@ -185,7 +183,7 @@ export function parseStatusOptions(args: readonly string[]): StatusOptions {
   const invocation = parseCommand("status", args);
   const { flags, positional } = invocation;
   if (positional.length) throw usageError(invocation);
-  const agent = readAgentTarget(invocation, flags.value("--agent"), flags.has("--offline"));
+  const agent = readAgentTarget(invocation, flags.value("--agent"));
   const only = readNameList(invocation, "--only", flags.value("--only"));
   const space = flags.value("--space");
   return {
@@ -195,7 +193,6 @@ export function parseStatusOptions(args: readonly string[]): StatusOptions {
     only: only === null ? null : new Set(only),
     hide: statusHide(readNameList(invocation, "--hide", flags.value("--hide"))),
     ...(agent === undefined ? {} : { agent }),
-    offline: flags.has("--offline"),
     live: flags.has("--live"),
     capacity: flags.has("--capacity"),
     ...(space === undefined ? {} : { space }),

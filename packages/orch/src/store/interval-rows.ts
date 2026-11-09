@@ -2,9 +2,11 @@ import type { OrchDir } from "../types/core.ts";
 import { and, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction, type Orm } from "./connection.ts";
 import { refreshAgent } from "./agent-view.ts";
-import { agentHandles, agentPlexers, agentProcesses, agentSpaces, agentTunings } from "../db/schema.ts";
+import { agentHandles, agentHosts, agentPlexers, agentProcesses, agentSpaces, agentTunings, agentWorktrees } from "../db/schema.ts";
 import type { TuningValues } from "../types/store.ts";
-import type { HostedProcess } from "../types/process.ts";
+import type { HostedProcess, ProcessInstance } from "../types/process.ts";
+import type { AgentLocation, HereAgent } from "../types/agent-place.ts";
+import type { HostId } from "../types/host.ts";
 
 /**
  * The four axes an agent carries on its own timeline.
@@ -14,17 +16,16 @@ import type { HostedProcess } from "../types/process.ts";
  * intervals must meet exactly — an open row beside another is what the
  * `one_live_*` unique indexes refuse.
  */
-/** An agent's recorded process: where it runs, and since when orch recorded it. */
+/** An agent's recorded process: on the host its open `agent_hosts` row names, and since when
+ *  orch recorded it. The process row carries no host of its own: a process runs where its
+ *  agent runs. */
 export interface StoredProcess extends HostedProcess { readonly since: number }
 
-function storedProcessOf(row: typeof agentProcesses.$inferSelect): StoredProcess {
-  return { host: row.hostId, pid: row.pid, startToken: row.startToken, since: row.since };
-}
 export type HandleRow = typeof agentHandles.$inferSelect;
 export type AgentSpaceRow = typeof agentSpaces.$inferSelect;
 export type TuningRow = typeof agentTunings.$inferSelect;
 
-type IntervalTable = typeof agentProcesses | typeof agentHandles | typeof agentSpaces | typeof agentTunings;
+type IntervalTable = typeof agentHosts | typeof agentProcesses | typeof agentHandles | typeof agentSpaces | typeof agentTunings;
 
 /** Close the open row and answer the instant it closed at, which is where the
  *  next row opens. `until > since` forbids closing a row at its own start, so
@@ -39,32 +40,73 @@ function closeOpen(db: Orm, table: IntervalTable, agentId: string, now: number):
   return closesAt;
 }
 
-export function recordProcessIn(db: Orm, agentId: string, now: number, values: HostedProcess): void {
+/** Open the agent's first `agent_hosts` row, with its own row. */
+export function openLocationIn(db: Orm, agentId: string, since: number, host: HostId, cwd: string): void {
+  db.insert(agentHosts).values({ agentId, since, until: null, hostId: host, cwd }).run();
+}
+
+/** Move an agent to another host and directory: its open row closes as the next opens. What
+ *  only means something on the machine it was read on goes with the old host: the handle
+ *  interval closes, and the plexer and worktree rows go. */
+export function relocateIn(db: Orm, agentId: string, now: number, host: HostId, cwd: string): void {
+  const before = openLocationOf(db, agentId);
+  const since = closeOpen(db, agentHosts, agentId, now);
+  openLocationIn(db, agentId, since, host, cwd);
+  if (before === undefined || before.host === host) return;
+  closeOpen(db, agentHandles, agentId, now);
+  db.delete(agentPlexers).where(eq(agentPlexers.agentId, agentId)).run();
+  db.delete(agentWorktrees).where(eq(agentWorktrees.agentId, agentId)).run();
+}
+
+function openLocationOf(db: Orm, agentId: string): AgentLocation | undefined {
+  return db.select({ host: agentHosts.hostId, cwd: agentHosts.cwd, since: agentHosts.since }).from(agentHosts)
+    .where(and(eq(agentHosts.agentId, agentId), isNull(agentHosts.until))).get();
+}
+
+/** An agent's open `agent_hosts` row; undefined only when no agent has this id, since every
+ *  agent row is written with one. */
+export function agentLocation(orchDir: OrchDir, agentId: string): AgentLocation | undefined {
+  return openLocationOf(orm(orchDir), agentId);
+}
+
+/** Every agent's open `agent_hosts` row, by agent id, in one read. */
+export function agentLocations(orchDir: OrchDir): Map<string, AgentLocation> {
+  const rows = orm(orchDir).select({ agentId: agentHosts.agentId, host: agentHosts.hostId, cwd: agentHosts.cwd, since: agentHosts.since })
+    .from(agentHosts).where(isNull(agentHosts.until)).all();
+  return new Map(rows.map(({ agentId, ...location }) => [agentId, location]));
+}
+
+/** Record a registered caller's own process, on the host its open `agent_hosts` row names.
+ *  Session registration only: a caller is placed by its process (`placeProcess`), and this
+ *  is how a session stays one agent across the processes it runs as. Every other writer
+ *  takes a {@link HereAgent} through {@link recordProcess}. */
+export function recordCallerProcessIn(db: Orm, agentId: string, now: number, values: ProcessInstance): void {
   const since = closeOpen(db, agentProcesses, agentId, now);
-  db.insert(agentProcesses).values({
-    agentId, since, until: null, hostId: values.host, pid: values.pid, startToken: values.startToken,
-  }).run();
+  db.insert(agentProcesses).values({ agentId, since, until: null, pid: values.pid, startToken: values.startToken }).run();
 }
 
-export function recordProcess(orchDir: OrchDir, agentId: string, now: number, values: HostedProcess): void {
-  withTransaction(orchDir, () => recordProcessIn(orm(orchDir), agentId, now, values));
-  refreshAgent(orchDir, agentId);
+/** Record the process an agent this orchd runs runs as. */
+export function recordProcess(orchDir: OrchDir, agent: HereAgent, now: number, values: ProcessInstance): void {
+  withTransaction(orchDir, () => recordCallerProcessIn(orm(orchDir), agent.id, now, values));
+  refreshAgent(orchDir, agent.id);
 }
 
-export function endProcess(orchDir: OrchDir, agentId: string, now: number): void {
+export function endProcess(orchDir: OrchDir, agent: HereAgent, now: number): void {
   withTransaction(orchDir, () => {
-    closeOpen(orm(orchDir), agentProcesses, agentId, now);
+    closeOpen(orm(orchDir), agentProcesses, agent.id, now);
   });
-  refreshAgent(orchDir, agentId);
+  refreshAgent(orchDir, agent.id);
 }
 
-export function setHandle(orchDir: OrchDir, agentId: string, now: number, handle: string): void {
+/** The place an agent this orchd runs occupies in its plexer. A handle names a pane on this
+ *  machine only, so only an agent here has one. */
+export function setHandle(orchDir: OrchDir, agent: HereAgent, now: number, handle: string): void {
   withTransaction(orchDir, () => {
     const db = orm(orchDir);
-    const since = closeOpen(db, agentHandles, agentId, now);
-    db.insert(agentHandles).values({ agentId, since, until: null, handle }).run();
+    const since = closeOpen(db, agentHandles, agent.id, now);
+    db.insert(agentHandles).values({ agentId: agent.id, since, until: null, handle }).run();
   });
-  refreshAgent(orchDir, agentId);
+  refreshAgent(orchDir, agent.id);
 }
 
 export function setSpace(orchDir: OrchDir, agentId: string, now: number, spaceId: string): void {
@@ -95,25 +137,43 @@ export function setTuning(orchDir: OrchDir, agentId: string, now: number, values
 }
 
 /** A plexer is a plain membership, not an interval: an agent is in one plexer
- *  for its whole life, and moving between plexers is a new agent. */
-export function setAgentPlexer(orchDir: OrchDir, agentId: string, plexerId: string): void {
+ *  for its whole life on one host, and moving between plexers is a new agent. A plexer runs on
+ *  this machine, so only an agent here is in one. */
+export function setAgentPlexer(orchDir: OrchDir, agent: HereAgent, plexerId: string): void {
   const existing = orm(orchDir).select({ agentId: agentPlexers.agentId })
-    .from(agentPlexers).where(eq(agentPlexers.agentId, agentId)).get();
-  if (existing !== undefined) throw new Error(`agent ${agentId} already has a plexer`);
-  orm(orchDir).insert(agentPlexers).values({ agentId, plexerId }).run();
-  refreshAgent(orchDir, agentId);
+    .from(agentPlexers).where(eq(agentPlexers.agentId, agent.id)).get();
+  if (existing !== undefined) throw new Error(`agent ${agent.id} already has a plexer`);
+  orm(orchDir).insert(agentPlexers).values({ agentId: agent.id, plexerId }).run();
+  refreshAgent(orchDir, agent.id);
 }
 
-export function currentProcess(orchDir: OrchDir, agentId: string): StoredProcess | undefined {
-  const row = orm(orchDir).select().from(agentProcesses)
-    .where(and(eq(agentProcesses.agentId, agentId), isNull(agentProcesses.until))).get();
-  return row === undefined ? undefined : storedProcessOf(row);
+/** Every open process row joined to its agent's open host row: a process runs where its agent
+ *  runs. `agentId` narrows to one agent. */
+function openProcesses(orchDir: OrchDir, agentId?: string): Map<string, StoredProcess> {
+  const open = and(isNull(agentProcesses.until), agentId === undefined ? undefined : eq(agentProcesses.agentId, agentId));
+  const rows = orm(orchDir)
+    .select({ agentId: agentProcesses.agentId, host: agentHosts.hostId, pid: agentProcesses.pid, startToken: agentProcesses.startToken, since: agentProcesses.since })
+    .from(agentProcesses)
+    .innerJoin(agentHosts, and(eq(agentHosts.agentId, agentProcesses.agentId), isNull(agentHosts.until)))
+    .where(open).all();
+  return new Map(rows.map(({ agentId: id, ...process }) => [id, process]));
 }
 
-/** Every agent's open process, by agent id, in one read. */
+/** The process an agent this orchd runs runs as now. */
+export function currentProcess(orchDir: OrchDir, agent: HereAgent): StoredProcess | undefined {
+  return openProcesses(orchDir, agent.id).get(agent.id);
+}
+
+/** A registered caller's open process, wherever it runs, for the session registration path and
+ *  the reads that place a caller by its process. Every other reader takes a
+ *  {@link HereAgent} through {@link currentProcess}. */
+export function callerProcess(orchDir: OrchDir, agentId: string): StoredProcess | undefined {
+  return openProcesses(orchDir, agentId).get(agentId);
+}
+
+/** Every open process, by agent id, in one read: a fleet read, placed by its caller. */
 export function currentProcesses(orchDir: OrchDir): Map<string, StoredProcess> {
-  const rows = orm(orchDir).select().from(agentProcesses).where(isNull(agentProcesses.until)).all();
-  return new Map(rows.map((row) => [row.agentId, storedProcessOf(row)]));
+  return openProcesses(orchDir);
 }
 
 export function currentHandle(orchDir: OrchDir, agentId: string): HandleRow | undefined {

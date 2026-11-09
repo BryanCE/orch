@@ -32,7 +32,7 @@ function governWrite(directory: OrchDir, target: string, params: TestGovernance)
 
 /** Identity and nothing else: a minted id, with no environment welded into it. */
 function agent(dir: OrchDir, id: string): void {
-  insertAgent(dir, { id, name: id, spawnedBy: null, harnessId: "pi", cwd: dir, createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id, name: id, spawnedBy: null, harnessId: "pi", cwd: dir, createdAt: 1 });
 }
 
 /** An orch whose recorded process instance is this test process: provably alive. */

@@ -6,7 +6,7 @@ import { SpawnRefusalError } from "../../refusal.ts";
 import { refreshStaleShims } from "../../doctor/runner.ts";
 import { countOf, errorMessage } from "../../util.ts";
 import { die } from "../target.ts";
-import { indexPresenceById } from "../../entities/lookup.ts";
+import { indexPresenceById } from "../../shared/lookup.ts";
 import type { Backend } from "../../types/backend.ts";
 import type { ModelCatalogue } from "../../types/adapter.ts";
 import type { Logger } from "../../types/core.ts";

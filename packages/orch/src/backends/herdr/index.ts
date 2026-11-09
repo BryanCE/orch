@@ -1,9 +1,10 @@
+import type { AgentId } from "../../types/agent-place.ts";
 import { registerNotifier } from "../../notify/sinks.ts";
 import { createHerdrNotifier } from "./notify.ts";
 import { callerPaneHandle, insideHerdr } from "./detect.ts";
 import { binaryOnPath, errorMessage, isRecord, shellLine } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
-import { environmentStamp } from "../../agent/environment.ts";
+import { environmentStamp } from "../../shared/environment.ts";
 
 /** The harness-bus event herdr raises when its pane blocks. Declared in herdr's
  *  own directory and handed to an agent through the launch stamp, so no harness
@@ -17,7 +18,7 @@ import { layoutReplySchema, moveReplySchema, paneOpenReplySchema, tabOpenReplySc
 import { AgentGoneError } from "../../control/agent-gone.ts";
 import { homeLabel } from "../backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
-import { isAgentId } from "../identity.ts";
+import { isAgentId } from "../../shared/agent-id.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import { plexerExecOptions } from "../tool-exec.ts";
 import { PLEXER_TIMEOUTS } from "../../config.ts";
@@ -143,7 +144,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   // Composes identity (it knows which space this process sits in) and nothing for
   // log pruning: herdr keeps no logs orch owns. Absence IS the answer (E13).
   readonly identity: EnvironmentIdentityRole = {
-    current: (id: string | null): string | null => this.ownIdentity(id),
+    current: (id: string | null): AgentId | null => this.ownIdentity(id),
   };
   // No key -> handle lookup: a pane is addressed by its own handle here.
   readonly handleLookup: null = null;
@@ -306,7 +307,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
 
   /** Identity of the calling pane, resolved from the explicit orch id. */
-  private ownIdentity(id: string | null): string | null {
+  private ownIdentity(id: string | null): AgentId | null {
     const handle = callerPaneHandle();
     if (!handle) return null;
     // Identity is orch's, not the plexer's: it exists only if orch minted one and

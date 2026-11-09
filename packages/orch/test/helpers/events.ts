@@ -1,6 +1,7 @@
+import { hostIdentity } from "../../src/host.ts";
 import type { EventIdentity, NotifyEvent } from "../../src/types/notify.ts";
 
-export const eventBase: EventIdentity = {
+export const eventBase: EventIdentity = { host: hostIdentity(),
   key: "agent-1",
   ts: "2026-01-01T00:00:00.000Z",
   agent: "pi",

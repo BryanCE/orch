@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
@@ -24,9 +25,9 @@ function fixture(): OrchDir {
   const d = tempOrchDir("orch-nested-spawn-");
   dirs.push(d);
   orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
-  insertAgent(d, { id: "grandparent", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "grandparent", createdAt: 1 });
-  insertAgent(d, { id: "mid", spawnedBy: "grandparent", harnessId: "pi", cwd: "/repo", name: "mid", createdAt: 2 });
-  insertAgent(d, { id: "grand", spawnedBy: "mid", harnessId: "pi", cwd: "/repo", name: "grand", createdAt: 3 });
+  insertAgent(d, { host: hostIdentity(), id: "grandparent", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "grandparent", createdAt: 1 });
+  insertAgent(d, { host: hostIdentity(), id: "mid", spawnedBy: "grandparent", harnessId: "pi", cwd: "/repo", name: "mid", createdAt: 2 });
+  insertAgent(d, { host: hostIdentity(), id: "grand", spawnedBy: "mid", harnessId: "pi", cwd: "/repo", name: "grand", createdAt: 3 });
   return d;
 }
 

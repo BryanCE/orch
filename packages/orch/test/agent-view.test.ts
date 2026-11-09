@@ -1,3 +1,5 @@
+import { placeHere } from "../src/process-place.ts";
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -36,31 +38,33 @@ function withStore(body: (directory: OrchDir) => void): void {
 describe("the agent composer", () => {
   test("an agent with no environment rows has every axis absent, not defaulted", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "solo", createdAt: 10 });
+      insertAgent(directory, { host: hostIdentity(), id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "solo", createdAt: 10 });
       // A capless agent is one with no shortcut, never one orch cannot talk to:
       // absence is the answer, and "local" is not a place (Rule 11).
       expect(environmentOf(directory, "a1")).toEqual({
         plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null,
+        host: hostIdentity(), cwd: "/repo",
       });
     });
   });
 
   test("each axis composes independently, and moving one leaves identity untouched", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
-      setAgentPlexer(directory, "a1", "herdr");
-      setHandle(directory, "a1", 20, "w1:p1");
+      insertAgent(directory, { host: hostIdentity(), id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
+      setAgentPlexer(directory, placeHere(directory, "a1"), "herdr");
+      setHandle(directory, placeHere(directory, "a1"), 20, "w1:p1");
       setSpace(directory, "a1", 20, "s1");
-      setWorktree(directory, "a1", { path: "/repo/.wt/a1", branch: "feat/a1", base: "main", provider: "git" });
+      setWorktree(directory, placeHere(directory, "a1"), { path: "/repo/.wt/a1", branch: "feat/a1", base: "main", provider: "git" });
 
       expect(environmentOf(directory, "a1")).toEqual({
         plexer: "herdr", handle: "w1:p1", space: "s1", worktree: "/repo/.wt/a1", branch: "feat/a1", worktreeBase: "main", worktreeProvider: "git",
+        host: hostIdentity(), cwd: "/repo",
       });
 
       // The pane moved. The agent did not become a different agent — which is
       // precisely what the old `spawned` table could not express, because its
       // primary key WAS the pane.
-      setHandle(directory, "a1", 30, "w2:p9");
+      setHandle(directory, placeHere(directory, "a1"), 30, "w2:p9");
       const moved = agentView(directory, "a1");
       expect(moved?.id).toBe("a1");
       expect(moved?.environment.handle).toBe("w2:p9");
@@ -70,18 +74,18 @@ describe("the agent composer", () => {
 
   test("tuning is not environment: it survives a move", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
+      insertAgent(directory, { host: hostIdentity(), id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
       setTuning(directory, "a1", 20, { model: "openai-codex/gpt-5.6-luna", thinking: "high" });
-      setHandle(directory, "a1", 20, "w1:p1");
-      setHandle(directory, "a1", 30, "w2:p9");
+      setHandle(directory, placeHere(directory, "a1"), 20, "w1:p1");
+      setHandle(directory, placeHere(directory, "a1"), 30, "w2:p9");
       expect(agentView(directory, "a1")?.tuning).toEqual({ model: "openai-codex/gpt-5.6-luna", thinking: "high" });
     });
   });
 
   test("ownership reads as a live lease, and a released one is not ownership", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
-      insertAgent(directory, { id: "a1", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
+      insertAgent(directory, { host: hostIdentity(), id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
+      insertAgent(directory, { host: hostIdentity(), id: "a1", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
       acquireLease(directory, "a1", "orch", 50);
       expect(agentView(directory, "a1")?.heldBy).toEqual({ orchId: "orch", since: 50 });
 
@@ -95,8 +99,8 @@ describe("the agent composer", () => {
 
   test("provenance is on the view and is not the same fact as ownership", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
-      insertAgent(directory, { id: "a1", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
+      insertAgent(directory, { host: hostIdentity(), id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
+      insertAgent(directory, { host: hostIdentity(), id: "a1", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
       const view = agentView(directory, "a1");
       expect(view?.spawnedBy).toBe("orch");
       expect(view?.heldBy).toBeNull();
@@ -105,8 +109,8 @@ describe("the agent composer", () => {
 
   test("provenance carries the spawner's name, read as a join and never stored twice", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "release-orch", createdAt: 1 });
-      insertAgent(directory, { id: "a1", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
+      insertAgent(directory, { host: hostIdentity(), id: "orch", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "release-orch", createdAt: 1 });
+      insertAgent(directory, { host: hostIdentity(), id: "a1", spawnedBy: "orch", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
 
       const view = agentView(directory, "a1");
       expect(view?.spawnedBy).toBe("orch");
@@ -123,7 +127,7 @@ describe("the agent composer", () => {
 
   test("an agent with no spawner reports no spawner name", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "root", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "root", createdAt: 1 });
+      insertAgent(directory, { host: hostIdentity(), id: "root", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "root", createdAt: 1 });
       const view = agentView(directory, "root");
       expect(view?.spawnedBy).toBeNull();
       expect(view?.spawnedByName).toBeNull();
@@ -132,8 +136,8 @@ describe("the agent composer", () => {
 
   test("agentViews is oldest-first and liveAgentViews drops ended agents", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "first", createdAt: 10 });
-      insertAgent(directory, { id: "a2", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "second", createdAt: 20 });
+      insertAgent(directory, { host: hostIdentity(), id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "first", createdAt: 10 });
+      insertAgent(directory, { host: hostIdentity(), id: "a2", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "second", createdAt: 20 });
       orm(directory).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES ('a1', 99, NULL)`);
       expect(agentViews(directory).map((view) => view.id)).toEqual(["a1", "a2"]);
       expect(liveAgentViews(directory).map((view) => view.id)).toEqual(["a2"]);
@@ -164,7 +168,7 @@ describe("the agent composer", () => {
 
   test("the composed shape is exactly the axis list, with nothing extra and nothing missing", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "solo", createdAt: 10 });
+      insertAgent(directory, { host: hostIdentity(), id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "solo", createdAt: 10 });
       expect(Object.keys(environmentOf(directory, "a1")).sort())
         .toEqual(ENVIRONMENT_AXES.map((axis) => axis.key).sort());
     });

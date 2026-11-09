@@ -1,8 +1,9 @@
+import { hostIdentity } from "../src/host.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { HARNESS_SESSION_ENV } from "../src/shared/session-env.ts";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import type { DaemonLink, HarnessContext } from "../src/types/agent.ts";
 import { stubDaemonLink } from "./helpers/daemon-client.ts";
@@ -10,7 +11,7 @@ import { deriveDriveState } from "../src/agent/drive-state.ts";
 import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
 import { peerView } from "../src/daemon/server/peer-view.ts";
 import { selfIdentity } from "../src/identity/self.ts";
-import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
+import { isAgentId, mintAgentId } from "../src/shared/agent-id.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
@@ -207,7 +208,7 @@ describe("who drives an agent is looked up by its id", () => {
     const database = orm(directory);
     database.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
     for (const id of [HOLDER, HELD]) {
-      insertAgent(directory, { id, harnessId: "pi", cwd: "/tmp", name: id, createdAt: 1 });
+      insertAgent(directory, { host: hostIdentity(), id, harnessId: "pi", cwd: "/tmp", name: id, createdAt: 1 });
     }
     const token = processStartToken(process.pid);
     if (!token) throw new Error("test process has no start token");

@@ -1,5 +1,6 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { fleetNames, statusRowFromEntity } from "../src/commands/status/rows.ts";
+import { fleetNames, statusRowFromEntity } from "../src/daemon/server/fleet-rows.ts";
 import { ownerLabel } from "../src/commands/status/table.ts";
 import { deriveDriveState, fleetLeaseFacts } from "../src/agent/drive-state.ts";
 import { agentViewIndex } from "../src/store/agent-view.ts";
@@ -23,9 +24,9 @@ function fixture(): OrchDir {
   ensureHarness(dir, "pi", "Pi", 1);
   const db = orm(dir);
   db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
-  insertAgent(dir, { id: WORKER_ID, harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
-  insertAgent(dir, { id: "live", harnessId: "pi", cwd: "/tmp", name: "live", createdAt: 1 });
-  insertAgent(dir, { id: "dead", harnessId: "pi", cwd: "/tmp", name: "dead", createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id: WORKER_ID, harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id: "live", harnessId: "pi", cwd: "/tmp", name: "live", createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id: "dead", harnessId: "pi", cwd: "/tmp", name: "dead", createdAt: 1 });
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
   db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"live"},${1},${"host"},${process.pid},${token})`);
@@ -44,7 +45,7 @@ function entity(): Entity {
     // A detached agent is in no plexer and no space: that is a missing row, not
     // a place named "local".
     backendStatus: null, backend: null, presence: presenceEntryFixture({ key, status: statusRow({ agentId: key, state: "idle" }) }),
-    sessionPath: null, presenceOnly: false, ended: false, space: null,
+    sessionPath: null, presenceOnly: false, ended: false, space: null, host: hostIdentity(),
   };
 }
 

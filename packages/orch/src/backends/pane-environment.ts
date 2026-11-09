@@ -1,7 +1,7 @@
 import { environmentOf } from "../store/agent-view.ts";
 import type { BackendId } from "../types/backend.ts";
 import type { OrchDir } from "../types/core.ts";
-import { isAgentId } from "./identity.ts";
+import { isAgentId } from "../shared/agent-id.ts";
 
 export function resolvePaneHandle(id: string | null, orchDir: OrchDir, backendId: BackendId): string | null {
   if (!isAgentId(id)) return null;

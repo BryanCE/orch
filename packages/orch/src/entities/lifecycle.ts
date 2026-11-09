@@ -1,7 +1,6 @@
-import { getBackend } from "../backends/registry.ts";
-import { isAgentId } from "../backends/identity.ts";
+import { isAgentId } from "../shared/agent-id.ts";
 import { buildEntities } from "./inventory.ts";
-import { viewForKey, addressOf, indexPresenceById } from "./lookup.ts";
+import { viewForKey, addressOf, indexPresenceById } from "../shared/lookup.ts";
 import { callerMayResolveFor, refuseForeignTarget } from "./resolve.ts";
 import { loadPresence, spawnedRecords } from "../presence/store.ts";
 import { ambiguousTargetRefusal, die } from "../refusal.ts";
@@ -9,7 +8,6 @@ import { errorMessage } from "../util.ts";
 import type { Entity, OrchDir, CallerCredential } from "../types/core.ts";
 import type { AgentView } from "../types/store.ts";
 import { type PresenceEntry, notDead } from "../types/presence.ts";
-import type { Backend } from "../types/backend.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 /** Every spelling that addresses one agent: its minted id, its mutable name, or
@@ -111,7 +109,7 @@ function entityFromView(view: AgentView, presence: ReadonlyMap<string, PresenceE
     ended: view.endedAt != null,
     tabLabel: null, agent: view.harnessId, focused: false, backendStatus: null,
     backend: view.environment.plexer, presence: presence.get(view.id) ?? null,
-    sessionPath: null, presenceOnly: true, space: view.environment.space,
+    sessionPath: null, presenceOnly: true, space: view.environment.space, host: view.environment.host,
   };
 }
 
@@ -122,7 +120,8 @@ function lifecycleHandle(ent: Entity, view: AgentView | undefined): string {
   return view ? view.environment.handle ?? ent.paneId ?? ent.key : ent.paneId ?? ent.key;
 }
 
-/** What the resolver knows before a Backend object is attached: everything that travels over the wire. */
+/** What orchd resolves a lifecycle target to, for its own use. Only `entity`, `key` and `view`
+ *  reach a caller; where the agent runs reaches it as a place, never as a backend. */
 export interface LifecycleResolution {
   readonly entity: Entity;
   readonly key: string;
@@ -153,11 +152,4 @@ export function lifecycleResolutionFor(orchDir: OrchDir, settings: OrchSettings,
     backendId: view?.environment.plexer ?? ent.backend,
     handle: lifecycleHandle(ent, view),
   };
-}
-
-/** The Backend a resolution names, or the refusal that names the unknown id. */
-export function lifecycleBackend(resolution: LifecycleResolution, target: string): Backend {
-  const backend = resolution.backendId ? getBackend(resolution.backendId) : undefined;
-  if (!backend) die(`Target "${target}" uses unknown backend ${JSON.stringify(resolution.backendId)}.`);
-  return backend;
 }

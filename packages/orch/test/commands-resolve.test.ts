@@ -33,7 +33,7 @@ describe("commands/resolve", () => {
     }
   });
 
-  test.serial("resolves lifecycle target with backend and handle", async () => {
+  test.serial("resolves a lifecycle target on this machine to its plexer and handle, and no backend", async () => {
     const root: OrchDir = tempOrchDir("orch-command-resolve-lifecycle-");
     isolateOrchEnv();
     process.env.ORCH_DIR = root;
@@ -44,8 +44,8 @@ describe("commands/resolve", () => {
       const services = await servedServices({ orchDir: root, settings: SETTINGS }, servers);
       const resolved = await resolveLifecycle(services, id);
       expect(resolved.key).toBe(id);
-      expect(resolved.backend.id).toBe("headless");
-      expect(typeof resolved.handle).toBe("string");
+      expect(resolved.place).toMatchObject({ kind: "here", plexer: "headless" });
+      expect("backend" in resolved).toBe(false);
     } finally {
       while (servers.length) await servers.pop()!.close();
       restoreOrchEnv();

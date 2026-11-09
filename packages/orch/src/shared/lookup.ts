@@ -21,4 +21,3 @@ export function indexPresenceById(presence: Iterable<PresenceEntry>): Map<string
   }
   return byId;
 }
-

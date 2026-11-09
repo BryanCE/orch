@@ -1,12 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
-import { isLogLevel, isLogRecord, logFile } from "../log.ts";
+import { isLogLevel, readLogRecords } from "../log.ts";
+import { hostLine, readAgentThroughOrchd } from "./agent-read.ts";
 import { parseCommand } from "./registry.ts";
 import { resolveEntity } from "./resolve.ts";
 import { durationInstant } from "../cli/duration.ts";
 import { usageError } from "../cli/usage.ts";
 import type { CommandAt } from "../cli/usage.ts";
 import type { LogOptions } from "../types/command.ts";
-import type { LogLevel, LogRecord, OrchDir } from "../types/core.ts";
+import type { LogLevel, LogRecord } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
 
 function logLevel(invocation: CommandAt, value: string): LogLevel {
@@ -31,26 +31,6 @@ export function parseLogOptions(args: string[], now = Date.now()): LogOptions {
   return out;
 }
 
-function records(directory: OrchDir): LogRecord[] {
-  const result: LogRecord[] = [];
-  for (const file of [logFile(directory)]) {
-    if (!existsSync(file)) continue;
-    for (const line of readFileSync(file, "utf8").split("\n")) {
-      if (!line.trim()) continue;
-      try { const value: unknown = JSON.parse(line); if (isLogRecord(value)) result.push(value); } catch { /* malformed lines are skipped */ }
-    }
-  }
-  return result.sort((a, b) => a.at - b.at);
-}
-
-function matches(record: LogRecord, options: LogOptions): boolean {
-  if (options.since !== undefined && record.at < options.since) return false;
-  if (options.level !== undefined && record.level !== options.level) return false;
-  if (options.agent !== undefined && record.agentId !== options.agent) return false;
-  if (options.dispatch !== undefined && record.correlationId !== options.dispatch) return false;
-  return true;
-}
-
 function render(record: LogRecord): string {
   const correlation = record.correlationId ? ` [${record.correlationId}]` : "";
   const agent = record.agentId ? ` [agent=${record.agentId}]` : "";
@@ -58,16 +38,23 @@ function render(record: LogRecord): string {
   return `${new Date(record.at).toISOString()} ${record.level} ${record.event}${correlation}${agent}${fields}`;
 }
 
-/** `--agent` names a target; the records carry the minted id orchd resolves it to. */
-async function resolveLogAgent(services: Services, options: LogOptions): Promise<LogOptions> {
-  if (options.agent === undefined) return options;
-  const { entity } = await resolveEntity(services, options.agent);
-  return { ...options, agent: entity.key };
+/** The records asked for. About one agent, they are read by the orchd where that agent runs,
+ *  which names its host when that is not this one; else they are this machine's own. */
+async function selectedRecords(services: Services, options: LogOptions): Promise<{ readonly host: string | null; readonly records: readonly LogRecord[] }> {
+  const { agent, since, level, dispatch } = options;
+  const filter = { ...(since === undefined ? {} : { since }), ...(level === undefined ? {} : { level }), ...(dispatch === undefined ? {} : { dispatch }) };
+  if (agent === undefined) return { host: null, records: readLogRecords(services.orchDir, filter) };
+  const { entity } = await resolveEntity(services, agent);
+  const { host, reading } = await readAgentThroughOrchd(services, entity.key, { kind: "log", ...filter });
+  return { host, records: reading.records };
 }
 
 export async function cmdLogs(services: Services, args: string[]): Promise<void> {
-  const options = await resolveLogAgent(services, parseLogOptions(args));
-  const selected = records(services.orchDir).filter((record) => matches(record, options));
-  if (options.json) for (const record of selected) process.stdout.write(`${JSON.stringify(record)}\n`);
-  else for (const record of selected) process.stdout.write(`${render(record)}\n`);
+  const options = parseLogOptions(args);
+  const { host, records } = await selectedRecords(services, options);
+  if (options.json) for (const record of records) process.stdout.write(`${JSON.stringify(record)}\n`);
+  else {
+    process.stdout.write(hostLine(host));
+    for (const record of records) process.stdout.write(`${render(record)}\n`);
+  }
 }

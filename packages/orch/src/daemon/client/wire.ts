@@ -8,7 +8,7 @@ import { daemonRuntimeFiles } from "./runtime-files.ts";
 import type { EndpointPaths } from "../../types/daemon.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import { notifyEventSchema } from "../../notify/event.ts";
-import { isBridgeDelivery, type BridgeDelivery } from "../../control/bridge-message.ts";
+import { isBridgeDelivery, type BridgeDelivery } from "../../shared/bridge-message.ts";
 import type { ScreenChunk } from "../../types/screen.ts";
 import {
   RPC_PARAMS,
@@ -190,6 +190,7 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "answer": return parseOne(method, RPC_PARAMS[method], id, value);
     case "set-model": return parseOne(method, RPC_PARAMS[method], id, value);
     case "lifecycle": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "clear-session": return parseOne(method, RPC_PARAMS[method], id, value);
     case "abort": return parseOne(method, RPC_PARAMS[method], id, value);
     case "spawn-headless": return parseOne(method, RPC_PARAMS[method], id, value);
     case "agent-closed": return parseOne(method, RPC_PARAMS[method], id, value);
@@ -217,6 +218,10 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "peer-drive": return parseOne(method, RPC_PARAMS[method], id, value);
     case "peer-read": return parseOne(method, RPC_PARAMS[method], id, value);
     case "agent-read": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "agent-pane": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "agent-wait": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "adopt-agent": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "settings-reload": return parseOne(method, RPC_PARAMS[method], id, value);
     case "attach-screen": return parseOne(method, RPC_PARAMS[method], id, value);
     case "peer-attach-screen": return parseOne(method, RPC_PARAMS[method], id, value);
     case "screen-input": return parseOne(method, RPC_PARAMS[method], id, value);

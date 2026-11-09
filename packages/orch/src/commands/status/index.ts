@@ -1,4 +1,4 @@
-import { computeFleetCapacity, formatCapacityLine } from "../../policy/capacity.ts";
+import { formatCapacityLine } from "../../policy/capacity.ts";
 import { availableMemoryMb, formatMemoryLine } from "../../policy/memory.ts";
 import { registerCaller, whoAmI, refuseNonOperatorOverride } from "../self.ts";
 import { ensureDaemonOrWarn } from "../../daemon/client/reach.ts";
@@ -7,20 +7,13 @@ import { filterRowKeys, formatNoRowsMessage, callerScope, ownsLiveWorker } from 
 import type { CallerScope, StatusOptions } from "./options.ts";
 import { readStatusResult, resolveStatusAgent } from "./fetch.ts";
 import { formatStatusTable } from "./table.ts";
-import { currentOrchId, offlineCallerScope, offlineCapacityFleet } from "./offline.ts";
 import type { FleetCapacity } from "../../policy/capacity.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { Services } from "../../types/services.ts";
 
-/** The capacity computed from the store, for a status run with no daemon. */
-function offlineCapacity(services: Services, settings: OrchSettings): FleetCapacity {
-  const fleet = offlineCapacityFleet(services.orchDir);
-  return computeFleetCapacity(fleet.views, fleet.presence, settings);
-}
-
-/** The capacity line: from orchd's held capacity, or computed from the store when offline. */
-async function capacityLine(services: Services, orchId: string | null, settings: OrchSettings, offline: boolean): Promise<{ capacity: FleetCapacity; memory: { availableMb: number; floorMb: number }; line: string }> {
-  const capacity = offline ? offlineCapacity(services, settings) : await readRpc(services, "capacity", {});
+/** The capacity line, from orchd's held capacity. */
+async function capacityLine(services: Services, orchId: string | null, settings: OrchSettings): Promise<{ capacity: FleetCapacity; memory: { availableMb: number; floorMb: number }; line: string }> {
+  const capacity = await readRpc(services, "capacity", {});
   const availableMb = availableMemoryMb();
   return {
     capacity,
@@ -29,20 +22,17 @@ async function capacityLine(services: Services, orchId: string | null, settings:
   };
 }
 
-async function resolveCaller(services: Services, offline: boolean): Promise<{ caller: CallerScope; orchId: string | null }> {
-  if (!offline) {
-    await ensureDaemonOrWarn(services.orchDir, services.logger);
-    await registerCaller(services);
-    const self = await whoAmI(services);
-    return { caller: callerScope(self), orchId: self.id };
-  }
-  return { caller: offlineCallerScope(services.orchDir), orchId: currentOrchId(services.orchDir) };
+async function resolveCaller(services: Services): Promise<{ caller: CallerScope; orchId: string | null }> {
+  await ensureDaemonOrWarn(services.orchDir, services.logger);
+  await registerCaller(services);
+  const self = await whoAmI(services);
+  return { caller: callerScope(self), orchId: self.id };
 }
 
 async function writeCapacityStatus(services: Services, options: StatusOptions, orchId: string | null): Promise<void> {
   const settings = services.settings.currentOrNull();
   if (settings === null) throw new Error("capacity unavailable: settings.json does not exist");
-  const output = await capacityLine(services, orchId, settings, options.offline);
+  const output = await capacityLine(services, orchId, settings);
   process.stdout.write(options.json ? JSON.stringify({ capacity: output.capacity, memory: output.memory }, null, 2) + "\n" : output.line + "\n");
 }
 
@@ -54,7 +44,7 @@ async function writeStatusRows(services: Services, options: StatusOptions, calle
     return;
   }
   const settings = services.settings.currentOrNull();
-  const footer = settings === null ? null : (await capacityLine(services, orchId, settings, options.offline)).line;
+  const footer = settings === null ? null : (await capacityLine(services, orchId, settings)).line;
   if (shouldShowNoRows(options, result.rows, caller.id)) {
     process.stdout.write(formatNoRowsMessage({ otherLive: result.otherLive }));
   } else {
@@ -68,7 +58,7 @@ function shouldShowNoRows(options: StatusOptions, rows: Parameters<typeof ownsLi
 }
 
 export async function cmdStatus(services: Services, options: StatusOptions): Promise<void> {
-  const { caller, orchId } = await resolveCaller(services, options.offline);
+  const { caller, orchId } = await resolveCaller(services);
   if (options.all) refuseNonOperatorOverride(caller, "--all");
   if (options.capacity) return writeCapacityStatus(services, options, orchId);
   return writeStatusRows(services, options, caller, orchId);

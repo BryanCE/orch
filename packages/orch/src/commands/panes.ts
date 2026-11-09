@@ -1,33 +1,33 @@
-import type { Entity } from "../types/core.ts";
 import type { Services, SettingsService } from "../types/services.ts";
 import { resolveBackend } from "../backends/registry.ts";
 import { renderTable } from "../table.ts";
 import { ARROW, errorMessage } from "../util.ts";
 import { die } from "./target.ts";
-import { addressOf, indexPresenceById } from "../entities/lookup.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import { readCount } from "../cli/count.ts";
 import type { Invocation, ParsedFlags } from "../cli/spec.ts";
-import { isAgentId } from "../backends/identity.ts";
-import { openingPlacement, planTilePlacement, readGroupLayout } from "../backends/tiling.ts";
 import { displaySpace } from "./status/options.ts";
 import { askDaemon, writeRpc } from "./daemon.ts";
 import { ambiguousTargetRefusal } from "../refusal.ts";
-import type { Backend, BackendGroup, BackendHandle, BackendSplit, BackendZoomMode, TilePlacement } from "../types/backend.ts";
+import type { Backend, BackendGroup, BackendSplit, BackendZoomMode } from "../types/backend.ts";
+import type { PaneAction, PaneOutcome } from "../daemon/client/protocol.ts";
 import { readFleet } from "./fleet.ts";
-import { displayName, resolveLifecycle, refuseForeignHolder } from "./resolve.ts";
+import { resolveLifecycle, refuseForeignHolder, targetName } from "./resolve.ts";
 import { refuseNonOperatorOverride, whoAmI, type CallerSelf } from "./self.ts";
 import { sameSpace, spaceName } from "../policy/space.ts";
-import { describeHandle } from "../backends/backend.ts";
-import { paneBoundary, type BoundaryPlan } from "../control/pane-boundary.ts";
+import { groupsNamed } from "../groups.ts";
+import { hostLine, readAgentThroughOrchd } from "./agent-read.ts";
 
+/** Why a pane verb does not apply, as the verb prints it. */
+interface PaneAnswer {
+  readonly reason: "no-pane" | "no-environment-role";
+  readonly text: string;
+}
 
-function renderBoundaryAnswer<T>(plan: BoundaryPlan<T>, json: boolean): boolean {
-  if (plan.outcome === "invoke") return true;
-  if (json) process.stdout.write(JSON.stringify(plan) + "\n");
-  else process.stdout.write(plan.text + "\n");
-  return false;
+function renderPaneAnswer(answer: PaneAnswer, json: boolean): void {
+  if (json) process.stdout.write(JSON.stringify({ outcome: "answer", reason: answer.reason, text: answer.text }) + "\n");
+  else process.stdout.write(answer.text + "\n");
 }
 
 export function writeEmptyOrJson<T>(items: readonly T[], json: boolean, emptyText: string, jsonValue: unknown = items): boolean {
@@ -84,26 +84,17 @@ async function listPanes(services: Services, flags: ParsedFlags): Promise<void> 
   }
 }
 
-async function requirePaneTarget(services: Services, target: string): Promise<{ backend: Backend; handle: BackendHandle; key: string; entity: Entity }> {
-  const resolved = await resolveLifecycle(services, target);
-  return {
-    backend: resolved.backend,
-    handle: resolved.handle,
-    key: resolved.key,
-    entity: resolved.entity,
-  };
-}
-
-/** Resolve a pane a command is about to mutate: a foreign-owned agent refuses without --steal. */
-async function requireOwnedPaneTarget(services: Services, self: CallerSelf, target: string, steal: boolean): Promise<{ backend: Backend; handle: BackendHandle; key: string; entity: Entity }> {
+/** A pane verb done to an agent's pane where it runs, after the lease gate: the agent's name,
+ *  and orchd's outcome. An answer is printed here and comes back null. */
+async function actOnPane(services: Services, self: CallerSelf, target: string, steal: boolean, json: boolean, action: PaneAction): Promise<{ readonly name: string; readonly done: Extract<PaneOutcome, { kind: "done" }> } | null> {
   const resolved = await resolveLifecycle(services, target);
   refuseForeignHolder(self, target, resolved, steal);
-  return { backend: resolved.backend, handle: resolved.handle, key: resolved.key, entity: resolved.entity };
-}
-
-async function planOwnedPaneRole<T>(services: Services, self: CallerSelf, target: string, steal: boolean, command: string, selectRole: (backend: Backend) => T | null): Promise<{ handle: BackendHandle; entity: Entity; plan: BoundaryPlan<T> }> {
-  const { backend, handle, entity } = await requireOwnedPaneTarget(services, self, target, steal);
-  return { handle, entity, plan: paneBoundary(target, command, selectRole(backend), !!entity.paneId) };
+  const outcome = await writeRpc(services, "agent-pane", { target: resolved.key, action }, { steal });
+  if (outcome.kind === "answer") {
+    renderPaneAnswer(outcome, json);
+    return null;
+  }
+  return { name: targetName(resolved), done: outcome };
 }
 
 export async function cmdKeys(services: Services, args: string[]): Promise<void> {
@@ -112,25 +103,29 @@ export async function cmdKeys(services: Services, args: string[]): Promise<void>
   const keys = invocation.positional.slice(1);
   if (!keys.length) throw usageError(invocation);
   const self = await whoAmI(services);
-  const { handle, entity, plan } = await planOwnedPaneRole(services, self, target, steal, "keys", (backend) => backend.agentInput);
-  if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
-  plan.role.sendKeys(handle, keys);
-  if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), keys, sent: true }) + "\n");
-  else process.stdout.write(`Sent keys to ${displayName(entity.name, entity.key)}: ${keys.join(" ")}\n`);
+  const acted = await actOnPane(services, self, target, steal, json, { kind: "keys", keys });
+  if (acted === null) return;
+  if (json) process.stdout.write(JSON.stringify({ target: acted.done.handle, keys, sent: true }) + "\n");
+  else process.stdout.write(`Sent keys to ${acted.name}: ${keys.join(" ")}\n`);
 }
 
 export async function cmdPeek(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("peek", args);
   const { json, target } = readPaneOptions(invocation);
   const n = readCount(invocation) ?? services.settings.current().counts.peek;
-  const { backend, handle, entity } = await requirePaneTarget(services, target);
-  const plan = paneBoundary(target, "peek", backend.screen, !!entity.paneId);
-  if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
-  const screen = plan.role.read(handle, n);
-  if (json) {
-    process.stdout.write(JSON.stringify({ target, pane: handle, screen, lines: n }) + "\n");
+  const resolved = await resolveLifecycle(services, target);
+  const { host, reading } = await readAgentThroughOrchd(services, resolved.key, { kind: "screen", lines: n });
+  const lookup = reading.lookup;
+  if (lookup.kind === "answer") {
+    renderPaneAnswer(lookup, json);
     return;
   }
+  const screen = lookup.text;
+  if (json) {
+    process.stdout.write(JSON.stringify({ target, host, pane: lookup.handle, screen, lines: n }) + "\n");
+    return;
+  }
+  process.stdout.write(hostLine(host));
   process.stdout.write("screen (eyeball only - status/result/tail are the truth channel)\n");
   process.stdout.write(screen.endsWith("\n") ? screen : screen + "\n");
 }
@@ -143,9 +138,7 @@ function selectedGroups(services: SettingsService): { backend: Backend; groups: 
 export async function resolveTab(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string): Promise<BackendGroup> {
   const { backend, groups } = selectedGroups(services);
   if (!groups.length) die("No groups available.");
-  const exact = groups.filter((group) => group.id === target || group.label === target);
-  const insensitive = groups.filter((group) => (group.label ?? "").toLowerCase() === target.toLowerCase());
-  const candidates = exact.length ? exact : insensitive;
+  const candidates = groupsNamed(groups, target);
   if (candidates.length === 1) return candidates[0]!;
   if (candidates.length > 1) {
     services.logger.error("tabs.ambiguous", { target, candidates: candidates.map((group) => group.id).join(",") });
@@ -154,13 +147,12 @@ export async function resolveTab(services: Pick<Services, "orchDir" | "settings"
     // the caller nothing to recover from and truncates what it already wrote.
     throw ambiguousTargetRefusal(target, candidates.map((group) => ({ key: group.id, name: group.label ?? group.id, detail: null })));
   }
+  // An agent's name stands for the group its pane is in, which orchd reads from its plexer.
   const resolved = await resolveLifecycle(services, target);
   const plexer = resolved.view?.environment.plexer ?? resolved.entity.backend;
   if (plexer !== null && plexer !== backend.id) die(`Target "${target}" belongs to backend ${plexer}.`);
-  // The identity id names the agent and carries no pane; the resolved entity's
-  // paneId is the only backend handle for it.
-  const pane = backend.placementInventory?.list().find((item) => String(item.handle) === resolved.entity.paneId);
-  const found = groups.find((group) => group.id === (pane?.group ?? null));
+  const outcome = await writeRpc(services, "agent-pane", { target: resolved.key, action: { kind: "group" } });
+  const found = outcome.kind === "done" ? groups.find((group) => group.id === outcome.group) : undefined;
   if (!found) die(`No group found for target "${target}".`);
   return found;
 }
@@ -197,7 +189,6 @@ async function assertGroupAgentsOwned(services: Services, self: CallerSelf, back
   }
   const handles = new Set((backend.placementInventory?.list() ?? []).filter((pane) => pane.group === group).map((pane) => String(pane.handle)));
   const fleet = await readFleet(services, true);
-  const presence = indexPresenceById(fleet.presence);
   for (const view of fleet.views) {
     if (view.endedAt !== null) continue;
     // Ownership is the open lease; the pane handle is environment. A group is a
@@ -207,7 +198,7 @@ async function assertGroupAgentsOwned(services: Services, self: CallerSelf, back
     if (holder === null || holder === undefined || handle === null || !handles.has(handle)) continue;
     const owns = holder === self.id || (self.kind === "operator" && sameSpace(view.environment.space, self.space));
     if (!owns) {
-      die(`Group ${group} holds agent ${addressOf(view, presence)} owned by ${holder}. Use --steal to override.`);
+      die(`Group ${group} holds agent ${view.id} owned by ${holder}. Use --steal to override.`);
     }
   }
 }
@@ -277,7 +268,7 @@ export async function cmdTab(services: Services, args: string[]): Promise<void> 
   const steal = flags.has("--steal");
   const { backend } = selectedGroups(services);
   const role = backend.groupHome;
-  if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide groups" }, json); return; }
+  if (!role) { renderPaneAnswer({ reason: "no-environment-role", text: "this environment does not provide groups" }, json); return; }
   switch (command.name) {
     case "list": listTabs(services, flags); return;
     case "new": await cmdTabNew(services, flags, json, backend); return;
@@ -291,11 +282,10 @@ export async function cmdTab(services: Services, args: string[]): Promise<void> 
 export async function cmdFocus(services: Services, args: string[]): Promise<void> {
   const { json, steal, target } = readPaneOptions(parseCommand("focus", args));
   const self = await whoAmI(services);
-  const { handle, entity, plan } = await planOwnedPaneRole(services, self, target, steal, "focus", (backend) => backend.agentInput);
-  if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
-  plan.role.focus(handle);
-  if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), focused: true }) + "\n");
-  else process.stdout.write(`Focused ${displayName(entity.name, entity.key)}.\n`);
+  const acted = await actOnPane(services, self, target, steal, json, { kind: "focus" });
+  if (acted === null) return;
+  if (json) process.stdout.write(JSON.stringify({ target: acted.done.handle, focused: true }) + "\n");
+  else process.stdout.write(`Focused ${acted.name}.\n`);
 }
 
 /** `--zoom` zooms in, `--no-zoom` zooms out, neither flips. */
@@ -312,21 +302,10 @@ export async function cmdZoom(services: Services, args: string[]): Promise<void>
   const { json, steal, target } = readPaneOptions(invocation);
   const zoomMode = readZoomMode(invocation);
   const self = await whoAmI(services);
-  const { handle, entity, plan } = await planOwnedPaneRole(services, self, target, steal, "zoom", (backend) => backend.zooming);
-  if (!renderBoundaryAnswer(plan, json) || plan.outcome !== "invoke") return;
-  plan.role.setZoom(handle, zoomMode);
-  if (json) process.stdout.write(JSON.stringify({ target: describeHandle(handle), mode: zoomMode, zoomed: true }) + "\n");
-  else process.stdout.write(`Set zoom ${zoomMode} on ${displayName(entity.name, entity.key)}.\n`);
-}
-
-/** Where a pane should land in a group, ignoring the pane itself — a pane
- *  already in that group must never be planned as its own split target. */
-function tilePlacementBesides(services: Pick<Services, "settings">, backend: Backend, group: string, mover: string): TilePlacement {
-  const firstSplit = services.settings.current().tiling.first_split;
-  const role = backend.groupLayout;
-  if (!role) return openingPlacement(firstSplit);
-  const layout = readGroupLayout(role, group);
-  return planTilePlacement({ ...layout, placements: layout.placements.filter((place) => String(place.handle) !== mover) }, firstSplit);
+  const acted = await actOnPane(services, self, target, steal, json, { kind: "zoom", mode: zoomMode });
+  if (acted === null) return;
+  if (json) process.stdout.write(JSON.stringify({ target: acted.done.handle, mode: zoomMode, zoomed: true }) + "\n");
+  else process.stdout.write(`Set zoom ${zoomMode} on ${acted.name}.\n`);
 }
 
 function isBackendSplit(value: string): value is BackendSplit {
@@ -347,32 +326,17 @@ export async function cmdMove(services: Services, args: string[]): Promise<void>
   const tab = flags.value("--tab");
   const newTab = flags.has("--new-tab");
   const label = flags.value("--label") ?? null;
-  const given = readSplit(invocation);
+  const split = readSplit(invocation) ?? null;
   if (tab === undefined && !newTab) throw usageError(invocation);
-  let split: BackendSplit = given ?? "right";
   const self = await whoAmI(services);
-  const { backend, handle, key, entity } = await requireOwnedPaneTarget(services, self, target, steal);
-  const role = backend.groupHome;
-  if (!role) { renderBoundaryAnswer({ outcome: "answer", reason: "no-environment-role", text: "this environment does not provide group move" }, json); return; }
+  let acted: Awaited<ReturnType<typeof actOnPane>>;
   try {
-    // Default: land on the destination tab's biggest pane so it stays balanced
-    // instead of stacking off one edge. An explicit --split still wins.
-    const groupId = newTab || tab === undefined ? null : (await resolveTab(services, tab)).id;
-    let against: BackendHandle | undefined;
-    if (given === undefined && groupId !== null) {
-      const placement = tilePlacementBesides(services, backend, groupId, String(handle));
-      split = placement.split;
-      against = placement.targetHandle;
-    }
-    role.move({ handle, group: groupId, split, against, label });
-    // The pane moved; the agent did not become a different agent. A14: the
-    // handle is an interval on its own axis, so the old one closes and a new
-    // one opens — identity is untouched.
-    if (isAgentId(key)) await writeRpc(services, "set-handle", { target: key, handle: String(handle) });
-    if (json) process.stdout.write(JSON.stringify({ target: handle, moved: true, newTab, tab: groupId }) + "\n");
-    else process.stdout.write(`Moved ${displayName(entity.name, entity.key)}${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
+    acted = await actOnPane(services, self, target, steal, json, { kind: "move", tab: newTab ? null : tab ?? null, split, label });
   } catch (e: unknown) {
     die(`move failed: ${errorMessage(e)}`);
   }
+  if (acted === null) return;
+  const groupId = acted.done.group;
+  if (json) process.stdout.write(JSON.stringify({ target: acted.done.handle, moved: true, newTab, tab: groupId }) + "\n");
+  else process.stdout.write(`Moved ${acted.name}${newTab ? "to a new group" : `to group ${groupId}`}.\n`);
 }
-

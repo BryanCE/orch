@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -86,7 +87,7 @@ function seedLiveAgent(dir: OrchDir, key: string, handle?: string, name = key): 
     adapter: "pi", backend: "headless", space: "space00001", name, owner: operator,
     ...(handle === undefined ? {} : { handle }),
   }, dir);
-  endProcess(dir, key, Date.now());
+  endProcess(dir, placeHere(dir, key), Date.now());
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({

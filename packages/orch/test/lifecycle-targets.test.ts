@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { describe, expect, test } from "bun:test";
 import { agentTargetMatches, resolveAgentView } from "../src/entities/lifecycle.ts";
 import type { AgentView } from "../src/types/store.ts";
@@ -17,13 +18,12 @@ function view(id: string, name: string, handle: string | null = null): AgentView
     name,
     label: null,
     harnessId: "pi",
-    cwd: "/repo",
     createdAt: 1,
     kind: "agent",
     spawnedBy: null, spawnedByName: null,
     rootAgentId: id,
     heldBy: null,
-    environment: { plexer: handle === null ? null : "herdr", handle, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null },
+    environment: { plexer: handle === null ? null : "herdr", handle, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null, host: hostIdentity(), cwd: "/repo" },
     tuning: { model: null, thinking: null },
     endedAt: null,
   };

@@ -1,7 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { execFile } from "node:child_process";
 import { resolveAdapter } from "../adapters/registry.ts";
-import { echoesPrompts, takesModel } from "../adapters/adapter.ts";
+import { echoesPrompts, takesModel } from "../shared/harness.ts";
 import { getBackend } from "../backends/registry.ts";
 import { normalizeControlTarget } from "./normalize-target.ts";
 import { AgentGoneError } from "./agent-gone.ts";

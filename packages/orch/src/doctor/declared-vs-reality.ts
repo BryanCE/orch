@@ -1,7 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { existsSync } from "node:fs";
 import { getBackend } from "../backends/registry.ts";
-import { processLiveness } from "../process-place.ts";
+import { placeAgentIfAny, processLiveness } from "../process-place.ts";
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { databasePath, orm } from "../store/connection.ts";
 import { agentEndings, agentHandles, agentLeases, agentPlexers, agentProcesses, agents } from "../db/schema.ts";
@@ -20,8 +20,23 @@ const DEFAULT_DEPENDENCIES: DeclaredVsRealityDependencies = {
 /** The doctor asks through injected `processAlive` so a check can be run against
  *  a stated reality, which is the whole point of comparing declared to real. */
 function recordedProcessAlive(orchDir: OrchDir, agentId: string, dependencies: DeclaredVsRealityDependencies): boolean {
-  const row = currentProcess(orchDir, agentId);
-  return row !== undefined && dependencies.processAlive(orchDir, row);
+  const place = placeAgentIfAny(orchDir, agentId);
+  if (place === null) return false;
+  switch (place.kind) {
+    case "here": {
+      const row = currentProcess(orchDir, place.agent);
+      return row !== undefined && dependencies.processAlive(orchDir, row);
+    }
+    // Another host's orchd answers for its own agents' processes; from here that is unknown,
+    // which is never dead.
+    case "linked":
+    case "unreachable":
+      return true;
+    default: {
+      const exhaustive: never = place;
+      throw new Error(`unknown agent place ${String(exhaustive)}`);
+    }
+  }
 }
 
 function defaultInventory(plexerId: string): readonly PlexerInventoryEntry[] {

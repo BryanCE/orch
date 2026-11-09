@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { describe, expect, test } from "bun:test";
 import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -5,7 +6,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { displayStatusState, formatNoRowsMessage, formatSpace, parseStatusOptions, scopeFleetRows } from "../src/commands/status/options.ts";
 import { normalizeStatusRow, readStatusResult, resolveStatusAgent } from "../src/commands/status/fetch.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
-import { fleetNames, statusRowFromEntity } from "../src/commands/status/rows.ts";
+import { fleetNames, statusRowFromEntity } from "../src/daemon/server/fleet-rows.ts";
 import { ownerLabel } from "../src/commands/status/table.ts";
 import { modelShort } from "../src/policy/thinking.ts";
 import { deriveDriveState, fleetLeaseFacts } from "../src/agent/drive-state.ts";
@@ -28,7 +29,7 @@ import type { RpcServer } from "../src/types/daemon.ts";
 function entityFixture(overrides: Partial<Entity> = {}): Entity {
   return {
     key: "appagent01", paneId: "app:p1", managed: true, name: "worker", tabLabel: "app", agent: "pi",
-    focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, ended: false, space: "local",
+    focused: true, backendStatus: null, backend: "herdr", sessionPath: null, presenceOnly: false, ended: false, space: "local", host: hostIdentity(),
     presence: presenceEntryFixture({
       key: "appagent01",
       status: statusRow({
@@ -110,9 +111,7 @@ describe("commands/status", () => {
       removeTempDir(directory);
     }
   });
-  test("--agent with --offline is a usage error: only orchd resolves a target", () => {
-    expect(() => parseStatusOptions(["--agent=bee", "--offline"])).toThrow("--agent resolves through orchd; drop --offline");
-  });
+
   test("--hide splits column names from states; --only keeps just its states", () => {
     const options = parseStatusOptions(["--hide=owner,done", "--only=working,idle", "--all"]);
     expect(options.hide).toEqual({ columns: new Set(["owner"]), states: new Set(["done"]) });
@@ -211,9 +210,9 @@ describe("commands/status", () => {
     const dir = tempOrchDir("orch-status-");
     try {
       ensureHarness(dir, "pi", "pi", 1);
-      insertAgent(dir, { id: "me", harnessId: "pi", cwd: "/tmp", name: "Orchestrator", createdAt: 1 });
-      insertAgent(dir, { id: "worker0001", harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
-      insertAgent(dir, { id: "other", harnessId: "pi", cwd: "/tmp", name: "other", createdAt: 1 });
+      insertAgent(dir, { host: hostIdentity(), id: "me", harnessId: "pi", cwd: "/tmp", name: "Orchestrator", createdAt: 1 });
+      insertAgent(dir, { host: hostIdentity(), id: "worker0001", harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
+      insertAgent(dir, { host: hostIdentity(), id: "other", harnessId: "pi", cwd: "/tmp", name: "other", createdAt: 1 });
       const key = "worker0001";
       const db = orm(dir);
       db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);

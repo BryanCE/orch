@@ -1,9 +1,5 @@
 import { execFileSync } from "node:child_process";
 import { errorMessage } from "../../util.ts";
-import { describeHandle } from "../../backends/backend.ts";
-import { attemptClose, closeTargetOf, type CloseTarget } from "../../control/close-attempt.ts";
-import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
-import { lifecycleLogger } from "./index.ts";
 import { callDaemon, readRpc } from "../daemon.ts";
 import { hostCallTimeoutMs } from "../host.ts";
 import { cmdSteer } from "../control.ts";
@@ -13,21 +9,10 @@ import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
 import { usageError } from "../../cli/usage.ts";
 import type { Services } from "../../types/services.ts";
-import { STREAM_VERBS } from "../events.ts";
-import { observedHere } from "../../local-process.ts";
+import type { ResultOf } from "../../daemon/client/protocol.ts";
 
-/** Close is the SECOND ending verb. The process is gone here; orchd writes the
- *  ending and publishes it. For an agent on a linked host orchd first asks that host's
- *  orchd to close its own agent, over the link. A refused write is this target's
- *  failure, not the sweep's. */
-async function endClosedAgent(services: CloseServices, key: string, timeoutMs?: number): Promise<string | null> {
-  try {
-    await callDaemon(services, "agent-closed", { key }, {}, timeoutMs);
-    return null;
-  } catch (error: unknown) {
-    return errorMessage(error);
-  }
-}
+type CloseTargetWire = ResultOf<"close-targets">["targets"][number];
+import { STREAM_VERBS } from "../events.ts";
 
 /** One target's close: whether it failed and why, and whether this close stopped it. */
 interface TargetClosed {
@@ -35,16 +20,16 @@ interface TargetClosed {
   readonly stopped: boolean;
 }
 
-/** End one target where it runs, and record the ending. One on a linked host is that host's
- *  orchd's to end; a pid here names nothing. */
-async function closeOne(services: CloseServices, target: CloseTarget): Promise<TargetClosed> {
-  if (target.recorded.kind === "elsewhere") {
-    const failure = await endClosedAgent(services, target.key, hostCallTimeoutMs(services));
-    return failure === null ? { failure, stopped: true } : { failure: `could not end ${target.name} on ${target.recorded.hostName}: ${failure}`, stopped: false };
+/** End one target where it runs, and record the ending: orchd signals its process and closes its
+ *  pane there, through that host's orchd for one on a linked host. A refused close is this
+ *  target's failure, not the sweep's. */
+async function closeOne(services: CloseServices, target: CloseTargetWire): Promise<TargetClosed> {
+  try {
+    const { outcome } = await callDaemon(services, "agent-closed", { key: target.key }, {}, hostCallTimeoutMs(services));
+    return { failure: null, stopped: outcome === "signalled" };
+  } catch (error: unknown) {
+    return { failure: errorMessage(error), stopped: false };
   }
-  const attempt = attemptClose(target);
-  const failure = attempt.failure ?? await endClosedAgent(services, target.key);
-  return { failure, stopped: attempt.signalled || attempt.closedByBackend };
 }
 
 /** One target's result from a multi-target close, with the reason it failed. */
@@ -63,8 +48,8 @@ function killEventStreams(): number {
   try {
     pids = execFileSync("pgrep", ["-f", `orch (${STREAM_VERBS.join("|")})`]).toString().trim().split("\n").filter(Boolean).map(Number);
   } catch { /* no stream running */ }
-  const kill = pids.filter((pid) => !isOwnProcess(pid));
-  for (const pid of kill) { try { signalOtherProcess(observedHere(pid, null), "SIGTERM"); } catch { /* already gone */ } }
+  const kill = pids.filter((pid) => pid !== process.pid);
+  for (const pid of kill) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
   return kill.length;
 }
 
@@ -76,7 +61,7 @@ function killEventStreams(): number {
  *  sweep from a half one. A target named twice is closed once. */
 type CloseServices = Pick<Services, "orchDir" | "settings" | "logger">;
 
-async function closeEachTarget(services: CloseServices, targets: readonly CloseTarget[], json: boolean): Promise<{ results: CloseOutcome[]; closed: string[]; ok: number }> {
+async function closeEachTarget(services: CloseServices, targets: readonly CloseTargetWire[], json: boolean): Promise<{ results: CloseOutcome[]; closed: string[]; ok: number }> {
   const logger = services.logger;
   const results: CloseOutcome[] = [];
   const closed: string[] = [];
@@ -84,11 +69,11 @@ async function closeEachTarget(services: CloseServices, targets: readonly CloseT
   for (const target of targets) {
     if (seen.has(target.key)) continue;
     seen.add(target.key);
-    const handle = target.handle === null ? null : describeHandle(target.handle);
+    const handle = target.handle;
     const name = target.name;
     const { failure, stopped } = await closeOne(services, target);
     if (failure !== null) {
-      lifecycleLogger(logger, target.key).error("close.failed", { handle, error: failure });
+      logger.error("close.failed", { target: target.key, handle, error: failure });
       results.push({ target: target.key, handle, outcome: "error", error: failure });
       if (!json) process.stdout.write(`Could not close ${name}: ${failure}\n`);
       continue;
@@ -124,7 +109,7 @@ function reportClose(
 export async function closeAgentQuietly(services: Services, target: string): Promise<void> {
   const answer = await readRpc(services, "close-targets", { caller: callerCredential(), targets: [target], all: false });
   if (answer.refusal !== null) die(answer.refusal);
-  const { results, ok } = await closeEachTarget(services, answer.targets.map(closeTargetOf), true);
+  const { results, ok } = await closeEachTarget(services, answer.targets, true);
   if (ok !== results.length) die(`could not close ${target}: ${results.map((result) => result.error).join("; ")}`);
 }
 
@@ -138,7 +123,7 @@ export async function cmdClose(services: Services, args: string[]): Promise<void
 
   const answer = await readRpc(services, "close-targets", { caller: callerCredential(), targets: [...positional], all });
   if (answer.refusal !== null) die(answer.refusal);
-  reportClose(await closeEachTarget(services, answer.targets.map(closeTargetOf), json), { all, stream, json });
+  reportClose(await closeEachTarget(services, answer.targets, json), { all, stream, json });
 }
 
 export async function cmdAbort(services: Services, args: string[]): Promise<void> {

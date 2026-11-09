@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 /**
  * Seed the smoke fixture: one live agent, written through the same store and
  * presence writers a real spawn uses.
@@ -14,7 +15,7 @@ import { hostIdentity } from "../src/host.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { recordAgentStatus } from "../src/presence/store.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
-import { isAgentId } from "../src/backends/identity.ts";
+import { isAgentId } from "../src/shared/agent-id.ts";
 
 const [key, pidText] = process.argv.slice(2);
 if (!isAgentId(key) || pidText === undefined || !/^[1-9][0-9]*$/.test(pidText)) {
@@ -38,11 +39,10 @@ registerSpawnedAgent(root, {
   model: "gpt-5",
   thinking: "medium",
   spawner: null,
-  process: { pid: Number(pidText), startToken: null },
-  host: hostIdentity(),
+  process: { host: hostIdentity().id, pid: Number(pidText), startToken: null },
 });
 
-recordAgentStatus(root, key, {
+recordAgentStatus(root, placeHere(root, key), {
   state: "asking",
   dispatchId,
   model: { provider: "openai-codex", id: "gpt-5" },

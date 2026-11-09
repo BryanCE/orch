@@ -3,7 +3,7 @@ import { lockCommand, unlockCommand } from "../src/daemon/server/handlers/comman
 import { acceptStatusReport } from "../src/daemon/server/status-report.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { hostOs } from "../src/host.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { ensureHost } from "../src/store/agent-rows.ts";
 import { approveGrantRequest } from "../src/store/grant-rows.ts";
 import { selectAgentStatus } from "../src/store/status-rows.ts";

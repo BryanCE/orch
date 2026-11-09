@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { describe, expect, test } from "bun:test";
 import { createBuiltinNotifiers } from "../src/notify/sinks.ts";
 import { createNotifierRegistry } from "../src/notify/router.ts";
@@ -7,7 +8,7 @@ import type { OrchDir } from "../src/types/core.ts";
 
 const orchDir = (): OrchDir => orchDirAt(".");
 
-const event: NotifyEvent = {
+const event: NotifyEvent = { host: hostIdentity(),
   key: "demo:worker", space: "demo", agent: "worker", tab: "tab-1", model: "model-1",
   type: "transition", oldState: "working", newState: "blocked", task: "Q: approve deployment", ts: "2026-01-01T00:00:00.000Z",
 };

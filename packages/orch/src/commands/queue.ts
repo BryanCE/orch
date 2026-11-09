@@ -2,7 +2,7 @@ import type { TaskRec, TaskScopeSelection } from "../queue.ts";
 import { rpcCall } from "../daemon/client/rpc.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
-import { isAdapterId } from "../adapters/adapter.ts";
+import { isAdapterId } from "../shared/harness.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
 import { askDaemon, callDaemon } from "./daemon.ts";
 import { resolveEntity } from "./resolve.ts";

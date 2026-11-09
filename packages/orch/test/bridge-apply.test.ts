@@ -1,7 +1,7 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createAgentPresence } from "../src/agent/presence.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import type { DaemonLink, HarnessApi, HarnessContext } from "../src/types/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 

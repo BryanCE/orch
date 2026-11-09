@@ -362,7 +362,7 @@ export function checkFsWatchLine(line: string, relPath: string): string | undefi
  * (`src/adapters/{pi,omp,claude,codex}`) import re-couples the package to a leaf,
  * which is exactly the breach `resolveBackend`/`resolveAdapter` exist to prevent.
  * `backends/registry.ts`, `backends/backend.ts`, `adapters/registry.ts`, and the
- * parser leaves (`adapters/adapter.ts`, `adapters/transcript.ts`,
+ * parser leaves (`shared/harness.ts`, `adapters/transcript.ts`,
  * `adapters/codex-events.ts`) sit directly under their dir (no `<id>/` subpath,
  * not a bare harness id) and stay allowed.
  */
@@ -472,7 +472,7 @@ export function checkLeaseProvenanceLine(line: string, relPath: string): string 
   return undefined;
 }
 
-const IDENTITY_ISSUER_MODULES = new Set(["src/backends/identity.ts", "src/daemon/client/registration.ts"]);
+const IDENTITY_ISSUER_MODULES = new Set(["src/shared/agent-id.ts", "src/daemon/client/registration.ts"]);
 const IDENTITY_TEMPLATE_CONSTRUCTION = /`[^`\r\n]*~[^`\r\n]*~[^`\r\n]*`/;
 const IDENTITY_CONCAT_CONSTRUCTION = /(?:\+\s*["']~["']\s*\+).*(?:\+\s*["']~["']\s*\+)/;
 

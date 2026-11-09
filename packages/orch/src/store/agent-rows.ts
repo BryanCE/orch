@@ -1,11 +1,12 @@
 import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, isNotNull, isNull, type SQL } from "drizzle-orm";
-import { mintAgentId } from "../backends/identity.ts";
+import { mintAgentId } from "../shared/agent-id.ts";
 import { isRecord } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentHosts, agentOrigins, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf, refreshAgent } from "./agent-view.ts";
-import { currentProcess, recordProcessIn, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
+import { agentLocation, callerProcess, openLocationIn, recordCallerProcessIn, relocateIn, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
+import { hereOrNull, placeAgent } from "../process-place.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
 import { acquireLease } from "./lease-rows.ts";
 import type { AgentWorktree } from "../types/worktree.ts";
@@ -15,6 +16,7 @@ import type { CallerKind } from "../types/policy.ts";
 import { isHostOs } from "../host.ts";
 import { OPERATOR_HARNESS_ID } from "../identity/operator.ts";
 import type { HostedProcess } from "../types/process.ts";
+import type { AgentLocation, HereAgent } from "../types/agent-place.ts";
 
 /** An agent joined to the ending it may not have. The join is left, so `ending`
  *  is null for every live agent and carries the instant for a closed one. */
@@ -26,7 +28,7 @@ interface JoinedAgent {
 function mapAgent({ agent, ending }: JoinedAgent): AgentRow {
   return {
     id: agent.id, spawnedBy: agent.spawnedBy, rootAgentId: agent.rootAgentId,
-    harnessId: agent.harnessId, cwd: agent.cwd, name: agent.name,
+    harnessId: agent.harnessId, name: agent.name,
     label: agent.label, kind: agent.kind, claimedAt: agent.claimedAt, sessionToken: agent.sessionToken, createdAt: agent.createdAt,
     ending: ending === null ? null : { endedAt: ending.endedAt, closedBy: ending.closedBy },
   };
@@ -54,10 +56,12 @@ export function insertAgent(orchDir: OrchDir, input: AgentInput): AgentRow {
   if (existing !== undefined) throw new Error(`agent already exists: ${input.id}`);
   const row: Omit<AgentRow, "ending"> = {
     id: input.id, spawnedBy, rootAgentId: root, harnessId: input.harnessId,
-    cwd: input.cwd, name: input.name, label: input.label ?? null, kind: "agent",
+    name: input.name, label: input.label ?? null, kind: "agent",
     claimedAt: null, sessionToken: null, createdAt: input.createdAt,
   };
+  ensureHost(orchDir, input.host, input.createdAt);
   db.insert(agents).values(row).run();
+  openLocationIn(db, input.id, input.createdAt, input.host.id, input.cwd);
   refreshAgent(orchDir, input.id);
   return { ...row, ending: null };
 }
@@ -107,47 +111,42 @@ export function endAgent(orchDir: OrchDir, agentId: string, endedAt: number, clo
   refreshAgent(orchDir, agentId);
 }
 
-/** Record that an agent runs from a git worktree. No row means the repo itself. */
-export function setWorktree(orchDir: OrchDir, agentId: string, worktree: AgentWorktree): void {
-  orm(orchDir).insert(agentWorktrees).values({ agentId, ...worktree })
+/** Record that an agent runs from a git worktree. No row means the repo itself. A worktree is
+ *  a directory on this machine, so only an agent here has one. */
+export function setWorktree(orchDir: OrchDir, agent: HereAgent, worktree: AgentWorktree): void {
+  orm(orchDir).insert(agentWorktrees).values({ agentId: agent.id, ...worktree })
     .onConflictDoUpdate({ target: agentWorktrees.agentId, set: worktree })
     .run();
-  refreshAgent(orchDir, agentId);
+  refreshAgent(orchDir, agent.id);
 }
 
-/** Record that an agent this orchd asked for runs on another host. Written once, with its row. */
-export function setAgentHost(orchDir: OrchDir, agentId: string, hostId: HostId): void {
-  orm(orchDir).insert(agentHosts).values({ agentId, hostId }).run();
-  refreshAgent(orchDir, agentId);
+/** Where an agent runs: its open `agent_hosts` row. Total for every agent the store holds,
+ *  since every agent row is written with one; an unknown id, or an agent with no open row,
+ *  throws. The second is a corrupt store, never "here". */
+export function agentHost(orchDir: OrchDir, agentId: string): AgentLocation {
+  const location = agentLocation(orchDir, agentId);
+  if (location !== undefined) return location;
+  if (agentById(orchDir, agentId) === null) throw new Error(`unknown agent: ${agentId}`);
+  throw new Error(`agent ${agentId} has no open host row: the store is corrupt. Reap the agent or rebuild the store.`);
 }
 
-/** Every agent this orchd asked another host to run, by id, with that host. */
-export function agentHostIndex(orchDir: OrchDir): Map<string, HostId> {
-  return new Map(orm(orchDir).select({ agentId: agentHosts.agentId, hostId: agentHosts.hostId }).from(agentHosts).all()
-    .map((row) => [row.agentId, row.hostId]));
-}
-
-/** Every host that runs an agent this orchd asked for and has not seen end. */
-export function hostsRunningLiveAgents(orchDir: OrchDir): Set<HostId> {
+/** Every host other than `except` that runs an agent this orchd has not seen end. */
+export function hostsRunningLiveAgents(orchDir: OrchDir, except: HostId): Set<HostId> {
   return new Set(orm(orchDir).selectDistinct({ hostId: agentHosts.hostId }).from(agentHosts)
     .leftJoin(agentEndings, eq(agentEndings.agentId, agentHosts.agentId))
-    .where(isNull(agentEndings.agentId)).all().map((row) => row.hostId));
-}
-
-/** The host an agent this orchd asked for runs on; null when it runs here. */
-export function hostOfAgent(orchDir: OrchDir, agentId: string): HostId | null {
-  return orm(orchDir).select({ hostId: agentHosts.hostId }).from(agentHosts).where(eq(agentHosts.agentId, agentId)).get()?.hostId ?? null;
+    .where(and(isNull(agentHosts.until), isNull(agentEndings.agentId))).all()
+    .flatMap((row) => row.hostId === except ? [] : [row.hostId]));
 }
 
 /** Stamp the host and agent that asked for this one. Written once, with the agent row. */
 export function setOrigin(orchDir: OrchDir, agentId: string, origin: AgentOrigin): void {
-  orm(orchDir).insert(agentOrigins).values({ agentId, hostId: origin.host, spawnerId: origin.spawner }).run();
+  orm(orchDir).insert(agentOrigins).values({ agentId, askedByHostId: origin.askedBy, spawnerId: origin.spawner }).run();
 }
 
 /** The host and agent that asked for this one; null when it was asked for on this host. */
 export function originOf(orchDir: OrchDir, agentId: string): AgentOrigin | null {
   const row = orm(orchDir)
-    .select({ host: agentOrigins.hostId, spawner: agentOrigins.spawnerId })
+    .select({ askedBy: agentOrigins.askedByHostId, spawner: agentOrigins.spawnerId })
     .from(agentOrigins)
     .where(eq(agentOrigins.agentId, agentId))
     .get();
@@ -202,9 +201,10 @@ function liveProcessAgentId(orchDir: OrchDir, process: HostedProcess, extra: SQL
   if (process.startToken === null) return null;
   const row = orm(orchDir).select({ id: agents.id }).from(agents)
     .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
+    .innerJoin(agentHosts, and(eq(agentHosts.agentId, agents.id), isNull(agentHosts.until)))
     .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
     .where(and(
-      eq(agentProcesses.hostId, process.host), eq(agentProcesses.pid, process.pid), eq(agentProcesses.startToken, process.startToken),
+      eq(agentHosts.hostId, process.host), eq(agentProcesses.pid, process.pid), eq(agentProcesses.startToken, process.startToken),
       isNull(agentEndings.agentId), extra,
     ))
     .limit(1).get();
@@ -214,8 +214,9 @@ function liveProcessAgentId(orchDir: OrchDir, process: HostedProcess, extra: SQL
 /** Every pid an un-ended agent row runs as now on one host. */
 export function liveProcessPids(orchDir: OrchDir, host: HostId): Set<number> {
   return new Set(orm(orchDir).select({ pid: agentProcesses.pid }).from(agentProcesses)
+    .innerJoin(agentHosts, and(eq(agentHosts.agentId, agentProcesses.agentId), isNull(agentHosts.until)))
     .leftJoin(agentEndings, eq(agentEndings.agentId, agentProcesses.agentId))
-    .where(and(eq(agentProcesses.hostId, host), isNull(agentProcesses.until), isNull(agentEndings.agentId))).all().map((row) => row.pid));
+    .where(and(eq(agentHosts.hostId, host), isNull(agentProcesses.until), isNull(agentEndings.agentId))).all().map((row) => row.pid));
 }
 
 /** The live agent registered as this process instance, or null. */
@@ -272,17 +273,18 @@ function liveAgentId(orchDir: OrchDir, where: SQL): string | null {
  * dictated by where it is, and a fact filled in later is a fact something read
  * wrong first.
  *
- * Both are idempotent: the plexer is an immutable one-shot, and the space
- * already open is left alone rather than reopened, so a second registration from the
- * same session opens no second interval.
+ * The plexer and handle name a pane on one machine, so they are written only for a session
+ * placed here (`here`); a session registered from another host has none. All are idempotent:
+ * the plexer is an immutable one-shot, and the space already open is left alone rather than
+ * reopened, so a second registration from the same session opens no second interval.
  */
-function placeSession(orchDir: OrchDir, agentId: string, input: SessionAgentInput): void {
+function placeSession(orchDir: OrchDir, here: HereAgent | null, agentId: string, input: SessionAgentInput): void {
   const environment = environmentOf(orchDir, agentId);
-  if (input.plexerId != null && environment.plexer === null) {
-    setAgentPlexer(orchDir, agentId, input.plexerId);
+  if (here !== null && input.plexerId != null && environment.plexer === null) {
+    setAgentPlexer(orchDir, here, input.plexerId);
   }
-  if (input.handle != null && environment.handle !== input.handle) {
-    setHandle(orchDir, agentId, input.now, input.handle);
+  if (here !== null && input.handle != null && environment.handle !== input.handle) {
+    setHandle(orchDir, here, input.now, input.handle);
   }
   if (input.space != null && environment.space !== input.space) {
     setSpace(orchDir, agentId, input.now, input.space);
@@ -326,12 +328,17 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
       } else {
         db.update(agents).set({ label: input.label }).where(eq(agents.id, existing)).run();
       }
+      // A session that registers from another host moved there: its host row closes as
+      // the next opens, and what named a place on the old machine goes with it. Its
+      // directory is the one it first registered from on a host.
+      const location = agentHost(orchDir, existing);
+      if (location.host !== process.host) relocateIn(db, existing, input.now, process.host, input.cwd);
       // The session outlives any one process instance. A superseded instance
       // closes as the current one opens; the same instance registered again
       // keeps its open interval.
-      const open = currentProcess(orchDir, existing);
+      const open = callerProcess(orchDir, existing);
       if (open?.host !== process.host || open.pid !== process.pid || open.startToken !== process.startToken) {
-        recordProcessIn(orm(orchDir), existing, input.now, process);
+        recordCallerProcessIn(db, existing, input.now, process);
       }
       return { id: existing, label: input.label, kind: "session" };
     }
@@ -339,13 +346,12 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
     const id = mintAgentId();
     const parent = input.spawnedBy ? agentById(orchDir, input.spawnedBy) : null;
     db.insert(agents).values({
-      id, spawnedBy: parent?.id ?? null, rootAgentId: parent?.rootAgentId ?? id, harnessId: input.harnessId, cwd: input.cwd,
+      id, spawnedBy: parent?.id ?? null, rootAgentId: parent?.rootAgentId ?? id, harnessId: input.harnessId,
       name: `${input.harnessId}-${id.slice(0, 8)}`, label: input.label, kind: registeredKind(input.harnessId, parent?.id ?? null),
       sessionToken: token, createdAt: input.now,
     }).run();
-    db.insert(agentProcesses).values({
-      agentId: id, since: input.now, until: null, hostId: process.host, pid: process.pid, startToken: process.startToken,
-    }).run();
+    openLocationIn(db, id, input.now, process.host, input.cwd);
+    recordCallerProcessIn(db, id, input.now, process);
     // Whoever started it holds it, as a spawner holds its spawn.
     if (parent) acquireLease(orchDir, id, parent.id, input.now);
     return { id, label: input.label, kind: "session" };
@@ -354,7 +360,7 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
   // Placement runs AFTER the registration transaction. It is idempotent, so a
   // crash in between is repaired by the session's next registration rather than
   // leaving a second row.
-  placeSession(orchDir, identity.id, input);
+  placeSession(orchDir, hereOrNull(placeAgent(orchDir, identity.id)), identity.id, input);
   return { ...identity, repointed: repointedAgentId !== null, agent: identity };
 }
 

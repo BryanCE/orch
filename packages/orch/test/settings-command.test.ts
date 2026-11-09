@@ -8,7 +8,7 @@ import { cmdSettings } from "../src/commands/settings.ts";
 import { createServices } from "../src/services.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { AGENT_SETTINGS_GRANT } from "../src/policy/agent-settings.ts";
 import { isRecord } from "../src/util.ts";
 import { claudeSettingsPath } from "../src/adapters/claude-hooks.ts";

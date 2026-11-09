@@ -1,6 +1,5 @@
 import { readRpc } from "../daemon.ts";
 import { resolveEntity } from "../resolve.ts";
-import { buildFleetStatus } from "./offline.ts";
 import { scopeFleetRows, displayStatusState } from "./options.ts";
 import type { CallerScope, FleetScope, StatusOptions } from "./options.ts";
 import type { OrchSettings } from "../../types/settings.ts";
@@ -41,9 +40,8 @@ function snapshot(fleet: FleetStatus): FleetSnapshot {
   return { names: fleet.names, rows: normalized, agentsSeen: normalized.length, ...rowCounts(normalized) };
 }
 
-async function readFleet(settings: OrchSettings | null, services: DaemonClient, offline: boolean, caller: string | null): Promise<FleetSnapshot> {
+async function readFleet(settings: OrchSettings | null, services: DaemonClient, caller: string | null): Promise<FleetSnapshot> {
   if (settings === null) return snapshot({ names: NO_NAMES, rows: [] });
-  if (offline) return snapshot(buildFleetStatus(settings, { offline: true, directory: services.orchDir, caller }));
   return snapshot(await readRpc(services, "status", { caller }));
 }
 
@@ -54,7 +52,7 @@ export async function resolveStatusAgent(services: DaemonClient, options: Status
 }
 
 async function localStatus(settings: OrchSettings | null, services: DaemonClient, options: StatusOptions, scope: FleetScope): Promise<FleetSnapshot> {
-  const fleet = await readFleet(settings, services, options.offline, scope.caller?.id ?? null);
+  const fleet = await readFleet(settings, services, scope.caller?.id ?? null);
   return { ...fleet, rows: scopeFleetRows(fleet.rows, scope) };
 }
 
@@ -83,5 +81,5 @@ export async function readStatusResult(
 
 /** A fleet whose agents run on more than one host needs the HOST column to tell them apart. */
 function spansHosts(rows: readonly StatusRow[]): boolean {
-  return new Set(rows.flatMap((row) => row.host === undefined ? [] : [row.host])).size > 1;
+  return new Set(rows.map((row) => row.host.id)).size > 1;
 }

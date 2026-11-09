@@ -6,11 +6,11 @@ import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { projectRoot } from "../src/util.ts";
-import { ENVIRONMENT_ENV } from "../src/agent/environment.ts";
+import { ENVIRONMENT_ENV } from "../src/shared/environment.ts";
 
 /** tmux composes no HUD role today, so an agent it spawns is told exactly that. */
 const environmentStampArg = `${ENVIRONMENT_ENV}=${JSON.stringify({ labels: false, blockedEvent: null })}`;
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 
 /** One synthetic tmux pane row served by the fake `list-panes -a` query. */
@@ -139,7 +139,7 @@ void mock.module("node:child_process", () => ({
 }));
 
 const { TmuxBackend } = await import("../src/backends/tmux/index.ts");
-const { foregroundOf } = await import("../src/commands/lifecycle/reload.ts");
+const { foregroundOf } = await import("../src/backends/shell-ready.ts");
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];

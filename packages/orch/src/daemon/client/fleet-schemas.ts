@@ -4,6 +4,14 @@ import { LIVENESS, type PresenceEntry } from "../../types/presence.ts";
 import { CALLER_KINDS } from "../../types/policy.ts";
 import type { AgentStatusRow } from "../../store/status-rows.ts";
 import type { Entity } from "../../types/core.ts";
+import { HOST_OS_VALUES, type HostId, type HostIdentity } from "../../types/host.ts";
+import { isHostId } from "../../host.ts";
+
+/** A host id off the wire: checked here, a `HostId` from here on. */
+export const HOST_ID = z.custom<HostId>(isHostId, "must be a host id");
+
+/** A host as the store records it: its id, the name people read, its OS. */
+export const HOST_IDENTITY = z.object({ id: HOST_ID, name: z.string(), os: z.enum(HOST_OS_VALUES) }) satisfies z.ZodType<HostIdentity>;
 
 // Keys mirror ENVIRONMENT_AXES in src/store/agent-view.ts; explicit fields keep
 // the required Record keys visible to Zod's inferred output type.
@@ -15,6 +23,8 @@ const AGENT_ENVIRONMENT = z.object({
   branch: z.string().nullable(),
   worktreeBase: z.string().nullable(),
   worktreeProvider: z.string().nullable(),
+  host: HOST_IDENTITY,
+  cwd: z.string(),
 }) satisfies z.ZodType<AgentEnvironment>;
 
 const AGENT_HOLDER = z.object({
@@ -69,7 +79,6 @@ export const AGENT_VIEW = z.object({
   name: z.string(),
   label: z.string().nullable(),
   harnessId: z.string(),
-  cwd: z.string(),
   createdAt: z.number(),
   kind: z.enum(CALLER_KINDS),
   spawnedBy: z.string().nullable(),
@@ -96,7 +105,7 @@ export const ENTITY = z.object({
   presenceOnly: z.boolean(),
   ended: z.boolean(),
   space: z.string().nullable(),
-  host: z.string().optional(),
+  host: HOST_IDENTITY,
 }) satisfies z.ZodType<Entity>;
 
 export const RUN_RECORD = z.object({

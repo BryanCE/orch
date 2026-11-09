@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores } from "../src/store/connection.ts";
 import { bumpOutboxAttempt, deleteDeliveredBefore, insertOutboxMessage, markOutboxDelivered, outboxMessageUnsent, selectPendingOutbox } from "../src/store/outbox-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import type { BridgeMessage } from "../src/control/bridge-message.ts";
+import type { BridgeMessage } from "../src/shared/bridge-message.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });

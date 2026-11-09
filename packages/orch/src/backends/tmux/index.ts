@@ -1,9 +1,10 @@
+import type { AgentId } from "../../types/agent-place.ts";
 import { createInteractiveCommand, homeLabel } from "../backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
-import { isAgentId } from "../identity.ts";
+import { isAgentId } from "../../shared/agent-id.ts";
 import { ARROW, binaryOnPath, shellLine } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
-import { environmentStamp } from "../../agent/environment.ts";
+import { environmentStamp } from "../../shared/environment.ts";
 import { callerTmuxPane, insideTmux } from "./detect.ts";
 
 /** tmux has panes but orch composes no HUD role for them yet: nothing to read,
@@ -73,7 +74,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     this.capture = createBackendCaptureRole("tmux", () => this.orchDir);
   }
   readonly identity: EnvironmentIdentityRole = {
-    current: (id: string | null): string | null => this.ownIdentity(id),
+    current: (id: string | null): AgentId | null => this.ownIdentity(id),
   };
   // No key -> handle lookup: a pane is addressed by its own handle here.
   readonly handleLookup: null = null;
@@ -252,7 +253,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   }
 
   /** Identity of the calling pane, resolved from the explicit orch id. */
-  private ownIdentity(id: string | null): string | null {
+  private ownIdentity(id: string | null): AgentId | null {
     const handle = callerTmuxPane();
     if (!handle) return null;
     // See the herdr backend: identity is minted by orch and arrives as an

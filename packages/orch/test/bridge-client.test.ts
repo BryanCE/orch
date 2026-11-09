@@ -10,7 +10,7 @@ import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { isRecord } from "../src/util.ts";
 import { testServices } from "./helpers/services.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 
 interface Connection {
   readonly socket: Socket;

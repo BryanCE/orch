@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 
@@ -23,7 +24,7 @@ type TransitionOldState = Extract<NotifyEvent, { type: "transition" }>["oldState
 type TransitionNewState = Extract<NotifyEvent, { type: "transition" }>["newState"];
 
 function transition(key: string, oldState: TransitionOldState, newState: TransitionNewState): NotifyEvent {
-  return { type: "transition", key, agent: "worker", tab: null, model: null, oldState, newState, ts: new Date().toISOString() };
+  return { host: hostIdentity(), type: "transition", key, agent: "worker", tab: null, model: null, oldState, newState, ts: new Date().toISOString() };
 }
 
 afterEach(() => {

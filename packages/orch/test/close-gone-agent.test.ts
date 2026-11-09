@@ -1,6 +1,6 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { closeAgent } from "../src/daemon/server/handlers/lifecycle.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { seedAgent } from "./helpers/agent.ts";

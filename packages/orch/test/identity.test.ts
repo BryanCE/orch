@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isAgentId, mintAgentId } from "../src/backends/identity.ts";
+import { isAgentId, mintAgentId } from "../src/shared/agent-id.ts";
 
 /**
  * Identity is a minted id and NOTHING else.

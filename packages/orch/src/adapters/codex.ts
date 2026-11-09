@@ -5,8 +5,8 @@ import { declaredRuntime } from "../settings/read.ts";
 
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
 import { detectCodexState, extractCodexResult, readCodexSessionView } from "./codex-events.ts";
-import { buildHeadlessArgv, buildInteractiveArgv, launchCompaction, shimRole, type AgentState } from "./adapter.ts";
-import { HARNESS_SESSION_ENV } from "./session-env.ts";
+import { buildHeadlessArgv, buildInteractiveArgv, launchCompaction, shimRole, type AgentState } from "../shared/harness.ts";
+import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import { compactionArgs } from "../policy/workers.ts";
 import type { AdapterCommand, AgentAdapter, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";

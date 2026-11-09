@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -19,7 +20,7 @@ function makeOrchDir(): OrchDir {
 }
 
 function agent(dir: OrchDir, id: string): void {
-  insertAgent(dir, { id, name: id, spawnedBy: null, harnessId: "pi", cwd: dir, createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id, name: id, spawnedBy: null, harnessId: "pi", cwd: dir, createdAt: 1 });
 }
 
 function placeIn(dir: OrchDir, id: string, space: string): void {

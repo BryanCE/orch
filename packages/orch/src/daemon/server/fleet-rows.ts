@@ -1,13 +1,13 @@
 import { modelSpec } from "../../policy/thinking.ts";
 import { getAdapter } from "../../adapters/registry.ts";
 import { spaceName as resolveSpaceName } from "../../policy/space.ts";
-import { firstNonEmptyText } from "../target.ts";
-import { viewForKey } from "../../entities/lookup.ts";
+import { firstNonEmptyText } from "../../commands/target.ts";
+import { viewForKey } from "../../shared/lookup.ts";
 import { collapse } from "../../util.ts";
-import { displayStatusState } from "./options.ts";
+import { displayStatusState } from "../../commands/status/options.ts";
 import { ownsAgent } from "../../policy/close-authority.ts";
 import type { OrchDir } from "../../types/core.ts";
-import type { LeaseFacts } from "../../agent/drive-state.ts";
+import type { LeaseFacts } from "../../shared/drive-state.ts";
 import type { AgentAdapter, SessionView } from "../../types/adapter.ts";
 import type { AgentTuning, AgentView } from "../../types/store.ts";
 import { type PresenceEntry, notDead } from "../../types/presence.ts";
@@ -119,7 +119,7 @@ function viewProvenance(view: AgentView | undefined): Provenance {
     spawnedBy: view?.spawnedBy ?? null,
     worktree: view?.environment.worktree ?? null,
     branch: view?.environment.branch ?? null,
-    cwd: view?.cwd ?? null,
+    cwd: view?.environment.cwd ?? null,
   };
 }
 
@@ -145,22 +145,20 @@ export function fleetNames(rows: readonly StatusRow[], views: ReadonlyMap<string
   return { agents, spaces: spaceNames };
 }
 
-/** The stored process an agent row runs as, the host it runs on, and whether that host is
- *  another machine whose link is down. */
+/** The stored process an agent row runs as, and whether its host is another machine whose
+ *  link is down. */
 export interface RowProcess {
   /** Null for an agent another host runs: its pid is that host's. */
   readonly pid: number | null;
-  readonly host: string | undefined;
   readonly offline: HostOffline | null;
 }
 
 /** What orch stored when it made the row: its kind, its creation instant, and the process it runs as. */
-function storedFacts(agent: AgentView | undefined, process: RowProcess | undefined): Pick<StatusRow, "kind" | "createdAt" | "pid" | "host" | "hostOffline"> {
+function storedFacts(agent: AgentView | undefined, process: RowProcess | undefined): Pick<StatusRow, "kind" | "createdAt" | "pid" | "hostOffline"> {
   return {
     kind: agent?.kind ?? null,
     createdAt: agent?.createdAt ?? null,
     pid: process?.pid ?? null,
-    ...(process?.host === undefined ? {} : { host: process.host }),
     ...(process?.offline == null ? {} : { hostOffline: process.offline }),
   };
 }
@@ -184,6 +182,7 @@ export function statusRowFromEntity(
     managed: entity.managed,
     owned: caller === null ? entity.managed : ownsAgent(orchDir, caller, entity.key),
     ...storedFacts(agent, processOf(entity.key)),
+    host: entity.host,
     name: agent?.name ?? (entity.managed === false ? null : entity.name),
     tab: entity.tabLabel,
     agent: entity.agent,

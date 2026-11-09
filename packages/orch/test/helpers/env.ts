@@ -1,5 +1,5 @@
 import { ORCH_ENV_VARS } from "../../src/policy/spawner.ts";
-import { HARNESS_SESSION_ENV } from "../../src/adapters/session-env.ts";
+import { HARNESS_SESSION_ENV } from "../../src/shared/session-env.ts";
 import { removeTempDir, tempOrchDir } from "./tempdir.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 

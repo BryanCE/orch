@@ -1,6 +1,6 @@
 import { resolveAdapter } from "../adapters/registry.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
-import { repickCommand, signedOutFix } from "../adapters/prerequisites.ts";
+import { repickCommand, signedOutFix } from "../shared/prerequisites.ts";
 import type { AdapterId, ModelCatalogue } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { OrchSettings } from "../types/settings.ts";

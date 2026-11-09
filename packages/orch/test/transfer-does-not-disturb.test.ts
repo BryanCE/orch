@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { selectAgentStatus } from "../src/store/status-rows.ts";
@@ -6,7 +7,7 @@ import { setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/int
 import { acquireLease, adoptLease, handoffLease, leaseHistory, releaseLease } from "../src/store/lease-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -46,11 +47,11 @@ function workingAgent(): { directory: OrchDir; worker: string; before: ReturnTyp
   seedSpace(directory, "server");
 
   for (const id of ["orch-a", "orch-b"]) {
-    insertAgent(directory, { id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 1 });
+    insertAgent(directory, { host: hostIdentity(), id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 1 });
   }
-  insertAgent(directory, { id: "worker", spawnedBy: "orch-a", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2 });
-  setAgentPlexer(directory, "worker", "herdr");
-  setHandle(directory, "worker", 10, "wF:p3");
+  insertAgent(directory, { host: hostIdentity(), id: "worker", spawnedBy: "orch-a", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2 });
+  setAgentPlexer(directory, placeHere(directory, "worker"), "herdr");
+  setHandle(directory, placeHere(directory, "worker"), 10, "wF:p3");
   setSpace(directory, "worker", 10, "server");
   setTuning(directory, "worker", 10, { model: "openai-codex/gpt-5.6-luna", thinking: "high" });
   orm(directory)

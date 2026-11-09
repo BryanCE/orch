@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { hostIdentity } from "../src/host.ts";
 import { createOrcaHud } from "../src/backends/orca/hud.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
@@ -34,8 +34,7 @@ describe("the orca OSC pane HUD", () => {
       name: "recon",
       model: "test",
       spawner: null,
-      process: { pid: process.pid, startToken: "orca-hud-fixture" },
-      host: hostIdentity(),
+      process: { host: hostIdentity().id, pid: process.pid, startToken: "orca-hud-fixture" },
     });
     return key;
   }

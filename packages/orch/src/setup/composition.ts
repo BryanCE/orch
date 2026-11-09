@@ -2,7 +2,7 @@ import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
 import { allBackends } from "../backends/registry.ts";
 import { writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsRuntime } from "../settings/write.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
-import { signedOutFix } from "../adapters/prerequisites.ts";
+import { signedOutFix } from "../shared/prerequisites.ts";
 import { assertModelListed } from "../policy/model.ts";
 import { allowlistWithDefault } from "../settings/read.ts";
 import { logStep, logWarning } from "./io.ts";

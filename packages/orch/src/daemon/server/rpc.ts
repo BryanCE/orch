@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { readDaemonLock } from "../client/process.ts";
 import { attachBridge, detachBridge, attachedBridgeKeys, type BridgeLink } from "../../control/bridge-links.ts";
-import type { BridgeDelivery } from "../../control/bridge-message.ts";
+import type { BridgeDelivery } from "../../shared/bridge-message.ts";
 import { ensurePrivateDir, errorMessage } from "../../util.ts";
 import { createEventBus, type EventBus } from "./event-bus.ts";
 import { hostOs } from "../../host.ts";
@@ -291,7 +291,7 @@ export async function startRpcServer(
     for (const socket of subscriptions) {
       const peer = peers.get(socket);
       if (peer !== undefined) {
-        origin ??= originOf(orchDir, event.key)?.host ?? null;
+        origin ??= originOf(orchDir, event.key)?.askedBy ?? null;
         if (origin !== peer) continue;
       }
       writeEncodedLine(socket, encoded);

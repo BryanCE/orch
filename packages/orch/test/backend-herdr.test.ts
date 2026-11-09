@@ -9,9 +9,9 @@ import { PLEXER_TIMEOUTS } from "../src/config.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import { retryingSync } from "../src/retry.ts";
 import { projectRoot } from "../src/util.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
-import { ENVIRONMENT_ENV } from "../src/agent/environment.ts";
+import { ENVIRONMENT_ENV } from "../src/shared/environment.ts";
 import { HERDR_BLOCKED_EVENT, HerdrBackend } from "../src/backends/herdr/index.ts";
 
 /** The roles a herdr pane composes, as the spawn stamps them for the agent. */

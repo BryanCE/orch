@@ -6,7 +6,7 @@ import { matchedPatterns, wholeCommandMatch } from "../../../policy/command-gate
 import { agentById } from "../../../store/agent-rows.ts";
 import { isAgentState } from "../../../agent-state.ts";
 import { agentView } from "../../../store/agent-view.ts";
-import { presenceEntry, recordAgentStatus } from "../../../presence/store.ts";
+import { presenceEntry, recordAgentState } from "../../../presence/store.ts";
 import { lockHolder, releaseCommandLocks, selectCommandLocks, takeCommandLocks, type CommandLockRow } from "../../../store/command-lock-rows.ts";
 import { grantIsApproved, requestGrant, spendGrant } from "../../../store/grant-rows.ts";
 import { transitionEventFromRow } from "../status-events.ts";
@@ -45,7 +45,7 @@ function stateOf(directory: OrchDir, agent: string): AgentState | undefined {
 /** Record the agent's lock state and publish the move, with why in `reason`. */
 function moveAgent(directory: OrchDir, agent: string, from: AgentState, to: "waiting" | "working", reason: string, publish: Publish): void {
   const now = Date.now();
-  const { current } = recordAgentStatus(directory, agent, { state: to }, now);
+  const { current } = recordAgentState(directory, agent, { state: to }, now);
   publish({ ...transitionEventFromRow(directory, current, from, to, new Date(now)), reason });
 }
 

@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/client/process";
 import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { DaemonAbsentError, DaemonUnreachableError } from "../src/daemon/client/wire.ts";
 import { ReplayBuffer } from "../src/daemon/server/replay.ts";
 import { isRegisterSessionResponse } from "../src/daemon/client/registration.ts";
@@ -40,7 +40,7 @@ type RpcEvent = Parameters<RpcServer["emit"]>[0];
 type TransitionEvent = Extract<RpcEvent, { type: "transition" }>;
 
 function transitionEvent(overrides: Partial<TransitionEvent> = {}): TransitionEvent {
-  return {
+  return { host: hostIdentity(),
     type: "transition",
     key: "event",
     ts: new Date(0).toISOString(),
@@ -301,11 +301,11 @@ describe("daemon RPC", () => {
   test("hello returns live spawned agents with no live holder, never a root", async () => {
     const dir = tempOrchDir();
     ensureHarness(dir, "pi", "pi", 1);
-    insertAgent(dir, { id: "holder", name: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
-    insertAgent(dir, { id: "closed", name: "closed-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
-    insertAgent(dir, { id: "free", name: "free-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
-    insertAgent(dir, { id: "leased", name: "leased-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
-    insertAgent(dir, { id: "ended", name: "ended-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { host: hostIdentity(), id: "holder", name: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { host: hostIdentity(), id: "closed", name: "closed-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { host: hostIdentity(), id: "free", name: "free-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { host: hostIdentity(), id: "leased", name: "leased-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
+    insertAgent(dir, { host: hostIdentity(), id: "ended", name: "ended-worker", spawnedBy: "holder", harnessId: "pi", cwd: dir, createdAt: 1 });
     acquireLease(dir, "closed", "holder", 2);
     releaseLease(dir, "closed", "holder", 3);
     acquireLease(dir, "leased", "holder", 2);

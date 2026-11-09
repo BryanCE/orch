@@ -1,5 +1,6 @@
 import type { AgentState } from "../agent-state.ts";
 import type { TokenTotals } from "./core.ts";
+import type { HostIdentity } from "./host.ts";
 import type { OrchSettings } from "./settings.ts";
 import type { TaskState } from "./queue.ts";
 
@@ -14,7 +15,8 @@ export interface EventIdentity {
   readonly space?: string;
   readonly tab: string | null;
   readonly model: string | null;
-  readonly host?: string;
+  /** The host the agent runs on, this machine included. */
+  readonly host: HostIdentity;
   readonly spawnedBy?: string;
   /** The orch id holding the open lease when the event was published; absent when nothing holds the agent. */
   readonly holder?: string;

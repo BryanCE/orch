@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { readFleet } from "../src/commands/fleet.ts";
-import { indexPresenceById } from "../src/entities/lookup.ts";
+import { indexPresenceById } from "../src/shared/lookup.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { servedServices } from "./helpers/daemon-state.ts";

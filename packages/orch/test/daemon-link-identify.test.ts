@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { createDaemonLink } from "../src/agent/daemon-client.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { agentById, claimAgent } from "../src/store/agent-rows.ts";

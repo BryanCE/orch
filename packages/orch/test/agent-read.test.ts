@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { upsertRun } from "../src/store/run-rows.ts";
 import { closeAllStores, drainWrites } from "../src/store/connection.ts";
 import { recordAgentStatus } from "../src/presence/store.ts";
 import { ensurePresenceAgentDir } from "../src/presence/history.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { hostIdentity } from "../src/host.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -21,6 +22,9 @@ afterEach(() => {
 
 const logger = recordingLogger().logger;
 
+/** A reader's holder that holds no PTY. */
+const noneHeld = { has: (): boolean => false, text: (): string => "" };
+
 /** A store holding one pi agent, alive through this runner's process. */
 function storeWithAgent(): { orchDir: OrchDir; key: string } {
   const orchDir = tempOrchDir("orch-agent-read-");
@@ -28,7 +32,7 @@ function storeWithAgent(): { orchDir: OrchDir; key: string } {
   const key = mintAgentId();
   registerSpawnedAgent(orchDir, {
     key, harnessId: "pi", placed: false, cwd: orchDir, name: "reader", model: "test", spawner: null,
-    process: { pid: process.pid, startToken: `agent-read-${key}` }, host: hostIdentity(),
+    process: { host: hostIdentity().id, pid: process.pid, startToken: `agent-read-${key}` }, 
   });
   return { orchDir, key };
 }
@@ -50,7 +54,7 @@ function piSession(orchDir: OrchDir, key: string): string {
 describe("reading an agent from the store that holds it", () => {
   test("answers the settled result of the dispatch the agent's status names", () => {
     const { orchDir, key } = storeWithAgent();
-    recordAgentStatus(orchDir, key, { state: "done", dispatchId: "read-dispatch-1" }, Date.now());
+    recordAgentStatus(orchDir, placeHere(orchDir, key), { state: "done", dispatchId: "read-dispatch-1" }, Date.now());
     upsertRun(orchDir, { dispatchId: "read-dispatch-1", agentKey: key, state: "done", startedAt: Date.now(), result: "settled text" });
     drainWrites(orchDir);
     expect(readAgentResult(orchDir, key, logger)).toEqual({ kind: "found", source: "dispatch", payload: "settled text" });
@@ -58,7 +62,7 @@ describe("reading an agent from the store that holds it", () => {
 
   test("says a running dispatch has not settled, naming the agent", () => {
     const { orchDir, key } = storeWithAgent();
-    recordAgentStatus(orchDir, key, { state: "working", dispatchId: "read-dispatch-2" }, Date.now());
+    recordAgentStatus(orchDir, placeHere(orchDir, key), { state: "working", dispatchId: "read-dispatch-2" }, Date.now());
     upsertRun(orchDir, { dispatchId: "read-dispatch-2", agentKey: key, state: "working", startedAt: Date.now() });
     drainWrites(orchDir);
     const lookup = readAgentResult(orchDir, key, logger);
@@ -74,7 +78,7 @@ describe("reading an agent from the store that holds it", () => {
     expect(readAgentResult(history.orchDir, history.key, logger)).toEqual({ kind: "found", source: "presence", payload: "from history" });
 
     const session = storeWithAgent();
-    recordAgentStatus(session.orchDir, session.key, { state: "done", sessionPath: piSession(session.orchDir, session.key) }, Date.now());
+    recordAgentStatus(session.orchDir, placeHere(session.orchDir, session.key), { state: "done", sessionPath: piSession(session.orchDir, session.key) }, Date.now());
     const lookup = readAgentResult(session.orchDir, session.key, logger);
     expect(lookup).toMatchObject({ kind: "found", source: "session", payload: { text: "final answer" } });
   });
@@ -87,7 +91,7 @@ describe("reading an agent from the store that holds it", () => {
   test("a tail keeps the last entries asked for and the session path", () => {
     const { orchDir, key } = storeWithAgent();
     const sessionPath = piSession(orchDir, key);
-    recordAgentStatus(orchDir, key, { state: "done", sessionPath }, Date.now());
+    recordAgentStatus(orchDir, placeHere(orchDir, key), { state: "done", sessionPath }, Date.now());
     const lookup = readAgentTail(orchDir, key, 2, logger);
     if (lookup.kind !== "found") throw new Error(`expected a session, got: ${lookup.reason}`);
     expect(lookup.sessionPath).toBe(sessionPath);
@@ -96,6 +100,6 @@ describe("reading an agent from the store that holds it", () => {
 
   test("a tail of an agent with no session file is missing", () => {
     const { orchDir, key } = storeWithAgent();
-    expect(readAgent(orchDir, key, { kind: "tail", lines: 5 }, logger)).toMatchObject({ kind: "tail", lookup: { kind: "missing" } });
+    expect(readAgent({ orchDir, logger, held: () => noneHeld }, key, { kind: "tail", lines: 5 })).toMatchObject({ kind: "tail", lookup: { kind: "missing" } });
   });
 });

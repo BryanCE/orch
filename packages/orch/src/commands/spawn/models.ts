@@ -6,7 +6,7 @@ import { SpawnRefusalError } from "../../refusal.ts";
 import { errorMessage } from "../../util.ts";
 import { retryingAsync } from "../../retry.ts";
 import { callDaemon } from "../daemon.ts";
-import { takesModel } from "../../adapters/adapter.ts";
+import { takesModel } from "../../shared/harness.ts";
 import type { AdapterId, AgentAdapter, ModelCatalogue } from "../../types/adapter.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 import type { Logger, RetryPolicy } from "../../types/core.ts";

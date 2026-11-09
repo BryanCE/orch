@@ -2,7 +2,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { HARNESS_SESSION_ENV } from "../src/shared/session-env.ts";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { cmdClean, liveWorktreeOwner } from "../src/commands/clean.ts";

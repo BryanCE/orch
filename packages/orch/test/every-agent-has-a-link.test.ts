@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { deliverControl } from "../src/control/dispatch.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { seedStatus } from "./helpers/presence.ts";

@@ -3,7 +3,7 @@ import { RPC_PARAMS } from "../src/daemon/client/protocol.ts";
 import { adapterCommand } from "../src/commands/spawn/models.ts";
 import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { PiAdapter, piAdapter } from "../src/adapters/pi.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { seedSpace } from "./helpers/space.ts";

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 
 
-import { compareVersions, versionInRange } from "../src/backends/versions.ts";
+import { compareVersions, versionInRange } from "../src/shared/versions.ts";
 import { backendVersionsVerdict } from "../src/doctor/backends.ts";
 import { ensureHost, ensurePlexer, ensureHostPlexer, hostPlexers } from "../src/store/agent-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";

@@ -1,3 +1,6 @@
+import { isAgentId } from "../src/shared/agent-id.ts";
+import type { AgentId } from "../src/types/agent-place.ts";
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { openFleetHome, resolveSpawnPlacement, spawnBackend } from "../src/commands/spawn/placement.ts";
 import { openHome } from "../src/commands/home.ts";
@@ -59,7 +62,7 @@ async function fixture(): Promise<Services> {
 
 function seedOrch(dir: OrchDir, id: string): string {
   ensureHarness(dir, "pi", "pi", 1);
-  insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
   return id;
 }
 
@@ -111,7 +114,7 @@ class HomedBackend extends FakePanedBackend {
     super({ id: "herdr", panes: [fakePane("wF:p1", { space: "wF" })] });
     this.spaceHome = home;
     this.inside = inside;
-    this.identity = { current: (_id: string | null): string | null => self };
+    this.identity = { current: (_id: string | null): AgentId | null => isAgentId(self) ? self : null };
   }
 
   /** Rule 11: WHERE the caller sits is environment. It is answered by the

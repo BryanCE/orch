@@ -6,9 +6,9 @@ import { attachBridge, attachedBridgeKeys, detachBridge, dropBridges, pushToBrid
 import { createDaemonLink } from "../src/agent/daemon-client.ts";
 import { testServices } from "./helpers/services.ts";
 import type { BridgeLink } from "../src/control/bridge-links.ts";
-import { isBridgeDelivery } from "../src/control/bridge-message.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { isBridgeDelivery } from "../src/shared/bridge-message.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { Logger } from "../src/types/core.ts";
 import { isRecord } from "../src/util.ts";

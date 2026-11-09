@@ -4,8 +4,9 @@
 // published here naming the host, so every agent the human started is followed from this
 // one place.
 import { agentView } from "../../store/agent-view.ts";
-import { endAgent, hostOfAgent } from "../../store/agent-rows.ts";
-import { recordAgentStatus } from "../../presence/store.ts";
+import { endAgent } from "../../store/agent-rows.ts";
+import { agentLocation } from "../../store/interval-rows.ts";
+import { recordAgentState } from "../../presence/store.ts";
 import { publishFromOrchd } from "./events.ts";
 import type { DaemonState } from "./state.ts";
 import type { LinkedHost } from "../../types/process.ts";
@@ -18,11 +19,12 @@ function endsAgent(event: NotifyEvent): boolean {
 
 export function applyHostEvent(state: DaemonState, host: LinkedHost, event: NotifyEvent): void {
   const directory = state.directory;
-  // Only the host this orchd asked to run an agent speaks for it.
-  if (hostOfAgent(directory, event.key) === host.id) {
+  // Only the host an agent runs on speaks for it.
+  if (agentLocation(directory, event.key)?.host === host.id) {
     const now = Date.now();
-    if (event.type === "transition" || event.type === "asking") recordAgentStatus(directory, event.key, { state: event.newState }, now);
+    if (event.type === "transition" || event.type === "asking") recordAgentState(directory, event.key, { state: event.newState }, now);
     if (endsAgent(event) && agentView(directory, event.key)?.endedAt === null) endAgent(directory, event.key, now, null);
   }
-  publishFromOrchd(state, { ...event, host: host.name });
+  // The far orchd named the host its agent runs on; the event is published here as it came.
+  publishFromOrchd(state, event);
 }

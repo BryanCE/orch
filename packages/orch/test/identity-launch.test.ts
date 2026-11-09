@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { LAUNCH_ENV, launchCredential, readLaunchCredential } from "../src/identity/launch.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 

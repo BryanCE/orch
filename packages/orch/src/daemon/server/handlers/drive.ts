@@ -12,8 +12,11 @@ import { agentView } from "../../../store/agent-view.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
 import { requireOriginPeer } from "./peer.ts";
 import { confirmTextWrite } from "./write.ts";
-import { applyModel, applyVerb, closeAgent } from "./lifecycle.ts";
-import { reapForPeer } from "./lease.ts";
+import { applyModel, clearHere, closeAgent } from "./lifecycle.ts";
+import { lifecycleHere } from "./relaunch.ts";
+import { reapForPeer, renameHere } from "./lease.ts";
+import { paneHere } from "./pane.ts";
+import { waitHere } from "./wait.ts";
 import type { DaemonState } from "../state.ts";
 import type { ParamsOf, PeerDriveResult, ResultOf } from "../../client/protocol.ts";
 import type { RpcRequestContext } from "../../../types/daemon.ts";
@@ -38,33 +41,32 @@ async function abortHere(state: DaemonState, key: string): Promise<ResultOf<"abo
 export function abortAnywhere(state: DaemonState, params: ParamsOf<"abort">): Promise<ResultOf<"abort">> {
   const key = params.target;
   return atAgentHost(state, key, {
-    unrecorded: () => abortHere(state, key),
     here: () => abortHere(state, key),
-    there: async (link) => (await driveOnHost(link, { action: "abort", key, actor: params.actor ?? null })).aborted,
+    there: async (link) => (await driveOnHost(state, link, { action: "abort", key, actor: params.actor ?? null })).aborted,
   });
 }
 
-/** End an agent this orchd runs, for a close a linked host's orchd ruled on, and record the
- *  ending here. One already ended is a no-op, as a close here is. */
-function closeHere(state: DaemonState, key: string): SignalOutcome {
+/** End an agent this orchd runs: signal its process and close its pane, then record the
+ *  ending here. One already ended is a no-op, as a close is. */
+function closeHere(state: DaemonState, key: string, actor: string | null): SignalOutcome {
   const wire = closeTargetOfAgent(state.directory, key, (address, backendId) => state.services.logger.warn("close.unknown-backend", { backend: backendId, handle: address }));
   if (wire === null) return "gone";
   const attempt = attemptClose(closeTargetOf(wire));
   if (attempt.failure !== null) throw new Error(attempt.failure);
-  closeAgent(state, { key });
+  closeAgent(state, { key, ...(actor === null ? {} : { actor }) });
   return attempt.signalled || attempt.closedByBackend ? "signalled" : "gone";
 }
 
-/** `agent-closed`: record that an agent was closed. The closer ended one on its own box
- *  itself; one on a linked host is closed by that host's orchd first, over the link. */
-export function closeAnywhere(state: DaemonState, params: ParamsOf<"agent-closed">): Promise<ResultOf<"agent-closed">> {
-  const end = (): ResultOf<"agent-closed"> => closeAgent(state, params);
-  return atAgentHost(state, params.key, {
-    unrecorded: end,
-    here: end,
+/** `agent-closed`: end an agent where it runs and record the ending. One on a linked host is
+ *  ended by that host's orchd first, over the link; this host then records it. Never gated. */
+export async function closeAnywhere(state: DaemonState, params: ParamsOf<"agent-closed">): Promise<ResultOf<"agent-closed">> {
+  const actor = params.actor ?? null;
+  return await atAgentHost(state, params.key, {
+    here: () => ({ outcome: closeHere(state, params.key, actor) }),
     there: async (link) => {
-      await driveOnHost(link, { action: "close", key: params.key, actor: params.actor ?? null });
-      return end();
+      const { outcome } = await driveOnHost(state, link, { action: "close", key: params.key, actor });
+      closeAgent(state, params);
+      return { outcome };
     },
   });
 }
@@ -84,13 +86,21 @@ export async function peerDrive(state: DaemonState, params: ParamsOf<"peer-drive
     case "model":
       return { action: "model", ...await applyModel(state, key, params.model) };
     case "lifecycle":
-      return { action: "lifecycle", ...await applyVerb(state, key, params.verb) };
+      return { action: "lifecycle", ...await lifecycleHere(state, key, params.request) };
+    case "clear":
+      return { action: "clear", ...await clearHere(state, key) };
+    case "rename":
+      return { action: "rename", ...renameHere(state, key, params.name) };
     case "abort":
       return { action: "abort", aborted: await abortHere(state, key) };
     case "close":
-      return { action: "close", outcome: closeHere(state, key) };
+      return { action: "close", outcome: closeHere(state, key, actor) };
     case "reap":
       return { action: "reap", reaped: reapForPeer(state.directory, key) };
+    case "pane":
+      return { action: "pane", outcome: paneHere(state, key, params.pane) };
+    case "wait":
+      return { action: "wait", ...await waitHere(state, key, params.status, params.timeoutMs) };
     default: {
       const exhaustive: never = params;
       throw new Error(`unknown peer drive ${String(exhaustive)}`);

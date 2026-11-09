@@ -1,33 +1,21 @@
-// The only command file that opens the store.
-// `--offline` and orchd read through it.
-import { fleetLeaseFacts, type LeaseFacts } from "../../agent/drive-state.ts";
+// The fleet status orchd answers `orch status` with: one row per agent, from its store.
+import { fleetLeaseFacts } from "../../agent/drive-state.ts";
+import type { LeaseFacts } from "../../shared/drive-state.ts";
 import { buildEntities, sortEntities } from "../../entities/inventory.ts";
-import { indexPresenceById } from "../../entities/lookup.ts";
 import { liveViews, agentViewIndex } from "../../store/agent-view.ts";
 import { pendingQuestion } from "../../store/question-rows.ts";
-import { loadPresence, spawnedRecords } from "../../presence/store.ts";
-import { selfId, spaceOfAgent } from "../../identity/self.ts";
-import { callerKind } from "../../policy/caller.ts";
 import { currentProcesses, type StoredProcess } from "../../store/interval-rows.ts";
-import { agentHostIndex, hostById } from "../../store/agent-rows.ts";
 import { hostOffline, linkedHosts } from "../../store/host-rows.ts";
-import { placeProcess } from "../../process-place.ts";
+import { hostOfPlace, placeAgentIfAny } from "../../process-place.ts";
 import type { HostId } from "../../types/host.ts";
 import type { LinkedHost } from "../../types/process.ts";
-import { fleetNames, statusRowFromEntity, type RowProcess } from "./rows.ts";
-import type { CallerScope } from "./options.ts";
+import { fleetNames, statusRowFromEntity, type RowProcess } from "./fleet-rows.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { AgentView } from "../../types/store.ts";
-import type { PresenceEntry } from "../../types/presence.ts";
 import type { OrchDir } from "../../types/core.ts";
 import type { FleetStatus } from "../../types/daemon.ts";
 
-export function currentOrchId(orchDir: OrchDir): string | null {
-  return selfId(orchDir) ?? null;
-}
-
 interface FleetStatusOptions {
-  offline?: boolean;
   /** Lease facts already read by the caller; read here when absent. */
   leaseFacts?: LeaseFacts;
   /** Resolve the store root once per fleet build (injectable for cost tests). */
@@ -38,23 +26,19 @@ interface FleetStatusOptions {
 }
 
 /** Each agent row's open process, read once on the first row that has one, so a fleet with no rows opens no store.
- *  An agent another host runs for this orchd has no process here: it is placed by the host it
- *  runs on. Either on another host carries whether that host's link is down. */
+ *  Only an agent here has a process here; one on another host is placed by that host, and
+ *  carries whether that host's link is down. */
 function processLookup(directory: OrchDir, views: ReadonlyMap<string, AgentView>): (agentId: string) => RowProcess | undefined {
   let processes: ReadonlyMap<string, StoredProcess> | undefined;
-  let hosted: ReadonlyMap<string, HostId> | undefined;
   let linked: ReadonlyMap<HostId, LinkedHost> | undefined;
   return (agentId) => {
     if (!views.has(agentId)) return undefined;
-    hosted ??= agentHostIndex(directory);
-    const runsOn = hosted.get(agentId);
-    if (runsOn !== undefined) return { pid: null, host: hostById(directory, runsOn)?.name, offline: hostOffline(directory, runsOn) };
-    processes ??= currentProcesses(directory);
-    const process = processes.get(agentId);
-    if (process === undefined) return undefined;
     linked ??= linkedHosts(directory);
-    const far = placeProcess(directory, process, linked).kind !== "local";
-    return { pid: process.pid, host: hostById(directory, process.host)?.name, offline: far ? hostOffline(directory, process.host) : null };
+    const place = placeAgentIfAny(directory, agentId, linked);
+    if (place === null) return undefined;
+    if (place.kind !== "here") return { pid: null, offline: hostOffline(directory, hostOfPlace(place)) };
+    processes ??= currentProcesses(directory);
+    return { pid: processes.get(agentId)?.pid ?? null, offline: null };
   };
 }
 
@@ -65,7 +49,7 @@ export function buildFleetStatus(settings: OrchSettings, options: FleetStatusOpt
   const leaseFacts = options.leaseFacts ?? fleetLeaseFacts(directory, fleet);
   const processOf = processLookup(directory, views);
   options.onPhase?.("index");
-  const entities = sortEntities(buildEntities(directory, settings, { skipBackends: options.offline === true }));
+  const entities = sortEntities(buildEntities(directory, settings));
   options.onPhase?.("entities");
   const rows = entities.map((entity) => statusRowFromEntity(entity, views, leaseFacts, (id) => pendingQuestion(directory, id)?.question, processOf, directory, options.caller));
   options.onPhase?.("rows");
@@ -73,14 +57,4 @@ export function buildFleetStatus(settings: OrchSettings, options: FleetStatusOpt
   const names = fleetNames(rows, fleet, settings.spaces);
   options.onPhase?.("names");
   return { names, rows };
-}
-
-export function offlineCallerScope(orchDir: OrchDir): CallerScope {
-  const kind = callerKind(orchDir);
-  const id = selfId(orchDir) ?? null;
-  return { id, ceiling: kind === "operator" || id === null ? null : spaceOfAgent(orchDir, id), kind };
-}
-
-export function offlineCapacityFleet(orchDir: OrchDir): { views: ReadonlyMap<string, AgentView>; presence: ReadonlyMap<string, PresenceEntry> } {
-  return { views: spawnedRecords(orchDir), presence: indexPresenceById(loadPresence(orchDir).values()) };
 }

@@ -9,6 +9,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { encodeRequest, framedLineReader, parseRpcLine, responseError, type RpcLine } from "../daemon/client/wire.ts";
 import { daemonResult, HOST_GREETING, RPC_RESULTS, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/client/protocol.ts";
 import { hostsRunningLiveAgents } from "../store/agent-rows.ts";
+import { hostIdentity } from "../host.ts";
 import { formatAge } from "../format.ts";
 import { errorMessage } from "../util.ts";
 import { bindHostName, closeHostLink, hostEventCursor, hostIdOfName, latestHostLink, openHostLink, setHostEventCursor, touchHostLink } from "../store/host-rows.ts";
@@ -217,19 +218,21 @@ class HostLink {
     return link.until === null && this.state.kind === "up" ? this.now() : link.lastSeen;
   }
 
-  /** Ask the host's orchd. Rejects while the link is down, or with the far orchd's refusal. */
-  async call<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M>> {
-    const value = await this.send(method, params);
+  /** Ask the host's orchd. Rejects while the link is down, or with the far orchd's refusal.
+   *  `waitMs` is how long the far orchd may take on top of the link's own request time: a verb
+   *  that waits on its agent there, as a session clear does, answers only once that wait ends. */
+  async call<M extends RpcMethod>(method: M, params: ParamsOf<M>, waitMs = 0): Promise<ResultOf<M>> {
+    const value = await this.send(method, params, waitMs);
     return daemonResult(method, RPC_RESULTS[method].parse(value));
   }
 
-  private send<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<unknown> {
+  private send<M extends RpcMethod>(method: M, params: ParamsOf<M>, waitMs: number): Promise<unknown> {
     const process = this.process;
     if (this.state.kind !== "up" || process === null || process.stdin.writableEnded) {
       return Promise.reject(new Error(`${this.name} is not linked, so orch cannot ask it`));
     }
     const id = this.nextId++;
-    const timeoutMs = this.deps.settings().links.request_timeout_ms;
+    const timeoutMs = this.deps.settings().links.request_timeout_ms + waitMs;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -534,10 +537,10 @@ export class HostLinks {
     return alive === true;
   }
 
-  /** Bring up the link to every configured host that runs an agent this orchd asked for and
-   *  has not seen end, so its events reach this orchd from the moment it starts. */
+  /** Bring up the link to every configured host that runs an agent this orchd holds a row for
+   *  and has not seen end, so its events reach this orchd from the moment it starts. */
   follow(): void {
-    const hosts = hostsRunningLiveAgents(this.deps.orchDir);
+    const hosts = hostsRunningLiveAgents(this.deps.orchDir, hostIdentity().id);
     for (const name of Object.keys(this.deps.settings().hosts)) {
       const hostId = hostIdOfName(this.deps.orchDir, name);
       if (hostId === null || !hosts.has(hostId)) continue;

@@ -2,7 +2,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { isRecord } from "../util.ts";
 import { bridgeExtensionArgv, bridgeModelArgv, diagnoseExtensionLink, installExtensionLink, PiBridgeAdapter, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
-import { HARNESS_SESSION_ENV } from "./session-env.ts";
+import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import type { AgentAdapter, HarnessModel, ModelCatalogue, ShimInstallOpts, SpawnOpts } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { ExtensionName, Logger, OrchDir } from "../types/core.ts";

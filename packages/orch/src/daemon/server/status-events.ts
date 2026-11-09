@@ -1,5 +1,5 @@
 /** Events composed from the agent_status row. The daemon accepted the report at the socket boundary; nothing here re-validates. */
-import type { AgentState } from "../../adapters/adapter.ts";
+import type { AgentState } from "../../shared/harness.ts";
 import { abstractAgentLabel } from "../../notify/format.ts";
 import { modelSpec } from "../../policy/thinking.ts";
 import { pendingQuestion } from "../../store/question-rows.ts";
@@ -7,8 +7,16 @@ import { agentView } from "../../store/agent-view.ts";
 import { filesTouchedOf, type AgentStatusRow } from "../../store/status-rows.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import type { OrchDir } from "../../types/core.ts";
+import type { HostIdentity } from "../../types/host.ts";
+import { hostIdentity } from "../../host.ts";
 import { collapse, truncate } from "../../util.ts";
 import { stripWorkerHeader } from "../../worker-prompt.ts";
+
+/** The host an event about an agent names: the host the agent runs on. A key with no agent row
+ *  is something this orchd holds itself (a task, a write), so the event names this host. */
+export function eventHost(orchDir: OrchDir, key: string): HostIdentity {
+  return agentView(orchDir, key)?.environment.host ?? hostIdentity();
+}
 
 type TransitionEvent = Extract<NotifyEvent, { readonly type: "transition" }>;
 type AskingEvent = Extract<NotifyEvent, { readonly type: "asking" }>;
@@ -53,6 +61,7 @@ function composeBase(
 
   return {
     key,
+    host: view?.environment.host ?? eventHost(orchDir, key),
     space,
     agent: view?.name ?? abstractAgentLabel(space ?? "space", key),
     name: view?.name ?? null,

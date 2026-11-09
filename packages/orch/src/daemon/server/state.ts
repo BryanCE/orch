@@ -5,7 +5,7 @@ import { rpcCall } from "../client/rpc.ts";
 import { agentViewIndex } from "../../store/agent-view.ts";
 import { fleetLeaseFacts } from "../../agent/drive-state.ts";
 import { bridgeAttached } from "../../control/bridge-links.ts";
-import { buildFleetStatus } from "../../commands/status/offline.ts";
+import { buildFleetStatus } from "./fleet-status.ts";
 import type { FleetStatus, RpcServer } from "../../types/daemon.ts";
 import type { PtyHolder } from "../../types/pty.ts";
 import type { SettingsWatch } from "../../types/settings.ts";

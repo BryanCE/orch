@@ -6,7 +6,7 @@
  * user has — node, deno, or bun (`installClaudeHooks` probes their PATH);
  * never assume one. Usage: `<runtime> <shim> <HookEvent>`; Claude sends the hook
  * payload as JSON on stdin. Identity parsing stays in its one boundary module
- * (src/backends/identity.ts) and every report goes over the daemon socket — this
+ * (src/shared/agent-id.ts) and every report goes over the daemon socket — this
  * shim holds only Claude's hook vocabulary. The bundle inlines both.
  *
  * Presence fidelity is coarse by design: hooks report over the daemon socket;

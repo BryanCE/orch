@@ -1,6 +1,7 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
-import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { HARNESS_SESSION_ENV } from "../src/shared/session-env.ts";
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -161,8 +162,8 @@ describe("a slave never reaps or recreates the store", () => {
     closeAllStores();
     // Deliberately not a minted id: the refusal names whatever id it found.
     ensureHarness(dir, "pi", "pi", 1);
-    insertAgent(dir, { id: "herdr~spawner~p0", harnessId: "pi", cwd: process.cwd(), name: "herdr~spawner~p0", createdAt: 1 });
-    insertAgent(dir, { id: "herdr~w1~p1", harnessId: "pi", cwd: process.cwd(), name: "herdr~w1~p1", createdAt: 1, spawnedBy: "herdr~spawner~p0" });
+    insertAgent(dir, { host: hostIdentity(), id: "herdr~spawner~p0", harnessId: "pi", cwd: process.cwd(), name: "herdr~spawner~p0", createdAt: 1 });
+    insertAgent(dir, { host: hostIdentity(), id: "herdr~w1~p1", harnessId: "pi", cwd: process.cwd(), name: "herdr~w1~p1", createdAt: 1, spawnedBy: "herdr~spawner~p0" });
     seedLiveProcess(dir, "herdr~w1~p1");
 
     // No [LAUNCH_ENV]: this is the user, and the living agent's identity is

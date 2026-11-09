@@ -11,20 +11,12 @@ import { currentProcesses, type StoredProcess } from "../store/interval-rows.ts"
 import { processLiveness, recordedProcessIsLive } from "../process-place.ts";
 import type { DriveState, DriveStateOptions } from "../types/agent.ts";
 import type { AgentView } from "../types/store.ts";
+import { DEAD_HOLDER_DRIVER, NO_ORCH_DRIVER, type LeaseFacts } from "../shared/drive-state.ts";
 
 type DriveStateInput = Omit<DriveStateOptions, "directory"> & { directory: OrchDir };
 
-export const NO_ORCH_DRIVER = "no orch driving it";
-export const DEAD_HOLDER_DRIVER = `${NO_ORCH_DRIVER} (holder gone)`;
-
 const UNLEASED: DriveState = { kind: "unleased", owner: NO_ORCH_DRIVER, mine: false };
 const HOLDER_GONE: DriveState = { kind: "unleased", owner: DEAD_HOLDER_DRIVER, mine: false };
-
-/** What every reading of a lease needs: the composed views, and whether a holder's process runs. */
-export interface LeaseFacts {
-  readonly viewOf: (agentId: string) => AgentView | null;
-  readonly holderAlive: (holderId: string) => boolean;
-}
 
 interface DriveFacts extends LeaseFacts {
   readonly currentOrchId: string | null | undefined;

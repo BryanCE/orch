@@ -1,7 +1,7 @@
 // Type-only: `typeof`/`ReturnType` over a runtime binding, erased at compile
 // time, so these create no runtime edge out of the types layer.
 import type { createAgentPresence } from "../agent/presence.ts";
-import type { AgentNotice, BridgeDelivery } from "../control/bridge-message.ts";
+import type { AgentNotice, BridgeDelivery } from "../shared/bridge-message.ts";
 import type { AgentState } from "../agent-state.ts";
 import type { ThinkingLevel } from "./policy.ts";
 import type { JsonRecord, OrchDir, SessionUsage } from "./core.ts";

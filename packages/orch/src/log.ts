@@ -10,7 +10,7 @@
  * and an in-process bridge can all import it without dragging a dependency graph
  * behind them.
  */
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { LOG_LEVELS, type LogContext, type LogLevel, type LogRecord, type LogValue, type Logger, type LoggerOptions, type OrchDir } from "./types/core.ts";
 
@@ -45,6 +45,34 @@ export function isLogRecord(value: unknown): value is LogRecord {
   if (candidate.correlationId !== undefined && typeof candidate.correlationId !== "string") return false;
   if (candidate.agentId !== undefined && typeof candidate.agentId !== "string") return false;
   if (candidate.fields !== undefined && !isFields(candidate.fields)) return false;
+  return true;
+}
+
+/** Which records a log read keeps: none of the given fields may disagree. */
+export interface LogRecordFilter {
+  readonly since?: number;
+  readonly level?: LogLevel;
+  readonly agent?: string;
+  readonly dispatch?: string;
+}
+
+/** The records in this orch dir's log, oldest first. A malformed line is skipped. */
+export function readLogRecords(orchDir: OrchDir, filter: LogRecordFilter): LogRecord[] {
+  const file = logFile(orchDir);
+  if (!existsSync(file)) return [];
+  const result: LogRecord[] = [];
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try { const value: unknown = JSON.parse(line); if (isLogRecord(value) && logRecordMatches(value, filter)) result.push(value); } catch { /* malformed lines are skipped */ }
+  }
+  return result.sort((a, b) => a.at - b.at);
+}
+
+function logRecordMatches(record: LogRecord, filter: LogRecordFilter): boolean {
+  if (filter.since !== undefined && record.at < filter.since) return false;
+  if (filter.level !== undefined && record.level !== filter.level) return false;
+  if (filter.agent !== undefined && record.agentId !== filter.agent) return false;
+  if (filter.dispatch !== undefined && record.correlationId !== filter.dispatch) return false;
   return true;
 }
 

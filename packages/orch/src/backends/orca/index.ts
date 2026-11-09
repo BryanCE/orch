@@ -1,12 +1,13 @@
+import type { AgentId } from "../../types/agent-place.ts";
 import { z } from "zod";
 import { callerOrcaPaneKey, currentOrcaTerminal, ORCA_PANE_KEY } from "./detect.ts";
 import { AgentGoneError } from "../../control/agent-gone.ts";
-import { environmentStamp } from "../../agent/environment.ts";
+import { environmentStamp } from "../../shared/environment.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { pidStampedWith } from "../../process-identity.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import { binaryOnPath, shellLine, shellQuote } from "../../util.ts";
-import { isAgentId } from "../identity.ts";
+import { isAgentId } from "../../shared/agent-id.ts";
 import { OrcaCommandError, GONE_HANDLE_CODES, ORCA_INPUT_RETRY, createOrcaCli, orcaBinary, type OrcaCli } from "./cli.ts";
 import { createInteractiveCommand } from "../backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
@@ -103,7 +104,7 @@ export class OrcaBackend implements Backend<OrcaHandle> {
 
   readonly capture: CaptureRole = createBackendCaptureRole("orca", () => this.orchDir);
   readonly identity: EnvironmentIdentityRole = {
-    current: (id: string | null): string | null => {
+    current: (id: string | null): AgentId | null => {
       if (callerOrcaPaneKey() === undefined) return null;
       return isAgentId(id) ? id : null;
     },

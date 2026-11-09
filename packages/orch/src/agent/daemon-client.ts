@@ -8,7 +8,7 @@ import { nonEmpty, sessionClaim } from "../daemon/client/registration.ts";
 // The in-memory dedupe set applies each message id once.
 import * as fs from "node:fs";
 import { daemonRuntimeFiles } from "../daemon/client/runtime-files.ts";
-import { type AgentNotice, type BridgeDelivery } from "../control/bridge-message.ts";
+import { type AgentNotice, type BridgeDelivery } from "../shared/bridge-message.ts";
 import {
   openJsonLineLink,
   readPortFile,

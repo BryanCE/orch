@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, expect, test } from "bun:test";
 import { applyHostEvent } from "../src/daemon/server/host-events.ts";
 import { registerHostedAgent } from "../src/store/spawn-registration.ts";
@@ -5,7 +6,7 @@ import { bindHostName } from "../src/store/host-rows.ts";
 import { presenceEntry } from "../src/presence/store.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores } from "../src/store/connection.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { testServices } from "./helpers/services.ts";
 import { testHost } from "./helpers/host.ts";
@@ -50,7 +51,7 @@ function followingFarAgent(): { state: DaemonState; orchDir: OrchDir; key: strin
 }
 
 function transition(key: string, newState: "working" | "exited"): NotifyEvent {
-  return { type: "transition", key, ts: new Date().toISOString(), agent: "far-agent", tab: null, model: null, oldState: "idle", newState };
+  return { host: hostIdentity(), type: "transition", key, ts: new Date().toISOString(), agent: "far-agent", tab: null, model: null, oldState: "idle", newState };
 }
 
 test("an event from a linked host lands on this host's row for the agent and is published naming the host", () => {
@@ -63,7 +64,7 @@ test("an event from a linked host lands on this host's row for the agent and is 
 
 test("a far closed event ends the agent here", () => {
   const { state, orchDir, key } = followingFarAgent();
-  const closed: NotifyEvent = { type: "closed", key, ts: new Date().toISOString(), agent: "far-agent", tab: null, model: null, oldState: "working", newState: "closed" };
+  const closed: NotifyEvent = { host: hostIdentity(), type: "closed", key, ts: new Date().toISOString(), agent: "far-agent", tab: null, model: null, oldState: "working", newState: "closed" };
   applyHostEvent(state, FAR_LINK, closed);
   const endedAt = agentView(orchDir, key)?.endedAt;
   expect(endedAt).not.toBeNull();

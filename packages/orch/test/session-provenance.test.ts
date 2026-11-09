@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -75,7 +76,7 @@ function seedEnclosingWorker(directory: OrchDir): string {
   const host = hostIdentity();
   seedAgent("worker01", {}, directory);
   ensureHost(directory, host, Date.now());
-  recordProcess(directory, "worker01", Date.now(), { host: host.id, ...runnerParent() });
+  recordProcess(directory, placeHere(directory, "worker01"), Date.now(), {  ...runnerParent() });
   return "worker01";
 }
 

@@ -2,7 +2,7 @@ import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import type { AgentAdapter } from "./adapter.ts";
 import type { HeadlessHandle } from "./plexer.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
-import type { AgentId } from "../backends/identity.ts";
+import type { AgentId } from "./agent-place.ts";
 import type { Logger, OrchDir } from "./core.ts";
 import type { AgentWorktree } from "./worktree.ts";
 import type { AgentOrigin } from "./host.ts";

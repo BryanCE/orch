@@ -9,7 +9,7 @@
 import { modelSpec, splitThinkingSuffix } from "../policy/thinking.ts";
 import { retryingAsync } from "../retry.ts";
 import type { ControlOutcome, FindRegistryModel, ModelControlDeps, ResolvedModel } from "../types/agent.ts";
-import type { BridgeMessage } from "../control/bridge-message.ts";
+import type { BridgeMessage } from "../shared/bridge-message.ts";
 import type { RetryPolicy } from "../types/core.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { JsonRecord } from "../types/core.ts";

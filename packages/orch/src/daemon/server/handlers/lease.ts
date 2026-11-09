@@ -7,13 +7,17 @@ import { orm } from "../../../store/connection.ts";
 import { agents } from "../../../db/schema.ts";
 import { agentById, childrenOf, liveAgents, renameAgent } from "../../../store/agent-rows.ts";
 import { adoptLease, currentLease, expireLease, leasesByOrch, releaseLease } from "../../../store/lease-rows.ts";
-import { reapAgentRecord } from "../../../presence/store.ts";
-import { deriveDriveState, DEAD_HOLDER_DRIVER } from "../../../agent/drive-state.ts";
-import { assertValidAgentName } from "../../../policy/name.ts";
+import { loadPresence, reapAgentRecord } from "../../../presence/store.ts";
+import { agentView, agentViews } from "../../../store/agent-view.ts";
+import { deriveDriveState } from "../../../agent/drive-state.ts";
+import { DEAD_HOLDER_DRIVER } from "../../../shared/drive-state.ts";
+import { assertNameFree, assertValidAgentName } from "../../../policy/name.ts";
 import { isOrphan, orphanAgents } from "../../../policy/orphan.ts";
 import type { AgentRow } from "../../../types/store.ts";
 import type { LeaseOptions, ReapCandidate, ReapCandidateInput, ReapOwnership } from "../../../types/command.ts";
-import type { Governance, ParamsOf, ResultOf } from "../../client/protocol.ts";
+import type { ChromeOutcome, Governance, ParamsOf, ResultOf } from "../../client/protocol.ts";
+import { resolveTargetRoute } from "../../../control/dispatch.ts";
+import { errorMessage } from "../../../util.ts";
 import type { DaemonState } from "../state.ts";
 import { recordedProcessIsLive } from "../../../process-place.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
@@ -117,11 +121,13 @@ export function adoptAgent(directory: OrchDir, target: string, orchId: string, o
 /** C4f - an agent may rename ITSELF with no lease in force, because acting on
  *  itself is not driving. Renaming ANOTHER agent is driving, so it meets the
  *  same live-foreign-holder gate as dispatch/steer/model/reset. */
-export function renameTarget(directory: OrchDir, target: string, callerId: string | undefined, name: string): ResultOf<"rename"> {
-  assertValidAgentName(name);
+export function renameTarget(directory: OrchDir, target: string, callerId: string | undefined, name: string): Omit<ResultOf<"rename">, keyof ChromeOutcome> {
   const agent = resolveTarget(directory, target);
   const lease = agent.id === callerId ? undefined : currentLease(directory, agent.id);
   if (lease) assertNotHeldByLiveForeignOrch(directory, agent, lease.orchId, callerId);
+  // A name is free when no live agent in the same space holds it.
+  const open = new Map(agentViews(directory).filter((view) => view.endedAt === null).map((view) => [view.id, view]));
+  assertNameFree(open, loadPresence(directory), name, agentView(directory, agent.id)?.environment.space ?? null);
   if (!renameAgent(directory, agent.id, name)) throw new Error(`No agent matches "${target}".`);
   return { id: agent.id, name };
 }
@@ -237,8 +243,44 @@ export function orphans(state: DaemonState): ResultOf<"orphans"> {
   return { agents: orphanAgents(state.directory) };
 }
 
-export function rename(state: DaemonState, params: ParamsOf<"rename">): ResultOf<"rename"> {
-  return renameTarget(state.directory, params.target, params.actor, params.name);
+/** `rename`: orch's name is written here first and alone, then the agent's pane shows it where
+ *  the agent runs; one on a linked host is renamed by that host's orchd in its own store and
+ *  pane. A border that could not follow is reported, and never undoes the rename. */
+export async function rename(state: DaemonState, params: ParamsOf<"rename">): Promise<ResultOf<"rename">> {
+  const renamed = renameTarget(state.directory, params.target, params.actor, params.name);
+  const chrome = await atAgentHost(state, renamed.id, {
+    here: () => showName(state, renamed.id, renamed.name),
+    there: async (link) => {
+      const { chrome: shown, chromeError } = await driveOnHost(state, link, { action: "rename", key: renamed.id, name: renamed.name, actor: params.actor ?? null });
+      return { chrome: shown, chromeError };
+    },
+  });
+  return { ...renamed, ...chrome };
+}
+
+/** Rename an agent this orchd runs, for a rename a linked host's orchd ruled on, and show it. */
+export function renameHere(state: DaemonState, key: string, name: string): ChromeOutcome {
+  assertValidAgentName(name);
+  if (!renameAgent(state.directory, key, name)) throw new Error(`No agent matches "${key}".`);
+  return showName(state, key, name);
+}
+
+/** Let the agent's environment show its new name: the plexer's agent name, then its pane
+ *  border. An environment with neither has nothing to show, which is an answer (E14). */
+function showName(state: DaemonState, key: string, name: string): ChromeOutcome {
+  const route = resolveTargetRoute(state.directory, key);
+  if (route === undefined) return { chrome: "none", chromeError: null };
+  const { backend, handle } = route;
+  try {
+    backend.agentNaming?.renameAgent(handle, name);
+    if (backend.labeling === null) return { chrome: "none", chromeError: null };
+    backend.labeling.setLabel(handle, name);
+    return { chrome: "renamed", chromeError: null };
+  } catch (error: unknown) {
+    const message = errorMessage(error);
+    state.services.logger.warn("rename.chrome-failed", { handle: String(handle), error: message }, { agentId: key });
+    return { chrome: "failed", chromeError: message };
+  }
 }
 
 export function reapCandidateList(state: DaemonState, params: ParamsOf<"reap-candidates">): ResultOf<"reap-candidates"> {
@@ -253,10 +295,9 @@ async function reapAnywhere(state: DaemonState, target: string, actor: string | 
   const agent = resolveTarget(directory, target);
   const here = (): Reaped => reapAgent(directory, agent.id);
   return atAgentHost(state, agent.id, {
-    unrecorded: here,
     here,
     there: async (link) => {
-      await driveOnHost(link, { action: "reap", key: agent.id, actor });
+      await driveOnHost(state, link, { action: "reap", key: agent.id, actor });
       return reapResolved(directory, agent, true);
     },
   });

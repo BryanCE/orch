@@ -4,9 +4,10 @@
 import { retryingSync } from "../retry.ts";
 import { errorMessage } from "../util.ts";
 import { getBackend } from "../backends/registry.ts";
-import { describeHandle } from "../backends/backend.ts";
+import { describeHandle } from "../shared/plexer.ts";
 import { sleepMs } from "../backends/shell-ready.ts";
 import { localProcessOf } from "../local-process.ts";
+import { hostIdentity } from "../host.ts";
 import type { CloseTargetWire } from "../entities/close-targets.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, LocalProcess } from "../types/backend.ts";
 
@@ -135,11 +136,13 @@ export function attemptClose(target: CloseTarget): CloseAttempt {
   return lingering === null ? attempt : { ...attempt, failure: lingering };
 }
 
+/** Where the target's process is, from the host orchd stated for it: a target on another
+ *  host is that host's orchd's to end, whatever this box could reach. */
 function recordedHere(wire: CloseTargetWire): RecordedHere {
-  if (wire.recorded === null) return wire.hostName === null ? { kind: "none" } : { kind: "elsewhere", hostName: wire.hostName };
-  const local = localProcessOf(wire.recorded);
-  if (local !== null) return { kind: "here", process: local };
-  return { kind: "elsewhere", hostName: wire.hostName ?? wire.recorded.host };
+  if (wire.host.id !== hostIdentity().id) return { kind: "elsewhere", hostName: wire.host.name };
+  if (wire.recorded === null) return { kind: "none" };
+  const local = localProcessOf({ ...wire.recorded, host: wire.host.id });
+  return local === null ? { kind: "none" } : { kind: "here", process: local };
 }
 
 export function closeTargetOf(wire: CloseTargetWire): CloseTarget {

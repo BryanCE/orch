@@ -77,7 +77,6 @@ export function screenHandlers(state: DaemonState, holder: () => ScreenHolder): 
         return { host: null };
       };
       return await atAgentHost(state, params.key, {
-        unrecorded: here,
         here,
         there: async (link, host) => {
           const { source, started } = link.attachScreen(params.key, size, (chunk) => { context.screens.push(params.key, chunk); });

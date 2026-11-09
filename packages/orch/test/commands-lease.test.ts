@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -12,7 +13,7 @@ import { reapAgent, adoptAgent, detachAgent } from "../src/daemon/server/handler
 import { cmdReap } from "../src/commands/lease.ts";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -54,7 +55,7 @@ function fixture(): OrchDir {
   return dir;
 }
 function agent(dir: OrchDir, id: string, name = id, spawnedBy: string | null = null): void {
-  insertAgent(dir, { id, name, spawnedBy, harnessId: "pi", cwd: dir, createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id, name, spawnedBy, harnessId: "pi", cwd: dir, createdAt: 1 });
 }
 
 function liveHolder(dir: OrchDir, id = "foreign-orch"): void {

@@ -1,8 +1,9 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { NO_FOREGROUND } from "../src/backends/shell-ready.ts";
+import { foregroundOf } from "../src/backends/shell-ready.ts";
+import { NO_FOREGROUND } from "../src/shared/shell-prompt.ts";
 import { ownedAgentKeys } from "../src/commands/lifecycle/index.ts";
-import { cmdRestart, foregroundOf, reloadAgentAndAwaitBridge } from "../src/commands/lifecycle/reload.ts";
+import { cmdRestart } from "../src/commands/lifecycle/reload.ts";
 import { resolveAdapterOrDie, resolveTuningOrDie } from "../src/commands/selection.ts";
 import { adapterCommand } from "../src/commands/spawn/models.ts";
 import { agentView } from "../src/store/agent-view.ts";
@@ -22,11 +23,6 @@ import type { Services } from "../src/types/services.ts";
 
 const servers: RpcServer[] = [];
 const dirs: OrchDir[] = [];
-
-const SETTINGS = {
-  enabled: { adapters: ["pi"], backends: ["headless"] },
-  defaults: { adapter: "pi", backend: "headless" },
-};
 
 afterEach(async () => {
   while (servers.length) await servers.pop()!.close();
@@ -63,21 +59,8 @@ async function withFleet(body: (root: OrchDir, key: string, orchId: string) => P
 }
 
 describe("commands/lifecycle", () => {
-  test("capability helpers fail closed when absent", async () => {
-    const backend = new FakePanedBackend();
-    const root = tempOrchDir("orch-lifecycle-helper-");
-    dirs.push(root);
-    const services = await servedServices({ orchDir: root, settings: SETTINGS }, servers);
+  test("an environment that reports no foreground reports nothing running", () => {
     expect(foregroundOf({ foreground: null }, "p1")).toEqual(NO_FOREGROUND);
-    const result = await reloadAgentAndAwaitBridge(services, backend, "p1", "agent00001", "reload");
-    expect(result.handle).toBe("p1");
-    expect(result.ok).toBe(false);
-  });
-  test("reports missing bridge pid without touching backend", async () => {
-    const root = tempOrchDir("orch-lifecycle-missing-");
-    dirs.push(root);
-    const services = await servedServices({ orchDir: root, settings: SETTINGS }, servers);
-    expect(await reloadAgentAndAwaitBridge(services, new FakePanedBackend(), "p1", "missingag1", "reload")).toMatchObject({ ok: false });
   });
 
   test("--all targets the agents this orch holds a live lease on, and drops them when it releases", async () => {

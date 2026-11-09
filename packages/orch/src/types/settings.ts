@@ -91,6 +91,8 @@ export interface SettingsWatchOptions {
 
 export interface SettingsWatch {
   stop: () => void;
+  /** Re-read the settings now, as an edit would: `orch reload` asks for it. */
+  reload: () => void;
 };
 
 /** Where a resolved setting's winning value came from. */

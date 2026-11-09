@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { describe, expect, test } from "bun:test";
 import { createNotifierRegistry } from "../src/notify/router.ts";
 import type { Notifier, NotifyEvent } from "../src/types/notify.ts";
@@ -7,7 +8,7 @@ import type { OrchDir } from "../src/types/core.ts";
 
 const orchDir = (): OrchDir => orchDirAt(".");
 
-const event: NotifyEvent = { key: "k", agent: null, tab: null, model: null, type: "transition", oldState: "working", newState: "done", ts: "2026-01-01T00:00:00.000Z" };
+const event: NotifyEvent = { host: hostIdentity(), key: "k", agent: null, tab: null, model: null, type: "transition", oldState: "working", newState: "done", ts: "2026-01-01T00:00:00.000Z" };
 
 function notifier(id: Notifier["id"], seen: (config: Record<string, unknown>) => void, result = true): Notifier {
   return {

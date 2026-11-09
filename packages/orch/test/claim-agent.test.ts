@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
@@ -10,7 +11,7 @@ const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 function fixture() { const d = tempOrchDir("orch-claim-agent-"); dirs.push(d); return d; }
 function seed(d: OrchDir) { ensureHarness(d, "pi", "Pi"); }
-function agent(d: OrchDir, id: string) { return insertAgent(d, { id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 2_000 }); }
+function agent(d: OrchDir, id: string) { return insertAgent(d, { host: hostIdentity(), id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 2_000 }); }
 function claimedRow(d: OrchDir, id: string) {
   return row(orm(d), sql`SELECT claimed_at, session_token FROM agents WHERE id = ${id}`);
 }

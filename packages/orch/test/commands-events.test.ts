@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { describe, expect, test } from "bun:test";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
@@ -7,7 +8,7 @@ import { eventAcceptor, formatEventGap, isNotifyEvent, onMonitor, parseEventsOpt
 import { spaceTag } from "../src/notify/format.ts";
 import { MONITOR_DEFAULT_ON } from "../src/settings/schema.ts";
 import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { helpTopic } from "../src/commands/index.ts";
 import { subscribeEvents } from "../src/daemon/client/rpc.ts";
 import { withinSpaceCeiling } from "../src/policy/space.ts";
@@ -15,7 +16,7 @@ import type { NotifyEvent } from "../src/types/notify.ts";
 import type { AgentState } from "../src/agent-state.ts";
 
 function transition(oldState: AgentState, newState: Exclude<AgentState, "asking">): NotifyEvent {
-  return { type: "transition", key: "agent", agent: "pi", tab: null, model: null, oldState, newState, ts: "now" };
+  return { host: hostIdentity(), type: "transition", key: "agent", agent: "pi", tab: null, model: null, oldState, newState, ts: "now" };
 }
 
 const SUMMARY_CHARS = SETTINGS_DEFAULTS.monitor.summary_chars;
@@ -66,15 +67,15 @@ describe("commands/events", () => {
     expect(shows(transition("working", "error"))).toBe(true);
     expect(shows(transition("working", "blocked"))).toBe(true);
     expect(shows(transition("done", "exited"))).toBe(true);
-    expect(shows({ type: "asking", key: "agent", agent: "pi", tab: null, model: null, oldState: "working", newState: "asking", askCount: 1, gaveUp: false, ts: "now" })).toBe(true);
-    expect(shows({ type: "message", key: "agent", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "m", text: "report" } })).toBe(true);
+    expect(shows({ host: hostIdentity(), type: "asking", key: "agent", agent: "pi", tab: null, model: null, oldState: "working", newState: "asking", askCount: 1, gaveUp: false, ts: "now" })).toBe(true);
+    expect(shows({ host: hostIdentity(), type: "message", key: "agent", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "m", text: "report" } })).toBe(true);
     expect(shows(transition("idle", "working"))).toBe(false);
     expect(shows(transition("working", "idle"))).toBe(false);
     expect(shows(transition("blocked", "working"))).toBe(false);
     expect(shows(transition("working", "waiting"))).toBe(true);
     expect(shows(transition("waiting", "working"))).toBe(true);
-    expect(shows({ type: "closed", key: "agent", agent: "pi", tab: null, model: null, oldState: "done", newState: "closed", ts: "now" })).toBe(false);
-    expect(shows({ type: "task", key: "agent", agent: "pi", tab: null, model: null, oldState: "queued", newState: "claimed", task: "t", ts: "now" })).toBe(false);
+    expect(shows({ host: hostIdentity(), type: "closed", key: "agent", agent: "pi", tab: null, model: null, oldState: "done", newState: "closed", ts: "now" })).toBe(false);
+    expect(shows({ host: hostIdentity(), type: "task", key: "agent", agent: "pi", tab: null, model: null, oldState: "queued", newState: "claimed", task: "t", ts: "now" })).toBe(false);
   });
   test("the monitor's states come from settings, not from the code", () => {
     const shows = onMonitor(["done"]);
@@ -130,7 +131,7 @@ describe("commands/events", () => {
     subscription.close();
   });
   test("renders opaque plexer coordinates without relabeling them as spaces", () => {
-    const event: NotifyEvent = { type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: "finished", ts: "now" };
+    const event: NotifyEvent = { host: hostIdentity(), type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: "finished", ts: "now" };
     const json = renderEvent(event, true, 4, SUMMARY_CHARS);
     const parsed: unknown = JSON.parse(json);
     expect(parsed).toMatchObject({ space: "wF", streamSeq: 4 });
@@ -151,7 +152,7 @@ describe("commands/events", () => {
   // transition read like a status row and buried what the line exists to say.
   test("message events render the full delivered mail text once", () => {
     const mail = "[from worker] hello orchestrator, this report runs well past the sixty characters a notification title keeps";
-    const line = renderEvent({ type: "message", key: "agent", space: "wF", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "dispatch-message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4, SUMMARY_CHARS);
+    const line = renderEvent({ host: hostIdentity(), type: "message", key: "agent", space: "wF", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "dispatch-message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4, SUMMARY_CHARS);
     expect(line).toBe(`MESSAGE ${spaceTag("wF", true)} ${mail}`);
     expect(line).not.toContain("pi:");
     expect(line.split("[from worker").length).toBe(2);
@@ -162,7 +163,7 @@ describe("commands/events", () => {
   // read "0 passed, 7 failed beca" and sent the orchestrator to the diff to learn why.
   test("a done line keeps the report up to monitor.summary_chars, then marks the cut", () => {
     const report = `pending: src/a.ts, src/b.ts. 0 passed, 7 failed because src/c.ts from another task does not compile yet. ${"x".repeat(SUMMARY_CHARS)}`;
-    const event: NotifyEvent = { type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: report, ts: "now" };
+    const event: NotifyEvent = { host: hostIdentity(), type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", lastText: report, ts: "now" };
     const line = renderEvent(event, false, 4, SUMMARY_CHARS);
     expect(line).toContain("7 failed because src/c.ts from another task does not compile yet.");
     expect(line).toContain(`${report.slice(0, SUMMARY_CHARS - 3)}...`);
@@ -170,13 +171,13 @@ describe("commands/events", () => {
   });
 
   test("an agent in no space gets no empty bracket on its line", () => {
-    const event: NotifyEvent = { type: "transition", key: "agent", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now" };
+    const event: NotifyEvent = { host: hostIdentity(), type: "transition", key: "agent", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now" };
     expect(renderEvent(event, false, 4, SUMMARY_CHARS)).not.toContain("[]");
     expect(renderEvent({ ...event, space: "" }, false, 4, SUMMARY_CHARS)).not.toContain("[]");
   });
 
   test("an event line says what happened, never the fleet's books", () => {
-    const event: NotifyEvent = { type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now" };
+    const event: NotifyEvent = { host: hostIdentity(), type: "transition", key: "agent", space: "wF", agent: "pi", tab: null, model: null, oldState: "working", newState: "done", ts: "now" };
     const line = renderEvent(event, false, 4, SUMMARY_CHARS);
     expect(line).toEndWith("working→done");
     expect(line).not.toContain("pack");
@@ -202,7 +203,7 @@ describe("commands/events space ceiling", () => {
     const worker = mintAgentId();
     const accepts = eventAcceptor({ ...parseEventsOptions([]), targets: ["recon"] }, new Set([worker]), { mine: true, address: me }, "w1");
     expect(accepts({ ...transition("working", "done"), key: worker, space: "w1", spawnedBy: me })).toBe(true);
-    expect(accepts({ type: "message", key: me, agent: "orchestrator", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "m", text: "report" } })).toBe(true);
+    expect(accepts({ host: hostIdentity(), type: "message", key: me, agent: "orchestrator", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "m", text: "report" } })).toBe(true);
     expect(accepts({ ...transition("working", "done"), key: me, space: "w1", spawnedBy: me })).toBe(false);
     expect(accepts({ ...transition("working", "done"), key: me, space: "w1", spawnedBy: me })).toBe(false);
   });

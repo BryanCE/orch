@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -31,9 +32,9 @@ function daemonWithSpawner(directory: OrchDir, key: string, name: string) {
     self: () => ({
       id: "worker0001", kind: "agent", space: null, depth: 1, stored: null,
       view: {
-        id: "worker0001", name: "worker", label: "worker", harnessId: "pi", cwd: "/w", createdAt: 1, kind: "agent",
+        id: "worker0001", name: "worker", label: "worker", harnessId: "pi", createdAt: 1, kind: "agent",
         spawnedBy: key, spawnedByName: name, rootAgentId: key, heldBy: null,
-        environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null },
+        environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null, host: hostIdentity(), cwd: "/w" },
         tuning: { model: null, thinking: null }, endedAt: null,
       },
     }),
@@ -249,9 +250,9 @@ describe("peer identity in messaging", () => {
       self: () => ({
         id: ownKey, kind: "agent", space: null, depth: 1, stored: null,
         view: {
-          id: ownKey, name: "worker", label: null, harnessId: "pi", cwd: "/w", createdAt: 1, kind: "agent",
+          id: ownKey, name: "worker", label: null, harnessId: "pi", createdAt: 1, kind: "agent",
           spawnedBy: "session777", spawnedByName: "pi session", rootAgentId: "session777", heldBy: null,
-          environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null },
+          environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null, host: hostIdentity(), cwd: "/w" },
           tuning: { model: null, thinking: null }, endedAt: null,
         },
       }),

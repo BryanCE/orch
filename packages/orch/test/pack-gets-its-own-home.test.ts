@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { openHome, ORCH_HOME_LABEL } from "../src/commands/home.ts";
@@ -68,7 +69,7 @@ async function fixture(): Promise<Services> {
  *  references `agents.id`), so a pack fixture is that one agent row. */
 function seedOrch(dir: OrchDir, id: string): string {
   ensureHarness(dir, "pi", "pi", 1);
-  insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
   return id;
 }
 

@@ -112,6 +112,49 @@ follows it).
 - [x] Far processes recorded in the near store, remote liveness cache, link `alive` tick
 - [x] Tests, help docs and settings that name any of these
 
+## 9. Location is structural
+
+Where an agent runs is part of its type and its stored record, from the ground up. No code can
+act on an agent as if it runs here without the types proving it does.
+
+- [ ] Every agent row stores the host it runs on, this machine included; no "no row means here".
+- [ ] One placement: agent → `here | linked | unreachable`, the only way any code reaches an
+      agent's process, PTY, pane, session file, log, worktree or delivery route.
+- [ ] Every machine-specific value (pid, handle, PTY, session path, log path, worktree) is typed
+      with its host, the way `HostedProcess` is; only code that proved "here" can unwrap one.
+- [ ] One door: every agent verb and read is CLI → this orchd → the orchd where the agent runs.
+      The CLI never holds a plexer Backend for an agent; local-only plexer work (spawn layout,
+      viewer panes, the caller's own panes) goes through an API that takes no agent.
+- [ ] `orch spawn --host X` then plain `orch dispatch <name> "task"` works with no extra flags,
+      same output as a local agent; same for every verb.
+
+## 10. Client and server are separate code
+
+The CLI is a client: it parses, calls this machine's orchd, prints. orchd is the server: it alone
+loads code that touches an agent, a plexer, a process, the store or an agent's files (Rule 21).
+
+- [x] Rule 21 in `CLAUDE.md`.
+- [x] `scripts/check-layers.ts` in `bun check`: client, server and shared layers, `node:child_process`
+      counted as server; a client or
+      shared module that loads server code fails. `layers-baseline.json` holds the loads that
+      existed when it landed and only shrinks. Tests: `test/check-layers.test.ts`.
+- [x] Pure code moved to `src/shared/`: harness descriptor, agent id, bridge messages, environment,
+      session env, peer view, prerequisites, drive-state constants, plexer handle helpers, shell
+      prompt, tiling math, lookup, versions.
+- [ ] Descriptors go shared: the harness and plexer lists, their declared capabilities and
+      settings schemas, the bridge message and environment schemas split from their runtime
+      roles in `src/adapters/`, `src/backends/`, `src/control/`, `src/agent/`.
+- [ ] Caller registration sends the caller's pid; orchd reads its ancestry. The CLI never loads
+      process identity.
+- [ ] `src/policy/`, `src/identity/`, `src/queue.ts` are server: every command that used them
+      asks orchd.
+- [ ] `orch doctor` and `orch setup` run in orchd and stream their report back.
+- [ ] Every `src/commands/` load in the baseline is gone; the baseline is empty.
+- [ ] Three workspace packages: `packages/protocol` (shared), `packages/orchd` (server),
+      `packages/orch` (the CLI and the published bin, bundling orchd). The CLI package does not
+      depend on `packages/orchd`, so a client import of server code does not resolve.
+- [ ] `packages/web` is a client too: it reaches orchd over RPC and loads no server code.
+
 ## Later
 
 - [ ] herdr machines as an opt-in plexer route, only when the user configures it

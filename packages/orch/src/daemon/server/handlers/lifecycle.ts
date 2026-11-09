@@ -3,6 +3,8 @@ import { selfIdentityOf } from "../../../identity/self.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
 import { holdsLease } from "../../../store/lease-rows.ts";
 import { randomUUID } from "node:crypto";
+import { hostedHere } from "../../../local-process.ts";
+import { placeHere } from "../../../process-place.ts";
 import { admitModel } from "../../../policy/model.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
 import { headlessBackend, heldBackend, startHeldAgent } from "../../../backends/registry.ts";
@@ -11,8 +13,11 @@ import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { BackendSpawnOpts } from "../../../types/backend.ts";
 import { deliverControl } from "../../../control/dispatch.ts";
 import { publishFromOrchd } from "../events.ts";
+import { eventHost } from "../status-events.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { agentById, endAgent, reclaimAgent, setHarness } from "../../../store/agent-rows.ts";
+import { selectAgentStatus } from "../../../store/status-rows.ts";
+import { retryingAsync } from "../../../retry.ts";
 import { setHandle, setTuning } from "../../../store/interval-rows.ts";
 import { registerHostedAgent, registerSpawnedAgent } from "../../../store/spawn-registration.ts";
 import { presenceEntry } from "../../../presence/store.ts";
@@ -76,9 +81,10 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     tools: params.tools,
     workers: params.workers,
   };
-  if (peer !== undefined) return spawnHeldForPeer(state, adapter, { ...opts, key, prompt: params.prompt, spawner: null, origin: { host: peer, spawner: params.spawner } });
+  if (peer !== undefined) return spawnHeldForPeer(state, adapter, { ...opts, key, prompt: params.prompt, spawner: null, origin: { askedBy: peer, spawner: params.spawner } });
   const handle = headlessBackend.spawn(adapter, { ...opts, spawner: params.spawner });
-  return { key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: headlessBackend.process.running(handle) };
+  const running = headlessBackend.process.running(handle);
+  return { key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
 }
 
 /**
@@ -118,10 +124,9 @@ export async function setModel(state: DaemonState, params: ParamsOf<"set-model">
   const { target, model } = params;
   governWrite(state, target, params);
   return atAgentHost(state, target, {
-    unrecorded: () => applyModel(state, target, model),
     here: () => applyModel(state, target, model),
     there: async (link) => {
-      const { ok, applied } = await driveOnHost(link, { action: "model", key: target, model, actor: params.actor ?? null });
+      const { ok, applied } = await driveOnHost(state, link, { action: "model", key: target, model, actor: params.actor ?? null });
       return { ok, applied };
     },
   });
@@ -154,6 +159,7 @@ export function closeAgent(state: DaemonState, params: ParamsOf<"agent-closed">)
   const event: NotifyEvent = {
     type: "closed",
     key,
+    host: view.environment.host,
     space: view.environment.space ?? undefined,
     agent: view.name,
     name: view.name,
@@ -167,17 +173,52 @@ export function closeAgent(state: DaemonState, params: ParamsOf<"agent-closed">)
   return { ok: true };
 }
 
-export async function applyLifecycle(state: DaemonState, params: ParamsOf<"lifecycle">): Promise<{ ok: true; verb: LifecycleVerb }> {
-  const { target, verb } = params;
+/** `clear-session`: give an agent a clean session where it runs, and answer once it is back and
+ *  idle. Ruled on here; an agent on a linked host is cleared by that host's orchd, which waits
+ *  on its own agent. */
+export async function clearSession(state: DaemonState, params: ParamsOf<"clear-session">): Promise<ResultOf<"clear-session">> {
+  const { target } = params;
   governWrite(state, target, params);
   return atAgentHost(state, target, {
-    unrecorded: () => applyVerb(state, target, verb),
-    here: () => applyVerb(state, target, verb),
+    here: () => clearHere(state, target),
     there: async (link) => {
-      const answer = await driveOnHost(link, { action: "lifecycle", key: target, verb, actor: params.actor ?? null });
-      return { ok: answer.ok, verb: answer.verb };
+      const { ok } = await driveOnHost(state, link, { action: "clear", key: target, actor: params.actor ?? null });
+      return { ok };
     },
   });
+}
+
+/** The next step for an agent whose turn will not end on its own. */
+function abortHint(name: string): string {
+  return `Run orch abort ${name} to stop its turn, then try again, or orch close ${name} and spawn a fresh agent.`;
+}
+
+/** Clear the session of an agent this orchd runs, ruled on already: the harness that comes back
+ *  claims the row afresh, so the old claim goes first. Answers once the agent reports idle from
+ *  a status newer than the clear; a stale idle is the old session answering for the new one. */
+export async function clearHere(state: DaemonState, key: string): Promise<ResultOf<"clear-session">> {
+  const directory = state.directory;
+  const name = agentView(directory, key)?.name ?? key;
+  const before = selectAgentStatus(directory, key);
+  // A session mid-turn queues the clear behind its turn, so the wait below would only time out.
+  if (before?.state === "working") throw new Error(`${name} is mid-turn (working), so its session cannot be cleared. ${abortHint(name)}`);
+  const sentAt = Date.now();
+  reclaimAgent(directory, key);
+  await applyVerb(state, key, "reset");
+  const { reset_ready_ms: readyMs, reset_poll_ms: pollMs } = state.services.settings.current().timeouts;
+  const idleAfterClear = (): boolean => {
+    const status = selectAgentStatus(directory, key);
+    return status !== undefined
+      && (before === undefined || status.updatedAt > before.updatedAt)
+      && status.updatedAt >= sentAt - pollMs
+      && status.state === "idle";
+  };
+  const ready = await retryingAsync("await idle after clear", idleAfterClear, { attempts: Math.ceil(readyMs / pollMs), delayMs: pollMs, backoff: 1 }, { retryOnResult: (idle) => !idle });
+  if (!ready) {
+    const last = selectAgentStatus(directory, key)?.state ?? "unknown";
+    throw new Error(`Reset ${name} failed: it did not become ready within ${Math.round(readyMs / 1000)}s; its last state is ${last}. ${abortHint(name)}`);
+  }
+  return { ok: true };
 }
 
 /** Apply a lifecycle verb to an agent this orchd runs, ruled on already. */
@@ -208,7 +249,8 @@ export function reclaim(directory: OrchDir, params: ParamsOf<"reclaim">): { ok: 
  *  interval on its own axis, so the old one closes and a new one opens. */
 export function moveHandle(directory: OrchDir, params: ParamsOf<"set-handle">): { ok: true } {
   if (agentView(directory, params.target) === null) throw new Error(`agent ${params.target} does not exist`);
-  setHandle(directory, params.target, Date.now(), params.handle);
+  // A handle names a pane on this machine: only an agent here has one.
+  setHandle(directory, placeHere(directory, params.target), Date.now(), params.handle);
   return { ok: true };
 }
 
@@ -238,6 +280,7 @@ export function listPendingQuestions(directory: OrchDir, params: ParamsOf<"quest
         agentId: row.agentId,
         key: row.agentId,
         name: agent?.name ?? null,
+        host: eventHost(directory, row.agentId),
         question: row.question,
         askedAt: row.askedAt,
       };

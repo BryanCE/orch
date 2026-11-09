@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { isHandWrittenTypeScript, sourceFiles } from "./helpers/sources.ts";
@@ -34,8 +35,8 @@ function withStore(body: (directory: OrchDir) => void): void {
 describe("vocabulary is a display map, and a role is tree position", () => {
   test("a role is derived from the tree, never stored", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "root", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "lead", createdAt: 1 });
-      insertAgent(directory, { id: "child", spawnedBy: "root", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2 });
+      insertAgent(directory, { host: hostIdentity(), id: "root", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "lead", createdAt: 1 });
+      insertAgent(directory, { host: hostIdentity(), id: "child", spawnedBy: "root", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2 });
 
       // A11: orch = pack root, slave = any non-root member. Nothing writes this
       // down — it is read off rootAgentId, which is provenance and immutable.
@@ -64,8 +65,8 @@ describe("vocabulary is a display map, and a role is tree position", () => {
 
   test("renaming an agent or moving its lease never changes its role", () => {
     withStore((directory) => {
-      insertAgent(directory, { id: "root", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "lead", createdAt: 1 });
-      insertAgent(directory, { id: "child", spawnedBy: "root", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2 });
+      insertAgent(directory, { host: hostIdentity(), id: "root", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "lead", createdAt: 1 });
+      insertAgent(directory, { host: hostIdentity(), id: "child", spawnedBy: "root", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2 });
 
       // A name is for the human and a lease is mutual exclusion. Neither is a
       // role, so neither may move one. Losing a holder costs a driver, not a

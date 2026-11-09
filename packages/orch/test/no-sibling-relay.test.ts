@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { resolvePeer } from "../src/agent/peers.ts";
 import { askFrom, stubDaemonLink } from "./helpers/daemon-client.ts";
@@ -79,9 +80,9 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
       self: () => ({
         id: "worker0001", kind: "agent", space: null, depth: 1, stored: null,
         view: {
-          id: "worker0001", name: "worker", label: null, harnessId: "pi", cwd: "/w", createdAt: 1, kind: "agent",
+          id: "worker0001", name: "worker", label: null, harnessId: "pi", createdAt: 1, kind: "agent",
           spawnedBy: "deadorch01", spawnedByName: "claude session", rootAgentId: "deadorch01", heldBy: null,
-          environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null },
+          environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null, host: hostIdentity(), cwd: "/w" },
           tuning: { model: null, thinking: null }, endedAt: null,
         },
       }),

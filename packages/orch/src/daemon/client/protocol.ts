@@ -1,23 +1,21 @@
 import { z } from "zod";
 import { WORKTREE_PROVIDER_IDS } from "../../types/worktree.ts";
 import { isRecord } from "../../util.ts";
-import { HOST_OS_VALUES, type HostId } from "../../types/host.ts";
-import { isHostId } from "../../host.ts";
 import type { HostedProcess } from "../../types/process.ts";
-import { isPeerView } from "../../agent/peers.ts";
-import { isPaneLabels } from "../../agent/environment.ts";
-import { isLifecycleVerb } from "../../adapters/adapter.ts";
+import { isPeerView } from "../../shared/peer-view.ts";
+import { isPaneLabels } from "../../shared/environment.ts";
 import { isThinkingLevel } from "../../policy/thinking.ts";
 import { CompactionTableSchema, ExtensionExclusionsSchema } from "../../settings/schema.ts";
 import { AGENT_STATES } from "../../agent-state.ts";
-import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
+import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, HOST_ID, HOST_IDENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
 import { CALLER_KINDS, type ThinkingLevel, type WorkerPolicy } from "../../types/policy.ts";
-import type { CallerCredential, CallerSession, TokenTotals } from "../../types/core.ts";
-import { HOST_LINK_STATES, SIGNAL_OUTCOMES, type HostGreeting, type HostIdentity, type HostLinkView } from "../../types/host.ts";
+import type { CallerCredential, CallerSession, LogLevel, LogRecord, TokenTotals } from "../../types/core.ts";
+import { isLogLevel, isLogRecord } from "../../log.ts";
+import { HOST_LINK_STATES, SIGNAL_OUTCOMES, type HostGreeting, type HostLinkView } from "../../types/host.ts";
 import type { FleetCapacity } from "../../policy/capacity.ts";
-import { isAgentNotice, type AgentNotice } from "../../control/bridge-message.ts";
+import { isAgentNotice, type AgentNotice } from "../../shared/bridge-message.ts";
 import type { PaneLabels } from "../../types/plexer.ts";
-import type { LifecycleVerb, SessionView, SessionViewEntry } from "../../types/adapter.ts";
+import type { SessionView, SessionViewEntry } from "../../types/adapter.ts";
 import { RESULT_SOURCES, type AgentRead, type AgentReading } from "../../types/agent-read.ts";
 import type { FleetStatus, PeerView, PendingQuestionView } from "../../types/daemon.ts";
 import type { BridgeNotification } from "../../types/agent.ts";
@@ -42,8 +40,6 @@ export function isRpcErrorCode(value: unknown): value is RpcErrorCode {
 
 const CALLER_SESSION = z.object({ harnessId: z.string(), sessionId: z.string().nullable(), pid: z.number().int().nullable() }) satisfies z.ZodType<CallerSession>;
 /** What a caller says about itself with no store; orchd resolves it to an agent. */
-/** A host id off the wire: checked here, a `HostId` from here on. */
-const HOST_ID = z.custom<HostId>(isHostId, "must be a host id");
 
 /** A pid and its start token, meaningless without the host it runs on. */
 export const PROCESS_INSTANCE = z.object({ pid: z.number().int().positive(), startToken: z.string().nullable() });
@@ -57,8 +53,6 @@ const CALLER = z.object({
   process: HOSTED_PROCESS,
 }) satisfies z.ZodType<CallerCredential>;
 
-/** A host as the store records it: its id, the name people read, its OS. */
-export const HOST_IDENTITY = z.object({ id: HOST_ID, name: z.string(), os: z.enum(HOST_OS_VALUES) }) satisfies z.ZodType<HostIdentity>;
 
 export const HOST_GREETING = z.object({ host: HOST_IDENTITY, commit: z.string().nullable(), version: z.string() }).strict() satisfies z.ZodType<HostGreeting>;
 
@@ -199,11 +193,23 @@ const SPAWN_REGISTRATION = z.object({
   spawner: z.string().nullable(),
   owner: z.string().optional(),
   worktree: agentWorktreeSchema.optional(),
-  process: PROCESS_INSTANCE,
-  host: HOST_IDENTITY,
+  process: HOSTED_PROCESS,
 }) satisfies z.ZodType<SpawnRegistration>;
 
 const LEASE_RESULT = z.object({ id: z.string(), name: z.string() });
+
+/** What a rename did to the pane showing the agent, apart from the name orch records: the
+ *  border relabelled, no border to relabel, or a relabel that failed and why. */
+const CHROME_OUTCOME = z.object({ chrome: z.enum(["renamed", "none", "failed"]), chromeError: z.string().nullable() });
+export type ChromeOutcome = z.infer<typeof CHROME_OUTCOME>;
+
+/** Where a resolved agent runs. `here`: this machine, with the plexer and handle its pane is
+ *  addressed by. `host`: a linked host, named; only that host's orchd acts on it. */
+const LIFECYCLE_PLACE = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("here"), plexer: z.string().nullable(), handle: z.string() }),
+  z.object({ kind: z.literal("host"), host: z.string() }),
+]);
+export type LifecyclePlace = z.infer<typeof LIFECYCLE_PLACE>;
 
 /** A viewer's terminal, in character cells. */
 const SCREEN_SIZE = z.object({ cols: z.number().int().positive(), rows: z.number().int().positive() });
@@ -213,8 +219,8 @@ const CLOSE_TARGET = z.object({
   name: z.string(),
   backendId: z.string().nullable(),
   handle: z.string().nullable(),
-  recorded: HOSTED_PROCESS.nullable(),
-  hostName: z.string().nullable(),
+  host: HOST_IDENTITY,
+  recorded: PROCESS_INSTANCE.nullable(),
   placeKnown: z.boolean(),
 }) satisfies z.ZodType<CloseTargetWire>;
 
@@ -255,6 +261,46 @@ const ABORTED = z.discriminatedUnion("outcome", [
   z.object({ outcome: z.literal("answer"), reason: z.enum(["no-pane", "no-environment-role"]), text: z.string() }),
 ]);
 
+/** Why a pane verb does not apply to an agent. */
+const PANE_ANSWER = z.object({ kind: z.literal("answer"), reason: z.enum(["no-pane", "no-environment-role"]), text: z.string() });
+
+/** What a pane verb does to the pane an agent sits in, where the agent runs. `move` to a null
+ *  tab opens a new one; a null split lets the tiling planner pick. `group` only reads which
+ *  group the pane is in. */
+const PANE_ACTION = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("keys"), keys: z.array(nonBlank).min(1) }),
+  z.object({ kind: z.literal("focus") }),
+  z.object({ kind: z.literal("zoom"), mode: z.enum(["on", "off", "toggle"]) }),
+  z.object({ kind: z.literal("label"), label: nonBlank }),
+  z.object({ kind: z.literal("move"), tab: nonBlank.nullable(), split: z.enum(["down", "right"]).nullable(), label: z.string().nullable() }),
+  z.object({ kind: z.literal("group") }),
+]);
+export type PaneAction = z.infer<typeof PANE_ACTION>;
+
+/** A pane verb done: the pane's handle and the group it is in after it, or why it did not apply. */
+const PANE_OUTCOME = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("done"), handle: z.string(), group: z.string().nullable() }),
+  PANE_ANSWER,
+]);
+export type PaneOutcome = z.infer<typeof PANE_OUTCOME>;
+
+/** A harness relaunch in place: `reload` has the harness reload itself; `restart` quits it and
+ *  launches it again, on another harness, model or command when one is named. The orchd where the
+ *  agent runs plans the launch with its own settings. */
+const LIFECYCLE_REQUEST = z.discriminatedUnion("verb", [
+  z.object({ verb: z.literal("reload") }),
+  z.object({ verb: z.literal("restart"), harness: nonBlank.nullable(), model: nonBlank.nullable(), thinking: nonBlank.nullable(), cmd: nonBlank.nullable() }),
+]);
+export type LifecycleRequest = z.infer<typeof LIFECYCLE_REQUEST>;
+
+/** How a reload or restart went: back with a live bridge, or why not; and the command a
+ *  restart launched, once it got that far. */
+const LIFECYCLE_OUTCOME = z.object({ ok: z.boolean(), reason: z.string().nullable(), command: z.string().nullable() });
+export type LifecycleOutcome = z.infer<typeof LIFECYCLE_OUTCOME>;
+
+/** Whether an agent reached the state a wait asked for in time, and the state it was last in. */
+const WAITED = z.object({ reached: z.boolean(), state: z.enum(AGENT_STATES).nullable() });
+
 /** A drive or kill verb a linked host's orchd asks this one to do on an agent it asked this
  *  host to run. The asking orchd already ruled on it (lease gate, close authority); `actor` is
  *  the agent it resolved the caller to, or null for one with no row, kept for this host's records. */
@@ -263,10 +309,14 @@ const PEER_DRIVE = z.discriminatedUnion("action", [
   PEER_DRIVE_TARGET.extend({ action: z.literal("dispatch"), text: nonBlank }),
   PEER_DRIVE_TARGET.extend({ action: z.literal("steer"), text: nonBlank }),
   PEER_DRIVE_TARGET.extend({ action: z.literal("model"), model: nonBlank }),
-  PEER_DRIVE_TARGET.extend({ action: z.literal("lifecycle"), verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("lifecycle"), request: LIFECYCLE_REQUEST }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("clear") }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("rename"), name: nonBlank }),
   PEER_DRIVE_TARGET.extend({ action: z.literal("abort") }),
   PEER_DRIVE_TARGET.extend({ action: z.literal("close") }),
   PEER_DRIVE_TARGET.extend({ action: z.literal("reap") }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("pane"), pane: PANE_ACTION }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("wait"), status: z.enum(AGENT_STATES), timeoutMs: z.number().int().positive() }),
 ]);
 export type PeerDrive = z.infer<typeof PEER_DRIVE>;
 /** The far orchd's answer to a peer drive, in the shape the near verb answers its own caller. */
@@ -274,10 +324,14 @@ const PEER_DRIVE_RESULT = z.discriminatedUnion("action", [
   ACCEPTED.extend({ action: z.literal("dispatch") }),
   ACCEPTED.extend({ action: z.literal("steer") }),
   z.object({ action: z.literal("model"), ok: z.literal(true), applied: z.string() }),
-  z.object({ action: z.literal("lifecycle"), ok: z.literal(true), verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
+  LIFECYCLE_OUTCOME.extend({ action: z.literal("lifecycle") }),
+  z.object({ action: z.literal("clear"), ok: z.literal(true) }),
+  CHROME_OUTCOME.extend({ action: z.literal("rename") }),
   z.object({ action: z.literal("abort"), aborted: ABORTED }),
   z.object({ action: z.literal("close"), outcome: z.enum(SIGNAL_OUTCOMES) }),
   z.object({ action: z.literal("reap"), reaped: z.array(LEASE_RESULT) }),
+  z.object({ action: z.literal("pane"), outcome: PANE_OUTCOME }),
+  WAITED.extend({ action: z.literal("wait") }),
 ]);
 export type PeerDriveResult = z.infer<typeof PEER_DRIVE_RESULT>;
 
@@ -324,7 +378,16 @@ const READ_MISSING = z.object({ kind: z.literal("missing"), reason: z.string() }
 const AGENT_READ = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("result") }),
   z.object({ kind: z.literal("tail"), lines: z.number().int().positive() }),
+  z.object({ kind: z.literal("session") }),
+  z.object({ kind: z.literal("screen"), lines: z.number().int().positive() }),
+  z.object({
+    kind: z.literal("log"),
+    since: z.number().optional(),
+    level: z.custom<LogLevel>(isLogLevel).optional(),
+    dispatch: nonBlank.optional(),
+  }),
 ]) satisfies z.ZodType<AgentRead>;
+
 
 /** The answer to an agent read, from the orchd whose store holds the agent. */
 const AGENT_READING = z.discriminatedUnion("kind", [
@@ -342,6 +405,18 @@ const AGENT_READING = z.discriminatedUnion("kind", [
       READ_MISSING,
     ]),
   }),
+  z.object({
+    kind: z.literal("session"),
+    lookup: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("found"), sessionPath: z.string(), view: SESSION_VIEW.nullable() }),
+      READ_MISSING,
+    ]),
+  }),
+  z.object({
+    kind: z.literal("screen"),
+    lookup: z.discriminatedUnion("kind", [z.object({ kind: z.literal("found"), handle: z.string(), text: z.string() }), PANE_ANSWER]),
+  }),
+  z.object({ kind: z.literal("log"), records: z.array(z.custom<LogRecord>(isLogRecord)) }),
 ]) satisfies z.ZodType<AgentReading>;
 
 const statusRow = z.object({
@@ -377,7 +452,7 @@ const statusRow = z.object({
   tokens: tokenTotals.nullable(),
   spaceId: z.string().nullable().optional(),
   rootAgentId: z.string().nullable().optional(),
-  host: z.string().optional(),
+  host: HOST_IDENTITY,
   hostOffline: z.object({ lastSeen: z.number().nullable() }).optional(),
   warning: z.string().optional(),
   lease: z.object({ holderId: z.string(), holderAlive: z.boolean() }).nullable(),
@@ -418,7 +493,11 @@ export const RPC_PARAMS = {
   message: GOVERNANCE.extend({ from: nonBlank, target: nonBlank, text: nonBlank }),
   answer: GOVERNANCE.extend({ target: nonBlank, text: nonBlank, questionId: nonBlank.optional() }),
   "set-model": GOVERNANCE.extend({ target: nonBlank, model: nonBlank }),
-  lifecycle: GOVERNANCE.extend({ target: nonBlank, verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
+  /** Reload or restart an agent's harness where it runs, and answer once its bridge is back. */
+  lifecycle: GOVERNANCE.extend({ target: nonBlank, request: LIFECYCLE_REQUEST }),
+  /** Re-read settings.json now, as an edit would. */
+  "settings-reload": z.undefined(),
+  "clear-session": GOVERNANCE.extend({ target: nonBlank }),
   /** Cancel an agent's current turn, wherever it runs. A kill verb: never gated by a lease. */
   abort: GOVERNANCE.extend({ target: nonBlank }),
   "spawn-headless": GOVERNANCE.extend({
@@ -440,6 +519,9 @@ export const RPC_PARAMS = {
   }),
   "agent-closed": GOVERNANCE.extend({ key: nonBlank }),
   "register-agent": SPAWN_REGISTRATION.extend(GOVERNANCE.shape),
+  /** Record an agent orch did not spawn, found in a pane on this machine, as the caller's: orchd
+   *  reads the process that pane runs. Every other axis is the registration's. */
+  "adopt-agent": SPAWN_REGISTRATION.omit({ process: true, placed: true }).extend({ backendId: nonBlank, handle: nonBlank }).extend(GOVERNANCE.shape),
   detach: GOVERNANCE.extend({ target: nonBlank }),
   adopt: GOVERNANCE.extend({ targets: z.array(nonBlank).optional(), all: z.boolean().optional() }),
   rename: GOVERNANCE.extend({ target: nonBlank, name: nonBlank }),
@@ -467,6 +549,10 @@ export const RPC_PARAMS = {
   "peer-read": z.object({ key: nonBlank, read: AGENT_READ }),
   /** Read an agent's result or session tail wherever it runs: here, or over its host's link. */
   "agent-read": z.object({ caller: CALLER, key: nonBlank, read: AGENT_READ }),
+  /** Work the pane an agent sits in, wherever it runs: here, or through its host's orchd. */
+  "agent-pane": GOVERNANCE.extend({ target: nonBlank, action: PANE_ACTION }),
+  /** Answer once an agent reports a state, or once the timeout passes, wherever it runs. */
+  "agent-wait": z.object({ caller: CALLER, target: nonBlank, status: z.enum(AGENT_STATES), timeoutMs: z.number().int().positive() }),
   /** Stream an agent's screen on this connection, wherever it runs: from the holder here, or
    *  relayed from its host's orchd over the link. Screen lines follow until it ends or the
    *  connection closes, a snapshot first. The snapshot can arrive before the reply. */
@@ -498,7 +584,8 @@ export const RPC_PARAMS = {
   self: z.object({ caller: CALLER }),
   "resolve-lifecycle": z.object({ caller: CALLER, target: nonBlank }),
   "close-targets": z.object({ caller: CALLER, targets: z.array(nonBlank), all: z.boolean() }),
-  "owned-agents": z.object({ caller: CALLER }),
+  /** The agents the caller holds an open lease on; `live` keeps only those not known dead. */
+  "owned-agents": z.object({ caller: CALLER, live: z.boolean() }),
   orphans: z.object({}),
   question: z.custom<AgentNotice>(isAgentNotice),
   questions: z.object({ caller: CALLER, all: z.boolean().optional() }),
@@ -555,15 +642,18 @@ export const RPC_RESULTS = {
   answer: ACCEPTED,
   /** `backend` is the environment the agent runs in where it was spawned: a held PTY when a
    *  peer asked, a detached process otherwise. */
-  "spawn-headless": z.object({ key: z.string(), backend: z.enum(BACKEND_IDS), handle: z.string(), process: PROCESS_INSTANCE }),
+  "spawn-headless": z.object({ key: z.string(), backend: z.enum(BACKEND_IDS), handle: z.string(), process: HOSTED_PROCESS }),
   "set-model": z.object({ ok: z.literal(true), applied: z.string() }),
-  lifecycle: z.object({ ok: z.literal(true), verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
+  lifecycle: LIFECYCLE_OUTCOME,
+  "settings-reload": OK,
+  "clear-session": OK,
   abort: ABORTED,
-  "agent-closed": OK,
+  "agent-closed": z.object({ outcome: z.enum(SIGNAL_OUTCOMES) }),
   "register-agent": OK,
+  "adopt-agent": OK,
   detach: LEASE_RESULT.extend({ released: z.boolean() }),
   adopt: z.object({ results: z.array(LEASE_RESULT.extend({ adopted: z.boolean() })) }),
-  rename: LEASE_RESULT,
+  rename: LEASE_RESULT.extend(CHROME_OUTCOME.shape),
   reap: z.object({ reaped: z.array(LEASE_RESULT) }),
   "reap-candidates": z.object({ candidates: z.array(REAP_CANDIDATE) }),
   reclaim: OK,
@@ -585,6 +675,8 @@ export const RPC_RESULTS = {
   "peer-read": AGENT_READING,
   /** `host` names the linked host the agent runs on; null when it runs here. */
   "agent-read": z.object({ host: z.string().nullable(), reading: AGENT_READING }),
+  "agent-pane": PANE_OUTCOME,
+  "agent-wait": WAITED,
   /** `host` names the linked host the agent runs on; null when it runs here. */
   "attach-screen": z.object({ host: z.string().nullable() }),
   "peer-attach-screen": OK,
@@ -612,7 +704,7 @@ export const RPC_RESULTS = {
   "process-live": z.object({ live: z.boolean() }),
   "resolve-target": z.object({ entity: ENTITY, view: AGENT_VIEW.nullable(), holder: z.string().nullable(), callerOwns: z.boolean() }),
   self: z.object({ id: z.string().nullable(), kind: z.enum(CALLER_KINDS), space: z.string().nullable(), view: AGENT_VIEW.nullable(), depth: z.number().int().nonnegative(), stored: STORED_IDENTITY.nullable() }),
-  "resolve-lifecycle": z.object({ entity: ENTITY, key: z.string(), view: AGENT_VIEW.nullable(), backendId: z.string().nullable(), handle: z.string(), holder: z.string().nullable(), callerOwns: z.boolean() }),
+  "resolve-lifecycle": z.object({ entity: ENTITY, key: z.string(), view: AGENT_VIEW.nullable(), place: LIFECYCLE_PLACE, holder: z.string().nullable(), callerOwns: z.boolean() }),
   "close-targets": z.object({ targets: z.array(CLOSE_TARGET), refusal: z.string().nullable() }),
   "owned-agents": z.object({ keys: z.array(z.string()) }),
   orphans: z.object({ agents: z.array(ORPHAN) }),
@@ -641,8 +733,8 @@ export function isRpcMethod(value: unknown): value is RpcMethod {
 }
 
 export type GovernedMethod =
-  | "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "abort" | "spawn-headless"
-  | "agent-closed" | "register-agent" | "detach" | "adopt" | "rename" | "reap" | "reap-candidates" | "reclaim" | "set-handle"
+  | "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "clear-session" | "abort" | "spawn-headless"
+  | "agent-closed" | "agent-pane" | "register-agent" | "adopt-agent" | "detach" | "adopt" | "rename" | "reap" | "reap-candidates" | "reclaim" | "set-handle"
   | "space-create" | "space-rename" | "space-delete" | "record-home" | "clear-home" | "grant" | "admit-home"
   | "queue-cancel" | "queue-edit" | "queue-take-on" | "queue-reap" | "queue-intake" | "clean";
 /** Methods that say who is on the other end of a connection. The RPC server answers them
@@ -655,6 +747,7 @@ function isPendingQuestionView(value: unknown): value is PendingQuestionView {
     && typeof value.agentId === "string"
     && typeof value.key === "string"
     && (typeof value.name === "string" || value.name === null)
+    && HOST_IDENTITY.safeParse(value.host).success
     && typeof value.question === "string"
     && typeof value.askedAt === "number";
 }

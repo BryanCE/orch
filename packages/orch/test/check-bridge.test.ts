@@ -286,7 +286,7 @@ describe("10.5 identity construction is issuer-only (checkIdentityConstructionLi
     )).toBeUndefined();
     expect(checkIdentityConstructionLine(
       "  const key = serializeIdentity({ backend, workspace, id: \"operator\" });",
-      "src/backends/identity.ts",
+      "src/shared/agent-id.ts",
     )).toBeUndefined();
     expect(checkIdentityConstructionLine(
       "  const key = `${backend}~${workspace}~${id}`;",
@@ -303,7 +303,7 @@ describe("10.5 identity construction is issuer-only (checkIdentityConstructionLi
 
   test("passes the clean tree: every identity construction is allowed or registered", () => {
     const unregistered: string[] = [];
-    for (const file of ["src/entities/lookup.ts", "src/entities/space.ts", "src/entities/inventory.ts", "src/entities/resolve.ts", "src/commands/spawn/index.ts", "src/daemon/client/registration.ts", "src/backends/identity.ts"]) {
+    for (const file of ["src/shared/lookup.ts", "src/entities/space.ts", "src/entities/inventory.ts", "src/entities/resolve.ts", "src/commands/spawn/index.ts", "src/daemon/client/registration.ts", "src/shared/agent-id.ts"]) {
       const allowed = IDENTITY_CONSTRUCTION_ALLOWLIST.get(file) ?? new Set<string>();
       for (const line of readRepoLines(file)) {
         if (allowed.has(line.trim())) continue;
@@ -489,7 +489,7 @@ describe("the closed plexer-id set is spelled in exactly one line", () => {
 
   test("the definition line is allowed where it lives, and nowhere else", () => {
     expect(checkPlexerLiteralLine(DEFINITION, "src/types/backend.ts", "outside backends")).toBeUndefined();
-    expect(checkPlexerLiteralLine(DEFINITION, "src/commands/status/rows.ts", "outside backends"))
+    expect(checkPlexerLiteralLine(DEFINITION, "src/daemon/server/fleet-rows.ts", "outside backends"))
       .toBe("quoted plexer id literals are forbidden outside backends");
   });
 

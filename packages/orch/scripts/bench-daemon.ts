@@ -19,14 +19,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { rpcCall } from "../src/daemon/client/rpc.ts";
 import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files.ts";
 import { terminateDaemon } from "../src/daemon/client/process.ts";
 import { encodeRequest } from "../src/daemon/client/wire.ts";
 import { openJsonLineLink, readPortFile, type JsonLineLink } from "../src/presence/socket-client.ts";
 import { ORCH_ENV_VARS } from "../src/policy/spawner.ts";
-import { HARNESS_SESSION_ENV } from "../src/adapters/session-env.ts";
+import { HARNESS_SESSION_ENV } from "../src/shared/session-env.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
@@ -132,8 +132,7 @@ function seedFleet(agents: number, trace: boolean): Fleet {
     // The bench's own pid is the agent's process, so orchd reads every agent as alive.
     registerSpawnedAgent(orchDir, {
       key: id, harnessId: "pi", placed: false, cwd: orchDir, name: `bench-${index}`, model: "", spawner: null,
-      process: { pid: process.pid, startToken: null },
-      host: hostIdentity(),
+      process: { host: hostIdentity().id, pid: process.pid, startToken: null },
     });
     agentIds.push(id);
   }

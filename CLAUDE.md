@@ -113,3 +113,13 @@ An agent's output stays on the host its process runs on. orch never copies it an
 - Every read names its host: output from an agent on another host says which host it came from.
 - A linked host that is offline is reported as offline, with when it was last seen. Never an empty log, never a missing-file error.
 - A human and an agent read logs the same way: through `orch`, by agent name, from the machine that spawned it.
+
+# RULE 21. THE CLI IS A CLIENT. ORCHD DOES THE WORK.
+The CLI talks to this machine's orchd and nothing else. Everything that touches an agent, a plexer, a process, the store or an agent's files is server code, and it runs in orchd. An agent can run on any host, so the CLI never knows where an agent is and never acts on one itself: every agent verb and read is CLI → this orchd → the orchd where the agent runs.
+- Client: `src/commands/`, `src/cli/`, `bin/orch.ts`. It parses arguments, calls orchd over RPC, and prints the answer.
+- Server: `src/daemon/server/`, `src/store/`, `src/presence/`, `src/backends/`, `src/adapters/` runtime, `src/control/`, `src/agent/`, `src/pty/`, `src/hosts/`, `src/worktrees/`, process identity and placement. Only orchd imports it.
+- Shared: types, the wire protocol (`src/daemon/client/`), settings, and pure helpers with no I/O. Shared never imports server code.
+- Inside orchd, an agent's machine-specific state (process, PTY, pane, session file, log, worktree, delivery) is reached only through its placement. Code that has not proved the agent runs here cannot touch it.
+- Location is never implied. Every agent's host is stored, this machine included. No null, no missing row and no default means "here".
+- `scripts/check-layers.ts` enforces the import boundary in `bun check`, transitively, for value imports. A failure there is the design telling you the code belongs in orchd. Move it behind an RPC. Never add an exception to get past it.
+- `packages/orch/layers-baseline.json` lists the loads that existed when this rule landed. It only shrinks. Never add a line to it. When you remove a load, delete its line. When it is empty, the three layers become three workspace packages and a client import of server code stops resolving.

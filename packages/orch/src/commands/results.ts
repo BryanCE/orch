@@ -2,18 +2,16 @@ import { spaceOf } from "../policy/space.ts";
 import { ARROW, collapse, isRecord, truncate } from "../util.ts";
 import { die, resultText } from "./target.ts";
 import { readRpc } from "./daemon.ts";
+import { hostLine, readAgentThroughOrchd } from "./agent-read.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { resolveEntity, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
 import { refuseNonOperatorOverride, type CallerSelf, whoAmI } from "./self.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { Invocation } from "../cli/spec.ts";
-import { getAdapter } from "../adapters/registry.ts";
-import { agentLogger, sessionViewValue } from "../agent/read.ts";
-import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
-import type { Entity } from "../types/core.ts";
-import type { AgentRead, ResultLookup } from "../types/agent-read.ts";
-import type { ResultOf } from "../daemon/client/protocol.ts";
+import { sessionViewValue } from "../session-view.ts";
+import type { SessionView, SessionViewEntry } from "../types/adapter.ts";
+import type { ResultLookup } from "../types/agent-read.ts";
 import type { Services } from "../types/services.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
 import { CommandRefusal } from "../refusal.ts";
@@ -27,16 +25,10 @@ interface HostedResult {
   readonly lookup: ResultLookup;
 }
 
-/** Ask this host's orchd to read an agent, wherever it runs. */
-function readThroughOrchd(services: Services, key: string, read: AgentRead): Promise<ResultOf<"agent-read">> {
-  return readRpc(services, "agent-read", { caller: callerCredential(), key, read });
-}
-
 /** The agent's result, read by the orchd whose store holds it. */
 async function readResult(services: Services, key: string): Promise<HostedResult> {
-  const answer = await readThroughOrchd(services, key, { kind: "result" });
-  if (answer.reading.kind !== "result") throw new Error(`orchd answered a result read of ${key} with a ${answer.reading.kind}`);
-  return { host: answer.host, lookup: answer.reading.lookup };
+  const { host, reading } = await readAgentThroughOrchd(services, key, { kind: "result" });
+  return { host, lookup: reading.lookup };
 }
 
 async function resolveResultTarget(services: Services, target: string): Promise<ResolvedTarget | HostedResult> {
@@ -47,7 +39,7 @@ async function resolveResultTarget(services: Services, target: string): Promise<
     const { runs } = await readRpc(services, "runs", { caller: callerCredential(), target, limit: 1 }).catch(() => ({ runs: [] }));
     const historical = runs[0];
     if (historical?.result !== undefined) {
-      agentLogger(services.logger, target).info("result.history-fallback");
+      services.logger.info("result.history-fallback", { target });
       return { host: null, lookup: { kind: "found", source: "history", payload: historical.result } };
     }
     return { host: null, lookup: { kind: "missing", reason: error.message } };
@@ -71,12 +63,7 @@ async function lookupResult(services: Services, self: CallerSelf, target: string
   }
 }
 
-/** The line that opens output read from an agent on another host. */
-function hostLine(host: string | null): string {
-  return host === null ? "" : `from ${host}:\n`;
-}
-
-function humanResult(payload: unknown): string {
+export function humanResult(payload: unknown): string {
   return typeof payload === "string" ? payload : resultText(payload) ?? JSON.stringify(payload);
 }
 
@@ -171,15 +158,6 @@ async function writeQuestions(services: Services, { all, json }: QuestionOptions
   );
 }
 
-/** Resolve the target's adapter and require a declared session-tail capability, or die. */
-function resolveSessionTailAdapter(resolved: ResolvedTarget, target: string): AgentAdapter {
-  const adapter = getAdapter(resolved.view?.harnessId ?? resolved.entity.agent ?? "");
-  if (!adapter?.sessionView) {
-    die(`Target "${target}" (${adapter?.id ?? "unknown adapter"}) exposes no session tail; a session is read only through an adapter that declares one.`);
-  }
-  return adapter;
-}
-
 /** The model line for a session view: `provider/model:thinking`, or `fallback` when unknown. */
 function formatViewModel(view: SessionView, fallback: string): string {
   if (!view.model) return fallback;
@@ -235,11 +213,10 @@ function tailEntries(entries: readonly SessionViewEntry[], count: number): strin
 
 /** The agent's session tail, read by the orchd whose store holds it. Refuses when there is none. */
 async function readTail(services: Services, key: string, lines: number): Promise<{ readonly host: string | null; readonly sessionPath: string | null; readonly view: SessionView }> {
-  const answer = await readThroughOrchd(services, key, { kind: "tail", lines });
-  if (answer.reading.kind !== "tail") throw new Error(`orchd answered a tail read of ${key} with a ${answer.reading.kind}`);
-  const lookup = answer.reading.lookup;
+  const { host, reading } = await readAgentThroughOrchd(services, key, { kind: "tail", lines });
+  const lookup = reading.lookup;
   if (lookup.kind === "missing") die(lookup.reason);
-  return { host: answer.host, sessionPath: lookup.sessionPath, view: lookup.view };
+  return { host, sessionPath: lookup.sessionPath, view: lookup.view };
 }
 
 function writeTailJson(target: string, host: string | null, sessionPath: string | null, view: SessionView): void {
@@ -274,26 +251,26 @@ function requireSessionTarget(invocation: Invocation): string {
   return target;
 }
 
-function writeSessionJson(ent: Entity, view: SessionView | undefined): void {
+function writeSessionJson(host: string | null, sessionPath: string, view: SessionView | null): void {
   const entries = view?.entries?.length ?? 0;
   process.stdout.write(JSON.stringify({
-    path: ent.sessionPath, exists: view !== undefined, entries,
+    host, path: sessionPath, exists: view !== null, entries,
     turns: view?.turns ?? 0, cost: view?.cost ?? 0,
     tokens: sessionViewValue(view, "tokens"), model: sessionViewValue(view, "model"),
     provider: sessionViewValue(view, "provider"), thinking: sessionViewValue(view, "thinking"),
   }, null, 2) + "\n");
 }
 
-function writeSessionText(ent: Entity, view: SessionView | undefined): void {
+function writeSessionText(host: string | null, sessionPath: string, view: SessionView | null): void {
   const entries = view?.entries?.length ?? 0;
   const lines = [
-    `path:    ${ent.sessionPath}`, `exists:  ${view !== undefined}`, `entries: ${entries}`,
+    `path:    ${sessionPath}`, `exists:  ${view !== null}`, `entries: ${entries}`,
     `turns:   ${view?.turns ?? 0}`,
     `cost:    $${(view?.cost ?? 0).toFixed(4)}`,
     `tokens:  ${formatViewTokens(view?.tokens)}`,
     `model:   ${view ? formatViewModel(view, "(none)") : "(none)"}`,
   ];
-  process.stdout.write(lines.join("\n") + "\n");
+  process.stdout.write(hostLine(host) + lines.join("\n") + "\n");
 }
 
 export async function cmdSession(services: Services, args: string[]): Promise<void> {
@@ -301,11 +278,9 @@ export async function cmdSession(services: Services, args: string[]): Promise<vo
   const { flags } = invocation;
   const target = requireSessionTarget(invocation);
   const resolved = await resolveEntity(services, target);
-  const ent = resolved.entity;
-  if (!ent.sessionPath) die(`No session path known for "${target}".`);
-  const adapter = resolveSessionTailAdapter(resolved, target);
-  const view = adapter.sessionView?.readSessionView({ sessionPath: ent.sessionPath });
-  if (flags.has("--json")) writeSessionJson(ent, view);
-  else writeSessionText(ent, view);
+  const { host, reading } = await readAgentThroughOrchd(services, resolved.entity.key, { kind: "session" });
+  const lookup = reading.lookup;
+  if (lookup.kind === "missing") die(lookup.reason);
+  if (flags.has("--json")) writeSessionJson(host, lookup.sessionPath, lookup.view);
+  else writeSessionText(host, lookup.sessionPath, lookup.view);
 }
-

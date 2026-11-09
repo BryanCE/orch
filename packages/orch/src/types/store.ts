@@ -1,8 +1,8 @@
 // Type-only: `typeof` over a runtime binding, erased at compile time, so this
 // creates no runtime edge out of the types layer.
 import type { ENVIRONMENT_AXES } from "../store/agent-view.ts";
-import type { ProcessInstance } from "./process.ts";
-import type { OutboxPayload } from "../control/bridge-message.ts";
+import type { HostedProcess } from "./process.ts";
+import type { OutboxPayload } from "../shared/bridge-message.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { AgentOrigin, HostId, HostIdentity } from "./host.ts";
 
@@ -10,6 +10,9 @@ export interface AgentInput {
   id: string;
   spawnedBy?: string | null;
   harnessId: string;
+  /** The host the agent runs on, this machine included, and the directory it runs in there:
+   *  its first `agent_hosts` row, written with the agent row. */
+  host: HostIdentity;
   cwd: string;
   name: string;
   label?: string | null;
@@ -55,7 +58,6 @@ export interface AgentRow {
   spawnedBy: string | null;
   rootAgentId: string;
   harnessId: string;
-  cwd: string;
   name: string;
   label: string | null;
   kind: CallerKind;
@@ -88,7 +90,14 @@ export interface HostPlexerRow {
  *  it can never name a different set (A15). */
 export type EnvironmentAxisKey = (typeof ENVIRONMENT_AXES)[number]["key"];
 
-export type AgentEnvironment = Readonly<Record<EnvironmentAxisKey, string | null>>;
+/** The axes every agent has: the host it runs on and the directory it runs in there, from its
+ *  open `agent_hosts` row. Never null: no absence stands for a place. */
+export interface AgentLocationAxes {
+  readonly host: HostIdentity;
+  readonly cwd: string;
+}
+
+export type AgentEnvironment = Readonly<Record<EnvironmentAxisKey, string | null>> & AgentLocationAxes;
 
 /** How an agent is configured. Not environment: it survives a move. */
 export interface AgentTuning {
@@ -110,7 +119,6 @@ export interface AgentView {
   readonly name: string;
   readonly label: string | null;
   readonly harnessId: string;
-  readonly cwd: string;
   readonly createdAt: number;
   /** Provenance — how the row came to be, and who spawned it. Both immutable. */
   readonly kind: CallerKind;
@@ -256,16 +264,15 @@ export interface SpawnRegistration {
   owner?: string;
   worktree?: AgentWorktree;
   /**
-   * Environment: the OS process this agent runs in, on this host.
+   * Environment: the OS process this agent runs in, on the host it runs on. That host is
+   * the agent's host: orchd registers only an agent that runs on its own host.
    *
    * Rule 11 — the ONE liveness source. The daemon and every presence reader ask
    * this row whether the agent is alive; a pid an agent writes about itself is
    * never consulted. The environment's own process statement is recorded; it
    * must die with the agent.
    */
-  process: ProcessInstance;
-  /** The host the process runs on, as that host names itself. */
-  host: HostIdentity;
+  process: HostedProcess;
   now?: number;
 }
 
@@ -276,7 +283,10 @@ export interface SpawnRegistration {
  * store. Here it is the agent row, its spawner's lease, the tuning it was launched
  * with, and the host it runs on: no process, no handle, no plexer.
  */
-export type HostedSpawnRegistration = Pick<SpawnRegistration, "key" | "harnessId" | "cwd" | "name" | "model" | "thinking" | "spawner" | "host" | "now">;
+export type HostedSpawnRegistration = Pick<SpawnRegistration, "key" | "harnessId" | "cwd" | "name" | "model" | "thinking" | "spawner" | "now"> & {
+  /** The linked host that runs it, as that host names itself. */
+  readonly host: HostIdentity;
+};
 
 export type LeaseReleaseReason = "released" | "handoff" | "adopted" | "expired";
 

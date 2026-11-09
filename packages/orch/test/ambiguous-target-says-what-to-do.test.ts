@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { describe, expect, test } from "bun:test";
 import { ambiguousTargetRefusal, CommandRefusal } from "../src/refusal.ts";
 import { resolveAgentView } from "../src/entities/lifecycle.ts";
@@ -26,9 +27,9 @@ const presence = (key: string, alive: boolean): PresenceEntry => ({ key, status:
 
 function view(id: string, name: string): AgentView {
   return {
-    id, name, label: null, harnessId: "pi", cwd: "/repo", createdAt: 1, kind: "agent",
+    id, name, label: null, harnessId: "pi", createdAt: 1, kind: "agent",
     spawnedBy: null, spawnedByName: null, rootAgentId: id, heldBy: null,
-    environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null },
+    environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null, host: hostIdentity(), cwd: "/repo" },
     tuning: { model: null, thinking: null },
     endedAt: null,
   };

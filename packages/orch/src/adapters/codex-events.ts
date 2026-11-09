@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { isRecord, textValue } from "../util.ts";
 import { contentText, visitJsonlValues } from "./transcript.ts";
-import type { AgentState } from "./adapter.ts";
+import type { AgentState } from "../shared/harness.ts";
 import type { CodexResultExtractionInput, SessionView, StateDetectionInput } from "../types/adapter.ts";
 import type { JsonRecord } from "../types/core.ts";
 

@@ -8,7 +8,7 @@ import { outbox } from "../src/db/schema.ts";
 import { insertOutboxMessage, markOutboxDelivered, markOutboxUndeliverable, bumpOutboxAttempt, outboxMessageState, selectOpenOutboxForTarget, selectOutboxMessage } from "../src/store/outbox-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import type { BridgeMessage } from "../src/control/bridge-message.ts";
+import type { BridgeMessage } from "../src/shared/bridge-message.ts";
 import { isLogRecord } from "../src/log.ts";
 import type { OutboxDelivery, OutboxDeps } from "../src/types/daemon.ts";
 import type { LogRecord, OrchDir } from "../src/types/core.ts";

@@ -1,6 +1,6 @@
 import type { OrchDir } from "../../types/core.ts";
 import { readFileSync } from "node:fs";
-import { callerSession } from "../../adapters/session-env.ts";
+import { callerSession } from "../../shared/session-env.ts";
 import type { CallerSession } from "../../types/core.ts";
 import { OPERATOR_HARNESS_ID } from "../../identity/operator.ts";
 import { sessionProcessPid } from "../../identity/credential.ts";

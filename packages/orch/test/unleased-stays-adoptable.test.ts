@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { insertAgent } from "../src/store/agent-rows.ts";
@@ -31,8 +32,8 @@ function fixture(): OrchDir {
   dirs.push(d);
   const db = orm(d);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
-  insertAgent(d, { id: "loose", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "loose", createdAt: 1 });
-  insertAgent(d, { id: "adopter", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "adopter", createdAt: 2 });
+  insertAgent(d, { host: hostIdentity(), id: "loose", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "loose", createdAt: 1 });
+  insertAgent(d, { host: hostIdentity(), id: "adopter", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "adopter", createdAt: 2 });
   // Both run: the loose agent rests, the adopter is an orch waiting to take it.
   seedLiveProcess(d, "loose");
   seedLiveProcess(d, "adopter");
@@ -82,7 +83,7 @@ describe("unleased and idle stays alive and adoptable (D3)", () => {
 
   test("the reap takes only agents whose process is GONE, never merely unleased ones", () => {
     const d = fixture();
-    insertAgent(d, { id: "ended", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "ended", createdAt: 3 });
+    insertAgent(d, { host: hostIdentity(), id: "ended", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "ended", createdAt: 3 });
     orm(d).run(sql`INSERT INTO agent_endings (agent_id, ended_at, closed_by) VALUES (${"ended"},${10},${null})`);
 
     // A gone process is the ONE thing that makes a record reapable. The ended

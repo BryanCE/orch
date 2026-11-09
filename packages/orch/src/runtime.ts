@@ -2,10 +2,10 @@
 // order. The vocabulary itself lives in the leaf `runtimes.ts` (imported here and
 // re-exported, so there is exactly ONE definition); this module owns the
 // invocation form for each runtime. The env grant it hands deno comes from the
-// leaf `adapters/session-env.ts`, never from the adapter registry: importing the
+// leaf `shared/session-env.ts`, never from the adapter registry: importing the
 // registry here put every harness shim on a module cycle back into runtime.ts.
 
-import { SHIM_ENV_VARS } from "./adapters/session-env.ts";
+import { SHIM_ENV_VARS } from "./shared/session-env.ts";
 import type { OrchRuntime } from "./runtimes.ts";
 import { binaryPath } from "./util.ts";
 

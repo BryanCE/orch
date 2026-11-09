@@ -1,5 +1,5 @@
 import { launchCredential } from "./launch.ts";
-import { callerSession } from "../adapters/session-env.ts";
+import { callerSession } from "../shared/session-env.ts";
 import { processStartToken } from "../process-identity.ts";
 import type { CallerCredential, CallerSession } from "../types/core.ts";
 import { hostedHere } from "../local-process.ts";

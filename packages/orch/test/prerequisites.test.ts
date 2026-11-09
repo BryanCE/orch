@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PREREQUISITES } from "../src/adapters/prerequisites.ts";
+import { PREREQUISITES } from "../src/shared/prerequisites.ts";
 import { HOST_OS_VALUES } from "../src/types/host.ts";
 
 /** Setup preselects a recommended tool, so it must install it on every OS, and NixOS

@@ -1,15 +1,18 @@
 import { getBackend } from "../backends/registry.ts";
 import { lifecycleResolutionFor } from "./lifecycle.ts";
-import { addressOf, indexPresenceById } from "./lookup.ts";
+import { addressOf, indexPresenceById } from "../shared/lookup.ts";
 import { callerAuthority, refuseClose, sweeps } from "../policy/close-authority.ts";
 import { callerKindOf } from "../policy/caller.ts";
 import { selfIdentityOf } from "../identity/self.ts";
 import { agentView, liveAgentViews } from "../store/agent-view.ts";
 import { currentProcess } from "../store/interval-rows.ts";
-import { hostById, hostOfAgent } from "../store/agent-rows.ts";
+import { hostById } from "../store/agent-rows.ts";
+import { hostIdentity } from "../host.ts";
+import { hostOfPlace, placeAgentIfAny } from "../process-place.ts";
 import { loadPresence } from "../presence/store.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
-import type { HostedProcess } from "../types/process.ts";
+import type { ProcessInstance } from "../types/process.ts";
+import type { HostIdentity } from "../types/host.ts";
 import type { CallerCredential, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { AgentView } from "../types/store.ts";
@@ -20,30 +23,29 @@ export interface CloseTargetWire {
   readonly name: string;
   readonly backendId: string | null;
   readonly handle: string | null;
-  /** The recorded process, on the host it runs on. The closer signals it itself only when
-   *  that host is its own box; any other host's process goes to orchd, over that host's link.
-   *  Null for an agent another host runs for this orchd: its process is that host's. */
-  readonly recorded: HostedProcess | null;
-  /** The name of the host the agent runs on when that is not here, for what a close reports.
-   *  Set with a null `recorded`, the agent is one another host runs for this orchd. */
-  readonly hostName: string | null;
+  /** The host the agent runs on, this machine included. */
+  readonly host: HostIdentity;
+  /** The recorded process, on `host`. Only an agent this orchd runs has one here; an agent
+   *  on another host is that host's orchd's to end, over its link. */
+  readonly recorded: ProcessInstance | null;
   readonly placeKnown: boolean;
 }
 
-/** Read the launch identity from the normalized agent process interval. Presence
- * status carries liveness only and can never authorize a signal. An agent another host
- * runs for this orchd is placed by that host alone. */
-function recordedProcess(orchDir: OrchDir, key: string): Pick<CloseTargetWire, "recorded" | "hostName"> {
-  try {
-    const runsOn = hostOfAgent(orchDir, key);
-    if (runsOn !== null) return { recorded: null, hostName: hostById(orchDir, runsOn)?.name ?? runsOn };
-    const row = currentProcess(orchDir, key);
-    if (row === undefined) return { recorded: null, hostName: null };
-    const recorded: HostedProcess = { host: row.host, pid: row.pid, startToken: row.startToken };
-    return { recorded, hostName: hostById(orchDir, row.host)?.name ?? null };
-  } catch {
-    return { recorded: null, hostName: null };
+/** Where a close target runs, and the launch identity from its process interval when it runs
+ * here. Presence status carries liveness only and can never authorize a signal. An agent on
+ * another host is placed by that host alone. A target with no agent row is a pane this
+ * machine's plexer listed, so it is on this host. */
+function recordedProcess(orchDir: OrchDir, key: string): Pick<CloseTargetWire, "recorded" | "host"> {
+  const place = placeAgentIfAny(orchDir, key);
+  if (place === null) return { host: hostIdentity(), recorded: null };
+  if (place.kind !== "here") {
+    // `agent_hosts.host_id` references `hosts`, so the row is there.
+    const host = hostById(orchDir, hostOfPlace(place));
+    if (host === null) throw new Error(`${key} runs on host ${hostOfPlace(place)}, which the store does not hold`);
+    return { host, recorded: null };
   }
+  const row = currentProcess(orchDir, place.agent);
+  return { host: hostIdentity(), recorded: row === undefined ? null : { pid: row.pid, startToken: row.startToken } };
 }
 
 /** Render a native handle without falling back to Object.prototype.toString. */

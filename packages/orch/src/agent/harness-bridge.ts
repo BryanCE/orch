@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import { createHash } from "node:crypto";
 import { createDaemonLink } from "./daemon-client.ts";
 import { createAgentPresence } from "./presence.ts";
-import { agentEnvironment, isBlockedSignal } from "./environment.ts";
+import { agentEnvironment, isBlockedSignal } from "../shared/environment.ts";
 import { registerAgentTools } from "./tools.ts";
 import { registerCompaction } from "./compaction.ts";
 import { launchCredential } from "../identity/launch.ts";

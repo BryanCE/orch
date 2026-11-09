@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { sourceFiles } from "./helpers/sources.ts";
 import { join } from "node:path";
-import { callerSession } from "../src/adapters/session-env.ts";
+import { callerSession } from "../src/shared/session-env.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 
 const envNames = ["PI_CODING_AGENT", "CLAUDECODE", "CLAUDE_PID", "CODEX_PID", "NOVEL_HARNESS_MARKER"];

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { checkWall, spaceOf } from "../src/policy/space.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { placeAgent, seedAgent } from "./helpers/agent.ts";

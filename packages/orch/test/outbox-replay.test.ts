@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { drainOutbox } from "../src/daemon/server/outbox.ts";
 import { insertOutboxMessage, selectPendingOutbox } from "../src/store/outbox-rows.ts";
-import type { BridgeMessage } from "../src/control/bridge-message.ts";
+import type { BridgeMessage } from "../src/shared/bridge-message.ts";
 import type { OutboxDelivery } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 

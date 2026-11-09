@@ -72,7 +72,7 @@ function repoRootOf(cwd: string | null | undefined): string | null {
 
 function repoRootFor(orchDir: OrchDir, key: string | null | undefined): string | null {
   if (key === null || key === undefined) return null;
-  return repoRootOf(agentView(orchDir, key)?.cwd);
+  return repoRootOf(agentView(orchDir, key)?.environment.cwd);
 }
 
 /** Decide whether a caller may cross the space wall. */

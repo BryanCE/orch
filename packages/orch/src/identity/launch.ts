@@ -1,4 +1,5 @@
-import { isAgentId, type AgentId } from "../backends/identity.ts";
+import { isAgentId } from "../shared/agent-id.ts";
+import type { AgentId } from "../types/agent-place.ts";
 import { CommandRefusal } from "../refusal.ts";
 
 export const LAUNCH_ENV = "ORCH_AGENT_ID";

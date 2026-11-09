@@ -26,7 +26,9 @@ export interface HostIdentity { readonly id: HostId; readonly name: string; read
  *  and the agent there whose spawn started it. Immutable provenance. Everything the agent
  *  spawns here carries the same origin, so that host can follow the whole tree. */
 export interface AgentOrigin {
-  readonly host: HostId;
+  /** The host whose orchd asked this one to run the agent. Never where it runs: an agent
+   *  with an origin runs here. */
+  readonly askedBy: HostId;
   /** The spawning agent on that host; it lives in that host's store, never this one. */
   readonly spawner: string | null;
 }

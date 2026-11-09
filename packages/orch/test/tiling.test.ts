@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { openingPlacement, planTilePlacement } from "../src/backends/tiling.ts";
+import { openingPlacement, planTilePlacement } from "../src/shared/tiling.ts";
 import type { BackendGroupLayout, BackendRect, TileFirstSplit } from "../src/types/backend.ts";
 
 interface LayoutPane { handle: string; rect: BackendRect }

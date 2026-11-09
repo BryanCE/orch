@@ -8,8 +8,8 @@ import {
   detachBridge,
   type BridgeLink,
 } from "../src/control/bridge-links.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { recordQuestion } from "../src/store/question-rows.ts";

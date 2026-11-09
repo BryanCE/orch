@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -54,7 +55,7 @@ async function closeInProcess(dir: OrchDir, args: string[], backend?: FakePanedB
 /** A working agent as orchd records one: the status row, plus the history
  *  directory orchd opens on the first report. Close ends the row and leaves the history. */
 function writeStatus(dir: OrchDir, key: string): void {
-  recordAgentStatus(dir, key, { state: "working" }, Date.now());
+  recordAgentStatus(dir, placeHere(dir, key), { state: "working" }, Date.now());
   mkdirSync(join(dir, "agents", key), { recursive: true });
 }
 
@@ -270,7 +271,7 @@ describe("close always works", () => {
     seedAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "caller" }, dir);
     const agentDir = join(dir, "agents", key);
     mkdirSync(agentDir, { recursive: true });
-    recordAgentStatus(dir, key, { state: "done" }, Date.now());
+    recordAgentStatus(dir, placeHere(dir, key), { state: "done" }, Date.now());
 
     const oldExitCode = process.exitCode;
     await withExitCodeAsync(async () => {

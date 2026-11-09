@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { transitionEventFromRow } from "../src/daemon/server/status-events.ts";
@@ -11,7 +12,7 @@ import { prepareWorkerTask, TASK_MAX, workerHeaderFor } from "../src/worker-prom
 import { removeTempDir, tempOrchDir as freshOrchDir } from "./helpers/tempdir.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { statusRow } from "./helpers/presence.ts";
-import type { AgentState } from "../src/adapters/adapter.ts";
+import type { AgentState } from "../src/shared/harness.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
@@ -60,7 +61,7 @@ function fakeFetch(captureBody: (body: string) => void): FetchFunction {
 type TransitionEvent = Extract<NotifyEvent, { type: "transition" }>;
 
 function event(overrides: Partial<TransitionEvent> = {}): NotifyEvent {
-  const base: TransitionEvent = {
+  const base: TransitionEvent = { host: hostIdentity(),
     key: EVENT_KEY,
     space: "w6",
     agent: "w-2",
@@ -129,7 +130,7 @@ describe("notification and presence event formatting", () => {
   });
 
   test("message notification titles contain delivered mail text", () => {
-    const title = notificationText({
+    const title = notificationText({ host: hostIdentity(),
       key: EVENT_KEY,
       space: "w6",
       agent: "w-2",
@@ -197,7 +198,7 @@ describe("notification and presence event formatting", () => {
     const orchDir = tempOrchDir();
     const registeredKey = "spacedagn1";
     ensureHarness(orchDir, "pi", "pi");
-    insertAgent(orchDir, { id: registeredKey, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "spaced", createdAt: 1 });
+    insertAgent(orchDir, { host: hostIdentity(), id: registeredKey, spawnedBy: null, harnessId: "pi", cwd: orchDir, name: "spaced", createdAt: 1 });
     orm(orchDir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${"registry-space"}, ${"registry-space"}, ${1})`);
     setSpace(orchDir, registeredKey, 1, "registry-space");
     const withSpace = transition(orchDir, registeredKey, { state: "done" });

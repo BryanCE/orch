@@ -2,7 +2,7 @@ import type { Logger, OrchDir } from "../types/core.ts";
 import { NOTIFY_DEFAULT_ON, NOTIFY_IDS } from "../settings/schema.ts";
 import { commandArgv, commandAvailable, createBuiltinNotifiers, stringArray } from "./sinks.ts";
 import { oneLine } from "./format.ts";
-import type { AgentState } from "../adapters/adapter.ts";
+import type { AgentState } from "../shared/harness.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
 import type { OrchSettings } from "../types/settings.ts";

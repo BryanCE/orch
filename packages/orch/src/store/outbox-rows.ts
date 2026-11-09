@@ -2,7 +2,7 @@ import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, inArray, lte, lt } from "drizzle-orm";
 import { orm, queueWrite } from "./connection.ts";
 import { outbox } from "../db/schema.ts";
-import { isOutboxPayload } from "../control/bridge-message.ts";
+import { isOutboxPayload } from "../shared/bridge-message.ts";
 import type { OutboxMessage, OutboxMessageInput, OutboxState } from "../types/store.ts";
 
 /** States a retry loop still owes work for. */

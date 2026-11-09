@@ -14,7 +14,7 @@ import {
   type TaskRec,
 } from "../../queue.ts";
 import { emitAndNotify } from "./events.ts";
-import { askingEventFromRow } from "./status-events.ts";
+import { askingEventFromRow, eventHost } from "./status-events.ts";
 import { deliverTaskResult } from "./result-delivery.ts";
 import { loadPresence, presenceEntry } from "../../presence/store.ts";
 import { pendingQuestions, type QuestionRow } from "../../store/question-rows.ts";
@@ -22,7 +22,7 @@ import { selectAgentStatus } from "../../store/status-rows.ts";
 import { workerHeaderFor, workerPlaceContext, workerRules } from "../../worker-prompt.ts";
 import { abstractAgentLabel } from "../../notify/format.ts";
 import { getAdapter } from "../../adapters/registry.ts";
-import { isAgentId } from "../../backends/identity.ts";
+import { isAgentId } from "../../shared/agent-id.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { sweepExpiredRows } from "./retention.ts";
 import type { PresenceEntry } from "../../types/presence.ts";
@@ -182,6 +182,7 @@ function taskEvent(orchDir: OrchDir, entry: PresenceEntry, task: TaskRec, oldSta
     type: "task",
     // Cq4: the lifecycle/result event belongs to the enqueuer, not the runner.
     key: task.enqueuedBy,
+    host: eventHost(orchDir, task.enqueuedBy),
     space,
     agent: name ?? abstractAgentLabel(space ?? "space", entry.key),
     name,

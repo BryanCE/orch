@@ -5,12 +5,6 @@ import { namesSettingsFile } from "./schema.ts";
 import type { SettingsWatch, SettingsWatchOptions } from "../types/settings.ts";
 import type { SettingsManager } from "../types/services.ts";
 
-/** Manual reload trigger: touching this file reloads settings without editing it. */
-export const RELOAD_SIGNAL_FILE = "reload.signal";
-
-function triggersReload(filename: string | Buffer | null | undefined): boolean {
-  return namesSettingsFile(filename) || filename?.toString() === RELOAD_SIGNAL_FILE;
-}
 
 /**
  * The ONE settings watcher: watch settings.json and publish only settings
@@ -88,7 +82,7 @@ export function watchSettings(settings: Pick<SettingsManager, "file">, opts: Set
     // startup is fatal to the caller, not something to warn about and continue on.
     const initial = opts.load();
     watcher = filesystem.watch(directory, { persistent: false }, (_event, filename) => {
-      if (triggersReload(filename)) scheduleReload();
+      if (namesSettingsFile(filename)) scheduleReload();
     });
     watcher.on("error", (error: Error) => {
       if (!stopped) onWarn?.(errorMessage(error));
@@ -101,7 +95,7 @@ export function watchSettings(settings: Pick<SettingsManager, "file">, opts: Set
     throw error;
   }
 
-  return { stop };
+  return { stop, reload: scheduleReload };
 }
 
 function statSignature(file: string): string {

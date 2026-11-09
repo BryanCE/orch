@@ -85,7 +85,7 @@ function describeDeadAgent(orchDir: OrchDir, entry: PresenceEntry): string {
   const statusProject = entry.status?.project;
   const project = typeof statusProject === "string"
     ? statusProject
-    : view === null ? "unknown" : basename(view.cwd);
+    : view === null ? "unknown" : basename(view.environment.cwd);
   const updatedAt = entry.status?.updatedAt;
   const seen = updatedAt === undefined || updatedAt === null ? "unknown" : humanAge(Date.now() - updatedAt);
   return `${name} | project ${project} | last seen ${seen}`;

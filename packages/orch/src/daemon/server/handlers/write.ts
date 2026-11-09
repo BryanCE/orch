@@ -10,13 +10,14 @@ import { echoAwaited } from "../../../control/echo.ts";
 import type { ControlAck } from "../../../types/control.ts";
 import { checkWall, operatorControls } from "../../../policy/space.ts";
 import { publishFromOrchd } from "../events.ts";
+import { eventHost } from "../status-events.ts";
 import { deliverOutboxMessage } from "../outbox.ts";
 import { acceptMail, mailDelivery } from "../mail.ts";
 import { normalizeControlTarget } from "../../../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../../../control/dispatch.ts";
 import { isAgentGone } from "../../../control/agent-gone.ts";
 import { bridgeAttached } from "../../../control/bridge-links.ts";
-import { isOutboxPayload } from "../../../control/bridge-message.ts";
+import { isOutboxPayload } from "../../../shared/bridge-message.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { leaseHolderIsAlive } from "../state.ts";
 import type { DaemonState } from "../state.ts";
@@ -24,7 +25,8 @@ import type { Governance, ParamsOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
 import type { OutboxDelivery, OutboxDeps } from "../../../types/daemon.ts";
 import { pendingQuestion, settleQuestion } from "../../../store/question-rows.ts";
-import { recordedProcessIsLive } from "../../../process-place.ts";
+import { hostOfPlace, placeAgentIfAny, recordedProcessIsLive } from "../../../process-place.ts";
+import type { HereAgent } from "../../../types/agent-place.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
 
 /** Build the event carrying mail for a live session with no bridge route. */
@@ -34,6 +36,7 @@ function sessionMessageEvent(directory: OrchDir, key: string, id: string, text: 
   return {
     type: "message",
     key,
+    host: eventHost(directory, key),
     space: view?.environment.space ?? undefined,
     agent: view?.name ?? null,
     name: view?.name ?? null,
@@ -61,12 +64,39 @@ function deliverToSessionStream(state: DaemonState, target: string, action: stri
   return "acked";
 }
 
-/** Send one outbox write into its target's text channel. New work and a mid-run steer
- *  differ only in the action kind; both go through the one control dispatcher. Mail is a
- *  steer when its direction's `mail` setting is `prompt`, and a stream event on `events`. */
-export async function deliverWrite(state: DaemonState, target: string, payload: unknown, id: string): Promise<OutboxDelivery> {
+/** Deliver one outbox write to the agent it names, where it runs. Only an agent here has a
+ *  delivery route on this machine; a write recorded for one on another host is that host's
+ *  orchd's to deliver (writes to it go over its link), so it is gone from here. */
+async function deliverOutboxWrite(state: DaemonState, target: string, payload: unknown, id: string): Promise<OutboxDelivery> {
   const directory = state.directory;
   const canonicalTarget = normalizeControlTarget(directory, target);
+  const log = state.services.logger.forCorrelation(id);
+  const place = placeAgentIfAny(directory, canonicalTarget);
+  if (place === null) {
+    log.warn("dispatch.gone", { target: canonicalTarget, reason: "no agent row" });
+    return "gone";
+  }
+  switch (place.kind) {
+    case "here":
+      return deliverWrite(state, place.agent, payload, id);
+    case "linked":
+    case "unreachable":
+      log.warn("dispatch.gone", { target: canonicalTarget, reason: `runs on host ${hostOfPlace(place)}, whose orchd delivers its writes` });
+      return "gone";
+    default: {
+      const exhaustive: never = place;
+      throw new Error(`unknown agent place ${String(exhaustive)}`);
+    }
+  }
+}
+
+/** Send one outbox write into the text channel of an agent this orchd runs. New work and a
+ *  mid-run steer differ only in the action kind; both go through the one control dispatcher.
+ *  Mail is a steer when its direction's `mail` setting is `prompt`, and a stream event on
+ *  `events`. */
+export async function deliverWrite(state: DaemonState, agent: HereAgent, payload: unknown, id: string): Promise<OutboxDelivery> {
+  const directory = state.directory;
+  const canonicalTarget: string = agent.id;
   const log = state.services.logger.forCorrelation(id);
   if (!isOutboxPayload(payload) || payload.action === "answer" || payload.action === "model") {
     log.warn("dispatch.malformed", { target: canonicalTarget });
@@ -78,8 +108,11 @@ export async function deliverWrite(state: DaemonState, target: string, payload: 
   }
   const kind = payload.action === "dispatch" ? "run" : "steer";
   const route = resolveTargetRoute(directory, canonicalTarget);
-  // Nobody spawned a raw session, so nothing composes a bridge for it: its event stream is its channel.
-  const rawSession = agentView(directory, canonicalTarget)?.spawnedBy === null;
+  // A raw session registered itself; orch launched none of it, so nothing composes a bridge for
+  // it and its event stream is its channel. The row's kind says so, never its spawner: an agent
+  // a linked host asked for has no spawner here and is still orch's launch, bridge and all.
+  const caller = agentView(directory, canonicalTarget)?.kind;
+  const rawSession = caller !== undefined && caller !== "agent";
   if (rawSession && !bridgeAttached(canonicalTarget) && !route?.backend.agentInput) {
     return deliverToSessionStream(state, canonicalTarget, payload.action, id, text, log);
   }
@@ -115,7 +148,7 @@ export async function deliverWrite(state: DaemonState, target: string, payload: 
 
 export function outboxDeps(state: DaemonState): OutboxDeps {
   return {
-    deliver: (target, payload, id) => deliverWrite(state, target, payload, id),
+    deliver: (target, payload, id) => deliverOutboxWrite(state, target, payload, id),
     now: () => Date.now(),
     maxAttempts: state.services.settings.current().daemon.outbox_max_attempts,
     logger: state.services.logger,
@@ -267,11 +300,10 @@ function writeText(state: DaemonState, action: TextAction, params: ParamsOf<Text
   const key = placedKey(state.directory, target);
   const here = (): Promise<Accepted> => confirmTextWrite(state, action, target, text, (id) => { governWrite(state, target, params, { correlationId: id }); });
   return atAgentHost(state, key, {
-    unrecorded: here,
     here,
     there: async (link) => {
       governWrite(state, target, params);
-      const { accepted, id, ack } = await driveOnHost(link, { action, key, text, actor: params.actor ?? null });
+      const { accepted, id, ack } = await driveOnHost(state, link, { action, key, text, actor: params.actor ?? null });
       return { accepted, id, ack };
     },
   });

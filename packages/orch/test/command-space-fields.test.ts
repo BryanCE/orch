@@ -1,9 +1,11 @@
+import { placeHere } from "../src/process-place.ts";
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { buildEntities } from "../src/entities/inventory.ts";
 import { entitySpace } from "../src/entities/space.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { ensureHarness, ensurePlexer, insertAgent } from "../src/store/agent-rows.ts";
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { recordAgentStatus } from "../src/presence/store.ts";
@@ -35,11 +37,11 @@ function writeAgent(orchDir: OrchDir, agent: string, space: string, handle: stri
   ensureHarness(orchDir, agent, agent, 1);
   ensurePlexer(orchDir, "headless", "headless", 1);
   orm(orchDir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, 1)`);
-  insertAgent(orchDir, { id, spawnedBy: null, harnessId: agent, cwd: orchDir, name: id, createdAt: 1 });
-  setAgentPlexer(orchDir, id, "headless");
+  insertAgent(orchDir, { host: hostIdentity(), id, spawnedBy: null, harnessId: agent, cwd: orchDir, name: id, createdAt: 1 });
+  setAgentPlexer(orchDir, placeHere(orchDir, id), "headless");
   setSpace(orchDir, id, 1, space);
-  setHandle(orchDir, id, 1, handle);
-  recordAgentStatus(orchDir, id, { state: "idle" }, Date.now());
+  setHandle(orchDir, placeHere(orchDir, id), 1, handle);
+  recordAgentStatus(orchDir, placeHere(orchDir, id), { state: "idle" }, Date.now());
   return id;
 }
 

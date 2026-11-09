@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import { heldCapacity, forgetCapacity } from "../src/daemon/server/capacity.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { seedAgent, seedLiveProcess, seedOrch } from "./helpers/agent.ts";

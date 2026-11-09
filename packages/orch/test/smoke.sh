@@ -28,7 +28,7 @@ for name in $(compgen -e | grep '^ORCH_'); do unset "$name"; done
 unset HERDR_ENV HERDR_SOCKET_PATH TMUX
 export ORCH_DIR="$ORCH_FIXTURE"
 # The caller must read as the OPERATOR. A harness session marker inherited from
-# the shell that launched this script (src/adapters/session-env.ts) would make
+# the shell that launched this script (src/shared/session-env.ts) would make
 # orch scope every command to a driving session that holds nothing.
 unset PI_CODING_AGENT PI_SESSION_ID OMP_SESSION_ID CODEX_PID CLAUDECODE CLAUDE_CODE_SESSION_ID CLAUDE_PID
 

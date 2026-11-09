@@ -1,3 +1,5 @@
+import { placeHere } from "../src/process-place.ts";
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { buildEntities } from "../src/entities/inventory.ts";
@@ -54,9 +56,9 @@ function fixture(): { dir: OrchDir; settings: OrchSettings } {
 function seedAgentInTmux(dir: OrchDir, id: string): void {
   ensureHarness(dir, "pi", "pi", 1);
   ensurePlexer(dir, "tmux", "tmux");
-  insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
   orm(dir).run(sql`INSERT INTO agent_plexers (agent_id, plexer_id) VALUES (${id}, ${"tmux"})`);
-  setHandle(dir, id, 10, "%1");
+  setHandle(dir, placeHere(dir, id), 10, "%1");
 }
 
 function askedOnRead(dir: OrchDir, settings: OrchSettings): number {

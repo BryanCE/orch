@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { LAUNCH_ENV, launchCredential } from "../src/identity/launch.ts";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerAgentTools } from "../src/agent/tools.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import type {
   ControlOutcomeReport,
   DaemonLink,

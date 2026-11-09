@@ -1,18 +1,29 @@
-// Where a recorded process runs, decided once. `placeProcess` is the only code that turns a
-// `HostedProcess` into something orch can act on: a `LocalProcess` the OS here answers for,
-// a process on a linked host that only its link may be asked about, or a process on a host
-// orch has no way to reach. Liveness follows from the place: the OS here answers for its own
-// processes; anywhere else it is unknown, which is never dead. An agent this orchd asked
-// another host to run has no process here at all: its liveness is its host's link and its ending.
+// Where a recorded process runs, and where an agent runs, decided once.
+//
+// `placeProcess` is the only code that turns a `HostedProcess` into something orch can act
+// on: a `LocalProcess` the OS here answers for, a process on a linked host that only its link
+// may be asked about, or a process on a host orch has no way to reach. It places a caller's
+// process; the OS on this box answers for its own pids and, from inside WSL, the Windows
+// side's too.
+//
+// `placeAgent` places an agent, from its open `agent_hosts` row, and is the only code that
+// mints a `HereAgent`. Here means this orchd's own host (`hostIdentity().id`) and nothing
+// wider: the other OS side of the same box runs its own orchd with its own store, so an agent
+// there is that orchd's to act on, reached over a link when one is configured and refused
+// otherwise. Liveness follows from the place: this orchd answers for its own agents'
+// processes; anywhere else it is unknown, which is never dead.
 import { localProcessOf } from "./local-process.ts";
 import { recordedInstanceIsLive } from "./process-identity.ts";
+import { hostIdentity } from "./host.ts";
+import { agentIdFromRow } from "./shared/agent-id.ts";
 import { hostOffline, linkedHosts } from "./store/host-rows.ts";
-import { agentById, hostOfAgent } from "./store/agent-rows.ts";
-import { currentProcess } from "./store/interval-rows.ts";
+import { agentById, agentHost, hostById } from "./store/agent-rows.ts";
+import { agentLocation, currentProcess, type StoredProcess } from "./store/interval-rows.ts";
 import type { OrchDir } from "./types/core.ts";
 import type { HostId } from "./types/host.ts";
 import type { Liveness } from "./types/presence.ts";
 import type { HostedProcess, LinkedHost, ProcessPlace } from "./types/process.ts";
+import type { AgentId, AgentLocation, AgentPlace, HereAgent } from "./types/agent-place.ts";
 
 /** Where a recorded process runs, from here. `linked` is {@link linkedHosts}, read once by a
  *  caller that places many processes. */
@@ -22,6 +33,63 @@ export function placeProcess(orchDir: OrchDir, process: HostedProcess, linked: R
   const host = linked.get(process.host);
   if (host !== undefined) return { kind: "linked", host, process };
   return { kind: "unreachable", process };
+}
+
+function isHere(agent: { readonly id: AgentId; readonly host: HostId }): agent is HereAgent {
+  return agent.host === hostIdentity().id;
+}
+
+/** Where an agent runs, from its open host row: here on this orchd's own host, on a linked
+ *  host, or on a host this orchd cannot reach. `linked` is {@link linkedHosts}, read once by a
+ *  caller that places many agents. */
+export function placeLocation(id: string, location: AgentLocation, linked: ReadonlyMap<HostId, LinkedHost>): AgentPlace {
+  const agent = agentIdFromRow(id);
+  const candidate = { id: agent, host: location.host };
+  if (isHere(candidate)) return { kind: "here", agent: candidate };
+  const host = linked.get(location.host);
+  return host === undefined ? { kind: "unreachable", agent, host: location.host } : { kind: "linked", agent, host };
+}
+
+/** Where an agent runs. Total for every agent the store holds; an unknown id throws. */
+export function placeAgent(orchDir: OrchDir, id: string, linked: ReadonlyMap<HostId, LinkedHost> = linkedHosts(orchDir)): AgentPlace {
+  return placeLocation(id, agentHost(orchDir, id), linked);
+}
+
+/** Where an agent runs, or null when the store holds no agent with this id. */
+export function placeAgentIfAny(orchDir: OrchDir, id: string, linked?: ReadonlyMap<HostId, LinkedHost>): AgentPlace | null {
+  const location = agentLocation(orchDir, id);
+  if (location === undefined) return agentById(orchDir, id) === null ? null : placeAgent(orchDir, id, linked);
+  return placeLocation(id, location, linked ?? linkedHosts(orchDir));
+}
+
+/** The agent, when it runs here; null when it runs on another host. */
+export function hereOrNull(place: AgentPlace): HereAgent | null {
+  return place.kind === "here" ? place.agent : null;
+}
+
+/** The host an agent runs on, from any place. */
+export function hostOfPlace(place: AgentPlace): HostId {
+  switch (place.kind) {
+    case "here":
+      return place.agent.host;
+    case "linked":
+      return place.host.id;
+    case "unreachable":
+      return place.host;
+    default: {
+      const exhaustive: never = place;
+      throw new Error(`unknown agent place ${String(exhaustive)}`);
+    }
+  }
+}
+
+/** An agent that must run here, for code that only ever acts on its own agents: a spawn this
+ *  orchd just recorded, a process it holds. One on another host is refused by name. */
+export function placeHere(orchDir: OrchDir, id: string): HereAgent {
+  const place = placeAgent(orchDir, id);
+  if (place.kind === "here") return place.agent;
+  const host = hostOfPlace(place);
+  throw new Error(`${id} runs on host ${hostById(orchDir, host)?.name ?? host}, not on this one; only that host's orchd acts on it`);
 }
 
 /** Whether a placed process is alive. Only the OS here can say; a process anywhere else is
@@ -45,30 +113,46 @@ export function processLiveness(orchDir: OrchDir, process: HostedProcess, linked
   return livenessAt(placeProcess(orchDir, process, linked));
 }
 
-/** Whether an agent another host runs for this orchd is alive, read from here: alive while
- *  that host's link is up, its state then the latest its events said; unknown while the link
- *  is down. Never dead: only its ending says it is gone. */
-export function hostedAgentLiveness(orchDir: OrchDir, host: HostId): Liveness {
-  return hostOffline(orchDir, host) === null ? "alive" : "unknown";
+/** Whether an agent is alive, read from here. Here: its recorded process, and none is dead.
+ *  On a linked host: alive while that host's link is up, its state then the latest its events
+ *  said; unknown while the link is down. On a host orch cannot reach: unknown. Never dead
+ *  anywhere but here: only its ending says an agent elsewhere is gone. */
+export function agentLiveness(orchDir: OrchDir, place: AgentPlace, linked?: ReadonlyMap<HostId, LinkedHost>): Liveness {
+  return placedLiveness(orchDir, place, place.kind === "here" ? currentProcess(orchDir, place.agent) : undefined, linked);
+}
+
+/** {@link agentLiveness}, for a fleet reader that read every process here in one query:
+ *  `process` is the agent's open process when it runs here. */
+export function placedLiveness(orchDir: OrchDir, place: AgentPlace, process: StoredProcess | undefined, linked?: ReadonlyMap<HostId, LinkedHost>): Liveness {
+  switch (place.kind) {
+    case "here":
+      return process === undefined ? "dead" : processLiveness(orchDir, process, linked);
+    case "linked":
+      return hostOffline(orchDir, place.host.id) === null ? "alive" : "unknown";
+    case "unreachable":
+      return "unknown";
+    default: {
+      const exhaustive: never = place;
+      throw new Error(`unknown agent place ${String(exhaustive)}`);
+    }
+  }
 }
 
 /**
- * Whether the agent's OPEN process interval still names a live process.
+ * Whether an agent counts as live: the one spelling the lease gate (`orchd`), the
+ * drive-state renderer and the doctor all ask, so they never disagree about whether a
+ * holder is dead — which is the difference between refusing a dispatch and allowing it
+ * (Rule 11: a dead holder is not a collision).
  *
- * One spelling, imported: the lease gate (`orchd`), the drive-state renderer and
- * the doctor all ask this, and three copies of it is three chances to disagree
- * about whether a holder is dead — which is the difference between refusing a
- * dispatch and allowing it (Rule 11: a dead holder is not a collision).
- *
- * The recorded start token is checked against the live process, so a pid reused
- * by an unrelated process reads as DEAD. A process on a linked host orch cannot ask
- * about right now counts as live: unknown is never dead. An agent another host runs
- * for this orchd has no process here and is live until its ending is recorded.
+ * An agent here is live while its recorded process instance is: the start token is checked,
+ * so a pid reused by an unrelated process reads as DEAD. An agent on another host is live
+ * until its ending is recorded: unknown is never dead. An id the store does not hold is not live.
  */
-export function recordedProcessIsLive(orchDir: OrchDir, agentId: string): boolean {
-  if (hostOfAgent(orchDir, agentId) !== null) return agentById(orchDir, agentId)?.ending === null;
-  const row = currentProcess(orchDir, agentId);
-  return row !== undefined && processLiveness(orchDir, row) !== "dead";
+export function recordedProcessIsLive(orchDir: OrchDir, agentId: string, linked?: ReadonlyMap<HostId, LinkedHost>): boolean {
+  const place = placeAgentIfAny(orchDir, agentId, linked);
+  if (place === null) return false;
+  if (place.kind === "here") return agentLiveness(orchDir, place, linked) !== "dead";
+  return agentById(orchDir, agentId)?.ending === null;
 }
 
 /** Asks a linked host, over its link, whether a process instance runs there. orchd sets it;

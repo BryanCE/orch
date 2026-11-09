@@ -1,7 +1,7 @@
 import { renderTable } from "../../table.ts";
 import { collapse, truncate } from "../../util.ts";
 import { dim } from "../../tui/screen.ts";
-import { DEAD_HOLDER_DRIVER, NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
+import { DEAD_HOLDER_DRIVER, NO_ORCH_DRIVER } from "../../shared/drive-state.ts";
 import { formatSpace, displayStatusState, NO_STATUS_HIDE, isTTY, callerNameLabel, ownsLiveWorker } from "./options.ts";
 import { modelShort } from "../../policy/thinking.ts";
 import { formatHostOffline } from "../../format.ts";
@@ -91,13 +91,13 @@ function tableContextCell(row: StatusRow): string {
 /** The LAST cell: what the agent last said, or, while its host's link is down, that the
  *  host is offline and when it was last seen. */
 function tableLastCell(row: StatusRow): string {
-  const text = row.hostOffline === undefined ? collapse(row.lastText ?? "") : formatHostOffline(row.host ?? "its host", row.hostOffline.lastSeen);
+  const text = row.hostOffline === undefined ? collapse(row.lastText ?? "") : formatHostOffline(row.host.name, row.hostOffline.lastSeen);
   return truncate(text, 50);
 }
 
 function humanTableCells(row: StatusRow, names: FleetNames, host: boolean, callerId: string | null, name: string): string[] {
   return [
-    ...(host ? [row.host ?? "-"] : []), name,
+    ...(host ? [row.host.name] : []), name,
     row.agent ?? "-", truncate(row.cwd ?? "-", 30), truncate(row.worktree ?? "-", 24),
     truncate(row.branch ?? "-", 20), formatOwnerCell(row, names, callerId), tableStateCell(row, true, callerId),
   ];
@@ -105,7 +105,7 @@ function humanTableCells(row: StatusRow, names: FleetNames, host: boolean, calle
 
 function standardTableCells(row: StatusRow, names: FleetNames, flags: TableFlags, host: boolean, callerId: string | null, ownsOthers: boolean): string[] {
   const prefix = host
-    ? [row.host ?? "-", localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)]
+    ? [row.host.name, localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)]
     : [localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)];
   return [
     ...prefix, ...tableOptionalCells(row, names, flags, callerId), row.tab ?? "-", row.agent ?? "-",

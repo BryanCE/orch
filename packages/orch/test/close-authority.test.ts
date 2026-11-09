@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores, orm } from "../src/store/connection.ts";
@@ -20,11 +21,11 @@ function fixture(): OrchDir {
   const d = tempOrchDir("orch-close-authority-");
   dirs.push(d);
   orm(d).run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
-  insertAgent(d, { id: "orchA", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orchA", createdAt: 1 });
-  insertAgent(d, { id: "slaveA", spawnedBy: "orchA", harnessId: "pi", cwd: "/repo", name: "slaveA", createdAt: 2 });
-  insertAgent(d, { id: "grandA", spawnedBy: "slaveA", harnessId: "pi", cwd: "/repo", name: "grandA", createdAt: 3 });
-  insertAgent(d, { id: "orchB", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orchB", createdAt: 4 });
-  insertAgent(d, { id: "slaveB", spawnedBy: "orchB", harnessId: "pi", cwd: "/repo", name: "slaveB", createdAt: 5 });
+  insertAgent(d, { host: hostIdentity(), id: "orchA", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orchA", createdAt: 1 });
+  insertAgent(d, { host: hostIdentity(), id: "slaveA", spawnedBy: "orchA", harnessId: "pi", cwd: "/repo", name: "slaveA", createdAt: 2 });
+  insertAgent(d, { host: hostIdentity(), id: "grandA", spawnedBy: "slaveA", harnessId: "pi", cwd: "/repo", name: "grandA", createdAt: 3 });
+  insertAgent(d, { host: hostIdentity(), id: "orchB", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "orchB", createdAt: 4 });
+  insertAgent(d, { host: hostIdentity(), id: "slaveB", spawnedBy: "orchB", harnessId: "pi", cwd: "/repo", name: "slaveB", createdAt: 5 });
   return d;
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { leasePayloadFrom } from "../src/commands/status/rows.ts";
+import { leasePayloadFrom } from "../src/daemon/server/fleet-rows.ts";
 import { storeLeaseFacts } from "../src/agent/drive-state.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";

@@ -1,3 +1,5 @@
+import { placeHere } from "../src/process-place.ts";
+import { hostIdentity } from "../src/host.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -59,9 +61,9 @@ function fixture(): OrchDir {
 function seedAgentInPane(dir: OrchDir, id: string, handle: string): void {
   ensureHarness(dir, "pi", "pi", 1);
   ensurePlexer(dir, "headless", "headless");
-  insertAgent(dir, { id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id, harnessId: "pi", cwd: "/work", name: id, createdAt: 1 });
   orm(dir).run(sql`INSERT INTO agent_plexers (agent_id, plexer_id) VALUES (${id}, ${"headless"})`);
-  setHandle(dir, id, 10, handle);
+  setHandle(dir, placeHere(dir, id), 10, handle);
 }
 
 /** A live agent: its recorded process is this runner, so the failure cannot be blamed on a dead process. */

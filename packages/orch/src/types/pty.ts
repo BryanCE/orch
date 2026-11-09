@@ -56,6 +56,8 @@ export interface PtyHolder {
   has(key: string): boolean;
   /** The screen and its scrollback as escape sequences that redraw it on an empty terminal. */
   snapshot(key: string): string;
+  /** The last `lines` lines of the screen and its scrollback, as plain text. */
+  text(key: string, lines: number): string;
   /** Follow the PTY's output from the end of the current snapshot. Returns the unsubscribe. */
   subscribe(key: string, onData: (data: string) => void, onExit: (exit: PtyExit) => void): () => void;
   write(key: string, data: string): void;

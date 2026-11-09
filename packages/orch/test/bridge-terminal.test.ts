@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { RunRecord } from "../src/types/store.ts";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -60,7 +61,7 @@ function fakeDaemonLink(orchDir: OrchDir): DaemonLink {
   return {
     ...client,
     reportStatus: (agentKey, patch) => {
-      recordAgentStatus(orchDir, agentKey, patch, Date.now());
+      recordAgentStatus(orchDir, placeHere(orchDir, agentKey), patch, Date.now());
       return Promise.resolve(true);
     },
     reportResult: (agentKey, result) => {

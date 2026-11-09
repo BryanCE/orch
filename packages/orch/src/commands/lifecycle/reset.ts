@@ -3,46 +3,26 @@ import { NO_TUNING } from "../../policy/tuning.ts";
 import type { Tuning } from "../../policy/tuning.ts";
 import { admitAgentModel, pinModels, refuseModelChange } from "../spawn/models.ts";
 import { agentAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
-import { takesModel } from "../../adapters/adapter.ts";
-import { readRpc, writeRpc } from "../daemon.ts";
-import { die } from "../target.ts";
-import { resolveLifecycle, refuseForeignHolder, targetName } from "../resolve.ts";
+import { takesModel } from "../../shared/harness.ts";
+import { writeRpc } from "../daemon.ts";
+import { hostCallTimeoutMs } from "../host.ts";
+import { placeLabel, resolveLifecycle, refuseForeignHolder, targetName } from "../resolve.ts";
 import { whoAmI } from "../self.ts";
-import { awaitIdleAfter, requireLifecycleTargets } from "./index.ts";
-import { describeHandle } from "../../backends/backend.ts";
+import { requireLifecycleTargets } from "./index.ts";
 
 import type { Services } from "../../types/services.ts";
 
 interface ClearedAgent { key: string; handle: string; name: string }
 
-/** The next step for an agent whose turn will not end on its own. */
-function abortHint(name: string): string {
-  return `Run orch abort ${name} to stop its turn, then try again, or orch close ${name} and spawn a fresh agent.`;
-}
-
-/** Clear one agent's session and wait for it to come back ready. */
+/** Clear one agent's session and wait for it to come back ready. orchd does both where the
+ *  agent runs: here, or through its host's orchd, which clears and waits on its own agent. */
 export async function clearSession(services: Pick<Services, "orchDir" | "settings" | "logger">, target: string, steal: boolean): Promise<ClearedAgent> {
   const self = await whoAmI(services);
   const resolved = await resolveLifecycle(services, target);
   refuseForeignHolder(self, target, resolved, steal);
-  const label = describeHandle(resolved.handle);
-  const ent = resolved.entity;
-  const name = targetName(resolved);
-  const { status } = await readRpc(services, "agent-status", { target: ent.key });
-  // A session mid-turn queues the clear behind its turn, so the wait below would only time out.
-  if (status?.state === "working") die(`${name} is mid-turn (working), so its session cannot be cleared. ${abortHint(name)}`);
-  const beforeUpdated = status?.updatedAt;
-  const sentAt = Date.now();
-  // The daemon owns every lifecycle mechanism: a console gets the adapter's
-  // text, an agent with none is refused. Neither is the CLI's to choose.
-  await writeRpc(services, "reclaim", { target: ent.key });
-  await writeRpc(services, "lifecycle", { target: ent.key, verb: "reset" });
-  const readyMs = services.settings.current().timeouts.reset_ready_ms;
-  if (!await awaitIdleAfter(services, ent.key, beforeUpdated, sentAt)) {
-    const { status: last } = await readRpc(services, "agent-status", { target: ent.key });
-    die(`Reset ${name} failed: it did not become ready within ${Math.round(readyMs / 1000)}s; its last state is ${last?.state ?? "unknown"}. ${abortHint(name)}`);
-  }
-  return { key: ent.key, handle: label, name };
+  const waitMs = services.settings.current().timeouts.reset_ready_ms + hostCallTimeoutMs(services);
+  await writeRpc(services, "clear-session", { target: resolved.key }, { steal }, waitMs);
+  return { key: resolved.key, handle: placeLabel(resolved), name: targetName(resolved) };
 }
 
 export async function cmdNew(services: Services, args: string[]): Promise<void> {

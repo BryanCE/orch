@@ -18,7 +18,7 @@ function fixture(): OrchDir {
   const dir = tempOrchDir("orch-spawn-registry-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
-  insertAgent(dir, { id: "orch-agent", harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
+  insertAgent(dir, { host: hostIdentity(), id: "orch-agent", harnessId: "pi", cwd: "/repo", name: "orch", createdAt: 1 });
   return dir;
 }
 
@@ -37,8 +37,7 @@ function register(dir: OrchDir, overrides: Partial<Parameters<typeof registerSpa
     model: "openai/gpt-5",
     thinking: "high",
     spawner: "orch-agent",
-    process: runnerProcess(),
-    host: hostIdentity(),
+    process: { ...runnerProcess(), host: hostIdentity().id },
     now: 10,
     ...overrides,
   });

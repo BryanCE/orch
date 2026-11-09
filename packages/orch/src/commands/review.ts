@@ -2,7 +2,7 @@ import { renderTable } from "../table.ts";
 import { collapse, errorMessage } from "../util.ts";
 import { writeRpc } from "./daemon.ts";
 import { readFleet } from "./fleet.ts";
-import { addressOf, indexPresenceById } from "../entities/lookup.ts";
+import { addressOf, indexPresenceById } from "../shared/lookup.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";

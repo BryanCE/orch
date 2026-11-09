@@ -1,10 +1,11 @@
+import { placeHere } from "../src/process-place.ts";
 import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverWrite } from "../src/daemon/server/handlers/write.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
-import type { BridgeDelivery } from "../src/control/bridge-message.ts";
+import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { createCaptureRole } from "../src/presence/roles.ts";
 import { recordAgentStatus } from "../src/presence/store.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
@@ -16,6 +17,9 @@ import { seedStatus } from "./helpers/presence.ts";
 import { placeAgent, seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
+import { getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
+import { processStartToken } from "../src/process-identity.ts";
+import { hostIdentity } from "../src/host.ts";
 import { testServices } from "./helpers/services.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
 
@@ -26,7 +30,7 @@ const saved = process.env.ORCH_DIR;
 function outboxDeps(orchDir: OrchDir, settings: Record<string, unknown> = {}): OutboxDeps {
   const services = testServices({ orchDir, settings });
   return {
-    deliver: (target, payload, id) => deliverWrite(idleDaemonState(services, orchDir), target, payload, id),
+    deliver: (target, payload, id) => deliverWrite(idleDaemonState(services, orchDir), placeHere(orchDir, target), payload, id),
     maxAttempts: 3,
     now: () => 0,
   };
@@ -70,10 +74,15 @@ describe("orch bridge links and capture roles", () => {
 
   test("live session delivery settles mail without a bridge or pane route", async () => {
     const orchDir = tempOrchDir();
-    const key = "sessionagt1";
     writeSettingsFixture(orchDir);
-    seedAgent(key, {}, orchDir);
-    seedLiveProcess(orchDir, key);
+    // A raw session registers itself, as a harness started outside orch does; orch composed
+    // no bridge for it. The runner is its live process.
+    const startToken = processStartToken(process.pid);
+    if (startToken === undefined) throw new Error("no start token for the runner");
+    const key = getOrCreateSessionAgent(orchDir, {
+      pid: process.pid, startToken, sessionToken: "sessionagt1", harnessId: "pi", cwd: process.cwd(),
+      label: "pi session", host: hostIdentity(), now: Date.now(),
+    }).id;
     const id = "steer-session-1";
     insertOutboxMessage(orchDir, { id, target: key, payload: { action: "steer", text: "[from w] hi" } });
 
@@ -221,7 +230,7 @@ describe("orch bridge links and capture roles", () => {
     const orchDir = tempOrchDir();
     const key = "capturedg1";
     seedAgent(key, { adapter: "codex" }, orchDir);
-    recordAgentStatus(orchDir, key, { state: "done" }, Date.now());
+    recordAgentStatus(orchDir, placeHere(orchDir, key), { state: "done" }, Date.now());
     upsertRun(orchDir, { dispatchId: "run-1", agentKey: key, state: "done", startedAt: Date.now(), result: "captured result" });
 
     const captured = createCaptureRole(orchDir).read(key, { source: "all" });

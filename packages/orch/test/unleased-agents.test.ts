@@ -31,10 +31,10 @@ describe("orphan agents", () => {
     if (startToken === undefined) throw new Error("no start token for the test process");
     const live = sessionRow(orchDir, process.pid, startToken, "live-session");
     const dead = sessionRow(orchDir, 999_999_999, "gone", "dead-session");
-    insertAgent(orchDir, { id: "unheld", spawnedBy: live, harnessId: "pi", cwd: "/repo", name: "unheld", createdAt: 3 });
-    insertAgent(orchDir, { id: "held", spawnedBy: live, harnessId: "pi", cwd: "/repo", name: "held", createdAt: 3 });
+    insertAgent(orchDir, { host: hostIdentity(), id: "unheld", spawnedBy: live, harnessId: "pi", cwd: "/repo", name: "unheld", createdAt: 3 });
+    insertAgent(orchDir, { host: hostIdentity(), id: "held", spawnedBy: live, harnessId: "pi", cwd: "/repo", name: "held", createdAt: 3 });
     acquireLease(orchDir, "held", live, 4);
-    insertAgent(orchDir, { id: "stranded", spawnedBy: dead, harnessId: "pi", cwd: "/repo", name: "stranded", createdAt: 3 });
+    insertAgent(orchDir, { host: hostIdentity(), id: "stranded", spawnedBy: dead, harnessId: "pi", cwd: "/repo", name: "stranded", createdAt: 3 });
     acquireLease(orchDir, "stranded", dead, 4);
 
     expect(orphanAgents(orchDir)).toEqual([

@@ -7,7 +7,7 @@
  * stdin/stdout read back) — the shim runs under WHATEVER runtime the user has
  * (node, deno, or bun; `codexAdapter.installShim()` probes their PATH), never
  * assumes one. Usage: `<runtime> <shim> <json>` (argv[2] is the JSON string).
- * Identity parsing stays in its one boundary module (src/backends/identity.ts);
+ * Identity parsing stays in its one boundary module (src/shared/agent-id.ts);
  * the notify wire vocabulary stays in its one leaf module
  * (src/adapters/codex-events.ts, which the adapter itself delegates to — the
  * adapter proper is setup-time code this shim must not carry); presence reports

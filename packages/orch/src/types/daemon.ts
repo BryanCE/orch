@@ -12,7 +12,7 @@ import type { DriveState } from "./agent.ts";
 import type { AgentStatusRow } from "../store/status-rows.ts";
 import type { IdentityMethod, ParamsOf, ResultOf, RpcMethod } from "../daemon/client/protocol.ts";
 import type { WakeSignal } from "../daemon/server/wake.ts";
-import type { HostGreeting, HostId } from "./host.ts";
+import type { HostGreeting, HostId, HostIdentity } from "./host.ts";
 import type { ScreenConnection } from "./screen.ts";
 
 export interface LockRecord {
@@ -199,6 +199,8 @@ export interface PendingQuestionView {
   readonly agentId: string;
   readonly key: string;
   readonly name: string | null;
+  /** The host the asking agent runs on. */
+  readonly host: HostIdentity;
   readonly question: string;
   readonly askedAt: number;
 }

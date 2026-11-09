@@ -1,3 +1,4 @@
+import { hostIdentity } from "../src/host.ts";
 import { describe, expect, test } from "bun:test";
 import { eventState, isNotifyEvent } from "../src/notify/event.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
@@ -10,7 +11,7 @@ const identity = {
   model: null,
 };
 
-const transition: NotifyEvent = {
+const transition: NotifyEvent = { host: hostIdentity(),
   ...identity,
   type: "transition",
   oldState: "working",
@@ -18,7 +19,7 @@ const transition: NotifyEvent = {
   task: "finish the work",
 };
 
-const asking: NotifyEvent = {
+const asking: NotifyEvent = { host: hostIdentity(),
   ...identity,
   type: "asking",
   oldState: "working",
@@ -27,7 +28,7 @@ const asking: NotifyEvent = {
   gaveUp: false,
 };
 
-const message: NotifyEvent = {
+const message: NotifyEvent = { host: hostIdentity(),
   ...identity,
   type: "message",
   newState: "message",
@@ -35,14 +36,14 @@ const message: NotifyEvent = {
   mail: { id: "mail-1", text: "hello" },
 };
 
-const closed: NotifyEvent = {
+const closed: NotifyEvent = { host: hostIdentity(),
   ...identity,
   type: "closed",
   oldState: "done",
   newState: "closed",
 };
 
-const task: NotifyEvent = {
+const task: NotifyEvent = { host: hostIdentity(),
   ...identity,
   type: "task",
   oldState: "queued",

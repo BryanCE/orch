@@ -1,6 +1,7 @@
+import { hostIdentity } from "../host.ts";
 import { scopeToSpace, spaceOfIn, withinSpaceCeiling } from "../policy/space.ts";
 import { agentInMineScope, agentInScope, resolveCallerScopeOf } from "../policy/scope.ts";
-import { isAgentId } from "../backends/identity.ts";
+import { isAgentId } from "../shared/agent-id.ts";
 import { rpcCall, subscribeEvents } from "../daemon/client/rpc.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { ensureDaemon } from "../daemon/client/reach.ts";
@@ -149,6 +150,8 @@ export async function cmdNotify(services: Services, args: string[]) {
   const event: NotifyEvent = {
     type: "transition",
     key: "test:notify",
+    // A test event about no agent, sent from this machine.
+    host: hostIdentity(),
     agent: "notify-test",
     tab: "notify",
     model: "test:medium",
@@ -351,6 +354,7 @@ function eventWriter(options: EventsOptions, shows: (event: NotifyEvent) => bool
 function pendingQuestionEvent(question: PendingQuestionView): NotifyEvent {
   return {
     key: question.agentId,
+    host: question.host,
     agent: question.name,
     name: question.name,
     tab: null,

@@ -10,7 +10,8 @@
   "scripts": {
     "test": "bun test --parallel --timeout 15000 ./test",
     "test:git": "bun test ./test-git/worktree.gittest.ts",
-    "check": "bun run --parallel --no-exit-on-error lint tc check:bridge",
+    "check": "bun run --parallel --no-exit-on-error lint tc check:bridge check:layers",
+    "check:layers": "bun scripts/check-layers.ts",
     "check:bridge": "bun scripts/check-bridge.ts",
     "db:gen": "bun scripts/db/generate.ts",
     "db:gen:dry": "bun scripts/db/generate.ts --dry-run",

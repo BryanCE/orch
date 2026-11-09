@@ -1,5 +1,5 @@
 import { LAUNCH_ENV } from "../identity/launch.ts";
-import { ENVIRONMENT_ENV } from "../agent/environment.ts";
+import { ENVIRONMENT_ENV } from "../shared/environment.ts";
 import { projectRoot } from "../util.ts";
 import type { BackendSpawnOpts } from "../types/backend.ts";
 import { workerPlaceContext, workerRules, type WorkerPlace } from "../worker-prompt.ts";

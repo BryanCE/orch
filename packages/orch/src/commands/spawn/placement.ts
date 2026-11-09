@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { assertNameFree } from "../../policy/name.ts";
 import { resolveAdapterOrDie } from "../selection.ts";
-import { mintAgentId } from "../../backends/identity.ts";
+import { mintAgentId } from "../../shared/agent-id.ts";
 import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
 import { nextTilePlacement } from "../../backends/tiling.ts";
 import { createAgentWorktree, discardFreshWorktree, type WorktreeIntent } from "../../worktrees/agent.ts";
@@ -154,8 +154,8 @@ async function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpe
     spawner: spec.spawner,
     owner: spec.owner,
     worktree: spec.worktree,
-    process: spec.backend.process.running(handle),
-    host: hostIdentity(),
+    // The pane opened on this machine, so its process runs on this host.
+    process: { ...spec.backend.process.running(handle), host: hostIdentity().id },
   });
   return { key, handle: String(handle), name: spec.name, cwd: spec.cwd, branch: spec.worktree?.branch ?? null };
 }

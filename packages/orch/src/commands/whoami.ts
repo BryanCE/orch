@@ -25,7 +25,7 @@ function rowLines(self: CallerSelf, view: AgentView): string[] {
     `harness ${view.harnessId}, label ${view.label ?? "none"}, created ${formatTimestamp(view.createdAt)}`,
     `role ${term(roleOf(view))}, space ${self.space ?? "none"}, depth ${self.depth}, spawned by ${view.spawnedByName ?? "nobody"}`,
     `held by ${view.heldBy === null ? "nobody" : `${view.heldBy.orchId} since ${formatTimestamp(view.heldBy.since)}`}`,
-    `cwd ${view.cwd}`,
+    `cwd ${view.environment.cwd}`,
     `plexer ${environment.plexer ?? "none"}, handle ${environment.handle ?? "none"}, worktree ${environment.worktree ?? "none"}, branch ${environment.branch ?? "none"}`,
     `model ${tuning.model ?? "default"}, thinking ${tuning.thinking ?? "default"}`,
     ...(view.endedAt === null ? [] : [`ended ${formatTimestamp(view.endedAt)}`]),

@@ -1,4 +1,4 @@
-import { NO_COMPACTION } from "../adapters/adapter.ts";
+import { NO_COMPACTION } from "../shared/harness.ts";
 import type { AgentAdapter, CompactionLaunch, SpawnOpts } from "../types/adapter.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";

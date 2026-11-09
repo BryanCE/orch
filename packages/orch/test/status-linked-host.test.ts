@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { buildFleetStatus } from "../src/commands/status/offline.ts";
+import { buildFleetStatus } from "../src/daemon/server/fleet-status.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
 import { NO_STATUS_HIDE } from "../src/commands/status/options.ts";
 import { RPC_RESULTS } from "../src/daemon/client/protocol.ts";
@@ -62,7 +62,7 @@ test("status lists an agent on a linked host from its reference, unknown until i
   expect(row?.state).toBe("unknown");
   expect(row?.alive).toBe(true);
   expect(row?.pid).toBeNull();
-  expect(row?.host).toBe("far");
+  expect(row?.host.name).toBe("far");
   expect(row?.hostOffline).toBeUndefined();
 });
 

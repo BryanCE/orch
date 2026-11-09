@@ -1,16 +1,16 @@
 // One target, resolved by orchd for this caller. The CLI never opens the store to find an agent.
 import { readRpc } from "./daemon.ts";
-import { lifecycleBackend } from "../entities/lifecycle.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { die } from "../refusal.ts";
 import { refuseNonOperatorOverride, type CallerSelf } from "./self.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
-import type { LifecycleTarget } from "../types/command.ts";
 import type { DaemonClient } from "../types/services.ts";
+import type { Backend, BackendHandle } from "../types/backend.ts";
+import { getBackend } from "../backends/registry.ts";
+import { describeHandle } from "../shared/plexer.ts";
 
 export type ResolvedTarget = ResultOf<"resolve-target">;
 export type ResolvedLifecycle = ResultOf<"resolve-lifecycle">;
-export type HeldLifecycleTarget = LifecycleTarget & Pick<ResolvedLifecycle, "holder" | "callerOwns">;
 
 export function displayName(name: string | null | undefined, key: string): string {
   return name ?? key;
@@ -21,10 +21,35 @@ export function targetName(resolved: { readonly view?: { readonly name: string |
   return displayName(resolved.view?.name ?? resolved.entity.name, resolved.entity.key);
 }
 
-/** The lifecycle resolver, answered by orchd, with the Backend object attached. */
-export async function resolveLifecycle(services: DaemonClient, target: string): Promise<HeldLifecycleTarget> {
-  const resolution = await readRpc(services, "resolve-lifecycle", { caller: callerCredential(), target });
-  return { ...resolution, backend: lifecycleBackend(resolution, target) };
+/** The lifecycle resolver, answered by orchd: the agent, who holds it, and where it runs. It
+ *  hands out no backend. A verb that acts on the agent asks orchd, which acts where it runs; only
+ *  {@link paneHere} opens the pane of one that runs on this machine. */
+export function resolveLifecycle(services: DaemonClient, target: string): Promise<ResolvedLifecycle> {
+  return readRpc(services, "resolve-lifecycle", { caller: callerCredential(), target });
+}
+
+/** How a resolved agent is addressed in output: its pane handle here, else its key. */
+export function placeLabel(resolved: Pick<ResolvedLifecycle, "place" | "key">): string {
+  return resolved.place.kind === "here" ? describeHandle(resolved.place.handle) : resolved.key;
+}
+
+/** The pane of an agent that runs on this machine, for a verb that reads or types into a plexer
+ *  pane here. An agent on another host has no pane here, so the verb is refused by its host. */
+export function paneHere(resolved: Pick<ResolvedLifecycle, "place">, target: string, verb: string): { readonly backend: Backend; readonly handle: BackendHandle } {
+  const place = resolved.place;
+  switch (place.kind) {
+    case "host":
+      return die(`${target} runs on host ${place.host}; orch ${verb} reaches a pane on this machine only.`);
+    case "here": {
+      const backend = place.plexer === null ? undefined : getBackend(place.plexer);
+      if (backend === undefined) die(`Target "${target}" uses unknown backend ${JSON.stringify(place.plexer)}.`);
+      return { backend, handle: place.handle };
+    }
+    default: {
+      const exhaustive: never = place;
+      throw new Error(`unknown agent place ${String(exhaustive)}`);
+    }
+  }
 }
 
 export interface ResolveOptions {

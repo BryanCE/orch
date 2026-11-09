@@ -1,6 +1,6 @@
-import { installCommand } from "../adapters/prerequisites.ts";
+import { installCommand } from "../shared/prerequisites.ts";
 import { soundTierBinaries } from "./ding.ts";
-import { isWsl } from "../host.ts";
+import { hostOs, isNixOs, isWsl } from "../host.ts";
 
 const DEFAULT_REMEDIATION = "fix: verify the adapter installation and configuration";
 
@@ -12,7 +12,7 @@ export function notifierRemediation(
 ): string {
   if (declared) return declared;
   if (id === "desktop") {
-    const notifySendInstall = installCommand("notify-send");
+    const notifySendInstall = installCommand("notify-send", isNixOs(), hostOs());
     if (!notifySendInstall) return DEFAULT_REMEDIATION;
     return isWsl()
       ? `fix: install notify-send (\`${notifySendInstall}\`) or ensure powershell.exe and wslpath are reachable`

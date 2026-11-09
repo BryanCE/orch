@@ -5,8 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { getBackend } from "../backends/registry.ts";
 import { resolveAdapter } from "../adapters/registry.ts";
-import { installCommand, PREREQUISITES } from "../adapters/prerequisites.ts";
-import { hostOs } from "../host.ts";
+import { installCommand, PREREQUISITES } from "../shared/prerequisites.ts";
+import { hostOs, isNixOs } from "../host.ts";
 import { binaryStatus } from "../doctor/bins.ts";
 import { shebangRuntime, writeShebangRuntime } from "../doctor/runtime.ts";
 import { ORCH_DING_BIN } from "../notify/ding.ts";
@@ -161,11 +161,11 @@ export async function installPrerequisites(
   const manual: ManualPrerequisite[] = [];
   const queueInstall = (id: string): void => {
     const entry = PREREQUISITES[id];
-    const cmd = installCommand(id);
+    const cmd = installCommand(id, isNixOs(), hostOs());
     if (cmd) {
       for (const need of entry?.needs ?? []) {
         if (binaryOnPath(need)) continue;
-        const needCmd = installCommand(need);
+        const needCmd = installCommand(need, isNixOs(), hostOs());
         if (needCmd && !missing.some((candidate) => candidate.bin === need)) missing.push({ bin: need, cmd: needCmd });
       }
       if (!missing.some((candidate) => candidate.bin === id)) missing.push({ bin: id, cmd });

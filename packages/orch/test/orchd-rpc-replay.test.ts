@@ -1,10 +1,11 @@
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
 import { REPLAY_WINDOW, ReplayBuffer } from "../src/daemon/server/replay.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
-import { mintAgentId } from "../src/backends/identity.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
 type RpcEvent = Parameters<RpcServer["emit"]>[0];
@@ -12,7 +13,7 @@ type TransitionEvent = Extract<RpcEvent, { type: "transition" }>;
 const fixtureAgent = mintAgentId();
 
 function transitionEvent(overrides: Partial<TransitionEvent> = {}): TransitionEvent {
-  return {
+  return { host: hostIdentity(),
     type: "transition",
     key: "event",
     ts: new Date(0).toISOString(),

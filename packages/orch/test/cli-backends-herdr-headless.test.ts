@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mintAgentId, isAgentId } from "../src/backends/identity.ts";
+import { mintAgentId, isAgentId } from "../src/shared/agent-id.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { allBackends, getBackend, resolveBackend } from "../src/backends/registry.ts";
 import { HerdrBackend } from "../src/backends/herdr/index.ts";
@@ -150,7 +150,7 @@ describe("headless common path: identity key -> presence", () => {
     // The four facts are recorded apart and composed back: the plexer and the
     // handle are ENVIRONMENT, and neither is part of the identity above.
     const view = agentView(dir, key);
-    expect(view?.cwd).toBe(dir);
+    expect(view?.environment.cwd).toBe(dir);
     expect(view?.environment.plexer).toBe("headless");
     expect(JSON.parse(view?.environment.handle ?? "null")).toEqual({ pid: handle.pid, key });
 

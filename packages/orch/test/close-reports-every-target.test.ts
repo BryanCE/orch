@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -80,7 +81,7 @@ async function closeAll(dir: OrchDir, backend: FakePanedBackend): Promise<Record
 /** An agent whose process already ended, so close has only its pane and row to settle. */
 function seedAgentWithStatus(dir: OrchDir, key: string, handle: string): void {
   seedAgent(key, { adapter: "pi", backend: "headless", space: "space00001", handle, owner: operator }, dir);
-  endProcess(dir, key, Date.now());
+  endProcess(dir, placeHere(dir, key), Date.now());
   const agentDir = join(dir, "agents", key);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "status.json"), JSON.stringify({

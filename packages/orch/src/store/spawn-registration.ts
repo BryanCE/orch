@@ -1,12 +1,15 @@
 import type { OrchDir } from "../types/core.ts";
 import { eq } from "drizzle-orm";
-import { agentById, ensureHarness, ensureHost, ensurePlexer, insertAgent, originOf, setAgentHost, setOrigin, setWorktree } from "./agent-rows.ts";
+import { agentById, ensureHarness, ensurePlexer, insertAgent, originOf, setOrigin, setWorktree } from "./agent-rows.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
+import { hostIdentity } from "../host.ts";
+import { placeHere } from "../process-place.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
 import { orm, withTransaction } from "./connection.ts";
 import type { HostedSpawnRegistration, SpawnRegistration } from "../types/store.ts";
-import type { HostId } from "../types/host.ts";
+import type { HostIdentity } from "../types/host.ts";
+import type { HereAgent } from "../types/agent-place.ts";
 
 /**
  * Write the normalized agent model for one successfully spawned process.
@@ -29,8 +32,7 @@ export function registerSpawnedAgent(directory: OrchDir, input: SpawnRegistratio
 export function registerHostedAgent(directory: OrchDir, input: HostedSpawnRegistration): string {
   return withTransaction(directory, () => {
     const now = input.now ?? Date.now();
-    const spawnerId = insertSpawnedRow(directory, input, now);
-    setAgentHost(directory, input.key, input.host.id);
+    const spawnerId = insertSpawnedRow(directory, input, input.host, now);
     setTuning(directory, input.key, now, { model: input.model, thinking: input.thinking });
     holdSpawned(directory, input.key, spawnerId, now);
     return input.key;
@@ -41,6 +43,10 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
   const agentId = input.key;
   const now = input.now ?? Date.now();
   if (input.placed && input.handle === undefined) throw new Error("a placed agent requires a handle");
+  // orchd records a process only for an agent on its own host; one another host runs is
+  // that host's orchd's to record, and here it is a reference (`registerHostedAgent`).
+  const host = hostIdentity();
+  if (input.process.host !== host.id) throw new Error(`orch: ${agentId} runs on host ${input.process.host}, not on this one; only that host's orchd records its process`);
 
   // A space is USER-CREATED (A7): a spawn naming one that does not exist is a
   // refusal, never a licence to conjure the place. This gate lived in the second
@@ -52,26 +58,26 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
   // herdr, and a capless agent states none. Deriving it from `pane` is what
   // forced a SECOND writer to come along behind this one and fill it in (2.1).
   if (input.backendId !== undefined) ensurePlexer(directory, input.backendId, input.backendId, now);
-  const spawnerId = insertSpawnedRow(directory, input, now);
+  const spawnerId = insertSpawnedRow(directory, input, host, now);
   // Provenance: stated by a spawn another host asked for, inherited from a spawner that
   // carries one, so the asking host's whole tree stays its own.
   const origin = input.origin ?? (spawnerId === null ? null : originOf(directory, spawnerId));
   if (origin !== null) setOrigin(directory, agentId, origin);
-  writeEnvironment(directory, agentId, now, input.host.id, input);
+  writeEnvironment(directory, placeHere(directory, agentId), now, input);
   holdSpawned(directory, agentId, input.owner ?? spawnerId, now);
   return agentId;
 }
 
-/** The agent row every spawn writes, wherever the agent runs, with its harness and host
- *  recorded. Answers with the spawner, when it is an agent registered here. */
-function insertSpawnedRow(directory: OrchDir, input: Pick<SpawnRegistration, "key" | "harnessId" | "cwd" | "name" | "spawner" | "host">, now: number): string | null {
+/** The agent row every spawn writes, wherever the agent runs, with its harness and the host
+ *  it runs on recorded. Answers with the spawner, when it is an agent registered here. */
+function insertSpawnedRow(directory: OrchDir, input: Pick<SpawnRegistration, "key" | "harnessId" | "cwd" | "name" | "spawner">, host: HostIdentity, now: number): string | null {
   const spawnerId = input.spawner && agentById(directory, input.spawner) ? input.spawner : null;
   ensureHarness(directory, input.harnessId, input.harnessId, now);
-  ensureHost(directory, input.host, now);
   insertAgent(directory, {
     id: input.key,
     spawnedBy: spawnerId,
     harnessId: input.harnessId,
+    host,
     cwd: input.cwd,
     name: input.name,
     createdAt: now,
@@ -90,11 +96,12 @@ function holdSpawned(directory: OrchDir, agentId: string, holder: string | null,
 }
 
 /** Every environment axis a spawn states, each on its own interval table:
- *  plexer, handle, process, space, tuning, worktree. */
-function writeEnvironment(directory: OrchDir, agentId: string, now: number, host: HostId, input: SpawnRegistration): void {
-  if (input.backendId !== undefined) setAgentPlexer(directory, agentId, input.backendId);
-  if (input.handle !== undefined) setHandle(directory, agentId, now, input.handle);
-  recordProcess(directory, agentId, now, { host, pid: input.process.pid, startToken: input.process.startToken });
+ *  plexer, handle, process, space, tuning, worktree. The agent runs here, so it has all of them. */
+function writeEnvironment(directory: OrchDir, agent: HereAgent, now: number, input: SpawnRegistration): void {
+  const agentId = agent.id;
+  if (input.backendId !== undefined) setAgentPlexer(directory, agent, input.backendId);
+  if (input.handle !== undefined) setHandle(directory, agent, now, input.handle);
+  recordProcess(directory, agent, now, { pid: input.process.pid, startToken: input.process.startToken });
   // The space is an axis in its own right, on its own timeline: an agent can be
   // moved between spaces without touching the plexer it sits in, and neither is
   // part of the identity that named it. Writing the plexer here and leaving the
@@ -105,7 +112,7 @@ function writeEnvironment(directory: OrchDir, agentId: string, now: number, host
   // `model` recorded NULL for every spawn, because the launch hands over the bare
   // id — so the row said the fleet ran at no effort while every pin said `high`.
   setTuning(directory, agentId, now, { model: input.model, thinking: input.thinking });
-  if (input.worktree) setWorktree(directory, agentId, input.worktree);
+  if (input.worktree) setWorktree(directory, agent, input.worktree);
 }
 
 /** A7 — a space is the user's to create; a spawn into an unknown one is refused

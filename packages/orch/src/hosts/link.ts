@@ -490,9 +490,10 @@ class HostLink {
     if (this.pingTimer !== null) clearInterval(this.pingTimer);
     this.pingTimer = null;
     const now = this.now();
-    const wasUp = this.state.kind === "up";
-    if (wasUp) {
-      closeHostLink(this.deps.orchDir, this.state.greeting.host.id, now);
+    const was = this.state;
+    const wasUp = was.kind === "up";
+    if (was.kind === "up") {
+      closeHostLink(this.deps.orchDir, was.greeting.host.id, now);
       this.deps.logger.warn("host.link-down", { host: this.name, reason });
     }
     this.state = { kind: "down", reason, at: now };

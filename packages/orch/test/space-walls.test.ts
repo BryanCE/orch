@@ -1,4 +1,8 @@
 import { hostIdentity } from "../src/hosts/identity.ts";
+import { registerHostedAgent } from "../src/store/spawn-registration.ts";
+import { mintAgentId } from "../src/shared/agent-id.ts";
+import { testHost } from "./helpers/host.ts";
+import { seedOrch } from "./helpers/agent.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { entitySpace, scopeEntitiesToSpaceFor } from "../src/entities/space.ts";
 import { checkWall, spaceOf } from "../src/policy/space.ts";
@@ -99,5 +103,17 @@ describe("space wall writes", () => {
 
   test("allows unplaced targets", () => {
     expect(checkWall(orchDir, AGENTS.w1herdr.id, "legacy-target", { crossSpace: false })).toEqual({ allowed: true });
+  });
+});
+
+describe("the repo-root wall and other hosts", () => {
+  test("an agent on another host is never walled off by a path on this machine's disk", () => {
+    const orchDir = tempOrchDir("orch-wall-far-");
+    const caller = mintAgentId();
+    seedOrch(orchDir, caller);
+    const far = mintAgentId();
+    registerHostedAgent(orchDir, { key: far, harnessId: "pi", cwd: "/mnt/c/dev/elsewhere", name: "far", model: "m", spawner: caller, host: testHost("far-host-id", "far-machine") });
+    expect(checkWall(orchDir, caller, far, { crossSpace: false })).toEqual({ allowed: true });
+    removeTempDir(orchDir);
   });
 });

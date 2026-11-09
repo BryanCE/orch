@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
 import { repositoryRootOf } from "../worktrees/repository.ts";
 import { agentView } from "../store/agent-view.ts";
+import { agentLocation } from "../store/interval-rows.ts";
+import { hereAgentIfAny } from "../process-place.ts";
 import { sameSpace } from "../shared/space.ts";
 import type { WallDecision } from "../types/policy.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -36,9 +38,14 @@ function repoRootOf(cwd: string | null | undefined): string | null {
   return repositoryRootOf(cwd) ?? resolve(cwd);
 }
 
+/** The repository an agent works in, read on this machine's disk. An agent on another host
+ *  works in a directory on that host's disk, which this one cannot read or compare, so it
+ *  has no repo root here and the repo-root wall does not divide it from anyone. */
 function repoRootFor(orchDir: OrchDir, key: string | null | undefined): string | null {
   if (key === null || key === undefined) return null;
-  return repoRootOf(agentView(orchDir, key)?.environment.cwd);
+  const here = hereAgentIfAny(orchDir, key);
+  if (here === null) return null;
+  return repoRootOf(agentLocation(orchDir, here.id)?.cwd);
 }
 
 /** Decide whether a caller may cross the space wall. */

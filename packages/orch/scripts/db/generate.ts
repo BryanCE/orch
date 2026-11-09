@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -26,6 +26,11 @@ const require = createRequire(import.meta.url);
 const DRIZZLE_KIT_BIN = join(dirname(require.resolve("drizzle-kit")), "bin.cjs");
 const isDryRun = process.argv.includes("--dry-run");
 const fromScratch = process.argv.includes("--from-scratch");
+/** drizzle-kit's answers to the rename-or-create questions of the pending schema change. Whoever
+ *  renames a column writes them here with the schema edit; a successful generate consumes the
+ *  file, so `bun db:gen` never stops to ask. */
+const PENDING_HINTS = join(import.meta.dirname, "pending-hints.json");
+const hints = existsSync(PENDING_HINTS) ? ["--hints", readFileSync(PENDING_HINTS, "utf8").trim()] : [];
 
 function report(line: string): void {
   process.stdout.write(`${line}\n`);
@@ -73,7 +78,8 @@ function run(step: string, argv: readonly string[]): void {
 
 // Tables only. The views and triggers drizzle-kit cannot build are created at
 // store open from the generated migrations, so nothing post-processes what it wrote.
-run("drizzle-kit generate", [process.execPath, DRIZZLE_KIT_BIN, "generate"]);
+run("drizzle-kit generate", [process.execPath, DRIZZLE_KIT_BIN, "generate", ...hints]);
+if (hints.length > 0) rmSync(PENDING_HINTS);
 
 const added = fromScratch ? existingMigrations() : existingMigrations().filter((name) => !previous.includes(name));
 report("");

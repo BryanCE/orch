@@ -50,6 +50,12 @@ export type SignalOutcome = (typeof SIGNAL_OUTCOMES)[number];
 export const HOST_LINK_STATES = ["idle", "connecting", "up", "down"] as const;
 export type HostLinkStateKind = (typeof HOST_LINK_STATES)[number];
 
+/** A host whose link is down, as a status row reports it: when it last answered, null when
+ *  orch never reached it. */
+export interface HostOffline {
+  readonly lastSeen: number | null;
+}
+
 /** One configured host's link, as orchd reports it. */
 export interface HostLinkView {
   readonly name: string;

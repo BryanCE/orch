@@ -241,7 +241,7 @@ export const BACKEND_KIND_MAP_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>
 export const PLEXER_ID_SET_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
     "src/types/backend.ts",
-    new Set(['export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless"] as const;']),
+    new Set(['export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless", "held"] as const;']),
   ],
 ]);
 

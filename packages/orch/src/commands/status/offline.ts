@@ -9,7 +9,11 @@ import { loadPresence, spawnedRecords } from "../../presence/store.ts";
 import { selfId, spaceOfAgent } from "../../identity/self.ts";
 import { callerKind } from "../../policy/caller.ts";
 import { currentProcesses, type StoredProcess } from "../../store/interval-rows.ts";
-import { hostById } from "../../store/agent-rows.ts";
+import { agentHostIndex, hostById } from "../../store/agent-rows.ts";
+import { hostOffline, linkedHosts } from "../../store/host-rows.ts";
+import { placeProcess } from "../../process-place.ts";
+import type { HostId } from "../../types/host.ts";
+import type { LinkedHost } from "../../types/process.ts";
 import { fleetNames, statusRowFromEntity, type RowProcess } from "./rows.ts";
 import type { CallerScope } from "./options.ts";
 import type { OrchSettings } from "../../types/settings.ts";
@@ -33,14 +37,24 @@ interface FleetStatusOptions {
   onPhase?: (phase: string) => void;
 }
 
-/** Each agent row's open process, read once on the first row that has one, so a fleet with no rows opens no store. */
+/** Each agent row's open process, read once on the first row that has one, so a fleet with no rows opens no store.
+ *  An agent another host runs for this orchd has no process here: it is placed by the host it
+ *  runs on. Either on another host carries whether that host's link is down. */
 function processLookup(directory: OrchDir, views: ReadonlyMap<string, AgentView>): (agentId: string) => RowProcess | undefined {
   let processes: ReadonlyMap<string, StoredProcess> | undefined;
+  let hosted: ReadonlyMap<string, HostId> | undefined;
+  let linked: ReadonlyMap<HostId, LinkedHost> | undefined;
   return (agentId) => {
     if (!views.has(agentId)) return undefined;
+    hosted ??= agentHostIndex(directory);
+    const runsOn = hosted.get(agentId);
+    if (runsOn !== undefined) return { pid: null, host: hostById(directory, runsOn)?.name, offline: hostOffline(directory, runsOn) };
     processes ??= currentProcesses(directory);
     const process = processes.get(agentId);
-    return process && { pid: process.pid, host: hostById(directory, process.host)?.name };
+    if (process === undefined) return undefined;
+    linked ??= linkedHosts(directory);
+    const far = placeProcess(directory, process, linked).kind !== "local";
+    return { pid: process.pid, host: hostById(directory, process.host)?.name, offline: far ? hostOffline(directory, process.host) : null };
   };
 }
 

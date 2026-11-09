@@ -31,6 +31,6 @@ starts that host's orchd if it is down and pipes the link into it.
 
 While a host's link is up, agents run there for this machine: `orch spawn <name> --host work --dir <path there> --prompt "<task>"`. That host's orchd starts the agent headless, runs it and keeps its records and logs; the agent reports to that orchd. It shows in `orch status` here, and you close it from here.
 
-Whether such an agent is alive is asked over the link. When the link is down, orch does not know, so the agent shows as `unknown`, never as exited: nothing is reaped, closed or handed to another agent until the host answers again.
+This machine keeps only a reference to such an agent: its id, who spawned it, and the host it runs on. Its state comes from the events that host's orchd sends over the link, and it ends here when that host says it closed or exited. When the link is down, orch does not know, so the agent shows as `unknown`, never as exited: nothing is reaped, closed or handed to another agent until the host answers again.
 
 An agent's own `ssh`, `scp`, `sftp` and `rsync` wait for your `orch grant` by default.

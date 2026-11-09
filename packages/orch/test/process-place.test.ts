@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { forgetRemoteLiveness, placeProcess, processLiveness, recordRemoteLiveness } from "../src/process-place.ts";
+import { hostedAgentLiveness, placeProcess, processLiveness, recordedProcessIsLive } from "../src/process-place.ts";
 import { localProcessOf } from "../src/local-process.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { bindHostName } from "../src/store/host-rows.ts";
+import { bindHostName, closeHostLink, openHostLink } from "../src/store/host-rows.ts";
+import { registerHostedAgent } from "../src/store/spawn-registration.ts";
+import { currentProcess } from "../src/store/interval-rows.ts";
+import { endAgent, hostOfAgent } from "../src/store/agent-rows.ts";
+import { presenceEntry } from "../src/presence/store.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { hosted, testHost } from "./helpers/host.ts";
@@ -13,7 +17,6 @@ const STRANGER = testHost("stranger-host-id", "stranger");
 const dirs: OrchDir[] = [];
 
 afterEach(() => {
-  forgetRemoteLiveness(FAR.id);
   closeAllStores();
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
@@ -45,18 +48,42 @@ describe("a process on a linked host", () => {
     expect(processLiveness(orchDir, far)).toBe("unknown");
   });
 
-  test("is what the host last answered", () => {
+});
+
+describe("an agent this orchd asked a linked host to run", () => {
+  const KEY = "farag00001";
+  function withFarAgent(): OrchDir {
     const orchDir = linkedDir();
-    recordRemoteLiveness(FAR.id, [{ process: hosted(4242, "t", FAR.id), alive: true }, { process: hosted(4343, null, FAR.id), alive: false }]);
-    expect(processLiveness(orchDir, hosted(4242, "t", FAR.id))).toBe("alive");
-    expect(processLiveness(orchDir, hosted(4343, null, FAR.id))).toBe("dead");
+    registerHostedAgent(orchDir, { key: KEY, harnessId: "pi", cwd: "/home/far", name: "far-agent", model: "m", spawner: null, host: FAR });
+    return orchDir;
+  }
+
+  test("leaves a reference here and no process row", () => {
+    const orchDir = withFarAgent();
+    expect(hostOfAgent(orchDir, KEY)).toBe(FAR.id);
+    expect(currentProcess(orchDir, KEY)).toBeUndefined();
   });
 
-  test("is unknown again once the link drops", () => {
-    const orchDir = linkedDir();
-    recordRemoteLiveness(FAR.id, [{ process: hosted(4242, "t", FAR.id), alive: false }]);
-    forgetRemoteLiveness(FAR.id);
-    expect(processLiveness(orchDir, hosted(4242, "t", FAR.id))).toBe("unknown");
+  test("reads unknown while its link is down, never dead", () => {
+    const orchDir = withFarAgent();
+    expect(hostedAgentLiveness(orchDir, FAR.id)).toBe("unknown");
+    expect(presenceEntry(orchDir, KEY)?.liveness).toBe("unknown");
+    expect(recordedProcessIsLive(orchDir, KEY)).toBe(true);
+  });
+
+  test("reads alive while its link is up, and unknown once it drops", () => {
+    const orchDir = withFarAgent();
+    openHostLink(orchDir, FAR.id, Date.now());
+    expect(hostedAgentLiveness(orchDir, FAR.id)).toBe("alive");
+    closeHostLink(orchDir, FAR.id, Date.now());
+    expect(hostedAgentLiveness(orchDir, FAR.id)).toBe("unknown");
+  });
+
+  test("is dead only once its ending is recorded", () => {
+    const orchDir = withFarAgent();
+    endAgent(orchDir, KEY, Date.now(), null);
+    expect(recordedProcessIsLive(orchDir, KEY)).toBe(false);
+    expect(presenceEntry(orchDir, KEY)?.liveness).toBe("dead");
   });
 });
 

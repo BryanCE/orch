@@ -1,12 +1,14 @@
 import type { OrchDir } from "../../types/core.ts";
-import { agentIdByProcess, claimAgent, getOrCreateSessionAgent, liveProcessPids } from "../../store/agent-rows.ts";
+import { agentById, agentIdByProcess, claimAgent, getOrCreateSessionAgent } from "../../store/agent-rows.ts";
+import { enclosingAgent } from "../../identity/ancestry.ts";
+import { OPERATOR_HARNESS_ID } from "../../identity/operator.ts";
 import { orphanAgents } from "../../policy/orphan.ts";
-import { ancestorPids, freshStartToken, processStartToken } from "../../process-identity.ts";
+import { freshStartToken } from "../../process-identity.ts";
 import { placeProcess, processIsLiveNow } from "../../process-place.ts";
 import { versionInRange } from "../../backends/versions.ts";
 import { getBackend } from "../../backends/registry.ts";
 import type { HostIdentity } from "../../types/host.ts";
-import type { HostedProcess, LocalProcess, ProcessPlace } from "../../types/process.ts";
+import type { HostedProcess, ProcessPlace } from "../../types/process.ts";
 import type { Logger } from "../../types/core.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse } from "../../types/daemon.ts";
 import type { ParamsOf, SessionClaim } from "../client/protocol.ts";
@@ -15,8 +17,6 @@ import { RpcError } from "../client/wire.ts";
 /** A caller's process, proven where it runs, with its start token. */
 interface VerifiedProcess {
   readonly process: HostedProcess & { readonly startToken: string };
-  /** The process as the OS here sees it; null for a caller on a linked host. */
-  readonly local: LocalProcess | null;
 }
 
 /** The caller's process, verified where it runs: by the OS here, or for a caller on a linked
@@ -28,13 +28,13 @@ async function verifiedSessionProcess(orchDir: OrchDir, claim: SessionClaim): Pr
     case "local": {
       const startToken = freshStartToken(place.process.pid);
       if (!startToken) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration could not verify the caller's session process");
-      return { process: { host: claim.host.id, pid: place.process.pid, startToken }, local: place.process };
+      return { process: { host: claim.host.id, pid: place.process.pid, startToken } };
     }
     case "linked": {
       const startToken = place.process.startToken;
       if (startToken === null) throw new RpcError("IDENTITY_UNAVAILABLE", `a caller on host ${place.host.name} must state its process's start token`);
       if (!await processIsLiveNow(place)) throw new RpcError("IDENTITY_UNAVAILABLE", `host ${place.host.name} did not confirm the caller's process ${place.process.pid}`);
-      return { process: { ...place.process, startToken }, local: null };
+      return { process: { ...place.process, startToken } };
     }
     case "unreachable":
       throw new RpcError("IDENTITY_UNAVAILABLE", `host ${claim.host.name} is neither this machine nor a linked host, so its process ${claim.pid} cannot be verified`);
@@ -76,33 +76,28 @@ async function callerFacts<C extends SessionClaim>(orchDir: OrchDir, claim: C, d
   return { claim, verified, harness, cwd, environment: claimedEnvironment(claim) };
 }
 
-/** The nearest ancestor process with a live row: the terminal a harness was typed into.
- *  Only the OS here can walk a process's ancestors, so a caller on a linked host has none. */
-function startedInside(orchDir: OrchDir, verified: VerifiedProcess): string | null {
-  if (verified.local === null) return null;
-  const host = verified.process.host;
-  const rowed = liveProcessPids(orchDir, host);
-  rowed.delete(verified.local.pid);
-  if (rowed.size === 0) return null;
-  for (const ancestor of ancestorPids(verified.local.pid)) {
-    if (!rowed.has(ancestor)) continue;
-    const startToken = processStartToken(ancestor);
-    const id = startToken === undefined ? null : agentIdByProcess(orchDir, { host, pid: ancestor, startToken });
-    if (id !== null) return id;
-  }
-  return null;
+/** The registration answer for a caller that resolved to the agent it was started inside. */
+function enclosingIdentity(orchDir: OrchDir, id: string): RegisterSessionResponse {
+  const row = agentById(orchDir, id);
+  if (row === null) throw new RpcError("IDENTITY_UNAVAILABLE", `agent ${id} has no row`);
+  return { id, label: row.label ?? row.name, kind: "session", unleased: [] };
 }
 
 export async function registerSession(orchDir: OrchDir, params: ParamsOf<"register-session">, daemonToken: string, logger?: Logger): Promise<RegisterSessionResponse> {
   const facts = await callerFacts(orchDir, params, daemonToken);
   const { process } = facts.verified;
   const alreadyRegistered = agentIdByProcess(orchDir, process) !== null;
+  // The live agent this process was started inside: the terminal a harness was typed into.
+  const startedInside = alreadyRegistered ? null : enclosingAgent(orchDir, process);
+  // A process with no harness marker inside a live agent's tree IS that agent, the way a
+  // launched agent's own calls resolve to it. It gets no row, and never the human's.
+  if (startedInside !== null && facts.harness === OPERATOR_HARNESS_ID) return enclosingIdentity(orchDir, startedInside);
   const identity = getOrCreateSessionAgent(orchDir, {
     pid: process.pid, startToken: process.startToken, sessionToken: facts.environment.sessionToken,
     harnessId: facts.harness, cwd: facts.cwd, label: facts.environment.label || `${facts.harness} session ${process.pid}`,
     host: facts.environment.host,
     plexerId: facts.environment.plexerId, plexerVersion: facts.environment.plexerVersion, handle: facts.environment.handle,
-    space: facts.environment.space, spawnedBy: alreadyRegistered ? null : startedInside(orchDir, facts.verified), now: Date.now(),
+    space: facts.environment.space, spawnedBy: startedInside, now: Date.now(),
   });
   if (identity.repointed) logger?.info("session.repointed", { agentId: identity.id, harnessId: facts.harness });
   const registrationWarning = plexerRegistrationWarning(facts.environment.plexerId, facts.environment.plexerVersion);

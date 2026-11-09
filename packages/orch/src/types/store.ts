@@ -269,6 +269,15 @@ export interface SpawnRegistration {
   now?: number;
 }
 
+/**
+ * The reference a spawning orchd keeps for an agent it asked a linked host to run.
+ *
+ * The agent's process, environment, logs and runs live on `host`, in that host's
+ * store. Here it is the agent row, its spawner's lease, the tuning it was launched
+ * with, and the host it runs on: no process, no handle, no plexer.
+ */
+export type HostedSpawnRegistration = Pick<SpawnRegistration, "key" | "harnessId" | "cwd" | "name" | "model" | "thinking" | "spawner" | "host" | "now">;
+
 export type LeaseReleaseReason = "released" | "handoff" | "adopted" | "expired";
 
 export interface Lease {

@@ -1,11 +1,13 @@
 // Where a recorded process runs, decided once. `placeProcess` is the only code that turns a
 // `HostedProcess` into something orch can act on: a `LocalProcess` the OS here answers for,
 // a process on a linked host that only its link may be asked about, or a process on a host
-// orch has no way to reach. Liveness follows from the place: the OS here, the last answer
-// the link gave, or unknown, which is never dead.
+// orch has no way to reach. Liveness follows from the place: the OS here answers for its own
+// processes; anywhere else it is unknown, which is never dead. An agent this orchd asked
+// another host to run has no process here at all: its liveness is its host's link and its ending.
 import { localProcessOf } from "./local-process.ts";
 import { recordedInstanceIsLive } from "./process-identity.ts";
-import { linkedHosts } from "./store/host-rows.ts";
+import { hostOffline, linkedHosts } from "./store/host-rows.ts";
+import { agentById, hostOfAgent } from "./store/agent-rows.ts";
 import { currentProcess } from "./store/interval-rows.ts";
 import type { OrchDir } from "./types/core.ts";
 import type { HostId } from "./types/host.ts";
@@ -22,34 +24,13 @@ export function placeProcess(orchDir: OrchDir, process: HostedProcess, linked: R
   return { kind: "unreachable", process };
 }
 
-function instanceKey(pid: number, startToken: string | null): string {
-  return `${pid}:${startToken ?? ""}`;
-}
-
-/** The last answer each linked host gave, by process instance. A host with no entry has not
- *  answered since its link came up. */
-const remoteAnswers = new Map<HostId, ReadonlyMap<string, boolean>>();
-
-/** A linked host answered for these processes. Replaces what it said before. */
-export function recordRemoteLiveness(host: HostId, answers: readonly { readonly process: HostedProcess; readonly alive: boolean }[]): void {
-  remoteAnswers.set(host, new Map(answers.map(({ process, alive }) => [instanceKey(process.pid, process.startToken), alive])));
-}
-
-/** A linked host's link dropped: every process there is unknown until it answers again. */
-export function forgetRemoteLiveness(host: HostId): void {
-  remoteAnswers.delete(host);
-}
-
-/** Whether a placed process is alive. */
+/** Whether a placed process is alive. Only the OS here can say; a process anywhere else is
+ *  unknown, never dead. */
 function livenessAt(place: ProcessPlace): Liveness {
   switch (place.kind) {
     case "local":
       return recordedInstanceIsLive(place.process) ? "alive" : "dead";
-    case "linked": {
-      const answer = remoteAnswers.get(place.host.id)?.get(instanceKey(place.process.pid, place.process.startToken));
-      if (answer === undefined) return "unknown";
-      return answer ? "alive" : "dead";
-    }
+    case "linked":
     case "unreachable":
       return "unknown";
     default: {
@@ -64,6 +45,13 @@ export function processLiveness(orchDir: OrchDir, process: HostedProcess, linked
   return livenessAt(placeProcess(orchDir, process, linked));
 }
 
+/** Whether an agent another host runs for this orchd is alive, read from here: alive while
+ *  that host's link is up, its state then the latest its events said; unknown while the link
+ *  is down. Never dead: only its ending says it is gone. */
+export function hostedAgentLiveness(orchDir: OrchDir, host: HostId): Liveness {
+  return hostOffline(orchDir, host) === null ? "alive" : "unknown";
+}
+
 /**
  * Whether the agent's OPEN process interval still names a live process.
  *
@@ -74,9 +62,11 @@ export function processLiveness(orchDir: OrchDir, process: HostedProcess, linked
  *
  * The recorded start token is checked against the live process, so a pid reused
  * by an unrelated process reads as DEAD. A process on a linked host orch cannot ask
- * about right now counts as live: unknown is never dead.
+ * about right now counts as live: unknown is never dead. An agent another host runs
+ * for this orchd has no process here and is live until its ending is recorded.
  */
 export function recordedProcessIsLive(orchDir: OrchDir, agentId: string): boolean {
+  if (hostOfAgent(orchDir, agentId) !== null) return agentById(orchDir, agentId)?.ending === null;
   const row = currentProcess(orchDir, agentId);
   return row !== undefined && processLiveness(orchDir, row) !== "dead";
 }

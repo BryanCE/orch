@@ -1,7 +1,7 @@
 import { registerNotifier } from "../../notify/sinks.ts";
 import { createHerdrNotifier } from "./notify.ts";
 import { callerPaneHandle, insideHerdr } from "./detect.ts";
-import { binaryOnPath, errorMessage, isRecord } from "../../util.ts";
+import { binaryOnPath, errorMessage, isRecord, shellLine } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { environmentStamp } from "../../agent/environment.ts";
 
@@ -21,7 +21,7 @@ import { isAgentId } from "../identity.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import { plexerExecOptions } from "../tool-exec.ts";
 import { PLEXER_TIMEOUTS } from "../../config.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CaptureRole, CommandPlacementRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { OrchDir } from "../../types/core.ts";
 import type { HerdrHandle, HerdrPane, HerdrTab } from "../../types/plexer.ts";
@@ -184,6 +184,22 @@ export class HerdrBackend implements Backend<HerdrHandle> {
       return { handle: this.openPane(workspace, { cwd: request.cwd, env: request.env, split: request.split }, targetHandle) };
     },
     close: (handle) => { this.cli.ack(["pane", "close", handle]); },
+  };
+  /** herdr opens no pane with a command of its own, and its `agent start` runs only
+   *  herdr's executable for a harness kind, so the command is typed into the
+   *  pane's shell. A pane this opened is closed again when that fails. */
+  readonly commandPlacement: CommandPlacementRole<HerdrHandle> = {
+    open: (request) => {
+      const adopted = typeof request.intoHandle === "string" ? request.intoHandle : null;
+      const handle = adopted ?? this.placement.open(request).handle;
+      try {
+        this.cli.ack(["pane", "run", handle, shellLine(request.command)], undefined, HERDR_INPUT_RETRY);
+      } catch (error: unknown) {
+        if (adopted === null) this.placement.close(handle);
+        throw error;
+      }
+      return { handle };
+    },
   };
   readonly placementInventory: PlacementInventoryRole<HerdrHandle> = {
     current: () => {

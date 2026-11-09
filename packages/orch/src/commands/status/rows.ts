@@ -14,6 +14,7 @@ import { type PresenceEntry, notDead } from "../../types/presence.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { LeaseStatusPayload, StatusRow } from "../../types/command.ts";
 import type { FleetNames } from "../../types/daemon.ts";
+import type { HostOffline } from "../../types/host.ts";
 import type { Entity } from "../../types/core.ts";
 
 interface Provenance {
@@ -144,19 +145,23 @@ export function fleetNames(rows: readonly StatusRow[], views: ReadonlyMap<string
   return { agents, spaces: spaceNames };
 }
 
-/** The stored process an agent row runs as, and the host it runs on. */
+/** The stored process an agent row runs as, the host it runs on, and whether that host is
+ *  another machine whose link is down. */
 export interface RowProcess {
-  readonly pid: number;
+  /** Null for an agent another host runs: its pid is that host's. */
+  readonly pid: number | null;
   readonly host: string | undefined;
+  readonly offline: HostOffline | null;
 }
 
 /** What orch stored when it made the row: its kind, its creation instant, and the process it runs as. */
-function storedFacts(agent: AgentView | undefined, process: RowProcess | undefined): Pick<StatusRow, "kind" | "createdAt" | "pid" | "host"> {
+function storedFacts(agent: AgentView | undefined, process: RowProcess | undefined): Pick<StatusRow, "kind" | "createdAt" | "pid" | "host" | "hostOffline"> {
   return {
     kind: agent?.kind ?? null,
     createdAt: agent?.createdAt ?? null,
     pid: process?.pid ?? null,
     ...(process?.host === undefined ? {} : { host: process.host }),
+    ...(process?.offline == null ? {} : { hostOffline: process.offline }),
   };
 }
 

@@ -205,6 +205,14 @@ export const agentEndings = sqliteTable("agent_endings", {
   closedBy: text("closed_by").references(() => agents.id),
 });
 
+/** Where an agent this orchd asked another host to run runs: that host. The agent's rows,
+ *  process, logs and runs live there; this row is the reference, kept after the agent ends.
+ *  Its spawner and creation instant are on `agents`. No row: the agent runs here. */
+export const agentHosts = sqliteTable("agent_hosts", {
+  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  hostId: text("host_id").$type<HostId>().notNull().references(() => hosts.id),
+}, (table) => [index("agent_hosts_by_host").on(table.hostId)]);
+
 /** IMMUTABLE provenance for an agent another host's orchd asked this one to run, and for
  *  everything that agent spawns here: the host that asked, and the agent there whose spawn
  *  started it. Neither lives in this store, so neither is a reference. No row: asked for

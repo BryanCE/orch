@@ -8,6 +8,7 @@ import type { CommandSpec, FlagSpec, Invocation } from "../cli/spec.ts";
 const ALL: FlagSpec = { name: "--all", arity: "none", help: "Every agent you may act on, instead of named targets." };
 const STEAL: FlagSpec = { name: "--steal", arity: "none", help: "Act on an agent a live foreign holder leases." };
 const STEAL_LEASE: FlagSpec = { ...STEAL, help: "Operator-only. Take the lease from a live holder." };
+const ENDS_HELD: FlagSpec = { name: "--yes", aliases: ["-y"], arity: "none", help: "Go ahead even though it ends every agent whose PTY orchd holds." };
 const SPACE: FlagSpec = { name: "--space", arity: "one", placeholder: "<space>", help: "Only that orch space." };
 const REACH_SPACE: FlagSpec = { ...SPACE, help: "Resolve the target in that space. Operator-only outside your own." };
 const DRIVE: readonly FlagSpec[] = [STEAL_LEASE, REACH_SPACE];
@@ -126,6 +127,7 @@ const COLLECT: readonly CommandSpec[] = [
   },
   { name: "tail", section: "collect", args: "<target>", summary: "Last session entries.", flags: [{ ...COUNT, help: "How many entries. Default: the counts.tail setting." }] },
   { name: "peek", section: "collect", args: "<target>", summary: "What is on the pane screen now.", flags: [{ ...COUNT, help: "How many screen lines. Default: the counts.peek setting." }] },
+  { name: "attach", section: "collect", args: "<target>", summary: "Watch and type into an agent's live screen, wherever it runs. The detach key leaves it running.", flags: [] },
   { name: "session", section: "collect", args: "<target>", summary: "Session path and stats.", flags: [] },
 ];
 
@@ -198,7 +200,7 @@ const AGENTS: readonly CommandSpec[] = [
       { name: "--tab", arity: "one", placeholder: "<tab>", help: "The tab label. Default: a random label like elk-glacier-01." },
       { ...MODEL, arity: "many", help: "The model. One, or one per name." },
       DIR, CMD, THINKING,
-      { name: "--host", arity: "one", placeholder: "<host>", help: "Run the agents on this host from settings.hosts, headless, in --dir there." },
+      { name: "--host", arity: "one", placeholder: "<host>", help: "Run the agents on this host from settings.hosts, in --dir there; inside a plexer a pane here shows each one." },
       { ...HARNESS, arity: "many", help: "Harness id: pi, omp, claude, codex. One, or one per name." },
       PLEXER,
       { ...SPACE, help: "The orch space the agents join." },
@@ -323,9 +325,9 @@ const MAINTENANCE: readonly CommandSpec[] = [
         summary: "Spawn orchd detached.",
         flags: [{ name: "--fg", aliases: ["--foreground"], arity: "none", help: "Keep it attached to this terminal." }],
       },
-      { name: "stop", summary: "SIGTERM the daemon that holds this ORCH_DIR's lock.", flags: [] },
-      { name: "status", summary: "pid, uptime, code hash, transport, and subsystem health.", flags: [] },
-      { name: "reload", summary: "Re-exec the daemon on the freshly installed code.", flags: [] },
+      { name: "stop", summary: "SIGTERM the daemon that holds this ORCH_DIR's lock. Ends every agent it holds.", flags: [ENDS_HELD] },
+      { name: "status", summary: "pid, uptime, code hash, transport, held agents, and subsystem health.", flags: [] },
+      { name: "reload", summary: "Re-exec the daemon on the freshly installed code. Ends every agent it holds.", flags: [ENDS_HELD] },
     ],
   },
   {

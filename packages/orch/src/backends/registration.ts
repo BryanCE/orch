@@ -1,0 +1,35 @@
+import type { HostIdentity } from "../types/host.ts";
+import type { SpawnRegistration } from "../types/store.ts";
+import type { BackendId, BackendSpawnOpts } from "../types/backend.ts";
+import type { ProcessInstance } from "../types/process.ts";
+
+/** What one launch started: its handle as recorded, and its process. */
+export interface LaunchedAgent {
+  readonly handle: string;
+  readonly process: ProcessInstance;
+}
+
+/** The record of an agent no plexer places, launched on this host. `backend` is the
+ *  environment that runs it; `host` is this host. */
+export function unplacedRegistration(backend: BackendId, harnessId: string, key: string, opts: BackendSpawnOpts, launched: LaunchedAgent, host: HostIdentity): SpawnRegistration {
+  return {
+    key,
+    harnessId,
+    backendId: backend,
+    // Placed nowhere, yet still addressable: the handle is a concrete address for the
+    // process just started, and stating it here is what lets `list`/`close`/`handleFor`
+    // reach an agent with no screen without a SECOND write behind the registration.
+    placed: false,
+    handle: launched.handle,
+    cwd: opts.cwd ?? process.cwd(),
+    name: opts.name ?? key,
+    model: opts.model ?? "",
+    thinking: opts.thinking,
+    spawner: opts.spawner ?? null,
+    origin: opts.origin,
+    worktree: opts.worktree,
+    process: launched.process,
+    host,
+    now: Date.now(),
+  };
+}

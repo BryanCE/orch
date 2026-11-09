@@ -3,7 +3,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction, type Orm } from "./connection.ts";
 import { ensureHost } from "./agent-rows.ts";
 import { hostEventCursors, hostLinks, hostNames } from "../db/schema.ts";
-import type { HostId, HostIdentity } from "../types/host.ts";
+import type { HostId, HostIdentity, HostOffline } from "../types/host.ts";
 import type { LinkedHost } from "../types/process.ts";
 
 /**
@@ -106,6 +106,13 @@ export function latestHostLink(orchDir: OrchDir, hostId: HostId): HostLinkRecord
   const row = orm(orchDir).select({ since: hostLinks.since, until: hostLinks.until, lastSeen: hostLinks.lastSeen }).from(hostLinks)
     .where(eq(hostLinks.hostId, hostId)).orderBy(desc(hostLinks.since)).limit(1).get();
   return row ?? null;
+}
+
+/** Whether a host's link is down, with when the host was last seen; null while its link is up. */
+export function hostOffline(orchDir: OrchDir, hostId: HostId): HostOffline | null {
+  const link = latestHostLink(orchDir, hostId);
+  if (link === null) return { lastSeen: null };
+  return link.until === null ? null : { lastSeen: link.lastSeen };
 }
 
 /** The hosts orch reaches over a link, by id: every host a configured name is bound to. */

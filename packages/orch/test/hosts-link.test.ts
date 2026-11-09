@@ -16,6 +16,17 @@ import type { LinkedHost } from "../src/types/process.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { testHost, hosted } from "./helpers/host.ts";
 import { hostIdFrom, hostIdentity } from "../src/host.ts";
+import { upsertRun } from "../src/store/run-rows.ts";
+import { drainWrites } from "../src/store/connection.ts";
+import { readAgentAnywhere } from "../src/daemon/server/handlers/host.ts";
+import { idleDaemonState } from "./helpers/daemon-state.ts";
+import type { CallerCredential } from "../src/types/core.ts";
+import type { DaemonState } from "../src/daemon/server/state.ts";
+import { dispatch } from "../src/daemon/server/handlers/write.ts";
+import { abortAnywhere, closeAnywhere } from "../src/daemon/server/handlers/drive.ts";
+import { selectOpenOutboxForTarget, selectOutboxMessage } from "../src/store/outbox-rows.ts";
+import { agentView } from "../src/store/agent-view.ts";
+import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 
 const dirs: OrchDir[] = [];
 /** Directories that are not this machine's orch dir: far hosts', and a stand-in orchd's. */
@@ -195,5 +206,96 @@ describe("events over a link", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(events.map(({ event }) => event.newState)).toEqual(["working", "idle", "done"]);
     expect(hostEventCursor(dirs[0]!, hostIdFrom("far-5"))).toBeGreaterThan(cursor ?? 0);
+  });
+});
+
+describe("reading an agent wherever it runs", () => {
+  test("an agent on a linked host is read from that host's store, and the answer names the host", async () => {
+    const far = await startFarOrchd(greeting("far-7"));
+    fars.push(far);
+    const orchDir = tempOrchDir("orch-agent-read-near-");
+    dirs.push(orchDir);
+    const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 500 } } });
+    const hosts = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn: far.spawner(), events: () => undefined });
+    links.push(hosts);
+    await hosts.link("box").connect();
+    const key = farAgent(far, { host: hostIdentity().id, spawner: null });
+    upsertRun(far.orchDir, { dispatchId: `run-${key}`, agentKey: key, state: "done", startedAt: Date.now(), result: "read over the link" });
+    drainWrites(far.orchDir);
+    registerSpawnedAgent(orchDir, {
+      key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null,
+      process: { pid: process.pid, startToken: `far-${key}` }, host: far.greeting.host,
+    });
+    const operator: CallerCredential = { launch: null, session: null, process: hosted(process.pid) };
+    const answer = await readAgentAnywhere({ ...idleDaemonState(services, orchDir), hosts }, { caller: operator, key, read: { kind: "result" } });
+    expect(answer).toEqual({ host: "box", reading: { kind: "result", lookup: { kind: "found", source: "presence", payload: "read over the link" } } });
+  });
+});
+
+/** This host's orchd, linked to `far` as the host named box, recording `key` as an agent it
+ *  asked `far` to run. */
+async function nearDriving(far: FarOrchd, key: string): Promise<{ orchDir: OrchDir; state: DaemonState }> {
+  const orchDir = tempOrchDir("orch-drive-near-");
+  dirs.push(orchDir);
+  const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 2_000 } } });
+  const hosts = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn: far.spawner(), events: () => undefined });
+  links.push(hosts);
+  await hosts.link("box").connect();
+  registerSpawnedAgent(orchDir, {
+    key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null,
+    process: { pid: process.pid, startToken: `far-${key}` }, host: far.greeting.host,
+  });
+  return { orchDir, state: { ...idleDaemonState(services, orchDir), hosts } };
+}
+
+describe("driving an agent wherever it runs", () => {
+  test("a dispatch to an agent on a linked host is delivered by that host's orchd, and nothing is queued here", async () => {
+    const far = await startFarOrchd(greeting("far-8"));
+    fars.push(far);
+    const key = farAgent(far, { host: hostIdentity().id, spawner: null });
+    const near = await nearDriving(far, key);
+    const answer = await dispatch(near.state, { target: key, text: "do the far thing" });
+    expect(answer.accepted).toBe(true);
+    expect(selectOutboxMessage(far.orchDir, answer.id)).toMatchObject({ target: key, payload: { action: "dispatch", text: "do the far thing" } });
+    expect(selectOutboxMessage(near.orchDir, answer.id)).toBeUndefined();
+  });
+
+  test("closing an agent on a linked host closes it there, then records the ending here", async () => {
+    const far = await startFarOrchd(greeting("far-9"));
+    fars.push(far);
+    const key = farAgent(far, { host: hostIdentity().id, spawner: null });
+    const near = await nearDriving(far, key);
+    expect(await closeAnywhere(near.state, { key })).toEqual({ ok: true });
+    expect(agentView(far.orchDir, key)?.endedAt).not.toBeNull();
+    expect(agentView(near.orchDir, key)?.endedAt).not.toBeNull();
+  });
+
+  test("abort reaches an agent on a linked host past a live foreign lease: kill verbs are never gated", async () => {
+    const far = await startFarOrchd(greeting("far-10"));
+    fars.push(far);
+    const key = farAgent(far, { host: hostIdentity().id, spawner: null });
+    const near = await nearDriving(far, key);
+    registerSpawnedAgent(near.orchDir, {
+      key: "foreign-orch", harnessId: "pi", placed: false, cwd: "/tmp", name: "foreign-orch", model: "openai/gpt-5.6", spawner: null,
+      process: { pid: process.pid, startToken: processStartToken(process.pid) ?? null }, host: hostIdentity(),
+    });
+    acquireLease(near.orchDir, key, "foreign-orch");
+    const aborted = await abortAnywhere(near.state, { target: key, actor: "someone-else" });
+    // The far agent is headless: no pane, so the far orchd answers why abort does not apply.
+    expect(aborted).toEqual({ outcome: "answer", reason: "no-pane", text: `${key} has no pane; abort does not apply.` });
+    expect(currentLease(near.orchDir, key)?.orchId).toBe("foreign-orch");
+  });
+
+  test("an agent on a host orch has no link to refuses a drive by name, and nothing is queued here", async () => {
+    const far = await startFarOrchd(greeting("far-11"));
+    fars.push(far);
+    const near = await nearDriving(far, farAgent(far, { host: hostIdentity().id, spawner: null }));
+    const key = mintAgentId();
+    registerSpawnedAgent(near.orchDir, {
+      key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null,
+      process: { pid: process.pid, startToken: `far-${key}` }, host: testHost("far-unlinked", "machine-unlinked"),
+    });
+    expect(await refusal(dispatch(near.state, { target: key, text: "anyone there" }))).toBe(`${key} runs on host machine-unlinked, which orch has no link to`);
+    expect(selectOpenOutboxForTarget(near.orchDir, key)).toEqual([]);
   });
 });

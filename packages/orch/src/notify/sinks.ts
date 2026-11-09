@@ -6,12 +6,11 @@ import { spawn, execFile } from "node:child_process";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
 import { packageRoot } from "../util.ts";
-import { hostOs } from "../host.ts";
+import { hostShell } from "../host.ts";
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { notificationText, payload } from "./format.ts";
 import { playDing, soundAvailable } from "./ding.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
-import type { HostOs } from "../types/host.ts";
 
 const registeredNotifiers = new Map<string, Notifier>();
 
@@ -103,17 +102,6 @@ async function deliverDesktop(event: NotifyEvent, titleChars: number): Promise<b
 export function commandAvailable(config: Record<string, unknown>): boolean {
   const command = stringArray(config.command);
   return !!command?.[0] && (command[0].includes(path.sep) ? filesystem.existsSync(command[0]) : commandOnPath(command[0]));
-}
-
-/** The single place the command sink knows an OS apart - `sh` is not a Windows program. */
-const HOST_SHELL: Record<HostOs, readonly [string, ...string[]]> = {
-  linux: ["sh", "-c"],
-  darwin: ["sh", "-c"],
-  windows: ["cmd.exe", "/d", "/s", "/c"],
-};
-
-export function hostShell(): readonly [string, ...string[]] {
-  return HOST_SHELL[hostOs()];
 }
 
 /** A configured command as argv. Delivery and doctor both normalize here. */

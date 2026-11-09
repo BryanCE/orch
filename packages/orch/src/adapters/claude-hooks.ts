@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { runtimeArgv, type OrchRuntime } from "../runtime.ts";
-import { shellQuote, toolDir } from "../util.ts";
+import { shellLine, toolDir } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
 
 // Claude's hook wire format lives here, in the claude adapter family (law #2:
@@ -46,5 +46,5 @@ export function claudeHookCommand(shim: string, event: string, runtime: OrchRunt
   // named in the hook payload to recover the last assistant message.
   const transcriptRoot = toolDir("CLAUDE_CONFIG_DIR", ".claude");
   const argv = runtimeArgv(runtime, shim, [event], { orchDir, readOnly: [transcriptRoot] });
-  return argv.map(shellQuote).join(" ");
+  return shellLine(argv);
 }

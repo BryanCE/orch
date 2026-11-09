@@ -12,14 +12,12 @@ import { LocalProcessRole, signalOtherProcess } from "../process.ts";
 import { agentViews } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { hostIdentity } from "../../host.ts";
-import type { HostIdentity } from "../../types/host.ts";
-import type { SpawnRegistration } from "../../types/store.ts";
+import { unplacedRegistration } from "../registration.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole, LocalProcess } from "../../types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
-import type { ProcessInstance } from "../../types/process.ts";
 
 const HEADLESS_BACKEND: BackendId = "headless";
 
@@ -121,6 +119,8 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   };
   readonly capture: CaptureRole = createBackendCaptureRole("headless", () => this.orchDir);
   readonly placement = null;
+  // A detached process opens no place a person can look at.
+  readonly commandPlacement = null;
   readonly placementInventory = null;
   readonly agentInput = null;
   readonly foreground: ForegroundRole<HeadlessHandle> | null = null;
@@ -163,7 +163,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** Start the agent and record it in this orch dir's store. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HeadlessHandle {
     const launched = this.launch(adapter, opts);
-    registerSpawnedAgent(orchDirectory(opts.orchDir), headlessRegistration(adapter.id, launched.handle.key, opts, { handle: JSON.stringify(launched.handle), process: launched.process }, hostIdentity()));
+    registerSpawnedAgent(orchDirectory(opts.orchDir), unplacedRegistration(HEADLESS_BACKEND, adapter.id, launched.handle.key, opts, { handle: JSON.stringify(launched.handle), process: launched.process }, hostIdentity()));
     return launched.handle;
   }
 
@@ -270,28 +270,3 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
 
 /** Shared headless backend instance for command wiring. */
 export const headlessBackend = new HeadlessBackend();
-
-/** The record of a headless agent: launched here, or on the host that launched it for this
- *  orchd. `launched` is its handle as recorded and its process; `host` is where that runs. */
-export function headlessRegistration(harnessId: string, key: string, opts: BackendSpawnOpts, launched: { readonly handle: string; readonly process: ProcessInstance }, host: HostIdentity): SpawnRegistration {
-  return {
-    key,
-    harnessId,
-    backendId: HEADLESS_BACKEND,
-    // Placed nowhere, yet still addressable: the handle is a concrete address for the
-    // process just started, and stating it here is what lets `list`/`close`/`handleFor`
-    // reach an agent with no screen without a SECOND write behind the registration.
-    placed: false,
-    handle: launched.handle,
-    cwd: opts.cwd ?? process.cwd(),
-    name: opts.name ?? key,
-    model: opts.model ?? "",
-    thinking: opts.thinking,
-    spawner: opts.spawner ?? null,
-    origin: opts.origin,
-    worktree: opts.worktree,
-    process: launched.process,
-    host,
-    now: Date.now(),
-  };
-}

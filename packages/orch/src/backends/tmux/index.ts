@@ -1,7 +1,7 @@
 import { createInteractiveCommand, homeLabel } from "../backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { isAgentId } from "../identity.ts";
-import { ARROW, binaryOnPath } from "../../util.ts";
+import { ARROW, binaryOnPath, shellLine } from "../../util.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { environmentStamp } from "../../agent/environment.ts";
 import { callerTmuxPane, insideTmux } from "./detect.ts";
@@ -14,7 +14,7 @@ import { PLEXER_TIMEOUTS } from "../../config.ts";
 import { selectAgentStatus } from "../../store/status-rows.ts";
 import { bestEffortTmux, execTmux, noTmuxServer, orchPanes, windowPaneRects } from "./cli.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
-import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, CaptureRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
+import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, CaptureRole, CommandPlacementRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { OrchDir } from "../../types/core.ts";
 import type { TmuxBackendDeps, TmuxHandle, TmuxPane } from "../../types/plexer.ts";
@@ -121,6 +121,17 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     close: (handle) => {
       if (typeof handle !== "string" || handle.length === 0) return;
       bestEffortTmux(["kill-pane", "-t", handle]);
+    },
+  };
+  /** A pane running the command under a login shell, as an agent's pane runs its harness:
+   *  the pane closes when the command ends. */
+  readonly commandPlacement: CommandPlacementRole<TmuxHandle> = {
+    open: (request) => {
+      const envArgs = tmuxEnvArgs(request.env ?? {});
+      const line = shellLine(request.command);
+      if (typeof request.intoHandle === "string") return { handle: this.runInPane(request.intoHandle, request.cwd, envArgs, line) };
+      const target = request.targetHandle ?? request.group;
+      return { handle: target ? this.placeInGroup(target, request.split, request.cwd, envArgs, line) : this.placeInNewWindow(request.cwd, envArgs, line) };
     },
   };
   readonly placementInventory: PlacementInventoryRole<TmuxHandle> = {
@@ -271,7 +282,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
     return this.requirePaneHandle(output, "split-window");
   }
 
-  /** Replace a pane's shell with the agent, so a window's own pane becomes the
+  /** Replace a pane's shell with the command, so a window's own pane becomes the
    *  agent's rather than a second pane being opened beside it and the first
    *  left to be closed — a close tmux is free to refuse. */
   private runInPane(handle: TmuxHandle, cwd: string, envArgs: readonly string[], command: string): TmuxHandle {

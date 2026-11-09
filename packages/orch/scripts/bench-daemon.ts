@@ -125,7 +125,7 @@ function parseArgs(argv: readonly string[]): BenchOptions {
 function seedFleet(agents: number, trace: boolean): Fleet {
   const orchDir = orchDirAt(mkdtempSync(join(tmpdir(), "orch-bench-")));
   const discoveryDir = mkdtempSync(join(tmpdir(), "orch-bench-discovery-"));
-  writeFileSync(settingsPath(orchDir), settingsFixtureText({ daemon: { tcp_port: TCP_PORT, idle_shutdown_minutes: 1 }, ...(trace ? { logging: { level: "trace" } } : {}) }));
+  writeFileSync(settingsPath(orchDir), settingsFixtureText({ daemon: { tcp_port: TCP_PORT }, ...(trace ? { logging: { level: "trace" } } : {}) }));
   const agentIds: string[] = [];
   for (let index = 0; index < agents; index += 1) {
     const id = mintAgentId();

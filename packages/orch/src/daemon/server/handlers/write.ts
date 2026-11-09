@@ -25,6 +25,7 @@ import type { NotifyEvent } from "../../../types/notify.ts";
 import type { OutboxDelivery, OutboxDeps } from "../../../types/daemon.ts";
 import { pendingQuestion, settleQuestion } from "../../../store/question-rows.ts";
 import { recordedProcessIsLive } from "../../../process-place.ts";
+import { atAgentHost, driveOnHost } from "./host.ts";
 
 /** Build the event carrying mail for a live session with no bridge route. */
 function sessionMessageEvent(directory: OrchDir, key: string, id: string, text: string): NotifyEvent {
@@ -129,7 +130,15 @@ export function outboxDeps(state: DaemonState): OutboxDeps {
  * ONLY while its holder is alive: Rule 11 - a dead holder is not a collision, it
  * is a stale row, and gating on one strands a whole fleet with nothing able to
  * drive it. Exclusion is never authorization: `abort`/`close`/`reap` do not come
- * through here at all. */
+ * through here at all.
+ *
+ * Across hosts the gate runs once, here, on the host the caller typed the verb on; a
+ * target on a linked host is then driven by that host's orchd, which takes this ruling
+ * and never gates again. Only the HOLDER's liveness is read, never the target's, so a
+ * far target whose host is offline cannot make a write refuse here: the link refuses it,
+ * by name, after the gate. A holder that itself runs on a linked host reads as alive
+ * while its liveness is unknown (unknown is never dead), so a foreign live-or-unknown
+ * holder still excludes, exactly as a local live one does. */
 export function governWrite(state: DaemonState, target: string, params: Governance, context: LogContext = {}): void {
   const directory = state.directory;
   const settings = state.services.settings;
@@ -201,11 +210,16 @@ function lateAck(directory: OrchDir, id: string): "acknowledged" | "unavailable"
   return outboxMessageState(directory, id) === "delivered" && !echoAwaited(id) ? "acknowledged" : "unavailable";
 }
 
-async function acceptTextWrite<M extends "dispatch" | "steer">(state: DaemonState, action: M, params: ParamsOf<M>, id: string): Promise<ControlAck> {
+type TextAction = "dispatch" | "steer";
+interface Accepted { accepted: true; id: string; ack: "acknowledged" | "unavailable" }
+
+/** Rules on one write inside the transaction that records it, by its correlation id. */
+type WriteGate = (correlationId: string) => void;
+
+async function acceptTextWrite(state: DaemonState, action: TextAction, target: string, text: string, id: string, gate: WriteGate): Promise<ControlAck> {
   const directory = state.directory;
-  const { target, text } = params;
   withTransaction(directory, () => {
-    governWrite(state, target, params, { correlationId: id });
+    gate(id);
     insertOutboxMessage(directory, { id, target, payload: { action, text } });
   });
   state.services.logger.forCorrelation(id).info("dispatch.accepted", { target, action });
@@ -221,12 +235,14 @@ async function deliverAcceptedText(state: DaemonState, id: string): Promise<Cont
   return writeAck(state, id, row.target, row.payload.action);
 }
 
-async function confirmTextWrite<M extends "dispatch" | "steer">(state: DaemonState, action: M, params: ParamsOf<M>): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
+/** Record one text write to an agent this orchd runs and deliver it, waiting for its ack. A
+ *  write a linked host asked for was ruled on there, so its gate rules on nothing here. */
+export async function confirmTextWrite(state: DaemonState, action: TextAction, target: string, text: string, gate: WriteGate): Promise<Accepted> {
   const id = randomUUID();
   const timeoutMs = state.services.settings.current().timeouts.dispatch_ack_ms;
   let ack: "acknowledged" | "unavailable";
   try {
-    ack = await confirmDelivery(id, timeoutMs, () => acceptTextWrite(state, action, params, id));
+    ack = await confirmDelivery(id, timeoutMs, () => acceptTextWrite(state, action, target, text, id, gate));
   } catch (error: unknown) {
     if (!errorMessage(error).includes(`delivery ${id} was not acknowledged within`)) throw error;
     ack = lateAck(state.directory, id);
@@ -234,15 +250,42 @@ async function confirmTextWrite<M extends "dispatch" | "steer">(state: DaemonSta
   return { accepted: true, id, ack };
 }
 
-export async function steer(state: DaemonState, params: ParamsOf<"steer">) {
-  return confirmTextWrite(state, "steer", params);
+/** The agent a write names, for placing it. A target that names no agent stays as written,
+ *  and this host's delivery answers for it as it always has. */
+function placedKey(directory: OrchDir, target: string): string {
+  try {
+    return normalizeControlTarget(directory, target);
+  } catch {
+    return target;
+  }
 }
 
-export async function dispatch(state: DaemonState, params: ParamsOf<"dispatch">) {
-  return confirmTextWrite(state, "dispatch", params);
+/** A text write, ruled on here and delivered where the agent runs: by this orchd, or by its
+ *  host's orchd over the link, which delivers it with its own code and answers for the ack. */
+function writeText(state: DaemonState, action: TextAction, params: ParamsOf<TextAction>): Promise<Accepted> {
+  const { target, text } = params;
+  const key = placedKey(state.directory, target);
+  const here = (): Promise<Accepted> => confirmTextWrite(state, action, target, text, (id) => { governWrite(state, target, params, { correlationId: id }); });
+  return atAgentHost(state, key, {
+    unrecorded: here,
+    here,
+    there: async (link) => {
+      governWrite(state, target, params);
+      const { accepted, id, ack } = await driveOnHost(link, { action, key, text, actor: params.actor ?? null });
+      return { accepted, id, ack };
+    },
+  });
 }
 
-export async function message(state: DaemonState, params: ParamsOf<"message">): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
+export async function steer(state: DaemonState, params: ParamsOf<"steer">): Promise<Accepted> {
+  return writeText(state, "steer", params);
+}
+
+export async function dispatch(state: DaemonState, params: ParamsOf<"dispatch">): Promise<Accepted> {
+  return writeText(state, "dispatch", params);
+}
+
+export async function message(state: DaemonState, params: ParamsOf<"message">): Promise<Accepted> {
   const directory = state.directory;
   const settings = state.services.settings;
   const from = params.from;
@@ -261,7 +304,7 @@ export async function message(state: DaemonState, params: ParamsOf<"message">): 
   return { accepted: true, id: accepted.id, ack };
 }
 
-export async function answer(state: DaemonState, params: ParamsOf<"answer">): Promise<{ accepted: true; id: string; ack: "acknowledged" | "unavailable" }> {
+export async function answer(state: DaemonState, params: ParamsOf<"answer">): Promise<Accepted> {
   const directory = state.directory;
   const settings = state.services.settings;
   const target = params.target;

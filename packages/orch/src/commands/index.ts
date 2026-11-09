@@ -12,6 +12,7 @@ import { cmdFocus, cmdKeys, cmdMove, cmdPane, cmdPeek, cmdTab, cmdZoom } from ".
 import { cmdSpace } from "./space.ts";
 import { cmdHost } from "./host.ts";
 import { cmdQuestions, cmdResult, cmdSession, cmdTail } from "./results.ts";
+import { cmdAttach } from "./attach.ts";
 import { cmdRuns } from "./runs.ts";
 import { cmdEvents, cmdMonitor, cmdNotify } from "./events.ts";
 import { cmdLogs } from "./logs.ts";
@@ -171,6 +172,7 @@ export const commandHandlers: Record<string, Handler> = {
   abort: cmdAbort,
   keys: (services, args) => cmdKeys(services, args),
   peek: (services, args) => cmdPeek(services, args),
+  attach: cmdAttach,
   tab: (services, args) => cmdTab(services, args),
   focus: (services, args) => cmdFocus(services, args),
   zoom: (services, args) => cmdZoom(services, args),

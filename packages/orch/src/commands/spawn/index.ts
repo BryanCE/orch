@@ -25,12 +25,14 @@ import { claimSpawnNames, resolveSpawnNames } from "./names.ts";
 import { discardUnusedWorkspace, findGroupInSpace, growFleetIntoGroup, openFleetHome, prepareWorkspace, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab } from "./placement.ts";
 import { confirmFleetCameUp, planFor, printLayout, registeredCount, reportShortfall, reportSpawnResults, spawnLogger } from "./report.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
+import { openViewers, planViewers } from "./viewers.ts";
+import type { AgentEnvironment } from "../../types/store.ts";
 import { usageError } from "../../cli/usage.ts";
 
 
 // Headless agents are launched BY THE DAEMON, not here: orchd outlives this CLI
 // and already owns delivery. Each runs the prompt it was launched with and exits.
-async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger" | "settings">, self: CallerSelf, fleet: FleetSnapshot, settingsFile: OrchSettings, settings: SpawnSettings): Promise<void> {
+async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger" | "settings">, self: CallerSelf, fleet: FleetSnapshot, settingsFile: OrchSettings, settings: SpawnSettings, environment: AgentEnvironment): Promise<void> {
   if (settings.commandFlag) die("--cmd requires a backend that places agents; headless launches use the selected adapter.");
   // A headless agent has no TTY to idle on: it runs its prompt and exits, so work
   // dispatched after launch would arrive at a dead process.
@@ -42,6 +44,8 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
   assertSpawnPolicy(settingsFile, space, settings.agents.length, views, presence, self.id);
   assertSpawnCapacity(settingsFile, space, settings.agents.length, views, presence);
   const maySpawn = self.depth + 1 < settingsFile.fleet.max_depth;
+  // An agent on another host is shown here in a pane of the caller's own plexer.
+  const viewers = settings.host === null ? null : await planViewers({ services, settings, environment, fleet });
   const created: CreatedAgent[] = [];
   const names = claimSpawnNames(views, presence, settings.agents.map((agent) => agent.name), space);
   for (const [index, name] of names.entries()) {
@@ -91,21 +95,27 @@ async function executeHeadlessSpawn(services: Pick<Services, "orchDir" | "logger
       break;
     }
   }
-  await reportHeadlessSpawn(services, settingsFile, settings, created);
+  const panes = viewers === null || settings.host === null ? new Map<string, string>() : openViewers(viewers, services.orchDir, services.logger, settings.host.name, created);
+  await reportHeadlessSpawn(services, settingsFile, settings, created, panes);
 }
 
 /** Same gate the placed path uses: returning before an agent comes up hands the
  *  caller a key it cannot dispatch to yet. A stalled agent sets the exit code there. */
-async function reportHeadlessSpawn(services: Pick<Services, "orchDir" | "logger">, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[]): Promise<void> {
+async function reportHeadlessSpawn(services: Pick<Services, "orchDir" | "logger">, settingsFile: OrchSettings, settings: SpawnSettings, created: readonly CreatedAgent[], panes: ReadonlyMap<string, string>): Promise<void> {
   reportShortfall(services.logger, settings.agents.length, created.length);
   // An agent on another host comes up to that host's orchd, never this one, so nothing here
   // can watch for it. That orchd's reply was the launch; its events reach `orch monitor` here.
   if (settings.host !== null) {
     if (settings.json) {
-      process.stdout.write(JSON.stringify({ backend: settings.backend, host: settings.host.name, agents: created, requested: settings.agents.length, created: created.length, registered: null }) + "\n");
+      const shown = [...panes].map(([key, handle]) => ({ key, handle }));
+      process.stdout.write(JSON.stringify({ backend: settings.backend, host: settings.host.name, agents: created, panes: shown, requested: settings.agents.length, created: created.length, registered: null }) + "\n");
       return;
     }
-    for (const agent of created) process.stdout.write(`${agent.key}  ${agent.name} - started on ${settings.host.name}. orch monitor follows it.\n`);
+    for (const agent of created) {
+      const pane = panes.get(agent.key);
+      const shown = pane === undefined ? "" : ` Pane ${pane} shows it here.`;
+      process.stdout.write(`${agent.key}  ${agent.name} - started on ${settings.host.name}.${shown} orch monitor follows it.\n`);
+    }
     return;
   }
   const confirmed = await confirmFleetCameUp(services.orchDir, services.logger, settings, created, settingsFile.timeouts);
@@ -315,7 +325,7 @@ async function executeSpawn(services: Pick<Services, "orchDir" | "logger" | "set
   if (environment === undefined) die(`spawner ${self.id} has no agent row`);
   const backend = spawnBackend(services.logger, settings, environment.plexer);
   // An environment that creates no group can place nothing: spawn headless.
-  if (!backend.groupHome) return executeHeadlessSpawn(services, self, fleet, settingsFile, settings);
+  if (!backend.groupHome) return executeHeadlessSpawn(services, self, fleet, settingsFile, settings, environment);
   const groupLayout = backend.groupLayout;
   if (!groupLayout) return answerNoEnvironmentRole(settings.json, "this environment does not provide group layout");
   const placement = await placeSpawn(services, settings, settingsFile, backend, self, fleet);

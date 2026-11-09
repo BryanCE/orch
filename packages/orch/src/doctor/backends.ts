@@ -174,6 +174,7 @@ export function describeBackendEnvironments(
       space: backend.placementInventory?.current()?.workspace ?? null,
       roles: Object.entries({
         placement: backend.placement,
+        commandPlacement: backend.commandPlacement,
         placementInventory: backend.placementInventory,
         agentInput: backend.agentInput,
         foreground: backend.foreground,

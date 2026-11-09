@@ -26,6 +26,7 @@ COLLECT
   orch result <target>... [flags]               Each target's result. --json prints one array, one entry per target.
   orch tail <target> [flags]                    Last session entries.
   orch peek <target> [flags]                    What is on the pane screen now.
+  orch attach <target>                          Watch and type into an agent's live screen, wherever it runs. The detach key leaves it running.
   orch session <target>                         Session path and stats.
 
 QUEUE

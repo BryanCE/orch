@@ -485,7 +485,7 @@ describe("launch env reads stay in identity/launch.ts (checkLaunchEnvLine)", () 
 });
 
 describe("the closed plexer-id set is spelled in exactly one line", () => {
-  const DEFINITION = 'export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless"] as const;';
+  const DEFINITION = 'export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless", "held"] as const;';
 
   test("the definition line is allowed where it lives, and nowhere else", () => {
     expect(checkPlexerLiteralLine(DEFINITION, "src/types/backend.ts", "outside backends")).toBeUndefined();

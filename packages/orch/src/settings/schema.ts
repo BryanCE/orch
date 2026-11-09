@@ -12,6 +12,7 @@ import { ROLES } from "../types/policy.ts";
 import { HOST_SHELLS } from "../types/host.ts";
 import { MAIL_DELIVERIES, NOTIFICATION_POSITIONS, NOTIFY_STATES, type NotifyState } from "../types/settings.ts";
 import type { OrchDir } from "../types/core.ts";
+import { DETACH_KEY_PATTERN } from "../cli/detach-key.ts";
 
 /** The one settings.json schema version. Pre-publish there is no legacy support:
  * exactly ONE live schema, no reader accepts two, and a file with any other version is
@@ -107,10 +108,12 @@ export const SETTINGS_DEFAULTS = {
   gated_commands: ["ssh", "ssh.exe", "scp", "sftp", "rsync"],
   settings_file: { typo_max_edits: 2 },
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
-  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, abort_gap_ms: 500 },
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {} },
-  daemon: { tcp_port: 3716, idle_shutdown_minutes: 30, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
+  daemon: { tcp_port: 3716, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500 },
   doctor: { unclaimed_after_ms: 120_000 },
+  pty: { scrollback_lines: 10_000, cols: 120, rows: 40, term: "xterm-256color" },
+  attach: { queue_bytes: 1_048_576, detach_key: "ctrl-]" },
   links: { ssh_command: "ssh", ssh_keygen_command: "ssh-keygen", ssh_keyscan_command: "ssh-keyscan", connect_timeout_s: 10, keepalive_interval_s: 15, keepalive_count: 3, request_timeout_ms: 10_000, ping_interval_ms: 30_000, retry_floor_ms: 1_000, retry_cap_ms: 300_000 },
   workers: { inherit_extensions: true, builtin_tools: true, compact_at_tokens: {} },
   // What a registered caller (an agent or a harness session) may write with `orch settings`:
@@ -260,6 +263,7 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     reset_ready_ms: PositiveInt.optional(),
     reset_poll_ms: PositiveInt.optional(),
     daemon_probe_ms: PositiveInt.optional(),
+    abort_gap_ms: PositiveInt.optional(),
   }).optional(),
   notify: z.array(NotifyEntrySchema).optional(),
   notification: z.strictObject({
@@ -296,8 +300,6 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   spaces: z.record(z.string(), z.string()).optional(),
   daemon: z.strictObject({
     tcp_port: PositiveInt.optional(),
-    /** Minutes of no live agents, no subscribers, and no RPC before orchd exits; 0 = never. */
-    idle_shutdown_minutes: z.number().int().min(0).optional(),
     /** How often orchd retries queued writes and consumes acknowledgements. */
     outbox_drain_ms: PositiveInt.optional(),
     work_tick_ms: PositiveInt.optional(),
@@ -305,6 +307,20 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     bridge_reconnect_ms: PositiveInt.optional(),
     outbox_max_attempts: PositiveInt.optional(),
     report_timeout_ms: PositiveInt.optional(),
+  }).optional(),
+  /** The PTY orchd holds for each agent it runs as an interactive session. */
+  pty: z.strictObject({
+    /** Lines of scrollback each held screen keeps, and a snapshot carries. */
+    scrollback_lines: PositiveInt.optional(),
+    cols: PositiveInt.optional(),
+    rows: PositiveInt.optional(),
+    term: z.string().min(1).optional(),
+  }).optional(),
+  /** `orch attach`: how much output waits for a slow viewer, and the key that detaches. */
+  attach: z.strictObject({
+    /** Output queued for one viewer past this many bytes is dropped for a fresh snapshot. */
+    queue_bytes: PositiveInt.optional(),
+    detach_key: z.string().regex(DETACH_KEY_PATTERN, "must be ctrl- and one of a-z @ [ \\ ] ^ _").optional(),
   }).optional(),
   doctor: z.strictObject({
     /** Milliseconds an agent may remain unclaimed after spawn before doctor reports it. */

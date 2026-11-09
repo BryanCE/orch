@@ -17,12 +17,13 @@ import { HOST_LINK_STATES, SIGNAL_OUTCOMES, type HostGreeting, type HostIdentity
 import type { FleetCapacity } from "../../policy/capacity.ts";
 import { isAgentNotice, type AgentNotice } from "../../control/bridge-message.ts";
 import type { PaneLabels } from "../../types/plexer.ts";
-import type { LifecycleVerb } from "../../types/adapter.ts";
+import type { LifecycleVerb, SessionView, SessionViewEntry } from "../../types/adapter.ts";
+import { RESULT_SOURCES, type AgentRead, type AgentReading } from "../../types/agent-read.ts";
 import type { FleetStatus, PeerView, PendingQuestionView } from "../../types/daemon.ts";
 import type { BridgeNotification } from "../../types/agent.ts";
 import { LIVENESS, type ResultReport, type StatusPatch } from "../../types/presence.ts";
 import { GRANT_KINDS, type GrantAction, type GrantRequest, type SpaceListing, type SpaceRow, type SpawnRegistration } from "../../types/store.ts";
-import type { HomeSubject } from "../../types/backend.ts";
+import { BACKEND_IDS, type HomeSubject } from "../../types/backend.ts";
 import type { CloseTargetWire } from "../../entities/close-targets.ts";
 import type { ReapCandidate, StatusRow } from "../../types/command.ts";
 import { isPackIntakeRec, isTaskOptions, isTaskRec, type PackIntakeRec, type TaskOptions, type TaskRec } from "../../types/queue.ts";
@@ -204,6 +205,9 @@ const SPAWN_REGISTRATION = z.object({
 
 const LEASE_RESULT = z.object({ id: z.string(), name: z.string() });
 
+/** A viewer's terminal, in character cells. */
+const SCREEN_SIZE = z.object({ cols: z.number().int().positive(), rows: z.number().int().positive() });
+
 const CLOSE_TARGET = z.object({
   key: z.string(),
   name: z.string(),
@@ -245,6 +249,38 @@ const SUBSYSTEM = z.enum(["running", "stopped"]);
 
 const ORPHAN = z.object({ id: z.string(), name: z.string() });
 
+/** What an abort did: the turn cancelled, or why abort does not apply to that agent. */
+const ABORTED = z.discriminatedUnion("outcome", [
+  z.object({ outcome: z.literal("aborted") }),
+  z.object({ outcome: z.literal("answer"), reason: z.enum(["no-pane", "no-environment-role"]), text: z.string() }),
+]);
+
+/** A drive or kill verb a linked host's orchd asks this one to do on an agent it asked this
+ *  host to run. The asking orchd already ruled on it (lease gate, close authority); `actor` is
+ *  the agent it resolved the caller to, or null for one with no row, kept for this host's records. */
+const PEER_DRIVE_TARGET = z.object({ key: nonBlank, actor: z.string().min(1).nullable() });
+const PEER_DRIVE = z.discriminatedUnion("action", [
+  PEER_DRIVE_TARGET.extend({ action: z.literal("dispatch"), text: nonBlank }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("steer"), text: nonBlank }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("model"), model: nonBlank }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("lifecycle"), verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("abort") }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("close") }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("reap") }),
+]);
+export type PeerDrive = z.infer<typeof PEER_DRIVE>;
+/** The far orchd's answer to a peer drive, in the shape the near verb answers its own caller. */
+const PEER_DRIVE_RESULT = z.discriminatedUnion("action", [
+  ACCEPTED.extend({ action: z.literal("dispatch") }),
+  ACCEPTED.extend({ action: z.literal("steer") }),
+  z.object({ action: z.literal("model"), ok: z.literal(true), applied: z.string() }),
+  z.object({ action: z.literal("lifecycle"), ok: z.literal(true), verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
+  z.object({ action: z.literal("abort"), aborted: ABORTED }),
+  z.object({ action: z.literal("close"), outcome: z.enum(SIGNAL_OUTCOMES) }),
+  z.object({ action: z.literal("reap"), reaped: z.array(LEASE_RESULT) }),
+]);
+export type PeerDriveResult = z.infer<typeof PEER_DRIVE_RESULT>;
+
 const registerSessionResponse = z.object({
   id: z.string().min(1),
   label: z.string(),
@@ -259,6 +295,54 @@ const tokenTotals = z.object({
   cacheRead: z.number().optional(),
   cacheWrite: z.number().optional(),
 }) satisfies z.ZodType<TokenTotals>;
+
+const SESSION_VIEW_ENTRY = z.object({
+  role: z.enum(["user", "assistant", "tool"]),
+  text: z.string().optional(),
+  toolCalls: z.array(z.object({ name: z.string(), arg: z.string() })).readonly().optional(),
+  tool: z.string().optional(),
+  isError: z.boolean().optional(),
+  timestamp: z.string().optional(),
+}) satisfies z.ZodType<SessionViewEntry>;
+
+const SESSION_VIEW = z.object({
+  state: z.enum(AGENT_STATES).optional(),
+  model: z.string().optional(),
+  provider: z.string().optional(),
+  thinking: z.string().optional(),
+  task: z.string().optional(),
+  lastText: z.string().optional(),
+  cost: z.number().optional(),
+  tokens: tokenTotals.optional(),
+  turns: z.number().optional(),
+  entries: z.array(SESSION_VIEW_ENTRY).readonly().optional(),
+}) satisfies z.ZodType<SessionView>;
+
+const READ_MISSING = z.object({ kind: z.literal("missing"), reason: z.string() });
+
+/** What a caller asks to read of one agent. */
+const AGENT_READ = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("result") }),
+  z.object({ kind: z.literal("tail"), lines: z.number().int().positive() }),
+]) satisfies z.ZodType<AgentRead>;
+
+/** The answer to an agent read, from the orchd whose store holds the agent. */
+const AGENT_READING = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("result"),
+    lookup: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("found"), source: z.enum(RESULT_SOURCES), payload: z.unknown() }),
+      READ_MISSING,
+    ]),
+  }),
+  z.object({
+    kind: z.literal("tail"),
+    lookup: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("found"), sessionPath: z.string().nullable(), view: SESSION_VIEW }),
+      READ_MISSING,
+    ]),
+  }),
+]) satisfies z.ZodType<AgentReading>;
 
 const statusRow = z.object({
   key: z.string(),
@@ -294,6 +378,7 @@ const statusRow = z.object({
   spaceId: z.string().nullable().optional(),
   rootAgentId: z.string().nullable().optional(),
   host: z.string().optional(),
+  hostOffline: z.object({ lastSeen: z.number().nullable() }).optional(),
   warning: z.string().optional(),
   lease: z.object({ holderId: z.string(), holderAlive: z.boolean() }).nullable(),
   leaseKnown: z.boolean(),
@@ -334,6 +419,8 @@ export const RPC_PARAMS = {
   answer: GOVERNANCE.extend({ target: nonBlank, text: nonBlank, questionId: nonBlank.optional() }),
   "set-model": GOVERNANCE.extend({ target: nonBlank, model: nonBlank }),
   lifecycle: GOVERNANCE.extend({ target: nonBlank, verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
+  /** Cancel an agent's current turn, wherever it runs. A kill verb: never gated by a lease. */
+  abort: GOVERNANCE.extend({ target: nonBlank }),
   "spawn-headless": GOVERNANCE.extend({
     key: nonBlank,
     name: nonBlank,
@@ -372,12 +459,26 @@ export const RPC_PARAMS = {
   hosts: z.undefined(),
   "host-check": z.object({ name: nonBlank }),
   "host-forget": z.object({ name: nonBlank }),
-  /** End an agent's process on the linked host it runs on: its recorded instance, over the link. */
-  "host-signal": z.object({ key: nonBlank }),
   /** From a linked host's orchd: whether each of these processes on this host is alive. */
   "peer-alive": z.object({ processes: z.array(HOSTED_PROCESS) }),
-  /** From a linked host's orchd: end this recorded process instance on this host. */
-  "peer-signal": HOSTED_PROCESS,
+  /** From a linked host's orchd: a drive or kill verb on an agent it asked this host to run. */
+  "peer-drive": PEER_DRIVE,
+  /** From a linked host's orchd: read an agent it asked this host to run. */
+  "peer-read": z.object({ key: nonBlank, read: AGENT_READ }),
+  /** Read an agent's result or session tail wherever it runs: here, or over its host's link. */
+  "agent-read": z.object({ caller: CALLER, key: nonBlank, read: AGENT_READ }),
+  /** Stream an agent's screen on this connection, wherever it runs: from the holder here, or
+   *  relayed from its host's orchd over the link. Screen lines follow until it ends or the
+   *  connection closes, a snapshot first. The snapshot can arrive before the reply. */
+  "attach-screen": z.object({ caller: CALLER, key: nonBlank, ...SCREEN_SIZE.shape }),
+  /** From a linked host's orchd: stream the screen of an agent it asked this host to run. */
+  "peer-attach-screen": z.object({ key: nonBlank, ...SCREEN_SIZE.shape }),
+  /** Keystrokes for a screen this connection is attached to. */
+  "screen-input": z.object({ key: nonBlank, data: z.string() }),
+  /** The viewer's terminal size, for a screen this connection is attached to. */
+  "screen-resize": z.object({ key: nonBlank, ...SCREEN_SIZE.shape }),
+  /** Stop streaming one screen on this connection. The agent keeps running. */
+  "screen-detach": z.object({ key: nonBlank }),
   grant: GOVERNANCE.extend({ target: nonBlank, decision: z.enum(["approve", "deny"]), host: HOST_IDENTITY }),
   "admit-home": GOVERNANCE.extend({ action: GRANT_ACTION }),
   "queue-list": z.object({ history: z.boolean() }),
@@ -427,6 +528,8 @@ export const RPC_RESULTS = {
     socket: z.string(),
     tcpEndpoint: z.string().optional(),
     subsystems: z.object({ workLoop: SUBSYSTEM, livenessTick: SUBSYSTEM, settingsWatch: SUBSYSTEM }),
+    /** How many agents' PTYs this orchd holds: each ends when orchd stops. */
+    held: z.number().int().nonnegative(),
   }),
   "subscribe-events": z.object({ subscribed: z.literal(true) }),
   "environment-labels": z.custom<PaneLabels>(isPaneLabels).nullable(),
@@ -450,9 +553,12 @@ export const RPC_RESULTS = {
   steer: ACCEPTED,
   message: ACCEPTED,
   answer: ACCEPTED,
-  "spawn-headless": z.object({ key: z.string(), handle: z.string(), process: PROCESS_INSTANCE }),
+  /** `backend` is the environment the agent runs in where it was spawned: a held PTY when a
+   *  peer asked, a detached process otherwise. */
+  "spawn-headless": z.object({ key: z.string(), backend: z.enum(BACKEND_IDS), handle: z.string(), process: PROCESS_INSTANCE }),
   "set-model": z.object({ ok: z.literal(true), applied: z.string() }),
   lifecycle: z.object({ ok: z.literal(true), verb: z.custom<LifecycleVerb>(isLifecycleVerb) }),
+  abort: ABORTED,
   "agent-closed": OK,
   "register-agent": OK,
   detach: LEASE_RESULT.extend({ released: z.boolean() }),
@@ -474,9 +580,17 @@ export const RPC_RESULTS = {
   hosts: z.object({ hosts: z.array(HOST_LINK_VIEW) }),
   "host-check": HOST_LINK_VIEW,
   "host-forget": z.object({ name: z.string() }),
-  "host-signal": z.object({ outcome: z.enum(SIGNAL_OUTCOMES) }),
   "peer-alive": z.object({ alive: z.array(z.boolean()) }),
-  "peer-signal": z.object({ outcome: z.enum(SIGNAL_OUTCOMES) }),
+  "peer-drive": PEER_DRIVE_RESULT,
+  "peer-read": AGENT_READING,
+  /** `host` names the linked host the agent runs on; null when it runs here. */
+  "agent-read": z.object({ host: z.string().nullable(), reading: AGENT_READING }),
+  /** `host` names the linked host the agent runs on; null when it runs here. */
+  "attach-screen": z.object({ host: z.string().nullable() }),
+  "peer-attach-screen": OK,
+  "screen-input": OK,
+  "screen-resize": OK,
+  "screen-detach": OK,
   grant: z.object({ id: z.string(), decision: z.enum(["approve", "deny"]), expiresAt: z.number().nullable() }),
   "admit-home": z.union([z.object({ granted: z.literal(true) }), z.object({ granted: z.literal(false), requestId: z.string() })]),
   "queue-list": z.object({ tasks: z.array(z.custom<TaskRec>(isTaskRec)) }),
@@ -527,7 +641,7 @@ export function isRpcMethod(value: unknown): value is RpcMethod {
 }
 
 export type GovernedMethod =
-  | "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "spawn-headless"
+  | "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "abort" | "spawn-headless"
   | "agent-closed" | "register-agent" | "detach" | "adopt" | "rename" | "reap" | "reap-candidates" | "reclaim" | "set-handle"
   | "space-create" | "space-rename" | "space-delete" | "record-home" | "clear-home" | "grant" | "admit-home"
   | "queue-cancel" | "queue-edit" | "queue-take-on" | "queue-reap" | "queue-intake" | "clean";

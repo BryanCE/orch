@@ -30,6 +30,18 @@ export function hostOs(): HostOs {
   return hostOsOf(process.platform);
 }
 
+/** The one place orch knows how each OS runs a shell line - `sh` is not a Windows program. */
+const HOST_SHELL: Record<HostOs, readonly [string, ...string[]]> = {
+  linux: ["sh", "-c"],
+  darwin: ["sh", "-c"],
+  windows: ["cmd.exe", "/d", "/s", "/c"],
+};
+
+/** The argv prefix that runs one shell line on this host. */
+export function hostShell(): readonly [string, ...string[]] {
+  return HOST_SHELL[hostOs()];
+}
+
 export function isWsl(
   input: { readonly release: string; readonly wslDistro: string | undefined } = {
     release: release(),

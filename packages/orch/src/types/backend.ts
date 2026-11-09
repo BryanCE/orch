@@ -37,6 +37,22 @@ export interface PlacementRole<Handle = BackendHandle> {
   close(handle: Handle): void;
 }
 
+/** A place that runs one command in place of a shell. `intoHandle` runs it in a
+ *  place already open (a group's root place, which a new group is born with)
+ *  instead of opening another beside it. */
+export interface CommandPlacementRequest<Handle = BackendHandle> extends PlacementRequest<Handle> {
+  /** The argv the place runs. Each environment quotes it for its own shell. */
+  readonly command: readonly string[];
+  readonly intoHandle?: Handle;
+}
+
+/** Opening a place that runs a given command: how orch shows something that is
+ *  not an agent here, such as `orch attach` for an agent held on another host.
+ *  Absent on an environment that opens no place a person can look at. */
+export interface CommandPlacementRole<Handle = BackendHandle> {
+  open(request: CommandPlacementRequest<Handle>): Placement<Handle>;
+}
+
 export interface PlacementInventoryRole<Handle = BackendHandle> {
   current(): PlacementCoordinate | null;
   list(): readonly BackendTarget<Handle>[];
@@ -229,7 +245,7 @@ export interface ProcessRole<Handle = BackendHandle> {
 
 
 /** The closed backend-id set, importable without pulling any provider code. */
-export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless"] as const;
+export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless", "held"] as const;
 
 /** Plexer backends supported by orch. */
 export type BackendId = (typeof BACKEND_IDS)[number];
@@ -410,6 +426,8 @@ export interface Backend<Handle = BackendHandle> {
    *  one process, so there is no client and server that can disagree. */
   readonly serverInfo: ServerInfoRole | null;
   readonly placement: PlacementRole<Handle> | null;
+  /** Opens a place running a command orch names. */
+  readonly commandPlacement: CommandPlacementRole<Handle> | null;
   readonly placementInventory: PlacementInventoryRole<Handle> | null;
   /** Explicit environment fast path; normal dispatch never uses this channel. */
   readonly agentInput: AgentInputRole<Handle> | null;

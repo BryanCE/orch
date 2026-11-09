@@ -20,16 +20,8 @@ import { displayName, resolveLifecycle, refuseForeignHolder } from "./resolve.ts
 import { refuseNonOperatorOverride, whoAmI, type CallerSelf } from "./self.ts";
 import { sameSpace, spaceName } from "../policy/space.ts";
 import { describeHandle } from "../backends/backend.ts";
+import { paneBoundary, type BoundaryPlan } from "../control/pane-boundary.ts";
 
-type BoundaryPlan<T> =
-  | { readonly outcome: "invoke"; readonly role: T }
-  | { readonly outcome: "answer"; readonly text: string; readonly reason: "no-pane" | "no-environment-role" };
-
-export function paneBoundary<T>(target: string, command: string, role: T | null, hasPane: boolean): BoundaryPlan<T> {
-  if (!hasPane) return { outcome: "answer", reason: "no-pane", text: `${target} has no pane; ${command} does not apply.` };
-  if (role === null || role === undefined) return { outcome: "answer", reason: "no-environment-role", text: `this pane environment does not provide ${command}` };
-  return { outcome: "invoke", role };
-}
 
 function renderBoundaryAnswer<T>(plan: BoundaryPlan<T>, json: boolean): boolean {
   if (plan.outcome === "invoke") return true;

@@ -5,7 +5,7 @@ import { environmentStamp } from "../../agent/environment.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { pidStampedWith } from "../../process-identity.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
-import { binaryOnPath, shellQuote } from "../../util.ts";
+import { binaryOnPath, shellLine, shellQuote } from "../../util.ts";
 import { isAgentId } from "../identity.ts";
 import { OrcaCommandError, GONE_HANDLE_CODES, ORCA_INPUT_RETRY, createOrcaCli, orcaBinary, type OrcaCli } from "./cli.ts";
 import { createInteractiveCommand } from "../backend.ts";
@@ -20,6 +20,7 @@ import type {
   BackendSpawnOpts,
   BackendTarget,
   CaptureRole,
+  CommandPlacementRole,
   CreatedGroup,
   EnvironmentIdentityRole,
   ForegroundRole,
@@ -164,6 +165,21 @@ export class OrcaBackend implements Backend<OrcaHandle> {
     },
   };
 
+  /** Orca opens no terminal with a command, so the line is typed into its shell the
+   *  way an agent's launch is. A terminal this opened is closed again when that fails. */
+  readonly commandPlacement: CommandPlacementRole<OrcaHandle> = {
+    open: (request) => {
+      const adopted = typeof request.intoHandle === "string" ? request.intoHandle : null;
+      const handle = adopted ?? this.placement.open(request).handle;
+      try {
+        this.agentInput.submit(handle, launchLine(request.cwd, request.env ?? {}, shellLine(request.command)));
+      } catch (error: unknown) {
+        if (adopted === null) this.placement.close(handle);
+        throw error;
+      }
+      return { handle };
+    },
+  };
   readonly placementInventory: PlacementInventoryRole<OrcaHandle> = {
     current: () => {
       const row = currentOrcaTerminal(this.cli);

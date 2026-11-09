@@ -5,21 +5,26 @@ import { holdsLease } from "../../../store/lease-rows.ts";
 import { randomUUID } from "node:crypto";
 import { admitModel } from "../../../policy/model.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
-import { headlessBackend, headlessRegistration } from "../../../backends/registry.ts";
+import { headlessBackend, heldBackend, startHeldAgent } from "../../../backends/registry.ts";
+import { insertOutboxMessage } from "../../../store/outbox-rows.ts";
+import type { AgentAdapter } from "../../../types/adapter.ts";
+import type { BackendSpawnOpts } from "../../../types/backend.ts";
 import { deliverControl } from "../../../control/dispatch.ts";
 import { publishFromOrchd } from "../events.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { agentById, endAgent, reclaimAgent, setHarness } from "../../../store/agent-rows.ts";
 import { setHandle, setTuning } from "../../../store/interval-rows.ts";
-import { registerSpawnedAgent } from "../../../store/spawn-registration.ts";
+import { registerHostedAgent, registerSpawnedAgent } from "../../../store/spawn-registration.ts";
 import { presenceEntry } from "../../../presence/store.ts";
 import { isAgentState } from "../../../agent-state.ts";
 import { pendingQuestions, recordQuestion } from "../../../store/question-rows.ts";
 import { governWrite } from "./write.ts";
+import { atAgentHost, driveOnHost } from "./host.ts";
+import type { LifecycleVerb } from "../../../types/adapter.ts";
 import type { DaemonState } from "../state.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
-import type { AgentOrigin, HostId } from "../../../types/host.ts";
+import type { HostId } from "../../../types/host.ts";
 import type { PendingQuestionView } from "../../../types/daemon.ts";
 import { addTask } from "../../../queue.ts";
 import type { TaskRec } from "../../../types/queue.ts";
@@ -55,13 +60,9 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     if (peer !== undefined) throw new Error(`cannot spawn ${key}: a host's orchd asks only for a spawn here, never on a third host`);
     return spawnOnHost(state, params.host, { ...params, model });
   }
-  const origin: AgentOrigin | undefined = peer === undefined ? undefined : { host: peer, spawner: params.spawner };
-  const handle = headlessBackend.spawn(adapter, {
+  const opts: BackendSpawnOpts = {
     key,
     name: params.name,
-    // A peer's spawner is an agent on its own host, never one here.
-    spawner: origin === undefined ? params.spawner : null,
-    origin,
     worktree: params.worktree,
     env: params.env,
     orchDir: directory,
@@ -74,21 +75,39 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     preferredModels: params.preferredModels,
     tools: params.tools,
     workers: params.workers,
-  });
-  return { key, handle: JSON.stringify(handle), process: headlessBackend.process.running(handle) };
+  };
+  if (peer !== undefined) return spawnHeldForPeer(state, adapter, { ...opts, key, prompt: params.prompt, spawner: null, origin: { host: peer, spawner: params.spawner } });
+  const handle = headlessBackend.spawn(adapter, { ...opts, spawner: params.spawner });
+  return { key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: headlessBackend.process.running(handle) };
 }
 
-/** Start a headless agent on a linked host: that host's orchd spawns it, runs it and records
- *  it. This orchd records it too, with that host as where its process runs, so the spawner
- *  holds it exactly as it holds an agent started here. */
+/**
+ * Another host asked for this agent, so it runs here as an interactive session in a PTY this
+ * orchd holds: its work, rows and logs stay on this host, and any host can attach to its
+ * screen. A peer's spawner is an agent on its own host, never one here, so it is the origin.
+ *
+ * The first prompt goes where every launch prompt goes: into the outbox, which pushes it to
+ * the agent's bridge once the bridge attaches.
+ */
+async function spawnHeldForPeer(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts & { readonly key: string; readonly prompt: string }): Promise<ResultOf<"spawn-headless">> {
+  const launched = await startHeldAgent(state.held, adapter, opts);
+  insertOutboxMessage(state.directory, { id: randomUUID(), target: opts.key, payload: { action: "dispatch", text: opts.prompt } });
+  state.wake.wake();
+  return { key: opts.key, backend: heldBackend.id, ...launched };
+}
+
+/** Start an agent on a linked host: that host's orchd spawns it, runs it and records it. This
+ *  orchd keeps the reference: the agent row, the host it runs on, and its spawner's lease, so
+ *  the spawner holds it exactly as it holds an agent started here. Its process is that host's. */
 async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsOf<"spawn-headless">): Promise<ResultOf<"spawn-headless">> {
   if (params.worktree !== undefined) throw new Error(`a worktree on ${hostName} is not made yet; spawn there without --worktree`);
+  if (params.cwd === undefined) throw new Error(`a spawn on ${hostName} must name the directory there to run in`);
   const link = state.hosts.link(hostName);
   const greeting = await link.requireUp();
   // Governed here already; the far orchd runs it for this host, as this host's peer.
   const { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers } = params;
   const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers });
-  registerSpawnedAgent(state.directory, headlessRegistration(adapter, key, { ...params, orchDir: state.directory }, launched, greeting.host));
+  registerHostedAgent(state.directory, { key, harnessId: adapter, cwd: params.cwd, name, model, thinking, spawner, host: greeting.host });
   return launched;
 }
 
@@ -96,12 +115,21 @@ async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsO
 // reason to the caller, so `orch model` can never print "accepted" for a model
 // the agent did not take.
 export async function setModel(state: DaemonState, params: ParamsOf<"set-model">): Promise<{ ok: true; applied: string }> {
-  const directory = state.directory;
-  const settings = state.services.settings;
-  const target = params.target;
-  const model = params.model;
+  const { target, model } = params;
   governWrite(state, target, params);
-  await deliverControl(directory, settings.current(), state.services.models, target, { kind: "model", model, id: randomUUID() });
+  return atAgentHost(state, target, {
+    unrecorded: () => applyModel(state, target, model),
+    here: () => applyModel(state, target, model),
+    there: async (link) => {
+      const { ok, applied } = await driveOnHost(link, { action: "model", key: target, model, actor: params.actor ?? null });
+      return { ok, applied };
+    },
+  });
+}
+
+/** Switch the model of an agent this orchd runs, ruled on already. */
+export async function applyModel(state: DaemonState, target: string, model: string): Promise<{ ok: true; applied: string }> {
+  await deliverControl(state.directory, state.services.settings.current(), state.services.models, target, { kind: "model", model, id: randomUUID() });
   return { ok: true, applied: model };
 }
 
@@ -139,13 +167,22 @@ export function closeAgent(state: DaemonState, params: ParamsOf<"agent-closed">)
   return { ok: true };
 }
 
-export async function applyLifecycle(state: DaemonState, params: ParamsOf<"lifecycle">): Promise<{ ok: true; verb: ParamsOf<"lifecycle">["verb"] }> {
-  const directory = state.directory;
-  const settings = state.services.settings;
-  const target = params.target;
-  const verb = params.verb;
+export async function applyLifecycle(state: DaemonState, params: ParamsOf<"lifecycle">): Promise<{ ok: true; verb: LifecycleVerb }> {
+  const { target, verb } = params;
   governWrite(state, target, params);
-  await deliverControl(directory, settings.current(), state.services.models, target, { kind: "lifecycle", verb });
+  return atAgentHost(state, target, {
+    unrecorded: () => applyVerb(state, target, verb),
+    here: () => applyVerb(state, target, verb),
+    there: async (link) => {
+      const answer = await driveOnHost(link, { action: "lifecycle", key: target, verb, actor: params.actor ?? null });
+      return { ok: answer.ok, verb: answer.verb };
+    },
+  });
+}
+
+/** Apply a lifecycle verb to an agent this orchd runs, ruled on already. */
+export async function applyVerb(state: DaemonState, target: string, verb: LifecycleVerb): Promise<{ ok: true; verb: LifecycleVerb }> {
+  await deliverControl(state.directory, state.services.settings.current(), state.services.models, target, { kind: "lifecycle", verb });
   return { ok: true, verb };
 }
 

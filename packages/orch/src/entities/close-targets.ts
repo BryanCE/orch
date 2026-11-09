@@ -4,14 +4,15 @@ import { addressOf, indexPresenceById } from "./lookup.ts";
 import { callerAuthority, refuseClose, sweeps } from "../policy/close-authority.ts";
 import { callerKindOf } from "../policy/caller.ts";
 import { selfIdentityOf } from "../identity/self.ts";
-import { liveAgentViews } from "../store/agent-view.ts";
+import { agentView, liveAgentViews } from "../store/agent-view.ts";
 import { currentProcess } from "../store/interval-rows.ts";
-import { hostById } from "../store/agent-rows.ts";
+import { hostById, hostOfAgent } from "../store/agent-rows.ts";
 import { loadPresence } from "../presence/store.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { HostedProcess } from "../types/process.ts";
 import type { CallerCredential, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
+import type { AgentView } from "../types/store.ts";
 
 /** One agent a close may end, as orchd answers it: the backend by id, the handle, the recorded process. */
 export interface CloseTargetWire {
@@ -20,17 +21,22 @@ export interface CloseTargetWire {
   readonly backendId: string | null;
   readonly handle: string | null;
   /** The recorded process, on the host it runs on. The closer signals it itself only when
-   *  that host is its own box; any other host's process goes to orchd, over that host's link. */
+   *  that host is its own box; any other host's process goes to orchd, over that host's link.
+   *  Null for an agent another host runs for this orchd: its process is that host's. */
   readonly recorded: HostedProcess | null;
-  /** The name of the host the recorded process runs on, for what a close reports. */
+  /** The name of the host the agent runs on when that is not here, for what a close reports.
+   *  Set with a null `recorded`, the agent is one another host runs for this orchd. */
   readonly hostName: string | null;
   readonly placeKnown: boolean;
 }
 
 /** Read the launch identity from the normalized agent process interval. Presence
- * status carries liveness only and can never authorize a signal. */
+ * status carries liveness only and can never authorize a signal. An agent another host
+ * runs for this orchd is placed by that host alone. */
 function recordedProcess(orchDir: OrchDir, key: string): Pick<CloseTargetWire, "recorded" | "hostName"> {
   try {
+    const runsOn = hostOfAgent(orchDir, key);
+    if (runsOn !== null) return { recorded: null, hostName: hostById(orchDir, runsOn)?.name ?? runsOn };
     const row = currentProcess(orchDir, key);
     if (row === undefined) return { recorded: null, hostName: null };
     const recorded: HostedProcess = { host: row.host, pid: row.pid, startToken: row.startToken };
@@ -67,26 +73,34 @@ function sweptCloseTargets(
   void settings;
   void credential;
   const presence = indexPresenceById(loadPresence(orchDir).values());
-  const targets: CloseTargetWire[] = [];
-  for (const view of liveAgentViews(orchDir)) {
-    const address = addressOf(view, presence);
-    const backendId = view.environment.plexer;
-    const backend = backendId === null ? null : getBackend(backendId) ?? null;
-    if (backend === null) warn(address, backendId);
-    const handle = view.environment.handle;
-    const paneState = handle === null ? false : plexerStillHasPane(backend, handle);
-    targets.push({
-      backendId,
-      handle,
-      key: address,
-      name: view.name ?? address,
-      ...recordedProcess(orchDir, address),
-      // Unknown inventory still permits a real recorded handle to be handed to
-      // the plexer; a null handle is never replaced with the agent id.
-      placeKnown: handle !== null && paneState !== false,
-    });
-  }
-  return targets;
+  return liveAgentViews(orchDir).map((view) => closeTargetOfView(orchDir, view, addressOf(view, presence), warn));
+}
+
+/** One live agent as a close target, from its store record alone: no caller, no authority. */
+function closeTargetOfView(orchDir: OrchDir, view: AgentView, address: string, warn: (address: string, backendId: string | null) => void): CloseTargetWire {
+  const backendId = view.environment.plexer;
+  const backend = backendId === null ? null : getBackend(backendId) ?? null;
+  if (backend === null) warn(address, backendId);
+  const handle = view.environment.handle;
+  const paneState = handle === null ? false : plexerStillHasPane(backend, handle);
+  return {
+    backendId,
+    handle,
+    key: address,
+    name: view.name ?? address,
+    ...recordedProcess(orchDir, address),
+    // Unknown inventory still permits a real recorded handle to be handed to
+    // the plexer; a null handle is never replaced with the agent id.
+    placeKnown: handle !== null && paneState !== false,
+  };
+}
+
+/** An agent this host runs, as a close target, for a close a linked host's orchd ruled on;
+ *  null when it has no row or has already ended. */
+export function closeTargetOfAgent(orchDir: OrchDir, key: string, warn: (address: string, backendId: string | null) => void): CloseTargetWire | null {
+  const view = agentView(orchDir, key);
+  if (view?.endedAt !== null) return null;
+  return closeTargetOfView(orchDir, view, key, warn);
 }
 
 /** Resolve targets named on the command line through the daemon's lifecycle seam. */

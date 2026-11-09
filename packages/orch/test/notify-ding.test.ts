@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { commandArgv, createBuiltinNotifiers, hostShell } from "../src/notify/sinks.ts";
+import { commandArgv, createBuiltinNotifiers } from "../src/notify/sinks.ts";
+import { hostShell } from "../src/host.ts";
 import { soundTierBinaries } from "../src/notify/ding.ts";
 import { notifierRemediation } from "../src/notify/remediation.ts";
 import { NOTIFY_IDS, NOTIFY_SIMPLE_IDS } from "../src/settings/schema.ts";

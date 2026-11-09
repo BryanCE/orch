@@ -4,6 +4,7 @@ import { dim } from "../../tui/screen.ts";
 import { DEAD_HOLDER_DRIVER, NO_ORCH_DRIVER } from "../../agent/drive-state.ts";
 import { formatSpace, displayStatusState, NO_STATUS_HIDE, isTTY, callerNameLabel, ownsLiveWorker } from "./options.ts";
 import { modelShort } from "../../policy/thinking.ts";
+import { formatHostOffline } from "../../format.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { FleetNames, FleetStatus } from "../../types/daemon.ts";
 
@@ -87,6 +88,13 @@ function tableContextCell(row: StatusRow): string {
   return row.ctxPercent != null ? `${Math.round(row.ctxPercent)}%` : "";
 }
 
+/** The LAST cell: what the agent last said, or, while its host's link is down, that the
+ *  host is offline and when it was last seen. */
+function tableLastCell(row: StatusRow): string {
+  const text = row.hostOffline === undefined ? collapse(row.lastText ?? "") : formatHostOffline(row.host ?? "its host", row.hostOffline.lastSeen);
+  return truncate(text, 50);
+}
+
 function humanTableCells(row: StatusRow, names: FleetNames, host: boolean, callerId: string | null, name: string): string[] {
   return [
     ...(host ? [row.host ?? "-"] : []), name,
@@ -102,7 +110,7 @@ function standardTableCells(row: StatusRow, names: FleetNames, flags: TableFlags
   return [
     ...prefix, ...tableOptionalCells(row, names, flags, callerId), row.tab ?? "-", row.agent ?? "-",
     modelShort(row.model) || "-", tableStateCell(row, true, callerId), tableCostCell(row),
-    tableContextCell(row), truncate(collapse(row.task ?? ""), 40), truncate(collapse(row.lastText ?? ""), 50),
+    tableContextCell(row), truncate(collapse(row.task ?? ""), 40), tableLastCell(row),
   ];
 }
 

@@ -20,11 +20,7 @@ function deriveEnabled(settings: Record<string, unknown>): { adapters: string[];
 /** The settings.json text a fixture would write. Same shape rules as `writeSettingsFixture`. */
 export function settingsFixtureText(settings: Record<string, unknown> = {}): string {
   const enabled = deriveEnabled(settings);
-  // Any daemon a test auto-starts must reap itself fast: one idle minute, not
-  // the production default — a leaked test daemon pins its temp dir and lives
-  // past the whole run.
-  const daemon = "daemon" in settings ? {} : { daemon: { idle_shutdown_minutes: 1 } };
-  const body = enabled ? { enabled, ...daemon, ...settings } : { ...daemon, ...settings };
+  const body = enabled ? { enabled, ...settings } : { ...settings };
   return JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", ...body }, null, 2) + "\n";
 }
 

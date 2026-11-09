@@ -1,13 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { retryingSync } from "../../retry.ts";
 import { errorMessage } from "../../util.ts";
-import { getBackend } from "../../backends/registry.ts";
 import { describeHandle } from "../../backends/backend.ts";
-import type { CloseTargetWire } from "../../entities/close-targets.ts";
+import { attemptClose, closeTargetOf, type CloseTarget } from "../../control/close-attempt.ts";
 import { isOwnProcess, signalOtherProcess } from "../../backends/process.ts";
-import { sleepMs } from "../../backends/shell-ready.ts";
 import { lifecycleLogger } from "./index.ts";
-import { askDaemon, callDaemon, readRpc } from "../daemon.ts";
+import { callDaemon, readRpc } from "../daemon.ts";
 import { hostCallTimeoutMs } from "../host.ts";
 import { cmdSteer } from "../control.ts";
 import { die } from "../target.ts";
@@ -15,44 +12,39 @@ import { resolveLifecycle, targetName } from "../resolve.ts";
 import { callerCredential } from "../../identity/credential.ts";
 import { parseCommand } from "../registry.ts";
 import { usageError } from "../../cli/usage.ts";
-import type { Backend, BackendHandle, PlacementRole, ProcessRole, LocalProcess } from "../../types/backend.ts";
 import type { Services } from "../../types/services.ts";
 import { STREAM_VERBS } from "../events.ts";
-import { localProcessOf, observedHere } from "../../local-process.ts";
-
-/** Whether the recorded process instance is still present after a close attempt.
- *  The environment that runs the process is the one asked whether it is gone. */
-function processRemains(role: ProcessRole, recorded: LocalProcess): boolean {
-  const exited = retryingSync(
-    "await closed process",
-    () => role.state(recorded) !== "alive",
-    { attempts: 40, delayMs: 50, backoff: 1 },
-    { sleepSync: sleepMs, retryOnResult: (value) => !value },
-  );
-  return !exited;
-}
+import { observedHere } from "../../local-process.ts";
 
 /** Close is the SECOND ending verb. The process is gone here; orchd writes the
- *  ending and publishes it. A refused write is this target's failure, not the
- *  sweep's. */
-async function endClosedAgent(services: CloseServices, key: string): Promise<string | null> {
+ *  ending and publishes it. For an agent on a linked host orchd first asks that host's
+ *  orchd to close its own agent, over the link. A refused write is this target's
+ *  failure, not the sweep's. */
+async function endClosedAgent(services: CloseServices, key: string, timeoutMs?: number): Promise<string | null> {
   try {
-    await callDaemon(services, "agent-closed", { key });
+    await callDaemon(services, "agent-closed", { key }, {}, timeoutMs);
     return null;
   } catch (error: unknown) {
     return errorMessage(error);
   }
 }
 
-/** End a process that runs on a linked host: orchd sends the signal over that host's link,
- *  and the host checks the recorded instance before it signals. A pid here names nothing. */
-async function closeOverLink(services: CloseServices, target: CloseTarget, host: string): Promise<CloseAttempt> {
-  try {
-    const { outcome } = await askDaemon(services, "host-signal", { key: target.key }, hostCallTimeoutMs(services));
-    return { failure: null, signalled: outcome === "signalled", closedByBackend: false, alreadyAbsent: outcome === "gone" };
-  } catch (error: unknown) {
-    return { failure: `could not reach ${host} to end ${target.name}: ${errorMessage(error)}`, signalled: false, closedByBackend: false, alreadyAbsent: false };
+/** One target's close: whether it failed and why, and whether this close stopped it. */
+interface TargetClosed {
+  readonly failure: string | null;
+  readonly stopped: boolean;
+}
+
+/** End one target where it runs, and record the ending. One on a linked host is that host's
+ *  orchd's to end; a pid here names nothing. */
+async function closeOne(services: CloseServices, target: CloseTarget): Promise<TargetClosed> {
+  if (target.recorded.kind === "elsewhere") {
+    const failure = await endClosedAgent(services, target.key, hostCallTimeoutMs(services));
+    return failure === null ? { failure, stopped: true } : { failure: `could not end ${target.name} on ${target.recorded.hostName}: ${failure}`, stopped: false };
   }
+  const attempt = attemptClose(target);
+  const failure = attempt.failure ?? await endClosedAgent(services, target.key);
+  return { failure, stopped: attempt.signalled || attempt.closedByBackend };
 }
 
 /** One target's result from a multi-target close, with the reason it failed. */
@@ -64,119 +56,6 @@ interface CloseOutcome {
   readonly error: string | null;
 }
 
-
-/** A close target's recorded process, from where this close runs. */
-type RecordedHere =
-  | { readonly kind: "none" }
-  | { readonly kind: "here"; readonly process: LocalProcess }
-  | { readonly kind: "elsewhere"; readonly hostName: string };
-
-/** One agent a close was asked to end, with everything needed to end it. */
-interface CloseTarget {
-  readonly backend: Backend | null;
-  readonly name: string;
-  /** The current environment handle, or null when the pane interval is closed. */
-  readonly handle: BackendHandle | null;
-  readonly key: string;
-  /** Where the recorded process runs: here, where this close signals it itself, or on
-   *  another host, where only orchd over that host's link may. */
-  readonly recorded: RecordedHere;
-  /** Whether a pane operation is meaningful here — false when the plexer no
-   *  longer lists the handle (U1), so orch never asks it to close a lost pane. */
-  readonly placeKnown: boolean;
-}
-
-/** How one target was ended, or why it could not be. `failure` is the REAL
- *  reason at each point it can go wrong, never one sentence covering all four. */
-interface CloseAttempt {
-  readonly failure: string | null;
-  readonly signalled: boolean;
-  readonly closedByBackend: boolean;
-  /** True when the backend explicitly said the pane was already absent. */
-  readonly alreadyAbsent: boolean;
-}
-
-/** Signal the recorded process INSTANCE, never merely the pid: reaping waits
- *  until that same (pid, start_token) is gone, not until kill(2) is accepted.
- *  The signal goes through the environment's own process role — the same port
- *  that started the process — never a raw kill at this call site. */
-function closeByProcess(role: ProcessRole, recorded: LocalProcess): CloseAttempt {
-  try {
-    role.kill(recorded, "SIGTERM");
-  } catch (error: unknown) {
-    return { failure: errorMessage(error), signalled: false, closedByBackend: false, alreadyAbsent: false };
-  }
-  const failure = processRemains(role, recorded) ? `process ${recorded.pid} is still running after SIGTERM` : null;
-  return { failure, signalled: true, closedByBackend: false, alreadyAbsent: false };
-}
-
-/** A pane host owns closure when process identity is unavailable. */
-function closeByPane(placer: PlacementRole, handle: BackendHandle): CloseAttempt {
-  try {
-    placer.close(handle);
-    return { failure: null, signalled: false, closedByBackend: true, alreadyAbsent: false };
-  } catch (error: unknown) {
-    // A pane that is already gone is the desired end state, not a close error.
-    const message = errorMessage(error);
-    if (message.includes("pane_not_found")) {
-      return { failure: null, signalled: false, closedByBackend: true, alreadyAbsent: true };
-    }
-    return { failure: message, signalled: false, closedByBackend: false, alreadyAbsent: false };
-  }
-}
-
-/** A reported close is not proof: ask the environment whether the handle is gone.
- *  An environment that cannot answer proves nothing, so it reports no failure. */
-function stillListed(target: CloseTarget): string | null {
-  const handle = target.handle;
-  if (handle === null || !target.backend?.placementInventory) return null;
-  try {
-    const listed = target.backend.placementInventory.list()
-      .some((entry) => describeHandle(entry.handle) === describeHandle(handle));
-    return listed ? `${describeHandle(handle)} is still listed by ${target.backend.id} after the close` : null;
-  } catch {
-    return null;
-  }
-}
-
-/** The one mechanism that can end this target, decided from the environment's
- *  roles and the recorded process BEFORE anything is attempted. A variant
- *  carries what its own close needs, so the attempt re-derives nothing. */
-type CloseRoute =
-  | { readonly kind: "pane"; readonly placer: PlacementRole; readonly handle: BackendHandle }
-  | { readonly kind: "process"; readonly role: ProcessRole; readonly recorded: LocalProcess }
-  | { readonly kind: "none" };
-
-/** Whoever HOLDS the agent ends it: a placed agent's recorded process is the
- *  place's own shell, which ignores SIGTERM, so its place host is asked first. */
-function closeRoute(target: CloseTarget, placer: PlacementRole | null): CloseRoute {
-  if (placer !== null && target.placeKnown && target.handle !== null) {
-    return { kind: "pane", placer, handle: target.handle };
-  }
-  const role = target.backend?.process ?? null;
-  if (target.recorded.kind !== "here" || role === null) return { kind: "none" };
-  const recorded = target.recorded.process;
-  // A dead or recycled pid is the same answer as no record at all.
-  return role.state(recorded) === "alive" ? { kind: "process", role, recorded } : { kind: "none" };
-}
-
-function takeRoute(route: CloseRoute): CloseAttempt {
-  switch (route.kind) {
-    case "pane": return closeByPane(route.placer, route.handle);
-    case "process": return closeByProcess(route.role, route.recorded);
-    case "none": return { failure: null, signalled: false, closedByBackend: false, alreadyAbsent: false };
-  }
-}
-
-/** End one agent by the strongest means available, and say what happened. */
-function attemptClose(target: CloseTarget): CloseAttempt {
-  const route = closeRoute(target, target.backend?.placement ?? null);
-  const attempt = takeRoute(route);
-  // Only a close the pane host was actually asked for is verified against it.
-  if (attempt.failure !== null || route.kind !== "pane" || attempt.alreadyAbsent) return attempt;
-  const lingering = stillListed(target);
-  return lingering === null ? attempt : { ...attempt, failure: lingering };
-}
 
 /** SIGTERM this session's `orch events` and `orch monitor` streams, never orch itself. */
 function killEventStreams(): number {
@@ -207,10 +86,7 @@ async function closeEachTarget(services: CloseServices, targets: readonly CloseT
     seen.add(target.key);
     const handle = target.handle === null ? null : describeHandle(target.handle);
     const name = target.name;
-    const { failure: processFailure, signalled, closedByBackend } = target.recorded.kind === "elsewhere"
-      ? await closeOverLink(services, target, target.recorded.hostName)
-      : attemptClose(target);
-    const failure = processFailure ?? await endClosedAgent(services, target.key);
+    const { failure, stopped } = await closeOne(services, target);
     if (failure !== null) {
       lifecycleLogger(logger, target.key).error("close.failed", { handle, error: failure });
       results.push({ target: target.key, handle, outcome: "error", error: failure });
@@ -219,7 +95,7 @@ async function closeEachTarget(services: CloseServices, targets: readonly CloseT
     }
     closed.push(target.key);
     results.push({ target: target.key, handle, outcome: "done", error: null });
-    if (!json) process.stdout.write(`Closed ${name}${closedByBackend || signalled ? "." : " (already stopped)."}\n`);
+    if (!json) process.stdout.write(`Closed ${name}${stopped ? "." : " (already stopped)."}\n`);
   }
   return { results, closed, ok: closed.length };
 }
@@ -242,24 +118,6 @@ function reportClose(
   // exiting here truncates the very payload a caller reads to find out WHICH
   // target failed (src/commands/index.ts:272 states the same rule).
   if (requested && ok !== requested) process.exitCode = 1;
-}
-
-function recordedHere(wire: CloseTargetWire): RecordedHere {
-  if (wire.recorded === null) return { kind: "none" };
-  const local = localProcessOf(wire.recorded);
-  if (local !== null) return { kind: "here", process: local };
-  return { kind: "elsewhere", hostName: wire.hostName ?? wire.recorded.host };
-}
-
-function closeTargetOf(wire: CloseTargetWire): CloseTarget {
-  return {
-    key: wire.key,
-    name: wire.name,
-    placeKnown: wire.placeKnown,
-    backend: wire.backendId === null ? null : getBackend(wire.backendId) ?? null,
-    handle: wire.handle,
-    recorded: recordedHere(wire),
-  };
 }
 
 /** Close one agent as another command's step: refused or failed ends that command. */
@@ -292,22 +150,15 @@ export async function cmdAbort(services: Services, args: string[]): Promise<void
   if (!target) throw usageError(invocation);
   // Abort itself has no close-authority gate. Lifecycle resolution still scopes a
   // driving session by its open lease; the operator remains unscoped.
+  // orchd aborts it where it runs: here, or on its linked host over the link.
   const resolved = await resolveLifecycle(services, target);
-  const { backend, handle, entity } = resolved;
-  const name = targetName(resolved);
-  const input = backend.agentInput;
-  if (!entity.paneId || !input) {
-    const reason = !entity.paneId ? "no-pane" : "no-environment-role";
-    const text = !entity.paneId ? `${target} has no pane; abort does not apply.` : "this pane environment does not provide abort";
-    if (json) process.stdout.write(JSON.stringify({ outcome: "answer", reason, text }) + "\n");
-    else process.stdout.write(text + "\n");
+  const aborted = await callDaemon(services, "abort", { target: resolved.key }, {}, hostCallTimeoutMs(services));
+  if (aborted.outcome === "answer") {
+    process.stdout.write((json ? JSON.stringify(aborted) : aborted.text) + "\n");
     return;
   }
-  input.sendKeys(handle, ["Escape"]);
-  sleepMs(500);
-  input.sendKeys(handle, ["Escape"]);
-  if (json) process.stdout.write(JSON.stringify({ target: handle, aborted: true }) + "\n");
-  else process.stdout.write(`Aborted ${name}.\n`);
+  if (json) process.stdout.write(JSON.stringify({ target: resolved.key, aborted: true }) + "\n");
+  else process.stdout.write(`Aborted ${targetName(resolved)}.\n`);
   // The text is a steer: the cancelled turn is gone, and this is what runs instead.
   if (text) await cmdSteer(services, [target, text, ...(json ? ["--json"] : [])]);
 }

@@ -2,6 +2,12 @@ import { PassThrough } from "node:stream";
 import { startRpcServer } from "../../src/daemon/server/rpc.ts";
 import { connectDaemon } from "../../src/daemon/client/rpc.ts";
 import { peerHandlers } from "../../src/daemon/server/handlers/peer.ts";
+import { peerDrive } from "../../src/daemon/server/handlers/drive.ts";
+import { idleDaemonState } from "./daemon-state.ts";
+import { testServices } from "./services.ts";
+import { heldScreenHandlers } from "../../src/daemon/server/handlers/screen.ts";
+import { SETTINGS_DEFAULTS } from "../../src/settings/schema.ts";
+import { FakeScreenHolder } from "./screen-holder.ts";
 import { serveHostLink } from "../../src/hosts/serve.ts";
 import { hostIdentity } from "../../src/host.ts";
 import { daemonStatusFixture, stubRpcHandlers } from "./rpc-handlers.ts";
@@ -25,12 +31,17 @@ export interface FarOrchd {
   close(): Promise<void>;
 }
 
-export async function startFarOrchd(greeting: HostGreeting): Promise<FarOrchd> {
+/** `screens` is the terminal holder its agents' screens are attached from. */
+export async function startFarOrchd(greeting: HostGreeting, screens: FakeScreenHolder = new FakeScreenHolder()): Promise<FarOrchd> {
   const orchDir = tempOrchDir("orch-far-orchd-");
+  // Drives its agents with the real handlers. A write's ack waits this long: no far agent here has a harness to ack one.
+  const state = idleDaemonState(testServices({ orchDir, settings: { timeouts: { dispatch_ack_ms: 50 } } }), orchDir);
   const handlers = stubRpcHandlers({
     "daemon-status": () => daemonStatusFixture(),
     "subscribe-events": () => ({ subscribed: true }),
-    ...peerHandlers(() => greeting.host),
+    ...peerHandlers(() => greeting.host, orchDir, recordingLogger().logger),
+    "peer-drive": (params, _emit, context) => peerDrive(state, params, context),
+    ...heldScreenHandlers(orchDir, () => screens, () => SETTINGS_DEFAULTS.attach.queue_bytes),
   });
   const server: RpcServer = await startRpcServer(orchDir, handlers, { logger: recordingLogger().logger, greeting: () => greeting });
   return {

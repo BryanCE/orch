@@ -3,7 +3,9 @@ import "../../store/suppress-sqlite-warning.ts";
 import { HostLinks } from "../../hosts/link.ts";
 import { closeOrphanedHostLinks } from "../../store/host-rows.ts";
 import { setLinkedProcessProbe } from "../../process-place.ts";
-import { bootCodeHash, idleShutdownDue, liveAgentCount, socketAnswers, touchOnCall } from "./state.ts";
+import { bootCodeHash, socketAnswers } from "./state.ts";
+import { PtyHold } from "./held.ts";
+import { nodePtyProvider } from "../../pty/node-pty.ts";
 import type { DaemonState } from "./state.ts";
 import { outboxDeps } from "./handlers/write.ts";
 import { rpcHandlers } from "./handlers/table.ts";
@@ -54,6 +56,8 @@ async function shutDown(state: DaemonState, reason: string): Promise<void> {
   state.loopWatchdog?.stop();
   state.settingsWatch?.stop();
   state.hosts.closeAll();
+  // Stopping ends every agent whose PTY this orchd holds; `orch daemon stop` asked first.
+  state.held.killAll();
   state.workController.abort();
   await state.workLoop;
   await state.server?.close();
@@ -91,7 +95,7 @@ export async function startDaemon(): Promise<DaemonState> {
       logger: services.logger,
       events: (host, event) => { applyHostEvent(state, host, event); },
     }),
-    lastActivityAt: Date.now(),
+    held: new PtyHold(nodePtyProvider(), () => services.settings.current().pty),
     fatalLogged: false,
   };
   if (invokedAsMain()) {
@@ -132,7 +136,7 @@ export async function startDaemon(): Promise<DaemonState> {
     const settings = services.settings.current();
     services.logger.setLevel(logLevelFor(services.settings.current()));
     const tcpPort = settings.daemon.tcp_port;
-    state.server = await startRpcServer(directory, touchOnCall(state, rpcHandlers(state)), {
+    state.server = await startRpcServer(directory, rpcHandlers(state), {
       holdsDaemonLock: true,
       logger: services.logger,
       tcpPort,
@@ -189,7 +193,6 @@ export async function startDaemon(): Promise<DaemonState> {
   });
   const paintPane = createPanePainter(directory);
   const publishPresenceEvent = (event: NotifyEvent): void => {
-    state.lastActivityAt = Date.now();
     // The agent no longer paints its own pane: its bundle carries no plexer.
     const painted = isAgentId(event.key) ? event.key : undefined;
     if (painted !== undefined) {
@@ -227,7 +230,7 @@ export async function startDaemon(): Promise<DaemonState> {
     signal: state.workController.signal,
     continuous: true,
     logger: services.logger,
-    onEvent: (event) => { state.lastActivityAt = Date.now(); publishFromOrchd(state, event); },
+    onEvent: (event) => { publishFromOrchd(state, event); },
   }).finally(() => { state.workLoopRunning = false; });
 
   // The outbox drains on orchd's OWN clock. Piggy-backing it on `acceptWrite`
@@ -239,17 +242,6 @@ export async function startDaemon(): Promise<DaemonState> {
     });
   }, services.settings.current().daemon.outbox_drain_ms);
   state.outboxDrain.unref?.();
-
-  const idleCheck = setInterval(() => {
-    const idleMinutes = services.settings.current().daemon.idle_shutdown_minutes;
-    const liveAgents = liveAgentCount(directory);
-    if (liveAgents > 0) state.lastActivityAt = Date.now();
-    const msSinceActivity = Date.now() - state.lastActivityAt;
-    const connections = (state.server?.subscriberCount() ?? 0) + (state.server?.attachedBridgeCount() ?? 0) + (state.server?.peerCount() ?? 0);
-    if (!idleShutdownDue({ idleMinutes, liveAgents, connections, msSinceActivity })) return;
-    clearInterval(idleCheck);
-    void shutDown(state, `idle ${idleMinutes}m: no live agents, no connections`);
-  }, 30_000);
 
   process.once("SIGTERM", () => void shutDown(state, "SIGTERM"));
   process.once("SIGINT", () => void shutDown(state, "SIGINT"));

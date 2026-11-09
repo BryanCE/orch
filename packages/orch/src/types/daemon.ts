@@ -13,6 +13,7 @@ import type { AgentStatusRow } from "../store/status-rows.ts";
 import type { IdentityMethod, ParamsOf, ResultOf, RpcMethod } from "../daemon/client/protocol.ts";
 import type { WakeSignal } from "../daemon/server/wake.ts";
 import type { HostGreeting, HostId } from "./host.ts";
+import type { ScreenConnection } from "./screen.ts";
 
 export interface LockRecord {
   pid: number;
@@ -28,6 +29,8 @@ export interface RpcRequestContext {
   readonly identity?: SessionAgentIdentity;
   /** The host whose orchd holds this connection over a link; absent for every local caller. */
   readonly peer?: HostId;
+  /** The agent screens this connection is attached to. */
+  readonly screens: ScreenConnection;
 }
 
 export interface UnleasedAgent {
@@ -89,8 +92,6 @@ export interface RpcServer {
   subscriberCount(): number;
   /** How many bridge keys currently have an attached connection. */
   attachedBridgeCount(): number;
-  /** How many connections another host's orchd holds to this one. */
-  peerCount(): number;
   readonly transport: "unix" | "tcp";
   readonly socketPath: string;
   readonly portFile: string;

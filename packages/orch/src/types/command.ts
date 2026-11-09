@@ -5,6 +5,7 @@ import type { AgentView, GrantAction } from "./store.ts";
 import type { Entity, LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
 import type { AgentWorktree } from "./worktree.ts";
+import type { HostOffline } from "./host.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 export interface DispatchToAgentOptions {
   raw?: boolean;
@@ -258,6 +259,8 @@ export interface StatusRow extends LeaseStatusPayload {
   rootAgentId?: string | null;
   /** The host the agent's process runs on, by name. */
   host?: string;
+  /** Set when that host is another machine whose link is down: its agent reads unknown. */
+  hostOffline?: HostOffline;
 }
 
 export interface LifecycleTarget {

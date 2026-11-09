@@ -1,5 +1,6 @@
 import { agentIdByProcess, agentIdBySessionToken } from "../store/agent-rows.ts";
 import { environmentOf } from "../store/agent-view.ts";
+import { enclosingAgent } from "./ancestry.ts";
 import { callerCredential } from "./credential.ts";
 import type { CallerCredential, OrchDir, SelfIdentity } from "../types/core.ts";
 
@@ -19,7 +20,9 @@ export function selfIdentityOf(orchDir: OrchDir, credential: CallerCredential): 
   // No token: the session IS a process — the harness's own, or the shell that
   // ran this command. Registration filed it under that process, so this
   // resolves the same way, and a plain terminal inside a plexer has an id.
-  const id = agentIdByProcess(orchDir, credential.process);
+  const id = agentIdByProcess(orchDir, credential.process)
+    // No harness marker and no row: a process started inside a live agent's tree is that agent.
+    ?? (credential.session === null ? enclosingAgent(orchDir, credential.process) : null);
   return id === null ? null : { id };
 }
 

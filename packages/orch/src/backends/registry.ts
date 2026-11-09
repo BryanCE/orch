@@ -1,4 +1,5 @@
 import { headlessBackend } from "./headless/index.ts";
+import { heldBackend } from "./held/index.ts";
 import { herdrBackend } from "./herdr/index.ts";
 import { tmuxBackend } from "./tmux/index.ts";
 import { orcaBackend } from "./orca/index.ts";
@@ -7,7 +8,10 @@ import type { Backend } from "../types/backend.ts";
 /** The environment that places an agent nowhere, which a daemon-owned launch
  *  runs on. Re-exported here so core
  *  reaches it through this boundary instead of reaching into a backend. */
-export { headlessBackend, headlessRegistration } from "./headless/index.ts";
+export { headlessBackend } from "./headless/index.ts";
+
+/** The environment orchd runs an agent in when it holds that agent's PTY. */
+export { heldBackend, startHeldAgent } from "./held/index.ts";
 
 const backends = new Map<string, Backend>();
 
@@ -62,3 +66,4 @@ registerBackend(herdrBackend);
 registerBackend(headlessBackend);
 registerBackend(tmuxBackend);
 registerBackend(orcaBackend);
+registerBackend(heldBackend);

@@ -1,18 +1,19 @@
-import { isAgentId } from "../backends/identity.ts";
 import { spaceOf } from "../policy/space.ts";
 import { ARROW, collapse, isRecord, truncate } from "../util.ts";
 import { die, resultText } from "./target.ts";
 import { readRpc } from "./daemon.ts";
 import { callerCredential } from "../identity/credential.ts";
-import { displayName, resolveEntity, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
+import { resolveEntity, resolveOwnedTarget, type ResolvedTarget } from "./resolve.ts";
 import { refuseNonOperatorOverride, type CallerSelf, whoAmI } from "./self.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { Invocation } from "../cli/spec.ts";
 import { getAdapter } from "../adapters/registry.ts";
-import { isRunEndState } from "../agent-state.ts";
+import { agentLogger, sessionViewValue } from "../agent/read.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "../types/adapter.ts";
-import type { Entity, Logger, OrchDir } from "../types/core.ts";
+import type { Entity } from "../types/core.ts";
+import type { AgentRead, ResultLookup } from "../types/agent-read.ts";
+import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { Services } from "../types/services.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
 import { CommandRefusal } from "../refusal.ts";
@@ -20,62 +21,25 @@ import { writeEmptyOrJson } from "./panes.ts";
 import { readCount } from "../cli/count.ts";
 import { formatAge } from "../format.ts";
 
-function resultLogger(logger: Logger, key?: string) {
-  return key !== undefined && isAgentId(key) ? logger.forAgent(key) : logger;
+/** A result lookup, and the linked host it came from: null when the agent runs here. */
+interface HostedResult {
+  readonly host: string | null;
+  readonly lookup: ResultLookup;
 }
 
-type ResultSource = "presence" | "dispatch" | "history" | "session";
-type ResultLookup =
-  | { readonly kind: "found"; readonly source: ResultSource; readonly payload: unknown }
-  | { readonly kind: "missing"; readonly reason: string };
-
-function adapterResultText(orchDir: OrchDir, ent: Entity, adapter: AgentAdapter): string | undefined {
-  return adapter.extractResult({ sessionPath: ent.sessionPath ?? undefined }, orchDir);
+/** Ask this host's orchd to read an agent, wherever it runs. */
+function readThroughOrchd(services: Services, key: string, read: AgentRead): Promise<ResultOf<"agent-read">> {
+  return readRpc(services, "agent-read", { caller: callerCredential(), key, read });
 }
 
-function adapterSessionView(ent: Entity, adapter: AgentAdapter): SessionView | undefined {
-  if (!adapter.sessionView) return undefined;
-  return adapter.sessionView.readSessionView({ sessionPath: ent.sessionPath ?? undefined });
+/** The agent's result, read by the orchd whose store holds it. */
+async function readResult(services: Services, key: string): Promise<HostedResult> {
+  const answer = await readThroughOrchd(services, key, { kind: "result" });
+  if (answer.reading.kind !== "result") throw new Error(`orchd answered a result read of ${key} with a ${answer.reading.kind}`);
+  return { host: answer.host, lookup: answer.reading.lookup };
 }
 
-function sessionViewValue(view: SessionView | undefined, key: keyof SessionView): unknown {
-  return view?.[key] ?? null;
-}
-
-function adapterResultDocument(ent: Entity, adapter: AgentAdapter, text: string): unknown {
-  const view = adapterSessionView(ent, adapter);
-  return {
-    text, task: sessionViewValue(view, "task"), model: sessionViewValue(view, "model"),
-    thinking: sessionViewValue(view, "thinking"), tokens: sessionViewValue(view, "tokens"),
-    cost: sessionViewValue(view, "cost"), turns: sessionViewValue(view, "turns"),
-    sessionPath: ent.sessionPath,
-  };
-}
-
-/** What the agent's own session says it last wrote, when its harness can read one. */
-function sessionResult(services: Services, ent: Entity, resolved: ResolvedTarget): ResultLookup | undefined {
-  const adapter = getAdapter(resolved.view?.harnessId ?? ent.agent ?? "");
-  const text = adapter ? adapterResultText(services.orchDir, ent, adapter) : undefined;
-  if (!adapter || !text) return undefined;
-  resultLogger(services.logger, ent.key).info("result.adapter-fallback");
-  return { kind: "found", source: "session", payload: adapterResultDocument(ent, adapter, text) };
-}
-
-/** A run status says ended, whose result report lags the status report or never
- *  comes. It answers from the session, then from the final text the status carried,
- *  so `orch result` agrees with `orch status` the moment status says done. */
-function endedRunResult(services: Services, ent: Entity, resolved: ResolvedTarget, dispatchId: string, state: string): ResultLookup {
-  const session = sessionResult(services, ent, resolved);
-  if (session !== undefined) return session;
-  const lastText = ent.presence?.status?.lastText;
-  if (lastText) {
-    resultLogger(services.logger, ent.key).info("result.status-fallback", { dispatchId });
-    return { kind: "found", source: "presence", payload: { text: lastText, dispatchId, task: ent.presence?.status?.task ?? null } };
-  }
-  return { kind: "missing", reason: `Dispatch ${dispatchId} ended (${state}) and reported no text.` };
-}
-
-async function resolveResultTarget(services: Services, target: string): Promise<ResolvedTarget | ResultLookup> {
+async function resolveResultTarget(services: Services, target: string): Promise<ResolvedTarget | HostedResult> {
   try {
     return await resolveEntity(services, target);
   } catch (error: unknown) {
@@ -83,86 +47,73 @@ async function resolveResultTarget(services: Services, target: string): Promise<
     const { runs } = await readRpc(services, "runs", { caller: callerCredential(), target, limit: 1 }).catch(() => ({ runs: [] }));
     const historical = runs[0];
     if (historical?.result !== undefined) {
-      resultLogger(services.logger, target).info("result.history-fallback");
-      return { kind: "found", source: "history", payload: historical.result };
+      agentLogger(services.logger, target).info("result.history-fallback");
+      return { host: null, lookup: { kind: "found", source: "history", payload: historical.result } };
     }
-    return { kind: "missing", reason: error.message };
+    return { host: null, lookup: { kind: "missing", reason: error.message } };
   }
 }
 
-async function lookupResolvedResult(services: Services, self: CallerSelf, target: string, resolved: ResolvedTarget, steal: boolean): Promise<ResultLookup> {
-  await resolveOwnedTarget(services, self, target, { override: steal });
-  const ent = resolved.entity;
-  const dispatchId = ent.presence?.status?.dispatchId;
-  if (dispatchId) {
-    const run = (await readRpc(services, "run", { dispatchId })).run;
-    if (run && run.result === undefined && isRunEndState(run.state)) return endedRunResult(services, ent, resolved, dispatchId, run.state);
-    if (run?.result === undefined) {
-      die(`Dispatch ${dispatchId} has not settled (${run?.state ?? "unrecorded"}). Watch it with \`orch events\`, or read the task history with \`orch runs ${displayName(ent.name, ent.key)}\`.`);
-    }
-    resultLogger(services.logger, ent.key).info("result.current-dispatch", { dispatchId });
-    return { kind: "found", source: "dispatch", payload: run.result };
-  }
-  if (ent.presence?.result) return { kind: "found", source: "presence", payload: ent.presence.result };
-  const { runs } = await readRpc(services, "runs", { caller: callerCredential(), target: ent.key, limit: 1 });
-  const historical = runs[0];
-  if (historical?.result !== undefined) {
-    resultLogger(services.logger, ent.key).info("result.history-fallback");
-    return { kind: "found", source: "history", payload: historical.result };
-  }
-  const session = sessionResult(services, ent, resolved);
-  if (session !== undefined) return session;
-  return { kind: "missing", reason: `No result available for "${target}" (no settled dispatch, no reported result, and no adapter-extractable session text).` };
-}
-
-async function lookupResultBody(services: Services, self: CallerSelf, target: string, steal: boolean): Promise<ResultLookup> {
+async function lookupResultBody(services: Services, self: CallerSelf, target: string, steal: boolean): Promise<HostedResult> {
   const resolved = await resolveResultTarget(services, target);
-  if ("kind" in resolved) return resolved;
-  return lookupResolvedResult(services, self, target, resolved, steal);
+  if ("lookup" in resolved) return resolved;
+  await resolveOwnedTarget(services, self, target, { override: steal });
+  return readResult(services, resolved.entity.key);
 }
 
 /** Resolve one target without writing output. Refusals become data for multi-target callers. */
-async function lookupResult(services: Services, self: CallerSelf, target: string, steal: boolean): Promise<ResultLookup> {
+async function lookupResult(services: Services, self: CallerSelf, target: string, steal: boolean): Promise<HostedResult> {
   try {
     return await lookupResultBody(services, self, target, steal);
   } catch (error: unknown) {
-    if (error instanceof CommandRefusal) return { kind: "missing", reason: error.message };
+    if (error instanceof CommandRefusal) return { host: null, lookup: { kind: "missing", reason: error.message } };
     throw error;
   }
+}
+
+/** The line that opens output read from an agent on another host. */
+function hostLine(host: string | null): string {
+  return host === null ? "" : `from ${host}:\n`;
 }
 
 function humanResult(payload: unknown): string {
   return typeof payload === "string" ? payload : resultText(payload) ?? JSON.stringify(payload);
 }
 
-function printHumanBody(entry: { target: string; lookup: ResultLookup }): void {
-  if (entry.lookup.kind === "missing") {
-    process.stdout.write(`error: ${entry.lookup.reason}\n`);
-    return;
-  }
-  if (entry.lookup.source === "history") process.stdout.write("(result from run history)\n");
-  if (entry.lookup.source === "session") process.stdout.write("(no reported result - read from the harness session)\n");
-  process.stdout.write(humanResult(entry.lookup.payload) + "\n");
+interface ResultEntry extends HostedResult {
+  readonly target: string;
 }
 
-function printResults(entries: readonly { target: string; lookup: ResultLookup }[], json: boolean): void {
-  const missing = entries.some((entry) => entry.lookup.kind === "missing");
+function printHumanBody(entry: ResultEntry): void {
+  const lookup = entry.lookup;
+  if (lookup.kind === "missing") {
+    process.stdout.write(`error: ${lookup.reason}\n`);
+    return;
+  }
+  process.stdout.write(hostLine(entry.host));
+  if (lookup.source === "history") process.stdout.write("(result from run history)\n");
+  if (lookup.source === "session") process.stdout.write("(no reported result - read from the harness session)\n");
+  process.stdout.write(humanResult(lookup.payload) + "\n");
+}
+
+function jsonEntry(entry: ResultEntry): unknown {
+  return entry.lookup.kind === "found"
+    ? { target: entry.target, host: entry.host, source: entry.lookup.source, result: entry.lookup.payload }
+    : { target: entry.target, host: entry.host, error: entry.lookup.reason };
+}
+
+function printResults(entries: readonly ResultEntry[], json: boolean): void {
+  const only = entries.length === 1 ? entries[0] : undefined;
+  if (only?.lookup.kind === "missing") throw new CommandRefusal(only.lookup.reason);
   if (json) {
-    if (entries.length === 1 && entries[0]?.lookup.kind === "missing") throw new CommandRefusal(entries[0].lookup.reason);
-    const output = entries.length === 1
-      ? entries[0]?.lookup.kind === "found" ? entries[0].lookup.payload : undefined
-      : entries.map((entry) => entry.lookup.kind === "found"
-        ? { target: entry.target, source: entry.lookup.source, result: entry.lookup.payload }
-        : { target: entry.target, error: entry.lookup.reason });
-    process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+    process.stdout.write(JSON.stringify(entries.map(jsonEntry), null, 2) + "\n");
   } else {
-    if (entries.length === 1 && entries[0]?.lookup.kind === "missing") throw new CommandRefusal(entries[0].lookup.reason);
     for (const entry of entries) {
       if (entries.length > 1) process.stdout.write(`== ${entry.target}\n`);
       printHumanBody(entry);
     }
   }
-  if (entries.length > 1 && missing) process.exitCode = 1;
+  if (entries.length > 1 && entries.some((entry) => entry.lookup.kind === "missing")) process.exitCode = 1;
 }
 
 export async function cmdResult(services: Services, args: string[]): Promise<void> {
@@ -171,7 +122,7 @@ export async function cmdResult(services: Services, args: string[]): Promise<voi
   if (positional.length === 0) throw usageError(invocation);
   const steal = flags.has("--steal");
   const self = await whoAmI(services);
-  const entries = await Promise.all(positional.map(async (target) => ({ target, lookup: await lookupResult(services, self, target, steal) })));
+  const entries = await Promise.all(positional.map(async (target): Promise<ResultEntry> => ({ target, ...await lookupResult(services, self, target, steal) })));
   printResults(entries, flags.has("--json"));
 }
 
@@ -282,22 +233,27 @@ function tailEntries(entries: readonly SessionViewEntry[], count: number): strin
   return rows.length ? rows.join("\n") : "(no entries)";
 }
 
-function viewEntriesTail(view: SessionView, lines: number): SessionViewEntry[] | null {
-  return view.entries ? view.entries.slice(-lines) : null;
+/** The agent's session tail, read by the orchd whose store holds it. Refuses when there is none. */
+async function readTail(services: Services, key: string, lines: number): Promise<{ readonly host: string | null; readonly sessionPath: string | null; readonly view: SessionView }> {
+  const answer = await readThroughOrchd(services, key, { kind: "tail", lines });
+  if (answer.reading.kind !== "tail") throw new Error(`orchd answered a tail read of ${key} with a ${answer.reading.kind}`);
+  const lookup = answer.reading.lookup;
+  if (lookup.kind === "missing") die(lookup.reason);
+  return { host: answer.host, sessionPath: lookup.sessionPath, view: lookup.view };
 }
 
-function writeTailJson(target: string, ent: Entity, view: SessionView, lines: number): void {
+function writeTailJson(target: string, host: string | null, sessionPath: string | null, view: SessionView): void {
   process.stdout.write(JSON.stringify({
-    target, sessionPath: ent.sessionPath, model: sessionViewValue(view, "model"),
+    target, host, sessionPath, model: sessionViewValue(view, "model"),
     provider: sessionViewValue(view, "provider"), thinking: sessionViewValue(view, "thinking"),
     cost: sessionViewValue(view, "cost"), tokens: sessionViewValue(view, "tokens"),
     turns: sessionViewValue(view, "turns"), task: sessionViewValue(view, "task"),
-    lastText: sessionViewValue(view, "lastText"), entries: viewEntriesTail(view, lines),
+    lastText: sessionViewValue(view, "lastText"), entries: view.entries ?? null,
   }, null, 2) + "\n");
 }
 
-function writeTailText(ent: Entity, view: SessionView, lines: number): void {
-  process.stdout.write(`session: ${ent.sessionPath}\nmodel: ${formatViewModel(view, "-")}   cost: $${(view.cost ?? 0).toFixed(4)}   turns: ${view.turns ?? 0}\n\n`);
+function writeTailText(host: string | null, sessionPath: string | null, view: SessionView, lines: number): void {
+  process.stdout.write(`${hostLine(host)}session: ${sessionPath}\nmodel: ${formatViewModel(view, "-")}   cost: $${(view.cost ?? 0).toFixed(4)}   turns: ${view.turns ?? 0}\n\n`);
   process.stdout.write((view.entries ? tailEntries(view.entries, lines) : tailLastText(view, lines)) + "\n");
 }
 
@@ -307,12 +263,9 @@ export async function cmdTail(services: Services, args: string[]): Promise<void>
   const target = requireSessionTarget(invocation);
   const lines = readCount(invocation) ?? services.settings.current().counts.tail;
   const resolved = await resolveEntity(services, target);
-  const ent = resolved.entity;
-  const adapter = resolveSessionTailAdapter(resolved, target);
-  const view = adapter.sessionView?.readSessionView({ sessionPath: ent.sessionPath ?? undefined });
-  if (!view) die(`No session data for "${target}" (${ent.sessionPath ?? "unknown path"}).`);
-  if (flags.has("--json")) writeTailJson(target, ent, view, lines);
-  else writeTailText(ent, view, lines);
+  const { host, sessionPath, view } = await readTail(services, resolved.entity.key, lines);
+  if (flags.has("--json")) writeTailJson(target, host, sessionPath, view);
+  else writeTailText(host, sessionPath, view, lines);
 }
 
 function requireSessionTarget(invocation: Invocation): string {

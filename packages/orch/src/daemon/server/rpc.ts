@@ -18,12 +18,16 @@ import { ReplayBuffer } from "./replay.ts";
 import { originOf } from "../../store/agent-rows.ts";
 import { isRegisterSessionResponse } from "../client/registration.ts";
 import { registerSession, claimIdentity } from "./session-registry.ts";
+import { screenConnection } from "./screens.ts";
+import type { ScreenConnection } from "../../types/screen.ts";
 
 interface ConnectionState {
   identity?: SessionAgentIdentity;
   bridge?: { key: string; link: BridgeLink };
   /** The host whose orchd holds this connection, once it sent `peer-hello` with this orchd's token. */
   peer?: HostId;
+  /** The agent screens this connection is attached to. */
+  readonly screens: ScreenConnection;
 }
 
 /** What every connection on this server shares. */
@@ -126,7 +130,7 @@ function dispatchRequest(
 ): void {
   const startedAt = Date.now();
   Promise.resolve()
-    .then(() => invoke(handlers, request.method, request.params, emit, { transport, identity: state.identity, peer: state.peer }))
+    .then(() => invoke(handlers, request.method, request.params, emit, { transport, identity: state.identity, peer: state.peer, screens: state.screens }))
     .then((result) => {
       lineResponse(socket, { kind: "reply", id: request.id, result });
       logRpc(logger, request, transport, startedAt);
@@ -206,11 +210,12 @@ function attachConnection(
   onBridgeAttached: ((key: string) => void) | undefined,
   logger: Logger,
 ): () => void {
-  const state: ConnectionState = {};
+  const state: ConnectionState = { screens: screenConnection(socket) };
   const detach = () => {
     shared.subscriptions.delete(socket);
     shared.peers.delete(socket);
     detachConnectionBridge(orchDir, state);
+    state.screens.closeAll();
   };
   framedLineReader(socket, (line) =>
     handleLine(socket, line.replace(/\r$/, ""), handlers, shared, orchDir, transport, state, daemonToken, onBridgeAttached, logger),
@@ -430,7 +435,6 @@ function makeRpcServer(
     emit: (event) => bus.emit(event),
     subscriberCount: () => subscriptions.size,
     attachedBridgeCount: () => attachedBridgeKeys().length,
-    peerCount: () => peers.size,
     transport,
     socketPath: paths.socket,
     portFile: paths.port,

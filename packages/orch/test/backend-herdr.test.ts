@@ -263,6 +263,25 @@ describe("HerdrBackend", () => {
     ]);
   });
 
+  test("a place running a command splits a pane, then types the quoted command into its shell", () => {
+    herdrArgv.length = 0;
+    const placed = backend.commandPlacement.open({ cwd: testDir, workspace: "ws-test", targetHandle: "w0:p1", split: "right", env: { ORCH_DIR: testDir }, command: ["/opt/orch's/orch.js", "attach", "agent00001"] });
+
+    expect(placed.handle).toBe("w0:p3");
+    expect(herdrArgv).toEqual([
+      ["pane", "split", "w0:p1", "--direction", "right", "--cwd", testDir, "--env", `ORCH_DIR=${testDir}`, "--no-focus"],
+      ["pane", "run", "w0:p3", "'/opt/orch'\\''s/orch.js' 'attach' 'agent00001'"],
+    ]);
+  });
+
+  test("a command run into a handed-over place opens nothing", () => {
+    herdrArgv.length = 0;
+    const placed = backend.commandPlacement.open({ cwd: testDir, workspace: "ws-test", intoHandle: "w0:p9", command: ["orch", "attach", "agent00001"] });
+
+    expect(placed.handle).toBe("w0:p9");
+    expect(herdrArgv).toEqual([["pane", "run", "w0:p9", "'orch' 'attach' 'agent00001'"]]);
+  });
+
   test("a group is created with the environment its own pane will launch under", () => {
     herdrArgv.length = 0;
     const key = mintAgentId();

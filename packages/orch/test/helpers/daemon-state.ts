@@ -1,5 +1,8 @@
 import type { DaemonState } from "../../src/daemon/server/state.ts";
 import { createWakeSignal } from "../../src/daemon/server/wake.ts";
+import { PtyHold } from "../../src/daemon/server/held.ts";
+import type { PtyProvider } from "../../src/types/pty.ts";
+import { FakePtyProvider } from "./fake-pty.ts";
 import { HostLinks } from "../../src/hosts/link.ts";
 import { applyHostEvent } from "../../src/daemon/server/host-events.ts";
 import { rpcHandlers } from "../../src/daemon/server/handlers/table.ts";
@@ -26,8 +29,9 @@ export async function servedServices(options: TestServicesOptions, servers: RpcS
   return services;
 }
 
-/** A daemon that has booted nothing: no server, no loop, no timers. */
-export function idleDaemonState(services: Services, directory: OrchDir): DaemonState {
+/** A daemon that has booted nothing: no server, no loop, no timers. Its held PTYs come
+ *  from `pty`, a fake unless the test hands in its own. */
+export function idleDaemonState(services: Services, directory: OrchDir, pty: PtyProvider = new FakePtyProvider()): DaemonState {
   const state: DaemonState = {
     services,
     directory,
@@ -45,7 +49,7 @@ export function idleDaemonState(services: Services, directory: OrchDir): DaemonS
       logger: services.logger,
       events: (host, event) => { applyHostEvent(state, host, event); },
     }),
-    lastActivityAt: 0,
+    held: new PtyHold(pty, () => services.settings.current().pty),
     fatalLogged: false,
   };
   return state;

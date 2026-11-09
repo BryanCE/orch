@@ -1,6 +1,6 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { hostname } from "node:os";
 import { orchDirAt } from "../src/orch-dir.ts";
+import { hostIdentity } from "../src/host.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/backends/identity.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
@@ -104,7 +104,7 @@ describe("caller kind", () => {
     const self = await whoAmI(services);
     expect(self.kind).toBe("operator");
     expect(self.id).not.toBeNull();
-    expect(self.stored).toMatchObject({ process: { pid: process.ppid, alive: true }, sessionToken: null });
+    expect(self.stored).toMatchObject({ process: { pid: process.ppid, liveness: "alive" }, sessionToken: null });
   });
 
   test("an unregistered session asks the daemon registration seam", async () => {
@@ -134,7 +134,7 @@ describe("caller kind", () => {
     await registerCaller(services);
     const self = await whoAmI(services);
     expect(self.stored).toMatchObject({
-      process: { pid: process.ppid, host: { name: hostname() }, alive: true },
+      process: { pid: process.ppid, host: hostIdentity(), liveness: "alive" },
       sessionToken: "stored-session",
       claimedAt: null,
     });

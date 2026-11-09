@@ -59,7 +59,7 @@ export interface OrchSettings {
   questions?: { renag_ms: number; renag_limit: number };
   monitor: { on: readonly NotifyState[]; summary_chars: number };
   logging: { level: LogLevel; slow_tool_ms: number; stall_ms: number; stall_poll_ms: number };
-  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number; reset_ready_ms: number; reset_poll_ms: number; daemon_probe_ms: number };
+  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number; reset_ready_ms: number; reset_poll_ms: number; daemon_probe_ms: number; abort_gap_ms: number };
   notify: NotifyEntry[];
   notification: NotificationSettings;
   locked_commands: { commands: string[]; applies_to: readonly Role[] };
@@ -69,7 +69,9 @@ export interface OrchSettings {
   hosts: Record<string, HostSettings>;
   links: { ssh_command: string; ssh_keygen_command: string; ssh_keyscan_command: string; connect_timeout_s: number; keepalive_interval_s: number; keepalive_count: number; request_timeout_ms: number; ping_interval_ms: number; retry_floor_ms: number; retry_cap_ms: number };
   spaces: Record<string, string>;
-  daemon: { tcp_port: number; idle_shutdown_minutes: number; outbox_drain_ms: number; work_tick_ms: number; liveness_poll_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number; report_timeout_ms: number };
+  daemon: { tcp_port: number; outbox_drain_ms: number; work_tick_ms: number; liveness_poll_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number; report_timeout_ms: number };
+  pty: { scrollback_lines: number; cols: number; rows: number; term: string };
+  attach: { queue_bytes: number; detach_key: string };
   doctor: { unclaimed_after_ms: number };
   tiling: { first_split: TileFirstSplit };
   worktrees: WorktreeConfig;

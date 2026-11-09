@@ -2,7 +2,7 @@ import { LocalProcessRole } from "../../src/backends/process.ts";
 import { envOrchDir } from "../../src/orch-dir.ts";
 import { createCaptureRole } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
-import type { AgentNamingRole, Backend, BackendHandle, BackendId, BackendSpawnOpts, Placement, PlacementRequest, EnvironmentIdentityRole, ForegroundRole, GroupHomeRole, PlacementRole, PlacementInventoryRole, LabelRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
+import type { AgentNamingRole, Backend, CommandPlacementRole, GroupLayoutRole, BackendHandle, BackendId, BackendSpawnOpts, Placement, PlacementRequest, EnvironmentIdentityRole, ForegroundRole, GroupHomeRole, PlacementRole, PlacementInventoryRole, LabelRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
 import type { AgentAdapter } from "../../src/types/adapter.ts";
 
 /** One pane a fake paned environment lists. Space vocabulary is orch's own;
@@ -67,6 +67,8 @@ export class FakePanedBackend implements Backend {
   readonly capture = createCaptureRole(envOrchDir());
   readonly placement: PlacementRole;
   readonly placementInventory: PlacementInventoryRole;
+  /** Declared at the PORT's type so a subclass can compose one. */
+  readonly commandPlacement: CommandPlacementRole | null = null;
   readonly agentInput = null;
   /** The test runner stands in for every pane shell: the one pid a fixture can prove alive. */
   readonly foreground: ForegroundRole = { read: () => ({ shellPid: process.pid, foregroundPid: null, processes: [] }) };
@@ -75,7 +77,7 @@ export class FakePanedBackend implements Backend {
   readonly labeling: LabelRole | null = null;
   readonly agentNaming: AgentNamingRole | null = null;
   readonly agentStatus = null;
-  readonly groupLayout = null;
+  readonly groupLayout: GroupLayoutRole | null = null;
   // Declared at the PORT's type, not inferred as the literal `null`: a subclass
   // that composes one of these roles is still the same environment, and an
   // inferred `null` makes the helper claim a shape the port does not have.

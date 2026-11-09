@@ -15,13 +15,15 @@ import { forgetEchoes } from "../control/echo.ts";
 import { deleteSettledTasksOf } from "../store/task-rows.ts";
 import { deleteGrantsOf } from "../store/grant-rows.ts";
 import { currentProcess, currentProcesses, type StoredProcess } from "../store/interval-rows.ts";
-import { processLiveness } from "../process-place.ts";
+import { hostedAgentLiveness, placeProcess, processLiveness } from "../process-place.ts";
 import { linkedHosts } from "../store/host-rows.ts";
+import { agentHostIndex, hostOfAgent, originOf } from "../store/agent-rows.ts";
 import { agents } from "../db/schema.ts";
 import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../store/status-rows.ts";
 import { latestResultTexts, onRunUpserted, settledDispatchIds } from "../store/run-rows.ts";
 import type { AgentView } from "../types/store.ts";
 import type { OrchDir } from "../types/core.ts";
+import type { HostId } from "../types/host.ts";
 import type { Liveness, PresenceEntry, StatusPatch } from "../types/presence.ts";
 
 export function presenceDir(root: OrchDir): string {
@@ -101,12 +103,21 @@ function spawnerIds(root: OrchDir): Set<string> {
     .where(isNotNull(agents.spawnedBy)).all().flatMap((row) => row.id === null ? [] : [row.id]));
 }
 
+/** Whether this orchd alone decides when an agent's rows go. Another host follows an agent
+ *  that runs there (this row is its reference) and an agent it asked this host to run (its
+ *  run records are read from here), so those rows stay after the agent ends, until a reap. */
+function reapedHere(root: OrchDir, agentId: string): boolean {
+  if (originOf(root, agentId) !== null || hostOfAgent(root, agentId) !== null) return false;
+  const process = currentProcess(root, agentId);
+  return process === undefined || placeProcess(root, process).kind === "local";
+}
+
 /** Delete the rows of every agent whose process is gone, children before
  *  parents. An agent a remaining row still points at stays for a later sweep;
  *  that is a reference holding, never a failure. Answers with the ids removed. */
 export function reapDeadAgentRecords(root: OrchDir): string[] {
   const removed: string[] = [];
-  let dead = [...loadPresence(root).values()].filter((entry) => entry.liveness === "dead").map((entry) => entry.key);
+  let dead = [...loadPresence(root).values()].filter((entry) => entry.liveness === "dead" && reapedHere(root, entry.key)).map((entry) => entry.key);
   while (dead.length > 0) {
     const referenced = spawnerIds(root);
     const leaves = dead.filter((id) => !referenced.has(id));
@@ -212,6 +223,8 @@ interface HeldPresence {
   readonly results: Map<string, string>;
   readonly settled: Set<string>;
   readonly processes: Map<string, StoredProcess>;
+  /** The agents another host runs for this orchd, with that host. None has a process here. */
+  readonly hosted: Map<string, HostId>;
   readonly liveness: Map<string, Liveness>;
 }
 
@@ -222,26 +235,31 @@ function heldPresence(root: OrchDir): HeldPresence {
   const existing = held.get(root);
   if (existing) return existing;
   const processes = currentProcesses(root);
+  const hosted = agentHostIndex(root);
   const linked = linkedHosts(root);
   const liveness = new Map<string, Liveness>();
   for (const [agentId, process] of processes) liveness.set(agentId, processLiveness(root, process, linked));
+  for (const [agentId, host] of hosted) liveness.set(agentId, hostedAgentLiveness(root, host));
   const presence: HeldPresence = {
     statuses: new Map(selectAgentStatuses(root).map((row) => [row.agentId, row])),
     results: latestResultTexts(root),
     settled: settledDispatchIds(root),
     processes,
+    hosted,
     liveness,
   };
   held.set(root, presence);
   return presence;
 }
 
+/** An ended agent is dead. A live one reads what was last learned of it; an agent with no
+ *  process here is dead only when it runs here, since one another host runs never has one. */
 function entryFor(view: AgentView, current: HeldPresence): PresenceEntry {
   return {
     key: view.id,
     status: current.statuses.get(view.id) ?? null,
     result: current.results.get(view.id) ?? null,
-    liveness: view.endedAt === null ? current.liveness.get(view.id) ?? "dead" : "dead",
+    liveness: view.endedAt === null ? current.liveness.get(view.id) ?? (current.hosted.has(view.id) ? "unknown" : "dead") : "dead",
   };
 }
 
@@ -286,7 +304,14 @@ export function refreshProcess(root: OrchDir, agentId: string): void {
     current.statuses.delete(agentId);
     current.results.delete(agentId);
     current.processes.delete(agentId);
+    current.hosted.delete(agentId);
     current.liveness.delete(agentId);
+    return;
+  }
+  const host = hostOfAgent(root, agentId);
+  if (host !== null) {
+    current.hosted.set(agentId, host);
+    current.liveness.set(agentId, hostedAgentLiveness(root, host));
     return;
   }
   const process = currentProcess(root, agentId);
@@ -299,18 +324,19 @@ export function refreshProcess(root: OrchDir, agentId: string): void {
   current.liveness.set(agentId, processLiveness(root, process));
 }
 
-/** Re-ask about every held process: the OS here, the last answers from linked hosts. True
- *  when any agent's liveness changed. */
+/** Re-ask about every held agent: its process from the OS here, an agent another host runs
+ *  from that host's link. True when any agent's liveness changed. */
 export function probeAllProcesses(root: OrchDir): boolean {
   const current = held.get(root);
   if (!current) return false;
   const linked = linkedHosts(root);
   let changed = false;
-  for (const [agentId, process] of current.processes) {
-    const liveness = processLiveness(root, process, linked);
+  const settle = (agentId: string, liveness: Liveness): void => {
     if (current.liveness.get(agentId) !== liveness) changed = true;
     current.liveness.set(agentId, liveness);
-  }
+  };
+  for (const [agentId, process] of current.processes) settle(agentId, processLiveness(root, process, linked));
+  for (const [agentId, host] of current.hosted) settle(agentId, hostedAgentLiveness(root, host));
   return changed;
 }
 

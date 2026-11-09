@@ -16,6 +16,7 @@ import type { LeaseOptions, ReapCandidate, ReapCandidateInput, ReapOwnership } f
 import type { Governance, ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { DaemonState } from "../state.ts";
 import { recordedProcessIsLive } from "../../../process-place.ts";
+import { atAgentHost, driveOnHost } from "./host.ts";
 
 /** The orch a lease verb acts as. A caller with no registered identity holds nothing. */
 function actorOrDie(params: Governance): string {
@@ -136,16 +137,24 @@ export function leasedAgents(directory: OrchDir, orchId: string): AgentRow[] {
   return rows;
 }
 
+type Reaped = ResultOf<"reap">["reaped"][number];
+
 /** Delete an agent subtree after proving no live descendant or process remains. */
-export function reapAgent(directory: OrchDir, target: string): ResultOf<"reap">["reaped"][number] {
+export function reapAgent(directory: OrchDir, target: string): Reaped {
   const agent = resolveTarget(directory, target);
+  return reapResolved(directory, agent, !recordedProcessIsLive(directory, agent.id));
+}
+
+/** Delete a resolved agent's subtree. `processEnded` is whether its own process is proven
+ *  gone: by this host, or by the host it ran on, which reaped it there first. */
+function reapResolved(directory: OrchDir, agent: AgentRow, processEnded: boolean): Reaped {
   const descendants = allDescendants(directory, agent.id);
   const live = liveDescendants(directory, agent.id);
   if (live.length) {
     const names = live.map((child) => `${displayName(child)} (${child.id})`).join(", ");
     throw new Error(`Cannot reap ${displayName(agent)}: live descendants: ${names}.`);
   }
-  if (recordedProcessIsLive(directory, agent.id)) {
+  if (!processEnded) {
     throw new Error(`Cannot reap ${displayName(agent)}: process is still running; close first.`);
   }
   // Foreign leases never gate ending/reaping. Delete descendants first because
@@ -236,12 +245,37 @@ export function reapCandidateList(state: DaemonState, params: ParamsOf<"reap-can
   return { candidates: classifiedReapCandidates(state.directory, actorOrDie(params)) };
 }
 
-export function reap(state: DaemonState, params: ParamsOf<"reap">): ResultOf<"reap"> {
+/** Reap an agent where it runs. One on a linked host is reaped by that host's orchd first,
+ *  which proves its process gone; then this host drops its own record of it. Never gated by a
+ *  lease (Rule 11). */
+async function reapAnywhere(state: DaemonState, target: string, actor: string | null): Promise<Reaped> {
   const directory = state.directory;
+  const agent = resolveTarget(directory, target);
+  const here = (): Reaped => reapAgent(directory, agent.id);
+  return atAgentHost(state, agent.id, {
+    unrecorded: here,
+    here,
+    there: async (link) => {
+      await driveOnHost(link, { action: "reap", key: agent.id, actor });
+      return reapResolved(directory, agent, true);
+    },
+  });
+}
+
+/** Reap an agent this host runs, for a linked host's orchd that asked for it. One already gone
+ *  from this store is nothing to reap. */
+export function reapForPeer(directory: OrchDir, key: string): Reaped[] {
+  return agentById(directory, key) === null ? [] : [reapAgent(directory, key)];
+}
+
+export async function reap(state: DaemonState, params: ParamsOf<"reap">): Promise<ResultOf<"reap">> {
+  const actor = params.actor ?? null;
   if (params.dead === true) {
-    const dead = classifiedReapCandidates(directory, actorOrDie(params)).filter((candidate) => candidate.classification === "dead");
-    return { reaped: dead.map((candidate) => reapAgent(directory, candidate.id)) };
+    const dead = classifiedReapCandidates(state.directory, actorOrDie(params)).filter((candidate) => candidate.classification === "dead");
+    const reaped: Reaped[] = [];
+    for (const candidate of dead) reaped.push(await reapAnywhere(state, candidate.id, actor));
+    return { reaped };
   }
   if (params.target === undefined) throw new Error("reap names a target or asks for --dead");
-  return { reaped: [reapAgent(directory, params.target)] };
+  return { reaped: [await reapAnywhere(state, params.target, actor)] };
 }

@@ -3,7 +3,7 @@ import { and, asc, eq, isNotNull, isNull, type SQL } from "drizzle-orm";
 import { mintAgentId } from "../backends/identity.ts";
 import { isRecord } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
-import { agentEndings, agentOrigins, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
+import { agentEndings, agentHosts, agentOrigins, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf, refreshAgent } from "./agent-view.ts";
 import { currentProcess, recordProcessIn, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
@@ -113,6 +113,30 @@ export function setWorktree(orchDir: OrchDir, agentId: string, worktree: AgentWo
     .onConflictDoUpdate({ target: agentWorktrees.agentId, set: worktree })
     .run();
   refreshAgent(orchDir, agentId);
+}
+
+/** Record that an agent this orchd asked for runs on another host. Written once, with its row. */
+export function setAgentHost(orchDir: OrchDir, agentId: string, hostId: HostId): void {
+  orm(orchDir).insert(agentHosts).values({ agentId, hostId }).run();
+  refreshAgent(orchDir, agentId);
+}
+
+/** Every agent this orchd asked another host to run, by id, with that host. */
+export function agentHostIndex(orchDir: OrchDir): Map<string, HostId> {
+  return new Map(orm(orchDir).select({ agentId: agentHosts.agentId, hostId: agentHosts.hostId }).from(agentHosts).all()
+    .map((row) => [row.agentId, row.hostId]));
+}
+
+/** Every host that runs an agent this orchd asked for and has not seen end. */
+export function hostsRunningLiveAgents(orchDir: OrchDir): Set<HostId> {
+  return new Set(orm(orchDir).selectDistinct({ hostId: agentHosts.hostId }).from(agentHosts)
+    .leftJoin(agentEndings, eq(agentEndings.agentId, agentHosts.agentId))
+    .where(isNull(agentEndings.agentId)).all().map((row) => row.hostId));
+}
+
+/** The host an agent this orchd asked for runs on; null when it runs here. */
+export function hostOfAgent(orchDir: OrchDir, agentId: string): HostId | null {
+  return orm(orchDir).select({ hostId: agentHosts.hostId }).from(agentHosts).where(eq(agentHosts.agentId, agentId)).get()?.hostId ?? null;
 }
 
 /** Stamp the host and agent that asked for this one. Written once, with the agent row. */
@@ -272,9 +296,13 @@ function recordPlexer(orchDir: OrchDir, input: SessionAgentInput): void {
   if (input.plexerVersion) ensureHostPlexer(orchDir, input.host.id, input.plexerId, input.plexerVersion, input.now);
 }
 
-/** A registering caller with no harness is a raw terminal: the operator. */
-function registeredKind(harnessId: string): Exclude<CallerKind, "agent"> {
-  return harnessId === OPERATOR_HARNESS_ID ? "operator" : "session";
+/** A registering caller with no harness is a raw terminal: the operator. Provenance comes
+ *  first: a row with a spawner descends from an agent and is never the human, so the store
+ *  refuses to write one. Such a process is the agent it was started inside. */
+function registeredKind(harnessId: string, spawnedBy: string | null): Exclude<CallerKind, "agent"> {
+  if (harnessId !== OPERATOR_HARNESS_ID) return "session";
+  if (spawnedBy !== null) throw new Error(`a ${OPERATOR_HARNESS_ID} process started inside agent ${spawnedBy} is that agent; it is never filed as the operator`);
+  return "operator";
 }
 
 export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInput): SessionAgentIdentity & { readonly repointed: boolean; readonly agent: SessionAgentIdentity } {
@@ -312,7 +340,7 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
     const parent = input.spawnedBy ? agentById(orchDir, input.spawnedBy) : null;
     db.insert(agents).values({
       id, spawnedBy: parent?.id ?? null, rootAgentId: parent?.rootAgentId ?? id, harnessId: input.harnessId, cwd: input.cwd,
-      name: `${input.harnessId}-${id.slice(0, 8)}`, label: input.label, kind: registeredKind(input.harnessId),
+      name: `${input.harnessId}-${id.slice(0, 8)}`, label: input.label, kind: registeredKind(input.harnessId, parent?.id ?? null),
       sessionToken: token, createdAt: input.now,
     }).run();
     db.insert(agentProcesses).values({

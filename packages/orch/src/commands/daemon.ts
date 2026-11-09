@@ -156,7 +156,30 @@ async function startDaemon(orchDir: OrchDir, logger: Services["logger"], foregro
   else process.stdout.write(`started (pid ${status.pid})\n`);
 }
 
-async function stopDaemon(orchDir: OrchDir, json = false): Promise<void> {
+/** How many agents' PTYs orchd holds, or null when it does not answer. */
+async function heldAgentCount(orchDir: OrchDir): Promise<number | null> {
+  try {
+    return (await fetchDaemonStatus(orchDir)).held;
+  } catch {
+    return null;
+  }
+}
+
+/** A stop or a reload ends every agent whose PTY orchd holds, so it goes ahead only when
+ *  orchd holds none or the caller said `--yes`. A daemon that does not answer cannot say. */
+export function confirmEndsHeld(verb: "stop" | "reload", held: number | null, confirmed: boolean): void {
+  if (confirmed || held === 0) return;
+  const rerun = `Run 'orch daemon ${verb} --yes' to ${verb} it anyway.`;
+  if (held === null) die(`orchd did not answer, so how many agents it holds is unknown, and a ${verb} ends every one. ${rerun}`);
+  die(`orchd holds ${held} agent${held === 1 ? "" : "s"}, and a ${verb} ends ${held === 1 ? "it" : "every one"}. ${rerun}`);
+}
+
+function endedText(held: number | null): string {
+  if (held === null) return "";
+  return `, ended ${held} held agent${held === 1 ? "" : "s"}`;
+}
+
+async function stopDaemon(orchDir: OrchDir, json: boolean, confirmed: boolean): Promise<void> {
   const directory = orchDir;
   const lockPid = daemonLockPid(directory);
   if (!lockPid || !pidAlive(lockPid)) {
@@ -166,10 +189,12 @@ async function stopDaemon(orchDir: OrchDir, json = false): Promise<void> {
   }
   const pid = provenDaemonPid(directory);
   if (pid === undefined) die(unprovenLockRefusal(directory, lockPid));
+  const held = await heldAgentCount(directory);
+  confirmEndsHeld("stop", held, confirmed);
   await terminateDaemon(pid, 5000);
   if (pidAlive(pid)) throw new Error(`timed out stopping orchd (pid ${pid})`);
-  if (json) process.stdout.write(JSON.stringify({ running: false, stopped: true, pid }) + "\n");
-  else process.stdout.write(`stopped (pid ${pid})\n`);
+  if (json) process.stdout.write(JSON.stringify({ running: false, stopped: true, pid, held }) + "\n");
+  else process.stdout.write(`stopped (pid ${pid}${endedText(held)})\n`);
 }
 
 /** Report a daemon that did not answer, in the shape the caller asked for. A `--json`
@@ -183,7 +208,7 @@ async function statusDaemon(orchDir: OrchDir, json: boolean): Promise<void> {
   try {
     const status = await fetchDaemonStatus(orchDir);
     if (json) process.stdout.write(`${JSON.stringify(status)}\n`);
-    else process.stdout.write(`running (pid ${status.pid}, uptime ${status.uptimeSec}s, hash ${status.codeHash}, ${status.socket}${status.tcpEndpoint ? `, ${status.tcpEndpoint}` : ""})\n`);
+    else process.stdout.write(`running (pid ${status.pid}, uptime ${status.uptimeSec}s, hash ${status.codeHash}, ${status.socket}${status.tcpEndpoint ? `, ${status.tcpEndpoint}` : ""}, ${status.held} held)\n`);
   } catch (error) {
     // A starved daemon and a departed one both go silent; only its pid tells them apart.
     if (error instanceof DaemonUnreachableError) return reportDaemonDown(json, unreachableRefusal(orchDir));
@@ -192,12 +217,13 @@ async function statusDaemon(orchDir: OrchDir, json: boolean): Promise<void> {
   }
 }
 
-async function reloadDaemon(orchDir: OrchDir, json = false): Promise<void> {
+async function reloadDaemon(orchDir: OrchDir, json: boolean, confirmed: boolean): Promise<void> {
   const before = await fetchDaemonStatus(orchDir);
+  confirmEndsHeld("reload", before.held, confirmed);
   await rpcCall(orchDir, "reload", undefined);
   const after = await waitForDaemon(orchDir, before.startedAt);
-  if (json) process.stdout.write(JSON.stringify({ reloaded: true, pid: after.pid, codeHash: after.codeHash }) + "\n");
-  else process.stdout.write(`reloaded (pid ${after.pid}, hash ${after.codeHash})\n`);
+  if (json) process.stdout.write(JSON.stringify({ reloaded: true, pid: after.pid, codeHash: after.codeHash, held: before.held }) + "\n");
+  else process.stdout.write(`reloaded (pid ${after.pid}, hash ${after.codeHash}${endedText(before.held)})\n`);
 }
 
 export async function cmdDaemon(services: Services, args: string[]): Promise<void> {
@@ -207,9 +233,9 @@ export async function cmdDaemon(services: Services, args: string[]): Promise<voi
   if (positional.length > 0) throw usageError(invocation);
   switch (command.name) {
     case "start": return startDaemon(services.orchDir, services.logger, flags.has("--fg"), json);
-    case "stop": return stopDaemon(services.orchDir, json);
+    case "stop": return stopDaemon(services.orchDir, json, flags.has("--yes"));
     case "status": return statusDaemon(services.orchDir, json);
-    case "reload": return reloadDaemon(services.orchDir, json);
+    case "reload": return reloadDaemon(services.orchDir, json, flags.has("--yes"));
     default: throw usageError(invocation);
   }
 }

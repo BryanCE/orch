@@ -1,15 +1,14 @@
 // The links orchd holds to the hosts `settings.hosts` names: one ssh process per host
 // running `orch host serve` there, which pipes the link into that host's orchd. Over it
-// this orchd speaks the daemon RPC to the other orchd, one owner of each link's retries,
-// and the two facts kept apart that a remote agent's liveness needs. Whether the LINK is
-// up is this module's answer. Whether a PROCESS on that host is alive is that host's
-// orchd's answer, and only while the link is up; with the link down it is unknown, never dead.
+// this orchd speaks the daemon RPC to the other orchd, one owner of each link's retries.
+// Whether the LINK is up is this module's answer. What an agent on that host is doing is that
+// host's orchd's answer, carried by the events it sends; with the link down it is unknown,
+// never dead.
 import type { Readable, Writable } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { encodeRequest, framedLineReader, parseRpcLine, responseError, type RpcLine } from "../daemon/client/wire.ts";
 import { daemonResult, HOST_GREETING, RPC_RESULTS, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/client/protocol.ts";
-import { forgetRemoteLiveness, recordRemoteLiveness } from "../process-place.ts";
-import { currentProcesses } from "../store/interval-rows.ts";
+import { hostsRunningLiveAgents } from "../store/agent-rows.ts";
 import { formatAge } from "../format.ts";
 import { errorMessage } from "../util.ts";
 import { bindHostName, closeHostLink, hostEventCursor, hostIdOfName, latestHostLink, openHostLink, setHostEventCursor, touchHostLink } from "../store/host-rows.ts";
@@ -20,6 +19,7 @@ import type { HostSettings, OrchSettings } from "../types/settings.ts";
 import type { HostId } from "../types/host.ts";
 import type { HostedProcess, LinkedHost } from "../types/process.ts";
 import type { NotifyEvent } from "../types/notify.ts";
+import type { ScreenChunk, ScreenSource } from "../types/screen.ts";
 
 /** One line from the far orchd, or null for one that is not daemon RPC. */
 function parseLine(raw: string): RpcLine | null {
@@ -91,6 +91,14 @@ export interface HostLinkDeps {
   readonly now?: () => number;
 }
 
+/** One agent's screen streamed over a link, shared by every viewer here that follows it. */
+interface LinkedScreen {
+  readonly viewers: Set<(chunk: ScreenChunk) => void>;
+  /** The size the far terminal was last asked for. */
+  cols: number;
+  rows: number;
+}
+
 interface Pending {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
@@ -127,6 +135,9 @@ class HostLink {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   /** The far orchd's sequence number of the last event taken over this link. */
   private lastSeq: number | null = null;
+  /** The agent screens viewers here follow on this host, by agent. Each streams over the link
+   *  once, tagged with its agent, and fans out here. */
+  private readonly screens = new Map<string, LinkedScreen>();
 
   constructor(readonly name: string, private host: HostSettings, private readonly deps: HostLinkDeps) {}
 
@@ -164,22 +175,13 @@ class HostLink {
     return this.call("daemon-status", undefined);
   }
 
-  /** Whether each process is alive on this host, in order. Rejects while the link is down:
-   *  the answer is unknown. */
+  /** Whether each process is alive on this host, in order: a caller on this host proving
+   *  its process. Rejects while the link is down: the answer is unknown. */
   async alive(processes: readonly HostedProcess[]): Promise<readonly boolean[]> {
     processes.forEach((process) => this.requireHere(process));
     const { alive } = await this.call("peer-alive", { processes: [...processes] });
     if (alive.length !== processes.length) throw new Error(`${this.name} answered for ${alive.length} processes, asked about ${processes.length}`);
     return alive;
-  }
-
-  /** Ask the host about every agent process orch has recorded there, and keep the answers. */
-  private async checkProcesses(hostId: HostId): Promise<void> {
-    const asked: HostedProcess[] = [...currentProcesses(this.deps.orchDir).values()]
-      .filter((row) => row.host === hostId)
-      .map(({ host, pid, startToken }) => ({ host, pid, startToken }));
-    const alive = await this.alive(asked);
-    recordRemoteLiveness(hostId, asked.map((process, index) => ({ process, alive: alive[index] === true })));
   }
 
   /** Stop wanting the link and end it. */
@@ -239,10 +241,58 @@ class HostLink {
     });
   }
 
-  /** End a recorded process instance on this host. Rejects while the link is down. */
-  signal(process: HostedProcess): Promise<ResultOf<"peer-signal">> {
-    this.requireHere(process);
-    return this.call("peer-signal", process);
+  /** Follow an agent's screen on this host: `viewer` gets every piece of it from now on, and
+   *  the far orchd sends a fresh snapshot. `started` settles once the far orchd streams it. */
+  attachScreen(key: string, size: { cols: number; rows: number }, viewer: (chunk: ScreenChunk) => void): { source: ScreenSource; started: Promise<void> } {
+    let screen = this.screens.get(key);
+    if (screen === undefined) {
+      screen = { viewers: new Set(), cols: size.cols, rows: size.rows };
+      this.screens.set(key, screen);
+    }
+    screen.viewers.add(viewer);
+    screen.cols = size.cols;
+    screen.rows = size.rows;
+    const source: ScreenSource = {
+      input: async (data) => { await this.call("screen-input", { key, data }); },
+      resize: async (cols, rows) => {
+        const current = this.screens.get(key);
+        if (current !== undefined) {
+          current.cols = cols;
+          current.rows = rows;
+        }
+        await this.call("screen-resize", { key, cols, rows });
+      },
+      refresh: () => { this.restreamScreen(key); },
+      release: () => { this.releaseScreen(key, viewer); },
+    };
+    const started = this.call("peer-attach-screen", { key, cols: size.cols, rows: size.rows }).then(() => undefined);
+    return { source, started };
+  }
+
+  /** Ask the far orchd to stream a screen again, which starts with a fresh snapshot. */
+  private restreamScreen(key: string): void {
+    const screen = this.screens.get(key);
+    if (screen === undefined) return;
+    this.call("peer-attach-screen", { key, cols: screen.cols, rows: screen.rows })
+      .catch((error: unknown) => { this.deps.logger.warn("host.screen-refresh-failed", { host: this.name, key, error: errorMessage(error) }); });
+  }
+
+  /** One viewer here let go; the last one stops the stream over the link. */
+  private releaseScreen(key: string, viewer: (chunk: ScreenChunk) => void): void {
+    const screen = this.screens.get(key);
+    if (screen === undefined || !screen.viewers.delete(viewer) || screen.viewers.size > 0) return;
+    this.screens.delete(key);
+    if (this.state.kind !== "up") return;
+    this.call("screen-detach", { key })
+      .catch((error: unknown) => { this.deps.logger.debug("host.screen-detach-failed", { host: this.name, key, error: errorMessage(error) }); });
+  }
+
+  /** A piece of a screen from the far orchd, to every viewer here following it. */
+  private takeScreen(key: string, chunk: ScreenChunk): void {
+    const screen = this.screens.get(key);
+    if (screen === undefined) return;
+    if (chunk.kind === "end") this.screens.delete(key);
+    for (const viewer of [...screen.viewers]) viewer(chunk);
   }
 
   /** Refuse to ask this host about a process recorded on another one. */
@@ -268,6 +318,9 @@ class HostLink {
         return;
       // No bridge attaches over a link.
       case "delivery":
+        return;
+      case "screen":
+        this.takeScreen(line.key, line.chunk);
         return;
       default: {
         const exhaustive: never = line;
@@ -389,14 +442,11 @@ class HostLink {
     return this.host.dest;
   }
 
-  /** Each tick proves the link answers, then asks after the agents there. */
+  /** Each tick proves the link answers. */
   private startPinging(hostId: HostId): void {
     const tick = (): void => {
       this.ping()
-        .then(() => {
-          touchHostLink(this.deps.orchDir, hostId, this.now());
-          return this.checkProcesses(hostId);
-        })
+        .then(() => { touchHostLink(this.deps.orchDir, hostId, this.now()); })
         .catch((error: unknown) => { this.deps.logger.warn("host.ping-failed", { host: this.name, error: errorMessage(error) }); });
     };
     tick();
@@ -423,7 +473,6 @@ class HostLink {
     const now = this.now();
     if (this.state.kind === "up") {
       closeHostLink(this.deps.orchDir, this.state.greeting.host.id, now);
-      forgetRemoteLiveness(this.state.greeting.host.id);
       this.deps.logger.warn("host.link-down", { host: this.name, reason });
     }
     this.state = { kind: "down", reason, at: now };
@@ -432,6 +481,8 @@ class HostLink {
       clearTimeout(pending.timer);
       pending.reject(new Error(`${this.name} went offline: ${reason}`));
     }
+    const screens = [...this.screens.keys()];
+    for (const key of screens) this.takeScreen(key, { kind: "end", reason: `${this.name} went offline` });
     if (this.wanted) this.scheduleRetry();
   }
 
@@ -483,10 +534,10 @@ export class HostLinks {
     return alive === true;
   }
 
-  /** Bring up the link to every configured host that runs an agent recorded here, so its
-   *  events reach this orchd from the moment it starts. */
+  /** Bring up the link to every configured host that runs an agent this orchd asked for and
+   *  has not seen end, so its events reach this orchd from the moment it starts. */
   follow(): void {
-    const hosts = new Set([...currentProcesses(this.deps.orchDir).values()].map((row) => row.host));
+    const hosts = hostsRunningLiveAgents(this.deps.orchDir);
     for (const name of Object.keys(this.deps.settings().hosts)) {
       const hostId = hostIdOfName(this.deps.orchDir, name);
       if (hostId === null || !hosts.has(hostId)) continue;

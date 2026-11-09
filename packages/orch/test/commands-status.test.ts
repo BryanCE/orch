@@ -277,7 +277,7 @@ describe("commands/status", () => {
   test("a row carries its kind, creation instant, and the stored process and host", () => {
     const views = new Map([[seededEntity.key, agentViewFixture(seededEntity.key, { kind: "session", createdAt: 42 })]]);
     const row = statusRowFromEntity(seededEntity, views, fleetLeaseFacts(syntheticOrchDir, views), () => undefined,
-      () => ({ pid: 4242, host: "BRYAN-SWE" }), syntheticOrchDir, null);
+      () => ({ pid: 4242, host: "BRYAN-SWE", offline: null }), syntheticOrchDir, null);
     expect(row).toMatchObject({ kind: "session", createdAt: 42, pid: 4242, host: "BRYAN-SWE" });
   });
   test("capacity footer uses configured caps and shows one pack per root", () => {

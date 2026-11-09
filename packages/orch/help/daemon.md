@@ -1,9 +1,11 @@
-orchd starts on its own when a command needs it, and exits after
-`daemon.idle_shutdown_minutes` with no agents, streams, or requests. Check it with
-`orch daemon status`. A timeout there means a busy machine, not a dead daemon: retry.
+orchd starts on its own when a command needs it and runs until it is stopped. It holds the
+PTY of every agent another host spawned on this one, so stopping it ends those agents. Check
+it with `orch daemon status`, which counts the held agents. A timeout there means a busy
+machine, not a dead daemon: retry.
 
-To restart it, run `orch daemon stop`, then `orch daemon start`. If stop times out, kill the
-pid it names, then start. Bridges reconnect on their own: keep the fleet and send one short
+To restart it, run `orch daemon stop`, then `orch daemon start`. With held agents, stop and
+reload say how many they would end and refuse until you pass `--yes`. If stop times out, kill
+the pid it names, then start. Bridges reconnect on their own: keep the fleet and send one short
 dispatch to confirm delivery.
 
     orch daemon status

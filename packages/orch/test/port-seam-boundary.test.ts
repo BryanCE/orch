@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { paneBoundary } from "../src/commands/panes.ts";
+import { paneBoundary } from "../src/control/pane-boundary.ts";
 
 describe("port seam command boundary", () => {
   test("headless target is answered without invoking its pane role", () => {

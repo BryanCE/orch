@@ -29,7 +29,7 @@ afterEach(() => {
 describe("doctor backend and presence checks", () => {
   test("reports every registered backend and composed roles", () => {
     const result = describeBackendEnvironments();
-    expect(result.backends?.map((backend) => backend.id)).toEqual(["herdr", "headless", "tmux", "orca"]);
+    expect(result.backends?.map((backend) => backend.id)).toEqual(["herdr", "headless", "tmux", "orca", "held"]);
     for (const backend of result.backends ?? []) {
       expect(typeof backend.detected).toBe("boolean");
       expect(typeof backend.insideSession).toBe("boolean");

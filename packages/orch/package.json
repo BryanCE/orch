@@ -27,8 +27,8 @@
     "build:ext": "bun run build:ext:pi && bun run build:ext:omp",
     "build:ext:pi": "bun build extensions/pi/index.ts --target=node --format=esm --external '@earendil-works/*' --external typebox --outfile dist/extensions/pi-bridge.js",
     "build:ext:omp": "bun build extensions/omp/index.ts --target=node --format=esm --external '@earendil-works/*' --external typebox --outfile dist/extensions/omp-bridge.js",
-    "build:bin": "bun build bin/orch.ts --target=node --format=esm --outfile dist/bin/orch.js && bun build bin/orch-ding.ts --target=node --format=esm --outfile dist/bin/orch-ding.js && bun scripts/build-bin.ts",
-    "build:daemon": "bun build src/daemon/server/orchd.ts --target=node --format=esm --outfile dist/daemon/orchd.js",
+    "build:bin": "bun build bin/orch.ts --target=node --format=esm --external @lydell/node-pty --outfile dist/bin/orch.js && bun build bin/orch-ding.ts --target=node --format=esm --outfile dist/bin/orch-ding.js && bun scripts/build-bin.ts",
+    "build:daemon": "bun build src/daemon/server/orchd.ts --target=node --format=esm --external @lydell/node-pty --outfile dist/daemon/orchd.js",
     "install:global": "bun run build:cli && tarball=$(npm pack --silent) && npm install -g \"./$tarball\" && rm -f \"$tarball\"",
     "build:dev": "bun scripts/reset.ts --build && bun run install:global && ORCH=$(npm prefix -g)/bin/orch && \"$ORCH\" doctor -y && \"$ORCH\" daemon start",
     "prepublishOnly": "bun run build:dist",
@@ -72,6 +72,8 @@
     "@earendil-works/pi-tui": "^0.84.3",
     "@types/bun": "^1.4.0",
     "@types/node": "^26.4.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
     "drizzle-kit": "^1.0.0-rc.5",
     "drizzle-orm": "^1.0.0-rc.5",
     "effect": "^3.22.1",
@@ -80,5 +82,8 @@
     "typebox": "^1.3.20",
     "typescript": "^7.0.2",
     "zod": "^4.5.1"
+  },
+  "dependencies": {
+    "@lydell/node-pty": "^1.2.0-beta.18"
   }
 }

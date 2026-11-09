@@ -1,11 +1,11 @@
 import type { OrchDir } from "../types/core.ts";
 import { eq } from "drizzle-orm";
-import { agentById, ensureHarness, ensureHost, ensurePlexer, insertAgent, originOf, setOrigin, setWorktree } from "./agent-rows.ts";
+import { agentById, ensureHarness, ensureHost, ensurePlexer, insertAgent, originOf, setAgentHost, setOrigin, setWorktree } from "./agent-rows.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
 import { orm, withTransaction } from "./connection.ts";
-import type { SpawnRegistration } from "../types/store.ts";
+import type { HostedSpawnRegistration, SpawnRegistration } from "../types/store.ts";
 import type { HostId } from "../types/host.ts";
 
 /**
@@ -21,10 +21,25 @@ export function registerSpawnedAgent(directory: OrchDir, input: SpawnRegistratio
   return withTransaction(directory, () => writeSpawnedAgent(directory, input));
 }
 
+/**
+ * Record the reference for an agent a linked host runs for this orchd: the agent row, the
+ * host it runs on, the tuning it was launched with, and its spawner's lease. Its process,
+ * environment, logs and runs are that host's to record; nothing here names a pid.
+ */
+export function registerHostedAgent(directory: OrchDir, input: HostedSpawnRegistration): string {
+  return withTransaction(directory, () => {
+    const now = input.now ?? Date.now();
+    const spawnerId = insertSpawnedRow(directory, input, now);
+    setAgentHost(directory, input.key, input.host.id);
+    setTuning(directory, input.key, now, { model: input.model, thinking: input.thinking });
+    holdSpawned(directory, input.key, spawnerId, now);
+    return input.key;
+  });
+}
+
 function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string {
   const agentId = input.key;
   const now = input.now ?? Date.now();
-  const spawnerId = input.spawner && agentById(directory, input.spawner) ? input.spawner : null;
   if (input.placed && input.handle === undefined) throw new Error("a placed agent requires a handle");
 
   // A space is USER-CREATED (A7): a spawn naming one that does not exist is a
@@ -32,37 +47,46 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
   // writer, and deleting that writer without it would have made every unknown
   // space silently succeed.
   if (input.space !== undefined) requireSpace(directory, input.space);
-  ensureHarness(directory, input.harnessId, input.harnessId, now);
-  const host = input.host;
-  ensureHost(directory, host, now);
   // The plexer is STATED, never derived from whether a pane exists: a headless
   // agent runs in the headless plexer just as truly as a herdr agent runs in
   // herdr, and a capless agent states none. Deriving it from `pane` is what
   // forced a SECOND writer to come along behind this one and fill it in (2.1).
   if (input.backendId !== undefined) ensurePlexer(directory, input.backendId, input.backendId, now);
+  const spawnerId = insertSpawnedRow(directory, input, now);
+  // Provenance: stated by a spawn another host asked for, inherited from a spawner that
+  // carries one, so the asking host's whole tree stays its own.
+  const origin = input.origin ?? (spawnerId === null ? null : originOf(directory, spawnerId));
+  if (origin !== null) setOrigin(directory, agentId, origin);
+  writeEnvironment(directory, agentId, now, input.host.id, input);
+  holdSpawned(directory, agentId, input.owner ?? spawnerId, now);
+  return agentId;
+}
+
+/** The agent row every spawn writes, wherever the agent runs, with its harness and host
+ *  recorded. Answers with the spawner, when it is an agent registered here. */
+function insertSpawnedRow(directory: OrchDir, input: Pick<SpawnRegistration, "key" | "harnessId" | "cwd" | "name" | "spawner" | "host">, now: number): string | null {
+  const spawnerId = input.spawner && agentById(directory, input.spawner) ? input.spawner : null;
+  ensureHarness(directory, input.harnessId, input.harnessId, now);
+  ensureHost(directory, input.host, now);
   insertAgent(directory, {
-    id: agentId,
+    id: input.key,
     spawnedBy: spawnerId,
     harnessId: input.harnessId,
     cwd: input.cwd,
     name: input.name,
     createdAt: now,
   });
-  // Provenance: stated by a spawn another host asked for, inherited from a spawner that
-  // carries one, so the asking host's whole tree stays its own.
-  const origin = input.origin ?? (spawnerId === null ? null : originOf(directory, spawnerId));
-  if (origin !== null) setOrigin(directory, agentId, origin);
-  writeEnvironment(directory, agentId, now, host.id, input);
-  // Ownership is the LAST word: `owner` is who holds the agent now, the spawner
-  // only the fallback for a launch that named nobody else. An agent never holds
-  // its own lease (`agent_leases_not_self`). A holder is an agent orch already
-  // registered; orch never conjures one.
-  const holder = input.owner ?? spawnerId;
-  if (holder !== null && holder !== undefined && holder !== agentId) {
-    if (!agentById(directory, holder)) throw new Error(`orch: holder ${holder} is not a registered agent`);
-    acquireLease(directory, agentId, holder, now);
-  }
-  return agentId;
+  return spawnerId;
+}
+
+/** Ownership is the LAST word: `holder` is who holds the agent now, the spawner only the
+ *  fallback for a launch that named nobody else. An agent never holds its own lease
+ *  (`agent_leases_not_self`). A holder is an agent orch already registered; orch never
+ *  conjures one. */
+function holdSpawned(directory: OrchDir, agentId: string, holder: string | null, now: number): void {
+  if (holder === null || holder === agentId) return;
+  if (!agentById(directory, holder)) throw new Error(`orch: holder ${holder} is not a registered agent`);
+  acquireLease(directory, agentId, holder, now);
 }
 
 /** Every environment axis a spawn states, each on its own interval table:

@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { helpTopic } from "../src/commands/index.ts";
 
 describe("per-command help topics", () => {
-  test("daemon help names every subcommand and the idle shutdown setting", () => {
+  test("daemon help names every subcommand and the --yes a stop with held agents needs", () => {
     const topic = helpTopic("daemon");
     expect(topic).toContain("orch daemon start");
     expect(topic).toContain("stop");
     expect(topic).toContain("reload");
-    expect(topic).toContain("idle_shutdown_minutes");
+    expect(topic).toContain("--yes");
+    expect(topic).not.toContain("idle_shutdown_minutes");
   });
 
   test("aliases resolve to their command's topic", () => {

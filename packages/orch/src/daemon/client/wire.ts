@@ -9,6 +9,7 @@ import type { EndpointPaths } from "../../types/daemon.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import { notifyEventSchema } from "../../notify/event.ts";
 import { isBridgeDelivery, type BridgeDelivery } from "../../control/bridge-message.ts";
+import type { ScreenChunk } from "../../types/screen.ts";
 import {
   RPC_PARAMS,
   type ParamsOf,
@@ -55,7 +56,10 @@ export type RpcLine =
   | { kind: "error"; id: number | null; error: { code: RpcErrorCode; message: string; data?: unknown } }
   | { kind: "event"; seq?: number; event: NotifyEvent }
   | { kind: "delivery"; delivery: BridgeDelivery }
-  | { kind: "gap"; oldestSeq: number };
+  | { kind: "gap"; oldestSeq: number }
+  /** A piece of an attached agent's screen, tagged with the agent so one connection, or one
+   *  link, carries several screens at once. */
+  | { kind: "screen"; key: string; chunk: ScreenChunk };
 
 const replySchema = z.object({ id: z.number().nullable(), result: z.unknown() }).strict();
 const errorSchema = z.object({
@@ -68,6 +72,18 @@ const errorSchema = z.object({
 }).strict();
 const eventSchema = z.object({ event: notifyEventSchema, seq: z.number().int().optional() }).strict();
 const gapSchema = z.object({ gap: z.literal(true), oldestSeq: z.number().int() }).strict();
+const screenSchema = z.object({
+  screen: z.discriminatedUnion("kind", [
+    z.object({ key: z.string(), kind: z.literal("snapshot"), data: z.string() }).strict(),
+    z.object({ key: z.string(), kind: z.literal("data"), data: z.string() }).strict(),
+    z.object({ key: z.string(), kind: z.literal("end"), reason: z.string() }).strict(),
+  ]),
+}).strict();
+
+/** A screen line's chunk, without the key it is tagged with. */
+function screenChunkOf(screen: z.infer<typeof screenSchema>["screen"]): ScreenChunk {
+  return screen.kind === "end" ? { kind: "end", reason: screen.reason } : { kind: screen.kind, data: screen.data };
+}
 
 export function parseRpcLine(value: unknown): RpcLine | null {
   const reply = replySchema.safeParse(value);
@@ -82,6 +98,8 @@ export function parseRpcLine(value: unknown): RpcLine | null {
   if (isRecord(value) && isBridgeDelivery(value.delivery)) return { kind: "delivery", delivery: value.delivery };
   const gap = gapSchema.safeParse(value);
   if (gap.success) return { kind: "gap", oldestSeq: gap.data.oldestSeq };
+  const screen = screenSchema.safeParse(value);
+  if (screen.success) return { kind: "screen", key: screen.data.screen.key, chunk: screenChunkOf(screen.data.screen) };
   return null;
 }
 
@@ -97,6 +115,8 @@ export function encodeLine(line: RpcLine): string {
       return `${JSON.stringify({ delivery: line.delivery })}\n`;
     case "gap":
       return `${JSON.stringify({ gap: true, oldestSeq: line.oldestSeq })}\n`;
+    case "screen":
+      return `${JSON.stringify({ screen: { key: line.key, ...line.chunk } })}\n`;
     default: {
       const exhaustive: never = line;
       throw new Error(`unknown RPC line kind: ${String(exhaustive)}`);
@@ -170,6 +190,7 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "answer": return parseOne(method, RPC_PARAMS[method], id, value);
     case "set-model": return parseOne(method, RPC_PARAMS[method], id, value);
     case "lifecycle": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "abort": return parseOne(method, RPC_PARAMS[method], id, value);
     case "spawn-headless": return parseOne(method, RPC_PARAMS[method], id, value);
     case "agent-closed": return parseOne(method, RPC_PARAMS[method], id, value);
     case "register-agent": return parseOne(method, RPC_PARAMS[method], id, value);
@@ -192,9 +213,15 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "hosts": return parseOne(method, RPC_PARAMS[method], id, value);
     case "host-check": return parseOne(method, RPC_PARAMS[method], id, value);
     case "host-forget": return parseOne(method, RPC_PARAMS[method], id, value);
-    case "host-signal": return parseOne(method, RPC_PARAMS[method], id, value);
     case "peer-alive": return parseOne(method, RPC_PARAMS[method], id, value);
-    case "peer-signal": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "peer-drive": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "peer-read": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "agent-read": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "attach-screen": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "peer-attach-screen": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "screen-input": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "screen-resize": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "screen-detach": return parseOne(method, RPC_PARAMS[method], id, value);
     case "grant": return parseOne(method, RPC_PARAMS[method], id, value);
     case "admit-home": return parseOne(method, RPC_PARAMS[method], id, value);
     case "queue-list": return parseOne(method, RPC_PARAMS[method], id, value);

@@ -3,11 +3,12 @@
 import { bootCodeHash, startedAt, fleetStatus } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import { answer, dispatch, message, steer } from "./write.ts";
-import { applyLifecycle, closeAgent, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
+import { applyLifecycle, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
 import { adopt, detach, orphans, reap, reapCandidateList, rename } from "./lease.ts";
 import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
 import { admitHome, decideGrant, listGrants } from "./grant.ts";
-import { checkHost, forgetHost, signalOnHost } from "./host.ts";
+import { checkHost, forgetHost, readAgentAnywhere } from "./host.ts";
+import { abortAnywhere, closeAnywhere, peerDrive } from "./drive.ts";
 import { lockCommand, unlockCommand } from "./command-lock.ts";
 import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, takeOnQueued } from "./queue.ts";
 import { cleanStore } from "./clean.ts";
@@ -33,6 +34,7 @@ import { peerView } from "../peer-view.ts";
 import { governed } from "../governance.ts";
 import type { PaneLabels } from "../../../types/plexer.ts";
 import { peerHandlers } from "./peer.ts";
+import { screenHandlers } from "./screen.ts";
 import { hostIdentity } from "../../../host.ts";
 
 /** One handler that wakes the work loop once it has run. */
@@ -61,6 +63,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
         livenessTick: state.livenessTick ? "running" : "stopped",
         settingsWatch: state.settingsWatch ? "running" : "stopped",
       },
+      held: state.held.count(),
     }),
     "subscribe-events": () => ({ subscribed: true }),
     // A bundled harness links no plexer, so the two things it used to ask its
@@ -104,7 +107,12 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "spawn-headless": governed(state, (params, _emit, context) => spawnHeadless(state, params, context.peer)),
     "set-model": governed(state, (params) => setModel(state, params)),
     lifecycle: governed(state, (params) => applyLifecycle(state, params)),
-    "agent-closed": governed(state, waking(state, (params) => closeAgent(state, params))),
+    abort: governed(state, (params) => abortAnywhere(state, params)),
+    "agent-closed": governed(state, async (params) => {
+      const closed = await closeAnywhere(state, params);
+      state.wake.wake();
+      return closed;
+    }),
     "register-agent": governed(state, (params) => registerAgent(directory, params)),
     detach: governed(state, (params) => detach(state, params)),
     adopt: governed(state, (params) => adopt(state, params)),
@@ -125,8 +133,10 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     hosts: () => ({ hosts: state.hosts.views() }),
     "host-check": (params) => checkHost(state, params),
     "host-forget": (params) => forgetHost(state, params),
-    "host-signal": (params) => signalOnHost(state, params),
-    ...peerHandlers(hostIdentity),
+    "agent-read": (params) => readAgentAnywhere(state, params),
+    ...screenHandlers(state, () => state.held),
+    ...peerHandlers(hostIdentity, directory, services.logger),
+    "peer-drive": (params, _emit, context) => peerDrive(state, params, context),
     grant: governed(state, (params) => decideGrant(directory, params)),
     "admit-home": governed(state, (params) => admitHome(directory, params)),
     "queue-list": (params) => listQueued(directory, params),

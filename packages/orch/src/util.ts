@@ -90,6 +90,11 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+/** One POSIX shell line running `argv`, every element quoted. */
+export function shellLine(argv: readonly string[]): string {
+  return argv.map(shellQuote).join(" ");
+}
+
 export function binaryPath(bin: string): string | null {
   const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
   const exts = hostOs() === "windows" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];

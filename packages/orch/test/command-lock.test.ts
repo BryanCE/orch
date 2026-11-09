@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { lockCommand, unlockCommand } from "../src/daemon/server/handlers/command-lock.ts";
+import { lockCommand, unlockCommand, type LockRequest } from "../src/daemon/server/handlers/command-lock.ts";
 import { acceptStatusReport } from "../src/daemon/server/status-report.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { hostOs } from "../src/host.ts";
@@ -13,7 +13,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { Role } from "../src/types/policy.ts";
-import type { ParamsOf, ResultOf } from "../src/daemon/client/protocol.ts";
+import type { ResultOf } from "../src/daemon/client/protocol.ts";
 import { hosted, testHost } from "./helpers/host.ts";
 import { hostIdFrom } from "../src/host.ts";
 
@@ -33,11 +33,11 @@ function tempDir(): OrchDir {
   return dir;
 }
 
-function request(command: string, pid: number, startToken: string | null = "caller", held: string[] = []): ParamsOf<"command-lock"> {
+function request(command: string, pid: number, startToken: string | null = "caller", held: string[] = []): LockRequest {
   return { command, cwd: "/repo", process: hosted(pid, startToken), agent: null, held, waitingSince: Date.now() };
 }
 
-function lock(dir: OrchDir, params: ParamsOf<"command-lock">, events: NotifyEvent[] = []): ResultOf<"command-lock"> {
+function lock(dir: OrchDir, params: LockRequest, events: NotifyEvent[] = []): ResultOf<"command-lock"> {
   return lockCommand(dir, SETTINGS, params, (event) => events.push(event));
 }
 
@@ -55,7 +55,7 @@ describe("command-lock", () => {
     const dir = tempDir();
     expect(lock(dir, request("bun test a.ts", LIVE.pid, LIVE.startToken))).toEqual({ verdict: "run", patterns: ["bun test"] });
     expect(selectCommandLocks(dir, ["bun test"])).toHaveLength(1);
-    unlockCommand(dir, { process: LIVE });
+    unlockCommand(dir, LIVE);
     expect(selectCommandLocks(dir, ["bun test"])).toHaveLength(0);
   });
 
@@ -146,7 +146,7 @@ describe("command-lock", () => {
     const dir = tempDir();
     const agent = waitingAgent(dir);
     lock(dir, { ...request("bun test", 2), agent });
-    unlockCommand(dir, { process: LIVE });
+    unlockCommand(dir, LIVE);
     const events: NotifyEvent[] = [];
     expect(lock(dir, { ...request("bun test", 2), agent }, events).verdict).toBe("run");
     expect(selectAgentStatus(dir, agent)?.state).toBe("working");

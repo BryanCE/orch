@@ -9,7 +9,7 @@ import { buildFleetStatus } from "./fleet-status.ts";
 import type { FleetStatus, RpcServer } from "../../types/daemon.ts";
 import type { PtyHolder } from "../../types/pty.ts";
 import type { SettingsWatch } from "../../types/settings.ts";
-import type { Services } from "../../types/services.ts";
+import type { DaemonServices } from "../../types/services.ts";
 import type { WakeSignal } from "./wake.ts";
 import { phaseClock } from "./phase-clock.ts";
 import type { LoopWatchdog } from "./loop-watchdog.ts";
@@ -28,7 +28,7 @@ const entrypoint = process.env.ORCHD_ENTRYPOINT ?? fileURLToPath(import.meta.url
 export const bootCodeHash = computeCodeHash(entrypoint);
 export const startedAt = new Date();
 export interface DaemonState {
-  readonly services: Services;
+  readonly services: DaemonServices;
   readonly directory: OrchDir;
   readonly workController: AbortController;
   readonly wake: WakeSignal;

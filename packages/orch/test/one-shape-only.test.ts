@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
-import { describeBackendEnvironments } from "../src/doctor/backends.ts";
+import { checkMalformedPresenceRecords } from "../src/daemon/server/doctor/presence.ts";
+import { describeBackendEnvironments } from "../src/daemon/server/doctor/backends.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";

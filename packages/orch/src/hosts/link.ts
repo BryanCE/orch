@@ -9,7 +9,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { encodeRequest, framedLineReader, parseRpcLine, responseError, type RpcLine } from "../daemon/client/wire.ts";
 import { daemonResult, HOST_GREETING, RPC_RESULTS, type ParamsOf, type ResultOf, type RpcMethod } from "../daemon/client/protocol.ts";
 import { hostsRunningLiveAgents } from "../store/agent-rows.ts";
-import { hostIdentity } from "../host.ts";
+import { hostIdentity } from "./identity.ts";
 import { formatAge } from "../format.ts";
 import { errorMessage } from "../util.ts";
 import { bindHostName, closeHostLink, hostEventCursor, hostIdOfName, latestHostLink, openHostLink, setHostEventCursor, touchHostLink } from "../store/host-rows.ts";

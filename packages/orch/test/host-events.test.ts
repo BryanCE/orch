@@ -1,4 +1,3 @@
-import { hostIdentity } from "../src/host.ts";
 import { afterEach, expect, test } from "bun:test";
 import { applyHostEvent } from "../src/daemon/server/host-events.ts";
 import { registerHostedAgent } from "../src/store/spawn-registration.ts";
@@ -22,6 +21,7 @@ function recordingServer(published: NotifyEvent[]): RpcServer {
     close: () => Promise.resolve(),
     emit: (event) => { published.push(event); },
     subscriberCount: () => 0,
+    streamPids: () => [],
     attachedBridgeCount: () => 0,
     transport: "unix",
     socketPath: "",
@@ -50,8 +50,9 @@ function followingFarAgent(): { state: DaemonState; orchDir: OrchDir; key: strin
   return { state, orchDir, key, published };
 }
 
+/** An event as the far orchd publishes it: naming its own host, which runs the agent. */
 function transition(key: string, newState: "working" | "exited"): NotifyEvent {
-  return { host: hostIdentity(), type: "transition", key, ts: new Date().toISOString(), agent: "far-agent", tab: null, model: null, oldState: "idle", newState };
+  return { host: FAR, type: "transition", key, ts: new Date().toISOString(), agent: "far-agent", tab: null, model: null, oldState: "idle", newState };
 }
 
 test("an event from a linked host lands on this host's row for the agent and is published naming the host", () => {
@@ -59,12 +60,12 @@ test("an event from a linked host lands on this host's row for the agent and is 
   applyHostEvent(state, FAR_LINK, transition(key, "working"));
   expect(presenceEntry(orchDir, key)?.status?.state).toBe("working");
   expect(agentView(orchDir, key)?.endedAt).toBeNull();
-  expect(published.map((event) => [event.key, event.host, event.newState])).toEqual([[key, "far", "working"]]);
+  expect(published.map((event) => [event.key, event.host, event.newState])).toEqual([[key, FAR, "working"]]);
 });
 
 test("a far closed event ends the agent here", () => {
   const { state, orchDir, key } = followingFarAgent();
-  const closed: NotifyEvent = { host: hostIdentity(), type: "closed", key, ts: new Date().toISOString(), agent: "far-agent", tab: null, model: null, oldState: "working", newState: "closed" };
+  const closed: NotifyEvent = { host: FAR, type: "closed", key, ts: new Date().toISOString(), agent: "far-agent", tab: null, model: null, oldState: "working", newState: "closed" };
   applyHostEvent(state, FAR_LINK, closed);
   const endedAt = agentView(orchDir, key)?.endedAt;
   expect(endedAt).not.toBeNull();

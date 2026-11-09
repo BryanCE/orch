@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { isHandWrittenTypeScript, sourceFiles } from "./helpers/sources.ts";

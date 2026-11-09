@@ -1,5 +1,5 @@
 import { placeHere } from "../src/process-place.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { buildEntities } from "../src/entities/inventory.ts";

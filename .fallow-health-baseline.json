@@ -43,7 +43,7 @@
         "count": 1
       }
     },
-    "packages/orch/src/adapters/codex-events.ts": {
+    "packages/orch/extensions/codex/events.ts": {
       "complexity_moderate": {
         "count": 1
       },
@@ -67,7 +67,7 @@
         "count": 1
       }
     },
-    "packages/orch/src/adapters/transcript.ts": {
+    "packages/orch/src/shared/transcript.ts": {
       "crap_moderate": {
         "count": 1
       }
@@ -403,7 +403,7 @@
         "count": 1
       }
     },
-    "packages/orch/src/presence/session.ts": {
+    "packages/orch/src/daemon/client/report-session.ts": {
       "crap_high": {
         "count": 1
       }
@@ -669,7 +669,7 @@
     "packages/orch/src/commands/status/table.ts:high impact",
     "packages/orch/src/commands/review.ts:untested risk",
     "packages/orch/src/retry.ts:high impact",
-    "packages/orch/src/adapters/codex-events.ts:untested risk",
+    "packages/orch/extensions/codex/events.ts:untested risk",
     "packages/orch/src/policy/capacity.ts:high impact",
     "packages/orch/src/types/queue.ts:high impact",
     "packages/orch/src/setup/io.ts:high impact",

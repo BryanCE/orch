@@ -1,11 +1,11 @@
-import { placeHere } from "../src/process-place.ts";
+import { agentIdFromRow } from "../src/shared/agent-id.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { agentLiveness, placeAgent, placeProcess, processLiveness, recordedProcessIsLive } from "../src/process-place.ts";
 import { localProcessOf } from "../src/local-process.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { bindHostName, closeHostLink, openHostLink } from "../src/store/host-rows.ts";
 import { registerHostedAgent } from "../src/store/spawn-registration.ts";
-import { currentProcess } from "../src/store/interval-rows.ts";
+import { currentProcesses } from "../src/store/interval-rows.ts";
 import { agentHost, endAgent } from "../src/store/agent-rows.ts";
 import { presenceEntry } from "../src/presence/store.ts";
 import { closeAllStores } from "../src/store/connection.ts";
@@ -62,7 +62,8 @@ describe("an agent this orchd asked a linked host to run", () => {
   test("leaves a reference here and no process row", () => {
     const orchDir = withFarAgent();
     expect(agentHost(orchDir, KEY).host).toBe(FAR.id);
-    expect(currentProcess(orchDir, placeHere(orchDir, KEY))).toBeUndefined();
+    expect(placeAgent(orchDir, KEY)).toEqual({ kind: "linked", agent: agentIdFromRow(KEY), host: { id: FAR.id, name: "far" } });
+    expect(currentProcesses(orchDir).has(KEY)).toBe(false);
   });
 
   test("reads unknown while its link is down, never dead", () => {

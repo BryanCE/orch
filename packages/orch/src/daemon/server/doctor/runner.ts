@@ -1,0 +1,209 @@
+import type { OrchDir } from "../../../types/core.ts";
+import { fileSettingsManager } from "../../../settings/manager.ts";
+import { settingsDefects } from "../../../settings/defects.ts";
+import { settingsPath } from "../../../settings/schema.ts";
+import { errorMessage } from "../../../util.ts";
+import { getBackend } from "../../../backends/registry.ts";
+import { resolveAdapter } from "../../../adapters/registry.ts";
+import { OPERATOR_HARNESS_ID } from "../../../identity/operator.ts";
+import { binaryStatus, checkBins } from "./bins.ts";
+import { describeBackendEnvironments, checkBackendVersions } from "./backends.ts";
+import { checkDeadAgents, checkMalformedPresenceRecords, checkUnscopedTasks } from "./presence.ts";
+import { checkDeclaredVsReality } from "./declared-vs-reality.ts";
+import { checkUnrunnableTasks } from "./unrunnable-tasks.ts";
+import { checkExtensionStaleness } from "./extensions.ts";
+import { checkSkillLinks } from "./skills.ts";
+import { checkHelpDocs } from "./help-docs.ts";
+import { checkProvenanceDepth } from "./provenance-depth.ts";
+import { checkUnclaimedAgents } from "./unclaimed-agents.ts";
+import { checkHarnessModels } from "./models.ts";
+import { checkCommandLocks, checkSettingsFile, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore, checkWorktreeProvider } from "./settings-file.ts";
+import { checkStore } from "./store.ts";
+import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
+import { checkDaemonLock, checkDaemonPresence, checkDaemonRegistration, checkDaemonSocket, checkDaemonStaleness, checkOsExecutors } from "./daemon.ts";
+import { checkRuntime } from "./runtime.ts";
+import { loadPresence } from "../../../presence/store.ts";
+import { agentView } from "../../../store/agent-view.ts";
+import type { Logger } from "../../../types/core.ts";
+import type { DaemonServices } from "../../../types/services.ts";
+
+import type { AdapterId } from "../../../types/adapter.ts";
+import type { OrchSettings } from "../../../types/settings.ts";
+import type { CheckResult } from "../../../types/doctor.ts";
+
+async function isolated(id: string, label: string, check: () => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
+  try {
+    return await check();
+  } catch (error: unknown) {
+    return { id, label, status: "fail", detail: errorMessage(error) };
+  }
+}
+
+async function settingsDependent(orchDir: OrchDir, settings: OrchSettings | null, id: string, label: string, check: (settings: OrchSettings | null) => Promise<CheckResult> | CheckResult): Promise<CheckResult> {
+  const defects = settingsDefects(settingsPath(orchDir));
+  if (defects.length > 0) {
+    return { id, label, status: "skip", detail: `settings.json has ${defects.length} unreadable key(s); fix: orch settings` };
+  }
+  return isolated(id, label, () => check(settings));
+}
+
+/** Validate every distinct live adapter/backend composition independently. */
+async function checkLiveFleetPairs(orchDir: OrchDir, settings: OrchSettings, logger: Logger): Promise<CheckResult[]> {
+  const pairs = new Set<string>();
+  for (const entry of loadPresence(orchDir).values()) {
+    if (entry.liveness !== "alive") continue;
+    const view = agentView(orchDir, entry.key);
+    const adapter = view?.harnessId;
+    // An operator shell is an agent with no adapter behind it; there is no shim to check.
+    if (adapter === OPERATOR_HARNESS_ID) continue;
+    const backend = view?.environment.plexer;
+    if (adapter && backend) pairs.add(`${adapter}\u0000${backend}`);
+  }
+  return Promise.all([...pairs].map(async (encoded) => {
+    const [adapterId, backendId] = encoded.split("\u0000");
+    const id = `fleet-pair-${adapterId}-${backendId}`;
+    try {
+      const adapter = resolveAdapter(adapterId!);
+      const backend = getBackend(backendId!);
+      if (!backend) return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail", detail: `unknown backend ${JSON.stringify(backendId)}` };
+      const diagnosis = adapter.shim ? await adapter.shim.diagnoseShim(orchDir, settings, logger) : { id: `shim-${adapterId}`, label: `${adapterId} integration`, status: "skip" as const, detail: `${adapterId} declares no integration shim` };
+      return { ...diagnosis, id, label: `${adapterId} + ${backendId} live pair`, detail: `${adapterId}/${backendId}: ${diagnosis.detail}` };
+    } catch (error: unknown) {
+      return { id, label: `${adapterId} + ${backendId} live pair`, status: "fail" as const, detail: errorMessage(error) };
+    }
+  }));
+}
+
+/** What orchd runs doctor with: its own services, and the transport its server answers on. */
+export interface DoctorContext extends Pick<DaemonServices, "orchDir" | "logger" | "models"> {
+  readonly socket: string | null;
+}
+
+export async function runDoctor(services: DoctorContext): Promise<CheckResult[]> {
+  const { orchDir, logger } = services;
+  // Read settings only to derive provider checks. An unconfigured install has no enabled
+  // providers, and checkSettingsFile owns the user-facing failure result, so neither an absent nor a
+  // malformed settings.json can prevent the neutral checks from running. doctor is the command
+  // you reach for when the install is broken; it never refuses to run for want of configuration.
+  let settings: OrchSettings | null = null;
+  let enabledAdapters: AdapterId[] = [];
+  let enabledBackends: string[] = [];
+  let configuredBackend: string | null = null;
+  try {
+    settings = fileSettingsManager(orchDir).currentOrNull();
+    enabledAdapters = settings?.enabled.adapters ?? [];
+    enabledBackends = settings?.enabled.backends ?? [];
+    configuredBackend = settings?.defaults.backend ?? null;
+  } catch {}
+  const bins = binaryStatus(enabledAdapters);
+  const providerChecks = enabledAdapters.map((id) => [
+    isolated(`bin-${id}`, `${id} binary`, () => bins[id]
+      ? { id: `bin-${id}`, label: `${id} binary`, status: "ok", detail: `${id} is on PATH` }
+      : { id: `bin-${id}`, label: `${id} binary`, status: "fail", detail: `${id} is not on PATH` }),
+    isolated(`shim-${id}`, `${id} integration`, async () => {
+      const adapter = resolveAdapter(id);
+      return adapter.shim && settings
+        ? await adapter.shim.diagnoseShim(orchDir, settings, logger)
+        : { id: `shim-${id}`, label: `${id} integration`, status: "skip", detail: `${id} declares no integration shim` };
+    }),
+    isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(settings, id, services.models)),
+  ]).flat();
+  let livePairs: CheckResult[];
+  try {
+    livePairs = settings ? await checkLiveFleetPairs(orchDir, settings, logger) : [];
+  } catch {
+    // Pair discovery is supplemental; a broken presence root must not prevent
+    // the independent doctor checks from running and reporting their own result.
+    livePairs = [];
+  }
+  return Promise.all([
+    isolated("bins", "Required binaries", () => checkBins(bins, enabledAdapters)),
+    ...providerChecks,
+    ...livePairs.map((pair) => Promise.resolve(pair)),
+    isolated("backend-environments", "Backend environments", () => describeBackendEnvironments(enabledBackends, configuredBackend)),
+    isolated("backend-versions", "Backend versions", checkBackendVersions),
+    isolated("declared-vs-reality", "Declared vs reality", () => checkDeclaredVsReality(orchDir)),
+    isolated("malformed-presence", "Malformed presence records", () => checkMalformedPresenceRecords(orchDir)),
+    isolated("dead-agents", "Dead agent rows", () => checkDeadAgents(orchDir)),
+    isolated("store", "Store", () => checkStore(orchDir)),
+    isolated("unscoped-tasks", "Unscoped queue tasks", () => checkUnscopedTasks(orchDir)),
+    isolated("unrunnable-tasks", "Unrunnable queue tasks", () => checkUnrunnableTasks(orchDir)),
+    isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
+    isolated("help-docs", "Help docs", checkHelpDocs),
+    isolated("settings", "Settings validity", () => checkSettingsFile(orchDir)),
+    isolated("runtime", "Declared runtime", () => settings
+      ? checkRuntime(settings)
+      : { id: "runtime", label: "Declared runtime", status: "skip", detail: "settings unavailable" }),
+    settingsDependent(orchDir, settings, "skill-links", "Skill links", (current) => checkSkillLinks(current)),
+    settingsDependent(orchDir, settings, "spawn-limits", "Spawn limits", (current) => checkSpawnLimits(current)),
+    settingsDependent(orchDir, settings, "provenance-depth", "Provenance depth", (current) => checkProvenanceDepth(orchDir, current)),
+    settingsDependent(orchDir, settings, "unclaimed-agents", "Unclaimed agents", (current) => checkUnclaimedAgents(orchDir, current, Date.now())),
+    settingsDependent(orchDir, settings, "command-locks", "Command locks", (current) => checkCommandLocks(current, (id) => resolveAdapter(id).commandGate)),
+    isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
+    settingsDependent(orchDir, settings, "notify-sinks", "Notification sinks", (current) => checkNotifySinks(current, bins)),
+    settingsDependent(orchDir, settings, "notifiers", "Notifiers", (current) => checkNotifiers(orchDir, current, logger)),
+    isolated("orchdir-location", "ORCH_DIR location", () => checkOrchDirLocation(orchDir)),
+    isolated("orchd-registration", "orchd registration", checkDaemonRegistration),
+    isolated("orchd", "orchd presence", () => checkDaemonPresence(orchDir)),
+    isolated("orchd-staleness", "orchd code", () => checkDaemonStaleness(orchDir)),
+    isolated("orchd-lock", "orchd lock", () => checkDaemonLock(orchDir)),
+    isolated("orchd-socket", "orchd socket", () => checkDaemonSocket(services.socket)),
+    isolated("os-executors", "OS-side executors", checkOsExecutors),
+    settingsDependent(orchDir, settings, "worktree-gitignore", "Worktree gitignore", checkWorktreeGitignore),
+    settingsDependent(orchDir, settings, "worktree-provider", "Worktree provider", checkWorktreeProvider),
+  ]);
+}
+
+export function applyFixes(results: CheckResult[]): { applied: string[] } {
+  const applied: string[] = [];
+  for (const result of results) {
+    if (!result.fix) continue;
+    result.fix.apply();
+    applied.push(result.fix.description);
+  }
+  return { applied };
+}
+
+/** Apply every safe fix, then each fix the last round uncovered: a repaired settings.json turns on
+ *  the checks that need it. Stops at a round with no check it has not already fixed. */
+export async function applyFixesUntilSettled(initial: CheckResult[], rerun: () => Promise<CheckResult[]>): Promise<{ results: CheckResult[]; applied: string[] }> {
+  let results = initial;
+  const fixed = new Set<string>();
+  const applied: string[] = [];
+  for (;;) {
+    const fresh = results.filter((result) => result.fix && !result.fix.destructive && !fixed.has(result.id));
+    if (!fresh.length) return { results, applied };
+    for (const result of fresh) fixed.add(result.id);
+    applied.push(...applyFixes(fresh).applied);
+    results = await rerun();
+  }
+}
+
+/** Redeploy the stale integration shim of the harnesses a command actually touches.
+ *  Cheap when current (a live symlink resolves with two stats), so spawn and reload
+ *  run it first — a freshly updated orch must never launch agents on the last
+ *  version's bridge. `harnesses` is required and never widened to "every enabled
+ *  adapter": reloading a pi agent has no business rewriting Claude's hooks. */
+export async function refreshStaleShims(orchDir: OrchDir, logger: Logger, harnesses: readonly string[], settings: OrchSettings | null): Promise<string[]> {
+  const refreshed: string[] = [];
+  const enabled = settings?.enabled.adapters ?? [];
+  for (const id of enabled.filter((adapter) => harnesses.includes(adapter))) {
+    try {
+      const adapter = resolveAdapter(id);
+      if (!adapter.shim) continue;
+      if (!settings) continue;
+      const diagnosis = await adapter.shim.diagnoseShim(orchDir, settings, logger);
+      if (diagnosis.status === "ok" || diagnosis.status === "skip") continue;
+      if (!diagnosis.fix) continue;
+      // An undeclared `destructive` means a safe fix; only a declared one is left for the operator.
+      if (diagnosis.fix.destructive) continue;
+      diagnosis.fix.apply();
+      refreshed.push(id);
+    } catch (error: unknown) {
+      // A broken shim diagnosis warns; it never blocks the command that asked.
+      logger.warn("doctor.shim-refresh-failed", { adapter: id, error: errorMessage(error) });
+      process.stdout.write(`warning: ${id} integration refresh failed: ${errorMessage(error)}\n`);
+    }
+  }
+  return refreshed;
+}

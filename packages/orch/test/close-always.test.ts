@@ -6,17 +6,15 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";
 import { recordAgentStatus, spawnedRecords } from "../src/presence/store.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { orm } from "../src/store/connection.ts";
 import { processIsAlive, processStartToken } from "../src/process-identity.ts";
 import { checkWall } from "../src/policy/space.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackendAsync } from "../test/helpers/backend.ts";
 import { seedSpace } from "../test/helpers/space.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
-import { placeAgent, seedAgent } from "../test/helpers/agent.ts";
+import { placeAgent, seedAgent, seedAgentRow, seedProcessInstance } from "../test/helpers/agent.ts";
 import { withExitCodeAsync } from "../test/helpers/exit-code.ts";
 import { servedServices } from "../test/helpers/daemon-state.ts";
-import { sql } from "drizzle-orm";
 
 import type { OrchDir } from "../src/types/core.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
@@ -60,11 +58,8 @@ function writeStatus(dir: OrchDir, key: string): void {
 }
 
 function recordProcess(dir: OrchDir, key: string, pid: number, startToken: string): void {
-  const db = orm(dir);
-  db.run(sql`INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)`);
-  db.run(sql`INSERT OR IGNORE INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${key},${key},${"pi"},${dir},${key},${1},${"session"})`);
-  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
+  seedAgentRow(dir, { id: key, cwd: dir, createdAt: 1, kind: "session" });
+  seedProcessInstance(dir, key, 1, { pid, startToken });
 }
 
 afterEach(async () => {
@@ -155,12 +150,7 @@ describe("close always works", () => {
     const key = "signalfai1";
     const handle = "pane-signal-failed";
     const pid = process.pid;
-    const startToken = processStartToken(pid)!;
-    const db = orm(dir);
-    db.run(sql`INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)`);
-    db.run(sql`INSERT OR IGNORE INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)`);
-    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${key},${key},${"pi"},${dir},${key},${1},${"session"})`);
-    db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${"test-host"},${pid},${startToken})`);
+    recordProcess(dir, key, pid, processStartToken(pid)!);
     seedSpace(dir, "foreign-space");
     placeAgent(key, { adapter: "pi", backend: "headless", space: "foreign-space", handle, owner: "other" }, dir);
     writeStatus(dir, key);

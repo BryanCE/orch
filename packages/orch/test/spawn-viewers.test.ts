@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { attachCommand, openViewers, planViewers } from "../src/commands/spawn/viewers.ts";
+import { attachCommand, openViewers, planViewers } from "../src/daemon/server/spawn/viewers.ts";
 import { parseSpawnFlags, resolveSpawnSettings } from "../src/commands/spawn/flags.ts";
 import { errorMessage, orchEntrypoint } from "../src/util.ts";
-import { FakePanedBackend, fakePane, withRegisteredBackendAsync } from "./helpers/backend.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { testServices } from "./helpers/services.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { agentViewFixture } from "./helpers/views.ts";
@@ -10,15 +10,13 @@ import type { BackendGroup, BackendGroupLayout, CommandPlacementRequest, Command
 import type { CreatedAgent } from "../src/types/command.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { Services } from "../src/types/services.ts";
-import type { FleetSnapshot } from "../src/commands/fleet.ts";
+import { planSpawn } from "../src/daemon/server/spawn/plan.ts";
 
 const dirs: OrchDir[] = [];
 
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
-
-const EMPTY_FLEET: FleetSnapshot = { views: [], presence: [], entities: [] };
 
 /** The caller's recorded place: a pane `%0` of the fake plexer, in its coordinate `s1`. */
 const IN_PLEXER = agentViewFixture("caller0001", { environment: { plexer: "tmux", handle: "%0" } }).environment;
@@ -96,7 +94,8 @@ function services(fleet: Record<string, unknown> = {}): Services {
 
 /** `orch spawn <names> --host far --dir /far --prompt go`, plus any extra flags. */
 function farSpawn(services: Services, names: readonly string[], extra: readonly string[] = []) {
-  return resolveSpawnSettings(parseSpawnFlags([...names, "--host", "far", "--dir", "/far", "--prompt", "go", ...extra]), services.settings.current());
+  const settings = services.settings.current();
+  return planSpawn(resolveSpawnSettings(parseSpawnFlags([...names, "--host", "far", "--dir", "/far", "--prompt", "go", ...extra]), settings).params, settings);
 }
 
 function started(key: string, name: string): CreatedAgent {
@@ -104,13 +103,13 @@ function started(key: string, name: string): CreatedAgent {
 }
 
 describe("a far spawn shows each agent in a pane of the caller's plexer", () => {
-  test("a new tab: the first agent takes its root place, the next splits beside it, each running orch attach", async () => {
+  test("a new tab: the first agent takes its root place, the next splits beside it, each running orch attach", () => {
     const svc = services();
     const backend = new ViewerBackend();
-    await withRegisteredBackendAsync(backend, async () => {
-      const plan = await planViewers({ services: svc, settings: farSpawn(svc, ["one", "two"]), environment: IN_PLEXER, fleet: EMPTY_FLEET });
+    withRegisteredBackend(backend, () => {
+      const plan = planViewers({ services: svc, settings: farSpawn(svc, ["one", "two"]), environment: IN_PLEXER, actor: null });
       expect(plan).not.toBeNull();
-      const panes = openViewers(plan!, svc.orchDir, svc.logger, "far", [started("agent00001", "one"), started("agent00002", "two")]);
+      const panes = openViewers(plan!, { orchDir: svc.orchDir, logger: svc.logger, cwd: "/here", notes: [] }, "far", [started("agent00001", "one"), started("agent00002", "two")]);
 
       expect(backend.createdGroups).toHaveLength(1);
       expect(backend.createdGroups[0]!.workspace).toBe("s1");
@@ -128,12 +127,12 @@ describe("a far spawn shows each agent in a pane of the caller's plexer", () => 
     });
   });
 
-  test("--tab naming an open tab fills it", async () => {
+  test("--tab naming an open tab fills it", () => {
     const svc = services();
     const backend = new ViewerBackend({ tabs: new Map([["@7", ["%70"]]]) });
-    await withRegisteredBackendAsync(backend, async () => {
-      const plan = await planViewers({ services: svc, settings: farSpawn(svc, ["one"], ["--tab", "@7"]), environment: IN_PLEXER, fleet: EMPTY_FLEET });
-      openViewers(plan!, svc.orchDir, svc.logger, "far", [started("agent00001", "one")]);
+    withRegisteredBackend(backend, () => {
+      const plan = planViewers({ services: svc, settings: farSpawn(svc, ["one"], ["--tab", "@7"]), environment: IN_PLEXER, actor: null });
+      openViewers(plan!, { orchDir: svc.orchDir, logger: svc.logger, cwd: "/here", notes: [] }, "far", [started("agent00001", "one")]);
       expect(backend.createdGroups).toEqual([]);
       expect(backend.ran).toHaveLength(1);
       expect(backend.ran[0]!.group).toBe("@7");
@@ -141,23 +140,27 @@ describe("a far spawn shows each agent in a pane of the caller's plexer", () => 
     });
   });
 
-  test("a tab without room refuses the spawn before anything launches", async () => {
+  test("a tab without room refuses the spawn before anything launches", () => {
     const svc = services({ max_agents_per_tab: 2 });
     const backend = new ViewerBackend({ tabs: new Map([["@7", ["%70", "%71"]]]) });
-    await withRegisteredBackendAsync(backend, async () => {
-      const refusal = await planViewers({ services: svc, settings: farSpawn(svc, ["one"], ["--tab", "@7"]), environment: IN_PLEXER, fleet: EMPTY_FLEET })
-        .then(() => null, (error: unknown) => errorMessage(error));
+    withRegisteredBackend(backend, () => {
+      let refusal: string | null = null;
+      try {
+        planViewers({ services: svc, settings: farSpawn(svc, ["one"], ["--tab", "@7"]), environment: IN_PLEXER, actor: null });
+      } catch (error: unknown) {
+        refusal = errorMessage(error);
+      }
       expect(refusal).toContain("max_agents_per_tab");
       expect(backend.ran).toEqual([]);
     });
   });
 
-  test("a pane that fails costs that pane only", async () => {
+  test("a pane that fails costs that pane only", () => {
     const svc = services();
     const backend = new ViewerBackend({ failing: [1] });
-    await withRegisteredBackendAsync(backend, async () => {
-      const plan = await planViewers({ services: svc, settings: farSpawn(svc, ["one", "two"]), environment: IN_PLEXER, fleet: EMPTY_FLEET });
-      const panes = openViewers(plan!, svc.orchDir, svc.logger, "far", [started("agent00001", "one"), started("agent00002", "two")]);
+    withRegisteredBackend(backend, () => {
+      const plan = planViewers({ services: svc, settings: farSpawn(svc, ["one", "two"]), environment: IN_PLEXER, actor: null });
+      const panes = openViewers(plan!, { orchDir: svc.orchDir, logger: svc.logger, cwd: "/here", notes: [] }, "far", [started("agent00001", "one"), started("agent00002", "two")]);
       // The tab whose root could not run the first viewer is closed; the second opens its own.
       expect(backend.closedGroups).toEqual(["@1"]);
       expect(backend.createdGroups).toHaveLength(2);
@@ -167,15 +170,15 @@ describe("a far spawn shows each agent in a pane of the caller's plexer", () => 
 });
 
 describe("no plexer here, no pane", () => {
-  test("a caller in no plexer gets no viewer plan", async () => {
+  test("a caller in no plexer gets no viewer plan", () => {
     const svc = services();
     const environment = agentViewFixture("caller0001", { environment: { plexer: null, handle: null } }).environment;
-    expect(await planViewers({ services: svc, settings: farSpawn(svc, ["one"]), environment, fleet: EMPTY_FLEET })).toBeNull();
+    expect(planViewers({ services: svc, settings: farSpawn(svc, ["one"]), environment, actor: null })).toBeNull();
   });
 
-  test("a caller in an environment that opens no place a person can see gets none", async () => {
+  test("a caller in an environment that opens no place a person can see gets none", () => {
     const svc = services();
     const environment = agentViewFixture("caller0001", { environment: { plexer: "headless", handle: null } }).environment;
-    expect(await planViewers({ services: svc, settings: farSpawn(svc, ["one"]), environment, fleet: EMPTY_FLEET })).toBeNull();
+    expect(planViewers({ services: svc, settings: farSpawn(svc, ["one"]), environment, actor: null })).toBeNull();
   });
 });

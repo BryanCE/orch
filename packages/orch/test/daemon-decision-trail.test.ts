@@ -1,22 +1,18 @@
 import { placeHere } from "../src/process-place.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
-import { orm } from "../src/store/connection.ts";
-import { processStartToken } from "../src/process-identity.ts";
+import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { governWrite, deliverWrite } from "../src/daemon/server/handlers/write.ts";
 import { isLogRecord } from "../src/log.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
-import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { seedAgent, seedLiveProcess, seedProcessInstance } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { LogRecord, OrchDir } from "../src/types/core.ts";
-import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
-import { testHost } from "./helpers/host.ts";
 
 const dirs: OrchDir[] = [];
 const previousLogLevel = process.env.ORCH_LOG_LEVEL;
@@ -36,7 +32,6 @@ function fixture(): OrchDir {
   process.env.ORCH_LOG_LEVEL = "debug";
   process.env.ORCH_DIR = directory;
   ensureHarness(directory, "pi", "Pi");
-  ensureHost(directory, testHost("host", "Host", "linux"), 1);
   return directory;
 }
 
@@ -64,8 +59,7 @@ describe("daemon decision trail", () => {
     agent(directory, "target");
     agent(directory, "live-holder");
     acquireLease(directory, "target", "live-holder", 2);
-    const token = processStartToken(process.pid);
-    orm(directory).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"live-holder"},${2},${"host"},${process.pid},${token})`);
+    seedProcessInstance(directory, "live-holder", 2);
 
     expect(() => governWrite(daemonState(directory), "target", { actor: "caller" })).toThrow(/leased by/);
 

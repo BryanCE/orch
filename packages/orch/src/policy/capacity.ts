@@ -1,4 +1,4 @@
-import { spaceName } from "./space.ts";
+import { spaceName } from "../shared/space.ts";
 import type { AgentView } from "../types/store.ts";
 import { type PresenceEntry, notDead } from "../types/presence.ts";
 import type { OrchSettings } from "../types/settings.ts";

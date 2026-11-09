@@ -18,6 +18,7 @@ import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { hostShell } from "../../host.ts";
 import { hostedHere } from "../../local-process.ts";
+import { isAgentId } from "../../shared/agent-id.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole } from "../../types/backend.ts";
 import type { PtyHolder } from "../../types/pty.ts";
@@ -87,7 +88,7 @@ export const heldBackend = new HeldBackend();
  */
 export async function startHeldAgent(holder: PtyHolder, adapter: AgentAdapter, opts: BackendSpawnOpts): Promise<LaunchedAgent> {
   const key = opts.key;
-  if (key === undefined || key.length === 0) throw new Error(`cannot hold a ${String(adapter.id)} agent with no key`);
+  if (!isAgentId(key)) throw new Error(`cannot hold a ${String(adapter.id)} agent under ${JSON.stringify(key)}: a held agent runs under its minted id`);
   const command = createInteractiveCommand(adapter, opts);
   const [file, ...shellArgs] = hostShell();
   const { pid } = await holder.start(key, {

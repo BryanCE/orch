@@ -2,6 +2,7 @@
 // so the sink builtins can format without re-entering the router that composes them.
 import { errorMessage, textValue, truncate } from "../util.ts";
 import type { NotifyEvent } from "../types/notify.ts";
+import type { NotifyEntry } from "../types/settings.ts";
 
 export function oneLine(error: unknown): string {
   return errorMessage(error).replace(/\s+/g, " ").trim();
@@ -169,3 +170,17 @@ export function notificationText(event: NotifyEvent, options: { colorize?: boole
   const body = notificationDetails(event, title, space, spaceColor(space));
   return { title, body };
 }
+
+/** A sink as `orch settings notify` and `orch notify test` name it. */
+export function notifySinkLabel(sink: NotifyEntry): string {
+  if (sink.id === "webhook") {
+    const url = sink.url;
+    return `webhook ${typeof url === "string" ? url : ""}`;
+  }
+  if (sink.id === "command") {
+    const command = sink.command;
+    return `command ${Array.isArray(command) ? command.map((part) => String(part)).join(" ") : ""}`;
+  }
+  return sink.id;
+}
+

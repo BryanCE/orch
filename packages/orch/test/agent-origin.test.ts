@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/shared/agent-id.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { agentById, originOf } from "../src/store/agent-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";

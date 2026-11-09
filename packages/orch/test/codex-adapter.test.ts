@@ -20,7 +20,7 @@ import {
   CODEX_STATE_FALLBACK_MARKER,
   CODEX_TURN_COMPLETE,
   codexStateFallback,
-} from "../src/adapters/codex-events.ts";
+} from "../extensions/codex/events.ts";
 import { CodexAdapter, codexAdapter } from "../src/adapters/codex.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";

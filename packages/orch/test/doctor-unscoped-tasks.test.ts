@@ -1,18 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { addTask } from "../src/queue.ts";
-import { checkUnscopedTasks, checkUnrunnableTasks } from "../src/doctor/presence.ts";
+import { checkUnscopedTasks, checkUnrunnableTasks } from "../src/daemon/server/doctor/presence.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import { seedAgentRow } from "./helpers/agent.ts";
 const directories: OrchDir[] = [];
 function fixture(): OrchDir {
   const dir = tempOrchDir("orch-task-scope-doctor-"); directories.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('a','a','pi','/tmp','a',1,'session')`);
+  seedAgentRow(dir, { id: "a", cwd: "/tmp", createdAt: 1, kind: "session" });
   return dir;
 }
 afterEach(() => { closeAllStores(); while (directories.length) removeTempDir(directories.pop()!); });

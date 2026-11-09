@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { TAB_FIRST_WORDS, TAB_LABEL_ATTEMPTS, TAB_SECOND_WORDS, freeTabLabel, liveTabLabels, rollTabLabel, type RandomSource } from "../src/commands/spawn/tab-label.ts";
+import { TAB_FIRST_WORDS, TAB_LABEL_ATTEMPTS, TAB_SECOND_WORDS, freeTabLabel, liveTabLabels, rollTabLabel, type RandomSource } from "../src/daemon/server/spawn/tab-label.ts";
 import { SpawnRefusalError } from "../src/refusal.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import { presenceEntryFixture } from "./helpers/presence.ts";

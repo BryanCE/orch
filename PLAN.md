@@ -71,7 +71,7 @@ follows it).
 ## 4. One reader for everything (Rule 20)
 
 - [x] One resolver: agent id → local store, or that host's orchd over the link.
-- [ ] `orch tail`, `orch peek`, `orch result`, `orch log` go through it and name the host.
+- [x] `orch tail`, `orch peek`, `orch result`, `orch log` go through it and name the host.
 - [x] Offline host: "offline, last seen <time>", never empty output or a missing file.
 
 ## 5. Drive verbs across hosts
@@ -117,12 +117,12 @@ follows it).
 Where an agent runs is part of its type and its stored record, from the ground up. No code can
 act on an agent as if it runs here without the types proving it does.
 
-- [ ] Every agent row stores the host it runs on, this machine included; no "no row means here".
-- [ ] One placement: agent → `here | linked | unreachable`, the only way any code reaches an
+- [x] Every agent row stores the host it runs on, this machine included; no "no row means here".
+- [x] One placement: agent → `here | linked | unreachable`, the only way any code reaches an
       agent's process, PTY, pane, session file, log, worktree or delivery route.
-- [ ] Every machine-specific value (pid, handle, PTY, session path, log path, worktree) is typed
+- [x] Every machine-specific value (pid, handle, PTY, session path, log path, worktree) is typed
       with its host, the way `HostedProcess` is; only code that proved "here" can unwrap one.
-- [ ] One door: every agent verb and read is CLI → this orchd → the orchd where the agent runs.
+- [x] One door: every agent verb and read is CLI → this orchd → the orchd where the agent runs.
       The CLI never holds a plexer Backend for an agent; local-only plexer work (spawn layout,
       viewer panes, the caller's own panes) goes through an API that takes no agent.
 - [ ] `orch spawn --host X` then plain `orch dispatch <name> "task"` works with no extra flags,
@@ -141,19 +141,29 @@ loads code that touches an agent, a plexer, a process, the store or an agent's f
 - [x] Pure code moved to `src/shared/`: harness descriptor, agent id, bridge messages, environment,
       session env, peer view, prerequisites, drive-state constants, plexer handle helpers, shell
       prompt, tiling math, lookup, versions.
-- [ ] Descriptors go shared: the harness and plexer lists, their declared capabilities and
+- [x] Descriptors go shared: the harness and plexer lists, their declared capabilities and
       settings schemas, the bridge message and environment schemas split from their runtime
       roles in `src/adapters/`, `src/backends/`, `src/control/`, `src/agent/`.
-- [ ] Caller registration sends the caller's pid; orchd reads its ancestry. The CLI never loads
+- [x] Caller registration sends the caller's pid; orchd reads its ancestry. The CLI never loads
       process identity.
-- [ ] `src/policy/`, `src/identity/`, `src/queue.ts` are server: every command that used them
+- [x] `src/policy/`, `src/identity/`, `src/queue.ts` are server: every command that used them
       asks orchd.
-- [ ] `orch doctor` and `orch setup` run in orchd and stream their report back.
+- [x] `orch doctor` and `orch setup` run in orchd and stream their report back.
 - [ ] Every `src/commands/` load in the baseline is gone; the baseline is empty.
-- [ ] Three workspace packages: `packages/protocol` (shared), `packages/orchd` (server),
-      `packages/orch` (the CLI and the published bin, bundling orchd). The CLI package does not
-      depend on `packages/orchd`, so a client import of server code does not resolve.
-- [ ] `packages/web` is a client too: it reaches orchd over RPC and loads no server code.
+- [x] `src/db/` joins the server list once doctor runs in orchd.
+- [ ] Three workspace packages, cut along `scripts/check-layers.ts`'s layers:
+      - `packages/shared` (private): `src/types/`, `src/shared/`, `src/daemon/client/`,
+        `src/settings/`, and the shared top-level helpers (util, format, json, table, log,
+        refusal, retry, agent-state, orch-dir).
+      - `packages/orchd` (private): every server module, `src/db/`, `drizzle/`,
+        `drizzle.config.ts`, `scripts/db/`, its own `build` producing `dist/orchd.js`.
+      - `packages/orch` (`@bryance/orch`, published): the CLI, `bin/`, the harness bridge
+        (`extensions/`, `src/agent/` bridge files), `help/`, `skills/`; `build:dist` copies
+        orchd's built bundle in. It depends on `packages/shared` only.
+      Each package's tsconfig maps only its own dependencies. `check-layers` keeps scanning
+      across packages, so a relative path into another package's source still fails.
+      Tests move with the code they test.
+- [x] `packages/web` is a client too: it reaches orchd over RPC and loads no server code.
 
 ## Later
 

@@ -21,15 +21,16 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
+import { seedAgentRow } from "./helpers/agent.ts";
 const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 function fixture() { const d = tempOrchDir("orch-task-rows-"); dirs.push(d); return d; }
 function seed(d: OrchDir) {
   const db = orm(d);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES (${"pi"},${"Pi"})`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${"a"},${"a"},${"pi"},${"/tmp"},${"a"},${1},${"session"})`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,spawned_by,kind) VALUES (${"b"},${"a"},${"pi"},${"/tmp"},${"b"},${1},${"a"},${"agent"})`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${"c"},${"c"},${"pi"},${"/tmp"},${"c"},${1},${"session"})`);
+  seedAgentRow(d, { id: "a", cwd: "/tmp", createdAt: 1, kind: "session" });
+  seedAgentRow(d, { id: "b", spawnedBy: "a", cwd: "/tmp", createdAt: 1 });
+  seedAgentRow(d, { id: "c", cwd: "/tmp", createdAt: 1, kind: "session" });
   db.run(sql`INSERT INTO spaces(id,name,created_at) VALUES (${"s"},${"S"},${1})`);
 }
 

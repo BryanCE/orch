@@ -10,13 +10,14 @@ import { attachBridge, detachBridge, type BridgeLink } from "../src/control/brid
 import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
+import { runnerInstance, seedProcessInstance } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { eq, sql } from "drizzle-orm";
 import { outbox } from "../src/db/schema.ts";
 
 import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 /**
  * A transfer must not disturb the agent or its attached link. Ownership is a
  * lease and nothing else (A1), so handing one over writes `agent_leases` and
@@ -54,8 +55,7 @@ function workingAgent(): { directory: OrchDir; worker: string; before: ReturnTyp
   setHandle(directory, placeHere(directory, "worker"), 10, "wF:p3");
   setSpace(directory, "worker", 10, "server");
   setTuning(directory, "worker", 10, { model: "openai-codex/gpt-5.6-luna", thinking: "high" });
-  orm(directory)
-    .run(sql`INSERT INTO agent_processes (agent_id, since, until, host_id, pid, start_token) VALUES (${"worker"},${10},NULL,${hostIdentity().id},${process.pid},${"tok"})`);
+  seedProcessInstance(directory, "worker", 10, runnerInstance("tok"));
   seedStatus(directory, "worker", { key: "worker", agent: "pi", pid: process.pid, state: "working", sessionPath: "/s/session-1" });
   acquireLease(directory, "worker", "orch-a", 20);
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { allAdapters } from "../src/adapters/registry.ts";
-import { planShimInstall } from "../src/setup/install.ts";
+import { planShimInstall } from "../src/daemon/server/setup.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 
 describe("adapter role composition", () => {

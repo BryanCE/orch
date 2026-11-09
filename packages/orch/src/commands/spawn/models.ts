@@ -1,30 +1,25 @@
-import { admitModel } from "../../policy/model.ts";
 import { modelSpec } from "../../policy/thinking.ts";
-import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
-import { resolveAdapterOrDie } from "../selection.ts";
 import { SpawnRefusalError } from "../../refusal.ts";
 import { errorMessage } from "../../util.ts";
 import { retryingAsync } from "../../retry.ts";
-import { callDaemon } from "../daemon.ts";
-import { takesModel } from "../../shared/harness.ts";
-import type { AdapterId, AgentAdapter, ModelCatalogue } from "../../types/adapter.ts";
+import { askDaemon, callDaemon } from "../daemon.ts";
+import type { AdapterId } from "../../types/adapter.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 import type { Logger, RetryPolicy } from "../../types/core.ts";
-import type { Services } from "../../types/services.ts";
-import type { OrchSettings } from "../../types/settings.ts";
+import type { DaemonClient, Services } from "../../types/services.ts";
+import type { ResultOf } from "../../daemon/client/protocol.ts";
 
+/** A model orchd admitted on a harness, and whether that harness's running sessions take a new one. */
+export type AdmittedModel = ResultOf<"admit-model">;
 
-/** The command one harness launches under, built by that harness's own adapter. `launch` carries
- *  what this launch selected — the model it starts on and the quicklist its picker shows — so a
- *  previewed command is the command the backend actually runs. */
-export function adapterCommand(
-  adapter: string,
-  settings: OrchSettings,
-  launch: { model?: string; thinking?: ThinkingLevel; preferredModels?: readonly string[] } = {},
-): string {
-  const resolved = resolveAdapterOrDie(adapter);
-  const opts = { ...launch, tools: workerTools(settings), workers: workerPolicyFrom(settings) };
-  return resolved.workerLaunch?.restrictedInteractiveCmd(opts) ?? resolved.interactiveCmd(opts);
+/** Ask orchd to admit `model` on `harness`: its policy and its catalogue rule, and a short name
+ *  comes back expanded. `agent` names the running agent the model is for, or null for a launch. */
+export async function admitModel(services: DaemonClient, harness: AdapterId, model: string, agent: string | null): Promise<AdmittedModel> {
+  try {
+    return await askDaemon(services, "admit-model", { harness, model, agent }, services.settings.current().timeouts.adapter_command_ms);
+  } catch (error: unknown) {
+    throw new SpawnRefusalError(errorMessage(error));
+  }
 }
 
 /** Pin one agent's model, retrying while its bridge finishes registering.
@@ -82,51 +77,7 @@ export async function pinModels(
 }
 
 /** Refuse a model change a running session cannot take: such a harness keeps the model it launched on. */
-export function refuseModelChange(adapter: AgentAdapter, launched: string | null | undefined, model: string): void {
-  if (takesModel(adapter) || !launched || launched === model) return;
-  throw new SpawnRefusalError(`${adapter.id} cannot change a running session's model (${launched}); spawn a new agent on ${model}`);
+export function refuseModelChange(harness: AdapterId, admitted: Pick<AdmittedModel, "takesModel">, launched: string | null | undefined, model: string): void {
+  if (admitted.takesModel || !launched || launched === model) return;
+  throw new SpawnRefusalError(`${harness} cannot change a running session's model (${launched}); spawn a new agent on ${model}`);
 }
-
-/** Enforce orch's model policy at the command's side-effect gate and return the spec
- *  the launch runs on: a short name comes back expanded, a full spec comes back as is. */
-export function admitLaunchModel(settings: OrchSettings, adapterId: AdapterId, catalogue: ModelCatalogue, model: string): string {
-  const adapter = resolveAdapterOrDie(adapterId);
-  try {
-    return admitModel(settings, adapter, catalogue, model);
-  } catch (error: unknown) {
-    throw new SpawnRefusalError(errorMessage(error));
-  }
-}
-
-/** The model as `harness` names it: `claude/haiku` is `haiku` to claude. */
-function modelOn(harness: AdapterId, model: string): string {
-  return model.startsWith(`${harness}/`) ? model.slice(harness.length + 1) : model;
-}
-
-/** Another enabled harness that admits `model`, and the model in its own vocabulary. */
-function otherHarnessFor(settings: OrchSettings, catalogue: ModelCatalogue, current: AdapterId, model: string): { harness: AdapterId; model: string } | undefined {
-  for (const harness of settings.enabled.adapters) {
-    if (harness === current) continue;
-    try {
-      return { harness, model: admitModel(settings, resolveAdapterOrDie(harness), catalogue, modelOn(harness, model)) };
-    } catch {
-      continue;
-    }
-  }
-  return undefined;
-}
-
-/** Admit a model for a running agent, which keeps its harness. A refusal names the harness that offers it. */
-export function admitAgentModel(settings: OrchSettings, adapterId: AdapterId, catalogue: ModelCatalogue, model: string, name: string): string {
-  try {
-    return admitModel(settings, resolveAdapterOrDie(adapterId), catalogue, model);
-  } catch (error: unknown) {
-    const other = otherHarnessFor(settings, catalogue, adapterId, model);
-    const hint = other === undefined
-      ? ""
-      : ` ${name} runs ${adapterId}, and only a restart changes its harness. Run orch restart ${name} --harness ${other.harness} --model ${other.model}, then try again.`;
-    throw new SpawnRefusalError(`${errorMessage(error)}${hint}`);
-  }
-}
-
-

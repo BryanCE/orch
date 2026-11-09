@@ -1,8 +1,7 @@
 // Compaction points are keyed by the concrete model a harness runs, never by an alias:
 // an alias moves to a new model when the harness updates, and a point set for one model
 // must not follow it. A launch names a spec, so its table is re-keyed through the catalogue.
-import { resolveAdapter } from "../adapters/registry.ts";
-import type { HarnessModel, ModelCatalogue } from "../types/adapter.ts";
+import type { HarnessModel } from "../types/adapter.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
 
 /** The model a catalogue row runs now: the harness's resolved model, or the spec itself. */
@@ -22,9 +21,12 @@ function launchKeyed(points: Readonly<Record<string, number>>, offered: readonly
   return Object.fromEntries([...concrete, ...aliased]);
 }
 
+/** The models a harness offers now, by harness id: orchd reads them from its catalogue. */
+export type OfferedModels = (harness: string) => readonly HarnessModel[];
+
 /** The worker policy with each harness's points keyed for launch. */
-export function withLaunchPoints(workers: WorkerPolicy, catalogue: ModelCatalogue): WorkerPolicy {
+export function withLaunchPoints(workers: WorkerPolicy, offered: OfferedModels): WorkerPolicy {
   const table = Object.entries(workers.compactAtTokens).map(([harness, points]): [string, Record<string, number>] =>
-    [harness, launchKeyed(points ?? {}, resolveAdapter(harness).models?.listModels(catalogue) ?? [])]);
+    [harness, launchKeyed(points ?? {}, offered(harness))]);
   return { ...workers, compactAtTokens: Object.fromEntries(table) };
 }

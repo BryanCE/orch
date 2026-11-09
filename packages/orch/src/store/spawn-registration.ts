@@ -2,7 +2,7 @@ import type { OrchDir } from "../types/core.ts";
 import { eq } from "drizzle-orm";
 import { agentById, ensureHarness, ensurePlexer, insertAgent, originOf, setOrigin, setWorktree } from "./agent-rows.ts";
 import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
-import { hostIdentity } from "../host.ts";
+import { hostIdentity } from "../hosts/identity.ts";
 import { placeHere } from "../process-place.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";

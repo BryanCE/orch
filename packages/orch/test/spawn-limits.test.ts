@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { fileSettingsManager } from "../src/settings/manager.ts";
-import { applyFixes } from "../src/doctor/runner.ts";
-import { checkSpawnLimits } from "../src/doctor/settings-file.ts";
-import { assertSpawnCapacity, liveSpawnCounts, spawnPolicyError } from "../src/commands/spawn/admission.ts";
+import { applyFixes } from "../src/daemon/server/doctor/runner.ts";
+import { checkSpawnLimits } from "../src/daemon/server/doctor/settings-file.ts";
+import { assertSpawnCapacity, spawnPolicyError } from "../src/daemon/server/spawn/admission.ts";
+import { liveSpawnCounts } from "../src/policy/capacity.ts";
 import { SpawnRefusalError } from "../src/refusal.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatus, statusRow } from "./helpers/presence.ts";

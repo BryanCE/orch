@@ -36,6 +36,8 @@ interface ServerShared {
   readonly replayBuffer: ReplayBuffer;
   /** Every peer connection, with the host it speaks for. */
   readonly peers: Map<Socket, HostId>;
+  /** Every subscription a CLI stream holds, with that stream's process on this machine. */
+  readonly streams: Map<Socket, number>;
   readonly greeting: () => HostGreeting;
 }
 
@@ -190,6 +192,7 @@ function handleLine(
       for (const buffered of replay.events) lineResponse(socket, { kind: "event", ...buffered });
     }
     shared.subscriptions.add(socket);
+    if (request.params.stream !== undefined) shared.streams.set(socket, request.params.stream);
   }
   const attach: AttachOutcome = request.method === "attach"
     ? attachRequest(orchDir, socket, request, state, transport, onBridgeAttached, logger)
@@ -213,6 +216,7 @@ function attachConnection(
   const state: ConnectionState = { screens: screenConnection(socket) };
   const detach = () => {
     shared.subscriptions.delete(socket);
+    shared.streams.delete(socket);
     shared.peers.delete(socket);
     detachConnectionBridge(orchDir, state);
     state.screens.closeAll();
@@ -278,6 +282,7 @@ export async function startRpcServer(
   const paths = endpointPaths(orchDir);
   const subscriptions = new Set<Socket>();
   const peers = new Map<Socket, HostId>();
+  const streams = new Map<Socket, number>();
   const sockets = new Set<Socket>();
   const connectionCleanups = new Set<() => void>();
   const replayBuffer = new ReplayBuffer(orchDir);
@@ -298,7 +303,7 @@ export async function startRpcServer(
     }
   });
   const daemonToken = writeDaemonToken(paths.token);
-  const shared: ServerShared = { subscriptions, replayBuffer, peers, greeting: options.greeting ?? hostGreeting };
+  const shared: ServerShared = { subscriptions, replayBuffer, peers, streams, greeting: options.greeting ?? hostGreeting };
   const attachFor = (transport: "unix" | "tcp") => (socket: Socket): void => {
     sockets.add(socket);
     const cleanup = attachConnection(socket, handlers, shared, orchDir, transport, daemonToken, options.onBridgeAttached, logger);
@@ -313,14 +318,14 @@ export async function startRpcServer(
   const server = createServer(attachUnix);
   if (await bindUnix(server, paths, reclaimableSocket(orchDir, options))) {
     const tcpServer = await startTcpServer(attachTcp, options, paths);
-    return makeRpcServer(server, tcpServer, sockets, connectionCleanups, subscriptions, peers, bus, unsubscribeBus, paths, "unix", tcpEndpointOf(tcpServer));
+    return makeRpcServer(server, tcpServer, sockets, connectionCleanups, subscriptions, peers, streams, bus, unsubscribeBus, paths, "unix", tcpEndpointOf(tcpServer));
   }
   try { server.close(); } catch {}
   const tcpServer = createServer(attachTcp);
   await listen(tcpServer, { host: "127.0.0.1", port: options.tcpPort ?? 0 });
   const boundPort = boundTcpPort(tcpServer);
   writeFileSync(paths.port, `${boundPort}\n`, { mode: 0o600 });
-  return makeRpcServer(tcpServer, undefined, sockets, connectionCleanups, subscriptions, peers, bus, unsubscribeBus, paths, "tcp", `tcp://127.0.0.1:${boundPort}`);
+  return makeRpcServer(tcpServer, undefined, sockets, connectionCleanups, subscriptions, peers, streams, bus, unsubscribeBus, paths, "tcp", `tcp://127.0.0.1:${boundPort}`);
 }
 
 /**
@@ -410,6 +415,7 @@ function makeRpcServer(
   connectionCleanups: Set<() => void>,
   subscriptions: Set<Socket>,
   peers: Map<Socket, HostId>,
+  streams: Map<Socket, number>,
   bus: EventBus,
   unsubscribeBus: () => void,
   paths: { socket: string; port: string; token: string },
@@ -428,12 +434,14 @@ function makeRpcServer(
     try { unlinkSync(paths.token); } catch {}
     unsubscribeBus();
     peers.clear();
+    streams.clear();
     subscriptions.clear();
   };
   return {
     close,
     emit: (event) => bus.emit(event),
     subscriberCount: () => subscriptions.size,
+    streamPids: () => [...new Set(streams.values())],
     attachedBridgeCount: () => attachedBridgeKeys().length,
     transport,
     socketPath: paths.socket,

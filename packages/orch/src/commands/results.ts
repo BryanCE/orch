@@ -1,4 +1,3 @@
-import { spaceOf } from "../policy/space.ts";
 import { ARROW, collapse, isRecord, truncate } from "../util.ts";
 import { die, resultText } from "./target.ts";
 import { readRpc } from "./daemon.ts";
@@ -133,7 +132,6 @@ async function collectPendingQuestions(services: Services, all: boolean): Promis
 
 async function writeQuestions(services: Services, { all, json }: QuestionOptions): Promise<void> {
   const { pending } = await collectPendingQuestions(services, all);
-  const orchDir = services.orchDir;
   const rows = pending.map(({ view }) => ({
     key: view.key,
     name: view.name,
@@ -141,16 +139,16 @@ async function writeQuestions(services: Services, { all, json }: QuestionOptions
     id: view.questionId,
     question: view.question,
     ts: new Date(view.askedAt).toISOString(),
-    space: spaceOf(orchDir, view.key) ?? "-",
+    space: view.space ?? "-",
   }));
   if (writeEmptyOrJson(pending, json, "No pending questions.", rows)) return;
-  const spaces = pending.map(({ view }) => spaceOf(orchDir, view.key) ?? "-");
+  const spaces = pending.map(({ view }) => view.space ?? "-");
   const showSpace = all && new Set(spaces).size > 1;
   process.stdout.write(
     pending
       .map(({ view }) => {
         const label = view.name ?? "-";
-        const spaceLabel = spaceOf(orchDir, view.key) ?? "-";
+        const spaceLabel = view.space ?? "-";
         const name = showSpace ? `${spaceLabel} / ${label}` : label;
         return `${name}  ${formatAge(view.askedAt)}\n${view.question}`;
       })

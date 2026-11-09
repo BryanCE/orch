@@ -11,7 +11,8 @@ import type { OrchDir } from "../../types/core.ts";
 // Plexer-neutral: this reaches the plexer only through `backends/hud.ts`, whose
 // provider is chosen by capability probe. Adding a plexer adds no line here.
 import { activePaneHud } from "../../backends/hud.ts";
-import { environmentOf } from "../../store/agent-view.ts";
+import { paneOf } from "../../store/agent-view.ts";
+import { hereAgentIfAny } from "../../process-place.ts";
 import type { PaneStatusSnapshot } from "../../types/plexer.ts";
 
 type PaneSink = (snapshot: PaneStatusSnapshot) => void;
@@ -25,16 +26,18 @@ type PaneSink = (snapshot: PaneStatusSnapshot) => void;
 export function createPanePainter(orchDir: OrchDir): (agentId: string, snapshot: PaneStatusSnapshot) => void {
   const sinks = new Map<string, PaneSink>();
 
-  function paneOf(agentId: string): string | null {
+  /** The pane the agent sits in on this machine; one on another host has none here to paint. */
+  function paneHere(agentId: string): string | null {
     try {
-      return environmentOf(orchDir, agentId).handle;
+      const agent = hereAgentIfAny(orchDir, agentId);
+      return agent === null ? null : paneOf(orchDir, agent).handle;
     } catch {
       return null;
     }
   }
 
   return (agentId: string, snapshot: PaneStatusSnapshot): void => {
-    const pane = paneOf(agentId);
+    const pane = paneHere(agentId);
     if (pane === null) return;
     const sinkKey = `${agentId} ${pane}`;
     let sink = sinks.get(sinkKey);

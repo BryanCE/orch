@@ -1,8 +1,7 @@
-import type { AdapterId, ModelCatalogue } from "../../types/adapter.ts";
+import type { AdapterId } from "../../types/adapter.ts";
 import type { CompactionTable, EditingState } from "../../types/settings.ts";
 import type { SettingsManager } from "../../types/services.ts";
-import { resolveAdapter } from "../../adapters/registry.ts";
-import { readHarnessCatalogue } from "../../setup/composition.ts";
+import { readHarnessCatalogue, type HarnessOffers } from "../../setup/composition.ts";
 import { concreteModel } from "../../policy/compaction.ts";
 import { parseIntegerSetting } from "../parse.ts";
 import { askChoice, askValue } from "./ask.ts";
@@ -19,9 +18,9 @@ function withPair(table: CompactionTable, harness: AdapterId, model: string, tok
 }
 
 /** Each concrete model the harness runs, with the aliases that run it now. */
-async function concreteModels(harness: AdapterId, catalogue: ModelCatalogue): Promise<Map<string, string[]>> {
+async function concreteModels(harness: AdapterId, offers: HarnessOffers): Promise<Map<string, string[]>> {
   const models = new Map<string, string[]>();
-  for (const model of await readHarnessCatalogue(resolveAdapter(harness), catalogue, false)) {
+  for (const model of (await readHarnessCatalogue(harness, offers, false)).models) {
     const aliases = models.get(concreteModel(model)) ?? [];
     if (model.spec !== concreteModel(model)) aliases.push(model.spec);
     models.set(concreteModel(model), aliases);
@@ -58,14 +57,15 @@ async function pickModel(session: Session, manager: SettingsManager, models: Rea
 
 /** Pick a harness that takes a compaction point, one of its models, then the token count.
  *  An empty count drops the pair, so that model launches on the harness's own default. */
-export async function editCompaction(session: Session, manager: SettingsManager, catalogue: ModelCatalogue, editing: EditingState): Promise<void> {
+export async function editCompaction(session: Session, manager: SettingsManager, offers: HarnessOffers, editing: EditingState): Promise<void> {
   const table = manager.current().workers.compact_at_tokens;
-  const harnesses = manager.current().enabled.adapters.filter((id) => resolveAdapter(id).compaction !== null);
+  const enabled = manager.current().enabled.adapters;
+  const harnesses = (await offers(enabled)).filter((offer) => offer.compaction).map((offer) => offer.id);
   if (!harnesses.length) return cancelEdit(session, editing, "no enabled harness takes a compaction point");
   const id = await pickHarness(session, manager, harnesses);
   if (id === undefined) return cancelEdit(session, editing);
   const recorded = table[id] ?? {};
-  const models = await concreteModels(id, catalogue);
+  const models = await concreteModels(id, offers);
   if (!models.size) return cancelEdit(session, editing, `${id} lists no models`);
   const model = await pickModel(session, manager, models, recorded);
   if (model === null) return cancelEdit(session, editing);

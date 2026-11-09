@@ -362,9 +362,8 @@ export function checkFsWatchLine(line: string, relPath: string): string | undefi
  * (`src/adapters/{pi,omp,claude,codex}`) import re-couples the package to a leaf,
  * which is exactly the breach `resolveBackend`/`resolveAdapter` exist to prevent.
  * `backends/registry.ts`, `backends/backend.ts`, `adapters/registry.ts`, and the
- * parser leaves (`shared/harness.ts`, `adapters/transcript.ts`,
- * `adapters/codex-events.ts`) sit directly under their dir (no `<id>/` subpath,
- * not a bare harness id) and stay allowed.
+ * parser leaves (`shared/harness.ts`, `shared/transcript.ts`) sit directly under
+ * their dir (no `<id>/` subpath, not a bare harness id) and stay allowed.
  */
 const CONCRETE_ADAPTER_IMPORT = new RegExp(`adapters\\/(?:${alternation(HARNESS_IDS)})(?:\\.ts)?["']`);
 

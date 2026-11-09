@@ -1,10 +1,10 @@
 import type { OrchDir } from "../types/core.ts";
 import { and, asc, eq, isNotNull, isNull, type SQL } from "drizzle-orm";
-import { mintAgentId } from "../shared/agent-id.ts";
+import { agentIdFromRow, mintAgentId } from "../shared/agent-id.ts";
 import { isRecord } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
 import { agentEndings, agentHosts, agentOrigins, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
-import { environmentOf, refreshAgent } from "./agent-view.ts";
+import { environmentOf, paneOf, refreshAgent } from "./agent-view.ts";
 import { agentLocation, callerProcess, openLocationIn, recordCallerProcessIn, relocateIn, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { hereOrNull, placeAgent } from "../process-place.ts";
 import { closeOutboxForTarget } from "./outbox-rows.ts";
@@ -153,11 +153,13 @@ export function originOf(orchDir: OrchDir, agentId: string): AgentOrigin | null 
   return row ?? null;
 }
 
-export function worktreeOf(orchDir: OrchDir, agentId: string): AgentWorktree | null {
+/** The git worktree an agent this orchd runs works in; null when it runs from the repo itself.
+ *  A worktree is a directory on this machine, so only an agent here has one. */
+export function worktreeOf(orchDir: OrchDir, agent: HereAgent): AgentWorktree | null {
   const row = orm(orchDir)
     .select({ path: agentWorktrees.path, branch: agentWorktrees.branch, base: agentWorktrees.base, provider: agentWorktrees.provider })
     .from(agentWorktrees)
-    .where(eq(agentWorktrees.agentId, agentId))
+    .where(eq(agentWorktrees.agentId, agent.id))
     .get();
   return row ?? null;
 }
@@ -279,16 +281,17 @@ function liveAgentId(orchDir: OrchDir, where: SQL): string | null {
  * reopened, so a second registration from the same session opens no second interval.
  */
 function placeSession(orchDir: OrchDir, here: HereAgent | null, agentId: string, input: SessionAgentInput): void {
-  const environment = environmentOf(orchDir, agentId);
-  if (here !== null && input.plexerId != null && environment.plexer === null) {
-    setAgentPlexer(orchDir, here, input.plexerId);
-  }
-  if (here !== null && input.handle != null && environment.handle !== input.handle) {
-    setHandle(orchDir, here, input.now, input.handle);
-  }
-  if (input.space != null && environment.space !== input.space) {
+  if (here !== null) placeSessionPane(orchDir, here, input);
+  if (input.space != null && environmentOf(orchDir, agentId).space !== input.space) {
     setSpace(orchDir, agentId, input.now, input.space);
   }
+}
+
+/** The pane of a session placed here, read and written through the agent. */
+function placeSessionPane(orchDir: OrchDir, here: HereAgent, input: SessionAgentInput): void {
+  const pane = paneOf(orchDir, here);
+  if (input.plexerId != null && pane.plexer === null) setAgentPlexer(orchDir, here, input.plexerId);
+  if (input.handle != null && pane.handle !== input.handle) setHandle(orchDir, here, input.now, input.handle);
 }
 
 /** The environment exists as soon as it is named; only the host record needs its version. */
@@ -338,7 +341,7 @@ export function getOrCreateSessionAgent(orchDir: OrchDir, input: SessionAgentInp
       // keeps its open interval.
       const open = callerProcess(orchDir, existing);
       if (open?.host !== process.host || open.pid !== process.pid || open.startToken !== process.startToken) {
-        recordCallerProcessIn(db, existing, input.now, process);
+        recordCallerProcessIn(db, agentIdFromRow(existing), input.now, process);
       }
       return { id: existing, label: input.label, kind: "session" };
     }

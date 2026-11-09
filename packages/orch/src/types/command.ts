@@ -1,5 +1,5 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
-import type { Backend, BackendHandle, BackendId, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
+import type { Backend, BackendHandle, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
 import type { CallerKind, ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { GrantAction } from "./store.ts";
 import type { LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
@@ -9,7 +9,8 @@ import type { HostIdentity, HostOffline } from "./host.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 export interface DispatchToAgentOptions {
   raw?: boolean;
-  adapter?: AgentAdapter;
+  /** The harness whose worker header wraps the prompt; orchd composes it from that adapter. */
+  harness?: AdapterId;
   context?: WorkerHeaderContext;
   gov?: WriteGovernance;
 }
@@ -91,20 +92,12 @@ export interface SmokeSteps {
   /** Build the trivial prompt the agent is launched on. */
   buildPrompt: () => string;
   /** The agent's result text once it has produced one, else undefined. */
-  readResultText: (key: string) => string | undefined;
+  readResultText: (key: string) => Promise<string | undefined>;
   /** Best-effort teardown of the smoke agent. */
-  cleanup: (key: string) => void;
+  cleanup: (key: string) => Promise<void>;
   now: () => number;
   sleep: (ms: number) => Promise<void>;
   timeoutMs: number;
-}
-
-/** Where this command runs: the orchd it writes through, the plexer it is in,
- *  and that plexer's space-home role when it composes one. */
-export interface SpaceEnvironment {
-  readonly services: DaemonClient;
-  readonly plexerId: string;
-  readonly spaceHome: SpaceHomeRole | null;
 }
 
 /** What opening one plexer home for a space or a pack needs. */
@@ -123,6 +116,8 @@ export interface OpenHomeRequest {
   /** The approved action this home opens on, spent by orchd when it records the
    *  home. Absent for a home nobody had to approve. */
   readonly grant?: GrantAction;
+  /** The agent the caller resolved to, which spends the approval; null for one with no row. */
+  readonly actor: string | null;
 }
 
 export interface AgentFlags {
@@ -130,15 +125,6 @@ export interface AgentFlags {
   backendFlag?: string;
   modelFlag?: string;
   thinkingFlag?: string;
-}
-
-export interface AgentSettings {
-  adapter: AdapterId;
-  backend: BackendId;
-  model: string;
-  thinking: ThinkingLevel;
-  /** The quicklist this harness's own picker/cycle is given; never a launch gate. */
-  preferredModels: readonly string[];
 }
 
 export interface CreatedAgent {
@@ -321,9 +307,9 @@ export interface SpawnPlacementRequest {
   readonly callerHandle: string | null;
   /** Opening a home puts a window on the human's screen, so it is asked for.
    *  Passed in rather than called here so the decision stays one function and
-   *  the gate stays testable. Throws or exits when not granted, and otherwise
+   *  the gate stays testable. Throws when not granted, and otherwise
    *  returns the approved action for the open to spend. */
-  readonly grantNewHome: () => Promise<GrantAction>;
+  readonly grantNewHome: () => GrantAction;
 }
 
 /** What opening the home a {@link SpawnPlacement} owes needs. */
@@ -338,6 +324,8 @@ export interface OpenFleetHomeRequest {
   readonly labelDirectory: string;
   /** The first agent's environment. The home's root place launches that agent. */
   readonly env: Readonly<Record<string, string>>;
+  /** The agent the spawn's caller resolved to, which spends the approval; null for one with no row. */
+  readonly actor: string | null;
 }
 
 /** Every lease operation takes the same two options: when it happened, and

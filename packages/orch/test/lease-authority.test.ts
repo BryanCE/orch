@@ -20,7 +20,9 @@ import { idleDaemonState } from "./helpers/daemon-state.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
 import { row } from "./helpers/rows.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
+import { recordProcess } from "../src/store/interval-rows.ts";
+import { placeHere } from "../src/process-place.ts";
 const dirs: OrchDir[] = [];
 const oldOrchDir = process.env.ORCH_DIR;
 afterEach(() => {
@@ -45,7 +47,7 @@ function live(dir: OrchDir, id: string, name = id): void {
   agent(dir, id, name);
   const token = processStartToken(process.pid);
   if (!token) throw new Error("test process has no start token");
-  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${hostIdentity().id},${process.pid},${token})`);
+  recordProcess(dir, placeHere(dir, id), 1, { pid: process.pid, startToken: token });
 }
 
 /** An agent with a recorded process that is provably NOT this process instance. */
@@ -55,7 +57,7 @@ function daemonState(directory: OrchDir) {
 
 function dead(dir: OrchDir, id: string, name = id): void {
   agent(dir, id, name);
-  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${hostIdentity().id},${process.pid},${"not-this-process-instance"})`);
+  recordProcess(dir, placeHere(dir, id), 1, { pid: process.pid, startToken: "not-this-process-instance" });
 }
 
 // C3 - An orch can never touch another orch's agents: not their panes, not their
@@ -262,7 +264,7 @@ describe("C5 a transfer does not disturb the agent", () => {
     dead(dir, "old-orch");
     agent(dir, "new-orch");
     agent(dir, "worker", "worker", "old-orch");
-    orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"worker"},${1},${hostIdentity().id},${424242},${"worker-token"})`);
+    recordProcess(dir, placeHere(dir, "worker"), 1, { pid: 424242, startToken: "worker-token" });
     const statusPath = join(presenceAgentDir("worker", dir), "status.json");
     mkdirSync(presenceAgentDir("worker", dir), { recursive: true });
     writeFileSync(statusPath, JSON.stringify({ state: "working", task: "keep me" }));

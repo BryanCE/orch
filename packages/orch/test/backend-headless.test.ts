@@ -6,9 +6,10 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 // The session-tail parse lives in the codex adapter family's leaf module;
 // reaching for it there keeps this test off the adapter registry's init graph.
-import { readCodexSessionView } from "../src/adapters/codex-events.ts";
+import { readCodexSessionView } from "../extensions/codex/events.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { agentView } from "../src/store/agent-view.ts";
+import { hereAgentIfAny, placeHere } from "../src/process-place.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { SpawnOpts } from "../src/types/adapter.ts";
 import { processStartToken } from "../src/process-identity.ts";
@@ -95,7 +96,7 @@ describe("HeadlessBackend", () => {
       expect(() => backend.spawn(fakeAdapter, { key: "fake-promptless", prompt, orchDir: testOrchDir }))
         .toThrow(/no prompt/);
     }
-    expect(backend.handleLookup.handleFor("fake-promptless", testOrchDir)).toBeUndefined();
+    expect(hereAgentIfAny(testOrchDir, "fake-promptless")).toBeNull();
   });
 
   test("spawns a detached process and records its handle", async () => {
@@ -116,7 +117,7 @@ describe("HeadlessBackend", () => {
     expect(JSON.parse(view?.environment.handle ?? "null")).toEqual({ pid: handle.pid, key });
     expect(fs.existsSync(path.join(testOrchDir, "logs"))).toBe(true);
     expect(fs.existsSync(path.join(testOrchDir, "logs", `${key}.log`))).toBe(true);
-    expect(backend.handleLookup.handleFor(key, testOrchDir)).toEqual({ pid: handle.pid, key, alive: true });
+    expect(backend.handleLookup.handleFor(placeHere(testOrchDir, key), testOrchDir)).toEqual({ pid: handle.pid, key, alive: true });
     expect((JSON.parse(fs.readFileSync(path.join(testOrchDir, "agents", key, "status.json"), "utf8")) as { key: string }).key).toBe(key);
   }, 30000);
 

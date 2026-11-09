@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
+import { checkDeclaredVsReality } from "../src/daemon/server/doctor/declared-vs-reality.ts";
 import { setTuning } from "../src/store/interval-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import type { DeclaredVsRealityDependencies } from "../src/types/doctor.ts";

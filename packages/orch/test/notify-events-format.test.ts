@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { transitionEventFromRow } from "../src/daemon/server/status-events.ts";
@@ -160,7 +160,8 @@ describe("notification and presence event formatting", () => {
       body: "DONE [w6] w-2: build the thing\nSpace: w6 (#2563eb)\nTask: build the thing",
       space: "w6",
       spaceColor: spaceColor("w6"),
-      host: null,
+      // Every event names the host its agent runs on.
+      host: hostIdentity().name,
       key: EVENT_KEY,
       agent: "w-2",
       name: null,
@@ -193,7 +194,7 @@ describe("notification and presence event formatting", () => {
   });
 
   // A1: the event's space is COMPOSED from the agent's own environment satellite,
-  // never parsed out of the presence key. A key that names no agent has none.
+  // never parsed out of the presence key.
   test("transitionEventFromRow composes the space from the agent's environment", () => {
     const orchDir = tempOrchDir();
     const registeredKey = "spacedagn1";
@@ -203,8 +204,8 @@ describe("notification and presence event formatting", () => {
     setSpace(orchDir, registeredKey, 1, "registry-space");
     const withSpace = transition(orchDir, registeredKey, { state: "done" });
     expect(withSpace?.space).toBe("registry-space");
-    // Not an identity key: it addresses no agent, so it composes no environment.
-    const withoutSpace = transition(orchDir, "p3", { state: "done" });
-    expect(withoutSpace?.space).toBeUndefined();
+    // Not an identity key: a status row always references its agent, so a row for a key the
+    // store holds no agent for names no host and is refused.
+    expect(() => transition(orchDir, "p3", { state: "done" })).toThrow("p3 names no agent the store holds");
   });
 });

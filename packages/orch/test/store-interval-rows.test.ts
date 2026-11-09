@@ -1,14 +1,14 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { placeHere } from "../src/process-place.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { asc, eq, sql } from "drizzle-orm";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { agentHandles, agentProcesses, agentSpaces, agentTunings, agents, agentHosts, harnesses, hosts, plexers, spaces } from "../src/db/schema.ts";
+import { agentHandles, agentProcesses, agentSpaces, agentTunings, agents, agentHosts, harnesses, plexers, spaces } from "../src/db/schema.ts";
 import { clearSpace, currentHandle, currentProcess, currentSpace, currentTuning, endProcess, recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
-import { hostIdFrom } from "../src/host.ts";
+import { ensureHost } from "../src/store/agent-rows.ts";
 const dirs: OrchDir[] = [];
 afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()!); });
 
@@ -18,7 +18,7 @@ function fixture(): OrchDir {
   const db = orm(dir);
   db.insert(harnesses).values({ id: "pi", name: "pi", enabledAt: null }).run();
   db.insert(plexers).values({ id: "herdr", name: "herdr", enabledAt: null }).run();
-  db.insert(hosts).values({ id: hostIdFrom("h"), name: "host", os: "linux", createdAt: 0 }).run();
+  ensureHost(dir, hostIdentity(), 0);
   db.insert(spaces).values({ id: "s", name: "space", createdBy: null, createdAt: 0 }).run();
   db.insert(agents).values({ id: "a", spawnedBy: null, rootAgentId: "a", harnessId: "pi", name: "a", label: null, kind: "session", createdAt: 0 }).run();
   db.insert(agentHosts).values({ agentId: "a", since: 0, until: null, hostId: hostIdentity().id, cwd: "/" }).run();
@@ -71,7 +71,7 @@ describe("interval satellites", () => {
   test("process rows carry host and process identity", () => {
     const dir = fixture();
     recordProcess(dir, placeHere(dir, "a"), 10, {  pid: 7, startToken: "tok" });
-    expect(currentProcess(dir, placeHere(dir, "a"))).toMatchObject({ host: hostIdFrom("h"), pid: 7, startToken: "tok" });
+    expect(currentProcess(dir, placeHere(dir, "a"))).toMatchObject({ host: hostIdentity().id, pid: 7, startToken: "tok" });
     endProcess(dir, placeHere(dir, "a"), 20);
     expect(currentProcess(dir, placeHere(dir, "a"))).toBeUndefined();
   });
@@ -134,6 +134,7 @@ describe("interval satellites", () => {
   test("process wrapper rolls back predecessor close when successor fails", () => {
     const dir = fixture();
     recordProcess(dir, placeHere(dir, "a"), 10, {  pid: 7, startToken: "tok" });
+    orm(dir).run(sql.raw("CREATE TRIGGER refuse_pid_8 BEFORE INSERT ON agent_processes WHEN NEW.pid = 8 BEGIN SELECT RAISE(ABORT, 'refused'); END"));
     expect(() => recordProcess(dir, placeHere(dir, "a"), 20, {  pid: 8, startToken: "new" })).toThrow();
     expect(orm(dir).select({ since: agentProcesses.since, until: agentProcesses.until, pid: agentProcesses.pid })
       .from(agentProcesses).where(eq(agentProcesses.agentId, "a")).all()).toEqual([{ since: 10, until: null, pid: 7 }]);

@@ -66,7 +66,10 @@ export interface WorktreeRemoveRequest {
   readonly discard: boolean;
 }
 
-export type WorktreeLanding = "fast-forward" | "merge-commit" | "rebase";
+/** Every way a provider lands a branch on its base. */
+export const WORKTREE_LANDINGS = ["fast-forward", "merge-commit", "rebase"] as const;
+
+export type WorktreeLanding = (typeof WORKTREE_LANDINGS)[number];
 
 /** One tool's whole surface. Its argv and its output format stay in its own module. */
 export interface WorktreeProvider {

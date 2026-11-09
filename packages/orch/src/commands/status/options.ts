@@ -1,4 +1,4 @@
-import { spaceName as resolveSpaceName, withinSpaceCeiling } from "../../policy/space.ts";
+import { spaceName as resolveSpaceName, withinSpaceCeiling } from "../../shared/space.ts";
 import type { CallerSelf } from "../self.ts";
 import { parseCommand } from "../registry.ts";
 import { usageError } from "../../cli/usage.ts";

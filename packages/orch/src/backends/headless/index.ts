@@ -9,7 +9,7 @@ import { environmentStamp } from "../../shared/environment.ts";
 const HEADLESS_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: null });
 import { LAUNCH_ENV } from "../../identity/launch.ts";
 import { LocalProcessRole, signalOtherProcess } from "../process.ts";
-import { agentViews } from "../../store/agent-view.ts";
+import { paneOf } from "../../store/agent-view.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { unplacedRegistration } from "../registration.ts";
 import { hostedHere } from "../../local-process.ts";
@@ -18,6 +18,7 @@ import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole,
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
+import type { HereAgent } from "../../types/agent-place.ts";
 
 const HEADLESS_BACKEND: BackendId = "headless";
 
@@ -75,29 +76,6 @@ function headlessPid(handle: HeadlessHandle | string): number | null {
   return typeof handle === "string" ? parseHeadlessHandle(handle)?.pid ?? null : handle.pid;
 }
 
-/**
- * Every recorded handle this backend can address.
- *
- * Rule 11: the filter is the declared handle SHAPE, never a plexer id. A handle
- * this backend understands is one it can parse into a live pid/key pair — an
- * agent recorded under some other plexer simply has a handle that means nothing
- * here, and a `backend === "headless"` test would say the same thing while
- * making the model care which environment an agent happens to be in.
- */
-function headlessHandles(directory: OrchDir): HeadlessHandle[] {
-  try {
-    return agentViews(directory).flatMap((view) => {
-      const handle = parseHeadlessHandle(view.environment.handle);
-      return handle ? [handle] : [];
-    });
-  } catch {
-    return [];
-  }
-}
-
-
-
-
 export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly id = HEADLESS_BACKEND;
   // A detached agent is in no space, so `current` has no answer to give and the
@@ -108,8 +86,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** A detached handle carries the OS pid, which a relaunch replaces, so the
    *  recorded environment is its one source. */
   readonly handleLookup: HandleLookupRole<HeadlessHandle> = {
-    handleFor: (key: string, orchDir: OrchDir): HeadlessHandle | undefined =>
-      this.liveHandles(orchDir).find((handle) => handle.key === key && handle.alive),
+    handleFor: (agent: HereAgent, orchDir: OrchDir): HeadlessHandle | undefined => this.liveHandle(agent, orchDir),
   };
   // A detached process has no plexer integration to version.
   readonly versionInfo: null = null;
@@ -229,11 +206,14 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     return { handle, process: this.process.running(handle) };
   }
 
-  /** Every registered headless handle with a fresh liveness result. Private:
-   *  `handleLookup` is the one public address for this (2.2). */
-  private liveHandles(orchDir: OrchDir): HeadlessHandle[] {
-    const directory = orchDirectory(orchDir);
-    return headlessHandles(directory).map((handle) => makeHeadlessHandle(handle.pid, handle.key, this.isPidAlive(handle.pid)));
+  /** The agent's recorded handle with a fresh liveness result, while its process lives.
+   *  Rule 11: the filter is the declared handle SHAPE, never a plexer id: a handle recorded
+   *  under some other plexer does not parse here. Private: `handleLookup` is the one public
+   *  address for this (2.2). */
+  private liveHandle(agent: HereAgent, orchDir: OrchDir): HeadlessHandle | undefined {
+    const recorded = parseHeadlessHandle(paneOf(orchDirectory(orchDir), agent).handle);
+    if (recorded?.key !== agent.id || !this.isPidAlive(recorded.pid)) return undefined;
+    return makeHeadlessHandle(recorded.pid, recorded.key, true);
   }
 
   /** Remove old headless logs, retaining every log belonging to a live presence. */

@@ -1,4 +1,4 @@
-import { hostIdentity } from "../../src/host.ts";
+import { hostIdentity } from "../../src/hosts/identity.ts";
 import type { AgentView, AgentEnvironment, AgentTuning } from "../../src/types/store.ts";
 
 export interface AgentViewFixtureOverrides extends Omit<Partial<AgentView>, "id" | "environment" | "tuning"> {

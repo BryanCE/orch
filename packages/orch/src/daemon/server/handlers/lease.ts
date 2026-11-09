@@ -19,6 +19,7 @@ import type { ChromeOutcome, Governance, ParamsOf, ResultOf } from "../../client
 import { resolveTargetRoute } from "../../../control/dispatch.ts";
 import { errorMessage } from "../../../util.ts";
 import type { DaemonState } from "../state.ts";
+import type { HereAgent } from "../../../types/agent-place.ts";
 import { recordedProcessIsLive } from "../../../process-place.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
 
@@ -249,7 +250,7 @@ export function orphans(state: DaemonState): ResultOf<"orphans"> {
 export async function rename(state: DaemonState, params: ParamsOf<"rename">): Promise<ResultOf<"rename">> {
   const renamed = renameTarget(state.directory, params.target, params.actor, params.name);
   const chrome = await atAgentHost(state, renamed.id, {
-    here: () => showName(state, renamed.id, renamed.name),
+    here: (agent) => showName(state, agent, renamed.name),
     there: async (link) => {
       const { chrome: shown, chromeError } = await driveOnHost(state, link, { action: "rename", key: renamed.id, name: renamed.name, actor: params.actor ?? null });
       return { chrome: shown, chromeError };
@@ -259,16 +260,16 @@ export async function rename(state: DaemonState, params: ParamsOf<"rename">): Pr
 }
 
 /** Rename an agent this orchd runs, for a rename a linked host's orchd ruled on, and show it. */
-export function renameHere(state: DaemonState, key: string, name: string): ChromeOutcome {
+export function renameHere(state: DaemonState, agent: HereAgent, name: string): ChromeOutcome {
   assertValidAgentName(name);
-  if (!renameAgent(state.directory, key, name)) throw new Error(`No agent matches "${key}".`);
-  return showName(state, key, name);
+  if (!renameAgent(state.directory, agent.id, name)) throw new Error(`No agent matches "${agent.id}".`);
+  return showName(state, agent, name);
 }
 
 /** Let the agent's environment show its new name: the plexer's agent name, then its pane
  *  border. An environment with neither has nothing to show, which is an answer (E14). */
-function showName(state: DaemonState, key: string, name: string): ChromeOutcome {
-  const route = resolveTargetRoute(state.directory, key);
+function showName(state: DaemonState, agent: HereAgent, name: string): ChromeOutcome {
+  const route = resolveTargetRoute(state.directory, agent);
   if (route === undefined) return { chrome: "none", chromeError: null };
   const { backend, handle } = route;
   try {
@@ -278,7 +279,7 @@ function showName(state: DaemonState, key: string, name: string): ChromeOutcome 
     return { chrome: "renamed", chromeError: null };
   } catch (error: unknown) {
     const message = errorMessage(error);
-    state.services.logger.warn("rename.chrome-failed", { handle: String(handle), error: message }, { agentId: key });
+    state.services.logger.warn("rename.chrome-failed", { handle: String(handle), error: message }, { agentId: agent.id });
     return { chrome: "failed", chromeError: message };
   }
 }

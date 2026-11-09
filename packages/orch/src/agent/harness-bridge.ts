@@ -56,7 +56,7 @@ export function registerHarnessBridge(
       void daemon.ask("notify", event);
     },
     refreshLabels,
-  }, options.orchDir, options.settings);
+  }, options.settings);
   // The point is a worker setting: a session orch did not launch keeps the harness default.
   if (launchCredential() !== null) registerCompaction(harness, identity, options.settings);
 

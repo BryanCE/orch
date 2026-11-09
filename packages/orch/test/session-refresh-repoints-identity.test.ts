@@ -1,5 +1,5 @@
 import { placeHere } from "../src/process-place.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores } from "../src/store/connection.ts";
@@ -7,7 +7,6 @@ import { agentById, endAgent, getOrCreateSessionAgent, insertAgent } from "../sr
 import { currentProcess } from "../src/store/interval-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { testHost } from "./helpers/host.ts";
 
 const tempDirs: OrchDir[] = [];
 
@@ -25,7 +24,7 @@ function fixture(): OrchDir {
 function session(orchDir: OrchDir, pid: number, startToken: string, sessionToken: string, label: string, now: number) {
   return getOrCreateSessionAgent(orchDir, {
     pid, startToken, sessionToken, harnessId: "pi", cwd: "/repo", label,
-    host: testHost("host", "Host", "linux"), now,
+    host: hostIdentity(), now,
   });
 }
 

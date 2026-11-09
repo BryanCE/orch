@@ -2,12 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { currentLease } from "../src/store/lease-rows.ts";
-import { currentHandle, currentTuning } from "../src/store/interval-rows.ts";
+import { agentLocation, currentHandle, currentTuning } from "../src/store/interval-rows.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { sql } from "drizzle-orm";
 import { runnerProcess } from "./helpers/agent.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 
 import { row } from "./helpers/rows.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -48,8 +48,9 @@ describe("spawn agent registration", () => {
   test("writes the hub, environment, tuning, and lease", () => {
     const dir = fixture();
     register(dir);
-    expect(row(orm(dir), sql`SELECT id, spawned_by, root_agent_id, harness_id, cwd, name FROM agents WHERE id = ${"worker0001"}`))
-      .toEqual({ id: "worker0001", spawned_by: "orch-agent", root_agent_id: "orch-agent", harness_id: "pi", cwd: "/repo", name: "worker-1" });
+    expect(row(orm(dir), sql`SELECT id, spawned_by, root_agent_id, harness_id, name FROM agents WHERE id = ${"worker0001"}`))
+      .toEqual({ id: "worker0001", spawned_by: "orch-agent", root_agent_id: "orch-agent", harness_id: "pi", name: "worker-1" });
+    expect(agentLocation(dir, "worker0001")).toMatchObject({ host: hostIdentity().id, cwd: "/repo", since: 10 });
     expect(row(orm(dir), sql`SELECT plexer_id FROM agent_plexers WHERE agent_id = ${"worker0001"}`)).toEqual({ plexer_id: "herdr" });
     expect(currentHandle(dir, "worker0001")).toMatchObject({ handle: "%42", since: 10, until: null });
     expect(currentTuning(dir, "worker0001")).toMatchObject({ model: "openai/gpt-5", thinking: "high", since: 10, until: null });

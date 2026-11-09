@@ -1,4 +1,3 @@
-import type { OrchDir } from "../types/core.ts";
 // The pi-facing surface of the bridge for this agent's own run: `orch_ask`, the
 // command-lock interception, every pi lifecycle event handler that keeps
 // presence in sync, and the pi-event payload guards those handlers consume. The
@@ -15,7 +14,7 @@ import type { SettingsManager } from "../types/services.ts";
 import { gatedPatterns, lockedCommandLine } from "../policy/command-gate.ts";
 import { registerPeerTools, toolResult } from "./peers.ts";
 import { extractText, isAssistantMessageLike, LAST_TEXT_MAX } from "./presence.ts";
-import { sessionUsageCost } from "../session.ts";
+import { sessionUsageCost } from "../shared/session-usage.ts";
 import { isRecord, isUnknownArray, optionalString, truncate } from "../util.ts";
 import { prepareWorkerTask } from "../worker-prompt.ts";
 import type { AgentToolsOptions, AssistantMessageLike, BridgeNotification, BridgeToolResult, HarnessApi, HarnessContext } from "../types/agent.ts";
@@ -98,7 +97,6 @@ function noOrchestratorAnswer(): BridgeToolResult {
 export function registerAgentTools(
   harness: HarnessApi,
   options: AgentToolsOptions,
-  orchDir: OrchDir,
   settings: SettingsManager,
 ): {
   onBlockedChange: (active: boolean, label: string | undefined) => void;
@@ -109,7 +107,7 @@ export function registerAgentTools(
   let askingPreviousState: typeof state.state | undefined;
   let blockedNotified = false;
 
-  registerPeerTools(orchDir, harness, presence, daemon);
+  registerPeerTools(harness, presence, daemon);
 
   harness.registerTool({
     name: "orch_ask",

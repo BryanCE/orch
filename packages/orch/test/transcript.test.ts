@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assistantText, contentText, lastAssistantFromJsonl } from "../src/adapters/transcript.ts";
+import { assistantText, contentText, lastAssistantFromJsonl } from "../src/shared/transcript.ts";
 
 // A claude-format JSONL transcript: assistant entries wrap the message under a
 // {type:"assistant"} envelope; the final assistant carries an empty-string part

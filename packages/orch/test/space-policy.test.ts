@@ -1,5 +1,5 @@
 import { placeHere } from "../src/process-place.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -13,7 +13,8 @@ import { agentById, ensureHarness, ensurePlexer, insertAgent } from "../src/stor
 import { setAgentPlexer, setHandle, setSpace } from "../src/store/interval-rows.ts";
 import { agentView, agentViewIndex } from "../src/store/agent-view.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { checkWall, sameSpace, scopeToSpace, spaceName, spaceOf, spaceOfIn } from "../src/policy/space.ts";
+import { checkWall, spaceOf } from "../src/policy/space.ts";
+import { sameSpace, scopeToSpace, spaceName, spaceOfIn } from "../src/shared/space.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 import { testServices } from "./helpers/services.ts";

@@ -10,7 +10,6 @@ import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { isRecord } from "../src/util.ts";
-import { hostIdentity } from "../src/host.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 import { stubRpcHandlers } from "../test/helpers/rpc-handlers.ts";
@@ -95,7 +94,7 @@ describe("the daemon asks for a token and nothing else", () => {
     // had crept in.
     const reply = await ask(endpointPaths(orchDir).socket, {
       id: 1, method: "register-session",
-      params: { token, pid: stranger, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null },
+      params: { token, pid: stranger, harness: "pi", cwd: process.cwd(), plexerEnv: {} },
     });
     expect(reply.error).toBeUndefined();
     expect(reply.result).toBeDefined();
@@ -107,7 +106,7 @@ describe("the daemon asks for a token and nothing else", () => {
 
     const reply = await ask(endpointPaths(orchDir).socket, {
       id: 1, method: "register-session",
-      params: { token: "", pid: stranger, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null },
+      params: { token: "", pid: stranger, harness: "pi", cwd: process.cwd(), plexerEnv: {} },
     });
     expect(reply).toMatchObject({ error: { code: "IDENTITY_REQUIRED" } });
   });

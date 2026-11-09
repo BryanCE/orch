@@ -2,7 +2,7 @@ import { placeHere } from "../../src/process-place.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 import { registerSpawnedAgent } from "../../src/store/spawn-registration.ts";
 import { agentById, ensureHarness, ensureHost, ensurePlexer, getOrCreateSessionAgent, insertAgent } from "../../src/store/agent-rows.ts";
-import { hostIdentity } from "../../src/host.ts";
+import { hostIdentity } from "../../src/hosts/identity.ts";
 import { OPERATOR_HARNESS_ID } from "../../src/identity/operator.ts";
 import { sessionProcessPid } from "../../src/identity/credential.ts";
 import { processStartToken } from "../../src/process-identity.ts";
@@ -11,6 +11,12 @@ import { adoptLease, currentLease } from "../../src/store/lease-rows.ts";
 import type { LocalProcess } from "../../src/types/backend.ts";
 import { observedHere } from "../../src/local-process.ts";
 import type { AgentFacts } from "../../src/types/presence.ts";
+import type { CallerKind } from "../../src/types/policy.ts";
+import type { ProcessInstance } from "../../src/types/process.ts";
+import { orm } from "../../src/store/connection.ts";
+import { agents } from "../../src/db/schema.ts";
+import { refreshAgent } from "../../src/store/agent-view.ts";
+import { eq } from "drizzle-orm";
 
 /** The test runner: the one pid a fixture can count on being alive. */
 export function runnerProcess(): LocalProcess {
@@ -26,6 +32,31 @@ export function seedOrch(directory: OrchDir, id: string, harnessId = "pi", now =
   if (agentById(directory, id)) return;
   ensureHarness(directory, harnessId, harnessId, now);
   insertAgent(directory, { host: hostIdentity(), id, harnessId, cwd: process.cwd(), name: id, createdAt: now });
+}
+
+/** One agent row with the fixture's own id, kind and spawner, written by `insertAgent` on
+ *  this host, so it carries the open `agent_hosts` row every agent has. No process, no lease. */
+export interface AgentRowFixture {
+  readonly id: string;
+  readonly spawnedBy?: string | null;
+  readonly name?: string;
+  readonly harnessId?: string;
+  readonly cwd?: string;
+  readonly createdAt?: number;
+  readonly kind?: CallerKind;
+}
+
+export function seedAgentRow(directory: OrchDir, fixture: AgentRowFixture): void {
+  const harnessId = fixture.harnessId ?? "pi";
+  const createdAt = fixture.createdAt ?? Date.now();
+  ensureHarness(directory, harnessId, harnessId, createdAt);
+  insertAgent(directory, {
+    host: hostIdentity(), id: fixture.id, spawnedBy: fixture.spawnedBy ?? null, harnessId,
+    cwd: fixture.cwd ?? process.cwd(), name: fixture.name ?? fixture.id, createdAt,
+  });
+  if (fixture.kind === undefined || fixture.kind === "agent") return;
+  orm(directory).update(agents).set({ kind: fixture.kind }).where(eq(agents.id, fixture.id)).run();
+  refreshAgent(directory, fixture.id);
 }
 
 /** Register the test runner as an operator orch, the way `register-session` does
@@ -73,6 +104,24 @@ export function seedLiveProcess(directory: OrchDir, agentId: string, now = Date.
   const host = hostIdentity();
   ensureHost(directory, host, now);
   recordProcess(directory, placeHere(directory, agentId), now, {  ...runnerProcess() });
+}
+
+/** Record a process instance for an ALREADY-REGISTERED agent on this host. By default it is
+ *  this test process, start token included, so the record provably names a live instance. */
+export function seedProcessInstance(directory: OrchDir, agentId: string, since: number, instance: ProcessInstance = runnerInstance()): void {
+  recordProcess(directory, placeHere(directory, agentId), since, instance);
+}
+
+/** This test process as a process instance. A given `startToken` names another instance of
+ *  the same pid: a record that reads as dead. */
+export function runnerInstance(startToken: string = runnerStartToken()): ProcessInstance {
+  return { pid: process.pid, startToken };
+}
+
+function runnerStartToken(): string {
+  const token = processStartToken(process.pid);
+  if (token === undefined) throw new Error("test process has no start token");
+  return token;
 }
 
 /**

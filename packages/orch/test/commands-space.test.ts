@@ -3,21 +3,23 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cmdSpace, runSpace } from "../src/commands/space.ts";
 import { helpTopic } from "../src/commands/index.ts";
 import { orm } from "../src/store/connection.ts";
+import { insertSpace } from "../src/store/space-rows.ts";
+import { recordHome } from "../src/store/home-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { errorMessage, isRecord } from "../src/util.ts";
-import type { CreateHomeRequest, CreatedHome, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
-import type { SpaceEnvironment } from "../src/types/command.ts";
+import type { BackendId, CreateHomeRequest, CreatedHome, PlexerHome, SpaceHomeRole } from "../src/types/backend.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { Services } from "../src/types/services.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
+import { seedAgentRow } from "./helpers/agent.ts";
 import { servedServices } from "./helpers/daemon-state.ts";
+import { FakePanedBackend, withRegisteredBackendAsync } from "./helpers/backend.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { captureStdout } from "./helpers/stdout.ts";
 const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
-const SETTINGS = { defaults: { adapter: "pi", backend: "headless" } };
 
 beforeEach(() => isolateOrchEnv());
 afterEach(async () => {
@@ -26,12 +28,13 @@ afterEach(async () => {
   restoreOrchEnv();
 });
 
-/** A fresh store with the real orchd handler table served on its socket. */
-async function served(): Promise<Services> {
+/** A fresh store with the real orchd handler table served on its socket, its settings naming
+ *  `plexer` as the one the caller works in. */
+async function served(plexer: BackendId = "headless"): Promise<Services> {
   const dir = tempOrchDir("orch-space-command-");
   dirs.push(dir);
   process.env.ORCH_DIR = dir;
-  return servedServices({ orchDir: dir, settings: SETTINGS }, servers);
+  return servedServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: plexer } } }, servers);
 }
 
 interface HomeCall { readonly method: string; readonly args: readonly string[] }
@@ -54,12 +57,37 @@ function fakeSpaceHome(calls: HomeCall[]): SpaceHomeRole {
   };
 }
 
-function space(env: SpaceEnvironment, args: string[]): Promise<string> {
-  return captureStdout(() => runSpace(env, args));
+/** A plexer that holds spaces as homes, through the role a test watches. */
+class HomedBackend extends FakePanedBackend {
+  override readonly spaceHome: SpaceHomeRole | null;
+
+  constructor(id: BackendId, home: SpaceHomeRole) {
+    super({ id });
+    this.spaceHome = home;
+  }
+}
+
+/** The services a command runs with, and the plexer orchd drives while it runs, if any. */
+interface SpaceEnv {
+  readonly services: Services;
+  readonly backend: HomedBackend | null;
+}
+
+function homeless(services: Services): SpaceEnv {
+  return { services, backend: null };
+}
+
+function homed(services: Services, calls: HomeCall[], plexer: BackendId = "herdr"): SpaceEnv {
+  return { services, backend: new HomedBackend(plexer, fakeSpaceHome(calls)) };
+}
+
+function space(env: SpaceEnv, args: string[]): Promise<string> {
+  const run = (): Promise<string> => captureStdout(() => runSpace(env.services, args));
+  return env.backend === null ? run() : withRegisteredBackendAsync(env.backend, run);
 }
 
 /** The refusal text a run throws, or null when it does not throw. */
-function refusal(env: SpaceEnvironment, args: string[]): Promise<string | null> {
+function refusal(env: SpaceEnv, args: string[]): Promise<string | null> {
   return space(env, args).then(() => null, (error: unknown) => errorMessage(error));
 }
 
@@ -67,14 +95,6 @@ function json(output: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(output);
   if (!isRecord(parsed)) throw new Error(`expected a JSON object, got ${output}`);
   return parsed;
-}
-
-function homeless(services: Services): SpaceEnvironment {
-  return { services, plexerId: "headless", spaceHome: null };
-}
-
-function homed(services: Services, calls: HomeCall[]): SpaceEnvironment {
-  return { services, plexerId: "herdr", spaceHome: fakeSpaceHome(calls) };
 }
 
 function liveHome(directory: OrchDir, spaceId: string): { plexer_id: string; handle: string } | null {
@@ -113,7 +133,7 @@ describe("orch space — orch's own grouping", () => {
     const id = spaceIdOf(dir, "Release");
     const db = orm(dir);
     db.run(sql`INSERT INTO harnesses (id,name,enabled_at) VALUES ('pi','pi',NULL)`);
-    db.run(sql`INSERT INTO agents (id,spawned_by,root_agent_id,harness_id,cwd,name,label,created_at,kind) VALUES ('a',NULL,'a','pi','/','a',NULL,0,'session')`);
+    seedAgentRow(dir, { id: "a", cwd: "/", createdAt: 0, kind: "session" });
     db.run(sql`INSERT INTO agent_spaces (agent_id, since, until, space_id) VALUES ('a', 1, NULL, ${id})`);
     expect(await refusal(env, ["delete", "Release"])).toMatch(/not empty|still/i);
   });
@@ -122,7 +142,7 @@ describe("orch space — orch's own grouping", () => {
 describe("orch space — the plexer's home", () => {
   test("create makes a home and records only its coordinate", async () => {
     const calls: HomeCall[] = [];
-    const env = homed(await served(), calls);
+    const env = homed(await served("herdr"), calls);
     const output = await space(env, ["create", "Release", "--json"]);
     // E8: "allowable, but never unmarked". orch marks every home it opens so a
     // fleet is visibly separate from the human's own panes; a home labelled with
@@ -134,7 +154,7 @@ describe("orch space — the plexer's home", () => {
   });
 
   test("list reports that a space has a home without naming the coordinate", async () => {
-    const env = homed(await served(), []);
+    const env = homed(await served("herdr"), []);
     await space(env, ["create", "Release"]);
     const output = await space(env, ["list", "--json"]);
     expect(json(output)).toMatchObject({ spaces: [{ name: "Release", home: true }] });
@@ -143,7 +163,7 @@ describe("orch space — the plexer's home", () => {
 
   test("rename renames orch's space and its home", async () => {
     const calls: HomeCall[] = [];
-    const env = homed(await served(), calls);
+    const env = homed(await served("herdr"), calls);
     await space(env, ["create", "Release"]);
     await space(env, ["rename", "Release", "Ship"]);
     expect(calls.at(-1)).toEqual({ method: "rename", args: ["hc-1", "orch/Ship"] });
@@ -152,7 +172,7 @@ describe("orch space — the plexer's home", () => {
 
   test("delete closes the home and drops its coordinate", async () => {
     const calls: HomeCall[] = [];
-    const env = homed(await served(), calls);
+    const env = homed(await served("herdr"), calls);
     await space(env, ["create", "Release"]);
     const id = spaceIdOf(env.services.orchDir, "Release");
     await space(env, ["delete", "Release"]);
@@ -162,16 +182,17 @@ describe("orch space — the plexer's home", () => {
 
   test("focus focuses the recorded coordinate", async () => {
     const calls: HomeCall[] = [];
-    const env = homed(await served(), calls);
+    const env = homed(await served("herdr"), calls);
     await space(env, ["create", "Release"]);
     await space(env, ["focus", "Release"]);
     expect(calls.at(-1)).toEqual({ method: "focus", args: ["hc-1"] });
   });
 
   test("a home made in another plexer is not this environment's to focus", async () => {
-    const services = await served();
-    await space(homed(services, []), ["create", "Release"]);
-    const answer = json(await space({ services, plexerId: "tmux", spaceHome: fakeSpaceHome([]) }, ["focus", "Release", "--json"]));
+    const services = await served("tmux");
+    insertSpace(services.orchDir, "space00001", "Release", undefined, Date.now());
+    recordHome(services.orchDir, { kind: "space", id: "space00001" }, "herdr", "hc-1");
+    const answer = json(await space(homed(services, [], "tmux"), ["focus", "Release", "--json"]));
     expect(answer).toMatchObject({ outcome: "answer", reason: "no-environment-role" });
   });
 });
@@ -216,10 +237,10 @@ describe("orch space — vocabulary and wiring", () => {
   });
 
   test("no space output ever says workspace", async () => {
-    const services = await served();
+    const services = await served("herdr");
     const created = await space(homed(services, []), ["create", "Release", "--json"]);
-    const listed = await space(homeless(services), ["list", "--json"]);
-    const answered = await space(homeless(services), ["focus", "Release", "--json"]);
+    const listed = await space(homed(services, []), ["list", "--json"]);
+    const answered = await space(homed(services, []), ["focus", "Release", "--json"]);
     expect((created + listed + answered).toLowerCase()).not.toContain("workspace");
   });
 });

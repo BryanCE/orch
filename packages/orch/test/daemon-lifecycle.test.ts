@@ -5,18 +5,14 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { isRecord } from "../src/util.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import {
-  acquireDaemonLock,
-  acquireDaemonRegistration,
   clearDaemonRuntime,
   computeCodeHash,
   daemonize,
   provenDaemonPid,
-  releaseDaemonLock,
-  releaseDaemonRegistration,
-  reexecSelf,
   runForeground,
   readDaemonLock,
 } from "../src/daemon/client/process";
+import { acquireDaemonLock, acquireDaemonRegistration, releaseDaemonLock, releaseDaemonRegistration, reexecSelf } from "../src/daemon/server/ownership.ts";
 
 interface LockData {
   pid?: number;

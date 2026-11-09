@@ -1,7 +1,7 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { openHome, ORCH_HOME_LABEL } from "../src/commands/home.ts";
+import { openHome, ORCH_HOME_LABEL } from "../src/daemon/server/home.ts";
 import { clearHome, homeHandle } from "../src/store/home-rows.ts";
 import { insertAgent, ensureHarness } from "../src/store/agent-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -80,9 +80,9 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     const orch = seedOrch(dir, "packroot01");
     const role = new RecordingHomeRole();
 
-    const home = await openHome({
+    const home = openHome({
       services, subject: { kind: "pack", id: orch }, plexerId: "herdr",
-      home: role, cwd: "/work", label: "api",
+      home: role, cwd: "/work", label: "api", actor: null,
     });
 
     // E9: the coordinate the plexer handed back landed in `pack_plexers`. The
@@ -100,9 +100,9 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     const orch = seedOrch(services.orchDir, "packroot02");
     const role = new RecordingHomeRole();
 
-    await openHome({
+    openHome({
       services, subject: { kind: "pack", id: orch }, plexerId: "herdr",
-      home: role, cwd: "/home/bryan/work", label: "api",
+      home: role, cwd: "/home/bryan/work", label: "api", actor: null,
     });
 
     // E8: "allowable, but never unmarked". A home labelled `work` - the basename
@@ -121,13 +121,13 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     seedSpace(dir, "space00001");
     const role = new RecordingHomeRole();
 
-    const packCoordinate = (await openHome({
+    const packCoordinate = (openHome({
       services, subject: { kind: "pack", id: orch }, plexerId: "herdr",
-      home: role, cwd: "/work", label: "api",
+      home: role, cwd: "/work", label: "api", actor: null,
     })).coordinate;
-    const spaceCoordinate = (await openHome({
+    const spaceCoordinate = (openHome({
       services, subject: { kind: "space", id: "space00001" }, plexerId: "herdr",
-      home: role, cwd: "/work", label: "research",
+      home: role, cwd: "/work", label: "research", actor: null,
     })).coordinate;
 
     // E11/E10: one role, one create/rename/close, two subjects - no third code
@@ -142,9 +142,9 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     const services = await fixture();
     const dir = services.orchDir;
     const orch = seedOrch(dir, "packroot05");
-    await openHome({
+    openHome({
       services, subject: { kind: "pack", id: orch }, plexerId: "herdr",
-      home: new RecordingHomeRole(), cwd: "/work", label: "api",
+      home: new RecordingHomeRole(), cwd: "/work", label: "api", actor: null,
     });
 
     expect(homeHandle(dir, { kind: "pack", id: orch }, "tmux")).toBeNull();
@@ -156,14 +156,14 @@ describe("a pack gets its own marked plexer home (E8, E9, E10)", () => {
     const orch = seedOrch(dir, "packroot06");
     const role = new RecordingHomeRole();
     const subject: HomeSubject = { kind: "pack", id: orch };
-    await openHome({ services, subject, plexerId: "herdr", home: role, cwd: "/work", label: "api" });
+    openHome({ services, subject, plexerId: "herdr", home: role, cwd: "/work", label: "api", actor: null });
 
     clearHome(dir, subject);
 
     // `one_pack_home` is a partial unique index on (pack_id) where until IS NULL:
     // leaving the old row open would refuse the reopen outright.
     expect(homeHandle(dir, subject, "herdr")).toBeNull();
-    const reopened = await openHome({ services, subject, plexerId: "herdr", home: role, cwd: "/work", label: "api" });
+    const reopened = openHome({ services, subject, plexerId: "herdr", home: role, cwd: "/work", label: "api", actor: null });
     expect(reopened.coordinate).toBe("w2");
     expect(homeHandle(dir, subject, "herdr")).toBe("w2");
   });

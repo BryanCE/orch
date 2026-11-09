@@ -67,6 +67,6 @@ describe("orch whoami", () => {
   test.serial("--json prints the credential sent and the answer orchd gave", async () => {
     const self: ResultOf<"self"> = { id: null, kind: "operator", space: null, view: null, depth: 0, stored: null };
     const payload: unknown = JSON.parse(await whoami(self, ["--json"]));
-    expect(payload).toMatchObject({ caller: { launch: null, session: null, process: { pid: process.ppid } }, self });
+    expect(payload).toMatchObject({ caller: { launch: null, session: null, pid: process.ppid }, self });
   });
 });

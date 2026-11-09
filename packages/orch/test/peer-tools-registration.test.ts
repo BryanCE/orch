@@ -60,11 +60,11 @@ afterEach(() => {
 
 describe("peer tool registration", () => {
   test("does not register orch_send without a launch credential", () => {
-    const directory = tempOrchDir();
+    tempOrchDir();
     delete process.env[LAUNCH_ENV];
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(directory, harness, fakePresence(harness), stubDaemonLink());
+    registerPeerTools(harness, fakePresence(harness), stubDaemonLink());
 
     expect(toolNames).not.toContain("orch_send");
     expect(toolNames).toContain("orch_agents");
@@ -72,11 +72,11 @@ describe("peer tool registration", () => {
   });
 
   test("registers orch_send when a launch credential exists", () => {
-    const directory = tempOrchDir();
+    tempOrchDir();
     process.env[LAUNCH_ENV] = "worker0001";
     const { harness, toolNames } = fakeHarness();
 
-    registerPeerTools(directory, harness, fakePresence(harness), stubDaemonLink());
+    registerPeerTools(harness, fakePresence(harness), stubDaemonLink());
 
     expect(toolNames).toContain("orch_send");
   });

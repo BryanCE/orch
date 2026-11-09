@@ -1,5 +1,6 @@
 /**
- * The PTYs this orchd holds: one per held agent, keyed by agent key.
+ * The PTYs this orchd holds, keyed by the id each was started under. Every call but `start`
+ * and `kill` names what the PTY is for (`HeldTerminal`): an agent only as proven to run here.
  *
  * orchd is long-lived and owns the terminal of every agent it runs, so a viewer can
  * attach, detach and reattach to the live screen. Each entry is the agent's PTY, an
@@ -8,15 +9,15 @@
  * API, which the attach stream builds on:
  * - `start(key, request)` runs `request.file` with `request.args` in a new PTY sized by the
  *   `pty` settings and resolves with its pid. A key is held once.
- * - `has(key)` says whether a PTY is held under the key.
- * - `snapshot(key)` is the screen plus up to `pty.scrollback_lines` of scrollback, as escape
+ * - `has(terminal)` says whether a PTY is held for the terminal.
+ * - `snapshot(terminal)` is the screen plus up to `pty.scrollback_lines` of scrollback, as escape
  *   sequences that redraw it on an empty terminal.
- * - `text(key, lines)` is the last `lines` lines of the screen and scrollback as plain text.
- * - `subscribe(key, onData, onExit)` follows the output from exactly where the current
+ * - `text(terminal, lines)` is the last `lines` lines of the screen and scrollback as plain text.
+ * - `subscribe(terminal, onData, onExit)` follows the output from exactly where the current
  *   snapshot ends: a chunk reaches subscribers only once the terminal has taken it, so a
  *   snapshot taken and a subscription made in the same tick neither miss nor repeat a byte.
  *   `onExit` fires once when the program ends. Returns the unsubscribe.
- * - `write(key, data)` types into the PTY; `resize(key, cols, rows)` resizes the PTY and its
+ * - `write(terminal, data)` types into the PTY; `resize(terminal, cols, rows)` resizes the PTY and its
  *   screen together.
  * - `kill(key)` ends the program; the entry goes when its exit arrives.
  * - `count()` is how many PTYs are held; `killAll()` ends them all as orchd stops.
@@ -25,7 +26,7 @@
  */
 import { Terminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import type { HeldPtySettings, HeldStartRequest, PtyExit, PtyHolder, PtyProcess, PtyProvider } from "../../types/pty.ts";
+import { heldId, type HeldPtySettings, type HeldStartRequest, type HeldTerminal, type PtyExit, type PtyHolder, type PtyProcess, type PtyProvider } from "../../types/pty.ts";
 
 interface Subscriber {
   readonly onData: (data: string) => void;
@@ -41,7 +42,7 @@ interface HeldEntry {
 
 export class PtyHold implements PtyHolder {
   private readonly entries = new Map<string, HeldEntry>();
-  /** Keys whose PTY is being started, so a second start for one key is refused at once. */
+  /** Ids whose PTY is being started, so a second start for one is refused at once. */
   private readonly starting = new Set<string>();
 
   constructor(private readonly provider: PtyProvider, private readonly settings: () => HeldPtySettings) {}
@@ -79,34 +80,34 @@ export class PtyHold implements PtyHolder {
     return { pid: pty.pid };
   }
 
-  has(key: string): boolean {
-    return this.entries.has(key);
+  has(terminal: HeldTerminal): boolean {
+    return this.entries.has(heldId(terminal));
   }
 
-  snapshot(key: string): string {
-    return this.entry(key).serializer.serialize({ scrollback: this.settings().scrollback_lines });
+  snapshot(terminal: HeldTerminal): string {
+    return this.entry(heldId(terminal)).serializer.serialize({ scrollback: this.settings().scrollback_lines });
   }
 
-  text(key: string, lines: number): string {
-    const buffer = this.entry(key).terminal.buffer.active;
+  text(terminal: HeldTerminal, lines: number): string {
+    const buffer = this.entry(heldId(terminal)).terminal.buffer.active;
     const shown: string[] = [];
     for (let row = Math.max(0, buffer.length - lines); row < buffer.length; row++) shown.push(buffer.getLine(row)?.translateToString(true) ?? "");
     return shown.join("\n");
   }
 
-  subscribe(key: string, onData: (data: string) => void, onExit: (exit: PtyExit) => void): () => void {
-    const subscribers = this.entry(key).subscribers;
+  subscribe(terminal: HeldTerminal, onData: (data: string) => void, onExit: (exit: PtyExit) => void): () => void {
+    const subscribers = this.entry(heldId(terminal)).subscribers;
     const subscriber: Subscriber = { onData, onExit };
     subscribers.add(subscriber);
     return () => { subscribers.delete(subscriber); };
   }
 
-  write(key: string, data: string): void {
-    this.entry(key).pty.write(data);
+  write(terminal: HeldTerminal, data: string): void {
+    this.entry(heldId(terminal)).pty.write(data);
   }
 
-  resize(key: string, cols: number, rows: number): void {
-    const entry = this.entry(key);
+  resize(terminal: HeldTerminal, cols: number, rows: number): void {
+    const entry = this.entry(heldId(terminal));
     entry.pty.resize(cols, rows);
     entry.terminal.resize(cols, rows);
   }

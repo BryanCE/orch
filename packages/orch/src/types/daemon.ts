@@ -90,6 +90,8 @@ export interface RpcServer {
   emit(event: NotifyEvent): void;
   /** How many connections currently hold a subscribe-events subscription. */
   subscriberCount(): number;
+  /** The processes on this machine of the CLI streams (`orch events`, `orch monitor`) subscribed now. */
+  streamPids(): number[];
   /** How many bridge keys currently have an attached connection. */
   attachedBridgeCount(): number;
   readonly transport: "unix" | "tcp";
@@ -201,6 +203,8 @@ export interface PendingQuestionView {
   readonly name: string | null;
   /** The host the asking agent runs on. */
   readonly host: HostIdentity;
+  /** The space the asking agent is composed into; null when it is in none. */
+  readonly space: string | null;
   readonly question: string;
   readonly askedAt: number;
 }

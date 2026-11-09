@@ -1,0 +1,111 @@
+import type { OrchDir } from "../../../types/core.ts";
+import { existsSync } from "node:fs";
+import { getBackend } from "../../../backends/registry.ts";
+import { placeAgentIfAny, processLiveness } from "../../../process-place.ts";
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
+import { databasePath, orm } from "../../../store/connection.ts";
+import { agentEndings, agentHandles, agentLeases, agentPlexers, agentProcesses, agents } from "../../../db/schema.ts";
+import { currentProcess, currentTuning } from "../../../store/interval-rows.ts";
+import { liveAgentViews } from "../../../store/agent-view.ts";
+import { modelSpec } from "../../../policy/thinking.ts";
+import { selectAgentStatus } from "../../../store/status-rows.ts";
+import type { CheckResult, DeclaredVsRealityDependencies, PlexerInventoryEntry } from "../../../types/doctor.ts";
+
+const DEFAULT_DEPENDENCIES: DeclaredVsRealityDependencies = {
+  processAlive: (orchDir, process) => processLiveness(orchDir, process) !== "dead",
+  plexerInventory: defaultInventory,
+  agentStatus: selectAgentStatus,
+};
+
+/** The doctor asks through injected `processAlive` so a check can be run against
+ *  a stated reality, which is the whole point of comparing declared to real. */
+function recordedProcessAlive(orchDir: OrchDir, agentId: string, dependencies: DeclaredVsRealityDependencies): boolean {
+  const place = placeAgentIfAny(orchDir, agentId);
+  if (place === null) return false;
+  switch (place.kind) {
+    case "here": {
+      const row = currentProcess(orchDir, place.agent);
+      return row !== undefined && dependencies.processAlive(orchDir, row);
+    }
+    // Another host's orchd answers for its own agents' processes; from here that is unknown,
+    // which is never dead.
+    case "linked":
+    case "unreachable":
+      return true;
+    default: {
+      const exhaustive: never = place;
+      throw new Error(`unknown agent place ${String(exhaustive)}`);
+    }
+  }
+}
+
+function defaultInventory(plexerId: string): readonly PlexerInventoryEntry[] {
+  const backend = getBackend(plexerId);
+  if (!backend?.placementInventory) return [];
+  try {
+    return backend.placementInventory.list().map((target) => ({ handle: target.handle }));
+  } catch {
+    return [];
+  }
+}
+
+function leaseFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies): string[] {
+  const rows = orm(orchDir).select({ agentId: agentLeases.agentId, holderId: agentLeases.orchId })
+    .from(agentLeases).where(isNull(agentLeases.until)).orderBy(asc(agentLeases.id)).all();
+  return rows.flatMap(({ agentId, holderId }) => recordedProcessAlive(orchDir, holderId, dependencies) ? [] : [
+    `lease row agent=${agentId} holder=${holderId}: recorded holder process is not alive; real process is absent or dead. Fix: release or adopt the lease deliberately, then renew it with a live holder`,
+  ]);
+}
+
+function environmentFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies): string[] {
+  const rows = orm(orchDir).select({ agentId: agentPlexers.agentId, plexerId: agentPlexers.plexerId, handle: agentHandles.handle })
+    .from(agentPlexers)
+    .innerJoin(agentHandles, and(eq(agentHandles.agentId, agentPlexers.agentId), isNull(agentHandles.until)))
+    .leftJoin(agentEndings, eq(agentEndings.agentId, agentPlexers.agentId))
+    .where(isNull(agentEndings.agentId)).orderBy(asc(agentPlexers.agentId)).all();
+  return rows.flatMap(({ agentId, plexerId, handle }) => {
+    const reality = dependencies.plexerInventory(plexerId);
+    // A null inventory is "this plexer could not be asked", which is not evidence
+    // the handle is gone — declaring a mismatch there would invent one.
+    if (reality === null || reality.some((entry) => String(entry.handle) === handle)) return [];
+    return [`environment row agent=${agentId}: recorded plexer=${plexerId} handle=${handle}, but the real plexer has no such handle. Fix: inspect the plexer and record the agent's current environment or close the ended agent`];
+  });
+}
+
+function orphanFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies): string[] {
+  const rows = orm(orchDir).select({ agentId: agents.id, spawnerId: agents.spawnedBy })
+    .from(agents)
+    .innerJoin(agentProcesses, and(eq(agentProcesses.agentId, agents.id), isNull(agentProcesses.until)))
+    .leftJoin(agentEndings, eq(agentEndings.agentId, agents.id))
+    .leftJoin(agentLeases, and(eq(agentLeases.agentId, agents.id), isNull(agentLeases.until)))
+    .where(and(isNull(agentEndings.agentId), isNull(agentLeases.agentId), isNotNull(agents.spawnedBy)))
+    .orderBy(asc(agents.id)).all();
+  return rows.flatMap(({ agentId, spawnerId }) => {
+    if (spawnerId === null) return [];
+    if (!recordedProcessAlive(orchDir, agentId, dependencies)) return [];
+    if (recordedProcessAlive(orchDir, spawnerId, dependencies)) return [];
+    return [`orphan row agent=${agentId} spawner=${spawnerId}: recorded agent is live with no lease, but the real spawner process is not alive. Fix: adopt the agent deliberately or close it; do not wait for an automatic reap`];
+  });
+}
+
+function tuningFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies): string[] {
+  return liveAgentViews(orchDir).flatMap((agent) => {
+    const tuning = currentTuning(orchDir, agent.id);
+    const status = dependencies.agentStatus(orchDir, agent.id);
+    if (tuning === undefined || status === undefined) return [];
+    const declared = modelSpec(tuning.model, tuning.thinking);
+    const runningModel = `${status.modelProvider}/${status.modelId}`;
+    const running = modelSpec(runningModel, status.thinking);
+    if (declared === running) return [];
+    return [`agent ${agent.name}: declared ${declared}, running ${running}`];
+  });
+}
+
+export function checkDeclaredVsReality(orchDir: OrchDir, dependencies: DeclaredVsRealityDependencies = DEFAULT_DEPENDENCIES): CheckResult {
+  if (!existsSync(databasePath(orchDir))) {
+    return { id: "declared-vs-reality", label: "Declared vs reality", status: "ok", detail: "no store to compare" };
+  }
+  const findings = [...leaseFindings(orchDir, dependencies), ...environmentFindings(orchDir, dependencies), ...orphanFindings(orchDir, dependencies), ...tuningFindings(orchDir, dependencies)];
+  if (!findings.length) return { id: "declared-vs-reality", label: "Declared vs reality", status: "ok", detail: "no declared-vs-reality mismatches" };
+  return { id: "declared-vs-reality", label: "Declared vs reality", status: "warn", detail: findings.join("\n    ") };
+}

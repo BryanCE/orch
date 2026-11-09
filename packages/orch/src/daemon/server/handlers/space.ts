@@ -1,14 +1,16 @@
 // orch's own grouping, written by orchd. A space is user-created, optional and
-// named by orch; a plexer may additionally HOLD it as a home. The plexer action
-// runs in the caller's session; the rows that record it are written here.
+// named by orch; a plexer may additionally HOLD it as a home. orchd drives the home in the
+// caller's plexer, which runs on this machine, and writes the rows that record it.
 import { mintAgentId } from "../../../shared/agent-id.ts";
-import { clearHome, homeHandle, recordHome } from "../../../store/home-rows.ts";
-import { spendGrant } from "../../../store/grant-rows.ts";
-import { withTransaction } from "../../../store/connection.ts";
+import { clearHome, homeHandle } from "../../../store/home-rows.ts";
 import { deleteSpaceRow, findSpace, insertSpace, listSpaces, renameSpaceRow, spaceNameTaken, spaceOccupied } from "../../../store/space-rows.ts";
+import { homeLabel, openHome } from "../home.ts";
+import { selectBackend } from "../spawn/plan.ts";
 import type { OrchDir } from "../../../types/core.ts";
+import type { SpaceHomeRole } from "../../../types/backend.ts";
 import type { SpaceListing, SpaceRow } from "../../../types/store.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
+import type { DaemonState } from "../state.ts";
 
 /** A space with the home coordinate ONE plexer holds for it: a home recorded in
  *  another plexer is not the caller's to drive, so it reads as none. */
@@ -16,56 +18,76 @@ function listingOf(directory: OrchDir, space: SpaceRow, plexerId: string): Space
   return { ...space, home: homeHandle(directory, { kind: "space", id: space.id }, plexerId) };
 }
 
-export function spaceListings(directory: OrchDir, params: ParamsOf<"spaces">): ResultOf<"spaces"> {
-  return { spaces: listSpaces(directory).map((space) => listingOf(directory, space, params.plexerId)) };
-}
-
-export function spaceListing(directory: OrchDir, params: ParamsOf<"space">): ResultOf<"space"> {
+/** One space, with the home the given plexer holds for it. */
+export function spaceListing(directory: OrchDir, params: { readonly target: string; readonly plexerId: string }): SpaceListing {
   return listingOf(directory, findSpace(directory, params.target), params.plexerId);
 }
 
-export function createSpace(directory: OrchDir, params: ParamsOf<"space-create">): ResultOf<"space-create"> {
+/** The plexer the caller works in, which settings name, and its home role when it composes one. */
+function homePlexer(state: DaemonState): { readonly id: string; readonly home: SpaceHomeRole | null } {
+  const backend = selectBackend(null, state.services.settings.current());
+  return { id: backend.id, home: backend.spaceHome };
+}
+
+/** The home a recorded coordinate names, when this plexer composes the role that opened it. */
+function drivableHome(home: SpaceHomeRole | null, space: SpaceListing): { readonly role: SpaceHomeRole; readonly coordinate: string } | null {
+  if (home === null || space.home === null) return null;
+  return { role: home, coordinate: space.home };
+}
+
+export function spaceListings(state: DaemonState): ResultOf<"spaces"> {
+  const plexer = homePlexer(state);
+  return { spaces: listSpaces(state.directory).map((space) => listingOf(state.directory, space, plexer.id)) };
+}
+
+/** The spaces row lands FIRST: the home row's foreign key names it. The home is part of what was
+ *  asked for, so its failure fails the whole create. */
+export function createSpace(state: DaemonState, params: ParamsOf<"space-create">): ResultOf<"space-create"> {
+  const directory = state.directory;
   if (spaceNameTaken(directory, params.name)) throw new Error(`A space named "${params.name}" already exists.`);
   const id = mintAgentId();
   insertSpace(directory, id, params.name, params.actor, Date.now());
-  return { id, name: params.name };
+  const plexer = homePlexer(state);
+  if (plexer.home === null) return { id, name: params.name, home: "none" };
+  openHome({ services: state.services, subject: { kind: "space", id }, plexerId: plexer.id, home: plexer.home, cwd: params.cwd, label: params.name, actor: params.actor ?? null });
+  return { id, name: params.name, home: "created" };
 }
 
-export function renameSpace(directory: OrchDir, params: ParamsOf<"space-rename">): ResultOf<"space-rename"> {
+/** orch's name is orch's own write and commits first; plexer chrome is a separate action whose
+ *  failure never rewrites whether the rename happened. The home keeps orch's MARK. */
+export function renameSpace(state: DaemonState, params: ParamsOf<"space-rename">): ResultOf<"space-rename"> {
+  const directory = state.directory;
   const space = findSpace(directory, params.target);
   if (spaceNameTaken(directory, params.name, space.id)) throw new Error(`A space named "${params.name}" already exists.`);
   renameSpaceRow(directory, space.id, params.name);
-  return { ...listingOf(directory, { id: space.id, name: params.name }, params.plexerId), previousName: space.name };
+  const plexer = homePlexer(state);
+  const home = drivableHome(plexer.home, listingOf(directory, { id: space.id, name: params.name }, plexer.id));
+  if (home !== null) home.role.rename(home.coordinate, homeLabel(params.name));
+  return { id: space.id, name: params.name, previousName: space.name, home: home === null ? "none" : "renamed" };
 }
 
-/** Nobody moves the wall out from under someone else's agents: an occupied space
- *  stays. The answer carries the home the caller's plexer held, for it to close. */
-export function deleteSpace(directory: OrchDir, params: ParamsOf<"space-delete">): ResultOf<"space-delete"> {
-  const space = listingOf(directory, findSpace(directory, params.target), params.plexerId);
+/** Nobody moves the wall out from under someone else's agents: an occupied space stays, and no
+ *  plexer window closes for it. */
+export function deleteSpace(state: DaemonState, params: ParamsOf<"space-delete">): ResultOf<"space-delete"> {
+  const directory = state.directory;
+  const plexer = homePlexer(state);
+  const space = listingOf(directory, findSpace(directory, params.target), plexer.id);
   if (spaceOccupied(directory, space.id)) throw new Error(`Space "${space.name}" is not empty; move its agents out first.`);
   clearHome(directory, { kind: "space", id: space.id });
   deleteSpaceRow(directory, space.id);
-  return space;
+  const home = drivableHome(plexer.home, space);
+  if (home !== null) home.role.close(home.coordinate);
+  return { id: space.id, name: space.name, home: home === null ? "none" : "closed" };
 }
 
-export function subjectHome(directory: OrchDir, params: ParamsOf<"home">): ResultOf<"home"> {
-  return { handle: homeHandle(directory, params.subject, params.plexerId) };
+/** Focus a space's home. Only focus genuinely needs the home, so only focus is answered with an
+ *  absence, naming the space and the verb. */
+export function focusSpace(state: DaemonState, params: ParamsOf<"space-focus">): ResultOf<"space-focus"> {
+  const plexer = homePlexer(state);
+  const space = spaceListing(state.directory, { target: params.target, plexerId: plexer.id });
+  const home = drivableHome(plexer.home, space);
+  if (home === null) return { outcome: "answer", reason: "no-environment-role", text: `${space.name} has no home in this environment; focus does not apply.` };
+  home.role.focus(home.coordinate);
+  return { outcome: "focused", space: { id: space.id, name: space.name } };
 }
 
-/** Record a home the caller's plexer opened. A home opened on a human's approval
- *  spends that approval here, in the same transaction as the record, so a home
- *  that never opened costs no grant and a retry finds the approval unspent. */
-export function recordSubjectHome(directory: OrchDir, params: ParamsOf<"record-home">): ResultOf<"record-home"> {
-  withTransaction(directory, () => {
-    if (params.grant !== undefined && !spendGrant(directory, params.grant, params.actor ?? null)) {
-      throw new Error("the approval to open this home was already spent by another spawn; run the spawn again to ask for a new one");
-    }
-    recordHome(directory, params.subject, params.plexerId, params.handle);
-  });
-  return { ok: true };
-}
-
-export function clearSubjectHome(directory: OrchDir, params: ParamsOf<"clear-home">): ResultOf<"clear-home"> {
-  clearHome(directory, params.subject);
-  return { ok: true };
-}

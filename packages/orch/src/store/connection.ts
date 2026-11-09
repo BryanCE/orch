@@ -152,7 +152,8 @@ export function livePresenceHolders(orchDir: OrchDir): LiveHolders {
   try {
     opened = createDatabase(databasePath(orchDir), true);
     const rows = opened.client.prepare(
-      "SELECT p.agent_id, p.host_id, p.pid, p.start_token, a.kind FROM agent_processes p JOIN agents a ON a.id = p.agent_id WHERE p.until IS NULL",
+      // The process runs on the host the agent's open location row names.
+      "SELECT p.agent_id, h.host_id, p.pid, p.start_token, a.kind FROM agent_processes p JOIN agents a ON a.id = p.agent_id JOIN agent_hosts h ON h.agent_id = p.agent_id AND h.until IS NULL WHERE p.until IS NULL",
     ).all();
     const workers: string[] = [];
     const registered: string[] = [];

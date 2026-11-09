@@ -4,8 +4,6 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
-  existsSync,
-  mkdirSync,
   openSync,
   readFileSync,
   unlinkSync,
@@ -13,13 +11,13 @@ import {
 import * as path from "node:path";
 import { processIsAlive, processStartToken, recordedInstanceIsLive } from "../../process-identity.ts";
 import { observedHere } from "../../local-process.ts";
-import { retryingAsync, retryingSync } from "../../retry.ts";
-import { createFileExclusively, ensurePrivateDir, errnoCode, isRecord, packageRoot } from "../../util.ts";
+import { retryingAsync } from "../../retry.ts";
+import { ensurePrivateDir, errnoCode, isRecord, packageRoot } from "../../util.ts";
 import { hostOs, isHostOs } from "../../host.ts";
 import { entrypointArgs, runningRuntime } from "../../runtime.ts";
 import { daemonDiscoveryFiles, daemonOwnershipFiles, daemonRuntimeFiles } from "./runtime-files.ts";
 import { orchDirAt } from "../../orch-dir.ts";
-import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, DaemonRegistrationResult, LockRecord, OsExecutor, OsSideExecution, SocketProbe } from "../../types/daemon.ts";
+import type { DaemonCodeSkew, DaemonLock, DaemonRegistration, LockRecord, OsExecutor, OsSideExecution } from "../../types/daemon.ts";
 import type { HostOs } from "../../types/host.ts";
 
 const HASH_LENGTH = 12;
@@ -85,66 +83,6 @@ export function liveDaemonRegistration(orchDir?: OrchDir): DaemonRegistration | 
   return registration;
 }
 
-/** Create `file` exclusively with `payload`, evicting a holder `mayEvict` disowns, once.
- * Created atomically: a half-written file reads as no holder, and this code would
- * then evict the live machine-wide one and let a second orchd start (M1/M6).
- * See `createFileExclusively`.
- */
-function acquireExclusiveFile(
-  label: string,
-  file: string,
-  payload: string,
-  mayEvict: () => boolean,
-): { acquired: boolean; blocked: boolean } {
-  const result = retryingSync(
-    label,
-    (): { acquired: boolean; blocked: boolean; retry: boolean } => {
-      if (createFileExclusively(file, payload)) return { acquired: true, blocked: false, retry: false };
-      if (!mayEvict()) return { acquired: false, blocked: true, retry: false };
-      try {
-        unlinkSync(file);
-      } catch (unlinkError: unknown) {
-        if (errnoCode(unlinkError) !== "ENOENT") return { acquired: false, blocked: false, retry: false };
-      }
-      return { acquired: false, blocked: false, retry: true };
-    },
-    { attempts: 2, delayMs: 0, backoff: 1 },
-    { retryOnResult: (value) => value.retry },
-  );
-  return { acquired: result.acquired, blocked: result.blocked };
-}
-
-/** Atomically claim the machine rendezvous. A recycled or dead (pid,startToken)
- *  is evicted; a live owner always refuses and exposes its socket/token paths. */
-export function acquireDaemonRegistration(orchDir: OrchDir): DaemonRegistrationResult {
-  const runtime = daemonRuntimeFiles(orchDir);
-  const startToken = processStartToken(process.pid);
-  if (!startToken) throw new Error("cannot register orchd without a process start token");
-  const registration: DaemonRegistration = {
-    orchDir: orchDirAt(path.resolve(orchDir)),
-    pid: process.pid,
-    startToken,
-    osSide: hostOs(),
-    socket: runtime.socket,
-    token: runtime.token,
-    port: runtime.port,
-  };
-  const file = registrationPath();
-  mkdirSync(path.dirname(file), { recursive: true });
-  let blockedRegistration: DaemonRegistration | undefined;
-  const result = acquireExclusiveFile("acquire daemon registration", file, `${JSON.stringify(registration)}\n`, () => {
-    const existing = readDaemonRegistration();
-    if (existing && recordedInstanceIsLive(observedHere(existing.pid, existing.startToken))) {
-      blockedRegistration = existing;
-      return false;
-    }
-    return true;
-  });
-  return result.acquired
-    ? { acquired: true, registration }
-    : { acquired: false, registration: result.blocked ? blockedRegistration : undefined };
-}
-
 /**
  * Why a second daemon is refused, in the one wording every caller prints.
  *
@@ -158,28 +96,8 @@ export function daemonStartRefusal(live: DaemonRegistration): string {
     + `Dial it at socket ${live.socket} with token ${live.token}, or stop it with 'orch daemon stop'.`;
 }
 
-export function releaseDaemonRegistration(): void {
-  const existing = readDaemonRegistration();
-  if (!existing || existing.pid !== process.pid || !recordedInstanceIsLive(observedHere(existing.pid, existing.startToken))) return;
-  try {
-    unlinkSync(registrationPath());
-  } catch (error: unknown) {
-    if (errnoCode(error) !== "ENOENT") throw error;
-  }
-}
-
-function socketPath(orchDir: OrchDir): string {
-  return daemonRuntimeFiles(orchDir).socket;
-}
-
 function logPath(orchDir: OrchDir): string {
   return logFile(orchDir);
-}
-
-function currentCodeHash(): string {
-  const entrypoint = process.env.ORCHD_ENTRYPOINT ?? process.argv[1];
-  if (!entrypoint || !existsSync(entrypoint)) return "unknown";
-  return computeCodeHash(entrypoint);
 }
 
 function processIdentityMatches(record: LockRecord): boolean {
@@ -228,40 +146,11 @@ export function readDaemonLock(orchDir: OrchDir): DaemonLock | null {
   return lock;
 }
 
-/** An unreadable lock names no owner to protect — a crash truncated it — so only
- *  a live socket can still veto the reclaim. */
-function canReclaim(record: LockRecord | undefined, probe: SocketProbe, orchDir: OrchDir): boolean {
-  if (record && processIdentityMatches(record)) return false;
-  try {
-    return !probe(socketPath(orchDir));
-  } catch {
-    // A failed probe is not proof that another daemon is absent.
-    return false;
-  }
-}
-
-/** Acquire the one-per-host daemon lock. Returns false when another instance owns it. */
-export function acquireDaemonLock(orchDir: OrchDir, socketProbe: SocketProbe = () => false): boolean {
-  ensurePrivateDir(orchDir);
-  const file = lockPath(orchDir);
-  const record: LockRecord = {
-    pid: process.pid,
-    codeHash: currentCodeHash(),
-    startedAt: new Date().toISOString(),
-    startToken: processStartToken(process.pid),
-  };
-
-  // Same atomicity requirement as registration: use acquireExclusiveFile.
-  return acquireExclusiveFile("acquire daemon lock", file, `${JSON.stringify(record)}\n`, () => canReclaim(readLock(file), socketProbe, orchDir)).acquired;
-}
-
-/** Release the daemon lock. Missing locks are already released. */
-export function releaseDaemonLock(orchDir: OrchDir): void {
-  try {
-    unlinkSync(lockPath(orchDir));
-  } catch (error: unknown) {
-    if (errnoCode(error) !== "ENOENT") throw error;
-  }
+/** Whether the lock names a live process proven to be the instance that took it. An
+ *  unreadable lock names no owner: a crash truncated it. */
+export function lockHolderIsLive(orchDir: OrchDir): boolean {
+  const record = readLock(lockPath(orchDir));
+  return record !== undefined && processIdentityMatches(record);
 }
 
 /** Erase every trace of a departed daemon, returning what was removed. Call only
@@ -384,21 +273,6 @@ export function runForeground(entrypoint: string, args: string[] = []): Promise<
     child.on("error", reject);
     child.on("exit", (code, signal) => resolve(signal === null ? code ?? 0 : 1));
   });
-}
-
-/** Re-run this entrypoint with unchanged argv, handing the lock to the replacement. */
-export function reexecSelf(
-  orchDir: OrchDir,
-): never {
-  releaseDaemonLock(orchDir);
-  releaseDaemonRegistration();
-  const replacement = spawn(process.execPath, process.argv.slice(1), {
-    detached: true,
-    env: process.env,
-    stdio: "inherit",
-  });
-  replacement.unref();
-  process.exit(0);
 }
 
 /** Return a short SHA-256 digest of an entrypoint's contents. */

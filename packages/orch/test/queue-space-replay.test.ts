@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { addTask, listTasks, nextQueuedTask } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { seedAgentRow } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 const dirs: OrchDir[] = [];
@@ -16,8 +17,8 @@ describe("queue replay keeps typed scope", () => {
     const dir = tempOrchDir("orch-queue-replay-"); dirs.push(dir);
     const db = orm(dir);
     db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-    for (const [id, root, parent] of [["a","a",null],["a1","a","a"],["b","b",null]] as const) {
-      db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${parent},${root},${"pi"},${"/tmp"},${id},1,${"agent"})`);
+    for (const [id, parent] of [["a",null],["a1","a"],["b",null]] as const) {
+      seedAgentRow(dir, { id, spawnedBy: parent, cwd: "/tmp", createdAt: 1 });
     }
     const task = addTask(dir, "do x", {}, "a");
     expect(listTasks(dir)[0]?.scopePackId).toBe("a");

@@ -22,7 +22,7 @@ import { recordQuestion } from "../src/store/question-rows.ts";
 import type { AdapterId } from "../src/types/adapter.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { testServices } from "./helpers/services.ts";
+import { testDaemonServices } from "./helpers/services.ts";
 
 const originalOrchDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 const tempDirs: OrchDir[] = [];
@@ -63,8 +63,8 @@ function detachBridge(key: string, link: BridgeLink): void {
 
 function deliverControl(targetKey: string, action: Parameters<typeof daemonDeliverControl>[4]): ReturnType<typeof daemonDeliverControl> {
   const orchDir = requiredOrchDir();
-  const services = testServices({ orchDir, settings: {} });
-  return daemonDeliverControl(orchDir, services.settings.current(), services.models, targetKey, action);
+  const services = testDaemonServices({ orchDir, settings: {} });
+  return daemonDeliverControl(orchDir, services.settings.current(), services.models, placeHere(orchDir, targetKey), action);
 }
 
 /** A live agent: registered with this runner as its process, plus its status. */

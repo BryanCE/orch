@@ -13,8 +13,9 @@ import { AGENT_SETTINGS_GRANT } from "../src/policy/agent-settings.ts";
 import { isRecord } from "../src/util.ts";
 import { claudeSettingsPath } from "../src/adapters/claude-hooks.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
-import { testServices } from "../test/helpers/services.ts";
 import { captureStdout } from "../test/helpers/stdout.ts";
+import { serveFileDaemon, servedServices } from "../test/helpers/daemon-state.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 import { seedOperator } from "../test/helpers/agent.ts";
 import { HARNESS_SESSION_VARS, isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
 
@@ -37,17 +38,21 @@ afterEach(() => {
 /** The vars that would make the runner an agent or a harness session; cleared unless the test sets them. */
 const CALLER_VARS = [LAUNCH_ENV, ...HARNESS_SESSION_VARS];
 
-/** Run one `orch settings` in-process with the CLI's environment: this dir, the
- *  runner's env minus the caller vars, plus what the test sets on purpose. A fresh
+/** Run one `orch settings` in-process with the CLI's environment, against an orchd serving
+ *  this dir: the runner's env minus the caller vars, plus what the test sets on purpose. A fresh
  *  Services per run reads the file the way a fresh CLI process does. */
 async function runSettingsCli(orchDir: OrchDir, extraEnv: Record<string, string>, args: readonly string[]): Promise<string> {
   const saved = Object.fromEntries(CALLER_VARS.map((name) => [name, process.env[name]]));
   for (const name of CALLER_VARS) delete process.env[name];
   process.env.ORCH_DIR = orchDir;
   Object.assign(process.env, extraEnv);
+  // orchd answers who the caller is; the command never reads the store for it.
+  const servers: RpcServer[] = [];
+  await serveFileDaemon(orchDir, servers);
   try {
     return await captureStdout(() => cmdSettings(createServices({ orchDir }), [...args]));
   } finally {
+    while (servers.length > 0) await servers.pop()!.close();
     for (const name of CALLER_VARS) {
       if (saved[name] === undefined) delete process.env[name];
       else process.env[name] = saved[name];
@@ -192,13 +197,15 @@ describe("orch settings", () => {
     writeSettingsFixture(directory, settings);
     process.env.ORCH_DIR = directory;
     const writer = spyOn(registry, "writeRegisteredSetting");
+    const servers: RpcServer[] = [];
     try {
-      const services = testServices({ orchDir: directory, settings });
+      const services = await servedServices({ orchDir: directory, settings }, servers);
       await captureStdout(() => cmdSettings(services, ["fleet.max_depth", "6"]));
       expect(writer).toHaveBeenCalledTimes(1);
       expect(writer).toHaveBeenCalledWith(services.settings, "fleet.max_depth", 6);
     } finally {
       writer.mockRestore();
+      while (servers.length > 0) await servers.pop()!.close();
     }
   });
 

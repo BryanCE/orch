@@ -1,6 +1,6 @@
 import { modelSpec } from "../../policy/thinking.ts";
 import { getAdapter } from "../../adapters/registry.ts";
-import { spaceName as resolveSpaceName } from "../../policy/space.ts";
+import { spaceName as resolveSpaceName } from "../../shared/space.ts";
 import { firstNonEmptyText } from "../../commands/target.ts";
 import { viewForKey } from "../../shared/lookup.ts";
 import { collapse } from "../../util.ts";

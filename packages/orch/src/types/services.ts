@@ -28,8 +28,13 @@ export interface Services {
   readonly orchDir: OrchDir;
   readonly settings: SettingsManager;
   readonly logger: Logger;
-  readonly models: ModelCatalogue;
   readonly host: Host;
+}
+
+/** orchd's services: a client's, and the model catalogue only orchd builds, because it runs the
+ *  harnesses to ask what they can run. */
+export interface DaemonServices extends Services {
+  readonly models: ModelCatalogue;
 }
 
 export type SettingsService = Pick<Services, "settings">;

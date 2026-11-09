@@ -1,13 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { binaryStatus } from "../src/doctor/bins.ts";
-import { checkProvenanceDepth } from "../src/doctor/provenance-depth.ts";
-import { checkUnclaimedAgents } from "../src/doctor/unclaimed-agents.ts";
+import { binaryStatus } from "../src/daemon/server/doctor/bins.ts";
+import { checkProvenanceDepth } from "../src/daemon/server/doctor/provenance-depth.ts";
+import { checkUnclaimedAgents } from "../src/daemon/server/doctor/unclaimed-agents.ts";
 import { claimAgent } from "../src/store/agent-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { sql } from "drizzle-orm";
-import { checkNotifiers, checkNotifySinks } from "../src/doctor/notify.ts";
+import { checkNotifiers, checkNotifySinks } from "../src/daemon/server/doctor/notify.ts";
 import { PREREQUISITES } from "../src/shared/prerequisites.ts";
 import { hostOs } from "../src/host.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";

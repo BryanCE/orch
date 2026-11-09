@@ -3,7 +3,9 @@ import { buildFleetStatus } from "../src/daemon/server/fleet-status.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
 import { NO_STATUS_HIDE } from "../src/commands/status/options.ts";
 import { RPC_RESULTS } from "../src/daemon/client/protocol.ts";
-import { acceptStatusReport, startLivenessTick } from "../src/daemon/server/status-report.ts";
+import { startLivenessTick } from "../src/daemon/server/status-report.ts";
+import { applyHostEvent } from "../src/daemon/server/host-events.ts";
+import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { registerHostedAgent } from "../src/store/spawn-registration.ts";
 import { bindHostName, closeHostLink, openHostLink, touchHostLink } from "../src/store/host-rows.ts";
 import { selectAgentStatus } from "../src/store/status-rows.ts";
@@ -48,6 +50,15 @@ function lastCell(row: StatusRow): string {
   return table.split("\n")[2] ?? "";
 }
 
+/** The far host's orchd reports its agent went to work, over the link, the one way a far
+ *  agent's state reaches this orchd. */
+function farReportsWorking(orchDir: OrchDir): void {
+  const state = idleDaemonState(testServices({ orchDir }), orchDir);
+  applyHostEvent(state, { id: FAR.id, name: "far" }, {
+    host: FAR, type: "transition", key: FAR_AGENT, ts: new Date().toISOString(), agent: "far-test", tab: null, model: null, oldState: "idle", newState: "working",
+  });
+}
+
 /** Record that the far host's link came up at `since`, last answered at `lastSeen`, and dropped. */
 function linkDropped(orchDir: OrchDir, since: number, lastSeen: number): void {
   openHostLink(orchDir, FAR.id, since);
@@ -69,7 +80,7 @@ test("status lists an agent on a linked host from its reference, unknown until i
 test("a far agent reads the state its host's events last reported while the link is up", () => {
   const orchDir = fleetWithFarAgent();
   openHostLink(orchDir, FAR.id, Date.now());
-  acceptStatusReport(orchDir, FAR_AGENT, { state: "working" }, () => undefined);
+  farReportsWorking(orchDir);
   const row = farRow(orchDir);
   expect(row?.state).toBe("working");
   expect(row?.alive).toBe(true);
@@ -98,7 +109,7 @@ test("the liveness tick never marks a far agent on a downed link exited, nor rea
   const orchDir = fleetWithFarAgent();
   linkDropped(orchDir, Date.now() - 2_000, Date.now() - 1_000);
   const events: NotifyEvent[] = [];
-  acceptStatusReport(orchDir, FAR_AGENT, { state: "working" }, (event) => events.push(event));
+  farReportsWorking(orchDir);
   const { logger, records } = recordingLogger();
   const tick = startLivenessTick(orchDir, 1, (event) => events.push(event), logger);
   const deadline = Date.now() + 2_000;

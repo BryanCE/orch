@@ -18,8 +18,11 @@ import type { Role } from "../../../types/policy.ts";
 import { roleOf } from "../../../policy/vocabulary.ts";
 import type { GrantAction } from "../../../types/store.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
+import type { HostedProcess } from "../../../types/process.ts";
 
-type LockParams = ParamsOf<"command-lock">;
+/** One lock request, with the caller's process as orchd read it from the OS. */
+export type LockRequest = Omit<ParamsOf<"command-lock">, "pid"> & { readonly process: HostedProcess };
+type LockParams = LockRequest;
 type LockSettings = Pick<OrchSettings, "locked_commands" | "gated_commands" | "denied_commands"> &{ timeouts: Pick<OrchSettings["timeouts"], "lock_wait_ms"> };
 type Publish = (event: NotifyEvent) => void;
 
@@ -105,7 +108,7 @@ export function lockCommand(directory: OrchDir, settings: LockSettings, params: 
   return { verdict: "run", patterns: wanted };
 }
 
-export function unlockCommand(directory: OrchDir, params: ParamsOf<"command-unlock">): ResultOf<"command-unlock"> {
-  releaseCommandLocks(directory, params.process);
+export function unlockCommand(directory: OrchDir, process: HostedProcess): ResultOf<"command-unlock"> {
+  releaseCommandLocks(directory, process);
   return { ok: true };
 }

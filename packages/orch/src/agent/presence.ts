@@ -9,7 +9,7 @@ import { launchCredential } from "../identity/launch.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { isRecord, isUnknownArray, projectRoot, sessionFilePath } from "../util.ts";
 import { createModelControl } from "./model-control.ts";
-import { isSessionUsage, sessionUsageCost } from "../session.ts";
+import { isSessionUsage, sessionUsageCost } from "../shared/session-usage.ts";
 import type { AgentState } from "../shared/harness.ts";
 import type { AgentPresenceOptions, AssistantMessageLike, HarnessContext } from "../types/agent.ts";
 import type { JsonRecord } from "../types/core.ts";

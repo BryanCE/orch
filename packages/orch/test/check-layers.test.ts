@@ -5,6 +5,11 @@ test("the CLI is client, orchd's modules are server, the rest is shared", () => 
   expect(layerOf("src/commands/spawn/index.ts")).toBe("client");
   expect(layerOf("src/cli/parse.ts")).toBe("client");
   expect(layerOf("bin/orch.ts")).toBe("client");
+  expect(layerOf("../web/src/server/queue.ts")).toBe("client");
+  // The harness bridge is a client of its host's orchd; orchd's own readers in src/agent/ are server.
+  expect(layerOf("extensions/pi/index.ts")).toBe("client");
+  expect(layerOf("src/agent/peers.ts")).toBe("client");
+  expect(layerOf("src/agent/read.ts")).toBe("server");
   expect(layerOf("src/store/agent-rows.ts")).toBe("server");
   expect(layerOf("src/backends/herdr/index.ts")).toBe("server");
   expect(layerOf("src/daemon/server/rpc.ts")).toBe("server");
@@ -29,11 +34,11 @@ test("a client or shared module loading server code is a violation; server loadi
 test("a client module reaching server code through shared modules is traced with its chain", () => {
   const graph = new Map<string, string[]>([
     ["src/commands/status.ts", ["src/format.ts"]],
-    ["src/format.ts", ["src/policy/caller.ts"]],
-    ["src/policy/caller.ts", ["src/store/agent-rows.ts"]],
+    ["src/format.ts", ["src/util.ts"]],
+    ["src/util.ts", ["src/store/agent-rows.ts"]],
   ]);
   expect(clientReach(graph).map((violation) => violation.chain)).toEqual([
-    ["src/commands/status.ts", "src/format.ts", "src/policy/caller.ts", "src/store/agent-rows.ts"],
+    ["src/commands/status.ts", "src/format.ts", "src/util.ts", "src/store/agent-rows.ts"],
   ]);
 });
 
@@ -47,4 +52,6 @@ test("the real tree is scanned: the graph holds the CLI and orchd entry points",
   expect(graph.has("bin/orch.ts")).toBe(true);
   expect(graph.has("src/daemon/server/orchd.ts")).toBe(true);
   expect(graph.get("src/commands/index.ts")?.length ?? 0).toBeGreaterThan(0);
+  // The web UI is scanned too, its `@orch/*` imports resolved into orch's source.
+  expect(graph.get("../web/src/server/services.ts")).toContain("src/services.ts");
 });

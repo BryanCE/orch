@@ -6,15 +6,13 @@ import { nonEmpty, sessionClaim } from "../daemon/client/registration.ts";
 //
 // At-least-once delivery: a lost ack costs one redelivery, not a lost message.
 // The in-memory dedupe set applies each message id once.
-import * as fs from "node:fs";
-import { daemonRuntimeFiles } from "../daemon/client/runtime-files.ts";
 import { type AgentNotice, type BridgeDelivery } from "../shared/bridge-message.ts";
 import {
+  daemonEndpoints,
   openJsonLineLink,
-  readPortFile,
   requestJsonLine,
   type JsonLineLink,
-} from "../presence/socket-client.ts";
+} from "../daemon/client/socket.ts";
 import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import type { ControlOutcomeReport, DaemonLink } from "../types/agent.ts";
 import type { ResultReport, StatusPatch } from "../types/presence.ts";
@@ -41,14 +39,6 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
   let linkAttached = false;
   let reconnectMs: number = SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms;
 
-  function daemonEndpoints(): (string | number)[] {
-    const socketPath = daemonRuntimeFiles(orchDir).socket;
-    const endpoints: (string | number)[] = fs.existsSync(socketPath) ? [socketPath] : [];
-    const port = readPortFile(orchDir);
-    if (port !== undefined) endpoints.push(port);
-    return endpoints;
-  }
-
   async function answerFrom<M extends RpcMethod>(endpoint: string | number, method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined> {
     const requestId = nextRequestId++;
     const line = await requestJsonLine(endpoint, { id: requestId, method, params }, settings.current().daemon.report_timeout_ms);
@@ -66,7 +56,7 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
 
   async function ask<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M> | undefined> {
     try {
-      for (const endpoint of daemonEndpoints()) {
+      for (const endpoint of daemonEndpoints(orchDir)) {
         const result = await answerFrom(endpoint, method, params);
         if (result !== undefined) return result;
       }
@@ -197,7 +187,7 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
   async function dial(onDelivery: (delivery: BridgeDelivery) => void): Promise<void> {
     if (!attachWanted || link !== undefined || attachedKey === undefined) return;
     let connected: JsonLineLink | undefined;
-    const endpoints = daemonEndpoints();
+    const endpoints = daemonEndpoints(orchDir);
     for (const endpoint of endpoints) {
       connected = await openJsonLineLink(endpoint, {
         onLine: (line) => handleLine(line, onDelivery),

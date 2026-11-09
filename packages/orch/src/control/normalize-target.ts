@@ -2,6 +2,7 @@ import type { OrchDir } from "../types/core.ts";
 import { loadPresence } from "../presence/store.ts";
 import { agentView, agentViews } from "../store/agent-view.ts";
 import { notDead } from "../types/presence.ts";
+import { hereAgentIfAny } from "../process-place.ts";
 
 /**
  * Resolve any spelling of a target to the one canonical identity key.
@@ -28,8 +29,10 @@ export function normalizeControlTarget(orchDir: OrchDir, target: string): string
   // The id itself is the common spelling and is one lookup in the held fleet.
   if (agentView(orchDir, target) !== null) return target;
 
+  // A pane handle addresses only an agent here: a handle names a pane in a plexer on this
+  // machine, and an agent on another host has none here.
   const matches = agentViews(orchDir).filter((view) =>
-    view.name === target || view.environment.handle === target);
+    view.name === target || (view.environment.handle === target && hereAgentIfAny(orchDir, view.id) !== null));
 
   const presence = loadPresence(orchDir);
   const live = matches.filter((view) => notDead(presence.get(view.id)));

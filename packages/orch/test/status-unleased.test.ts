@@ -1,17 +1,15 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { fleetNames, statusRowFromEntity } from "../src/daemon/server/fleet-rows.ts";
 import { ownerLabel } from "../src/commands/status/table.ts";
 import { deriveDriveState, fleetLeaseFacts } from "../src/agent/drive-state.ts";
 import { agentViewIndex } from "../src/store/agent-view.ts";
-import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { processStartToken } from "../src/process-identity.ts";
+import { seedLiveProcess } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { presenceEntryFixture, statusRow } from "./helpers/presence.ts";
 import type { Entity, OrchDir } from "../src/types/core.ts";
-import { sql } from "drizzle-orm";
 
 const dirs: OrchDir[] = [];
 afterEach(() => {
@@ -22,14 +20,10 @@ function fixture(): OrchDir {
   const dir = tempOrchDir("orch-status-unleased-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "Pi", 1);
-  const db = orm(dir);
-  db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
   insertAgent(dir, { host: hostIdentity(), id: WORKER_ID, harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
   insertAgent(dir, { host: hostIdentity(), id: "live", harnessId: "pi", cwd: "/tmp", name: "live", createdAt: 1 });
   insertAgent(dir, { host: hostIdentity(), id: "dead", harnessId: "pi", cwd: "/tmp", name: "dead", createdAt: 1 });
-  const token = processStartToken(process.pid);
-  if (!token) throw new Error("test process has no start token");
-  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"live"},${1},${"host"},${process.pid},${token})`);
+  seedLiveProcess(dir, "live", 1);
   return dir;
 }
 

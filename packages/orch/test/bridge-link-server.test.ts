@@ -1,4 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
+import { placeHere } from "../src/process-place.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createConnection, type Socket } from "node:net";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
@@ -103,7 +104,7 @@ describe("daemon bridge links", () => {
     const delivery: BridgeDelivery = { id: "row-1", message: { action: "steer", text: "hello" } };
     const server = await start((attached) => {
       notifications.push(attached);
-      pushToBridge(directories[0]!, attached, delivery);
+      pushToBridge(placeHere(directories[0]!, attached), delivery);
     });
     const socket = await connected(server);
     const lines = observe(socket);
@@ -145,7 +146,7 @@ describe("daemon bridge links", () => {
     second.write(`${JSON.stringify({ id: 2, method: "attach", params: { key } })}\n`);
     await lineAt(secondLines, 0);
 
-    pushToBridge(directories[0]!, key, { id: "row-2", message: { action: "dispatch", text: "new" } });
+    pushToBridge(placeHere(directories[0]!, key), { id: "row-2", message: { action: "dispatch", text: "new" } });
     const pushed = await lineAt(secondLines, 1);
     expect(firstLines).toHaveLength(1);
     expect(pushed).toEqual({ delivery: { id: "row-2", message: { action: "dispatch", text: "new" } } });

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 
 import { compareVersions, versionInRange } from "../src/shared/versions.ts";
-import { backendVersionsVerdict } from "../src/doctor/backends.ts";
+import { backendVersionsVerdict } from "../src/daemon/server/doctor/backends.ts";
 import { ensureHost, ensurePlexer, ensureHostPlexer, hostPlexers } from "../src/store/agent-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";

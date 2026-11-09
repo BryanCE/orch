@@ -1,8 +1,16 @@
 import { agentIdByProcess, agentIdBySessionToken } from "../store/agent-rows.ts";
 import { environmentOf } from "../store/agent-view.ts";
 import { enclosingAgent } from "./ancestry.ts";
-import { callerCredential } from "./credential.ts";
+import { hostedHere } from "../local-process.ts";
+import { processStartToken } from "../process-identity.ts";
 import type { CallerCredential, OrchDir, SelfIdentity } from "../types/core.ts";
+import type { HostedProcess } from "../types/process.ts";
+
+/** The caller's process as this host's OS sees it. A caller only ever dials its own host's
+ *  orchd, so its pid is this host's and orchd reads the start token itself. */
+function processOfCaller(credential: CallerCredential): HostedProcess {
+  return hostedHere(credential.pid, processStartToken(credential.pid) ?? null);
+}
 
 /** The agent a credential names, resolved against the store. orchd's half of identity. */
 export function selfIdentityOf(orchDir: OrchDir, credential: CallerCredential): SelfIdentity | null {
@@ -20,20 +28,11 @@ export function selfIdentityOf(orchDir: OrchDir, credential: CallerCredential): 
   // No token: the session IS a process — the harness's own, or the shell that
   // ran this command. Registration filed it under that process, so this
   // resolves the same way, and a plain terminal inside a plexer has an id.
-  const id = agentIdByProcess(orchDir, credential.process)
+  const process = processOfCaller(credential);
+  const id = agentIdByProcess(orchDir, process)
     // No harness marker and no row: a process started inside a live agent's tree is that agent.
-    ?? (credential.session === null ? enclosingAgent(orchDir, credential.process) : null);
+    ?? (credential.session === null ? enclosingAgent(orchDir, process) : null);
   return id === null ? null : { id };
-}
-
-/** The id orch handed this process, or null when orch has never registered it. */
-export function selfIdentity(orchDir: OrchDir): SelfIdentity | null {
-  return selfIdentityOf(orchDir, callerCredential());
-}
-
-/** The id to stamp as owner/actor on a write, or undefined when unregistered. */
-export function selfId(orchDir: OrchDir): string | undefined {
-  return selfIdentity(orchDir)?.id;
 }
 
 /** The space one agent is composed into. A missing row is a real ANSWER: an

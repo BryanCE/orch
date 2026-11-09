@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isRecord } from "./util.ts";
+import { isSessionUsage, sessionUsageCost } from "./shared/session-usage.ts";
 import type { ContentBlock, SessionContent, SessionEntry, SessionMessage, SessionUsage, TextContentBlock, ToolCallContentBlock } from "./types/core.ts";
 
 interface SessionData {
@@ -36,20 +37,6 @@ export function isToolCallContentBlock(value: unknown): value is ToolCallContent
 
 function isSessionContent(value: unknown): value is SessionContent {
   return typeof value === "string" || (Array.isArray(value) && value.every(isContentBlock));
-}
-
-export function isSessionUsage(value: unknown): value is SessionUsage {
-  if (!isRecord(value)) return false;
-  const numeric = ["input", "output", "cacheRead", "cacheWrite"];
-  if (numeric.some((key) => value[key] !== undefined && typeof value[key] !== "number")) return false;
-  if (value.cost !== undefined && typeof value.cost !== "number") {
-    if (!isRecord(value.cost) || (value.cost.total !== undefined && typeof value.cost.total !== "number")) return false;
-  }
-  return true;
-}
-
-export function sessionUsageCost(usage: SessionUsage): number {
-  return typeof usage.cost === "number" ? usage.cost : usage.cost?.total ?? 0;
 }
 
 function isOptionalStringField(value: Record<string, unknown>, key: string): boolean {

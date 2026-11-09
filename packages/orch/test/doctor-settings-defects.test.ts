@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { checkSettingsFile } from "../src/doctor/settings-file.ts";
+import { checkSettingsFile } from "../src/daemon/server/doctor/settings-file.ts";
 import { runTestDoctor } from "./helpers/doctor.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 

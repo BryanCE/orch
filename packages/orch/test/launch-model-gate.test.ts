@@ -6,7 +6,7 @@ import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { AdapterId, AgentAdapter, HarnessModel } from "../src/types/adapter.ts";
 import type { OrchDir } from "../src/types/core.ts";
-import { testServices } from "./helpers/services.ts";
+import { testDaemonServices } from "./helpers/services.ts";
 
 // A launch hands its model string to the harness CLI, whose own resolver fuzzy-matches
 // a shorthand onto any registry entry sharing a prefix — "sol:high" booted a fleet on
@@ -44,19 +44,19 @@ describe("the model gate rules by harness membership, not by format", () => {
   const pi = harness("pi", ["openrouter/openai/gpt-5.6-sol", "openrouter/upstage/solar-pro-3"]);
 
   test("accepts a listed spec, with or without a thinking suffix", () => {
-    const catalogue = testServices({ orchDir: makeDir() }).models;
+    const catalogue = testDaemonServices({ orchDir: makeDir() }).models;
     expect(() => assertModelOffered(pi, catalogue, "openrouter/openai/gpt-5.6-sol")).not.toThrow();
     expect(() => assertModelOffered(pi, catalogue, "openrouter/openai/gpt-5.6-sol:high")).not.toThrow();
   });
 
   test("refuses a ladder shorthand and names what the harness does offer", () => {
-    const catalogue = testServices({ orchDir: makeDir() }).models;
+    const catalogue = testDaemonServices({ orchDir: makeDir() }).models;
     expect(() => assertModelOffered(pi, catalogue, "sol:high")).toThrow(/pi does not list model sol/);
     expect(() => assertModelOffered(pi, catalogue, "sol:high")).toThrow(/gpt-5\.6-sol/);
   });
 
   test("accepts each harness's own vocabulary rather than one shared grammar", () => {
-    const catalogue = testServices({ orchDir: makeDir() }).models;
+    const catalogue = testDaemonServices({ orchDir: makeDir() }).models;
     expect(() => assertModelOffered(harness("codex", ["gpt-5.6-luna"]), catalogue, "gpt-5.6-luna:medium")).not.toThrow();
     expect(() => assertModelOffered(harness("claude", ["sonnet", "opus"]), catalogue, "sonnet")).not.toThrow();
     // A pi-shaped spec is wrong FOR codex, and the refusal comes from codex's list.
@@ -65,7 +65,7 @@ describe("the model gate rules by harness membership, not by format", () => {
   });
 
   test("cannot check a harness that publishes no catalogue, and does not pretend to", () => {
-    const catalogue = testServices({ orchDir: makeDir() }).models;
+    const catalogue = testDaemonServices({ orchDir: makeDir() }).models;
     expect(() => assertModelOffered(silentHarness, catalogue, "anything-at-all")).not.toThrow();
   });
 });
@@ -108,26 +108,26 @@ describe("the settings allowlist applies on top of harness membership", () => {
 
   test("an empty allowlist restricts nothing beyond the harness list", () => {
     const dir = makeDir();
-    const catalogue = testServices({ orchDir: dir }).models;
+    const catalogue = testDaemonServices({ orchDir: dir }).models;
     expect(admitModel(fileSettingsManager(dir).current(), pi, catalogue, "openrouter/upstage/solar-pro-3")).toBe("openrouter/upstage/solar-pro-3");
   });
 
   test("a configured allowlist refuses a listed model outside its patterns", () => {
     const dir = makeDir({ models: { allowed: { pi: ["openrouter/openai/*"] } } });
-    const catalogue = testServices({ orchDir: dir }).models;
+    const catalogue = testDaemonServices({ orchDir: dir }).models;
     expect(admitModel(fileSettingsManager(dir).current(), pi, catalogue, "openrouter/openai/gpt-5.6-luna:high")).toBe("openrouter/openai/gpt-5.6-luna:high");
     expect(() => admitModel(fileSettingsManager(dir).current(), pi, catalogue, "openrouter/upstage/solar-pro-3")).toThrow(/models\.allowed/);
   });
 
   test("a spec no harness lists is refused by the harness, not the allowlist", () => {
     const dir = makeDir({ models: { allowed: { pi: ["openrouter/openai/*"] } } });
-    const catalogue = testServices({ orchDir: dir }).models;
+    const catalogue = testDaemonServices({ orchDir: dir }).models;
     expect(() => admitModel(fileSettingsManager(dir).current(), pi, catalogue, "nothing-like-it:high")).toThrow(/pi does not list model/);
   });
 
   test("the configured default is admitted though the allowlist omits it", () => {
     const dir = makeDir({ defaults: { models: { pi: "openrouter/upstage/solar-pro-3:high" } }, models: { allowed: { pi: ["openrouter/openai/*"] } } });
-    const catalogue = testServices({ orchDir: dir }).models;
+    const catalogue = testDaemonServices({ orchDir: dir }).models;
     expect(admitModel(fileSettingsManager(dir).current(), pi, catalogue, "openrouter/upstage/solar-pro-3")).toBe("openrouter/upstage/solar-pro-3");
   });
 });
@@ -141,27 +141,27 @@ describe("admission expands a short name through the same gate", () => {
 
   test("expands a short name and keeps its thinking suffix", () => {
     const dir = makeDir();
-    const catalogue = testServices({ orchDir: dir }).models;
+    const catalogue = testDaemonServices({ orchDir: dir }).models;
     expect(admitModel(fileSettingsManager(dir).current(), pi, catalogue, "luna:high")).toBe("openrouter/openai/gpt-5.6-luna:high");
     expect(admitModel(fileSettingsManager(dir).current(), pi, catalogue, "luna")).toBe("openrouter/openai/gpt-5.6-luna");
   });
 
   test("refuses an ambiguous short name by naming every candidate", () => {
     const dir = makeDir();
-    const catalogue = testServices({ orchDir: dir }).models;
+    const catalogue = testDaemonServices({ orchDir: dir }).models;
     const both = harness("pi", ["openrouter/openai/gpt-5.6-luna", "openrouter/openai/gpt-5.6-luna-pro"]);
     expect(() => admitModel(fileSettingsManager(dir).current(), both, catalogue, "luna:high")).toThrow(/matches several pi models \(openrouter\/openai\/gpt-5\.6-luna, openrouter\/openai\/gpt-5\.6-luna-pro\)/);
   });
 
   test("a short name whose only matches the allowlist excludes is an allowlist refusal", () => {
     const dir = makeDir({ models: { allowed: { pi: ["openrouter/upstage/*"] } } });
-    const catalogue = testServices({ orchDir: dir }).models;
+    const catalogue = testDaemonServices({ orchDir: dir }).models;
     expect(() => admitModel(fileSettingsManager(dir).current(), pi, catalogue, "luna:high")).toThrow(/matches only openrouter\/openai\/gpt-5\.6-luna, none in models\.allowed\.pi/);
   });
 
   test("the allowlist narrows an otherwise ambiguous short name to one match", () => {
     const dir = makeDir({ models: { allowed: { pi: ["openrouter/openai/gpt-5.6-luna"] } } });
-    const catalogue = testServices({ orchDir: dir }).models;
+    const catalogue = testDaemonServices({ orchDir: dir }).models;
     const both = harness("pi", ["openrouter/openai/gpt-5.6-luna", "openrouter/openai/gpt-5.6-luna-pro"]);
     expect(admitModel(fileSettingsManager(dir).current(), both, catalogue, "luna:low")).toBe("openrouter/openai/gpt-5.6-luna:low");
   });

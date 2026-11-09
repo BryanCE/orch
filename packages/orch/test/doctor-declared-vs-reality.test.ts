@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { applyFixes } from "../src/doctor/runner.ts";
-import { describeBackendEnvironments } from "../src/doctor/backends.ts";
-import { checkDeclaredVsReality } from "../src/doctor/declared-vs-reality.ts";
+import { applyFixes } from "../src/daemon/server/doctor/runner.ts";
+import { describeBackendEnvironments } from "../src/daemon/server/doctor/backends.ts";
+import { checkDeclaredVsReality } from "../src/daemon/server/doctor/declared-vs-reality.ts";
 import { orm, closeAllStores } from "../src/store/connection.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { runTestDoctor } from "./helpers/doctor.ts";
@@ -12,23 +12,17 @@ import { row } from "./helpers/rows.ts";
 import { FakePanedBackend, withRegisteredBackend } from "./helpers/backend.ts";
 import type { HostedProcess } from "../src/types/process.ts";
 import type { OrchDir } from "../src/types/core.ts";
-import { hostIdentity } from "../src/host.ts";
-import { ensureHost } from "../src/store/agent-rows.ts";
+import { seedAgentRow, seedProcessInstance } from "./helpers/agent.ts";
 const directories: OrchDir[] = [];
 function fixture(): OrchDir {
   const dir = tempOrchDir("orch-doctor-reality-");
   directories.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','Host','linux',1)`);
   return dir;
 }
 function agent(dir: OrchDir, id: string, spawnedBy: string | null = null): void {
-  orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,spawned_by,created_at,kind) VALUES (${id},${spawnedBy ?? id},${"pi"},${dir},${id},${spawnedBy},${1},${"agent"})`);
-}
-function recordProcess(dir: OrchDir, id: string, pid: number, token: string | null): void {
-  ensureHost(dir, hostIdentity(), 1);
-  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${hostIdentity().id},${pid},${token})`);
+  seedAgentRow(dir, { id, spawnedBy, cwd: dir, createdAt: 1 });
 }
 
 const testDependencies = {
@@ -55,7 +49,7 @@ describe("doctor declared-vs-reality", () => {
     const dir = fixture();
     agent(dir, "holder");
     agent(dir, "worker");
-    recordProcess(dir, "holder", 99999999, "dead-start");
+    seedProcessInstance(dir, "holder", 1, { pid: 99999999, startToken: "dead-start" });
     acquireLease(dir, "worker", "holder", 2);
 
     const result = checkDeclaredVsReality(dir, testDependencies);
@@ -89,8 +83,8 @@ describe("doctor declared-vs-reality", () => {
     const dir = fixture();
     agent(dir, "spawner");
     agent(dir, "worker", "spawner");
-    recordProcess(dir, "spawner", 99999999, "dead-start");
-    recordProcess(dir, "worker", process.pid, null);
+    seedProcessInstance(dir, "spawner", 1, { pid: 99999999, startToken: "dead-start" });
+    seedProcessInstance(dir, "worker", 1, { pid: process.pid, startToken: null });
 
     const result = checkDeclaredVsReality(dir, testDependencies);
     expect(result.status).toBe("warn");

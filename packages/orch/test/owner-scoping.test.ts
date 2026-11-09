@@ -5,25 +5,24 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
+import { spawnOneIntoTab } from "../src/daemon/server/spawn/placement.ts";
 import { cmdClose } from "../src/commands/lifecycle/close.ts";
 import { commandHandlers } from "../src/commands/index.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { recordAgentStatus, spawnedRecords } from "../src/presence/store.ts";
-import { claimAgent, ensureHost } from "../src/store/agent-rows.ts";
+import { claimAgent } from "../src/store/agent-rows.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
-import { orm } from "../src/store/connection.ts";
-import { selfId } from "../src/identity/self.ts";
+import { selfIdentityOf } from "../src/identity/self.ts";
+import { callerCredential } from "../src/identity/credential.ts";
 import { writeSettingsFixture } from "../test/helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackendAsync } from "../test/helpers/backend.ts";
 import { fakeAdapter } from "../test/helpers/adapter.ts";
 import { seedSpace } from "../test/helpers/space.ts";
-import { placeAgent, seedAgent, seedLiveProcess, seedOperator } from "../test/helpers/agent.ts";
+import { placeAgent, seedAgent, seedAgentRow, seedLiveProcess, seedOperator, seedProcessInstance } from "../test/helpers/agent.ts";
 import { seedStatus } from "../test/helpers/presence.ts";
 import { peerView } from "../src/daemon/server/peer-view.ts";
-import { sql } from "drizzle-orm";
 import { isolateOrchEnv, restoreOrchEnv } from "../test/helpers/env.ts";
 import { withExitCodeAsync } from "../test/helpers/exit-code.ts";
 import { captureStdout } from "../test/helpers/stdout.ts";
@@ -33,7 +32,6 @@ import { testServices } from "../test/helpers/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { Services } from "../src/types/services.ts";
-import { hostIdentity } from "../src/host.ts";
 const fixtureSettings = {
   enabled: { adapters: ["pi"], backends: ["headless"] },
   defaults: { adapter: "pi", backend: "headless" },
@@ -84,11 +82,8 @@ function commandServices(dir: OrchDir): Promise<Services> {
 }
 
 function recordProcess(dir: OrchDir, key: string, pid: number, startToken: string): void {
-  const db = orm(dir);
-  db.run(sql`INSERT OR IGNORE INTO harnesses(id,name,enabled_at) VALUES ('pi','pi',NULL)`);
-  ensureHost(dir, hostIdentity(), 1);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${key},${key},${"pi"},${dir},${key},${1},${"session"})`);
-  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${key},${1},${hostIdentity().id},${pid},${startToken})`);
+  seedAgentRow(dir, { id: key, cwd: dir, createdAt: 1, kind: "session" });
+  seedProcessInstance(dir, key, 1, { pid, startToken });
 }
 
 /** What the CLI boundary would print for one verb: its stdout and exit code, or
@@ -184,11 +179,11 @@ describe("fleet ownership scoping", () => {
 
   test("owner token is this process's own registered id, and nothing before it registers", () => {
     const dir = makeDir();
-    expect(selfId(dir)).toBeUndefined();
+    expect(selfIdentityOf(dir, callerCredential())?.id).toBeUndefined();
     // The stamped owner must equal the daemon write actor, or an orchestrator
     // cannot control the agents it spawned. It is never the raw backend pane id.
     const orchId = seedOperator(dir);
-    expect(selfId(dir)).toBe(orchId);
+    expect(selfIdentityOf(dir, callerCredential())?.id).toBe(orchId);
   });
 
   test("spawn stamps the caller's registered id as the holder on its record", async () => {
@@ -198,7 +193,7 @@ describe("fleet ownership scoping", () => {
     delete process.env.HERDR_PANE_ID;
     const backend = new FakePanedBackend({ id: "headless" });
 
-    const agent = await spawnOneIntoTab(await commandServices(dir), {
+    const agent = spawnOneIntoTab(await commandServices(dir), {
       backend,
       adapter: fakeAdapter(),
       adapterId: "pi",
@@ -383,7 +378,7 @@ describe("a spawned agent touches only what it spawned", () => {
     const dir = makeDir();
     process.env[LAUNCH_ENV] = agentKey;
     try {
-      expect(selfId(dir)).toBe(agentKey);
+      expect(selfIdentityOf(dir, callerCredential())?.id).toBe(agentKey);
     } finally {
       delete process.env[LAUNCH_ENV];
     }

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Refactor-safety smoke test: exercise the public read-only commands against a
-# self-contained fixture. No plexer and no daemon are required: the fixture is
-# one live agent seeded through the store and presence writers a real spawn uses
-# (test/smoke-seed.ts), and every check reads offline.
+# self-contained fixture. No plexer is required: the fixture is one live agent
+# seeded through the store and presence writers a real spawn uses
+# (test/smoke-seed.ts). Every read goes through orchd (Rule 21), so the script
+# starts the fixture's own orchd and stops it on exit.
 #
 #   bash packages/orch/test/smoke.sh            compare against test/golden
 #   UPDATE=1 bash packages/orch/test/smoke.sh   rewrite the goldens
@@ -16,7 +17,11 @@ BUN=$(command -v bun)
 UPDATE=${UPDATE:-0}
 AGENT_ID=smoke00001
 
-cleanup() { rm -rf "$TMP"; }
+cleanup() {
+  # The fixture's orchd holds no agent, so stopping it ends nothing.
+  [[ -n ${ORCH+x} ]] && "${ORCH[@]}" daemon stop --yes >/dev/null 2>&1 || true
+  rm -rf "$TMP"
+}
 trap cleanup EXIT INT TERM
 
 mkdir -p "$ORCH_FIXTURE"
@@ -70,19 +75,6 @@ check() {
   compare "$name" "$expected" "$actual"
 }
 
-# A command that must refuse: what it printed is the golden, and success is the failure.
-check_fail() {
-  local name=$1; shift
-  local raw="$TMP/$name.raw" actual="$TMP/$name.actual" expected="$GOLDEN_DIR/$name"
-  if "$@" >"$raw" 2>&1; then
-    printf 'FAIL %s: command unexpectedly succeeded\n' "$name" >&2
-    failures=$((failures + 1))
-    return
-  fi
-  sanitize <"$raw" >"$actual"
-  compare "$name" "$expected" "$actual"
-}
-
 compare() {
   local name=$1 expected=$2 actual=$3
   if [[ $UPDATE == 1 ]]; then
@@ -98,9 +90,10 @@ compare() {
 }
 
 ORCH=("$BUN" "$ROOT/bin/orch.ts")
+"${ORCH[@]}" daemon start >/dev/null
 
-check status.json "${ORCH[@]}" status --offline --json
-check status.txt "${ORCH[@]}" status --offline
+check status.json "${ORCH[@]}" status --json
+check status.txt "${ORCH[@]}" status
 check help.txt "${ORCH[@]}" help
 check panes.txt "${ORCH[@]}" panes
 check tabs.txt "${ORCH[@]}" tabs
@@ -109,8 +102,7 @@ check result.json "${ORCH[@]}" result "$AGENT_ID" --json
 check review-list.json "${ORCH[@]}" review list --json
 check queue-list.json "${ORCH[@]}" queue list --json
 check space-list.txt "${ORCH[@]}" space list
-# questions reads through orchd; with no daemon it must say so and exit non-zero.
-check_fail questions.txt "${ORCH[@]}" questions
+check questions.txt "${ORCH[@]}" questions
 
 if (( failures )); then
   printf 'FAIL smoke (%d check(s) failed)\n' "$failures" >&2

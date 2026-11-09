@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { entitySpace, scopeEntitiesToSpaceFor } from "../src/entities/space.ts";
 import { checkWall, spaceOf } from "../src/policy/space.ts";

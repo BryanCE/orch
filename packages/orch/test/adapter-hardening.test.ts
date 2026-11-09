@@ -5,11 +5,12 @@ import { describe, expect, test } from "bun:test";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { CodexAdapter } from "../src/adapters/codex.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
-import { checkNotifiers } from "../src/doctor/notify.ts";
-import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
+import { checkNotifiers } from "../src/daemon/server/doctor/notify.ts";
+import { checkExtensionStaleness } from "../src/daemon/server/doctor/extensions.ts";
 import { parseSettingsText } from "../src/settings/read.ts";
 import { testServices } from "./helpers/services.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
+import { hereAgentIfAny } from "../src/process-place.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -58,7 +59,7 @@ describe("adapter and runtime hardening", () => {
       // The caller mints the identity BEFORE launch (one key per agent); the
       // backend never generates a fallback key of its own.
       expect(() => backend.spawn(adapter, { orchDir: directory })).toThrow(/caller-minted presence key/);
-      expect(backend.handleLookup.handleFor("any-key", directory)).toBeUndefined();
+      expect(hereAgentIfAny(directory, "any-key")).toBeNull();
     } finally {
       if (previous === undefined) delete process.env.ORCH_DIR;
       else process.env.ORCH_DIR = previous;

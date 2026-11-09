@@ -23,6 +23,7 @@ import { setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { isRecord } from "../src/util.ts";
 import { openTasksInScope, taskState } from "../src/store/task-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { seedAgentRow } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 const dirs: OrchDir[] = [];
@@ -33,11 +34,11 @@ function fixture(): OrchDir {
   dirs.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  for (const [id, root, parent] of [
-    ["orch-a", "orch-a", null], ["a1", "orch-a", "orch-a"], ["a2", "orch-a", "orch-a"],
-    ["orch-b", "orch-b", null], ["b1", "orch-b", "orch-b"],
+  for (const [id, parent] of [
+    ["orch-a", null], ["a1", "orch-a"], ["a2", "orch-a"],
+    ["orch-b", null], ["b1", "orch-b"],
   ] as const) {
-    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1,${"agent"})`);
+    seedAgentRow(dir, { id, spawnedBy: parent, cwd: "/repo", createdAt: 1 });
   }
   db.run(sql`INSERT INTO spaces(id,name,created_by,created_at) VALUES ('space-1','One','orch-a',1)`);
   return dir;

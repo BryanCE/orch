@@ -44,8 +44,8 @@ function steps(overrides: Partial<SmokeSteps>): Partial<SmokeSteps> {
   return {
     spawnHeadless: () => Promise.resolve("smokeagen1"),
     buildPrompt: () => "ready?",
-    readResultText: () => "ready",
-    cleanup: (key) => { cleanedKeys.push(key); },
+    readResultText: () => Promise.resolve("ready"),
+    cleanup: (key) => { cleanedKeys.push(key); return Promise.resolve(); },
     now: () => 0,
     sleep: () => Promise.resolve(),
     timeoutMs: 1000,
@@ -80,10 +80,10 @@ describe("runSetupSmoke (12.5)", () => {
     let polls = 0;
     let cleaned = "";
     const ok = await runSetupSmoke(testServices({ orchDir, settings: null }), orchDir, steps({
-      readResultText: () => { polls++; return undefined; },
+      readResultText: () => { polls++; return Promise.resolve(undefined); },
       // deadline read + one in-window poll, then now() jumps past the deadline so the loop exits fast.
       now: () => (ticks++ < 2 ? 0 : 10_000),
-      cleanup: (key) => { cleaned = key; },
+      cleanup: (key) => { cleaned = key; return Promise.resolve(); },
       timeoutMs: 1000,
     }));
     expect(polls).toBeGreaterThan(0);
@@ -101,7 +101,7 @@ describe("runSetupSmoke (12.5)", () => {
     let polls = 0;
     const ok = await runSetupSmoke(testServices({ orchDir, settings: null }), orchDir, steps({
       spawnHeadless: () => Promise.reject(new Error("headless spawn recorded no new agent")),
-      readResultText: () => { polls++; return "ready"; },
+      readResultText: () => { polls++; return Promise.resolve("ready"); },
     }));
     expect(ok).toBe(false);
     // The smoke REPORTS; it never fails setup's exit code.

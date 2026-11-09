@@ -7,6 +7,7 @@ import { scopeFromFlags } from "../src/commands/queue.ts";
 import { addTask, listTasks, history } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { seedAgentRow } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 import { servedServices } from "./helpers/daemon-state.ts";
 import { errorMessage } from "../src/util.ts";
@@ -21,13 +22,13 @@ async function fixture(): Promise<Services> {
   dirs.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  for (const [id, root, parent, name] of [
-    ["orch-a", "orch-a", null, "alpha"],
-    ["a1", "orch-a", "orch-a", "worker"],
-    ["orch-b", "orch-b", null, "beta"],
-    ["b1", "orch-b", "orch-b", "worker"],
+  for (const [id, parent, name] of [
+    ["orch-a", null, "alpha"],
+    ["a1", "orch-a", "worker"],
+    ["orch-b", null, "beta"],
+    ["b1", "orch-b", "worker"],
   ] as const) {
-    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${name},1,${"agent"})`);
+    seedAgentRow(dir, { id, spawnedBy: parent, name, cwd: "/repo", createdAt: 1 });
   }
   db.run(sql`INSERT INTO spaces(id,name,created_by,created_at) VALUES ('space-1','One','orch-a',1)`);
   return servedServices({ orchDir: dir, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);

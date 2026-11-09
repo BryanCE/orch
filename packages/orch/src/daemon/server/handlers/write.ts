@@ -10,7 +10,6 @@ import { echoAwaited } from "../../../control/echo.ts";
 import type { ControlAck } from "../../../types/control.ts";
 import { checkWall, operatorControls } from "../../../policy/space.ts";
 import { publishFromOrchd } from "../events.ts";
-import { eventHost } from "../status-events.ts";
 import { deliverOutboxMessage } from "../outbox.ts";
 import { acceptMail, mailDelivery } from "../mail.ts";
 import { normalizeControlTarget } from "../../../control/normalize-target.ts";
@@ -25,18 +24,22 @@ import type { Governance, ParamsOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
 import type { OutboxDelivery, OutboxDeps } from "../../../types/daemon.ts";
 import { pendingQuestion, settleQuestion } from "../../../store/question-rows.ts";
-import { hostOfPlace, placeAgentIfAny, recordedProcessIsLive } from "../../../process-place.ts";
+import { hereIsLive, hostOfPlace, placeAgentIfAny } from "../../../process-place.ts";
+import { hostIdentity } from "../../../hosts/identity.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
+import { getAdapter } from "../../../adapters/registry.ts";
+import { workerPrompt } from "../../../worker-prompt.ts";
 
 /** Build the event carrying mail for a live session with no bridge route. */
-function sessionMessageEvent(directory: OrchDir, key: string, id: string, text: string): NotifyEvent {
+function sessionMessageEvent(directory: OrchDir, agent: HereAgent, id: string, text: string): NotifyEvent {
+  const key = agent.id;
   const view = agentView(directory, key);
   const holder = currentLease(directory, key)?.orchId;
   return {
     type: "message",
     key,
-    host: eventHost(directory, key),
+    host: hostIdentity(),
     space: view?.environment.space ?? undefined,
     agent: view?.name ?? null,
     name: view?.name ?? null,
@@ -52,15 +55,15 @@ function sessionMessageEvent(directory: OrchDir, key: string, id: string, text: 
 
 /** Publish one write as a `message` event on a live target's stream. The target's input is
  *  never touched; a dead target has no stream, so the write is gone. */
-function deliverToSessionStream(state: DaemonState, target: string, action: string, id: string, text: string, log: Logger): OutboxDelivery {
+function deliverToSessionStream(state: DaemonState, agent: HereAgent, action: string, id: string, text: string, log: Logger): OutboxDelivery {
   const directory = state.directory;
-  if (!recordedProcessIsLive(directory, target)) {
-    log.warn("dispatch.gone", { target, reason: "no delivery route" });
+  if (!hereIsLive(directory, agent)) {
+    log.warn("dispatch.gone", { target: agent.id, reason: "no delivery route" });
     return "gone";
   }
-  const event = sessionMessageEvent(directory, target, id, text);
+  const event = sessionMessageEvent(directory, agent, id, text);
   publishFromOrchd(state, event);
-  log.info("dispatch.delivered", { target, action, reason: "session-stream" });
+  log.info("dispatch.delivered", { target: agent.id, action, reason: "session-stream" });
   return "acked";
 }
 
@@ -96,25 +99,25 @@ async function deliverOutboxWrite(state: DaemonState, target: string, payload: u
  *  `events`. */
 export async function deliverWrite(state: DaemonState, agent: HereAgent, payload: unknown, id: string): Promise<OutboxDelivery> {
   const directory = state.directory;
-  const canonicalTarget: string = agent.id;
+  const canonicalTarget = agent.id;
   const log = state.services.logger.forCorrelation(id);
   if (!isOutboxPayload(payload) || payload.action === "answer" || payload.action === "model") {
     log.warn("dispatch.malformed", { target: canonicalTarget });
     return "gone";
   }
   const text = payload.text;
-  if (payload.action === "mail" && mailDelivery(directory, state.services.settings.current().mail, payload.from, canonicalTarget) === "events") {
-    return deliverToSessionStream(state, canonicalTarget, payload.action, id, text, log);
+  if (payload.action === "mail" && mailDelivery(directory, state.services.settings.current().mail, payload.from, agent) === "events") {
+    return deliverToSessionStream(state, agent, payload.action, id, text, log);
   }
   const kind = payload.action === "dispatch" ? "run" : "steer";
-  const route = resolveTargetRoute(directory, canonicalTarget);
+  const route = resolveTargetRoute(directory, agent);
   // A raw session registered itself; orch launched none of it, so nothing composes a bridge for
   // it and its event stream is its channel. The row's kind says so, never its spawner: an agent
   // a linked host asked for has no spawner here and is still orch's launch, bridge and all.
   const caller = agentView(directory, canonicalTarget)?.kind;
   const rawSession = caller !== undefined && caller !== "agent";
   if (rawSession && !bridgeAttached(canonicalTarget) && !route?.backend.agentInput) {
-    return deliverToSessionStream(state, canonicalTarget, payload.action, id, text, log);
+    return deliverToSessionStream(state, agent, payload.action, id, text, log);
   }
   if (!resolveTargetAdapter(directory, canonicalTarget)) {
     if (!route?.backend.agentInput) {
@@ -125,7 +128,7 @@ export async function deliverWrite(state: DaemonState, agent: HereAgent, payload
     return "acked";
   }
   try {
-    const outcome = await deliverControl(directory, state.services.settings.current(), state.services.models, canonicalTarget, { kind, text, id });
+    const outcome = await deliverControl(directory, state.services.settings.current(), state.services.models, agent, { kind, text, id });
     if (outcome.outcome === "answer") {
       const agentId = canonicalTarget;
       state.services.logger.forCorrelation(id).forAgent(agentId).debug("boundary.answer", {
@@ -270,12 +273,12 @@ async function deliverAcceptedText(state: DaemonState, id: string): Promise<Cont
 
 /** Record one text write to an agent this orchd runs and deliver it, waiting for its ack. A
  *  write a linked host asked for was ruled on there, so its gate rules on nothing here. */
-export async function confirmTextWrite(state: DaemonState, action: TextAction, target: string, text: string, gate: WriteGate): Promise<Accepted> {
+export async function confirmTextWrite(state: DaemonState, action: TextAction, agent: HereAgent, text: string, gate: WriteGate): Promise<Accepted> {
   const id = randomUUID();
   const timeoutMs = state.services.settings.current().timeouts.dispatch_ack_ms;
   let ack: "acknowledged" | "unavailable";
   try {
-    ack = await confirmDelivery(id, timeoutMs, () => acceptTextWrite(state, action, target, text, id, gate));
+    ack = await confirmDelivery(id, timeoutMs, () => acceptTextWrite(state, action, agent.id, text, id, gate));
   } catch (error: unknown) {
     if (!errorMessage(error).includes(`delivery ${id} was not acknowledged within`)) throw error;
     ack = lateAck(state.directory, id);
@@ -298,7 +301,7 @@ function placedKey(directory: OrchDir, target: string): string {
 function writeText(state: DaemonState, action: TextAction, params: ParamsOf<TextAction>): Promise<Accepted> {
   const { target, text } = params;
   const key = placedKey(state.directory, target);
-  const here = (): Promise<Accepted> => confirmTextWrite(state, action, target, text, (id) => { governWrite(state, target, params, { correlationId: id }); });
+  const here = (agent: HereAgent): Promise<Accepted> => confirmTextWrite(state, action, agent, text, (id) => { governWrite(state, target, params, { correlationId: id }); });
   return atAgentHost(state, key, {
     here,
     there: async (link) => {
@@ -313,8 +316,13 @@ export async function steer(state: DaemonState, params: ParamsOf<"steer">): Prom
   return writeText(state, "steer", params);
 }
 
+/** Work for an agent. A `worker` dispatch is wrapped in the worker header composed for the
+ *  harness named, from what that harness's adapter takes; any other is sent as written. */
 export async function dispatch(state: DaemonState, params: ParamsOf<"dispatch">): Promise<Accepted> {
-  return writeText(state, "dispatch", params);
+  const worker = params.worker;
+  if (worker === undefined) return writeText(state, "dispatch", params);
+  const adapter = worker.harness === null ? undefined : getAdapter(worker.harness);
+  return writeText(state, "dispatch", { ...params, text: workerPrompt(params.text, false, adapter, worker.context) });
 }
 
 export async function message(state: DaemonState, params: ParamsOf<"message">): Promise<Accepted> {
@@ -336,23 +344,20 @@ export async function message(state: DaemonState, params: ParamsOf<"message">): 
   return { accepted: true, id: accepted.id, ack };
 }
 
-export async function answer(state: DaemonState, params: ParamsOf<"answer">): Promise<Accepted> {
+/** Answer the question an agent this orchd runs is asking: deliver the answer, then settle
+ *  the question. `questionId`, when given, must name the pending one. */
+export async function answerHere(state: DaemonState, agent: HereAgent, text: string, questionId: string | null): Promise<Accepted> {
   const directory = state.directory;
   const settings = state.services.settings;
-  const target = params.target;
-  const text = params.text;
-  const targetId = target;
-  const current = pendingQuestion(directory, targetId);
-  const requestedQuestionId = params.questionId;
-  if (current === undefined || (requestedQuestionId !== undefined && current.id !== requestedQuestionId)) {
-    throw new Error(requestedQuestionId === undefined
-      ? `${target} is not asking a question`
-      : `question ${requestedQuestionId} is not pending for ${target}`);
+  const current = pendingQuestion(directory, agent.id);
+  if (current === undefined || (questionId !== null && current.id !== questionId)) {
+    throw new Error(questionId === null
+      ? `${agent.id} is not asking a question`
+      : `question ${questionId} is not pending for ${agent.id}`);
   }
-  governWrite(state, target, params);
   const id = randomUUID();
   const ack = await confirmDelivery(id, settings.current().timeouts.dispatch_ack_ms, async () => {
-    const outcome = await deliverControl(directory, settings.current(), state.services.models, target, { kind: "answer", text, id });
+    const outcome = await deliverControl(directory, settings.current(), state.services.models, agent, { kind: "answer", text, id });
     if (outcome.outcome === "answer") throw new Error(outcome.text);
     if (!settleQuestion(directory, { id: current.id, answer: text, answeredAt: Date.now() })) {
       throw new Error(`question ${current.id} is no longer pending`);
@@ -360,4 +365,19 @@ export async function answer(state: DaemonState, params: ParamsOf<"answer">): Pr
     return outcome.ack;
   });
   return { accepted: true, id, ack };
+}
+
+/** `answer`: ruled on here, answered where the agent runs. An agent on a linked host has its
+ *  question pending in that host's store, so that host's orchd answers it. */
+export async function answer(state: DaemonState, params: ParamsOf<"answer">): Promise<Accepted> {
+  const key = placedKey(state.directory, params.target);
+  const questionId = params.questionId ?? null;
+  governWrite(state, params.target, params);
+  return atAgentHost(state, key, {
+    here: (agent) => answerHere(state, agent, params.text, questionId),
+    there: async (link) => {
+      const { accepted, id, ack } = await driveOnHost(state, link, { action: "answer", key, text: params.text, questionId, actor: params.actor ?? null });
+      return { accepted, id, ack };
+    },
+  });
 }

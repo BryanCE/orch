@@ -1,4 +1,4 @@
-import { sameSpace } from "./space.ts";
+import { sameSpace } from "../shared/space.ts";
 import type { AgentView } from "../types/store.ts";
 import { type PresenceEntry, notDead } from "../types/presence.ts";
 

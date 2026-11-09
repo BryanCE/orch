@@ -19,7 +19,7 @@ import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/bac
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { testServices } from "./helpers/services.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
 

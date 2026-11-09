@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
+import { spawnOneIntoTab } from "../src/daemon/server/spawn/placement.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { closeAllStores } from "../src/store/connection.ts";
@@ -78,7 +78,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     seedSpace(dir, "wsTwo");
     const owner = seedOperator(dir);
 
-    const agent = await spawnOneIntoTab(await spawningServices(dir), {
+    const agent = spawnOneIntoTab(await spawningServices(dir), {
       backend: new FakePanedBackend({ id: "herdr" }),
       adapter: piAdapter,
       adapterId: "pi",
@@ -107,7 +107,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     seedOperator(dir);
     const backend = new FakePanedBackend({ id: "herdr" });
 
-    const agent = await spawnOneIntoTab(await spawningServices(dir), {
+    const agent = spawnOneIntoTab(await spawningServices(dir), {
       backend,
       adapter: piAdapter,
       adapterId: "pi",

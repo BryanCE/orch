@@ -2,11 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { announcesWindows, authorizeArgv, authorizeStep, reportedOrch } from "../src/hosts/authorize.ts";
+import { announcesWindows, authorizeArgv, authorizeStep } from "../src/hosts/authorize.ts";
+import { reportedOrch } from "../src/shared/host-authorize.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 
 const ORCH_DIR = orchDirAt(join("/tmp", "orch-authorize"));
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFake orch@home";
@@ -33,7 +34,7 @@ describe("the orch a host reports", () => {
 
 describe("the one login that installs orch's key", () => {
   test("logs in as the person with their own ssh setup, checked against the key they confirmed", () => {
-    const argv = authorizeArgv(ORCH_DIR, { dest: "bryan@box", port: 2200 }, SETTINGS_DEFAULTS.links, KEY);
+    const argv = authorizeArgv(ORCH_DIR, { dest: "bryan@box", port: 2200 }, SETTINGS_DEFAULTS.links, KEY, hostIdentity().id);
     expect(argv).not.toContain("-F");
     expect(argv).not.toContain("IdentitiesOnly=yes");
     expect(argv).toContain(`UserKnownHostsFile="${join(ORCH_DIR, "ssh", "known_hosts")}"`);
@@ -44,14 +45,14 @@ describe("the one login that installs orch's key", () => {
 
   test("on a Windows host, hands PowerShell the script encoded, whatever shell sshd runs", () => {
     for (const shell of ["wsl", "windows"] as const) {
-      const command = authorizeArgv(ORCH_DIR, { dest: "bryan@box", shell }, SETTINGS_DEFAULTS.links, KEY).at(-1) ?? "";
+      const command = authorizeArgv(ORCH_DIR, { dest: "bryan@box", shell }, SETTINGS_DEFAULTS.links, KEY, hostIdentity().id).at(-1) ?? "";
       expect(command).toStartWith("powershell -NoProfile -NonInteractive -EncodedCommand ");
-      expect(decodedScript(command)).toBe(authorizeStep({ dest: "bryan@box", shell }, KEY).command);
+      expect(decodedScript(command)).toBe(authorizeStep({ dest: "bryan@box", shell }, KEY, hostIdentity().id).command);
     }
   });
 
   test("on a POSIX host, runs the script through sh", () => {
-    const command = authorizeArgv(ORCH_DIR, { dest: "bryan@box" }, SETTINGS_DEFAULTS.links, KEY).at(-1) ?? "";
+    const command = authorizeArgv(ORCH_DIR, { dest: "bryan@box" }, SETTINGS_DEFAULTS.links, KEY, hostIdentity().id).at(-1) ?? "";
     expect(command).toStartWith("sh -c '");
     expect(command).toContain("authorized_keys");
   });
@@ -59,7 +60,7 @@ describe("the one login that installs orch's key", () => {
 
 describe("the Windows script", () => {
   test("for WSL, fills in the WSL account's shell and asks that shell for orch", () => {
-    const step = authorizeStep({ dest: "bryan@box", shell: "wsl" }, KEY);
+    const step = authorizeStep({ dest: "bryan@box", shell: "wsl" }, KEY, hostIdentity().id);
     expect(step.where).toBe("PowerShell as Administrator");
     expect(step.command).toContain("wsl.exe -e getent passwd (wsl.exe -e id -un)");
     expect(step.command).toContain("$k=$k.Replace('@LOGIN_SHELL@',$s)");
@@ -69,14 +70,14 @@ describe("the Windows script", () => {
   });
 
   test("for Windows itself, finds orch on the Windows PATH and pins no shell", () => {
-    const step = authorizeStep({ dest: "bryan@box", shell: "windows" }, KEY);
+    const step = authorizeStep({ dest: "bryan@box", shell: "windows" }, KEY, hostIdentity().id);
     expect(step.command).toContain(`$k='restrict,command="orch host serve --origin ${hostIdentity().id}" ${KEY}'`);
     expect(step.command).toContain("Get-Command orch");
     expect(step.command).not.toContain("wsl.exe");
   });
 
   test("drops any line orch's key had before adding the new one", () => {
-    const step = authorizeStep({ dest: "bryan@box", shell: "wsl" }, KEY);
+    const step = authorizeStep({ dest: "bryan@box", shell: "wsl" }, KEY, hostIdentity().id);
     expect(step.command).toContain("$b='AAAAC3NzaC1lZDI1NTE5AAAAIFake'");
     expect(step.command).toContain("Where-Object { $_ -notlike \"*$b*\" }");
   });
@@ -97,7 +98,7 @@ describe("the POSIX script, run", () => {
     const keys = join(home, ".ssh", "authorized_keys");
     writeFileSync(keys, `ssh-ed25519 AAAAOther me@laptop\nrestrict,command="sh -lc 'exec orch host serve'" ${KEY}\n`);
 
-    const output = execFileSync("sh", ["-c", authorizeStep({ dest: "bryan@box" }, KEY).command], { encoding: "utf8", env: { PATH: process.env.PATH, HOME: home, SHELL: shell } });
+    const output = execFileSync("sh", ["-c", authorizeStep({ dest: "bryan@box" }, KEY, hostIdentity().id).command], { encoding: "utf8", env: { PATH: process.env.PATH, HOME: home, SHELL: shell } });
 
     expect(readFileSync(keys, "utf8")).toBe(`ssh-ed25519 AAAAOther me@laptop\nrestrict,command="${shell} -lic 'exec orch host serve --origin ${hostIdentity().id}'" ${KEY}\n`);
     expect(reportedOrch(output)).toBe("/home/b/.nvm/bin/orch");

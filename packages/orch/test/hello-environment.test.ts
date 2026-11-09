@@ -13,7 +13,7 @@ import { sql } from "drizzle-orm";
 import { row } from "./helpers/rows.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import type { OrchDir } from "../src/types/core.ts";
-import { testHost } from "./helpers/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 /**
  * `hello` is also where the ENVIRONMENT is recorded in full — harness, plexer,
  * directory, space, OS side. It is NOT filled in later or inferred at use,
@@ -47,7 +47,8 @@ function storeDir(): OrchDir {
 function register(directory: OrchDir, extra: { space?: string | null; plexerId?: string | null; handle?: string | null; now?: number } = {}) {
   return getOrCreateSessionAgent(directory, {
     pid: 4242, startToken: "tok", sessionToken: "sess-1", harnessId: "claude",
-    cwd: "/w", label: "claude session", host: testHost("h", "h", "linux"),
+    // A session on this host: only a session placed here gets a plexer and a handle here.
+    cwd: "/w", label: "claude session", host: hostIdentity(),
     plexerId: extra.plexerId ?? null, plexerVersion: extra.plexerId ? "1.0" : null,
     handle: extra.handle ?? null, space: extra.space ?? null, now: extra.now ?? 1,
   });
@@ -126,12 +127,11 @@ describe("hello records the environment in full", () => {
     mkdirSync(dirname(token), { recursive: true });
     writeFileSync(token, "test-token", { mode: 0o600 });
 
-    // The daemon must not OBSERVE the environment on the caller's behalf: it
-    // runs in one place and the caller may be in another (a WSL daemon and a
-    // Windows-side session is the case this repo lives with). Every fact B9
-    // names travels in the claim.
+    // The daemon cannot read the caller's environment: it runs in its own process.
+    // Every fact only the caller knows travels in the claim, the plexer markers raw;
+    // orchd detects the plexer from them.
     const claim = sessionClaim(directory);
-    for (const field of ["harness", "cwd", "space", "plexer", "handle", "host"]) {
+    for (const field of ["harness", "cwd", "space", "plexerEnv"]) {
       expect(Object.keys(claim)).toContain(field);
     }
     expect(claim.space).toBe("server");

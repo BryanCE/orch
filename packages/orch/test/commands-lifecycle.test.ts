@@ -4,8 +4,8 @@ import { foregroundOf } from "../src/backends/shell-ready.ts";
 import { NO_FOREGROUND } from "../src/shared/shell-prompt.ts";
 import { ownedAgentKeys } from "../src/commands/lifecycle/index.ts";
 import { cmdRestart } from "../src/commands/lifecycle/reload.ts";
-import { resolveAdapterOrDie, resolveTuningOrDie } from "../src/commands/selection.ts";
-import { adapterCommand } from "../src/commands/spawn/models.ts";
+import { resolveTuningOrDie } from "../src/shared/tuning.ts";
+import { adapterCommand, resolveAdapterOrDie } from "../src/daemon/server/spawn/models.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { releaseLease } from "../src/store/lease-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
@@ -119,12 +119,12 @@ describe("commands/lifecycle", () => {
   });
 });
 
-/** Services with pi and claude enabled, on a model listing that offers nothing,
- *  so every model passes the listing check without running a harness. */
+/** Services with pi and claude enabled, on a model listing that offers nothing, so every
+ *  model passes the listing check without running a harness. orchd runs the restart, so the
+ *  listing is the one its services hold. */
 async function swapServices(root: OrchDir): Promise<Services> {
-  const served = await servedServices({ orchDir: root, settings: {
+  return servedServices({ orchDir: root, settings: {
     enabled: { adapters: ["pi", "claude"], backends: ["headless"] },
     defaults: { adapter: "pi", backend: "headless" },
-  } }, servers);
-  return { ...served, models: { ...served.models, read: () => "" } };
+  }, models: { read: () => "", warm: () => Promise.resolve(), forget: () => undefined } }, servers);
 }

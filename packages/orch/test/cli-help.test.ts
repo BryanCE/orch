@@ -5,7 +5,7 @@ import { HELP_HEADER, mapSynopsis, renderMap, renderTopic } from "../src/cli/hel
 import { readHelpDoc } from "../src/cli/doc.ts";
 import { COMMANDS, GLOBAL_FLAGS, commandSpec } from "../src/commands/registry.ts";
 import { commandHandlers, helpTopic } from "../src/commands/index.ts";
-import { checkHelpDocs } from "../src/doctor/help-docs.ts";
+import { checkHelpDocs } from "../src/daemon/server/doctor/help-docs.ts";
 import type { CommandSpec } from "../src/cli/spec.ts";
 
 const GOLDEN = join(import.meta.dirname, "golden", "help.txt");

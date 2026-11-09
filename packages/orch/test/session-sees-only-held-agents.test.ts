@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { describe, expect, test } from "bun:test";
 
@@ -121,7 +121,8 @@ describe("session agent visibility", () => {
     const oldSession = process.env.PI_SESSION_ID;
     process.env.ORCH_DIR = root;
     process.env.PI_CODING_AGENT = "1";
-    delete process.env.PI_SESSION_ID;
+    // A session names itself; one that names nothing is refused before it is ever scoped.
+    process.env.PI_SESSION_ID = "session-token";
     try {
       const served = await servedServices({ orchDir: root, settings: SETTINGS }, servers);
       let failure: unknown;

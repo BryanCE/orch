@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { placeHere } from "../src/process-place.ts";
 import { spawnHeadless } from "../src/daemon/server/handlers/lifecycle.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { heldBackend } from "../src/backends/registry.ts";
@@ -11,10 +12,10 @@ import { drainOutbox, redeliverOpenRows } from "../src/daemon/server/outbox.ts";
 import { outboxDeps } from "../src/daemon/server/handlers/write.ts";
 import type { ModelCatalogue } from "../src/types/adapter.ts";
 import type { OrchDir } from "../src/types/core.ts";
-import type { Services } from "../src/types/services.ts";
+import type { DaemonServices } from "../src/types/services.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { FakePtyProvider } from "./helpers/fake-pty.ts";
-import { testServices } from "./helpers/services.ts";
+import { testDaemonServices } from "./helpers/services.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 const dirs: OrchDir[] = [];
@@ -37,8 +38,8 @@ function attachFakeBridge(directory: OrchDir, key: string): BridgeDelivery[] {
 const PI_MODELS = "provider model context max-out thinking images\nopenai gpt-5.6-luna 400K 128K yes yes\n";
 
 /** Services whose model catalogue answers from memory, so admitting a model runs no harness. */
-function servicesAt(orchDir: OrchDir): Services {
-  const services = testServices({ orchDir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] } } });
+function servicesAt(orchDir: OrchDir): DaemonServices {
+  const services = testDaemonServices({ orchDir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] } } });
   const models: ModelCatalogue = { ...services.models, read: () => PI_MODELS };
   return { ...services, models };
 }
@@ -63,7 +64,7 @@ describe("a spawn another host asks for", () => {
     }, hostIdFrom("the-other-host"));
 
     const pty = provider.last();
-    expect(state.held.has(key)).toBe(true);
+    expect(state.held.has({ kind: "agent", agent: placeHere(orchDir, key) })).toBe(true);
     expect(pty.request.file).toBe(hostShell()[0]);
     expect(pty.request.args.slice(0, -1)).toEqual(hostShell().slice(1));
     expect(pty.request.cwd).toBe(orchDir);

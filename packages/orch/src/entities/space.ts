@@ -1,5 +1,6 @@
 import type { CallerCredential, OrchDir, Entity } from "../types/core.ts";
-import { sameSpace, spaceOf } from "../policy/space.ts";
+import { spaceOf } from "../policy/space.ts";
+import { sameSpace } from "../shared/space.ts";
 import { callerSpaceOf } from "../identity/self.ts";
 
 export function entitySpace(root: OrchDir, e: Entity): string | null {

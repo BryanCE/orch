@@ -1,7 +1,7 @@
 import { placeHere } from "../src/process-place.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/shared/agent-id.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { assertNameFree, assertValidAgentName } from "../src/policy/name.ts";
 import { seedStatus } from "./helpers/presence.ts";

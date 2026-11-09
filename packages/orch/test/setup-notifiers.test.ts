@@ -4,15 +4,19 @@ import { describe, expect, test } from "bun:test";
 
 
 import { fileSettingsManager } from "../src/settings/manager.ts";
+import { probeNotifiers } from "../src/daemon/server/notifier-probe.ts";
 import {
   buildSelectedNotifyEntries,
   collectRequiredConfig,
-  probeNotifiers,
   renderNotifyEntry,
 } from "../src/setup/notifiers.ts";
 import { notifierPromptOptions } from "../src/setup/wizard.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+
+/** The fields the webhook and command notifiers declare, as orchd's probe reports them. */
+const URL_FIELD = { name: "url", label: "URL" };
+const COMMAND_FIELD = { name: "command", label: "Command" };
 
 describe("notifier setup logic", () => {
   test("probes the built-in adapters", async () => {
@@ -54,8 +58,8 @@ describe("notifier setup logic", () => {
   });
 
   test("collects only declared fields and rejects a missing webhook URL", () => {
-    expect(collectRequiredConfig("webhook", { extra: "ignored" })).toEqual({ ok: false, missing: ["url"] });
-    expect(collectRequiredConfig("command", { command: ["sh", "-c", "echo ok"], extra: true })).toEqual({
+    expect(collectRequiredConfig([URL_FIELD], { extra: "ignored" })).toEqual({ ok: false, missing: ["url"] });
+    expect(collectRequiredConfig([COMMAND_FIELD], { command: ["sh", "-c", "echo ok"], extra: true })).toEqual({
       ok: true,
       config: { command: ["sh", "-c", "echo ok"] },
     });
@@ -76,10 +80,10 @@ describe("notifier setup logic", () => {
     }
   });
 
-  test("builds valid entries and reports invalid selections", async () => {
-    const result = await buildSelectedNotifyEntries([
-      { id: "webhook", config: {} },
-      { id: "command", config: { command: ["sh"] } },
+  test("builds valid entries and reports invalid selections", () => {
+    const result = buildSelectedNotifyEntries([
+      { id: "webhook", requiredFields: [URL_FIELD], config: {} },
+      { id: "command", requiredFields: [COMMAND_FIELD], config: { command: ["sh"] } },
     ]);
     expect(result.errors).toEqual([{ id: "webhook", missing: ["url"] }]);
     expect(result.entries).toEqual([{ id: "command", command: ["sh"] }]);

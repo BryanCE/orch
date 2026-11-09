@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/shared/session-env.ts";
@@ -64,8 +64,9 @@ function seedUnmigratedLiveProcess(path: string): void {
   const database = new Database(path);
   database.exec("INSERT INTO harnesses(id,name) VALUES ('pi','pi')");
   database.exec("INSERT INTO hosts(id,name,os,created_at) VALUES ('test-host','test-host','linux',1)");
-  database.exec("INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('herdr~w1~p1','herdr~w1~p1','pi','/tmp','herdr~w1~p1',1,'agent')");
-  database.exec(`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES ('herdr~w1~p1',1,'test-host',${process.pid},NULL)`);
+  database.exec("INSERT INTO agents(id,root_agent_id,harness_id,name,created_at,kind) VALUES ('worker0001','worker0001','pi','worker0001',1,'agent')");
+  database.exec("INSERT INTO agent_hosts(agent_id,since,host_id,cwd) VALUES ('worker0001',1,'test-host','/tmp')");
+  database.exec(`INSERT INTO agent_processes(agent_id,since,pid,start_token) VALUES ('worker0001',1,${process.pid},NULL)`);
   database.close();
 }
 
@@ -163,8 +164,8 @@ describe("a slave never reaps or recreates the store", () => {
     // Deliberately not a minted id: the refusal names whatever id it found.
     ensureHarness(dir, "pi", "pi", 1);
     insertAgent(dir, { host: hostIdentity(), id: "herdr~spawner~p0", harnessId: "pi", cwd: process.cwd(), name: "herdr~spawner~p0", createdAt: 1 });
-    insertAgent(dir, { host: hostIdentity(), id: "herdr~w1~p1", harnessId: "pi", cwd: process.cwd(), name: "herdr~w1~p1", createdAt: 1, spawnedBy: "herdr~spawner~p0" });
-    seedLiveProcess(dir, "herdr~w1~p1");
+    insertAgent(dir, { host: hostIdentity(), id: "worker0001", harnessId: "pi", cwd: process.cwd(), name: "worker0001", createdAt: 1, spawnedBy: "herdr~spawner~p0" });
+    seedLiveProcess(dir, "worker0001");
 
     // No [LAUNCH_ENV]: this is the user, and the living agent's identity is
     // still not collateral.
@@ -172,7 +173,7 @@ describe("a slave never reaps or recreates the store", () => {
 
     expect(message).toMatch(/live/i);
     expect(message).toContain("worker");
-    expect(message).toContain("herdr~w1~p1");
+    expect(message).toContain("worker0001");
   });
 
   test("a live terminal or harness session never blocks a recreate: it registers again", () => {

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { agentViews } from "../src/store/agent-view.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { seedAgent } from "./helpers/agent.ts";
+import { seedAgent, seedAgentRow } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
@@ -46,7 +46,7 @@ describe("epoch-millisecond store instants", () => {
     const db = orm(dir);
     db.run(sql`INSERT OR IGNORE INTO harnesses (id, name, enabled_at) VALUES ('pi','pi',NULL)`);
     for (const [id, createdAt] of [["laaaaaaaaa", later], ["eaaaaaaaaa", earlier]] as const) {
-      db.run(sql`INSERT INTO agents (id, root_agent_id, harness_id, cwd, name, created_at, kind) VALUES (${id},${id},${"pi"},${dir},${id},${createdAt},${"session"})`);
+      seedAgentRow(dir, { id, cwd: dir, createdAt, kind: "session" });
     }
 
     expect(agentViews(dir).map((view) => [view.id, view.createdAt]))

@@ -4,7 +4,7 @@ import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand, shell
 import { declaredRuntime } from "../settings/read.ts";
 
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
-import { detectCodexState, extractCodexResult, readCodexSessionView } from "./codex-events.ts";
+import { detectCodexState, extractCodexResult, readCodexSessionView } from "../../extensions/codex/events.ts";
 import { buildHeadlessArgv, buildInteractiveArgv, launchCompaction, shimRole, type AgentState } from "../shared/harness.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import { compactionArgs } from "../policy/workers.ts";

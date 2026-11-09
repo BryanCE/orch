@@ -1,5 +1,5 @@
 import { placeHere } from "../src/process-place.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { orm } from "../src/store/connection.ts";
 import { agentView } from "../src/store/agent-view.ts";

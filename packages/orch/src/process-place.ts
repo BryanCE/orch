@@ -14,11 +14,11 @@
 // processes; anywhere else it is unknown, which is never dead.
 import { localProcessOf } from "./local-process.ts";
 import { recordedInstanceIsLive } from "./process-identity.ts";
-import { hostIdentity } from "./host.ts";
+import { hostIdentity } from "./hosts/identity.ts";
 import { agentIdFromRow } from "./shared/agent-id.ts";
 import { hostOffline, linkedHosts } from "./store/host-rows.ts";
 import { agentById, agentHost, hostById } from "./store/agent-rows.ts";
-import { agentLocation, currentProcess, type StoredProcess } from "./store/interval-rows.ts";
+import { agentLocation, agentLocations, currentProcess, type StoredProcess } from "./store/interval-rows.ts";
 import type { OrchDir } from "./types/core.ts";
 import type { HostId } from "./types/host.ts";
 import type { Liveness } from "./types/presence.ts";
@@ -60,6 +60,26 @@ export function placeAgentIfAny(orchDir: OrchDir, id: string, linked?: ReadonlyM
   const location = agentLocation(orchDir, id);
   if (location === undefined) return agentById(orchDir, id) === null ? null : placeAgent(orchDir, id, linked);
   return placeLocation(id, location, linked ?? linkedHosts(orchDir));
+}
+
+/** The agent with this id, when the store holds it and it runs here; null otherwise. */
+export function hereAgentIfAny(orchDir: OrchDir, id: string): HereAgent | null {
+  const place = placeAgentIfAny(orchDir, id);
+  return place === null ? null : hereOrNull(place);
+}
+
+/** Every agent among `ids` that runs here, placed in one read of the open host rows. An agent
+ *  on another host, and an id the store does not hold, is left out. */
+export function hereAgents(orchDir: OrchDir, ids: Iterable<string>): HereAgent[] {
+  const locations = agentLocations(orchDir);
+  const linked = linkedHosts(orchDir);
+  const here: HereAgent[] = [];
+  for (const id of ids) {
+    const location = locations.get(id);
+    const agent = location === undefined ? null : hereOrNull(placeLocation(id, location, linked));
+    if (agent !== null) here.push(agent);
+  }
+  return here;
 }
 
 /** The agent, when it runs here; null when it runs on another host. */
@@ -151,8 +171,14 @@ export function placedLiveness(orchDir: OrchDir, place: AgentPlace, process: Sto
 export function recordedProcessIsLive(orchDir: OrchDir, agentId: string, linked?: ReadonlyMap<HostId, LinkedHost>): boolean {
   const place = placeAgentIfAny(orchDir, agentId, linked);
   if (place === null) return false;
-  if (place.kind === "here") return agentLiveness(orchDir, place, linked) !== "dead";
+  if (place.kind === "here") return hereIsLive(orchDir, place.agent);
   return agentById(orchDir, agentId)?.ending === null;
+}
+
+/** Whether an agent this orchd runs is live: its recorded process instance is, start token
+ *  checked. The OS here answers for it. */
+export function hereIsLive(orchDir: OrchDir, agent: HereAgent): boolean {
+  return agentLiveness(orchDir, { kind: "here", agent }) !== "dead";
 }
 
 /** Asks a linked host, over its link, whether a process instance runs there. orchd sets it;

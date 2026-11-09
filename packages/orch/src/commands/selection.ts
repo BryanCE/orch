@@ -5,21 +5,16 @@
  * a `--harness`/`--model` flag had to import the whole launch path — and
  * `control.ts` importing them while `spawn.ts` imported `dispatchToAgent` back
  * was a cycle between two of the largest files in the repo. Nothing here starts
- * anything; the launch decisions that DO (`resolveTuning`, `assertLaunchModelAllowed`)
- * stay with the launch.
+ * anything; the launch decisions that DO (model admission, the launch command) run in orchd.
  */
 import { resolveSetting } from "../settings/read.ts";
-import { resolveAdapter as resolveRegisteredAdapter } from "../adapters/registry.ts";
-import { repickCommand } from "../shared/prerequisites.ts";
-import { resolveTuning, type Tuning } from "../policy/tuning.ts";
+import { isAdapterId } from "../shared/harness.ts";
 import { SpawnRefusalError } from "../refusal.ts";
-import { errorMessage } from "../util.ts";
 import { die } from "./target.ts";
-import type { AdapterId, AgentAdapter } from "../types/adapter.ts";
+import { ADAPTER_IDS, type AdapterId } from "../types/adapter.ts";
 import type { ParsedFlags } from "../cli/spec.ts";
 import type { AgentFlags } from "../types/command.ts";
 import type { OrchSettings } from "../types/settings.ts";
-import type { AgentTuning } from "../types/store.ts";
 
 /** The harness, plexer, model, and thinking a command's parsed flags named. Absent flags stay absent. */
 export function agentFlags(flags: ParsedFlags): AgentFlags {
@@ -35,42 +30,24 @@ export function agentFlags(flags: ParsedFlags): AgentFlags {
   return selected;
 }
 
-export function resolveAdapterOrDie(id: string): AgentAdapter {
-  try {
-    return resolveRegisteredAdapter(id);
-  } catch (error: unknown) {
-    throw new SpawnRefusalError(errorMessage(error));
-  }
+/** A harness id, refused with the supported ones when it names none. */
+export function adapterIdOrDie(id: string): AdapterId {
+  if (isAdapterId(id)) return id;
+  throw new SpawnRefusalError(`Unknown adapter "${id}". Supported adapters: ${ADAPTER_IDS.join(", ")}.`);
 }
 
 export function pickAdapter(flags: AgentFlags, settings: OrchSettings): AdapterId {
   const selected = resolveSetting({ flag: flags.adapterFlag, settings: settings.defaults.adapter, fallback: "" });
   if (!selected) die("no harness selected - pass --harness <harness> or run `orch setup` to pick one");
   // Validate the id here, at the boundary, so everything downstream carries AdapterId.
-  return resolveAdapterOrDie(selected).id;
+  return adapterIdOrDie(selected);
 }
 
 /** The harness a running agent runs: the one orch recorded for it. Only an agent with no
  *  record falls back to the selection; a `--harness` that names another harness is refused. */
 export function agentAdapter(flags: AgentFlags, settings: OrchSettings, recorded: string | null | undefined): AdapterId {
   if (!recorded) return pickAdapter(flags, settings);
-  const adapter = resolveAdapterOrDie(recorded).id;
+  const adapter = adapterIdOrDie(recorded);
   if (flags.adapterFlag !== undefined && flags.adapterFlag !== adapter) die(`this agent runs ${adapter}; --harness ${flags.adapterFlag} cannot change it`);
   return adapter;
-}
-
-/** The model THIS command named, or null when the caller named none. NEVER the
- *  configured default: only a launch may apply that. A dispatch that fell back to
- *  it re-pinned every agent to the default and erased the model it spawned on. */
-export function requestedModel(flags: AgentFlags): string | null {
-  return flags.modelFlag ?? null;
-}
-
-/** Resolve the one model/effort pair every tuning-aware command applies: the
- *  flags on this command, else the tuning the agent already holds (`pinned`),
- *  else the configured default. A launch passes `null`: it has no agent yet. */
-export function resolveTuningOrDie(flags: AgentFlags, settings: OrchSettings, harness: AdapterId, pinned: AgentTuning | null): Tuning {
-  const tuning = resolveTuning({ model: requestedModel(flags), thinking: flags.thinkingFlag, pinned, harness, settings });
-  if (tuning === null) die(`no model selected for ${harness} - pass --model <model[:thinking]>, or record one with: ${repickCommand(harness)}`);
-  return tuning;
 }

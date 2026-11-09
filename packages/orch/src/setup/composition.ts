@@ -1,5 +1,3 @@
-import { allAdapters, resolveAdapter } from "../adapters/registry.ts";
-import { allBackends } from "../backends/registry.ts";
 import { writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsRuntime } from "../settings/write.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { signedOutFix } from "../shared/prerequisites.ts";
@@ -11,8 +9,9 @@ import { errorMessage } from "../util.ts";
 import { die } from "../commands/target.ts";
 import { SetupFlagError, validateSetupFlag } from "./flags.ts";
 import type { SetupOptions } from "./flags.ts";
-import type { AdapterId, AgentAdapter, HarnessModel, ModelCatalogue } from "../types/adapter.ts";
-import type { BackendId } from "../types/backend.ts";
+import { ADAPTER_IDS, type AdapterId, type HarnessModel } from "../types/adapter.ts";
+import { BACKEND_IDS, type BackendId } from "../types/backend.ts";
+import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { HarnessModelChoices } from "../types/command.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { SettingsManager } from "../types/services.ts";
@@ -83,7 +82,7 @@ export function resolveModelAssignments(flags: readonly string[], harnesses: rea
  *  when exactly one harness is selected. Null when the user cancels. */
 export async function resolveHarnessModels(
   settings: OrchSettings | null,
-  catalogue: ModelCatalogue,
+  offers: HarnessOffers,
   flags: readonly string[] | string | undefined,
   harnesses: readonly AdapterId[],
   interactive: boolean,
@@ -92,10 +91,9 @@ export async function resolveHarnessModels(
   const modelFlags = typeof flags === "string" ? [flags] : flags ?? [];
   const assignments = resolveModelAssignments(modelFlags, harnesses);
   for (const id of harnesses) {
-    const harness = resolveAdapter(id);
-    const offered = await readHarnessCatalogue(harness, catalogue, interactive);
+    const { models: offered, suggested } = await readHarnessCatalogue(id, offers, interactive);
     const targeted = assignments.get(id);
-    const chosen = await resolveDefaultModel({ flag: targeted, harness, offered, interactive, recorded: settings?.defaults.models[id] });
+    const chosen = await resolveDefaultModel({ flag: targeted, harnessId: id, suggested, offered, interactive, recorded: settings?.defaults.models[id] });
     if (chosen === null) return null;
     // Blank means the harness is not ready; leaving it unrecorded is what lets setup finish and
     // `orch settings models --harness=<id>` fill it in once the harness can enumerate.
@@ -124,17 +122,24 @@ function emptyCatalogueHint(harnessId: string): string {
   ].join("\n");
 }
 
+/** What one harness offers, as orchd reports it: the models it lists, the one it suggests, and
+ *  whether it takes a compaction point. */
+export type HarnessOffer = ResultOf<"harness-catalogues">["catalogues"][number];
+
+/** Ask orchd, which runs the adapters, what these harnesses offer. */
+export type HarnessOffers = (harnesses: readonly AdapterId[]) => Promise<readonly HarnessOffer[]>;
+
 /** Ask a harness what it can run, ONCE per setup run — both model prompts read this one answer,
- *  so they can never disagree about what the harness offers. Resolves against the stored
- *  catalogue, so a harness asked before answers without shelling out at all. */
-export async function readHarnessCatalogue(harness: AgentAdapter, catalogue: ModelCatalogue, interactive: boolean): Promise<readonly HarnessModel[]> {
-  if (harness.modelWarm) await harness.modelWarm.warmModels(catalogue);
-  if (!interactive) return harness.models?.listModels(catalogue) ?? [];
-  logStep(`asking ${harness.id} which models it can run...`);
-  const offered = harness.models?.listModels(catalogue) ?? [];
-  if (offered.length) logStep(`${harness.id} lists ${offered.length} models`);
-  else logWarning(emptyCatalogueHint(harness.id));
-  return offered;
+ *  so they can never disagree about what the harness offers. orchd resolves it against the
+ *  stored catalogue, so a harness asked before answers without shelling out at all. */
+export async function readHarnessCatalogue(harnessId: AdapterId, offers: HarnessOffers, interactive: boolean): Promise<HarnessOffer> {
+  if (interactive) logStep(`asking ${harnessId} which models it can run...`);
+  const [offer] = await offers([harnessId]);
+  if (offer === undefined) throw new Error(`orchd reported nothing for ${harnessId}`);
+  if (!interactive) return offer;
+  if (offer.models.length) logStep(`${harnessId} lists ${offer.models.length} models`);
+  else logWarning(emptyCatalogueHint(harnessId));
+  return offer;
 }
 
 /** The model spawns of ONE harness launch on: `--model=`, else a pick from what that harness
@@ -143,25 +148,26 @@ export async function readHarnessCatalogue(harness: AgentAdapter, catalogue: Mod
  * the user cancels, empty when the harness offers nothing and the operator named nothing either. */
 interface DefaultModelRequest {
   readonly flag: string | undefined;
-  readonly harness: AgentAdapter;
+  readonly harnessId: AdapterId;
+  readonly suggested: string | null;
   readonly offered: readonly HarnessModel[];
   readonly interactive: boolean;
   readonly recorded: string | undefined;
 }
 
 async function resolveDefaultModel(
-  { flag, harness, offered, interactive, recorded }: DefaultModelRequest,
+  { flag, harnessId, suggested: offeredDefault, offered, interactive, recorded }: DefaultModelRequest,
   pick: (harnessId: string, offered: readonly HarnessModel[], suggested: string | undefined) => Promise<string | null> = selectDefaultModel,
 ): Promise<string | null> {
   // A harness listing nothing is not signed in. readHarnessCatalogue already said so; asking for
   // a model it cannot resolve would only record a broken one.
   if (flag === undefined && !offered.length) return "";
-  const suggested = harness.defaultModel?.defaultModelString();
-  const chosen = flag ?? (interactive ? await pick(harness.id, offered, recorded ?? suggested) : suggested ?? offered[0]?.spec);
+  const suggested = offeredDefault ?? undefined;
+  const chosen = flag ?? (interactive ? await pick(harnessId, offered, recorded ?? suggested) : suggested ?? offered[0]?.spec);
   if (chosen === null) return null;
   if (!chosen) return "";
   try {
-    assertModelListed(harness.id, offered, chosen);
+    assertModelListed(harnessId, offered, chosen);
   } catch (error: unknown) {
     die(errorMessage(error));
   }
@@ -243,20 +249,25 @@ export interface SetupComposition {
   models: HarnessModelChoices;
 }
 
-export async function resolveSetupComposition(settings: OrchSettings | null, catalogue: ModelCatalogue, options: SetupOptions): Promise<SetupComposition | null> {
-  const adapterIds = allAdapters().map((adapter) => adapter.id);
-  const backendIds = allBackends().map((entry) => entry.id);
+/** What the setup wizard asks orchd: what each harness offers, and which plexers are on this machine. */
+export interface SetupProbes {
+  readonly offers: HarnessOffers;
+  readonly availablePlexers: () => Promise<ReadonlySet<string>>;
+}
+
+export async function resolveSetupComposition(settings: OrchSettings | null, probes: SetupProbes, options: SetupOptions): Promise<SetupComposition | null> {
   const runtime = await resolveRuntime(options.runtimeFlag, options.interactive);
   if (runtime === null) return null;
-  const adapters = await resolveProviderSet("adapter", "--harness",options.adapterFlag, adapterIds, options.interactive, selectAdapters);
+  const adapters = await resolveProviderSet("adapter", "--harness", options.adapterFlag, ADAPTER_IDS, options.interactive, selectAdapters);
   if (adapters === null) return null;
   const defaultAdapter = await resolveActiveDefault(adapters, options.adapterFlag !== undefined, options.interactive, selectDefaultAdapter);
   if (defaultAdapter === null) return null;
-  const backends = await resolveProviderSet("backend", "--plexer",options.backendFlag, backendIds, options.interactive, selectBackends);
+  const pickBackends = async (ids: readonly BackendId[]): Promise<BackendId[] | null> => selectBackends(ids, await probes.availablePlexers());
+  const backends = await resolveProviderSet("backend", "--plexer", options.backendFlag, BACKEND_IDS, options.interactive, pickBackends);
   if (backends === null) return null;
   const defaultBackend = await resolveActiveDefault(backends, options.backendFlag !== undefined, options.interactive, selectDefaultBackend);
   if (defaultBackend === null) return null;
-  const models = await resolveHarnessModels(settings, catalogue, options.modelFlags, adapters, options.interactive);
+  const models = await resolveHarnessModels(settings, probes.offers, options.modelFlags, adapters, options.interactive);
   return models === null ? null : { runtime, adapters, defaultAdapter, backends, defaultBackend, models };
 }
 

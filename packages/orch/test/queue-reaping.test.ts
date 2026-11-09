@@ -16,6 +16,7 @@ import {
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { deleteSettledTasksBefore, taskState } from "../src/store/task-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { seedAgentRow } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 const dirs: OrchDir[] = [];
@@ -26,11 +27,11 @@ function fixture(): OrchDir {
   dirs.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  for (const [id, root, parent] of [
-    ["orch-a", "orch-a", null], ["a1", "orch-a", "orch-a"],
-    ["orch-b", "orch-b", null],
+  for (const [id, parent] of [
+    ["orch-a", null], ["a1", "orch-a"],
+    ["orch-b", null],
   ] as const) {
-    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1,${"agent"})`);
+    seedAgentRow(dir, { id, spawnedBy: parent, cwd: "/repo", createdAt: 1 });
   }
   return dir;
 }
@@ -62,7 +63,7 @@ describe("Cq10/Cq11: unrunnable is a fact, stale is a clock, and only one of the
     end(dir, "a1", 2);
     end(dir, "orch-a", 3);
     expect(taskState(dir, task.id)).toBe("unrunnable");
-    orm(dir).run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('a2','orch-a','orch-a','pi','/repo','a2',4,'agent')`);
+    seedAgentRow(dir, { id: "a2", spawnedBy: "orch-a", cwd: "/repo", createdAt: 4 });
     expect(taskState(dir, task.id)).toBe("queued");
     expect(nextQueuedTask(dir, "a2", 1)?.id).toBe(task.id);
     // And a task nobody can ever claim is exactly the one a reap refuses now.

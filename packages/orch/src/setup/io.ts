@@ -123,12 +123,12 @@ export async function promptAutocompleteMultiselect<Id extends string>(
   return answer === null ? null : validatePromptSelections(answer, options.map(({ value }) => value));
 }
 
-/** Wrap a synchronous side-effecting thunk in a clack spinner, marking the stop line failed if it throws. */
-export function withSpinner<T>(startMsg: string, stopMsg: string, fn: () => T): T {
+/** Wrap a side-effecting call in a clack spinner, marking the stop line failed if it throws. */
+export async function withSpinner<T>(startMsg: string, stopMsg: string, fn: () => Promise<T>): Promise<T> {
   const s = spinner();
   s.start(startMsg);
   try {
-    const result = fn();
+    const result = await fn();
     s.stop(stopMsg);
     return result;
   } catch (error) {

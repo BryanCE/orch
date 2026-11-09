@@ -1,7 +1,7 @@
 import type { NotificationPosition, OrchSettings } from "../../types/settings.ts";
 import { SETTINGS_DEFAULTS } from "../../settings/schema.ts";
 import type { HerdrCli } from "./cli.ts";
-import { HERDR_SINK_ID } from "../backend.ts";
+import { HERDR_SINK_ID } from "../../types/backend.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import type { NotificationIo, Notifier } from "../../types/notify.ts";

@@ -1,5 +1,4 @@
 import { agentById } from "../store/agent-rows.ts";
-import { callerCredential } from "../identity/credential.ts";
 import { selfIdentityOf } from "../identity/self.ts";
 import type { CallerCredential, OrchDir } from "../types/core.ts";
 import type { CallerKind } from "../types/policy.ts";
@@ -24,8 +23,4 @@ export function callerKindOf(orchDir: OrchDir, credential: CallerCredential): Ca
   if (session !== null || id !== null) return "session";
   const self = selfIdentityOf(orchDir, credential);
   return (self === null ? null : agentById(orchDir, self.id)?.kind) ?? "operator";
-}
-
-export function callerKind(orchDir: OrchDir): CallerKind {
-  return callerKindOf(orchDir, callerCredential());
 }

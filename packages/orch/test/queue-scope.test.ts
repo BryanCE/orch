@@ -17,6 +17,7 @@ import {
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { attemptsOf, enqueueTask } from "../src/store/task-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { seedAgentRow } from "./helpers/agent.ts";
 import { sql } from "drizzle-orm";
 
 import { row } from "./helpers/rows.ts";
@@ -31,15 +32,13 @@ function fixture(): OrchDir {
   dirs.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  const agents: readonly [string, string, string | null][] = [
-    ["pack", "pack", null],
-    ["x", "pack", "pack"],
-    ["y", "pack", "pack"],
-    ["other", "other", null],
+  const agents: readonly [string, string | null][] = [
+    ["pack", null],
+    ["x", "pack"],
+    ["y", "pack"],
+    ["other", null],
   ];
-  for (const [id, root, parent] of agents) {
-    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${parent},${root},${"pi"},${"/repo"},${id},1,${"agent"})`);
-  }
+  for (const [id, parent] of agents) seedAgentRow(dir, { id, spawnedBy: parent, cwd: "/repo", createdAt: 1 });
   return dir;
 }
 

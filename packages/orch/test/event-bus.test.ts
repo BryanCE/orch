@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { describe, expect, test } from "bun:test";
 import { createEventBus } from "../src/daemon/server/event-bus.ts";
 import type { Logger } from "../src/types/core.ts";

@@ -1,4 +1,3 @@
-import { hostIdentity } from "../host.ts";
 import { confirm, isCancel } from "@clack/prompts";
 import type { Services } from "../types/services.ts";
 import { renderGrantRequest } from "../policy/grant-sentence.ts";
@@ -33,11 +32,11 @@ async function reviewRequest(services: Services, request: GrantRequest): Promise
   writeLine(`\n${renderGrantRequest(request)}\n`);
   const answer = await confirm({ message: "Approve this exact action?", initialValue: false });
   if (isCancel(answer) || answer !== true) {
-    await writeRpc(services, "grant", { target: request.id, decision: "deny", host: hostIdentity() });
+    await writeRpc(services, "grant", { target: request.id, decision: "deny" });
     writeLine(`denied ${request.id}.`);
     return;
   }
-  const { expiresAt } = await writeRpc(services, "grant", { target: request.id, decision: "approve", host: hostIdentity() });
+  const { expiresAt } = await writeRpc(services, "grant", { target: request.id, decision: "approve" });
   const minutes = Math.round(((expiresAt ?? Date.now()) - Date.now()) / 60_000);
   writeLine(`granted ${request.id} - one use, expires in ${minutes}m. The agent may now retry that exact command.`);
 }

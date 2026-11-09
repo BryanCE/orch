@@ -2,7 +2,7 @@ import type { OrchDir } from "../../types/core.ts";
 // What one agent may see of another: the store decides existence and liveness; presence only adds display state.
 import { fleetDriveStates } from "../../agent/drive-state.ts";
 import { depthOf, isDescendantOf } from "../../policy/provenance.ts";
-import { scopeToSpace, spaceOfIn, type SpaceLookup } from "../../policy/space.ts";
+import { scopeToSpace, spaceOfIn, type SpaceLookup } from "../../shared/space.ts";
 import { agentViewIndex } from "../../store/agent-view.ts";
 import { loadPresence } from "../../presence/store.ts";
 import type { AgentStatusRow } from "../../store/status-rows.ts";

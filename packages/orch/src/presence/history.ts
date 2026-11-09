@@ -1,16 +1,14 @@
-/** Shared presence history helpers.
+/** Presence history helpers.
  *
  * Live status travels over the daemon socket. This module only owns the
- * append-only history files, presence directory layout, and standalone JSON
- * parsing helpers used by harness shims.
+ * append-only history files and the presence directory layout.
  */
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { setImmediate } from "node:timers";
 import { OUTCOMES_FILE, RESULTS_FILE, STATUS_LOG_FILE } from "./schema.ts";
-import { isRecord } from "../util.ts";
 import type { PresenceRecord } from "../types/presence.ts";
-import type { OrchDir, JsonRecord } from "../types/core.ts";
+import type { OrchDir } from "../types/core.ts";
 
 /** The root holding every agent's presence directory. */
 export function presenceRoot(root: OrchDir): string {
@@ -35,16 +33,6 @@ export function ensurePresenceAgentDir(key: string, root: OrchDir): string | und
 
 function presenceFile(directory: string, name: string): string {
   return join(directory, name);
-}
-
-/** Harness shims read their JSON payload from stdin. */
-export function readJsonStdin(): JsonRecord {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(0, "utf8"));
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
 }
 
 /** Lines waiting for the next flush, per history file. History is append-only and

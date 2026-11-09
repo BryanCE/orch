@@ -1,4 +1,3 @@
-import type { OrchDir } from "../types/core.ts";
 // Peer discovery asks orchd for visible agents, resolves target keys, and
 // registers the pi surface built on top of that (`/peers`, `/tell`, `orch_agents`,
 // `orch_send`, `orch_read`).
@@ -8,7 +7,6 @@ import { modelSpec } from "../policy/thinking.ts";
 import { recipientLabel } from "../recipient.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { launchCredential } from "../identity/launch.ts";
-import { presenceAgentDir } from "../presence/history.ts";
 import { isRecord, optionalString, projectRoot, truncate } from "../util.ts";
 // Type-only: erased at compile time, so it creates no runtime edge back to
 // presence.ts (which imports this module's peer operations).
@@ -32,7 +30,7 @@ async function peerViewFor(daemon: DaemonLink, ownKey: string, keys: string[], a
   return answer;
 }
 
-async function livePeers(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, allSpaces = false): Promise<{ peers: Peer[]; view: PeerView } | undefined> {
+async function livePeers(daemon: DaemonLink, ownKey: string, allSpaces = false): Promise<{ peers: Peer[]; view: PeerView } | undefined> {
   try {
     const view = await daemon.ask("peer-view", { ownKey, keys: [], allSpaces, projectRoot: projectRoot() });
     // The daemon owns enumeration and liveness; request the fleet through its
@@ -42,7 +40,6 @@ async function livePeers(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, a
       .filter((peer) => peer.key !== ownKey)
       .map((peer) => ({
         key: peer.key,
-        dir: presenceAgentDir(peer.key, orchDir),
         name: peer.name,
         harness: peer.harness,
         spawnedBy: peer.spawnedBy,
@@ -84,12 +81,11 @@ async function ownSpawner(daemon: DaemonLink): Promise<Spawner | undefined> {
 }
 
 /** The spawner as a peer, when the daemon's live peer view holds it. */
-async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, key: string): Promise<Peer | undefined> {
+async function liveSpawnerPeer(daemon: DaemonLink, ownKey: string, key: string): Promise<Peer | undefined> {
   const view = await peerViewFor(daemon, ownKey, [key], true);
   const peer = (view?.peers ?? []).find((candidate) => candidate.key === key);
   return peer === undefined ? undefined : {
     key,
-    dir: presenceAgentDir(key, orchDir),
     name: peer.name,
     harness: peer.harness,
     spawnedBy: peer.spawnedBy,
@@ -104,10 +100,10 @@ async function liveSpawnerPeer(orchDir: OrchDir, daemon: DaemonLink, ownKey: str
 /** The caller's own orchestrator, resolved from orch's provenance record.
  *  The fleet wall never applies here: replying to the spawner is the one
  *  always-valid cross-scope edge. */
-async function resolveSpawnerPeer(orchDir: OrchDir, daemon: DaemonLink, ownKey: string): Promise<PeerResolution> {
+async function resolveSpawnerPeer(daemon: DaemonLink, ownKey: string): Promise<PeerResolution> {
   const spawner = await ownSpawner(daemon);
   if (!spawner) return { error: `error: no spawner address recorded for this agent.${UNREACHABLE_SPAWNER_ADVICE}` };
-  const peer = await liveSpawnerPeer(orchDir, daemon, ownKey, spawner.key);
+  const peer = await liveSpawnerPeer(daemon, ownKey, spawner.key);
   if (!peer) {
     return { error: `error: spawner ${spawner.name ?? spawner.key} has no live status record to reply to.${UNREACHABLE_SPAWNER_ADVICE}` };
   }
@@ -126,16 +122,16 @@ function peerCandidateLabels(peers: Peer[]): string[] {
   });
 }
 
-export async function resolvePeer(orchDir: OrchDir, daemon: DaemonLink, target: string, ownKey: string, allRequested = false): Promise<PeerResolution> {
-  if (target === "spawner") return await resolveSpawnerPeer(orchDir, daemon, ownKey);
-  const live = await livePeers(orchDir, daemon, ownKey, allRequested);
+export async function resolvePeer(daemon: DaemonLink, target: string, ownKey: string, allRequested = false): Promise<PeerResolution> {
+  if (target === "spawner") return await resolveSpawnerPeer(daemon, ownKey);
+  const live = await livePeers(daemon, ownKey, allRequested);
   if (!live) return { error: "error: peer view unavailable" };
   const exact = live.peers.find((peer) => peer.key === target);
   const matches = exact ? [exact] : live.peers.filter((peer) => peer.key.endsWith(target) || peer.name === target);
   if (matches.length === 1 && matches[0]) return { peer: matches[0] };
   if (matches.length > 1) return { error: `error: ambiguous target. Candidates: ${peerCandidateLabels(matches).join(", ")}` };
   if (matches.length === 0 && (await ownSpawner(daemon))?.name === target) {
-    return await resolveSpawnerPeer(orchDir, daemon, ownKey);
+    return await resolveSpawnerPeer(daemon, ownKey);
   }
   return { error: `error: target not found. Candidates: ${peerCandidateLabels(live.peers).join(", ")}` };
 }
@@ -164,9 +160,9 @@ function summarizePeer(peer: Peer, view: PeerView, spawnerKey: string | undefine
 
 /** The caller's spawner as a listable row, when fleet scoping hid it. A worker
  *  must always see who orchestrates it, whatever space shape that session has. */
-async function hiddenSpawnerSummary(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, rows: PeerSummary[], view: PeerView, spawner: Spawner | undefined): Promise<PeerSummary | null> {
+async function hiddenSpawnerSummary(daemon: DaemonLink, ownKey: string, rows: PeerSummary[], view: PeerView, spawner: Spawner | undefined): Promise<PeerSummary | null> {
   if (!spawner || rows.some((row) => row.key === spawner.key)) return null;
-  const peer = await liveSpawnerPeer(orchDir, daemon, ownKey, spawner.key);
+  const peer = await liveSpawnerPeer(daemon, ownKey, spawner.key);
   return peer === undefined ? null : summarizePeer(peer, view, spawner.key);
 }
 
@@ -176,17 +172,17 @@ async function hiddenSpawnerSummary(orchDir: OrchDir, daemon: DaemonLink, ownKey
  *  addresses no agent, so the caller holds nothing. */
 
 
-export async function peerSummaries(orchDir: OrchDir, daemon: DaemonLink, ownKey: string, allSpaces = false): Promise<PeerSummary[]> {
-  const live = await livePeers(orchDir, daemon, ownKey, allSpaces);
+export async function peerSummaries(daemon: DaemonLink, ownKey: string, allSpaces = false): Promise<PeerSummary[]> {
+  const live = await livePeers(daemon, ownKey, allSpaces);
   if (!live) return [];
   const spawner = await ownSpawner(daemon);
   const rows = live.peers.map((peer) => summarizePeer(peer, live.view, spawner?.key));
-  const hidden = await hiddenSpawnerSummary(orchDir, daemon, ownKey, rows, live.view, spawner);
+  const hidden = await hiddenSpawnerSummary(daemon, ownKey, rows, live.view, spawner);
   return hidden ? [hidden, ...rows] : rows;
 }
 
-export async function sendPeerMessage(orchDir: OrchDir, daemon: DaemonLink, target: string, text: string, ownKey: string, allSpaces = false): Promise<string> {
-  const resolved = await resolvePeer(orchDir, daemon, target, ownKey, allSpaces);
+export async function sendPeerMessage(daemon: DaemonLink, target: string, text: string, ownKey: string, allSpaces = false): Promise<string> {
+  const resolved = await resolvePeer(daemon, target, ownKey, allSpaces);
   if ("error" in resolved) return resolved.error;
   const response = await daemon.ask("message", {
     from: ownKey,
@@ -264,12 +260,12 @@ interface OrchAgentsParams {
 }
 
 /** Registers the commands and tools through which this agent reaches its peers. */
-export function registerPeerTools(orchDir: OrchDir, harness: HarnessApi, presence: AgentPresence, daemon: DaemonLink): void {
+export function registerPeerTools(harness: HarnessApi, presence: AgentPresence, daemon: DaemonLink): void {
   harness.registerCommand("peers", {
     description: "List live orch peer agents",
     handler: (_args, ctx) => {
       try {
-        void peerSummaries(orchDir, daemon, presence.ownPresenceKey(ctx)).then((peers) => {
+        void peerSummaries(daemon, presence.ownPresenceKey(ctx)).then((peers) => {
           ctx.ui.notify(peers.length ? formatPeerLines(peers) : "no live peers", "info");
         });
       } catch {
@@ -289,7 +285,7 @@ export function registerPeerTools(orchDir: OrchDir, harness: HarnessApi, presenc
           ctx.ui.notify("error: usage /tell <target> <message>", "error");
           return Promise.resolve();
         }
-        void sendPeerMessage(orchDir, daemon, target, text, presence.ownPresenceKey(ctx)).then((result) => {
+        void sendPeerMessage(daemon, target, text, presence.ownPresenceKey(ctx)).then((result) => {
           ctx.ui.notify(result, result.startsWith("sent to ") ? "info" : "error");
         });
       } catch {
@@ -312,7 +308,6 @@ export function registerPeerTools(orchDir: OrchDir, harness: HarnessApi, presenc
     async execute(_toolCallId, params: OrchAgentsParams, _signal, _onUpdate, ctx: HarnessContext) {
       return executeTool(
         async () => JSON.stringify(await peerSummaries(
-          orchDir,
           daemon,
           presence.ownPresenceKey(ctx),
           params.all_spaces === true || params.allSpaces === true,
@@ -339,7 +334,7 @@ export function registerPeerTools(orchDir: OrchDir, harness: HarnessApi, presenc
       async execute(_toolCallId, params: OrchSendParams, _signal, _onUpdate, ctx: HarnessContext) {
         const crossSpace = params.cross_spaces === true || params.allSpaces === true;
         return executeTool(
-          () => sendPeerMessage(orchDir, daemon, params.target, params.text, presence.ownPresenceKey(ctx), crossSpace),
+          () => sendPeerMessage(daemon, params.target, params.text, presence.ownPresenceKey(ctx), crossSpace),
           "error: unable to send peer message",
         );
       },
@@ -361,7 +356,7 @@ export function registerPeerTools(orchDir: OrchDir, harness: HarnessApi, presenc
       const crossSpace = params.cross_spaces === true || params.allSpaces === true;
       return executeTool(async () => {
         const ownKey = presence.ownPresenceKey(ctx);
-        const resolved = await resolvePeer(orchDir, daemon, params.target, ownKey, crossSpace);
+        const resolved = await resolvePeer(daemon, params.target, ownKey, crossSpace);
         if ("error" in resolved) return resolved.error;
         const status = resolved.peer.status ?? {};
         const text = resolved.peer.result

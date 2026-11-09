@@ -1,5 +1,5 @@
 import { placeHere } from "../src/process-place.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
@@ -115,7 +115,7 @@ describe("commands/results", () => {
     seedLiveAgent(root, key);
     const askedAt = Date.parse("2026-09-11T00:00:00.000Z");
     try {
-      const output = await captureStdoutAsync(() => withQuestionsServer(root, [{ host: hostIdentity(), questionId: "q1", agentId: key, key, name: "question-agent", question: "need input", askedAt }], async () => {
+      const output = await captureStdoutAsync(() => withQuestionsServer(root, [{ host: hostIdentity(), space: null, questionId: "q1", agentId: key, key, name: "question-agent", question: "need input", askedAt }], async () => {
         await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all", "--json"]);
       }));
       const parsed: unknown = JSON.parse(output);
@@ -136,14 +136,14 @@ describe("commands/results", () => {
     try {
       const output = await captureStdoutAsync(async () => {
         await withQuestionsServer(root, [
-          { host: hostIdentity(), questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
+          { host: hostIdentity(), space: null, questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
         ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all", "--json"]); });
       });
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live" })]);
       const text = await captureStdoutAsync(async () => {
         await withQuestionsServer(root, [
-          { host: hostIdentity(), questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
+          { host: hostIdentity(), space: null, questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
         ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all"]); });
       });
       expect(text).toMatch(/^-  \S+\nlive\n$/);

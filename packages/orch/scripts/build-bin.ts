@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { writeShebangRuntime } from "../src/doctor/runtime.ts";
+import { writeShebangRuntime } from "../src/daemon/server/doctor/runtime.ts";
 import { BUILD_COMMIT_SLOT } from "../src/build-stamp.ts";
 
 // The npm artifact must be deterministic and runnable by every npm user. Runtime

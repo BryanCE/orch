@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { describe, expect, test } from "bun:test";
 import { eventState, isNotifyEvent } from "../src/notify/event.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";

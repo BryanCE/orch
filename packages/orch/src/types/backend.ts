@@ -2,7 +2,7 @@ import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import type { AgentAdapter } from "./adapter.ts";
 import type { HeadlessHandle } from "./plexer.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
-import type { AgentId } from "./agent-place.ts";
+import type { AgentId, HereAgent } from "./agent-place.ts";
 import type { Logger, OrchDir } from "./core.ts";
 import type { AgentWorktree } from "./worktree.ts";
 import type { AgentOrigin } from "./host.ts";
@@ -182,7 +182,9 @@ export interface EnvironmentIdentityRole {
  *  SOMEONE ELSE are different capabilities, and welding them would force an
  *  environment to fake whichever half it lacks. */
 export interface HandleLookupRole<Handle = BackendHandle> {
-  handleFor(key: string, orchDir: OrchDir): Handle | undefined;
+  /** The handle of an agent this orchd runs: a native handle names something on this
+   *  machine, so only an agent placed here has one. */
+  handleFor(agent: HereAgent, orchDir: OrchDir): Handle | undefined;
 }
 
 /** What an environment's running server says about itself. `compatible` is null
@@ -508,3 +510,7 @@ export type ToolExecutor = (
   args: readonly string[],
   options: ExecFileSyncOptionsWithStringEncoding,
 ) => string;
+
+/** Herdr's notification sink id: the sink herdr's backend registers, named by herdr's own plexer id
+ *  (the first in {@link BACKEND_IDS}), so the id is spelled once. The one spelling core may import. */
+export const HERDR_SINK_ID = BACKEND_IDS[0];

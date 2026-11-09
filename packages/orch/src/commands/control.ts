@@ -15,11 +15,10 @@ import { readAgentThroughOrchd } from "./agent-read.ts";
 import { readFleet, type FleetSnapshot } from "./fleet.ts";
 import { registeredId, whoAmI, refuseNonOperatorOverride, type CallerSelf } from "./self.ts";
 import { callerCredential } from "../identity/credential.ts";
-import { agentAdapter, agentFlags, requestedModel, resolveAdapterOrDie, resolveTuningOrDie } from "./selection.ts";
-import { taskWithReferences, workerPrompt } from "../worker-prompt.ts";
+import { adapterIdOrDie, agentAdapter, agentFlags } from "./selection.ts";
+import { taskWithReferences } from "../worker-prompt.ts";
 import { clearSession } from "./lifecycle/reset.ts";
-import { admitAgentModel, pinModels, refuseModelChange } from "./spawn/models.ts";
-import { takesModel } from "../shared/harness.ts";
+import { admitModel, pinModels, refuseModelChange } from "./spawn/models.ts";
 import { contextReference, readPromptFile } from "./prompt-file.ts";
 import type { Services } from "../types/services.ts";
 import type { AdapterId } from "../types/adapter.ts";
@@ -28,6 +27,7 @@ import type { AgentFlags, DispatchToAgentOptions, WriteGovernance } from "../typ
 import type { Entity } from "../types/core.ts";
 import type { AgentView } from "../types/store.ts";
 import { NO_TUNING, type Tuning } from "../policy/tuning.ts";
+import { requestedModel, resolveTuningOrDie } from "../shared/tuning.ts";
 
 type DispatchFlags = AgentFlags & {
   raw: boolean;
@@ -222,12 +222,12 @@ export async function cmdModel(services: Services, args: string[]): Promise<void
   const handle = ent.paneId ?? ent.key;
   const harness = resolved.view?.harnessId;
   if (!harness) die(`Target "${target}" has no recorded harness - cannot determine its model mechanism.`);
-  const adapter = resolveAdapterOrDie(harness);
-  const tuning = resolveTuningOrDie({ modelFlag: modelArg }, services.settings.current(), adapter.id, null);
-  // Admitted here, before the daemon sees it, so a short name is expanded once and the
+  const adapter = adapterIdOrDie(harness);
+  const tuning = resolveTuningOrDie({ modelFlag: modelArg }, services.settings.current(), adapter, null);
+  // Admitted by orchd before the pin, so a short name is expanded once and the
   // spec this command reports back is the one the agent was actually pinned to.
   const label = targetName(resolved);
-  const spec = modelSpec(admitAgentModel(services.settings.current(), adapter.id, services.models, tuning.model, label), tuning.thinking);
+  const spec = modelSpec((await admitModel(services, adapter, tuning.model, label)).model, tuning.thinking);
   const result = await setAgentModel(services, ent.key, spec, gov);
   if (json) process.stdout.write(JSON.stringify({ target: handle, name: label, requested: modelArg, ...result }) + "\n");
   else if (result.unchanged) process.stdout.write(`Kept ${label} on ${result.now}; no change.\n`);
@@ -250,7 +250,7 @@ export async function dispatchToAgent(services: Pick<Services, "orchDir" | "sett
   const delivered = await writeRpc(
     services,
     "dispatch",
-    { target: key, text: workerPrompt(text, options.raw ?? false, options.adapter, options.context ?? {}) },
+    { target: key, text, ...(options.raw === true ? {} : { worker: { harness: options.harness ?? null, context: { maySpawn: false, ...options.context } } }) },
     options.gov,
   );
   // The CLI end of the correlation chain. The id is minted by
@@ -303,22 +303,23 @@ async function renameBeforeDispatch(services: Services, dispatchSettings: Dispat
 }
 
 /** The tuning this dispatch runs on: the one the agent holds unless the dispatch names
- *  another. Refuses before any side effect, so a refused model leaves no rename behind. */
-function admitDispatchTuning(services: Services, dispatchSettings: DispatchSettings, flags: DispatchFlags, name: string): Tuning {
+ *  another, and whether its harness takes a pin. Refuses before any side effect, so a
+ *  refused model leaves no rename behind. */
+async function admitDispatchTuning(services: Services, dispatchSettings: DispatchSettings, flags: DispatchFlags, name: string): Promise<{ tuning: Tuning; takesModel: boolean }> {
   const settings = services.settings.current();
-  const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
-  const tuning = resolveTuningOrDie(flags, settings, adapter.id, dispatchSettings.view?.tuning ?? NO_TUNING);
-  const model = admitAgentModel(settings, adapter.id, services.models, tuning.model, name);
-  refuseModelChange(adapter, dispatchSettings.view?.tuning.model, model);
-  return { model, thinking: tuning.thinking };
+  const adapter = dispatchSettings.adapter;
+  const tuning = resolveTuningOrDie(flags, settings, adapter, dispatchSettings.view?.tuning ?? NO_TUNING);
+  const admitted = await admitModel(services, adapter, tuning.model, name);
+  refuseModelChange(adapter, admitted, dispatchSettings.view?.tuning.model, admitted.model);
+  return { tuning: { model: admitted.model, thinking: tuning.thinking }, takesModel: admitted.takesModel };
 }
 
 /** New work lands on a clean session unless the caller asked to keep the old one.
  *  The model is pinned AFTER the clear, because a clear drops it. */
-async function prepareSession(services: Services, dispatchSettings: DispatchSettings, tuning: Tuning, target: { key: string; name: string; steal: boolean }): Promise<Tuning> {
-  const adapter = resolveAdapterOrDie(dispatchSettings.adapter);
+async function prepareSession(services: Services, dispatchSettings: DispatchSettings, admitted: { tuning: Tuning; takesModel: boolean }, target: { key: string; name: string; steal: boolean }): Promise<Tuning> {
+  const { tuning } = admitted;
   if (!dispatchSettings.keepContext) await clearSession(services, target.key, target.steal);
-  if (!takesModel(adapter)) return tuning;
+  if (!admitted.takesModel) return tuning;
   const pinWarnings = await pinModels(services, services.logger, [{ key: target.key, handle: dispatchSettings.handle, name: target.name, ...tuning }]);
   if (pinWarnings.length > 0) process.exitCode = 1;
   return tuning;
@@ -332,15 +333,15 @@ export async function cmdDispatch(services: Services, args: string[]) {
   const dispatchSettings = await resolveDispatchSettings(services, self, invocation, flags, gov);
   const currentName = targetName({ view: dispatchSettings.view, entity: dispatchSettings.ent });
   const effectiveName = flags.rename ?? currentName;
-  const tuning = admitDispatchTuning(services, dispatchSettings, flags, currentName);
+  const admitted = await admitDispatchTuning(services, dispatchSettings, flags, currentName);
   if (flags.rename !== undefined) await renameBeforeDispatch(services, dispatchSettings, currentName, flags.rename, gov);
   // Address the daemon by the one canonical identity, never the handle: a second
   // registry row keyed by handle forks the agent and makes every later control
   // target ambiguous (dispatch/steer/reset all fail post-first-run).
   const key = dispatchSettings.ent.key;
-  const { model, thinking } = await prepareSession(services, dispatchSettings, tuning, { key, name: effectiveName, steal: gov.steal === true });
+  const { model, thinking } = await prepareSession(services, dispatchSettings, admitted, { key, name: effectiveName, steal: gov.steal === true });
   const headerContext = workerHeaderContextOf(self, services.settings.current(), dispatchSettings.view ?? undefined);
-  const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, adapter: resolveAdapterOrDie(dispatchSettings.adapter), context: headerContext, gov });
+  const result = await dispatchToAgent(services, services.logger, key, dispatchSettings.prompt, { raw: dispatchSettings.raw, harness: dispatchSettings.adapter, context: headerContext, gov });
   if (dispatchSettings.view === null) await recordAdoptedAgent(services, self, key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the agent runs the prompt this command sent, not some other delivery.

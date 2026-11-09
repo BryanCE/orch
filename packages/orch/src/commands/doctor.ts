@@ -1,51 +1,68 @@
-import { applyFixesUntilSettled, runDoctor } from "../doctor/runner.ts";
 import { parseCommand } from "./registry.ts";
+import { askDaemon } from "./daemon.ts";
 import { renderDoctorResults, pickFixes } from "../setup/doctor-wizard.ts";
 import { withSpinner } from "../setup/io.ts";
-import type { Services } from "../types/services.ts";
+import { timeoutMs } from "./machine.ts";
+import { errorMessage } from "../util.ts";
+import type { DaemonClient } from "../types/services.ts";
 import { renderTable } from "../table.ts";
-import type { CheckResult } from "../types/doctor.ts";
+import type { CheckFinding } from "../types/doctor.ts";
+import type { ParamsOf, ResultOf } from "../daemon/client/protocol.ts";
 
 /** Only a genuine failure makes doctor exit non-zero. A warning names a situational condition
  * (outside a session, stale daemon code, a dead presence dir) that does not mean the install is
  * broken, so it is reported but never fails the command's exit code. */
-function failExit(results: readonly CheckResult[]): void {
+function failExit(results: readonly CheckFinding[]): void {
   if (results.some((result) => result.status === "fail")) process.exitCode = 1;
 }
 
-async function runInteractiveDoctor(initial: CheckResult[], services: Pick<Services, "orchDir" | "logger" | "models">): Promise<void> {
+/** Run doctor's checks in orchd, which checks itself and this machine; with `fix`, its fixes too. */
+export function askDoctor(services: DaemonClient, params: ParamsOf<"doctor">): Promise<ResultOf<"doctor">> {
+  return askDaemon(services, "doctor", params, timeoutMs(services, "machine_ms"));
+}
+
+/** The one check the CLI answers itself: whether it reached orchd, which runs every other. */
+function unreachedOrchd(error: unknown): CheckFinding {
+  return { id: "orchd-reach", label: "orchd reach", status: "fail", detail: `this CLI could not reach orchd: ${errorMessage(error)}` };
+}
+
+async function runInteractiveDoctor(initial: readonly CheckFinding[], services: DaemonClient): Promise<void> {
   let results = initial;
   renderDoctorResults(results);
-  const fixable = results.filter((r) => r.fix).map((r) => ({ id: r.id, label: r.label, description: r.fix!.description, destructive: r.fix!.destructive }));
+  const fixable = results.flatMap((r) => r.fix ? [{ id: r.id, label: r.label, description: r.fix.description, destructive: r.fix.destructive }] : []);
   const selected = await pickFixes(fixable);
   if (selected === null) return;
   if (selected.length) {
     const chosen = new Set(selected);
-    const toApply = results.filter((r) => r.fix && !r.fix.destructive && chosen.has(r.id));
-    withSpinner(
+    const toApply = results.filter((r) => r.fix && !r.fix.destructive && chosen.has(r.id)).map((r) => r.id);
+    const answer = await withSpinner(
       `Applying ${toApply.length} fix${toApply.length === 1 ? "" : "es"}...`,
       "fixes applied",
-      () => { for (const r of toApply) r.fix!.apply(); },
+      () => askDoctor(services, { fix: true, only: toApply }),
     );
-    results = await runDoctor(services);
+    results = answer.results;
     renderDoctorResults(results);
   }
   failExit(results);
 }
 
-export async function cmdDoctor(services: Services, args: string[]) {
+export async function cmdDoctor(services: DaemonClient, args: string[]) {
   const { flags } = parseCommand("doctor", args);
   const json = flags.has("--json");
   const yes = flags.has("--yes");
-  const fix = flags.has("--fix") || yes;
-  const initial = await runDoctor(services);
   // A TTY session that did not demand json or an unattended -y apply gets the
   // interactive fix menu (bare `doctor` and `doctor --fix` both land here).
-  if (!json && !yes && process.stdin.isTTY) return runInteractiveDoctor(initial, services);
+  const interactive = !json && !yes && process.stdin.isTTY;
   // Unattended: -y (or --fix with no TTY to prompt on) applies every fix, and every fix those uncover.
-  const { results, applied: changes } = fix
-    ? await applyFixesUntilSettled(initial, () => runDoctor(services))
-    : { results: initial, applied: [] };
+  const fix = !interactive && (flags.has("--fix") || yes);
+  let answer: ResultOf<"doctor">;
+  try {
+    answer = await askDoctor(services, { fix });
+  } catch (error: unknown) {
+    answer = { results: [unreachedOrchd(error)], changes: [] };
+  }
+  if (interactive) return runInteractiveDoctor(answer.results, services);
+  const { results, changes } = answer;
   if (json) {
     process.stdout.write(JSON.stringify({ results, changes }, null, 2) + "\n");
   } else {

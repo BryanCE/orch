@@ -1,4 +1,5 @@
 import type { OrchDir } from "../src/types/core.ts";
+import { placeHere } from "../src/process-place.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   BridgeDetachedError,
@@ -56,7 +57,7 @@ function bridgeAttached(key: string): boolean {
 }
 
 function pushToBridge(key: string, value: BridgeDelivery): void {
-  daemonPushToBridge(directory, key, value);
+  daemonPushToBridge(placeHere(directory, key), value);
 }
 
 beforeEach(() => {

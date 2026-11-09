@@ -18,7 +18,7 @@ import { askChoice, askMulti, promptFrame, submittedText } from "./ask.ts";
 import { editSinks } from "./sinks.ts";
 import { editModels } from "./models.ts";
 import { editCompaction } from "./compaction.ts";
-import type { ModelCatalogue } from "../../types/adapter.ts";
+import type { HarnessOffers } from "../../setup/composition.ts";
 import { asBrowsing, cancelEdit, commitAndFlush, commitPick, refocusVisible, resetFocused, stepFocus, toggleAgentGrant, type Session } from "./state.ts";
 
 type BrowseOutcome = "open" | "again" | "quit";
@@ -149,7 +149,7 @@ async function editText(session: Session, manager: SettingsManager, editing: Edi
 }
 
 /** Open the focused setting and run the edit interaction its declared kind calls for. */
-export async function editFocused(session: Session, manager: SettingsManager, catalogue: ModelCatalogue): Promise<void> {
+export async function editFocused(session: Session, manager: SettingsManager, offers: HarnessOffers): Promise<void> {
   const opened = editorReducer(session.state, { type: "open" });
   if (opened.mode === "browsing") {
     session.status = opened.reason;
@@ -168,9 +168,9 @@ export async function editFocused(session: Session, manager: SettingsManager, ca
     case "sinks":
       return editSinks(session, manager, opened, kind);
     case "models":
-      return editModels(session, manager, catalogue, opened);
+      return editModels(session, manager, offers, opened);
     case "compaction":
-      return editCompaction(session, manager, catalogue, opened);
+      return editCompaction(session, manager, offers, opened);
     case "integer":
     case "text":
     case "list":

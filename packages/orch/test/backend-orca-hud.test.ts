@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/shared/agent-id.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { createOrcaHud } from "../src/backends/orca/hud.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { removeTempDir, tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";

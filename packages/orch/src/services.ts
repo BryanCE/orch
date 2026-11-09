@@ -6,8 +6,6 @@ import { detectHost } from "./host.ts";
 import type { Logger, LogProc, OrchDir } from "./types/core.ts";
 import type { Host } from "./types/host.ts";
 import type { OrchSettings } from "./types/settings.ts";
-import type { ModelCatalogue } from "./types/adapter.ts";
-import { createModelCatalogue } from "./adapters/model-catalogue.ts";
 import type { Services, SettingsManager } from "./types/services.ts";
 
 export interface ServicesOptions {
@@ -15,7 +13,6 @@ export interface ServicesOptions {
   settings?: SettingsManager;
   logger?: Logger;
   proc?: LogProc;
-  models?: ModelCatalogue;
   host?: Host;
 }
 
@@ -29,12 +26,12 @@ function settingsForLogLevel(settings: SettingsManager): OrchSettings | null {
   }
 }
 
-/** Build a process's services once, at a root. Nothing below a root calls this. */
+/** Build a process's services once, at a root. Nothing below a root calls this. A client (the CLI,
+ *  the web UI) runs on these; orchd adds what only it holds, its model catalogue, at its own root. */
 export function createServices(options: ServicesOptions = {}): Services {
   const orchDir = options.orchDir ?? envOrchDir();
   const settings = options.settings ?? fileSettingsManager(orchDir);
   const logger = options.logger ?? createLogger({ file: logFile(orchDir), level: logLevelFor(settingsForLogLevel(settings)), proc: options.proc ?? "cli" });
-  const models = options.models ?? createModelCatalogue(orchDir, logger);
   const host = options.host ?? detectHost();
-  return { orchDir, settings, logger, models, host };
+  return { orchDir, settings, logger, host };
 }

@@ -19,9 +19,6 @@ export function homeLabel(subject: HomeSubject, requested?: string | null): stri
   return `orch-${subject.kind}-${id || subject.kind}`;
 }
 
-/** Herdr's backend-owned notification sink id — the one spelling core may import. */
-export const HERDR_SINK_ID = "herdr";
-
 export function createInteractiveCommand(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
   const command = opts.cmd ?? adapter.workerLaunch?.restrictedInteractiveCmd(opts) ?? adapter.interactiveCmd(opts);
   if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);

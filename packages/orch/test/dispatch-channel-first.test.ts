@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
@@ -7,7 +8,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { testServices } from "./helpers/services.ts";
+import { testDaemonServices } from "./helpers/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
 const dirs: OrchDir[] = [];
@@ -48,7 +49,7 @@ describe("work reaches an agent through its link", () => {
     seedStatus(directory, target, { agent: "pi", state: "idle" });
     const deliveries = fakeLink(directory, target);
 
-    const outcome = await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), testServices({ orchDir: directory }).models, target, { kind: "run", text: "do the work", id: "dispatch-1" });
+    const outcome = await deliverControl(directory, testDaemonServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), testDaemonServices({ orchDir: directory }).models, placeHere(directory, target), { kind: "run", text: "do the work", id: "dispatch-1" });
 
     expect(outcome).toEqual({ outcome: "invoke", ack: "expected" });
     expect(deliveries).toEqual([{ id: "dispatch-1", message: { action: "dispatch", text: "do the work" } }]);
@@ -61,7 +62,7 @@ describe("work reaches an agent through its link", () => {
     seedLiveProcess(directory, target);
     seedStatus(directory, target, { agent: "claude", state: "idle" });
 
-    const outcome = await deliverControl(directory, testServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), testServices({ orchDir: directory }).models, target, { kind: "run", text: "do the work", id: "dispatch-2" });
+    const outcome = await deliverControl(directory, testDaemonServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), testDaemonServices({ orchDir: directory }).models, placeHere(directory, target), { kind: "run", text: "do the work", id: "dispatch-2" });
 
     expect(outcome).toEqual({
       outcome: "answer",

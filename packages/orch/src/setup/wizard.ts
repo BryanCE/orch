@@ -1,7 +1,6 @@
 import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
-import { allBackends } from "../backends/registry.ts";
 import { isRecommended } from "../shared/prerequisites.ts";
 import { idOptions, promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
 import type { HarnessModel } from "../types/adapter.ts";
@@ -45,10 +44,9 @@ export function selectDefaultAdapter<Id extends string>(selected: readonly Id[])
 }
 
 /** Multi-select every backend to set up; null when the user cancels. */
-export function selectBackends<Id extends string>(backends: readonly Id[]): Promise<Id[] | null> {
-  // Widened to strings: the offered ids are generic here, and this only asks whether one of
-  // them is among the detected backend ids — a membership test, not a narrowing.
-  const detected = new Set<string>(allBackends().filter((backend) => backend.isAvailable()).map((backend) => backend.id));
+/** Multi-select the backends in use, pre-checking those orchd found on this machine and the
+ *  recommended ones. Null when the user cancels. */
+export function selectBackends<Id extends string>(backends: readonly Id[], detected: ReadonlySet<string>): Promise<Id[] | null> {
   return promptMultiselect("Select the backends you use (space to toggle)", backends.map((id) => ({
     value: id,
     label: id,

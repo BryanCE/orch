@@ -5,7 +5,7 @@
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { hostIdentity } from "../host.ts";
+import { hostIdentity } from "./identity.ts";
 import type { OrchDir } from "../types/core.ts";
 import type { HostSettings, OrchSettings } from "../types/settings.ts";
 

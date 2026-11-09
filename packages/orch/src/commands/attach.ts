@@ -9,7 +9,6 @@ import { ensureDaemon, translateDaemonError } from "../daemon/client/reach.ts";
 import { encodeRequest, readJsonMessages, type RpcLine } from "../daemon/client/wire.ts";
 import { RPC_RESULTS, type ParamsOf, type RpcMethod } from "../daemon/client/protocol.ts";
 import { callerCredential } from "../identity/credential.ts";
-import { hostIdentity } from "../host.ts";
 import { detachByte, splitAtDetach } from "../cli/detach-key.ts";
 import { usageError } from "../cli/usage.ts";
 import { CommandRefusal } from "../refusal.ts";
@@ -41,10 +40,37 @@ export function attachTitle(name: string, host: string): string {
 }
 
 /** How a viewing session ended. */
-type AttachEnd =
-  | { readonly kind: "detached"; readonly host: string | null }
+export type ScreenEnd =
+  | { readonly kind: "detached" }
   | { readonly kind: "ended"; readonly reason: string }
   | { readonly kind: "refused"; readonly message: string };
+
+/** Sends one request on the viewing connection. */
+export type ScreenSend = <M extends RpcMethod>(method: M, params: ParamsOf<M>) => void;
+
+/** One screen orchd streams to this terminal. */
+export interface ScreenView {
+  /** The key orchd streams the screen under. */
+  readonly key: string;
+  /** Send the request that opens the screen; it is the first on the connection. */
+  readonly open: (send: ScreenSend, size: { cols: number; rows: number }) => void;
+  /** orchd answered the open request. */
+  readonly opened: (result: unknown) => void;
+  /** Clear the terminal before drawing a snapshot: the screen replaces what was there. */
+  readonly replace: boolean;
+  /** Every piece of output, as drawn. */
+  readonly output?: (data: string) => void;
+}
+
+/** Dial this machine's orchd for one viewing connection. */
+export async function dialScreen(services: Services): Promise<Socket> {
+  try {
+    await ensureDaemon(services.orchDir, services.logger);
+    return await connectDaemon(services.orchDir, services.settings.current().timeouts.daemon_probe_ms);
+  } catch (error: unknown) {
+    throw translateDaemonError(services.orchDir, error);
+  }
+}
 
 export async function cmdAttach(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("attach", args);
@@ -56,35 +82,42 @@ export async function cmdAttach(services: Services, args: string[]): Promise<voi
   const resolved = await resolveEntity(services, target);
   const key = resolved.entity.key;
   const name = targetName(resolved);
-  let socket: Socket;
-  try {
-    await ensureDaemon(services.orchDir, services.logger);
-    socket = await connectDaemon(services.orchDir, settings.timeouts.daemon_probe_ms);
-  } catch (error: unknown) {
-    throw translateDaemonError(services.orchDir, error);
-  }
-  const end = await view(services, socket, key, name, detach);
+  const socket = await dialScreen(services);
+  /** The host the agent runs on, once orchd has said; `linked` when it is not orchd's own. */
+  const runs: { host: string | null; linked: boolean } = { host: null, linked: false };
+  const end = await viewScreen(services, socket, detach, {
+    key,
+    replace: true,
+    open: (send, size) => { send("attach-screen", { caller: callerCredential(), key, ...size }); },
+    opened: (result) => {
+      const answer = RPC_RESULTS["attach-screen"].safeParse(result);
+      if (answer.success) {
+        runs.host = answer.data.host;
+        runs.linked = answer.data.linked;
+      }
+      process.stdout.write(attachTitle(name, runs.host ?? "this host"));
+    },
+  });
   if (end.kind === "refused") throw new CommandRefusal(end.message);
   process.stdout.write(end.kind === "detached"
-    ? `Detached from ${name}. It keeps running${end.host === null ? "" : ` on ${end.host}`}.\n`
+    ? `Detached from ${name}. It keeps running${runs.linked ? ` on ${runs.host}` : ""}.\n`
     : `${name}: ${end.reason}.\n`);
 }
 
-/** Hold the terminal on one agent's screen until the viewer detaches or the screen ends. */
-function view(services: Services, socket: Socket, key: string, name: string, detach: number): Promise<AttachEnd> {
+/** Hold the terminal on one screen orchd streams until the viewer detaches or the screen ends. */
+export function viewScreen(services: Services, socket: Socket, detach: number, screen: ScreenView): Promise<ScreenEnd> {
   const stdin = process.stdin;
   const stdout = process.stdout;
   const decoder = new StringDecoder("utf8");
+  const key = screen.key;
   let nextId = ATTACH_ID;
-  /** The host the agent runs on, once orchd has said. */
-  let host: string | null = null;
-  const send = <M extends RpcMethod>(method: M, params: ParamsOf<M>): void => {
+  const send: ScreenSend = (method, params) => {
     if (!socket.destroyed) socket.write(encodeRequest(nextId++, method, params));
   };
 
-  return new Promise<AttachEnd>((resolve) => {
+  return new Promise<ScreenEnd>((resolve) => {
     let finished = false;
-    const finish = (end: AttachEnd): void => {
+    const finish = (end: ScreenEnd): void => {
       if (finished) return;
       finished = true;
       stdin.off("data", onKeys);
@@ -99,18 +132,13 @@ function view(services: Services, socket: Socket, key: string, name: string, det
       const { forward, detached } = splitAtDetach(chunk, detach);
       const data = decoder.write(Buffer.from(forward));
       if (data.length > 0) send("screen-input", { key, data });
-      if (detached) finish({ kind: "detached", host });
+      if (detached) finish({ kind: "detached" });
     };
     const onResize = (): void => { send("screen-resize", { key, cols: stdout.columns, rows: stdout.rows }); };
     const onLine = (line: RpcLine): void => {
       switch (line.kind) {
         case "reply":
-          if (line.id !== ATTACH_ID) return;
-          {
-            const answer = RPC_RESULTS["attach-screen"].safeParse(line.result);
-            host = (answer.success ? answer.data.host : null) ?? hostIdentity().name;
-            stdout.write(attachTitle(name, host));
-          }
+          if (line.id === ATTACH_ID) screen.opened(line.result);
           return;
         case "error":
           if (line.id === ATTACH_ID) finish({ kind: "refused", message: line.error.message });
@@ -119,7 +147,10 @@ function view(services: Services, socket: Socket, key: string, name: string, det
         case "screen":
           if (line.key !== key) return;
           if (line.chunk.kind === "end") finish({ kind: "ended", reason: line.chunk.reason });
-          else stdout.write(screenOutput(line.chunk));
+          else {
+            screen.output?.(line.chunk.data);
+            stdout.write(screen.replace ? screenOutput(line.chunk) : line.chunk.data);
+          }
           return;
         case "event":
         case "delivery":
@@ -140,6 +171,6 @@ function view(services: Services, socket: Socket, key: string, name: string, det
     stdin.resume();
     stdin.on("data", onKeys);
     stdout.on("resize", onResize);
-    send("attach-screen", { caller: callerCredential(), key, cols: stdout.columns, rows: stdout.rows });
+    screen.open(send, { cols: stdout.columns, rows: stdout.rows });
   });
 }

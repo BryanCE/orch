@@ -1,0 +1,95 @@
+import type { Logger, OrchDir } from "../../../types/core.ts";
+import { NOTIFY_DEFAULT_ON } from "../../../settings/schema.ts";
+import { createNotifierRegistry } from "../../../notify/router.ts";
+import { commandArgv, desktopTier } from "../../../notify/sinks.ts";
+import { soundAvailable, soundTierBinaries } from "../../../notify/ding.ts";
+import { allBackends } from "../../../backends/registry.ts";
+import { binaryOnPath, countOf, errorMessage } from "../../../util.ts";
+import { notifierRemediation } from "../../../notify/remediation.ts";
+import type { BinaryStatus, CheckResult } from "../../../types/doctor.ts";
+import type { NotifyEntry, OrchSettings } from "../../../types/settings.ts";
+
+export function checkNotifications(_bins: BinaryStatus): CheckResult {
+  if (allBackends().some((backend) => backend.isAvailable() && backend.isInsideSession())) {
+    return { id: "notifications", label: "Desktop notifications", status: "ok", detail: "native backend notification tier is available" };
+  }
+  const tier = desktopTier();
+  if (tier) return { id: "notifications", label: "Desktop notifications", status: "ok", detail: `${tier.name} tier is available` };
+  return { id: "notifications", label: "Desktop notifications", status: "warn", detail: "no desktop notification tier is available" };
+}
+
+/** Validate configured notifier entries and probe each adapter in isolation. */
+export async function checkNotifiers(orchDir: OrchDir, settings: OrchSettings | null, logger?: Logger): Promise<CheckResult> {
+  const id = "notifiers";
+  const label = "Notifiers";
+  let configured: NotifyEntry[];
+  try {
+    // An install with no settings.json has no notifiers, which is a healthy state to report.
+    // Only a settings.json that exists and is malformed is a failure worth naming here.
+    configured = settings?.notify ?? [];
+  } catch (error: unknown) {
+    return { id, label, status: "fail", detail: errorMessage(error) };
+  }
+  if (!configured.length) return { id, label, status: "ok", detail: "no notifiers configured" };
+
+  const registry = createNotifierRegistry(orchDir, settings, undefined, { logger });
+  const failures: string[] = [];
+  const warnings: string[] = [];
+  for (const [index, entry] of configured.entries()) {
+    const number = index + 1;
+    const adapter = entry.id;
+    const effectiveOn = entry.on ?? NOTIFY_DEFAULT_ON;
+    if (!effectiveOn.includes("done")) {
+      warnings.push(`${adapter}: effective "on" list omits "done"; fix: orch settings notify add ${adapter} --only=blocked,error,done`);
+    }
+    const errors = registry.validate(entry);
+    if (errors.length) {
+      failures.push(`${adapter || `notifier #${number}`}: ${errors.join(", ")}; fix: add ${errors.map((error) => {
+        const field = /requires (\\w+)$/.exec(error)?.[1] ?? "the required field";
+        return `${field} = \"...\"`;
+      }).join(", ")} to [[notify]]`);
+      continue;
+    }
+    const result = await registry.reachable(entry);
+    if (!result.available) {
+      const remediation = notifierRemediation(adapter, entry, registry.notifierFor(entry)?.remediation);
+      failures.push(`${adapter || `notifier #${number}`}: ${result.reason ?? result.error ?? "unavailable"}; ${remediation}`);
+    }
+  }
+
+  if (failures.length) return { id, label, status: "fail", detail: failures.join("; ") };
+  if (warnings.length) return { id, label, status: "warn", detail: warnings.join("; ") };
+  return { id, label, status: "ok", detail: `${countOf(configured.length, "configured notifier")}, all available` };
+}
+
+export function checkNotifySinks(settings: OrchSettings | null, bins: BinaryStatus): CheckResult {
+  const id = "notify-sinks";
+  const label = "Notification sinks";
+  const sinks = settings?.notify ?? [];
+  if (!sinks.length) return { id, label, status: "ok", detail: "no notify sinks configured" };
+
+  const desktop = checkNotifications(bins);
+  const unavailable: string[] = [];
+  sinks.forEach((sink, index) => {
+    const name = `${sink.id} sink #${index + 1}`;
+    if (sink.id === "webhook") {
+      try {
+        const url = new URL(String(sink.url));
+        if (url.protocol !== "http:" && url.protocol !== "https:") unavailable.push(`${name} URL is not http/https`);
+      } catch {
+        unavailable.push(`${name} URL is not well-formed`);
+      }
+    } else if (sink.id === "command") {
+      const binary = commandArgv(sink.command)[0];
+      if (!binary || !binaryOnPath(binary)) unavailable.push(`${name} binary ${JSON.stringify(binary ?? "")} is not on PATH`);
+    } else if (sink.id === "sound") {
+      if (!soundAvailable()) unavailable.push(`${name} has no sound player: install ${soundTierBinaries().join(" or ")}`);
+    } else if (desktop.status !== "ok") {
+      unavailable.push(`${name} has no available desktop notification tier`);
+    }
+  });
+
+  return unavailable.length
+    ? { id, label, status: "warn", detail: `undeliverable: ${unavailable.join("; ")}` }
+    : { id, label, status: "ok", detail: `${countOf(sinks.length, "configured sink")}, all deliverable` };
+}

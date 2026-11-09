@@ -121,7 +121,7 @@ describe("bridge terminal turn seam", () => {
       identity: { agentId: "pi", settleEvent: "agent_settled" },
       notify: () => undefined,
       refreshLabels: () => Promise.resolve(),
-    }, root, testServices({ orchDir: root, settings: null }).settings);
+    }, testServices({ orchDir: root, settings: null }).settings);
     const ctx = harnessContext();
     harness.fire("session_start", {}, ctx);
     await Promise.resolve();

@@ -9,7 +9,10 @@ import { cmdSettings } from "../src/commands/settings.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createServices } from "../src/services.ts";
+import { serveFileDaemon } from "./helpers/daemon-state.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
 const dirs: OrchDir[] = [];
+const servers: RpcServer[] = [];
 const oldDir = process.env.ORCH_DIR;
 
 function fixture(): OrchDir {
@@ -20,7 +23,8 @@ function fixture(): OrchDir {
   return dir;
 }
 
-afterEach(() => {
+afterEach(async () => {
+  while (servers.length > 0) await servers.pop()!.close();
   for (const dir of dirs.splice(0)) removeTempDir(dir);
   if (oldDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = oldDir;
@@ -46,12 +50,15 @@ describe("orch settings thinking", () => {
 
   test("the command sets the level a user names", async () => {
     const dir = fixture();
+    // orchd brings the harness files in step with what the command wrote.
+    await serveFileDaemon(dir, servers);
     await cmdSettings(createServices({ orchDir: dir, settings: fileSettingsManager(dir) }), ["thinking", "xhigh"]);
     expect(fileSettingsManager(dir).current().defaults.thinking).toBe("xhigh");
   });
 
   test("the command sets a per-harness level with --harness", async () => {
     const dir = fixture();
+    await serveFileDaemon(dir, servers);
     await cmdSettings(createServices({ orchDir: dir, settings: fileSettingsManager(dir) }), ["thinking", "low", "--harness=pi"]);
     const settings = fileSettingsManager(dir).current();
     expect(settings.defaults.thinking_by_harness?.pi).toBe("low");

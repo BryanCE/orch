@@ -8,14 +8,21 @@ import { filesTouchedOf, type AgentStatusRow } from "../../store/status-rows.ts"
 import type { NotifyEvent } from "../../types/notify.ts";
 import type { OrchDir } from "../../types/core.ts";
 import type { HostIdentity } from "../../types/host.ts";
-import { hostIdentity } from "../../host.ts";
 import { collapse, truncate } from "../../util.ts";
 import { stripWorkerHeader } from "../../worker-prompt.ts";
 
-/** The host an event about an agent names: the host the agent runs on. A key with no agent row
- *  is something this orchd holds itself (a task, a write), so the event names this host. */
-export function eventHost(orchDir: OrchDir, key: string): HostIdentity {
-  return agentView(orchDir, key)?.environment.host ?? hostIdentity();
+/** The host an event about an agent names: the host the agent runs on. Null when the store
+ *  holds no agent with this id: a key that names no agent has no host, and each caller says
+ *  what its event is about then. */
+export function eventHost(orchDir: OrchDir, key: string): HostIdentity | null {
+  return agentView(orchDir, key)?.environment.host ?? null;
+}
+
+/** {@link eventHost} for an agent the caller read from a row that references it. */
+export function heldAgentHost(orchDir: OrchDir, key: string): HostIdentity {
+  const host = eventHost(orchDir, key);
+  if (host === null) throw new Error(`${key} names no agent the store holds`);
+  return host;
 }
 
 type TransitionEvent = Extract<NotifyEvent, { readonly type: "transition" }>;
@@ -61,7 +68,8 @@ function composeBase(
 
   return {
     key,
-    host: view?.environment.host ?? eventHost(orchDir, key),
+    // A status row references its agent, so the store holds it.
+    host: view?.environment.host ?? heldAgentHost(orchDir, key),
     space,
     agent: view?.name ?? abstractAgentLabel(space ?? "space", key),
     name: view?.name ?? null,

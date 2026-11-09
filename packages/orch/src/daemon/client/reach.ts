@@ -24,10 +24,9 @@ import {
 import { isLogRecord, logFile } from "../../log.ts";
 import { readSettingsFile, settingsValues } from "../../settings/read.ts";
 import { settingsPath } from "../../settings/schema.ts";
-import { sessionClaim } from "./registration.ts";
+import { isRegisterSessionResponse, sessionClaim } from "./registration.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./wire.ts";
 import { rpcCall } from "./rpc.ts";
-import { isLiveAgentIdentity } from "../../store/agent-rows.ts";
 import type { Logger } from "../../types/core.ts";
 import { errorMessage, pidAlive, sleep } from "../../util.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";
@@ -212,7 +211,7 @@ export async function rpcRegisterSession(orchDir: OrchDir, logger: Logger, label
   try {
     await ensureDaemon(orchDir, logger);
     const identity = await rpcCall(orchDir, "register-session", sessionClaim(orchDir, label), timeoutMs);
-    if (!isLiveAgentIdentity(orchDir, identity)) {
+    if (!isRegisterSessionResponse(identity)) {
       throw new RpcError("IDENTITY_UNAVAILABLE", "Daemon returned a malformed session registration");
     }
     if (identity.registrationWarning) {

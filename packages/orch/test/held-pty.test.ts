@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { PtyHold } from "../src/daemon/server/held.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
-import type { PtyExit } from "../src/types/pty.ts";
+import type { HeldTerminal, PtyExit } from "../src/types/pty.ts";
 import { FakePtyProvider } from "./helpers/fake-pty.ts";
 
 const REQUEST = { file: "sh", args: ["-c", "agent"], cwd: "/work", env: { HOME: "/home/agent" } };
+
+/** The holder keeps a PTY the same whatever it is for; a login needs no agent row behind it. */
+function login(id: string): HeldTerminal {
+  return { kind: "login", id };
+}
 
 function holder(): { hold: PtyHold; provider: FakePtyProvider } {
   const provider = new FakePtyProvider();
@@ -16,9 +21,9 @@ function ignore(): void {
 }
 
 /** The next chunk a subscriber gets, once the held screen has taken it. */
-function nextChunk(hold: PtyHold, key: string): Promise<string> {
+function nextChunk(hold: PtyHold, terminal: HeldTerminal): Promise<string> {
   return new Promise((resolve) => {
-    const stop = hold.subscribe(key, (data) => { stop(); resolve(data); }, ignore);
+    const stop = hold.subscribe(terminal, (data) => { stop(); resolve(data); }, ignore);
   });
 }
 
@@ -29,7 +34,7 @@ describe("the PTY holder", () => {
     const pty = provider.last();
     expect(started.pid).toBe(pty.pid);
     expect(pty.request).toEqual({ ...REQUEST, term: SETTINGS_DEFAULTS.pty.term, cols: SETTINGS_DEFAULTS.pty.cols, rows: SETTINGS_DEFAULTS.pty.rows });
-    expect(hold.has("agent-a")).toBe(true);
+    expect(hold.has(login("agent-a"))).toBe(true);
     expect(hold.count()).toBe(1);
   });
 
@@ -43,23 +48,23 @@ describe("the PTY holder", () => {
   test("the snapshot reflects what the program printed", async () => {
     const { hold, provider } = holder();
     await hold.start("agent-a", REQUEST);
-    const taken = nextChunk(hold, "agent-a");
+    const taken = nextChunk(hold, login("agent-a"));
     provider.last().emit("hello\r\nworld");
     await taken;
-    expect(hold.snapshot("agent-a")).toBe("hello\r\nworld");
+    expect(hold.snapshot(login("agent-a"))).toBe("hello\r\nworld");
   });
 
   test("a subscriber gets each chunk and then the exit", async () => {
     const { hold, provider } = holder();
     await hold.start("agent-a", REQUEST);
     const chunks: string[] = [];
-    const exited = new Promise<PtyExit>((resolve) => { hold.subscribe("agent-a", (data) => chunks.push(data), resolve); });
+    const exited = new Promise<PtyExit>((resolve) => { hold.subscribe(login("agent-a"), (data) => chunks.push(data), resolve); });
     provider.last().emit("one");
     provider.last().emit("two");
     provider.last().exit({ exitCode: 3, signal: null });
     expect(await exited).toEqual({ exitCode: 3, signal: null });
     expect(chunks).toEqual(["one", "two"]);
-    expect(hold.has("agent-a")).toBe(false);
+    expect(hold.has(login("agent-a"))).toBe(false);
     expect(hold.count()).toBe(0);
   });
 
@@ -67,9 +72,9 @@ describe("the PTY holder", () => {
     const { hold, provider } = holder();
     await hold.start("agent-a", REQUEST);
     const chunks: string[] = [];
-    const stop = hold.subscribe("agent-a", (data) => chunks.push(data), ignore);
+    const stop = hold.subscribe(login("agent-a"), (data) => chunks.push(data), ignore);
     stop();
-    const taken = nextChunk(hold, "agent-a");
+    const taken = nextChunk(hold, login("agent-a"));
     provider.last().emit("after");
     await taken;
     expect(chunks).toEqual([]);
@@ -78,8 +83,8 @@ describe("the PTY holder", () => {
   test("write and resize reach the PTY", async () => {
     const { hold, provider } = holder();
     await hold.start("agent-a", REQUEST);
-    hold.write("agent-a", "ls\r");
-    hold.resize("agent-a", 80, 24);
+    hold.write(login("agent-a"), "ls\r");
+    hold.resize(login("agent-a"), 80, 24);
     expect(provider.last().written).toEqual(["ls\r"]);
     expect(provider.last().sizes).toEqual([{ cols: 80, rows: 24 }]);
   });
@@ -87,11 +92,11 @@ describe("the PTY holder", () => {
   test("kill ends the program and the PTY is no longer held", async () => {
     const { hold, provider } = holder();
     await hold.start("agent-a", REQUEST);
-    const exited = new Promise<PtyExit>((resolve) => { hold.subscribe("agent-a", ignore, resolve); });
+    const exited = new Promise<PtyExit>((resolve) => { hold.subscribe(login("agent-a"), ignore, resolve); });
     hold.kill("agent-a");
     await exited;
     expect(provider.last().killed).toBe(true);
-    expect(hold.has("agent-a")).toBe(false);
+    expect(hold.has(login("agent-a"))).toBe(false);
   });
 
   test("killAll ends every held PTY", async () => {
@@ -104,7 +109,7 @@ describe("the PTY holder", () => {
 
   test("a key it does not hold is refused", () => {
     const { hold } = holder();
-    expect(() => hold.snapshot("nobody")).toThrow("no PTY is held for nobody");
-    expect(() => hold.write("nobody", "x")).toThrow("no PTY is held for nobody");
+    expect(() => hold.snapshot(login("nobody"))).toThrow("no PTY is held for nobody");
+    expect(() => hold.write(login("nobody"), "x")).toThrow("no PTY is held for nobody");
   });
 });

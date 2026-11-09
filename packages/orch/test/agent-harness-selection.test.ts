@@ -4,7 +4,10 @@ import "../src/adapters/registry.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { agentAdapter } from "../src/commands/selection.ts";
-import { admitAgentModel, refuseModelChange } from "../src/commands/spawn/models.ts";
+import { refuseModelChange } from "../src/commands/spawn/models.ts";
+import { admitAgentModel } from "../src/daemon/server/spawn/models.ts";
+import { createModelCatalogue } from "../src/adapters/model-catalogue.ts";
+import { takesModel } from "../src/shared/harness.ts";
 import type { ModelCatalogue } from "../src/types/adapter.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { testServices } from "./helpers/services.ts";
@@ -34,7 +37,7 @@ describe("a model the agent's harness does not offer", () => {
   const claudeModels = JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: "models", response: { models: [{ value: "haiku" }] } } });
   const piModels = "provider model context max-out thinking images\nopenai gpt-5.6-luna 400K 128K yes yes\n";
   const catalogue: ModelCatalogue = {
-    ...testServices({ orchDir }).models,
+    ...createModelCatalogue(orchDir, testServices({ orchDir }).logger),
     read: (bin) => (bin === "claude" ? `${claudeModels}\n` : piModels),
   };
 
@@ -51,12 +54,12 @@ describe("a model the agent's harness does not offer", () => {
 
 describe("a model change on a running session", () => {
   test("is refused for a harness that cannot change a running session's model", () => {
-    expect(() => refuseModelChange(claudeAdapter, "haiku", "sonnet")).toThrow("claude cannot change a running session's model (haiku)");
+    expect(() => refuseModelChange("claude", { takesModel: takesModel(claudeAdapter) }, "haiku", "sonnet")).toThrow("claude cannot change a running session's model (haiku)");
   });
 
   test("passes when the model stays, when nothing was recorded, or when the harness can change it", () => {
-    expect(() => refuseModelChange(claudeAdapter, "haiku", "haiku")).not.toThrow();
-    expect(() => refuseModelChange(claudeAdapter, null, "haiku")).not.toThrow();
-    expect(() => refuseModelChange(piAdapter, "openai-codex/gpt-6-luna", "openai-codex/gpt-6.1-sol")).not.toThrow();
+    expect(() => refuseModelChange("claude", { takesModel: takesModel(claudeAdapter) }, "haiku", "haiku")).not.toThrow();
+    expect(() => refuseModelChange("claude", { takesModel: takesModel(claudeAdapter) }, null, "haiku")).not.toThrow();
+    expect(() => refuseModelChange("pi", { takesModel: takesModel(piAdapter) }, "openai-codex/gpt-6-luna", "openai-codex/gpt-6.1-sol")).not.toThrow();
   });
 });

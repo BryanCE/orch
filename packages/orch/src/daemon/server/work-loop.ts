@@ -30,7 +30,8 @@ import type { NotifyEvent } from "../../types/notify.ts";
 import type { TaskState } from "../../types/queue.ts";
 import type { WorkOptions } from "../../types/daemon.ts";
 import { orchDirAt } from "../../orch-dir.ts";
-import { recordedProcessIsLive } from "../../process-place.ts";
+import { placeHere, recordedProcessIsLive } from "../../process-place.ts";
+import { hostIdentity } from "../../hosts/identity.ts";
 export type { WorkOptions };
 
 function agentIdle(entry: PresenceEntry): boolean {
@@ -139,7 +140,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const { prompt, dispatchId, log } = prepareTaskDispatch(options, entry, task, orchDir);
   const sendPrompt = async (): Promise<void> => {
     log.info("dispatch.delivering", { target: entry.key, handle: entry.key });
-    const outcome = await deliverControl(orchDir, options.settings.current(), options.models, entry.key, { kind: "run", text: prompt, id: dispatchId });
+    const outcome = await deliverControl(orchDir, options.settings.current(), options.models, placeHere(orchDir, entry.key), { kind: "run", text: prompt, id: dispatchId });
     if (outcome.outcome === "answer") {
       log.debug("boundary.answer", { target: entry.key, reason: outcome.reason });
     }
@@ -182,7 +183,9 @@ function taskEvent(orchDir: OrchDir, entry: PresenceEntry, task: TaskRec, oldSta
     type: "task",
     // Cq4: the lifecycle/result event belongs to the enqueuer, not the runner.
     key: task.enqueuedBy,
-    host: eventHost(orchDir, task.enqueuedBy),
+    // A task is held by this orchd: its event names the enqueuer's host while the store holds
+    // the enqueuer, and this orchd's own host once it does not.
+    host: eventHost(orchDir, task.enqueuedBy) ?? hostIdentity(),
     space,
     agent: name ?? abstractAgentLabel(space ?? "space", entry.key),
     name,

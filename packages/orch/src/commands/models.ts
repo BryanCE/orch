@@ -1,4 +1,3 @@
-import { resolveAdapter } from "../adapters/registry.ts";
 import { resolveTuning } from "../policy/tuning.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
@@ -6,7 +5,8 @@ import { validateSetupFlag } from "../setup/flags.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
-import type { Services } from "../types/services.ts";
+import { readRpc } from "./daemon.ts";
+import type { DaemonClient, Services } from "../types/services.ts";
 import type { AdapterId, HarnessModel } from "../types/adapter.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { CatalogueReader, HarnessSection, ModelFilters, ModelRow } from "../types/command.ts";
@@ -25,17 +25,16 @@ function readTargets(only: string | undefined, enabled: readonly AdapterId[]): A
   return only === undefined ? [...enabled] : [validateSetupFlag("harness", only, enabled)];
 }
 
-/** What a harness reports it can run. One that cannot enumerate lists nothing here rather than
- *  borrowing another harness's catalogue or inventing entries. */
-function readAdapterCatalogue(id: AdapterId, services: Pick<Services, "logger" | "models">): readonly HarnessModel[] {
-  try {
-    return resolveAdapter(id).models?.listModels(services.models) ?? [];
-  } catch (error: unknown) {
-    const message = errorMessage(error);
-    services.logger.error("models.catalogue-failed", { adapter: id, error: message });
-    process.stdout.write(`  ${id}: could not list models - ${message}\n`);
-    return [];
+/** What each targeted harness reports it can run, asked of orchd, which runs the adapters. One
+ *  that cannot enumerate lists nothing here rather than borrowing another harness's catalogue. */
+async function readCatalogues(services: DaemonClient, targets: readonly AdapterId[]): Promise<CatalogueReader> {
+  const { catalogues } = await readRpc(services, "harness-catalogues", { harnesses: [...targets] }, services.settings.current().timeouts.adapter_command_ms);
+  const byId = new Map<AdapterId, readonly HarnessModel[]>();
+  for (const catalogue of catalogues) {
+    if (catalogue.error !== null) process.stdout.write(`  ${catalogue.id}: could not list models - ${catalogue.error}\n`);
+    byId.set(catalogue.id, catalogue.models);
   }
+  return (id) => byId.get(id) ?? [];
 }
 
 /** Keep the rows the filters admit. No match is an empty result, never a fall back to the
@@ -123,7 +122,7 @@ function writePickedSpec(sections: readonly HarnessSection[], pick: string): voi
  * List what each installed harness can run. Reads adapters only; writes nothing — neither
  * `--pick` nor a filter ever changes a recorded default, quicklist, or allowlist.
  */
-export function cmdModels(services: Services, args: string[]): void {
+export async function cmdModels(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("models", args);
   const { flags, positional } = invocation;
   if (positional.length) throw usageError(invocation, `orch models: unknown ${positional.length === 1 ? "argument" : "arguments"} ${positional.join(" ")}`);
@@ -138,10 +137,11 @@ export function cmdModels(services: Services, args: string[]): void {
     die(errorMessage(error));
   }
   const search = flags.value("--search");
-  const sections = buildSections(readTargets(flags.value("--harness"),settings.enabled.adapters), settings, {
+  const targets = readTargets(flags.value("--harness"), settings.enabled.adapters);
+  const sections = buildSections(targets, settings, {
     quicklistOnly: flags.has("--preferred"),
     ...(search === undefined ? {} : { search }),
-  }, (id) => readAdapterCatalogue(id, services));
+  }, await readCatalogues(services, targets));
 
   if (pick !== undefined) {
     writePickedSpec(sections, pick);

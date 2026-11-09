@@ -3,16 +3,17 @@
 // that host's orchd's to reload or restart, with its own settings and code.
 import { retryingAsync } from "../../../retry.ts";
 import { errorMessage, sleep } from "../../../util.ts";
-import { refreshStaleShims } from "../../../doctor/runner.ts";
+import { refreshStaleShims } from "../doctor/runner.ts";
 import { resolveTargetRoute } from "../../../control/dispatch.ts";
 import { foregroundOf } from "../../../backends/shell-ready.ts";
 import { atShellPrompt } from "../../../shared/shell-prompt.ts";
 import { getAdapter } from "../../../adapters/registry.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { selectAgentStatus } from "../../../store/status-rows.ts";
-import { recordedProcessIsLive } from "../../../process-place.ts";
-import { resolveAdapterOrDie, resolveTuningOrDie } from "../../../commands/selection.ts";
-import { adapterCommand, admitLaunchModel } from "../../../commands/spawn/models.ts";
+import { agentLocation } from "../../../store/interval-rows.ts";
+import { hereIsLive } from "../../../process-place.ts";
+import { resolveTuningOrDie } from "../../../shared/tuning.ts";
+import { adapterCommand, admitLaunchModel, resolveAdapterOrDie } from "../spawn/models.ts";
 import { applyVerb, reclaim } from "./lifecycle.ts";
 import { governWrite } from "./write.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
@@ -22,6 +23,7 @@ import type { AgentFlags } from "../../../types/command.ts";
 import type { ThinkingLevel } from "../../../types/policy.ts";
 import type { LifecycleOutcome, LifecycleRequest, ParamsOf } from "../../client/protocol.ts";
 import type { DaemonState } from "../state.ts";
+import type { HereAgent } from "../../../types/agent-place.ts";
 
 type RestartRequest = Extract<LifecycleRequest, { verb: "restart" }>;
 
@@ -32,8 +34,8 @@ interface InputPane {
   readonly handle: BackendHandle;
 }
 
-function inputPane(state: DaemonState, key: string): InputPane | null {
-  const route = resolveTargetRoute(state.directory, key);
+function inputPane(state: DaemonState, agent: HereAgent): InputPane | null {
+  const route = resolveTargetRoute(state.directory, agent);
   const input = route?.backend.agentInput ?? null;
   return route === undefined || input === null ? null : { backend: route.backend, input, handle: route.handle };
 }
@@ -49,10 +51,10 @@ function readySeconds(state: DaemonState): number {
 }
 
 /** The agent's bridge reports while its process is live, from a report newer than `wasUpdatedAt`. */
-function bridgeLive(state: DaemonState, key: string, wasUpdatedAt: number | undefined): boolean {
-  const status = selectAgentStatus(state.directory, key);
+function bridgeLive(state: DaemonState, agent: HereAgent, wasUpdatedAt: number | undefined): boolean {
+  const status = selectAgentStatus(state.directory, agent.id);
   return status !== undefined
-    && recordedProcessIsLive(state.directory, key)
+    && hereIsLive(state.directory, agent)
     && (wasUpdatedAt === undefined || status.updatedAt > wasUpdatedAt);
 }
 
@@ -64,16 +66,16 @@ async function clearPrompt(state: DaemonState, pane: InputPane): Promise<void> {
 
 /** Apply a lifecycle verb through the agent's one lifecycle mechanism, and answer once its
  *  bridge reports again. */
-async function verbAndAwaitBridge(state: DaemonState, key: string, verb: LifecycleVerb, command: string | null): Promise<LifecycleOutcome> {
-  const wasUpdatedAt = selectAgentStatus(state.directory, key)?.updatedAt;
-  const pane = inputPane(state, key);
+async function verbAndAwaitBridge(state: DaemonState, agent: HereAgent, verb: LifecycleVerb, command: string | null): Promise<LifecycleOutcome> {
+  const wasUpdatedAt = selectAgentStatus(state.directory, agent.id)?.updatedAt;
+  const pane = inputPane(state, agent);
   try {
     if (pane !== null) await clearPrompt(state, pane);
-    await applyVerb(state, key, verb);
+    await applyVerb(state, agent, verb);
   } catch (error: unknown) {
     return { ok: false, reason: errorMessage(error), command };
   }
-  if (await pollReady(state, `await bridge after ${verb}`, () => bridgeLive(state, key, wasUpdatedAt))) return { ok: true, reason: null, command };
+  if (await pollReady(state, `await bridge after ${verb}`, () => bridgeLive(state, agent, wasUpdatedAt))) return { ok: true, reason: null, command };
   return { ok: false, reason: `bridge status did not refresh within ${readySeconds(state)}s after ${verb}`, command };
 }
 
@@ -89,10 +91,10 @@ function recordedHarness(state: DaemonState, key: string, verb: LifecycleVerb): 
 
 /** Reload an agent this orchd runs: stale shims for its harness redeploy first, since a reload
  *  exists to pick up new code. */
-async function reloadHere(state: DaemonState, key: string): Promise<LifecycleOutcome> {
-  const { adapter } = recordedHarness(state, key, "reload");
+async function reloadHere(state: DaemonState, agent: HereAgent): Promise<LifecycleOutcome> {
+  const { adapter } = recordedHarness(state, agent.id, "reload");
   await refreshStaleShims(state.directory, state.services.logger, [adapter.id], state.services.settings.current());
-  return verbAndAwaitBridge(state, key, "reload", null);
+  return verbAndAwaitBridge(state, agent, "reload", null);
 }
 
 /** What a restart relaunches: the harness named, else the recorded one; the model and thinking
@@ -114,19 +116,20 @@ function planRelaunch(state: DaemonState, key: string, recorded: AgentAdapter, r
  *  planned harness in the same pane. The store moves to the new harness only after the old one
  *  exits. An agent whose environment takes no input is restarted by its lifecycle mechanism, on
  *  what it runs now. */
-async function restartHere(state: DaemonState, key: string, request: RestartRequest): Promise<LifecycleOutcome> {
+async function restartHere(state: DaemonState, agent: HereAgent, request: RestartRequest): Promise<LifecycleOutcome> {
+  const key = agent.id;
   const { adapter: recorded, text: quitText } = recordedHarness(state, key, "restart");
   if (request.harness !== null) await refreshStaleShims(state.directory, state.services.logger, [resolveAdapterOrDie(request.harness).id], state.services.settings.current());
-  const pane = inputPane(state, key);
+  const pane = inputPane(state, agent);
   if (pane === null) {
     const retuned = (request.harness !== null && request.harness !== recorded.id) || request.model !== null;
     if (retuned) throw new Error(`cannot relaunch ${key} on another harness or model: its environment takes no input. Close it and spawn again.`);
     // The relaunched harness claims the row afresh, so the old claim goes first.
     reclaim(state.directory, { target: key });
-    return verbAndAwaitBridge(state, key, "restart", null);
+    return verbAndAwaitBridge(state, agent, "restart", null);
   }
   const relaunch = planRelaunch(state, key, recorded, request);
-  const cwd = agentView(state.directory, key)?.environment.cwd;
+  const cwd = agentLocation(state.directory, agent.id)?.cwd;
   if (cwd !== undefined) relaunch.adapter.workspaceTrust?.preTrustWorkspace(cwd, relaunch.command);
   await clearPrompt(state, pane);
   pane.input.submit(pane.handle, quitText);
@@ -137,18 +140,18 @@ async function restartHere(state: DaemonState, key: string, request: RestartRequ
   }
   reclaim(state.directory, { target: key, relaunch: { harnessId: relaunch.adapter.id, model: relaunch.model, thinking: relaunch.thinking } });
   pane.input.submit(pane.handle, relaunch.command);
-  if (await pollReady(state, "await relaunched bridge", () => bridgeLive(state, key, undefined))) return { ok: true, reason: null, command: relaunch.command };
+  if (await pollReady(state, "await relaunched bridge", () => bridgeLive(state, agent, undefined))) return { ok: true, reason: null, command: relaunch.command };
   state.services.logger.warn("lifecycle.restart-bridge-timeout", {}, { agentId: key });
   return { ok: false, reason: `relaunched but bridge status did not refresh within ${readySeconds(state)}s`, command: relaunch.command };
 }
 
 /** Reload or restart an agent this orchd runs, ruled on already. */
-export function lifecycleHere(state: DaemonState, key: string, request: LifecycleRequest): Promise<LifecycleOutcome> {
+export function lifecycleHere(state: DaemonState, agent: HereAgent, request: LifecycleRequest): Promise<LifecycleOutcome> {
   switch (request.verb) {
     case "reload":
-      return reloadHere(state, key);
+      return reloadHere(state, agent);
     case "restart":
-      return restartHere(state, key, request);
+      return restartHere(state, agent, request);
     default: {
       const exhaustive: never = request;
       throw new Error(`unknown lifecycle request ${String(exhaustive)}`);
@@ -161,7 +164,7 @@ export async function applyLifecycle(state: DaemonState, params: ParamsOf<"lifec
   const { target, request } = params;
   governWrite(state, target, params);
   return atAgentHost(state, target, {
-    here: () => lifecycleHere(state, target, request),
+    here: (agent) => lifecycleHere(state, agent, request),
     there: async (link) => {
       const { ok, reason, command } = await driveOnHost(state, link, { action: "lifecycle", key: target, request, actor: params.actor ?? null });
       return { ok, reason, command };

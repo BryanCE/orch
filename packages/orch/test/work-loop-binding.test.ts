@@ -5,12 +5,12 @@ import { createWakeSignal } from "../src/daemon/server/wake.ts";
 import { addTask, type TaskRec } from "../src/queue.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { seedLiveProcess } from "./helpers/agent.ts";
+import { seedAgentRow, seedLiveProcess } from "./helpers/agent.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import { sql } from "drizzle-orm";
-import { testServices } from "./helpers/services.ts";
+import { testDaemonServices } from "./helpers/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
 function claimedTask(): TaskRec {
   return {
@@ -43,8 +43,8 @@ function fleet(): OrchDir {
   directories.push(dir);
   const db = orm(dir);
   db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('enq',NULL,'enq','pi','/repo','enq',1,'session')`);
-  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('runner0000','enq','enq','pi','/repo','runner',1,'agent')`);
+  seedAgentRow(dir, { id: "enq", cwd: "/repo", createdAt: 1, kind: "session" });
+  seedAgentRow(dir, { id: "runner0000", spawnedBy: "enq", name: "runner", cwd: "/repo", createdAt: 1 });
   seedLiveProcess(dir, "runner0000");
   seedStatus(dir, RUNNER_KEY, { state: "idle", label: "Runner" });
   writeSettingsFixture(dir);
@@ -68,7 +68,7 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
       },
     };
     const { logger, records } = recordingLogger();
-    const services = testServices({ orchDir: dir, settings: {} });
+    const services = testDaemonServices({ orchDir: dir, settings: {} });
     await runWorkLoop({
       logger,
       orchDir: dir,
@@ -99,8 +99,8 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
         tickMs: 10,
         once: true,
         json: true,
-        settings: testServices({ orchDir: dir, settings: {} }).settings,
-        models: testServices({ orchDir: dir }).models,
+        settings: testDaemonServices({ orchDir: dir, settings: {} }).settings,
+        models: testDaemonServices({ orchDir: dir }).models,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });
           return Promise.resolve();

@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { describe, expect, test } from "bun:test";
 import { ambiguousTargetRefusal, CommandRefusal } from "../src/refusal.ts";
 import { resolveAgentView } from "../src/entities/lifecycle.ts";
@@ -69,6 +69,7 @@ describe("an ambiguous target names the failure and the way out (U3)", () => {
     try {
       resolveAgentView(
         [view("keyaagent1", "worker"), view("keybagent1", "worker")],
+        new Map(),
         new Map([["keyaagent1", presence("keyaagent1", true)], ["keybagent1", presence("keybagent1", true)]]),
         "worker",
       );

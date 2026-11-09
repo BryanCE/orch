@@ -11,7 +11,7 @@ import { upsertRun } from "../src/store/run-rows.ts";
 import { seedAgent } from "./helpers/agent.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
-import { testServices } from "./helpers/services.ts";
+import { testDaemonServices } from "./helpers/services.ts";
 import type { ParamsOf } from "../src/daemon/client/protocol.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -141,7 +141,7 @@ describe("Claude adapter", () => {
     ] } } });
     const asked: { bin: string; argv: readonly string[]; stdin?: string }[] = [];
     const catalogue: ModelCatalogue = {
-      ...testServices({ orchDir }).models,
+      ...testDaemonServices({ orchDir }).models,
       read: (bin, argv, stdin) => { asked.push({ bin, argv, stdin }); return `{"type":"system"}\n${initialize}\n`; },
     };
     expect(claudeAdapter.models.listModels(catalogue)).toEqual([
@@ -227,7 +227,7 @@ describe("Claude adapter", () => {
     const transcript = join(agentDir(key), "shared.jsonl");
     // The final assistant carries an empty-string part beside a real one — the
     // exact divergence D4 collapsed onto the adapter's `part !== undefined`
-    // filter. Both readers now route through src/adapters/transcript.ts, so the
+    // filter. Both readers now route through src/shared/transcript.ts, so the
     // subprocess shim and the in-process adapter must agree byte-for-byte.
     writeFileSync(transcript, JSON.stringify({
       type: "assistant",

@@ -7,7 +7,7 @@ import { orphanAgents } from "../src/policy/orphan.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 const directories: OrchDir[] = [];
 
 afterEach(() => {

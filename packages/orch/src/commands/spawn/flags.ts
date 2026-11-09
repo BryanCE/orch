@@ -1,20 +1,16 @@
-import { workerPolicyFrom, workerTools } from "../../policy/workers.ts";
-import { headlessBackend, resolveBackend } from "../../backends/registry.ts";
-import { agentFlags, pickAdapter, resolveTuningOrDie } from "../selection.ts";
+import { agentFlags, pickAdapter } from "../selection.ts";
+import { resolveTuningOrDie } from "../../shared/tuning.ts";
 import { parseCommand } from "../registry.ts";
 import { readFileSync } from "node:fs";
 import { errorMessage } from "../../util.ts";
 import { die } from "../target.ts";
 import type { AdapterId } from "../../types/adapter.ts";
-import type { Backend } from "../../types/backend.ts";
-import type { WorkerPolicy } from "../../types/policy.ts";
 import type { OrchSettings } from "../../types/settings.ts";
-import type { AgentFlags, AgentSettings } from "../../types/command.ts";
+import type { AgentFlags } from "../../types/command.ts";
 import type { ThinkingLevel } from "../../types/policy.ts";
 import type { ContextReference } from "../../types/core.ts";
-import { adapterCommand } from "./models.ts";
-import { isWorktreeProviderId, WORKTREE_PROVIDER_IDS } from "../../types/worktree.ts";
-import type { WorktreeIntent } from "../../worktrees/agent.ts";
+import type { ParamsOf } from "../../daemon/client/protocol.ts";
+import { isWorktreeProviderId, WORKTREE_PROVIDER_IDS, type WorktreeProviderId } from "../../types/worktree.ts";
 import { resolveSpawnNames } from "./names.ts";
 import { contextReference, readPromptFile } from "../prompt-file.ts";
 import { usageError, type CommandAt } from "../../cli/usage.ts";
@@ -61,12 +57,13 @@ export function worktreeFlags(flags: Pick<ReturnType<typeof parseCommand>["flags
   return { wanted: flags.has("--worktree"), provider: flags.value("--worktree-provider") };
 }
 
-/** Naming a provider asks for a worktree; `defaults.worktree` asks for one on every launch. */
-export function resolveWorktreeIntent(at: CommandAt, flags: WorktreeFlags, settings: OrchSettings): WorktreeIntent | null {
+/** Naming a provider asks for a worktree; `defaults.worktree` asks for one on every launch.
+ *  orchd makes it, with its own worktree settings. */
+export function resolveWorktreeIntent(at: CommandAt, flags: WorktreeFlags, settings: OrchSettings): { readonly provider: WorktreeProviderId } | null {
   const { wanted, provider } = flags;
   if (provider !== undefined && !isWorktreeProviderId(provider)) throw usageError(at, `--worktree-provider takes one of ${WORKTREE_PROVIDER_IDS.join(", ")}`);
   if (!wanted && provider === undefined && !settings.defaults.worktree) return null;
-  return { provider: provider ?? settings.worktrees.provider, config: settings.worktrees };
+  return { provider: provider ?? settings.worktrees.provider };
 }
 
 export function parseSpawnFlags(args: string[]): SpawnFlags {
@@ -94,42 +91,17 @@ export function parseSpawnFlags(args: string[]): SpawnFlags {
   };
 }
 
-export interface SpawnAgentPlan {
-  readonly name: string;
-  readonly adapter: AdapterId;
-  /** The harness command this agent launches under: `--cmd`, or its adapter's own. */
-  readonly cmd: string;
-  /** The quicklist this agent's harness picker is given; never a launch gate. */
-  readonly preferredModels: readonly string[];
-  readonly model: string;
-  readonly thinking: ThinkingLevel;
-  /** The initial task, or null when the fleet starts idle. All agents have one or none have one. */
-  readonly prompt: string | null;
+/** The launch orchd is asked for, minus the credential the call carries. */
+export type SpawnParams = Omit<ParamsOf<"spawn">, "caller" | "actor" | "actorSpace" | "actorIsOperator" | "steal" | "crossSpace">;
+
+/** What `orch spawn` asks orchd for, and how it reports. */
+export interface SpawnRequest {
+  readonly json: boolean;
+  readonly params: SpawnParams;
 }
 
-export type SpawnSettings = Pick<AgentSettings, "backend"> & {
-  tools: string | undefined;
-  workers: WorkerPolicy;
-  json: boolean;
-  /** The tab --tab named: an existing match is joined, not recreated. Null rolls a free label. */
-  tab: string | null;
-  /** True when the human chose the plexer: `--plexer` or the default in
-   *  `settings.json`. A chosen plexer is one orch may open a home in.
-   *  A plexer orch only probed is not. */
-  backendChosen: boolean;
-  cwd: string;
-  commandFlag: boolean;
-  space: string | null;
-  /** The linked host the agents run on, headless; null runs them here. */
-  host: { readonly name: string } | null;
-  prefix: string;
-  /** One resolved plan per agent. */
-  agents: readonly SpawnAgentPlan[];
-  /** Null when these agents run in the directory they were launched from. */
-  worktree: WorktreeIntent | null;
-  fleet: OrchSettings["fleet"];
-  tiling: OrchSettings["tiling"];
-};
+/** One agent's plan as orchd is asked for it. */
+type AgentPlan = SpawnParams["agents"][number];
 
 /** "One value for every agent, or exactly one per agent." Zero values yields a row of undefined. */
 function perAgent<T>(at: CommandAt, flag: string, values: readonly T[], n: number): (T | undefined)[] {
@@ -179,28 +151,12 @@ function referencesByAgent(withPaths: readonly string[], names: readonly string[
   return names.map((name) => [...shared, ...bound.get(name) ?? []]);
 }
 
-function resolveSpawnBackend(flags: AgentFlags, settings: OrchSettings): Backend {
-  try {
-    return resolveBackend({
-      explicit: flags.backendFlag ?? null,
-      configured: settings.defaults.backend ?? null,
-    });
-  } catch (error: unknown) {
-    die(errorMessage(error));
-  }
-}
-
-export function resolveSpawnAgentSettings(flags: AgentFlags, settings: OrchSettings): AgentSettings {
-  const adapter = pickAdapter(flags, settings);
-  const tuning = resolveTuningOrDie(flags, settings, adapter, null);
-  const backend = resolveSpawnBackend(flags, settings);
-  return {
-    adapter,
-    backend: backend.id,
-    model: tuning.model,
-    thinking: tuning.thinking,
-    preferredModels: settings.models.preferred[adapter] ?? [],
-  };
+/** The harness and tuning one launch runs on: its flags, else the configured defaults. orchd
+ *  admits the model. */
+export function resolveLaunchAgent(flags: AgentFlags, settings: OrchSettings): { harness: AdapterId; model: string; thinking: ThinkingLevel } {
+  const harness = pickAdapter(flags, settings);
+  const tuning = resolveTuningOrDie(flags, settings, harness, null);
+  return { harness, model: tuning.model, thinking: tuning.thinking };
 }
 
 /** One harness per agent. `--cmd` is one harness's command, so it refuses a mixed fleet. */
@@ -211,23 +167,19 @@ function resolveSpawnAdapters(flags: SpawnFlags, settings: OrchSettings, n: numb
   return adapters;
 }
 
-/** One agent's launch, with its model and command resolved against its own harness. */
-function planAgent(flags: SpawnFlags, settings: OrchSettings, agent: { name: string; adapter: AdapterId; model: string | undefined; prompt: string | null }): SpawnAgentPlan {
+/** One agent's launch, with its model resolved against its own harness. */
+function planAgent(flags: SpawnFlags, settings: OrchSettings, agent: { name: string; adapter: AdapterId; model: string | undefined; prompt: string | null }): AgentPlan {
   const tuning = resolveTuningOrDie({ ...flags, modelFlag: agent.model }, settings, agent.adapter, null);
-  const preferredModels = settings.models.preferred[agent.adapter] ?? [];
-  const cmd = flags.cmd ?? adapterCommand(agent.adapter, settings, { model: tuning.model, thinking: tuning.thinking, preferredModels });
-  return { name: agent.name, adapter: agent.adapter, cmd, preferredModels, model: tuning.model, thinking: tuning.thinking, prompt: agent.prompt };
+  return { name: agent.name, harness: agent.adapter, model: tuning.model, thinking: tuning.thinking, prompt: agent.prompt };
 }
 
-export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings): SpawnSettings {
+export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings): SpawnRequest {
   if (flags.host !== null) {
     if (flags.dirFlag === null) throw usageError(flags.at, "--host needs --dir <path on that host>: this machine's directory names nothing there");
     if (flags.backendFlag !== undefined) throw usageError(flags.at, "--host runs the agents with no plexer on that host; drop --plexer");
     if (flags.worktree.wanted || flags.worktree.provider !== undefined) throw usageError(flags.at, "--host cannot make a worktree on that host yet; drop --worktree");
     if (flags.cmd !== null) throw usageError(flags.at, "--host launches each harness's own command; drop --cmd");
   }
-  // On another host the agents run with no pane: the backend that places nothing.
-  const backend = flags.host === null ? resolveSpawnBackend(flags, settings) : headlessBackend;
   const worktree = flags.host === null ? resolveWorktreeIntent(flags.at, flags.worktree, settings) : null;
   const names = resolveSpawnNames(flags.at, flags.positional);
   const n = names.length;
@@ -241,14 +193,17 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
     if (adapter === undefined || prompt === undefined) die("could not resolve spawn agent plan");
     return planAgent(flags, settings, { name, adapter, model: models[index], prompt });
   });
-  const tools = workerTools(settings);
-  const workers = workerPolicyFrom(settings);
-  const firstAgent = agents[0];
-  if (firstAgent === undefined) die("spawn requires at least one agent");
-  const backendChosen = (flags.backendFlag ?? settings.defaults.backend ?? null) !== null;
-  return { backend: backend.id, tools, workers, json: flags.json, tab: flags.tab, backendChosen, cwd: flags.cwd, commandFlag: flags.cmd !== null, space: flags.space, host: flags.host === null ? null : { name: flags.host }, prefix: firstAgent.name, agents, worktree, fleet: settings.fleet, tiling: settings.tiling };
+  return {
+    json: flags.json,
+    params: {
+      agents,
+      cmd: flags.cmd,
+      plexer: flags.backendFlag ?? null,
+      cwd: flags.cwd,
+      tab: flags.tab,
+      space: flags.space,
+      host: flags.host,
+      worktree,
+    },
+  };
 }
-
-/** Live agents per space. Both maps are keyed by the minted id: a space is an
- *  environment axis composed onto the agent, and presence answers for the same
- *  identity — joining the two on a handle is what lost the detached fleet. */

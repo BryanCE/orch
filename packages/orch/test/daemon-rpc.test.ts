@@ -2,14 +2,15 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection } from "node:net";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { acquireDaemonLock, provenDaemonPid, terminateDaemon } from "../src/daemon/client/process";
+import { provenDaemonPid, terminateDaemon } from "../src/daemon/client/process";
+import { acquireDaemonLock } from "../src/daemon/server/ownership.ts";
 import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { DaemonAbsentError, DaemonUnreachableError } from "../src/daemon/client/wire.ts";
 import { ReplayBuffer } from "../src/daemon/server/replay.ts";
 import { isRegisterSessionResponse } from "../src/daemon/client/registration.ts";
 import { rpcCall, subscribeEvents } from "../src/daemon/client/rpc.ts";
-import { openJsonLineLink, readPortFile, type JsonLineLink } from "../src/presence/socket-client.ts";
+import { openJsonLineLink, readPortFile, type JsonLineLink } from "../src/daemon/client/socket.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import { rpcRegisterSession } from "../src/daemon/client/reach.ts";
 import { endAgent, ensureHarness, insertAgent, isLiveAgentIdentity } from "../src/store/agent-rows.ts";
@@ -29,7 +30,9 @@ import type { RpcHandlers, RpcServer } from "../src/types/daemon.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { sql } from "drizzle-orm";
 import { isRecord } from "../src/util.ts";
-import { hostIdentity, hostOs } from "../src/host.ts";
+import { hostOs } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
+import { agentLocation } from "../src/store/interval-rows.ts";
 import { listTasks } from "../src/queue.ts";
 
 import { row } from "./helpers/rows.ts";
@@ -313,7 +316,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), plexerEnv: {} });
     expect(reply.result).toMatchObject({
       unleased: [
         { id: "closed", name: "closed-worker" },
@@ -321,7 +324,7 @@ describe("daemon RPC", () => {
         { id: "leased", name: "leased-worker" },
       ],
     });
-    const repeat = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null });
+    const repeat = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), plexerEnv: {} });
     expect(repeat.result).toMatchObject({ unleased: [] });
   });
 
@@ -330,7 +333,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), plexerEnv: {} });
     expect(reply.result).toMatchObject({ unleased: [] });
   });
 
@@ -339,12 +342,13 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null, label: "web client" });
+    const reply = await tcpHello(server, { token, pid: process.pid, harness: "pi", cwd: process.cwd(), plexerEnv: {}, label: "web client" });
     expect(reply.id).toBe(1);
     if (!isLiveAgentIdentity(dir, reply.result)) throw new Error(`TCP hello returned a non-identity: ${JSON.stringify(reply)}`);
     expect(reply.result.label).toBe("web client");
-    const agent = row(orm(dir), sql`SELECT id, spawned_by, root_agent_id, harness_id, cwd, name FROM agents WHERE id = ${reply.result.id}`);
-    expect(agent).toMatchObject({ id: reply.result.id, spawned_by: null, root_agent_id: reply.result.id, harness_id: "pi", cwd: process.cwd(), name: `pi-${reply.result.id.slice(0, 8)}` });
+    const agent = row(orm(dir), sql`SELECT id, spawned_by, root_agent_id, harness_id, name FROM agents WHERE id = ${reply.result.id}`);
+    expect(agent).toMatchObject({ id: reply.result.id, spawned_by: null, root_agent_id: reply.result.id, harness_id: "pi", name: `pi-${reply.result.id.slice(0, 8)}` });
+    expect(agentLocation(dir, reply.result.id)).toMatchObject({ cwd: process.cwd() });
     expect(row(orm(dir), sql`SELECT pid, start_token, until FROM agent_processes WHERE agent_id = ${reply.result.id}`)).toMatchObject({ pid: process.pid, start_token: processStartToken(process.pid), until: null });
   });
 
@@ -369,7 +373,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     const token = readFileSync(daemonRuntimeFiles(dir).token, "utf8").trim();
-    const claim = (pid: number, label: string) => ({ token, pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null, label });
+    const claim = (pid: number, label: string) => ({ token, pid, harness: "pi", cwd: process.cwd(), plexerEnv: {}, label });
     const first = await tcpHello(server, claim(process.pid, "first"));
     const same = await tcpHello(server, claim(process.pid, "renamed"));
     const other = await tcpHello(server, claim(process.ppid, "other"));
@@ -382,7 +386,7 @@ describe("daemon RPC", () => {
     const dir = tempOrchDir();
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
-    expect(await tcpHello(server, { token: "", pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
+    expect(await tcpHello(server, { token: "", pid: process.pid, harness: "pi", cwd: process.cwd(), plexerEnv: {} })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
   });
 
   test("refuses a TCP hello with a wrong token", async () => {
@@ -390,7 +394,7 @@ describe("daemon RPC", () => {
     const server = await startRpcServer(dir, stubRpcHandlers(), { tcpPort: 0, logger: recordingLogger().logger });
     servers.push(server);
     // A complete claim, so the wire accepts the shape and the handler is what refuses it.
-    expect(await tcpHello(server, { token: "wrong-token", pid: process.pid, harness: "pi", cwd: process.cwd(), host: hostIdentity(), startToken: null })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
+    expect(await tcpHello(server, { token: "wrong-token", pid: process.pid, harness: "pi", cwd: process.cwd(), plexerEnv: {} })).toMatchObject({ id: 1, error: { code: "IDENTITY_REQUIRED" } });
   });
 
   test("writes the daemon token with owner-only permissions", async () => {

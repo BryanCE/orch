@@ -1,4 +1,5 @@
 import type { OrchDir } from "../types/core.ts";
+import type { HereAgent } from "../types/agent-place.ts";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { ormForRead, registerMemoReset } from "./connection.ts";
 import { NO_TUNING } from "../policy/tuning.ts";
@@ -231,6 +232,19 @@ function composeView(hub: HubRow, facts: FleetFacts): AgentView {
 export function environmentOf(orchDir: OrchDir, agentId: string): AgentEnvironment {
   const facts = heldFleet(orchDir);
   return composeEnvironment(agentId, facts.axes, facts.locations);
+}
+
+/** An agent's pane on this machine: its plexer and that plexer's native handle. */
+export interface AgentPane {
+  readonly plexer: string | null;
+  readonly handle: string | null;
+}
+
+/** The pane an agent this orchd runs sits in: its plexer and that plexer's native handle.
+ *  Both name a pane on this machine, so only an agent proven here has one to act on. */
+export function paneOf(orchDir: OrchDir, agent: HereAgent): AgentPane {
+  const { plexer, handle } = environmentOf(orchDir, agent.id);
+  return { plexer, handle };
 }
 
 export function holderOf(orchDir: OrchDir, agentId: string): AgentHolder | null {

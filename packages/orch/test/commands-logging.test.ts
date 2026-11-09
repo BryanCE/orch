@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
+import { seedAgentRow } from "./helpers/agent.ts";
 import { join } from "node:path";
 import { cmdNotify } from "../src/commands/events.ts";
 import { cmdLogs, parseLogOptions } from "../src/commands/logs.ts";
@@ -83,7 +84,7 @@ describe("orch logs", () => {
     seedLogs(directory);
     const db = orm(directory);
     db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-    db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('agentbbb02',NULL,'agentbbb02','pi','/repo','bee',1,'session')`);
+    seedAgentRow(directory, { id: "agentbbb02", name: "bee", cwd: "/repo", createdAt: 1, kind: "session" });
     const services = await servedServices({ orchDir: directory, settings: { notify: [] } }, servers);
     const lines = (await captureStdout(() => cmdLogs(services, ["--agent", "bee"]))).trim().split("\n");
     expect(lines).toHaveLength(1);

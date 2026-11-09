@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { claimSpawnNames, resolveSpawnNames } from "../src/commands/spawn/names.ts";
+import { resolveSpawnNames } from "../src/commands/spawn/names.ts";
+import { claimSpawnNames } from "../src/daemon/server/spawn/admission.ts";
 import { parseSpawnFlags } from "../src/commands/spawn/flags.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";

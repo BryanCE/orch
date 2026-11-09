@@ -1,4 +1,4 @@
-import { hostIdentity } from "../../src/host.ts";
+import { hostIdentity } from "../../src/hosts/identity.ts";
 import type { StatusRow } from "../../src/types/command.ts";
 import type { FleetNames, FleetStatus } from "../../src/types/daemon.ts";
 

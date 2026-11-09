@@ -155,7 +155,7 @@ async function setup(): Promise<{
     identity: { agentId: "pi", settleEvent: "agent_settled" },
     notify: () => undefined,
     refreshLabels: () => Promise.resolve(),
-  }, root, settings);
+  }, settings);
   return { harness, daemon, presence };
 }
 

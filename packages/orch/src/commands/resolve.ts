@@ -5,8 +5,6 @@ import { die } from "../refusal.ts";
 import { refuseNonOperatorOverride, type CallerSelf } from "./self.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 import type { DaemonClient } from "../types/services.ts";
-import type { Backend, BackendHandle } from "../types/backend.ts";
-import { getBackend } from "../backends/registry.ts";
 import { describeHandle } from "../shared/plexer.ts";
 
 export type ResolvedTarget = ResultOf<"resolve-target">;
@@ -22,8 +20,7 @@ export function targetName(resolved: { readonly view?: { readonly name: string |
 }
 
 /** The lifecycle resolver, answered by orchd: the agent, who holds it, and where it runs. It
- *  hands out no backend. A verb that acts on the agent asks orchd, which acts where it runs; only
- *  {@link paneHere} opens the pane of one that runs on this machine. */
+ *  hands out no backend. A verb that acts on the agent asks orchd, which acts where it runs. */
 export function resolveLifecycle(services: DaemonClient, target: string): Promise<ResolvedLifecycle> {
   return readRpc(services, "resolve-lifecycle", { caller: callerCredential(), target });
 }
@@ -31,25 +28,6 @@ export function resolveLifecycle(services: DaemonClient, target: string): Promis
 /** How a resolved agent is addressed in output: its pane handle here, else its key. */
 export function placeLabel(resolved: Pick<ResolvedLifecycle, "place" | "key">): string {
   return resolved.place.kind === "here" ? describeHandle(resolved.place.handle) : resolved.key;
-}
-
-/** The pane of an agent that runs on this machine, for a verb that reads or types into a plexer
- *  pane here. An agent on another host has no pane here, so the verb is refused by its host. */
-export function paneHere(resolved: Pick<ResolvedLifecycle, "place">, target: string, verb: string): { readonly backend: Backend; readonly handle: BackendHandle } {
-  const place = resolved.place;
-  switch (place.kind) {
-    case "host":
-      return die(`${target} runs on host ${place.host}; orch ${verb} reaches a pane on this machine only.`);
-    case "here": {
-      const backend = place.plexer === null ? undefined : getBackend(place.plexer);
-      if (backend === undefined) die(`Target "${target}" uses unknown backend ${JSON.stringify(place.plexer)}.`);
-      return { backend, handle: place.handle };
-    }
-    default: {
-      const exhaustive: never = place;
-      throw new Error(`unknown agent place ${String(exhaustive)}`);
-    }
-  }
 }
 
 export interface ResolveOptions {

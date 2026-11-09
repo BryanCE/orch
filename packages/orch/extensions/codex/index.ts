@@ -9,13 +9,13 @@
  * assumes one. Usage: `<runtime> <shim> <json>` (argv[2] is the JSON string).
  * Identity parsing stays in its one boundary module (src/shared/agent-id.ts);
  * the notify wire vocabulary stays in its one leaf module
- * (src/adapters/codex-events.ts, which the adapter itself delegates to — the
- * adapter proper is setup-time code this shim must not carry); presence reports
+ * (./events.ts, which orchd's codex adapter imports too — the adapter proper is
+ * setup-time code this shim must not carry); presence reports
  * go through the daemon socket.
  */
-import { detectCodexState, extractCodexResult } from "orch/core/adapters/codex-events.ts";
-import { presenceSession } from "orch/core/presence/session.ts";
-import { reportOnce } from "orch/core/presence/socket-client.ts";
+import { detectCodexState, extractCodexResult } from "./events.ts";
+import { presenceSession } from "orch/core/daemon/client/report-session.ts";
+import { reportOnce } from "orch/core/daemon/client/socket.ts";
 import { projectRoot, textValue, truncateOptional } from "orch/core/util.ts";
 import type { StatusPatch } from "orch/core/types/presence.ts";
 

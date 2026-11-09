@@ -5,7 +5,7 @@ import { refreshAgent } from "./agent-view.ts";
 import { agentHandles, agentHosts, agentPlexers, agentProcesses, agentSpaces, agentTunings, agentWorktrees } from "../db/schema.ts";
 import type { TuningValues } from "../types/store.ts";
 import type { HostedProcess, ProcessInstance } from "../types/process.ts";
-import type { AgentLocation, HereAgent } from "../types/agent-place.ts";
+import type { AgentId, AgentLocation, HereAgent } from "../types/agent-place.ts";
 import type { HostId } from "../types/host.ts";
 
 /**
@@ -76,18 +76,24 @@ export function agentLocations(orchDir: OrchDir): Map<string, AgentLocation> {
   return new Map(rows.map(({ agentId, ...location }) => [agentId, location]));
 }
 
-/** Record a registered caller's own process, on the host its open `agent_hosts` row names.
- *  Session registration only: a caller is placed by its process (`placeProcess`), and this
- *  is how a session stays one agent across the processes it runs as. Every other writer
- *  takes a {@link HereAgent} through {@link recordProcess}. */
-export function recordCallerProcessIn(db: Orm, agentId: string, now: number, values: ProcessInstance): void {
+/** Record a registered caller's own process. The process carries the host it runs on, and
+ *  that must be the host the agent's open `agent_hosts` row names: the row stores no host of
+ *  its own, so a process recorded under the wrong one would read as running where it does
+ *  not. Session registration, which relocates the agent first, and {@link recordProcess}
+ *  only: a caller is placed by its process (`placeProcess`), and this is how a session stays
+ *  one agent across the processes it runs as. */
+export function recordCallerProcessIn(db: Orm, agentId: AgentId, now: number, process: HostedProcess): void {
+  const location = openLocationOf(db, agentId);
+  if (location?.host !== process.host) {
+    throw new Error(`process ${process.pid} runs on host ${process.host}, but ${agentId} runs on ${location?.host ?? "no host"}`);
+  }
   const since = closeOpen(db, agentProcesses, agentId, now);
-  db.insert(agentProcesses).values({ agentId, since, until: null, pid: values.pid, startToken: values.startToken }).run();
+  db.insert(agentProcesses).values({ agentId, since, until: null, pid: process.pid, startToken: process.startToken }).run();
 }
 
 /** Record the process an agent this orchd runs runs as. */
 export function recordProcess(orchDir: OrchDir, agent: HereAgent, now: number, values: ProcessInstance): void {
-  withTransaction(orchDir, () => recordCallerProcessIn(orm(orchDir), agent.id, now, values));
+  withTransaction(orchDir, () => recordCallerProcessIn(orm(orchDir), agent.id, now, { host: agent.host, pid: values.pid, startToken: values.startToken }));
   refreshAgent(orchDir, agent.id);
 }
 

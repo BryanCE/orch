@@ -1,5 +1,6 @@
 import type { OrchDir } from "../types/core.ts";
 import type { BridgeDelivery } from "../shared/bridge-message.ts";
+import type { HereAgent } from "../types/agent-place.ts";
 import { normalizeControlTarget } from "./normalize-target.ts";
 
 /** One live bridge connection the daemon can push a delivery down. */
@@ -42,11 +43,11 @@ export function bridgeAttached(key: string): boolean {
   return links.has(key);
 }
 
-/** Throws BridgeDetachedError when no link is held. */
-export function pushToBridge(orchDir: OrchDir, key: string, delivery: BridgeDelivery): void {
-  const canonical = normalizeControlTarget(orchDir, key);
-  const link = links.get(canonical);
-  if (link === undefined) throw new BridgeDetachedError(canonical);
+/** Push down the link the bridge of an agent this orchd runs holds. Throws
+ *  BridgeDetachedError when no link is held. */
+export function pushToBridge(agent: HereAgent, delivery: BridgeDelivery): void {
+  const link = links.get(agent.id);
+  if (link === undefined) throw new BridgeDetachedError(agent.id);
   link.push(delivery);
 }
 

@@ -1,9 +1,9 @@
 import { modelSpec } from "../../policy/thinking.ts";
 import { NO_TUNING } from "../../policy/tuning.ts";
+import { resolveTuningOrDie } from "../../shared/tuning.ts";
 import type { Tuning } from "../../policy/tuning.ts";
-import { admitAgentModel, pinModels, refuseModelChange } from "../spawn/models.ts";
-import { agentAdapter, resolveAdapterOrDie, resolveTuningOrDie } from "../selection.ts";
-import { takesModel } from "../../shared/harness.ts";
+import { admitModel, pinModels, refuseModelChange } from "../spawn/models.ts";
+import { agentAdapter } from "../selection.ts";
 import { writeRpc } from "../daemon.ts";
 import { hostCallTimeoutMs } from "../host.ts";
 import { placeLabel, resolveLifecycle, refuseForeignHolder, targetName } from "../resolve.ts";
@@ -37,13 +37,13 @@ export async function cmdNew(services: Services, args: string[]): Promise<void> 
   }));
   // Each agent keeps the tuning it holds unless this reset names another: a
   // reset clears the session, never the model the orchestrator chose.
-  const plans = owned.map(({ target, tuning: pinned, harness }) => {
-    const adapter = resolveAdapterOrDie(agentAdapter(flags, settings, harness));
-    const tuning = resolveTuningOrDie(flags, settings, adapter.id, pinned);
-    const model = admitAgentModel(settings, adapter.id, services.models, tuning.model, target);
-    refuseModelChange(adapter, pinned.model, model);
-    return { target, pinnable: takesModel(adapter), tuning: { ...tuning, model } };
-  });
+  const plans = await Promise.all(owned.map(async ({ target, tuning: pinned, harness }) => {
+    const adapter = agentAdapter(flags, settings, harness);
+    const tuning = resolveTuningOrDie(flags, settings, adapter, pinned);
+    const admitted = await admitModel(services, adapter, tuning.model, target);
+    refuseModelChange(adapter, admitted, pinned.model, admitted.model);
+    return { target, pinnable: admitted.takesModel, tuning: { ...tuning, model: admitted.model } };
+  }));
   const cleared: (ClearedAgent & Tuning)[] = [];
   const pins: (ClearedAgent & Tuning)[] = [];
   for (const plan of plans) {

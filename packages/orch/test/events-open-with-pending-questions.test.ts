@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 
@@ -23,7 +23,7 @@ describe("events pending-question snapshot", () => {
     roots.push(root);
     const previous = process.env.ORCH_DIR;
     process.env.ORCH_DIR = root;
-    const question: PendingQuestionView = { host: hostIdentity(),
+    const question: PendingQuestionView = { host: hostIdentity(), space: null,
       questionId: "q1",
       agentId: "agent1",
       key: "agent1",

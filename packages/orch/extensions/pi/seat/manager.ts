@@ -208,6 +208,7 @@ const makeManager = Effect.gen(function* () {
         notify(key);
       }
     },
+    readSession: (key) => source.readSession(key),
   };
 
   const disposeAll = Effect.gen(function* () {

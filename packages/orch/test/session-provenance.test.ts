@@ -10,8 +10,7 @@ import { recordProcess } from "../src/store/interval-rows.ts";
 import { callerKindOf } from "../src/policy/caller.ts";
 import { selfIdentityOf } from "../src/identity/self.ts";
 import { OPERATOR_HARNESS_ID } from "../src/identity/operator.ts";
-import { hostIdentity } from "../src/host.ts";
-import { hostedHere } from "../src/local-process.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import type { CallerCredential } from "../src/types/core.ts";
 import { currentLease } from "../src/store/lease-rows.ts";
@@ -41,24 +40,24 @@ function claimDir(): OrchDir {
 }
 
 /** Register this test process as a pi session, the way the pi bridge registers pi. */
-async function registerPiSession(directory: OrchDir): Promise<string> {
+function registerPiSession(directory: OrchDir): string {
   const claim = sessionClaim(directory, undefined, { harness: "pi", sessionToken: "pi-session", pid: process.pid });
-  return (await registerSession(directory, claim, DAEMON_TOKEN)).id;
+  return registerSession(directory, claim, DAEMON_TOKEN).id;
 }
 
 describe("a harness session records the terminal it started in", () => {
-  test("a pi typed into a registered terminal is that terminal's, and the terminal holds it", async () => {
+  test("a pi typed into a registered terminal is that terminal's, and the terminal holds it", () => {
     const directory = claimDir();
     const terminal = seedOperator(directory);
-    const session = await registerPiSession(directory);
+    const session = registerPiSession(directory);
     expect(agentById(directory, session)?.spawnedBy).toBe(terminal);
     expect(agentById(directory, session)?.rootAgentId).toBe(terminal);
     expect(currentLease(directory, session)?.orchId).toBe(terminal);
   }, 30_000);
 
-  test("a harness started outside any registered terminal is a root", async () => {
+  test("a harness started outside any registered terminal is a root", () => {
     const directory = claimDir();
-    const session = await registerPiSession(directory);
+    const session = registerPiSession(directory);
     expect(agentById(directory, session)?.spawnedBy).toBeNull();
     expect(currentLease(directory, session)).toBeNull();
   }, 30_000);
@@ -82,16 +81,16 @@ function seedEnclosingWorker(directory: OrchDir): string {
 
 /** The runner as a raw process: no harness marker, no launch credential. */
 function runnerCredential(): CallerCredential {
-  return { launch: null, session: null, process: hostedHere(process.pid, processStartToken(process.pid) ?? null) };
+  return { launch: null, session: null, pid: process.pid };
 }
 
 describe("a process with no harness marker inside a live agent's tree is that agent", () => {
-  test("registering it mints no row and answers with the enclosing agent", async () => {
+  test("registering it mints no row and answers with the enclosing agent", () => {
     const directory = claimDir();
     const worker = seedEnclosingWorker(directory);
     const before = liveAgents(directory).length;
     const claim = sessionClaim(directory, undefined, { harness: OPERATOR_HARNESS_ID, sessionToken: undefined, pid: process.pid });
-    expect((await registerSession(directory, claim, DAEMON_TOKEN)).id).toBe(worker);
+    expect(registerSession(directory, claim, DAEMON_TOKEN).id).toBe(worker);
     expect(liveAgents(directory)).toHaveLength(before);
     expect(liveAgents(directory).some((row) => row.kind === "operator")).toBe(false);
   }, 30_000);

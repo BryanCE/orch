@@ -219,6 +219,7 @@ const HELP: Readonly<Record<string, string>> = {
   "timeouts.spawn_attach_poll_ms": "How often spawn asks orchd which agents came up, in milliseconds.",
   "timeouts.daemon_probe_ms": "How long a command waits for a busy orchd to answer before it gives up and does nothing, in milliseconds.",
   "timeouts.abort_gap_ms": "Pause between the two Escape keys abort sends an agent's pane, in milliseconds.",
+  "timeouts.machine_ms": "How long doctor and setup wait on orchd to check, install and integrate on this machine, in milliseconds.",
   notify: "Where agent state changes are delivered. enter picks the sinks - sound (a ding on this machine), desktop, herdr, webhook (a URL), command (any command line you want) - space turns one on, e sets what it carries, w picks which states it fires on.",
   "notification.position": "The screen corner a plexer shows an orch notification in: top-left, top-right, bottom-left or bottom-right.",
   "notification.title_chars": "How many characters of an agent's report a desktop or plexer notification title shows before it is cut.",

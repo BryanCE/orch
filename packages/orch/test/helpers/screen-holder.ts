@@ -1,4 +1,4 @@
-import type { PtyExit } from "../../src/types/pty.ts";
+import { heldId, type HeldTerminal, type PtyExit } from "../../src/types/pty.ts";
 import type { ScreenHolder } from "../../src/types/screen.ts";
 
 interface FakeScreen {
@@ -47,28 +47,29 @@ export class FakeScreenHolder implements ScreenHolder {
     return this.held(key).subscribers.size;
   }
 
-  has(key: string): boolean {
-    return this.screens.has(key);
+  has(terminal: HeldTerminal): boolean {
+    return this.screens.has(heldId(terminal));
   }
 
-  snapshot(key: string): string {
+  snapshot(terminal: HeldTerminal): string {
+    const key = heldId(terminal);
     this.snapshots.set(key, (this.snapshots.get(key) ?? 0) + 1);
     return this.held(key).screen;
   }
 
-  subscribe(key: string, onData: (data: string) => void, onExit: (exit: PtyExit) => void): () => void {
-    const subscribers = this.held(key).subscribers;
+  subscribe(terminal: HeldTerminal, onData: (data: string) => void, onExit: (exit: PtyExit) => void): () => void {
+    const subscribers = this.held(heldId(terminal)).subscribers;
     const subscriber = { onData, onExit };
     subscribers.add(subscriber);
     return () => { subscribers.delete(subscriber); };
   }
 
-  write(key: string, data: string): void {
-    this.held(key).input.push(data);
+  write(terminal: HeldTerminal, data: string): void {
+    this.held(heldId(terminal)).input.push(data);
   }
 
-  resize(key: string, cols: number, rows: number): void {
-    this.held(key).sizes.push({ cols, rows });
+  resize(terminal: HeldTerminal, cols: number, rows: number): void {
+    this.held(heldId(terminal)).sizes.push({ cols, rows });
   }
 
   private held(key: string): FakeScreen {

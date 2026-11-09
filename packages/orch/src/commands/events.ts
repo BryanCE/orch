@@ -1,16 +1,15 @@
-import { hostIdentity } from "../host.ts";
-import { scopeToSpace, spaceOfIn, withinSpaceCeiling } from "../policy/space.ts";
+import { scopeToSpace, spaceOfIn, withinSpaceCeiling } from "../shared/space.ts";
 import { agentInMineScope, agentInScope, resolveCallerScopeOf } from "../policy/scope.ts";
 import { isAgentId } from "../shared/agent-id.ts";
 import { rpcCall, subscribeEvents } from "../daemon/client/rpc.ts";
 import { callerCredential } from "../identity/credential.ts";
 import { ensureDaemon } from "../daemon/client/reach.ts";
-import { deliver } from "../notify/router.ts";
 import { eventState, isNotifyEvent } from "../notify/event.ts";
 
 export { isNotifyEvent };
 import { notificationText, oneLine, spaceTag } from "../notify/format.ts";
 import { die } from "./target.ts";
+import { readRpc } from "./daemon.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { Invocation } from "../cli/spec.ts";
@@ -20,7 +19,6 @@ import { readFleet } from "./fleet.ts";
 import { resolveEntity } from "./resolve.ts";
 import type { Services } from "../types/services.ts";
 import type { NotifyEvent } from "../types/notify.ts";
-import type { NotifyEntry } from "../types/settings.ts";
 import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
 import type { AgentView } from "../types/store.ts";
@@ -147,30 +145,16 @@ export async function cmdNotify(services: Services, args: string[]) {
   const json = flags.has("--json");
   const state = flags.value("--state") ?? "blocked";
   if (!isAgentState(state) || state === "asking") throw usageError(invocation, `--state cannot be "${state}"`);
-  const event: NotifyEvent = {
-    type: "transition",
-    key: "test:notify",
-    // A test event about no agent, sent from this machine.
-    host: hostIdentity(),
-    agent: "notify-test",
-    tab: "notify",
-    model: "test:medium",
-    oldState: "working",
-    newState: state,
-    task: "orch notify test",
-    ts: new Date().toISOString(),
-  };
-  const settings = services.settings.current();
-  const sinks = settings.notify;
-  if (!sinks.length) {
+  if (!services.settings.current().notify.length) {
     services.logger.error("notify.no-sinks", { sinkCount: 0 });
     process.stdout.write("notify test: no sinks configured\n");
     process.exitCode = 1;
     return;
   }
-  const results = await Promise.all(sinks.map(async (sink) => ({ sink, ok: await deliver(services.orchDir, settings, sink, event, services.logger) })));
-  if (json) process.stdout.write(JSON.stringify(results.map(({ sink, ok }) => ({ sink: sinkLabel(sink), ok }))) + "\n");
-  else for (const { sink, ok } of results) process.stdout.write(`notify ${sinkLabel(sink)}: ${ok ? "ok" : "fail"}\n`);
+  // The sinks run where notifications are delivered: in orchd.
+  const { results } = await readRpc(services, "notify-test", { state });
+  if (json) process.stdout.write(JSON.stringify(results) + "\n");
+  else for (const { sink, ok } of results) process.stdout.write(`notify ${sink}: ${ok ? "ok" : "fail"}\n`);
   if (results.some((result) => !result.ok)) process.exitCode = 1;
 }
 
@@ -395,7 +379,8 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
   const pending = rpcCall(services.orchDir, "questions", { caller: callerCredential() });
   subscription = subscribeEvents(
     services.orchDir,
-    context.options.sinceSeq === undefined ? { logger: services.logger } : { since: context.options.sinceSeq, logger: services.logger },
+    // Named as a stream, so `orch close --stream` can end this process.
+    context.options.sinceSeq === undefined ? { logger: services.logger, stream: process.pid } : { since: context.options.sinceSeq, logger: services.logger, stream: process.pid },
     (value, streamSeq) => {
       if (!isNotifyEvent(value) || !context.accepts(value)) return;
       if (context.emit(value, streamSeq) && context.options.once) transport.close();
@@ -419,16 +404,3 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
   });
   return transport;
 }
-
-export function sinkLabel(sink: NotifyEntry): string {
-  if (sink.id === "webhook") {
-    const url = sink.url;
-    return `webhook ${typeof url === "string" ? url : ""}`;
-  }
-  if (sink.id === "command") {
-    const command = sink.command;
-    return `command ${Array.isArray(command) ? command.map((part) => String(part)).join(" ") : ""}`;
-  }
-  return sink.id;
-}
-

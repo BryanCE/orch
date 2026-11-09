@@ -11,13 +11,14 @@ import { HostLinks } from "../src/hosts/link.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
+import { placeHere } from "../src/process-place.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 import { startFarOrchd, type FarOrchd } from "./helpers/far-orchd.ts";
 import { FakeScreenHolder } from "./helpers/screen-holder.ts";
 import { testServices } from "./helpers/services.ts";
-import { hosted, testHost } from "./helpers/host.ts";
+import { testHost } from "./helpers/host.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { ParamsOf, RpcMethod } from "../src/daemon/client/protocol.ts";
@@ -41,7 +42,7 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) removeTempDir(dir);
 });
 
-const operator: CallerCredential = { launch: null, session: null, process: hosted(process.pid) };
+const operator: CallerCredential = { launch: null, session: null, pid: process.pid };
 
 function tick(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -104,6 +105,17 @@ async function serveScreens(state: DaemonState, holder: FakeScreenHolder): Promi
   servers.push(server);
 }
 
+/** An agent this orchd runs here, whose screen the holder holds. Its start token is not this
+ *  process's, so nothing ever signals the runner. */
+function hereAgent(orchDir: OrchDir): string {
+  const key = mintAgentId();
+  registerSpawnedAgent(orchDir, {
+    key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null,
+    process: { host: hostIdentity().id, pid: process.pid, startToken: `here-${key}` },
+  });
+  return key;
+}
+
 function nearDir(): OrchDir {
   const orchDir = tempOrchDir("orch-attach-near-");
   dirs.push(orchDir);
@@ -123,30 +135,36 @@ describe("a screen line on the wire", () => {
 describe("a slow viewer", () => {
   test("loses its backlog for a fresh snapshot and never holds the agent up", async () => {
     const holder = new FakeScreenHolder();
-    holder.hold("agent-1", "A");
+    const orchDir = nearDir();
+    const agent = placeHere(orchDir, hereAgent(orchDir));
+    const key = agent.id;
+    holder.hold(key, "A");
     const out = new SlowViewer();
     const screens = screenConnection(out);
-    attachHeld(holder, screens, "agent-1", { cols: 80, rows: 24 }, 200);
-    holder.print("agent-1", "b");
-    holder.print("agent-1", "c");
-    holder.print("agent-1", "d".repeat(200));
-    holder.print("agent-1", "e");
+    attachHeld(holder, screens, { kind: "agent", agent }, { cols: 80, rows: 24 }, 200);
+    holder.print(key, "b");
+    holder.print(key, "c");
+    holder.print(key, "d".repeat(200));
+    holder.print(key, "e");
     expect(out.chunks()).toEqual([{ kind: "snapshot", data: "A" }]);
     await out.catchUp();
     expect(out.chunks()).toEqual([{ kind: "snapshot", data: "A" }, { kind: "snapshot", data: `Abc${"d".repeat(200)}e` }]);
-    holder.print("agent-1", "f");
+    holder.print(key, "f");
     await out.catchUp();
     expect(out.chunks().at(-1)).toEqual({ kind: "data", data: "f" });
-    expect(holder.snapshots.get("agent-1")).toBe(2);
+    expect(holder.snapshots.get(key)).toBe(2);
   });
 
   test("keeps output that fits the queue, in order", async () => {
     const holder = new FakeScreenHolder();
-    holder.hold("agent-1", "A");
+    const orchDir = nearDir();
+    const agent = placeHere(orchDir, hereAgent(orchDir));
+    const key = agent.id;
+    holder.hold(key, "A");
     const out = new SlowViewer();
-    attachHeld(holder, screenConnection(out), "agent-1", { cols: 80, rows: 24 }, 10_000);
-    holder.print("agent-1", "b");
-    holder.print("agent-1", "c");
+    attachHeld(holder, screenConnection(out), { kind: "agent", agent }, { cols: 80, rows: 24 }, 10_000);
+    holder.print(key, "b");
+    holder.print(key, "c");
     await out.catchUp();
     expect(out.chunks()).toEqual([{ kind: "snapshot", data: "A" }, { kind: "data", data: "b" }, { kind: "data", data: "c" }]);
   });
@@ -156,13 +174,13 @@ describe("attaching to a screen held here", () => {
   test("streams a snapshot first and then the output; input and resize reach the holder", async () => {
     const orchDir = nearDir();
     const holder = new FakeScreenHolder();
-    const key = mintAgentId();
+    const key = hereAgent(orchDir);
     holder.hold(key, "before\r\n");
     await serveScreens(idleDaemonState(testServices({ orchDir }), orchDir), holder);
     const view = await viewer(orchDir);
     view.send("attach-screen", { caller: operator, key, cols: 100, rows: 30 });
     await until("the attach reply", () => view.lines.some((line) => line.kind === "reply"));
-    expect(view.lines.find((line) => line.kind === "reply")).toEqual({ kind: "reply", id: 1, result: { host: null } });
+    expect(view.lines.find((line) => line.kind === "reply")).toEqual({ kind: "reply", id: 1, result: { host: hostIdentity().name, linked: false } });
     holder.print(key, "after");
     await until("the output", () => view.screens().length === 2);
     expect(view.screens()).toEqual([{ kind: "snapshot", data: "before\r\n" }, { kind: "data", data: "after" }]);
@@ -181,7 +199,7 @@ describe("attaching to a screen held here", () => {
   test("closing the viewer only lets go of the screen", async () => {
     const orchDir = nearDir();
     const holder = new FakeScreenHolder();
-    const key = mintAgentId();
+    const key = hereAgent(orchDir);
     holder.hold(key);
     await serveScreens(idleDaemonState(testServices({ orchDir }), orchDir), holder);
     const view = await viewer(orchDir);
@@ -190,7 +208,7 @@ describe("attaching to a screen held here", () => {
     expect(holder.subscriberCount(key)).toBe(1);
     view.socket.destroy();
     await until("the release", () => holder.subscriberCount(key) === 0);
-    expect(holder.has(key)).toBe(true);
+    expect(holder.has({ kind: "agent", agent: placeHere(orchDir, key) })).toBe(true);
   });
 
   test("refuses input for a screen the connection is not attached to", async () => {
@@ -227,7 +245,7 @@ describe("attaching to a screen on a linked host", () => {
     const view = await viewer(orchDir);
     view.send("attach-screen", { caller: operator, key, cols: 120, rows: 40 });
     await until("the attach reply", () => view.lines.some((line) => line.kind === "reply" || line.kind === "error"));
-    expect(view.lines.find((line) => line.kind === "reply" || line.kind === "error")).toEqual({ kind: "reply", id: 1, result: { host: "box" } });
+    expect(view.lines.find((line) => line.kind === "reply" || line.kind === "error")).toEqual({ kind: "reply", id: 1, result: { host: "box", linked: true } });
     await until("the snapshot", () => view.screens().length === 1);
     farHolder.print(key, "from far");
     await until("the output", () => view.screens().length === 2);

@@ -4,6 +4,7 @@ import { codexAdapter } from "../src/adapters/codex.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { compactionArgs, compactionEnv } from "../src/policy/workers.ts";
 import { withLaunchPoints } from "../src/policy/compaction.ts";
+import { offeredModels } from "../src/daemon/server/spawn/models.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import type { ModelCatalogue } from "../src/types/adapter.ts";
 import type { WorkerPolicy } from "../src/types/policy.ts";
@@ -70,13 +71,13 @@ describe("compaction points key the concrete model", () => {
   });
 
   test("an alias launch takes the point of the model it runs now", () => {
-    const launch = withLaunchPoints(claudePoints({ "claude-haiku-5-5": 90_000 }), claudeCatalogue);
+    const launch = withLaunchPoints(claudePoints({ "claude-haiku-5-5": 90_000 }), offeredModels(claudeCatalogue));
     expect(compactionEnv(claudeAdapter, "haiku", launch)).toEqual({ CLAUDE_CODE_AUTO_COMPACT_WINDOW: "90000" });
     expect(compactionEnv(claudeAdapter, "claude-haiku-4-5-20251001", launch)).toEqual({});
   });
 
   test("a point keyed by an alias does nothing: it would follow the alias to the next model", () => {
-    const launch = withLaunchPoints(claudePoints({ haiku: 200_000 }), claudeCatalogue);
+    const launch = withLaunchPoints(claudePoints({ haiku: 200_000 }), offeredModels(claudeCatalogue));
     expect(compactionEnv(claudeAdapter, "haiku", launch)).toEqual({});
   });
 });

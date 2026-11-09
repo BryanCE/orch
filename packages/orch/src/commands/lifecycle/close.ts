@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { errorMessage } from "../../util.ts";
 import { callDaemon, readRpc } from "../daemon.ts";
 import { hostCallTimeoutMs } from "../host.ts";
@@ -12,7 +11,6 @@ import type { Services } from "../../types/services.ts";
 import type { ResultOf } from "../../daemon/client/protocol.ts";
 
 type CloseTargetWire = ResultOf<"close-targets">["targets"][number];
-import { STREAM_VERBS } from "../events.ts";
 
 /** One target's close: whether it failed and why, and whether this close stopped it. */
 interface TargetClosed {
@@ -41,17 +39,6 @@ interface CloseOutcome {
   readonly error: string | null;
 }
 
-
-/** SIGTERM this session's `orch events` and `orch monitor` streams, never orch itself. */
-function killEventStreams(): number {
-  let pids: number[] = [];
-  try {
-    pids = execFileSync("pgrep", ["-f", `orch (${STREAM_VERBS.join("|")})`]).toString().trim().split("\n").filter(Boolean).map(Number);
-  } catch { /* no stream running */ }
-  const kill = pids.filter((pid) => pid !== process.pid);
-  for (const pid of kill) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
-  return kill.length;
-}
 
 /** Close every target once, in order, recording an outcome for each.
  *
@@ -86,17 +73,19 @@ async function closeEachTarget(services: CloseServices, targets: readonly CloseT
 }
 
 /** Say what the whole close did, and set the exit code from it. */
-function reportClose(
+async function reportClose(
+  services: CloseServices,
   outcome: { results: CloseOutcome[]; closed: string[]; ok: number },
   flags: { all: boolean; stream: boolean; json: boolean },
-): void {
+): Promise<void> {
   const { results, closed, ok } = outcome;
   const { all, stream, json } = flags;
   const requested = results.length;
   if (all && !requested && !json) process.stdout.write("No fleet agents to close.\n");
   if (stream) {
-    const killed = killEventStreams();
-    if (!json) process.stdout.write(killed ? `Killed ${killed} orch stream process(es).\n` : "No orch monitor or events stream running.\n");
+    // orchd knows every stream subscribed to it, and ends each one.
+    const { ended } = await readRpc(services, "end-streams", undefined);
+    if (!json) process.stdout.write(ended ? `Killed ${ended} orch stream process(es).\n` : "No orch monitor or events stream running.\n");
   }
   if (json) process.stdout.write(JSON.stringify({ closed, results, requested, ok, stream }) + "\n");
   // `process.exitCode`, never `process.exit()`: the JSON above is buffered, and
@@ -123,7 +112,7 @@ export async function cmdClose(services: Services, args: string[]): Promise<void
 
   const answer = await readRpc(services, "close-targets", { caller: callerCredential(), targets: [...positional], all });
   if (answer.refusal !== null) die(answer.refusal);
-  reportClose(await closeEachTarget(services, answer.targets, json), { all, stream, json });
+  await reportClose(services, await closeEachTarget(services, answer.targets, json), { all, stream, json });
 }
 
 export async function cmdAbort(services: Services, args: string[]): Promise<void> {

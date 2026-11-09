@@ -16,7 +16,8 @@ import type { AgentAdapter, SessionView } from "../types/adapter.ts";
 import type { AgentRead, AgentReading, ResultLookup, ScreenLookup, SessionLookup, TailLookup } from "../types/agent-read.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { PresenceEntry } from "../types/presence.ts";
-import type { PtyHolder } from "../types/pty.ts";
+import type { HeldTerminal, PtyHolder } from "../types/pty.ts";
+import type { HereAgent } from "../types/agent-place.ts";
 
 /** What the reader reads with: this orch dir, its logger, and the PTYs this orchd holds. */
 export interface AgentReader {
@@ -42,7 +43,8 @@ interface ReadSubject {
   readonly logger: Logger;
 }
 
-function subjectOf(orchDir: OrchDir, key: string, logger: Logger): ReadSubject {
+function subjectOf(orchDir: OrchDir, agent: HereAgent, logger: Logger): ReadSubject {
+  const key = agent.id;
   const view = agentView(orchDir, key);
   const presence = presenceEntry(orchDir, key) ?? null;
   return {
@@ -109,12 +111,12 @@ function dispatchResult(subject: ReadSubject, dispatchId: string): ResultLookup 
 
 /** The agent's result: its current dispatch's, else its reported one, else its newest run's,
  *  else what its session last said. */
-export function readAgentResult(orchDir: OrchDir, key: string, logger: Logger): ResultLookup {
-  const subject = subjectOf(orchDir, key, logger);
+export function readAgentResult(orchDir: OrchDir, agent: HereAgent, logger: Logger): ResultLookup {
+  const subject = subjectOf(orchDir, agent, logger);
   const dispatchId = subject.presence?.status?.dispatchId;
   if (dispatchId) return dispatchResult(subject, dispatchId);
   if (subject.presence?.result) return { kind: "found", source: "presence", payload: subject.presence.result };
-  const historical = selectRuns(orchDir, { agentKey: key, limit: 1 })[0];
+  const historical = selectRuns(orchDir, { agentKey: agent.id, limit: 1 })[0];
   if (historical?.result !== undefined) {
     subject.logger.info("result.history-fallback");
     return { kind: "found", source: "history", payload: historical.result };
@@ -126,8 +128,8 @@ export function readAgentResult(orchDir: OrchDir, key: string, logger: Logger): 
 }
 
 /** The agent's session read through its harness, with only its last `lines` entries. */
-export function readAgentTail(orchDir: OrchDir, key: string, lines: number, logger: Logger): TailLookup {
-  const subject = subjectOf(orchDir, key, logger);
+export function readAgentTail(orchDir: OrchDir, agent: HereAgent, lines: number, logger: Logger): TailLookup {
+  const subject = subjectOf(orchDir, agent, logger);
   const adapter = subject.adapter;
   if (!adapter?.sessionView) {
     return { kind: "missing", reason: `Target "${subject.label}" (${adapter?.id ?? "unknown adapter"}) exposes no session tail; a session is read only through an adapter that declares one.` };
@@ -138,8 +140,8 @@ export function readAgentTail(orchDir: OrchDir, key: string, lines: number, logg
 }
 
 /** Where the agent's session is, and what its harness reads of it. */
-function readAgentSession(orchDir: OrchDir, key: string, logger: Logger): SessionLookup {
-  const subject = subjectOf(orchDir, key, logger);
+function readAgentSession(orchDir: OrchDir, agent: HereAgent, logger: Logger): SessionLookup {
+  const subject = subjectOf(orchDir, agent, logger);
   if (subject.sessionPath === null) return { kind: "missing", reason: `No session path known for "${subject.label}".` };
   const adapter = subject.adapter;
   if (!adapter?.sessionView) {
@@ -150,11 +152,12 @@ function readAgentSession(orchDir: OrchDir, key: string, logger: Logger): Sessio
 
 /** The last `lines` lines of the agent's screen: from the PTY this orchd holds for it, else
  *  through its plexer's screen role. An agent with neither answers why. */
-function readAgentScreen(reader: AgentReader, key: string, lines: number): ScreenLookup {
+function readAgentScreen(reader: AgentReader, agent: HereAgent, lines: number): ScreenLookup {
   const held = reader.held();
-  if (held.has(key)) return { kind: "found", handle: key, text: held.text(key, lines) };
-  const route = resolveTargetRoute(reader.orchDir, key);
-  const label = agentView(reader.orchDir, key)?.name ?? key;
+  const terminal = { kind: "agent", agent } satisfies HeldTerminal;
+  if (held.has(terminal)) return { kind: "found", handle: agent.id, text: held.text(terminal, lines) };
+  const route = resolveTargetRoute(reader.orchDir, agent);
+  const label = agentView(reader.orchDir, agent.id)?.name ?? agent.id;
   const screen = route?.backend.screen;
   const pane = route === undefined || !screen ? null : { screen, handle: route.handle };
   const plan = paneBoundary(label, "peek", pane, route !== undefined);
@@ -162,21 +165,21 @@ function readAgentScreen(reader: AgentReader, key: string, lines: number): Scree
   return { kind: "found", handle: describeHandle(plan.role.handle), text: plan.role.screen.read(plan.role.handle, lines) };
 }
 
-/** Answer one read of an agent this store holds. */
-export function readAgent(reader: AgentReader, key: string, read: AgentRead): AgentReading {
+/** Answer one read of an agent this orchd runs. */
+export function readAgent(reader: AgentReader, agent: HereAgent, read: AgentRead): AgentReading {
   const { orchDir, logger } = reader;
   switch (read.kind) {
     case "result":
-      return { kind: "result", lookup: readAgentResult(orchDir, key, logger) };
+      return { kind: "result", lookup: readAgentResult(orchDir, agent, logger) };
     case "tail":
-      return { kind: "tail", lookup: readAgentTail(orchDir, key, read.lines, logger) };
+      return { kind: "tail", lookup: readAgentTail(orchDir, agent, read.lines, logger) };
     case "session":
-      return { kind: "session", lookup: readAgentSession(orchDir, key, logger) };
+      return { kind: "session", lookup: readAgentSession(orchDir, agent, logger) };
     case "screen":
-      return { kind: "screen", lookup: readAgentScreen(reader, key, read.lines) };
+      return { kind: "screen", lookup: readAgentScreen(reader, agent, read.lines) };
     case "log": {
       const { kind: _kind, ...filter } = read;
-      return { kind: "log", records: readLogRecords(orchDir, { ...filter, agent: key }) };
+      return { kind: "log", records: readLogRecords(orchDir, { ...filter, agent: agent.id }) };
     }
     default: {
       const exhaustive: never = read;

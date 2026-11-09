@@ -7,7 +7,7 @@ import { getBackend } from "../backends/registry.ts";
 import { describeHandle } from "../shared/plexer.ts";
 import { sleepMs } from "../backends/shell-ready.ts";
 import { localProcessOf } from "../local-process.ts";
-import { hostIdentity } from "../host.ts";
+import { hostIdentity } from "../hosts/identity.ts";
 import type { CloseTargetWire } from "../entities/close-targets.ts";
 import type { Backend, BackendHandle, PlacementRole, ProcessRole, LocalProcess } from "../types/backend.ts";
 

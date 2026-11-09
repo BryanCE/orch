@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { hostIdentity, hostOs } from "../src/host.ts";
+import { hostOs } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 
 describe("which host this process runs on", () => {
   test("is a hashed id, the same on every call, never the hostname", () => {

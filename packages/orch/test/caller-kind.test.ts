@@ -1,12 +1,13 @@
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { HARNESS_SESSION_ENV } from "../src/shared/session-env.ts";
 import { agentIdBySessionToken, claimAgent } from "../src/store/agent-rows.ts";
-import { callerKind as daemonCallerKind } from "../src/policy/caller.ts";
+import { callerKindOf } from "../src/policy/caller.ts";
+import { callerCredential } from "../src/identity/credential.ts";
 import { registerCaller, refuseNonOperatorOverride, whoAmI } from "../src/commands/self.ts";
 import { isolateHarnessSession, isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { seedAgent } from "./helpers/agent.ts";
@@ -23,8 +24,8 @@ function currentOrchDir(): OrchDir {
   return orchDirAt(directory);
 }
 
-function callerKind(): ReturnType<typeof daemonCallerKind> {
-  return daemonCallerKind(currentOrchDir());
+function callerKind(): ReturnType<typeof callerKindOf> {
+  return callerKindOf(currentOrchDir(), callerCredential());
 }
 const sessionEnv = HARNESS_SESSION_ENV.pi;
 const savedSessionEnv = {

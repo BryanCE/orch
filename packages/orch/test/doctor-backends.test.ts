@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { backendCapabilitiesVerdict, describeBackendEnvironments } from "../src/doctor/backends.ts";
-import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
+import { backendCapabilitiesVerdict, describeBackendEnvironments } from "../src/daemon/server/doctor/backends.ts";
+import { checkMalformedPresenceRecords } from "../src/daemon/server/doctor/presence.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { DoctorBackendReport } from "../src/types/doctor.ts";

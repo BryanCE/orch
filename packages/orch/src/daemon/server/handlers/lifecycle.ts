@@ -1,5 +1,5 @@
 import type { CallerCredential, OrchDir } from "../../../types/core.ts";
-import { selfIdentityOf } from "../../../identity/self.ts";
+import { selfIdentityOf, spaceOfAgent } from "../../../identity/self.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
 import { holdsLease } from "../../../store/lease-rows.ts";
 import { randomUUID } from "node:crypto";
@@ -13,23 +13,27 @@ import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { BackendSpawnOpts } from "../../../types/backend.ts";
 import { deliverControl } from "../../../control/dispatch.ts";
 import { publishFromOrchd } from "../events.ts";
-import { eventHost } from "../status-events.ts";
+import { heldAgentHost } from "../status-events.ts";
 import { agentView } from "../../../store/agent-view.ts";
-import { agentById, endAgent, reclaimAgent, setHarness } from "../../../store/agent-rows.ts";
+import { agentById, endAgent, hostsRunningLiveAgents, reclaimAgent, setHarness } from "../../../store/agent-rows.ts";
+import { linkedHosts } from "../../../store/host-rows.ts";
+import { hostIdentity } from "../../../hosts/identity.ts";
 import { selectAgentStatus } from "../../../store/status-rows.ts";
 import { retryingAsync } from "../../../retry.ts";
 import { setHandle, setTuning } from "../../../store/interval-rows.ts";
-import { registerHostedAgent, registerSpawnedAgent } from "../../../store/spawn-registration.ts";
+import { registerHostedAgent } from "../../../store/spawn-registration.ts";
 import { presenceEntry } from "../../../presence/store.ts";
 import { isAgentState } from "../../../agent-state.ts";
-import { pendingQuestions, recordQuestion } from "../../../store/question-rows.ts";
+import { pendingQuestions, recordQuestion, type QuestionRow } from "../../../store/question-rows.ts";
 import { governWrite } from "./write.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
 import type { LifecycleVerb } from "../../../types/adapter.ts";
 import type { DaemonState } from "../state.ts";
+import { errorMessage } from "../../../util.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
 import type { HostId } from "../../../types/host.ts";
+import type { HereAgent } from "../../../types/agent-place.ts";
 import type { PendingQuestionView } from "../../../types/daemon.ts";
 import { addTask } from "../../../queue.ts";
 import type { TaskRec } from "../../../types/queue.ts";
@@ -124,7 +128,7 @@ export async function setModel(state: DaemonState, params: ParamsOf<"set-model">
   const { target, model } = params;
   governWrite(state, target, params);
   return atAgentHost(state, target, {
-    here: () => applyModel(state, target, model),
+    here: (agent) => applyModel(state, agent, model),
     there: async (link) => {
       const { ok, applied } = await driveOnHost(state, link, { action: "model", key: target, model, actor: params.actor ?? null });
       return { ok, applied };
@@ -133,8 +137,8 @@ export async function setModel(state: DaemonState, params: ParamsOf<"set-model">
 }
 
 /** Switch the model of an agent this orchd runs, ruled on already. */
-export async function applyModel(state: DaemonState, target: string, model: string): Promise<{ ok: true; applied: string }> {
-  await deliverControl(state.directory, state.services.settings.current(), state.services.models, target, { kind: "model", model, id: randomUUID() });
+export async function applyModel(state: DaemonState, agent: HereAgent, model: string): Promise<{ ok: true; applied: string }> {
+  await deliverControl(state.directory, state.services.settings.current(), state.services.models, agent, { kind: "model", model, id: randomUUID() });
   return { ok: true, applied: model };
 }
 
@@ -180,7 +184,7 @@ export async function clearSession(state: DaemonState, params: ParamsOf<"clear-s
   const { target } = params;
   governWrite(state, target, params);
   return atAgentHost(state, target, {
-    here: () => clearHere(state, target),
+    here: (agent) => clearHere(state, agent),
     there: async (link) => {
       const { ok } = await driveOnHost(state, link, { action: "clear", key: target, actor: params.actor ?? null });
       return { ok };
@@ -196,15 +200,16 @@ function abortHint(name: string): string {
 /** Clear the session of an agent this orchd runs, ruled on already: the harness that comes back
  *  claims the row afresh, so the old claim goes first. Answers once the agent reports idle from
  *  a status newer than the clear; a stale idle is the old session answering for the new one. */
-export async function clearHere(state: DaemonState, key: string): Promise<ResultOf<"clear-session">> {
+export async function clearHere(state: DaemonState, agent: HereAgent): Promise<ResultOf<"clear-session">> {
   const directory = state.directory;
+  const key = agent.id;
   const name = agentView(directory, key)?.name ?? key;
   const before = selectAgentStatus(directory, key);
   // A session mid-turn queues the clear behind its turn, so the wait below would only time out.
   if (before?.state === "working") throw new Error(`${name} is mid-turn (working), so its session cannot be cleared. ${abortHint(name)}`);
   const sentAt = Date.now();
   reclaimAgent(directory, key);
-  await applyVerb(state, key, "reset");
+  await applyVerb(state, agent, "reset");
   const { reset_ready_ms: readyMs, reset_poll_ms: pollMs } = state.services.settings.current().timeouts;
   const idleAfterClear = (): boolean => {
     const status = selectAgentStatus(directory, key);
@@ -222,17 +227,11 @@ export async function clearHere(state: DaemonState, key: string): Promise<Result
 }
 
 /** Apply a lifecycle verb to an agent this orchd runs, ruled on already. */
-export async function applyVerb(state: DaemonState, target: string, verb: LifecycleVerb): Promise<{ ok: true; verb: LifecycleVerb }> {
-  await deliverControl(state.directory, state.services.settings.current(), state.services.models, target, { kind: "lifecycle", verb });
+export async function applyVerb(state: DaemonState, agent: HereAgent, verb: LifecycleVerb): Promise<{ ok: true; verb: LifecycleVerb }> {
+  await deliverControl(state.directory, state.services.settings.current(), state.services.models, agent, { kind: "lifecycle", verb });
   return { ok: true, verb };
 }
 
-/** ONE writer for one record: a placed spawn launched the process from the CLI
- *  and states every axis here; orchd writes the row. */
-export function registerAgent(directory: OrchDir, params: ParamsOf<"register-agent">): { ok: true } {
-  registerSpawnedAgent(directory, params);
-  return { ok: true };
-}
 
 export function reclaim(directory: OrchDir, params: ParamsOf<"reclaim">): { ok: true } {
   reclaimAgent(directory, params.target);
@@ -269,21 +268,45 @@ function questionVisibleTo(directory: OrchDir, credential: CallerCredential): (r
   return (row) => holdsLease(directory, row.agentId, caller);
 }
 
-export function listPendingQuestions(directory: OrchDir, params: ParamsOf<"questions">): { questions: PendingQuestionView[] } {
-  const questions = pendingQuestions(directory)
-    .filter(questionVisibleTo(directory, params.caller))
-    .sort((left, right) => right.askedAt - left.askedAt)
-    .map((row): PendingQuestionView => {
-      const agent = agentById(directory, row.agentId);
-      return {
-        questionId: row.id,
-        agentId: row.agentId,
-        key: row.agentId,
-        name: agent?.name ?? null,
-        host: eventHost(directory, row.agentId),
-        question: row.question,
-        askedAt: row.askedAt,
-      };
-    });
-  return { questions };
+/** One pending question as every reader sees it, from the store of the host its agent runs on. */
+export function questionView(directory: OrchDir, row: QuestionRow): PendingQuestionView {
+  const agent = agentById(directory, row.agentId);
+  return {
+    questionId: row.id,
+    agentId: row.agentId,
+    key: row.agentId,
+    name: agent?.name ?? null,
+    host: heldAgentHost(directory, row.agentId),
+    space: spaceOfAgent(directory, row.agentId),
+    question: row.question,
+    askedAt: row.askedAt,
+  };
+}
+
+/** The questions the agents on each linked host are asking, asked of that host's orchd: a
+ *  question stays in the store of the host its agent runs on. A host that does not answer
+ *  costs its questions only; the miss is logged. */
+async function linkedQuestions(state: DaemonState): Promise<PendingQuestionView[]> {
+  const names = linkedHosts(state.directory);
+  const hosts = [...hostsRunningLiveAgents(state.directory, hostIdentity().id)].flatMap((id) => {
+    const host = names.get(id);
+    return host === undefined ? [] : [host];
+  });
+  const answers = await Promise.all(hosts.map(async (host) => {
+    try {
+      return (await state.hosts.link(host.name).call("peer-questions", {})).questions;
+    } catch (error: unknown) {
+      state.services.logger.warn("questions.host-unanswered", { host: host.name, error: errorMessage(error) });
+      return [];
+    }
+  }));
+  return answers.flat();
+}
+
+export async function listPendingQuestions(state: DaemonState, params: ParamsOf<"questions">): Promise<{ questions: PendingQuestionView[] }> {
+  const directory = state.directory;
+  const visible = questionVisibleTo(directory, params.caller);
+  const here = pendingQuestions(directory).filter(visible).map((row) => questionView(directory, row));
+  const there = (await linkedQuestions(state)).filter(visible);
+  return { questions: [...here, ...there].sort((left, right) => right.askedAt - left.askedAt) };
 }

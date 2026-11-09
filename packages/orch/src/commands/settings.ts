@@ -3,7 +3,7 @@ import { allowedModelPatterns, allowlistWithDefault, resolveWithSource } from ".
 import { NOTIFY_DEFAULT_ON, settingsPath, SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { displaySetting, displayValue } from "../settings/display.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
-import { buildSelectedNotifyEntries, probeNotifiers } from "../setup/notifiers.ts";
+import { buildSelectedNotifyEntries } from "../setup/notifiers.ts";
 import { describeSkillPlacement, installSkills } from "../setup/skills.ts";
 import { errorMessage, isRecord } from "../util.ts";
 import { validateSetupFlag } from "../setup/flags.ts";
@@ -11,7 +11,8 @@ import { parseCommand } from "./registry.ts";
 import type { Invocation } from "../cli/spec.ts";
 import { usageError } from "../cli/usage.ts";
 import { recordHarnessModels, resolveHarnessModels } from "../setup/composition.ts";
-import { refreshAdapterCatalogues, syncAdapterSettingsFiles } from "../adapters/registry.ts";
+import { askDaemon } from "./daemon.ts";
+import { setupProbes, timeoutMs } from "./machine.ts";
 import { isAdapterId } from "../shared/harness.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
 import { signedOutFix } from "../shared/prerequisites.ts";
@@ -19,7 +20,7 @@ import { BACKEND_IDS } from "../types/backend.ts";
 import { isThinkingLevel } from "../policy/thinking.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { die } from "./target.ts";
-import { callerKind } from "../policy/caller.ts";
+import { whoAmI } from "./self.ts";
 import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, agentSettingRefusal, grantAgentSetting, revokeAgentSetting } from "../policy/agent-settings.ts";
 import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
@@ -27,7 +28,7 @@ import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell/index.ts";
 import type { NotifierChoice } from "../types/notify.ts";
 import type { NotifyEntry, NotifyState, OrchSettings, SettingSpec } from "../types/settings.ts";
-import type { Services } from "../types/services.ts";
+import type { DaemonClient, Services } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
 
 /** The effective settings, or a plain-language exit. A load error (invalid settings, a
@@ -78,8 +79,8 @@ export function shouldLaunchSettingsEditor(args: readonly string[], isTTY = proc
 
 /** A spawned agent or a harness session writes only what `agents.writable_settings` grants.
  *  The operator, a raw terminal, is the human. */
-function refuseUngrantedAgentWrite(services: Pick<Services, "settings" | "orchDir">, key: string): void {
-  if (callerKind(services.orchDir) === "operator") return;
+async function refuseUngrantedAgentWrite(services: DaemonClient, key: string): Promise<void> {
+  if ((await whoAmI(services)).kind === "operator") return;
   const settings = currentSettings(services);
   if (!agentMayWriteSetting(settings, key)) die(agentSettingRefusal(settings, key));
 }
@@ -93,12 +94,12 @@ function writableSpec(key: string): SettingSpec {
 }
 
 /** The one key a grant verb names: registered, writable, not the grant itself, and the caller is the human. */
-function grantTarget(services: Pick<Services, "orchDir" | "settings">, invocation: Invocation): string {
+async function grantTarget(services: DaemonClient, invocation: Invocation): Promise<string> {
   const key = invocation.positional[0];
   if (key === undefined || invocation.positional.length !== 1) throw usageError(invocation);
   writableSpec(key);
   if (key === AGENT_SETTINGS_GRANT) die(`${key} never grants itself.`);
-  refuseUngrantedAgentWrite(services, AGENT_SETTINGS_GRANT);
+  await refuseUngrantedAgentWrite(services, AGENT_SETTINGS_GRANT);
   return key;
 }
 
@@ -108,20 +109,20 @@ function writeAgentGrant(services: Pick<Services, "settings">, keys: readonly st
 }
 
 /** `orch settings grant <key>`: let an agent write that setting. */
-function settingsGrant(services: Pick<Services, "settings" | "orchDir">, invocation: Invocation): void {
-  const key = grantTarget(services, invocation);
+async function settingsGrant(services: DaemonClient, invocation: Invocation): Promise<void> {
+  const key = await grantTarget(services, invocation);
   writeAgentGrant(services, grantAgentSetting(currentSettings(services), key));
 }
 
 /** `orch settings revoke <key>`: the human alone writes that setting again. */
-function settingsRevoke(services: Pick<Services, "settings" | "orchDir">, invocation: Invocation): void {
-  const key = grantTarget(services, invocation);
+async function settingsRevoke(services: DaemonClient, invocation: Invocation): Promise<void> {
+  const key = await grantTarget(services, invocation);
   writeAgentGrant(services, revokeAgentSetting(currentSettings(services), key));
 }
 
-function setSingleSetting(services: Pick<Services, "settings" | "orchDir">, key: string, input: string): void {
+async function setSingleSetting(services: DaemonClient, key: string, input: string): Promise<void> {
   const spec = writableSpec(key);
-  refuseUngrantedAgentWrite(services, key);
+  await refuseUngrantedAgentWrite(services, key);
   const parsed = parseSettingValue(spec, input);
   if (!parsed.ok) die(`${key}: ${parsed.reason}.`);
   try { writeRegisteredSetting(services.settings, key, parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
@@ -157,8 +158,8 @@ async function settingsModels(services: Services, { flags }: Invocation): Promis
 
   // Catalogues are stored and refreshed on a cycle, so an operator who just installed a model
   // needs a way to say "ask again now" rather than picking from yesterday's list.
-  if (flags.has("--refresh")) await refreshAdapterCatalogues(services.models);
-  const chosen = await resolveHarnessModels(settings, services.models, model, targets, interactive);
+  if (flags.has("--refresh")) await askDaemon(services, "catalogue-refresh", undefined, settings.timeouts.adapter_command_ms);
+  const chosen = await resolveHarnessModels(settings, setupProbes(services).offers, model, targets, interactive);
   if (chosen === null) return;
   recordHarnessModels(services.settings, settings, chosen);
   for (const id of targets) {
@@ -283,7 +284,7 @@ async function addNotifyEntry(services: Services, invocation: Invocation): Promi
   const { flags, positional, undeclared } = invocation;
   const id = positional[0];
   if (id === undefined || positional.length !== 1) throw usageError(invocation);
-  const choices = await probeNotifiers(currentSettings(services));
+  const { choices } = await askDaemon(services, "notifier-probe", undefined, timeoutMs(services, "machine_ms"));
   const choice = choices.find((notifier) => notifier.id === id);
   if (!choice) die(`Unknown notify sink "${id}". Supported: ${choices.map((notifier) => notifier.id).join(", ")}.`);
   rejectUndeclaredFlags(undeclared, choice.requiredFields);
@@ -299,7 +300,7 @@ async function addNotifyEntry(services: Services, invocation: Invocation): Promi
     on: readNotifyStates(flags.value("--only")) ?? recorded?.on,
   };
 
-  const written = await buildSelectedNotifyEntries([{ id, config }]);
+  const written = buildSelectedNotifyEntries([{ id, requiredFields: choice.requiredFields, config }]);
   const missing = written.errors.flatMap((error) => error.missing);
   if (missing.length) die(`${id} needs ${missing.map((field) => `--${field}=<value>`).join(" ")}.`);
 
@@ -339,7 +340,7 @@ async function settingsNotify(services: Services, invocation: Invocation): Promi
 
 async function launchSettingsEditor(services: Services): Promise<void> {
   try {
-    await runSettingsEditor(services.settings, services.models);
+    await runSettingsEditor(services.settings, setupProbes(services).offers);
   } catch (error: unknown) {
     die(errorMessage(error));
   }
@@ -428,7 +429,7 @@ function printSettingsOutput(services: Pick<Services, "settings">, settings: Orc
 }
 
 /** Print each resolvable setting with its winning source, set one, or switch the active default via --harness/--plexer. */
-function settingsRoot(services: Services, invocation: Invocation): void {
+async function settingsRoot(services: Services, invocation: Invocation): Promise<void> {
   const { flags, positional } = invocation;
   const [key, input] = positional;
   if (key !== undefined && input !== undefined && positional.length === 2) return setSingleSetting(services, key, input);
@@ -442,13 +443,15 @@ function settingsRoot(services: Services, invocation: Invocation): void {
 /** `orch settings` and every subcommand under it, then each harness file the settings build is brought in step. */
 export async function cmdSettings(services: Services, args: string[]): Promise<void> {
   await runSettingsVerb(services, args);
-  syncHarnessFiles(services);
+  await syncHarnessFiles(services);
 }
 
-/** A harness reads its file only at launch, so a setting it holds takes effect with no doctor run. */
-function syncHarnessFiles(services: Pick<Services, "settings" | "orchDir">): void {
+/** A harness reads its file only at launch, so a setting it holds takes effect with no doctor run.
+ *  orchd writes the files, from settings.json as this command left it. */
+async function syncHarnessFiles(services: Pick<Services, "settings" | "orchDir" | "logger">): Promise<void> {
   try {
-    for (const written of syncAdapterSettingsFiles(services.orchDir, services.settings.current())) process.stderr.write(`rewrote ${written}\n`);
+    const { written } = await askDaemon(services, "harness-files-sync", undefined);
+    for (const path of written) process.stderr.write(`rewrote ${path}\n`);
   } catch (error: unknown) {
     die(`${errorMessage(error)}. Workers launch on the old file until it is fixed.`);
   }

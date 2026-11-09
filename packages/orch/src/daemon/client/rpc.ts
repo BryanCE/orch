@@ -1,7 +1,7 @@
 import type { Logger, OrchDir } from "../../types/core.ts";
 import { createConnection, type Socket } from "node:net";
 import { existsSync } from "node:fs";
-import { readPortPath } from "../../presence/socket-client.ts";
+import { readPortPath } from "./runtime-files.ts";
 import type { EventSubscription } from "../../types/daemon.ts";
 import { daemonResult, type ParamsOf, type ResultOf, type RpcMethod } from "./protocol.ts";
 import { DaemonAbsentError, DaemonUnreachableError, type RpcLine, DEFAULT_TIMEOUT_MS, encodeRequest, endpointPaths, readJsonMessages, responseError } from "./wire.ts";
@@ -168,7 +168,7 @@ export async function rpcCall<M extends RpcMethod>(
  */
 export function subscribeEvents(
   orchDir: OrchDir,
-  opts: { since?: number; logger?: Logger },
+  opts: { since?: number; logger?: Logger; stream?: number },
   onEvent: (event: NotifyEvent, seq: number) => void,
   onGap?: (oldestSeq: number) => void,
 ): EventSubscription {
@@ -239,7 +239,7 @@ export function subscribeEvents(
         // from the last sequence delivered instead of replaying an unrelated window.
         const since = connectedBefore ? last : opts.since;
         connectedBefore = true;
-        connected.write(encodeRequest(nextId(), "subscribe-events", { since }));
+        connected.write(encodeRequest(nextId(), "subscribe-events", opts.stream === undefined ? { since } : { since, stream: opts.stream }));
       })
       .catch(() => {
         // Daemon absent or the dial failed; keep retrying — it may return.

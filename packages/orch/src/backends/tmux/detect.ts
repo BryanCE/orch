@@ -1,13 +1,14 @@
 import type { DetectedPlexer } from "../../types/backend.ts";
+import type { PlexerEnv } from "../../shared/plexer-env.ts";
 
-export function insideTmux(): boolean {
-  return !!process.env.TMUX;
+export function insideTmux(env: PlexerEnv = process.env): boolean {
+  return !!env.TMUX;
 }
 
-export function callerTmuxPane(): string | undefined {
-  return process.env.TMUX_PANE;
+export function callerTmuxPane(env: PlexerEnv = process.env): string | undefined {
+  return env.TMUX_PANE;
 }
 
-export function detectTmux(): DetectedPlexer | undefined {
-  return insideTmux() ? { plexer: "tmux", handle: callerTmuxPane() } : undefined;
+export function detectTmux(env: PlexerEnv): DetectedPlexer | undefined {
+  return insideTmux(env) ? { plexer: "tmux", handle: callerTmuxPane(env) } : undefined;
 }

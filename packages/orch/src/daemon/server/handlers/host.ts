@@ -56,6 +56,7 @@ function driveWaitMs(timeouts: OrchSettings["timeouts"], request: PeerDrive): nu
   switch (request.action) {
     case "dispatch":
     case "steer":
+    case "answer":
       return timeouts.dispatch_ack_ms;
     case "model":
       return timeouts.adapter_command_ms;
@@ -101,7 +102,7 @@ export function agentReaderOf(state: DaemonState): AgentReader {
  *  linked host's orchd over the link. The answer names that host. */
 export async function readAgentAnywhere(state: DaemonState, params: ParamsOf<"agent-read">): Promise<ResultOf<"agent-read">> {
   if (!callerMayResolveFor(state.directory, params.caller, { key: params.key })) refuseForeignTarget(params.key);
-  const local = (): ResultOf<"agent-read"> => ({ host: null, reading: readAgent(agentReaderOf(state), params.key, params.read) });
+  const local = (agent: HereAgent): ResultOf<"agent-read"> => ({ host: null, reading: readAgent(agentReaderOf(state), agent, params.read) });
   return await atAgentHost(state, params.key, {
     here: local,
     there: async (link, host) => ({ host: host.name, reading: await link.call("peer-read", { key: params.key, read: params.read }) }),

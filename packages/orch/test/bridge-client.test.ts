@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import { createDaemonLink } from "../src/agent/daemon-client.ts";
-import { openJsonLineLink } from "../src/presence/socket-client.ts";
+import { openJsonLineLink } from "../src/daemon/client/socket.ts";
 import { daemonRuntimeFiles } from "../src/daemon/client/runtime-files.ts";
 import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";

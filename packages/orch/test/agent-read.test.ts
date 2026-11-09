@@ -9,7 +9,7 @@ import { closeAllStores, drainWrites } from "../src/store/connection.ts";
 import { recordAgentStatus } from "../src/presence/store.ts";
 import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -57,7 +57,7 @@ describe("reading an agent from the store that holds it", () => {
     recordAgentStatus(orchDir, placeHere(orchDir, key), { state: "done", dispatchId: "read-dispatch-1" }, Date.now());
     upsertRun(orchDir, { dispatchId: "read-dispatch-1", agentKey: key, state: "done", startedAt: Date.now(), result: "settled text" });
     drainWrites(orchDir);
-    expect(readAgentResult(orchDir, key, logger)).toEqual({ kind: "found", source: "dispatch", payload: "settled text" });
+    expect(readAgentResult(orchDir, placeHere(orchDir, key), logger)).toEqual({ kind: "found", source: "dispatch", payload: "settled text" });
   });
 
   test("says a running dispatch has not settled, naming the agent", () => {
@@ -65,7 +65,7 @@ describe("reading an agent from the store that holds it", () => {
     recordAgentStatus(orchDir, placeHere(orchDir, key), { state: "working", dispatchId: "read-dispatch-2" }, Date.now());
     upsertRun(orchDir, { dispatchId: "read-dispatch-2", agentKey: key, state: "working", startedAt: Date.now() });
     drainWrites(orchDir);
-    const lookup = readAgentResult(orchDir, key, logger);
+    const lookup = readAgentResult(orchDir, placeHere(orchDir, key), logger);
     expect(lookup.kind).toBe("missing");
     if (lookup.kind === "missing") expect(lookup.reason).toContain("has not settled (working)");
     if (lookup.kind === "missing") expect(lookup.reason).toContain("orch runs reader");
@@ -75,24 +75,24 @@ describe("reading an agent from the store that holds it", () => {
     const history = storeWithAgent();
     upsertRun(history.orchDir, { dispatchId: "read-history-1", agentKey: history.key, state: "done", startedAt: Date.now(), result: "from history" });
     drainWrites(history.orchDir);
-    expect(readAgentResult(history.orchDir, history.key, logger)).toEqual({ kind: "found", source: "presence", payload: "from history" });
+    expect(readAgentResult(history.orchDir, placeHere(history.orchDir, history.key), logger)).toEqual({ kind: "found", source: "presence", payload: "from history" });
 
     const session = storeWithAgent();
     recordAgentStatus(session.orchDir, placeHere(session.orchDir, session.key), { state: "done", sessionPath: piSession(session.orchDir, session.key) }, Date.now());
-    const lookup = readAgentResult(session.orchDir, session.key, logger);
+    const lookup = readAgentResult(session.orchDir, placeHere(session.orchDir, session.key), logger);
     expect(lookup).toMatchObject({ kind: "found", source: "session", payload: { text: "final answer" } });
   });
 
   test("an agent with nothing to report is missing, never empty", () => {
     const { orchDir, key } = storeWithAgent();
-    expect(readAgentResult(orchDir, key, logger)).toMatchObject({ kind: "missing" });
+    expect(readAgentResult(orchDir, placeHere(orchDir, key), logger)).toMatchObject({ kind: "missing" });
   });
 
   test("a tail keeps the last entries asked for and the session path", () => {
     const { orchDir, key } = storeWithAgent();
     const sessionPath = piSession(orchDir, key);
     recordAgentStatus(orchDir, placeHere(orchDir, key), { state: "done", sessionPath }, Date.now());
-    const lookup = readAgentTail(orchDir, key, 2, logger);
+    const lookup = readAgentTail(orchDir, placeHere(orchDir, key), 2, logger);
     if (lookup.kind !== "found") throw new Error(`expected a session, got: ${lookup.reason}`);
     expect(lookup.sessionPath).toBe(sessionPath);
     expect(lookup.view.entries?.map((entry) => entry.text ?? entry.toolCalls?.[0]?.name)).toEqual(["bash", "final answer"]);
@@ -100,6 +100,6 @@ describe("reading an agent from the store that holds it", () => {
 
   test("a tail of an agent with no session file is missing", () => {
     const { orchDir, key } = storeWithAgent();
-    expect(readAgent({ orchDir, logger, held: () => noneHeld }, key, { kind: "tail", lines: 5 })).toMatchObject({ kind: "tail", lookup: { kind: "missing" } });
+    expect(readAgent({ orchDir, logger, held: () => noneHeld }, placeHere(orchDir, key), { kind: "tail", lines: 5 })).toMatchObject({ kind: "tail", lookup: { kind: "missing" } });
   });
 });

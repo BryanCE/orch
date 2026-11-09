@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
 import { REPLAY_WINDOW, ReplayBuffer } from "../src/daemon/server/replay.ts";

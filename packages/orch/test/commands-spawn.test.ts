@@ -5,7 +5,14 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { cmdSpawn } from "../src/commands/spawn/index.ts";
-import { parseSpawnFlags, resolveSpawnSettings } from "../src/commands/spawn/flags.ts";
+import { parseSpawnFlags, resolveSpawnSettings, type SpawnFlags } from "../src/commands/spawn/flags.ts";
+import { planSpawn, type SpawnSettings } from "../src/daemon/server/spawn/plan.ts";
+import type { OrchSettings } from "../src/types/settings.ts";
+
+/** What orchd plans from what `orch spawn` asks it for. */
+function planned(flags: SpawnFlags, settings: OrchSettings): SpawnSettings {
+  return planSpawn(resolveSpawnSettings(flags, settings).params, settings);
+}
 import { workerPrompt } from "../src/worker-prompt.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
 import { CommandRefusal } from "../src/refusal.ts";
@@ -166,14 +173,14 @@ describe("commands/spawn", () => {
   test("one --harness launches every agent on that harness", () => {
     const dir = tempOrchDir("orch-spawn-harness-one-");
     tempDirs.push(dir);
-    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "--harness", "omp"]), mixedSettingsFor(dir));
+    const settings = planned(parseSpawnFlags(["a", "b", "--harness", "omp"]), mixedSettingsFor(dir));
     expect(settings.agents.map((agent) => agent.adapter)).toEqual(["omp", "omp"]);
   });
 
   test("one --harness per name launches each agent on its own harness", () => {
     const dir = tempOrchDir("orch-spawn-harness-each-");
     tempDirs.push(dir);
-    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir));
+    const settings = planned(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir));
     expect(settings.agents.map((agent) => agent.adapter)).toEqual(["pi", "omp"]);
     expect(settings.agents[0]?.cmd.startsWith("pi")).toBe(true);
     expect(settings.agents[1]?.cmd.startsWith("omp")).toBe(true);
@@ -182,19 +189,19 @@ describe("commands/spawn", () => {
   test("refuses an incorrect number of harnesses", () => {
     const dir = tempOrchDir("orch-spawn-harness-count-");
     tempDirs.push(dir);
-    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "c", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir))).toThrow(/--harness accepts one value for all agents or exactly 3 values/);
+    expect(() => planned(parseSpawnFlags(["a", "b", "c", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir))).toThrow(/--harness accepts one value for all agents or exactly 3 values/);
   });
 
   test("refuses --cmd with more than one harness", () => {
     const dir = tempOrchDir("orch-spawn-harness-cmd-");
     tempDirs.push(dir);
-    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp", "--cmd", "pi"]), mixedSettingsFor(dir))).toThrow(/--cmd launches one harness/);
+    expect(() => planned(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp", "--cmd", "pi"]), mixedSettingsFor(dir))).toThrow(/--cmd launches one harness/);
   });
 
   test("resolves each agent's model against its own harness", () => {
     const dir = tempOrchDir("orch-spawn-harness-model-");
     tempDirs.push(dir);
-    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir));
+    const settings = planned(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir));
     expect(settings.agents.map((agent) => agent.model)).toEqual(["openrouter/openai/gpt-5.6-luna", "openrouter/anthropic/claude-sonnet-4.5"]);
     expect(settings.agents.map((agent) => agent.preferredModels)).toEqual([[], ["openrouter/anthropic/claude-sonnet-4.5"]]);
   });
@@ -208,7 +215,7 @@ describe("commands/spawn", () => {
       writeFileSync(file, `  ${text}  `);
       return file;
     });
-    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "c", "--file", files[0]!, "--file", files[1]!, "--file", files[2]!]), settingsFor(dir));
+    const settings = planned(parseSpawnFlags(["a", "b", "c", "--file", files[0]!, "--file", files[1]!, "--file", files[2]!]), settingsFor(dir));
     expect(settings.agents.map((agent) => agent.prompt)).toEqual(["first", "second", "third"]);
   });
 
@@ -217,7 +224,7 @@ describe("commands/spawn", () => {
     tempDirs.push(dir);
     const file = join(mkdtempSync(join(dir, "tasks-")), "task.txt");
     writeFileSync(file, "  shared  ");
-    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "c", "--file", file]), settingsFor(dir));
+    const settings = planned(parseSpawnFlags(["a", "b", "c", "--file", file]), settingsFor(dir));
     expect(settings.agents.map((agent) => agent.prompt)).toEqual(["shared", "shared", "shared"]);
   });
 
@@ -228,7 +235,7 @@ describe("commands/spawn", () => {
     const own = join(dir, "own.md");
     writeFileSync(shared, "s");
     writeFileSync(own, "o");
-    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "--prompt", "go", "--with", shared, "--with", `b=${own}`]), settingsFor(dir));
+    const settings = planned(parseSpawnFlags(["a", "b", "--prompt", "go", "--with", shared, "--with", `b=${own}`]), settingsFor(dir));
     const [first, second] = settings.agents.map((agent) => agent.prompt ?? "");
     expect(first).toContain(shared);
     expect(first).not.toContain(own);
@@ -241,32 +248,32 @@ describe("commands/spawn", () => {
     tempDirs.push(dir);
     const own = join(dir, "own.md");
     writeFileSync(own, "o");
-    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "--prompt", "go", "--with", `c=${own}`]), settingsFor(dir))).toThrow(/--with c=/);
+    expect(() => planned(parseSpawnFlags(["a", "b", "--prompt", "go", "--with", `c=${own}`]), settingsFor(dir))).toThrow(/--with c=/);
   });
 
   test("refuses an incorrect number of prompt files", () => {
     const dir = tempOrchDir("orch-spawn-file-count-");
     tempDirs.push(dir);
-    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "c", "--file", "one", "--file", "two"]), settingsFor(dir))).toThrow(/accepts one value for all agents or exactly 3 values/);
+    expect(() => planned(parseSpawnFlags(["a", "b", "c", "--file", "one", "--file", "two"]), settingsFor(dir))).toThrow(/accepts one value for all agents or exactly 3 values/);
   });
 
   test("refuses stdin prompt files more than once", () => {
     const dir = tempOrchDir("orch-spawn-file-stdin-");
     tempDirs.push(dir);
-    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "--file", "-", "--file", "-"]), settingsFor(dir))).toThrow(/--file - reads stdin once; name it at most once/);
+    expect(() => planned(parseSpawnFlags(["a", "b", "--file", "-", "--file", "-"]), settingsFor(dir))).toThrow(/--file - reads stdin once; name it at most once/);
   });
 
   test("resolves one model per agent", () => {
     const dir = tempOrchDir("orch-spawn-models-");
     tempDirs.push(dir);
-    const settings = resolveSpawnSettings(parseSpawnFlags(["a", "b", "--model", "openrouter/openai/gpt-5.6-luna", "--model", "openrouter/anthropic/claude-sonnet-4.5"]), settingsFor(dir));
+    const settings = planned(parseSpawnFlags(["a", "b", "--model", "openrouter/openai/gpt-5.6-luna", "--model", "openrouter/anthropic/claude-sonnet-4.5"]), settingsFor(dir));
     expect(settings.agents[0]?.model).not.toBe(settings.agents[1]?.model);
   });
 
   test("refuses an incorrect number of models", () => {
     const dir = tempOrchDir("orch-spawn-model-count-");
     tempDirs.push(dir);
-    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "--model", "m1", "--model", "m2", "--model", "m3"]), settingsFor(dir))).toThrow(/accepts one value for all agents or exactly 2 values/);
+    expect(() => planned(parseSpawnFlags(["a", "b", "--model", "m1", "--model", "m2", "--model", "m3"]), settingsFor(dir))).toThrow(/accepts one value for all agents or exactly 2 values/);
   });
   test("each pi flavor launches its own binary and preserves raw prompt", () => {
     expect(piAdapter.interactiveCmd({})).toBe("pi");

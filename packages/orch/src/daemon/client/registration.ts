@@ -4,12 +4,10 @@ import { callerSession } from "../../shared/session-env.ts";
 import type { CallerSession } from "../../types/core.ts";
 import { OPERATOR_HARNESS_ID } from "../../identity/operator.ts";
 import { sessionProcessPid } from "../../identity/credential.ts";
-import { processStartToken } from "../../process-identity.ts";
-import { detectPlexer } from "../../backends/detect.ts";
+import { plexerEnvMarkers } from "../../shared/plexer-env.ts";
 import { endpointPaths } from "./wire.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";
 import { RPC_RESULTS, type SessionClaim } from "./protocol.ts";
-import { hostIdentity } from "../../host.ts";
 
 /** Validate every field carried by a session registration before trusting it. */
 export function isRegisterSessionResponse(value: unknown): value is RegisterSessionResponse {
@@ -30,21 +28,6 @@ export function announceUnleasedAgents(
   write(`${identity.unleased.length} orphan agent(s) exist - orch adopt to list them.\n`);
 }
 
-/**
- * The plexer this process stands in, the version it runs, and the place it
- * occupies there.
- *
- * Registration is the moment orch WRITES an environment down (Rule 11), so it is
- * the one place that asks. The claim used to send `undefined` for all of these,
- * so no driving session ever got a plexer or handle row — and every later reader
- * had to sniff the process environment again to answer a question the store
- * should have held.
- */
-function callerEnvironment(): { plexer: string | undefined; plexerVersion: string | undefined; handle: string | undefined } {
-  const here = detectPlexer();
-  return { plexer: here?.plexer, plexerVersion: here?.plexerVersion, handle: here?.handle };
-}
-
 /** A harness session that names neither itself nor its process. Filing it under the
  *  parent pid would hand that session's identity to whatever process the parent is. */
 function refuseAnonymousSession(session: CallerSession): void {
@@ -52,8 +35,10 @@ function refuseAnonymousSession(session: CallerSession): void {
   throw new Error(`${session.harnessId} session exported no session id and no session pid; orch cannot tell which process it is`);
 }
 
-/** Build the authenticated caller facts for session registration. A bridge running
- *  inside its harness passes `harnessSession`, whose pid is the harness process itself. */
+/** Build the caller facts only the caller can know for session registration: its process,
+ *  its raw environment markers, its cwd and the daemon token. orchd reads the process's
+ *  start token and detects the plexer itself. A bridge running inside its harness passes
+ *  `harnessSession`, whose pid is the harness process itself. */
 export function sessionClaim(orchDir: OrchDir, label?: string, harnessSession?: { harness: string; sessionToken: string | undefined; pid: number }): SessionClaim {
   const token = readFileSync(endpointPaths(orchDir).token, "utf8").trim();
   const session = callerSession();
@@ -61,20 +46,14 @@ export function sessionClaim(orchDir: OrchDir, label?: string, harnessSession?: 
   const configuredHarness = nonEmpty(process.env.ORCH_HARNESS?.trim());
   const harness = harnessSession?.harness ?? configuredHarness ?? session?.harnessId ?? OPERATOR_HARNESS_ID;
   const sessionToken = harnessSession?.sessionToken ?? session?.sessionId ?? null;
-  const environment = callerEnvironment();
-  const pid = harnessSession?.pid ?? sessionProcessPid(session);
   return {
     token,
-    pid,
-    startToken: processStartToken(pid) ?? null,
+    pid: harnessSession?.pid ?? sessionProcessPid(session),
     sessionToken,
     harness,
     cwd: process.cwd(),
     label,
-    plexer: environment.plexer,
-    plexerVersion: environment.plexerVersion,
-    handle: environment.handle,
     space: nonEmpty(process.env.ORCH_SPACE?.trim()) ?? null,
-    host: hostIdentity(),
+    plexerEnv: plexerEnvMarkers(process.env),
   };
 }

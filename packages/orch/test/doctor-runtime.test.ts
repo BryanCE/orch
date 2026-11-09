@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { checkRuntime, shebangRuntime } from "../src/doctor/runtime.ts";
+import { checkRuntime, shebangRuntime } from "../src/daemon/server/doctor/runtime.ts";
 import { runningRuntime, shebangInterpreter } from "../src/runtime.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";

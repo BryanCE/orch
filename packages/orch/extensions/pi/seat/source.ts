@@ -6,17 +6,17 @@
  *   events    → the daemon's push stream (self-healing across restarts)
  *   facts     → the daemon's `agent-status` RPC
  *   send      → the daemon's `message` RPC (orch's delivery mechanism, needs no screen)
- *   abort     → the orch CLI, so control traffic stays on the one dispatcher
+ *   abort     → the daemon's `abort` RPC, which goes through the one control dispatcher
+ *   session   → the daemon's `agent-read` RPC, which reads the session wherever the agent runs
  */
-import { execFile } from "node:child_process";
 import { errorMessage } from "orch/core/util.ts";
 import { Context, Effect, Layer, Stream } from "effect";
 import { subscribeEvents } from "orch/core/daemon/client/rpc.ts";
-import { presenceAgentDir } from "orch/core/presence/history.ts";
+import { callerCredential } from "orch/core/identity/credential.ts";
 import { sendPeerMessage } from "orch/core/agent/peers.ts";
 import { isNotifyEvent } from "orch/core/notify/event.ts";
 import { PackAbortError, PackSendError, transitionName } from "./domain.ts";
-import type { PackEnrichment, PackSourceConfig, PackSourceShape } from "./types.ts";
+import type { PackEnrichment, PackSourceConfig, PackSourceShape, SessionRead } from "./types.ts";
 import type { NotifyEvent } from "orch/core/types/notify.ts";
 
 export class PackSource extends Context.Tag("orch/seat/PackSource")<PackSource, PackSourceShape>() {}
@@ -37,8 +37,6 @@ function makePackSource(config: PackSourceConfig): PackSourceShape {
       const status = (await config.daemon.ask("agent-status", { target: key }))?.status;
       if (!status) return {};
       return {
-        sessionPath: status.sessionPath ?? undefined,
-        presenceDir: presenceAgentDir(key, config.orchDir),
         thinking: status.thinking ?? undefined,
         usage: status.contextPercent === null && status.contextTokens === null
           ? undefined
@@ -54,7 +52,7 @@ function makePackSource(config: PackSourceConfig): PackSourceShape {
         try: async () => {
           const own = config.ownKey();
           if (!own) throw new Error("this session has no orch identity yet");
-          const outcome = await sendPeerMessage(config.orchDir, config.daemon, key, text, own);
+          const outcome = await sendPeerMessage(config.daemon, key, text, own);
           if (!outcome.startsWith("sent")) throw new Error(outcome);
           return outcome;
         },
@@ -62,15 +60,19 @@ function makePackSource(config: PackSourceConfig): PackSourceShape {
       });
     },
     abort(key: string) {
-      return Effect.async<void, PackAbortError>((resume) => {
-        execFile("orch", ["abort", key], { timeout: 15_000 }, (error, _stdout, stderr) => {
-          if (error) {
-            resume(Effect.fail(new PackAbortError({ message: stderr.trim() || error.message })));
-          } else {
-            resume(Effect.void);
-          }
-        });
+      return Effect.tryPromise({
+        try: async () => {
+          const outcome = await config.daemon.ask("abort", { target: key, caller: callerCredential() });
+          if (outcome === undefined) throw new Error(`orchd did not abort ${key}`);
+          if (outcome.outcome === "answer") throw new Error(outcome.text);
+        },
+        catch: (cause) => new PackAbortError({ message: errorMessage(cause) }),
       });
+    },
+    async readSession(key: string): Promise<SessionRead | undefined> {
+      const answer = await config.daemon.ask("agent-read", { caller: callerCredential(), key, read: { kind: "session" } });
+      if (answer?.reading.kind !== "session") return undefined;
+      return { host: answer.host, lookup: answer.reading.lookup };
     },
   };
 }

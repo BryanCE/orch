@@ -30,14 +30,23 @@ export interface IgnoredPresenceRecord {
   reason: string;
 }
 
+export const CHECK_STATUSES = ["ok", "warn", "fail", "skip"] as const;
+export type CheckStatus = (typeof CHECK_STATUSES)[number];
+
 export interface CheckResult {
   id: string;
   label: string;
-  status: "ok" | "warn" | "fail" | "skip";
+  status: CheckStatus;
   detail: string;
   fix?: FixDescriptor;
   backends?: DoctorBackendReport[];
   ignoredRecords?: IgnoredPresenceRecord[];
+}
+
+/** A check result as orchd reports it over the socket: the fix is described, never carried.
+ *  orchd applies it when asked. */
+export interface CheckFinding extends Omit<CheckResult, "fix"> {
+  fix?: Omit<FixDescriptor, "apply">;
 }
 
 /** What this host can say about one plexer right now: whether its binary is

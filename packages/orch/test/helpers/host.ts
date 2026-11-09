@@ -1,4 +1,5 @@
-import { hostIdFrom, hostIdentity } from "../../src/host.ts";
+import { hostIdFrom } from "../../src/host.ts";
+import { hostIdentity } from "../../src/hosts/identity.ts";
 import type { HostId, HostIdentity, HostOs } from "../../src/types/host.ts";
 import type { HostedProcess } from "../../src/types/process.ts";
 

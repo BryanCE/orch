@@ -9,16 +9,13 @@ import { nodePtyProvider } from "../../pty/node-pty.ts";
 import type { DaemonState } from "./state.ts";
 import { outboxDeps } from "./handlers/write.ts";
 import { rpcHandlers } from "./handlers/table.ts";
-import {
-  acquireDaemonLock,
-  releaseDaemonLock,
-  acquireDaemonRegistration,
-  daemonStartRefusal,
-  releaseDaemonRegistration,
-} from "../client/process.ts";
+import { daemonStartRefusal } from "../client/process.ts";
+import { acquireDaemonLock, acquireDaemonRegistration, releaseDaemonLock, releaseDaemonRegistration } from "./ownership.ts";
 import { startRpcServer } from "./rpc.ts";
 import { absentSettingsMessage, logLevelFor } from "../../settings/read.ts";
 import { createServices } from "../../services.ts";
+import { createModelCatalogue } from "../../adapters/model-catalogue.ts";
+import type { DaemonServices } from "../../types/services.ts";
 import { watchSettings } from "../../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { publishFromOrchd } from "./events.ts";
@@ -75,7 +72,8 @@ function modelChoicesOf(settings: OrchSettings | null): string {
 }
 
 export async function startDaemon(): Promise<DaemonState> {
-  const services = createServices({ proc: "orchd" });
+  const client = createServices({ proc: "orchd" });
+  const services: DaemonServices = { ...client, models: createModelCatalogue(client.orchDir, client.logger) };
   const directory = services.orchDir;
   const state: DaemonState = {
     services,

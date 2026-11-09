@@ -318,7 +318,7 @@ export function absentSettingsMessage(file: string): string {
 
 /** The declared JS runtime for this install. The ONE read of the runtime key — nothing
  * anywhere DERIVES this value from PATH, from `process.execPath`, or from an adapter's own
- * list. `src/doctor/runtime.ts` does detect the runtime actually executing orch, which is
+ * list. `src/daemon/server/doctor/runtime.ts` does detect the runtime actually executing orch, which is
  * not the same thing: it establishes reality in order to compare it against this
  * declaration. Detecting-to-verify is the point of the key; detecting-to-default would
  * defeat it, because a value inferred from reality can never disagree with reality. */

@@ -23,17 +23,21 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "
 import { dirname, join, relative, resolve } from "node:path";
 
 const packageRoot = resolve(import.meta.dirname, "..");
+/** The web UI: a client of orchd like the CLI, importing orch's source as `@orch/*`. */
+const webSource = resolve(packageRoot, "..", "web", "src");
 const baselinePath = join(packageRoot, "layers-baseline.json");
 
 /** Modules only orchd may load. A directory entry covers everything under it. */
 export const SERVER: readonly string[] = [
   "src/daemon/server/",
   "src/store/",
+  "src/db/",
   "src/presence/",
   "src/backends/",
   "src/adapters/",
   "src/control/",
-  "src/agent/",
+  "src/agent/drive-state.ts",
+  "src/agent/read.ts",
   "src/pty/",
   "src/hosts/",
   "src/worktrees/",
@@ -42,19 +46,38 @@ export const SERVER: readonly string[] = [
   "src/process-place.ts",
   "src/local-process.ts",
   "src/session.ts",
+  // Notification sinks start processes to deliver; orchd delivers. orch-ding is the command orchd runs.
+  "src/notify/ding.ts",
+  "src/notify/sinks.ts",
+  "src/notify/router.ts",
+  "src/notify/remediation.ts",
+  "bin/orch-ding.ts",
+  // Who a caller is and what it may touch, decided against the store.
+  "src/identity/self.ts",
+  "src/identity/ancestry.ts",
+  "src/policy/caller.ts",
+  "src/policy/close-authority.ts",
+  "src/policy/orphan.ts",
+  "src/policy/ownership.ts",
+  "src/policy/space.ts",
+  "src/queue.ts",
   // Starting a process is acting on the machine: only orchd does it.
   "node:child_process",
 ];
 
-/** The CLI. Everything else under src/ and bin/ is shared. */
+/** The clients of orchd: the CLI, the web UI, and the harness bridge (extensions/ and the
+ *  bridge code in src/agent/ that runs inside a harness). Everything else is shared. */
 export const CLIENT: readonly string[] = [
   "src/commands/",
   "src/cli/",
   "bin/orch.ts",
+  "../web/src/",
+  "extensions/",
+  "src/agent/",
 ];
 
-/** Entry points of orchd and of machine-admin tools that run on this machine by design. */
-const ROOTS: readonly string[] = ["src", "bin"];
+/** The source trees scanned. */
+const ROOTS: readonly string[] = [join(packageRoot, "src"), join(packageRoot, "bin"), join(packageRoot, "extensions"), webSource];
 
 type Layer = "client" | "server" | "shared";
 
@@ -63,6 +86,7 @@ function inLayer(path: string, entries: readonly string[]): boolean {
 }
 
 export function layerOf(path: string): Layer {
+  // Listed server files inside a client directory (src/agent/read.ts) are server.
   if (inLayer(path, SERVER)) return "server";
   if (inLayer(path, CLIENT)) return "client";
   return "shared";
@@ -73,7 +97,7 @@ function sourceFiles(directory: string): string[] {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) files.push(...sourceFiles(path));
-    else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(path);
+    else if (entry.isFile() && /\.tsx?$/.test(entry.name)) files.push(path);
   }
   return files;
 }
@@ -98,11 +122,15 @@ function resolveSpecifier(from: string, specifier: string): string | null {
   let target: string;
   if (specifier.startsWith(".")) target = resolve(dirname(from), specifier);
   else if (specifier.startsWith("orch/core/")) target = join(packageRoot, "src", specifier.slice("orch/core/".length));
+  else if (specifier.startsWith("@orch/")) target = join(packageRoot, "src", specifier.slice("@orch/".length));
+  else if (specifier.startsWith("@/")) target = join(webSource, specifier.slice("@/".length));
   else if (inLayer(specifier, SERVER)) return specifier;
   else return null;
   if (existsSync(target) && statSync(target).isFile()) return target;
-  if (existsSync(`${target}.ts`)) return `${target}.ts`;
-  if (existsSync(join(target, "index.ts"))) return join(target, "index.ts");
+  for (const extension of [".ts", ".tsx"]) {
+    if (existsSync(`${target}${extension}`)) return `${target}${extension}`;
+    if (existsSync(join(target, `index${extension}`))) return join(target, `index${extension}`);
+  }
   return null;
 }
 
@@ -110,7 +138,8 @@ function resolveSpecifier(from: string, specifier: string): string | null {
 export function importGraph(): Map<string, string[]> {
   const graph = new Map<string, string[]>();
   for (const root of ROOTS) {
-    for (const file of sourceFiles(join(packageRoot, root))) {
+    if (!existsSync(root)) continue;
+    for (const file of sourceFiles(root)) {
       const targets: string[] = [];
       for (const specifier of runtimeSpecifiers(readFileSync(file, "utf8"))) {
         const resolved = resolveSpecifier(file, specifier);

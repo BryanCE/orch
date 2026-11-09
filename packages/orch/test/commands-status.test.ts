@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { describe, expect, test } from "bun:test";
 import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -11,17 +11,16 @@ import { ownerLabel } from "../src/commands/status/table.ts";
 import { modelShort } from "../src/policy/thinking.ts";
 import { deriveDriveState, fleetLeaseFacts } from "../src/agent/drive-state.ts";
 import { computeFleetCapacity, formatCapacityLine } from "../src/policy/capacity.ts";
-import { orm } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, releaseLease } from "../src/store/lease-rows.ts";
-import { processStartToken } from "../src/process-identity.ts";
+import { seedLiveProcess } from "./helpers/agent.ts";
+import { testHost } from "./helpers/host.ts";
 import type { Entity } from "../src/types/core.ts";
 import type { StatusRow } from "../src/types/command.ts";
 import type { CallerScope } from "../src/commands/status/options.ts";
 import { presenceEntryFixture, statusRow } from "./helpers/presence.ts";
 import { agentViewFixture } from "./helpers/views.ts";
 import { fleetFixture, statusRowFixture } from "./helpers/status-row.ts";
-import { sql } from "drizzle-orm";
 import { servedServices } from "./helpers/daemon-state.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 
@@ -100,9 +99,8 @@ describe("commands/status", () => {
     const directory = tempOrchDir("orch-status-agent-");
     const servers: RpcServer[] = [];
     try {
-      const db = orm(directory);
-      db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-      db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('agentbee01',NULL,'agentbee01','pi','/repo','bee',1,'session')`);
+      ensureHarness(directory, "pi", "Pi", 1);
+      insertAgent(directory, { host: hostIdentity(), id: "agentbee01", harnessId: "pi", cwd: "/repo", name: "bee", createdAt: 1 });
       const services = await servedServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }, servers);
       expect(await resolveStatusAgent(services, parseStatusOptions(["--agent=bee"]))).toBe("agentbee01");
       expect(await resolveStatusAgent(services, parseStatusOptions([]))).toBeUndefined();
@@ -190,7 +188,7 @@ describe("commands/status", () => {
     });
     expect(modelShort(row.model)).toBe("gpt-5.6:medium");
     expect(modelShort("anthropic/claude-opus-5-5:high")).toBe("claude-opus-5-5:high");
-    expect(row.host).toBeUndefined();
+    expect(row.host).toEqual(hostIdentity());
   });
 
   // The status OWNER column answers the current driving lease and never falls
@@ -214,11 +212,7 @@ describe("commands/status", () => {
       insertAgent(dir, { host: hostIdentity(), id: "worker0001", harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
       insertAgent(dir, { host: hostIdentity(), id: "other", harnessId: "pi", cwd: "/tmp", name: "other", createdAt: 1 });
       const key = "worker0001";
-      const db = orm(dir);
-      db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
-      const token = processStartToken(process.pid);
-      if (!token) throw new Error("test process has no start token");
-      db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"me"},${1},${"host"},${process.pid},${token})`);
+      seedLiveProcess(dir, "me", 1);
       acquireLease(dir, "worker0001", "me", 2);
       expect(deriveDriveState(key, { directory: dir, currentOrchId: "me" })).toMatchObject({ kind: "leased", owner: "Orchestrator", mine: true });
       releaseLease(dir, "worker0001", "me", 3);
@@ -269,15 +263,18 @@ describe("commands/status", () => {
     expect(table).toContain("/repo");
   });
 
-  test("a row with no stored process names no host", () => {
-    expect(composedRow(seededEntity, new Map()).host).toBeUndefined();
+  test("a row with no stored process has no pid and still names the host it runs on", () => {
+    const row = composedRow(seededEntity, new Map());
+    expect(row.pid).toBeNull();
+    expect(row.host).toEqual(seededEntity.host);
   });
 
   test("a row carries its kind, creation instant, and the stored process and host", () => {
     const views = new Map([[seededEntity.key, agentViewFixture(seededEntity.key, { kind: "session", createdAt: 42 })]]);
-    const row = statusRowFromEntity(seededEntity, views, fleetLeaseFacts(syntheticOrchDir, views), () => undefined,
-      () => ({ pid: 4242, host: "BRYAN-SWE", offline: null }), syntheticOrchDir, null);
-    expect(row).toMatchObject({ kind: "session", createdAt: 42, pid: 4242, host: "BRYAN-SWE" });
+    const host = testHost("bryan-swe-id", "BRYAN-SWE", "windows");
+    const row = statusRowFromEntity({ ...seededEntity, host }, views, fleetLeaseFacts(syntheticOrchDir, views), () => undefined,
+      () => ({ pid: 4242, offline: null }), syntheticOrchDir, null);
+    expect(row).toMatchObject({ kind: "session", createdAt: 42, pid: 4242, host });
   });
   test("capacity footer uses configured caps and shows one pack per root", () => {
     const root = agentViewFixture("root", { name: "root", rootAgentId: "root", environment: { space: "main" } });

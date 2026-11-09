@@ -161,10 +161,9 @@ export interface PeerSummary {
   updatedAt?: string;
 }
 
-/** One sibling agent as its presence directory reports it. */
+/** One sibling agent as orchd's peer view reports it. */
 export interface Peer {
   key: string;
-  dir: string;
   name: string;
   harness: string;
   spawnedBy: string | null;

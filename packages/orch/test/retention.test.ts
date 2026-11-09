@@ -17,14 +17,15 @@ import { ORCH_LOG_MAX_BYTES, sweepExpiredRows } from "../src/daemon/server/reten
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
-import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { seedAgent, seedAgentRow, seedLiveProcess } from "./helpers/agent.ts";
+import { agentById } from "../src/store/agent-rows.ts";
 import { ensurePresenceAgentDir } from "../src/presence/history.ts";
 import { reapDeadAgentRecords } from "../src/presence/store.ts";
 import type { RunRecord } from "../src/types/store.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 import { sql } from "drizzle-orm";
 import type { BridgeMessage } from "../src/shared/bridge-message.ts";
-import { testServices } from "./helpers/services.ts";
+import { testDaemonServices } from "./helpers/services.ts";
 
 const message = (text: string): BridgeMessage => ({ action: "dispatch", text });
 
@@ -53,7 +54,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
     retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, ...days },
     monitor: SETTINGS_DEFAULTS.monitor,
-    timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, abort_gap_ms: 500 },
+    timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, abort_gap_ms: 500, machine_ms: 600_000 },
     notify: [],
     notification: SETTINGS_DEFAULTS.notification,
     locked_commands: { commands: [], applies_to: ["orch", "slave"] },
@@ -77,7 +78,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
 function seedQueueTask(dir: OrchDir, text: string, state: "queued" | "claimed" | "done", ts: string): void {
   const db = orm(dir);
   db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT OR IGNORE INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('queue-agent','queue-agent','pi','/tmp','queue-agent',${NOW.getTime()},'session')`);
+  if (!agentById(dir, "queue-agent")) seedAgentRow(dir, { id: "queue-agent", cwd: "/tmp", createdAt: NOW.getTime(), kind: "session" });
   const task = addTask(dir, text, {}, "queue-agent");
   db.run(sql`UPDATE tasks SET created_at=${Date.parse(ts)} WHERE id=${task.id}`);
   if (state !== "queued") {
@@ -198,9 +199,9 @@ describe("retention sweep", () => {
     const db = orm(orchDir);
     db.run(sql`INSERT OR IGNORE INTO harnesses(id,name) VALUES ('pi','Pi')`);
     db.run(sql`INSERT OR IGNORE INTO plexers(id,name) VALUES ('headless','headless')`);
-    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${holder},${holder},${"pi"},${"/tmp"},${holder},${Date.parse(old)},${"session"})`);
+    seedAgentRow(orchDir, { id: holder, cwd: "/tmp", createdAt: Date.parse(old), kind: "session" });
     seedLiveProcess(orchDir, holder);
-    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${agentId},${agentId},${"pi"},${"/tmp"},${"reserved-agent"},${Date.parse(old)},${"session"})`);
+    seedAgentRow(orchDir, { id: agentId, name: "reserved-agent", cwd: "/tmp", createdAt: Date.parse(old), kind: "session" });
     db.run(sql`INSERT INTO agent_endings(agent_id,ended_at,closed_by) VALUES (${agentId},${Date.parse(old)},NULL)`);
     db.run(sql`INSERT INTO agent_worktrees(agent_id,path,branch,base,provider) VALUES (${agentId},${"/tmp/worktree"},${"orch/expired"},${"main"},${"git"})`);
     db.run(sql`INSERT INTO agent_plexers(agent_id,plexer_id) VALUES (${agentId},${"headless"})`);
@@ -350,7 +351,7 @@ describe("retention sweep", () => {
         continuous: true,
         signal: controller.signal,
         settings: settingsManager,
-        models: testServices({ orchDir }).models,
+        models: testDaemonServices({ orchDir }).models,
       });
       await loop;
     } finally {

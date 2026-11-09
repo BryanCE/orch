@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { resolvePeer } from "../src/agent/peers.ts";
 import { askFrom, stubDaemonLink } from "./helpers/daemon-client.ts";
@@ -46,7 +46,7 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
     seedStatus(d, "worker0001", { agent: "pi", label: "research-1", pid: process.pid, state: "working" });
     seedStatus(d, "sibling002", { agent: "pi", label: "research-2", pid: process.pid, state: "working" });
 
-    const resolved = await resolvePeer(d, stubDaemonLink(), "spawner", "worker0001");
+    const resolved = await resolvePeer(stubDaemonLink(), "spawner", "worker0001");
     const error = "error" in resolved ? resolved.error : "";
 
     // This is the exact turn-burning moment. A bare refusal leaves the worker
@@ -64,7 +64,7 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
     seedStatus(d, "sibling002", { agent: "pi", label: "research-2", pid: process.pid, state: "idle" });
     seedStatus(d, "sibling003", { agent: "pi", label: "research-3", pid: process.pid, state: "idle" });
 
-    const resolved = await resolvePeer(d, stubDaemonLink(), "spawner", "worker0001");
+    const resolved = await resolvePeer(stubDaemonLink(), "spawner", "worker0001");
     const error = "error" in resolved ? resolved.error : "";
     // Naming a live peer here is what turned a dead end into a relay chain.
     for (const name of ["research-2", "research-3", "sibling002", "sibling003"]) {
@@ -88,7 +88,7 @@ describe("a worker with no reachable spawner does not relay (L6)", () => {
       }),
     });
 
-    const resolved = await resolvePeer(d, daemon, "spawner", "worker0001");
+    const resolved = await resolvePeer(daemon, "spawner", "worker0001");
     const error = "error" in resolved ? resolved.error : "";
     expect(error).toContain("claude session");
     expect(error.toLowerCase()).toContain("result");

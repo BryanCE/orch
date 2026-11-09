@@ -1,17 +1,17 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { describe, expect, test } from "bun:test";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { eventAcceptor, formatEventGap, isNotifyEvent, onMonitor, parseEventsOptions, passesStates, renderEvent, sinkLabel } from "../src/commands/events.ts";
-import { spaceTag } from "../src/notify/format.ts";
+import { eventAcceptor, formatEventGap, isNotifyEvent, onMonitor, parseEventsOptions, passesStates, renderEvent } from "../src/commands/events.ts";
+import { notifySinkLabel, spaceTag } from "../src/notify/format.ts";
 import { MONITOR_DEFAULT_ON } from "../src/settings/schema.ts";
 import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { helpTopic } from "../src/commands/index.ts";
 import { subscribeEvents } from "../src/daemon/client/rpc.ts";
-import { withinSpaceCeiling } from "../src/policy/space.ts";
+import { withinSpaceCeiling } from "../src/shared/space.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { AgentState } from "../src/agent-state.ts";
 
@@ -185,9 +185,11 @@ describe("commands/events", () => {
   });
 
   test("rejects malformed event and labels sinks", () => {
-    expect(isNotifyEvent({ type: "transition", key: "k", agent: null, tab: null, model: null, oldState: "idle", newState: "done", ts: "now" })).toBe(true);
+    expect(isNotifyEvent({ host: hostIdentity(), type: "transition", key: "k", agent: null, tab: null, model: null, oldState: "idle", newState: "done", ts: "now" })).toBe(true);
+    // Every event names the host its agent runs on; one without a host is malformed.
+    expect(isNotifyEvent({ type: "transition", key: "k", agent: null, tab: null, model: null, oldState: "idle", newState: "done", ts: "now" })).toBe(false);
     expect(isNotifyEvent({ key: "k" })).toBe(false);
-    expect(sinkLabel({ id: "command", command: ["echo", "ok"] })).toBe("command echo ok");
+    expect(notifySinkLabel({ id: "command", command: ["echo", "ok"] })).toBe("command echo ok");
   });
 });
 

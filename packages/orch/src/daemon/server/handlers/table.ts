@@ -3,10 +3,10 @@
 import { bootCodeHash, startedAt, fleetStatus } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import { answer, dispatch, message, steer } from "./write.ts";
-import { clearSession, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, registerAgent, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
+import { clearSession, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
 import { adopt, detach, orphans, reap, reapCandidateList, rename } from "./lease.ts";
-import { clearSubjectHome, createSpace, deleteSpace, recordSubjectHome, renameSpace, spaceListing, spaceListings, subjectHome } from "./space.ts";
-import { admitHome, decideGrant, listGrants } from "./grant.ts";
+import { createSpace, deleteSpace, focusSpace, renameSpace, spaceListings } from "./space.ts";
+import { decideGrant, listGrants } from "./grant.ts";
 import { agentReaderOf, checkHost, forgetHost, readAgentAnywhere } from "./host.ts";
 import { abortAnywhere, closeAnywhere, peerDrive } from "./drive.ts";
 import { paneAnywhere } from "./pane.ts";
@@ -16,15 +16,22 @@ import { waitAnywhere } from "./wait.ts";
 import { lockCommand, unlockCommand } from "./command-lock.ts";
 import { cancelQueued, editQueued, intakeQueued, listQueued, reapQueued, takeOnQueued } from "./queue.ts";
 import { cleanStore } from "./clean.ts";
+import { endStreams } from "./streams.ts";
+import { authorizeHostHandler, hostKey, scanHost, trustHost } from "./host-add.ts";
+import { agentWorktree, peerWorktreeHandler, reviewsOf } from "./review.ts";
 import { agentStatusOf, capacityOf, fleetSnapshot, processLive, runOf, runsOf } from "./fleet.ts";
 import { resolveLifecycleEntity, resolveTargetEntity } from "./resolve.ts";
 import { closeTargets } from "./close.ts";
 import { callerSelf } from "./self.ts";
 import { ownedAgents } from "./owned.ts";
-import { reexecSelf } from "../../client/process.ts";
+import { harnessCatalogues, refreshCatalogues, syncHarnessFiles } from "./harness.ts";
+import { admitModelFor } from "../spawn/models.ts";
+import { spawnAgents, tileAgent } from "../spawn/index.ts";
+import { tabVerb } from "../tabs.ts";
+import { reexecSelf } from "../ownership.ts";
 import { publishFromOrchd } from "../events.ts";
 import { acceptPromptReport, acceptResultReport, acceptStatusReport } from "../status-report.ts";
-import { eventHost } from "../status-events.ts";
+import { heldAgentHost } from "../status-events.ts";
 import { insertControlOutcome } from "../../../store/control-outcome-rows.ts";
 import { appendOutcome } from "../../../presence/history.ts";
 import { settleControlOutcome } from "../../../control/outcome.ts";
@@ -40,7 +47,9 @@ import { governed } from "../governance.ts";
 import type { PaneLabels } from "../../../types/plexer.ts";
 import { peerHandlers } from "./peer.ts";
 import { screenHandlers } from "./screen.ts";
-import { hostIdentity } from "../../../host.ts";
+import { machineHandlers } from "./machine.ts";
+import { hostIdentity } from "../../../hosts/identity.ts";
+import { hostedPid } from "../../../local-process.ts";
 
 /** One handler that wakes the work loop once it has run. */
 function waking<P, R>(state: DaemonState, handler: (params: P) => R): (params: P) => R {
@@ -87,19 +96,19 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       const { newState } = event;
       const display = services.settings.current().notification;
       if (newState === "asking") {
-        const composed: NotifyEvent = { ...event, host: eventHost(directory, event.key), type: "asking", newState: "asking", askCount: 1, gaveUp: false };
+        const composed: NotifyEvent = { ...event, host: heldAgentHost(directory, event.key), type: "asking", newState: "asking", askCount: 1, gaveUp: false };
         activePaneHud(event.key, directory).notify(composed, display);
         return { ok: true };
       }
-      const composed: NotifyEvent = { ...event, host: eventHost(directory, event.key), type: "transition", newState };
+      const composed: NotifyEvent = { ...event, host: heldAgentHost(directory, event.key), type: "transition", newState };
       activePaneHud(event.key, directory).notify(composed, display);
       return { ok: true };
     },
     "report-status": waking(state, (params) => acceptStatusReport(directory, params.key, params.status, publish)),
     "report-result": waking(state, (params) => acceptResultReport(directory, params.key, params.result)),
     "report-prompt": waking(state, (params) => acceptPromptReport(directory, params.key, params.prompt, publish)),
-    "command-lock": (params) => lockCommand(directory, services.settings.current(), params, publish),
-    "command-unlock": (params) => unlockCommand(directory, params),
+    "command-lock": ({ pid, ...params }) => lockCommand(directory, services.settings.current(), { ...params, process: hostedPid(pid) }, publish),
+    "command-unlock": (params) => unlockCommand(directory, hostedPid(params.pid)),
     status: (params) => fleetStatus(state, params.caller),
     attach: (params) => {
       const key = params.key;
@@ -110,6 +119,9 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     steer: governed(state, (params) => steer(state, params)),
     message: governed(state, (params) => message(state, params)),
     "spawn-headless": governed(state, (params, _emit, context) => spawnHeadless(state, params, context.peer)),
+    spawn: governed(state, (params) => spawnAgents(state, params)),
+    tile: governed(state, (params) => tileAgent(state, params)),
+    tab: governed(state, (params) => tabVerb(state, params)),
     "set-model": governed(state, (params) => setModel(state, params)),
     lifecycle: governed(state, (params) => applyLifecycle(state, params)),
     "clear-session": governed(state, (params) => clearSession(state, params)),
@@ -119,7 +131,6 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       state.wake.wake();
       return closed;
     }),
-    "register-agent": governed(state, (params) => registerAgent(directory, params)),
     "adopt-agent": governed(state, (params) => adoptAgent(state, params)),
     detach: governed(state, (params) => detach(state, params)),
     adopt: governed(state, (params) => adopt(state, params)),
@@ -128,37 +139,46 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "reap-candidates": governed(state, (params) => reapCandidateList(state, params)),
     reclaim: governed(state, (params) => reclaim(directory, params)),
     "set-handle": governed(state, (params) => moveHandle(directory, params)),
-    spaces: (params) => spaceListings(directory, params),
-    space: (params) => spaceListing(directory, params),
-    "space-create": governed(state, (params) => createSpace(directory, params)),
-    "space-rename": governed(state, (params) => renameSpace(directory, params)),
-    "space-delete": governed(state, (params) => deleteSpace(directory, params)),
-    home: (params) => subjectHome(directory, params),
-    "record-home": governed(state, (params) => recordSubjectHome(directory, params)),
-    "clear-home": governed(state, (params) => clearSubjectHome(directory, params)),
+    spaces: () => spaceListings(state),
+    "space-focus": (params) => focusSpace(state, params),
+    "space-create": governed(state, (params) => createSpace(state, params)),
+    "space-rename": governed(state, (params) => renameSpace(state, params)),
+    "space-delete": governed(state, (params) => deleteSpace(state, params)),
     grants: () => listGrants(directory),
     hosts: () => ({ hosts: state.hosts.views() }),
     "host-check": (params) => checkHost(state, params),
     "host-forget": (params) => forgetHost(state, params),
+    "host-scan": (params) => scanHost(state, params),
+    "host-trust": (params) => trustHost(state, params),
+    "host-key": (params) => hostKey(state, params),
+    "host-authorize": authorizeHostHandler(state),
     "agent-read": (params) => readAgentAnywhere(state, params),
     "agent-pane": governed(state, (params) => paneAnywhere(state, params)),
     "agent-wait": (params) => waitAnywhere(state, params),
+    "end-streams": () => endStreams(state),
+    reviews: () => reviewsOf(state),
+    "agent-worktree": governed(state, (params) => agentWorktree(state, params)),
+    "peer-worktree": peerWorktreeHandler(state),
     "settings-reload": () => {
       state.settingsWatch?.reload();
       return { ok: true };
     },
+    "harness-catalogues": (params) => harnessCatalogues(state, params),
+    "catalogue-refresh": () => refreshCatalogues(state),
+    "admit-model": (params) => admitModelFor(state, params),
+    "harness-files-sync": () => syncHarnessFiles(state),
+    ...machineHandlers(state),
     ...screenHandlers(state, () => state.held),
     ...peerHandlers(hostIdentity, agentReaderOf(state)),
     "peer-drive": (params, _emit, context) => peerDrive(state, params, context),
     grant: governed(state, (params) => decideGrant(directory, params)),
-    "admit-home": governed(state, (params) => admitHome(directory, params)),
     "queue-list": (params) => listQueued(directory, params),
     "queue-cancel": governed(state, (params) => cancelQueued(directory, params)),
     "queue-edit": governed(state, (params) => editQueued(directory, params)),
     "queue-take-on": governed(state, (params) => takeOnQueued(directory, params)),
     "queue-reap": governed(state, (params) => reapQueued(directory, params)),
     "queue-intake": governed(state, (params) => intakeQueued(directory, params)),
-    clean: governed(state, (params) => cleanStore(directory, params)),
+    clean: governed(state, (params) => cleanStore(directory, services.settings.current().worktrees, services.logger, params)),
     fleet: (params) => fleetSnapshot(state, params),
     capacity: (params) => capacityOf(state, params),
     runs: (params) => runsOf(state, params),
@@ -172,7 +192,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "owned-agents": (params) => ownedAgents(state, params),
     orphans: () => orphans(state),
     question: (params) => recordAgentQuestion(directory, params),
-    questions: (params) => listPendingQuestions(directory, params),
+    questions: (params) => listPendingQuestions(state, params),
     answer: governed(state, waking(state, (params) => answer(state, params))),
     ack: (params) => {
       const id = params.id;

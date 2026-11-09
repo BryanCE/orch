@@ -1,5 +1,5 @@
 import { promptMultiselect } from "./io.ts";
-import type { CheckResult } from "../types/doctor.ts";
+import type { CheckFinding } from "../types/doctor.ts";
 
 const green = (value: string): string => `\x1b[32m${value}\x1b[0m`;
 const yellow = (value: string): string => `\x1b[33m${value}\x1b[0m`;
@@ -9,7 +9,7 @@ const gray = (value: string): string => `\x1b[2m${value}\x1b[0m`;
 const colorByStatus = { ok: green, warn: yellow, fail: red, skip: gray } as const;
 
 /** Print one colored line per check: green ok, yellow warn, red fail, dim skip. */
-export function renderDoctorResults(results: readonly CheckResult[]): void {
+export function renderDoctorResults(results: readonly CheckFinding[]): void {
   const lines = results.map(({ status, label, detail }) =>
     `${colorByStatus[status](status.toUpperCase().padEnd(5))}  ${label.padEnd(24)}  ${detail}`);
   process.stdout.write(`${lines.join("\n")}\n`);

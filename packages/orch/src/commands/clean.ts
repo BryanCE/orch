@@ -1,66 +1,38 @@
-import * as path from "node:path";
 import { writeRpc } from "./daemon.ts";
-import { errorMessage } from "../util.ts";
-import { listAgentWorktrees } from "../worktrees/agent.ts";
-import { checkedOutBranch, repositoryCommonRoot, worktreeHasChanges, worktreeHasCommitsAheadOf } from "../worktrees/repository.ts";
-import { worktreeProvider } from "../worktrees/registry.ts";
 import { die } from "./target.ts";
 import { whoAmI } from "./self.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
-import type { Logger } from "../types/core.ts";
 import type { Services } from "../types/services.ts";
-import type { WorktreeConfig, WorktreeProvider } from "../types/worktree.ts";
 
-/** Whether a live agent still runs from this worktree. orchd answers with the
- * resolved paths of every alive agent's worktree; the match is by path alone. */
-export function liveWorktreeOwner(worktreePath: string, liveWorktrees: readonly string[]): boolean {
-  return liveWorktrees.includes(path.resolve(worktreePath));
-}
+type WorktreesCleaned = NonNullable<ResultOf<"clean">["worktrees"]>;
+type WorktreeCleaned = Extract<WorktreesCleaned, { cleaned: unknown }>["cleaned"][number];
 
-function cleanOneWorktree(provider: WorktreeProvider, root: string, baseBranch: string, worktree: string, all: boolean, logger: Logger, json = false): boolean {
-  try {
-    const branch = checkedOutBranch(worktree);
-    const hasCommitsAhead = worktreeHasCommitsAheadOf(worktree, baseBranch);
-    const hasChanges = worktreeHasChanges(worktree);
-    const discardReason = [hasCommitsAhead ? "unmerged commits" : "", hasChanges ? "uncommitted changes" : ""].filter(Boolean).join(" and ");
-    if (!discardReason) {
-      provider.remove({ root, worktree, branch, discard: false });
-      if (!json) process.stdout.write(`Removed orphan worktree ${worktree} (${branch}; empty or merged).\n`);
-    } else if (!all) {
-      if (!json) process.stdout.write(`Kept orphan worktree ${worktree} (${branch}; ${discardReason}). Re-run with --all to discard it.\n`);
-    } else {
-      provider.remove({ root, worktree, branch, discard: true });
-      if (!json) process.stdout.write(`Removed orphan worktree ${worktree} (${branch}); discarded ${discardReason}.\n`);
+/** What orchd did with one orphan worktree, as a line. */
+function worktreeLine(worktree: WorktreeCleaned): string {
+  const branch = worktree.branch ?? "no branch";
+  switch (worktree.outcome) {
+    case "removed": return `Removed orphan worktree ${worktree.path} (${branch}; empty or merged).\n`;
+    case "kept": return `Kept orphan worktree ${worktree.path} (${branch}; ${worktree.reason ?? ""}). Re-run with --all to discard it.\n`;
+    case "discarded": return `Removed orphan worktree ${worktree.path} (${branch}); discarded ${worktree.reason ?? ""}.\n`;
+    case "failed": return `failed to clean worktree ${worktree.path}: ${worktree.reason ?? ""}\n`;
+    default: {
+      const exhaustive: never = worktree.outcome;
+      throw new Error(`unknown worktree outcome ${String(exhaustive)}`);
     }
-    return true;
-  } catch (error: unknown) {
-    const message = errorMessage(error);
-    logger.error("clean.worktree-failed", { path: worktree, error: message });
-    process.stdout.write(`failed to clean worktree ${worktree}: ${message}\n`);
-    return true;
   }
 }
 
-/** An orphan has no record to name its tool, so the one configured now removes it. */
-function cleanWorktrees(config: WorktreeConfig, liveWorktrees: readonly string[], logger: Logger, all: boolean, json = false): number {
-  let repoRoot: string;
-  try {
-    repoRoot = repositoryCommonRoot(process.cwd());
-  } catch (error: unknown) {
-    die(errorMessage(error));
+/** Print the orphan worktrees orchd cleaned; how many orch made in the repository. A failure is
+ *  printed even under --json, as it always was. */
+function reportWorktrees(worktrees: WorktreesCleaned, json: boolean): number {
+  if ("refused" in worktrees) die(worktrees.refused);
+  for (const worktree of worktrees.cleaned) {
+    if (!json || worktree.outcome === "failed") process.stdout.write(worktreeLine(worktree));
   }
-  const baseBranch = checkedOutBranch(repoRoot);
-  const worktrees = listAgentWorktrees(repoRoot, config.branch_prefix);
-  const provider = worktreeProvider(config.provider, config);
-  let reported = false;
-  for (const worktreePath of worktrees) {
-    if (liveWorktreeOwner(worktreePath, liveWorktrees)) continue;
-    reported = cleanOneWorktree(provider, repoRoot, baseBranch, worktreePath, all, logger, json) || reported;
-  }
-  if (!reported && !json) process.stdout.write("No orphan worktrees to clean.\n");
-  return worktrees.length;
+  if (worktrees.cleaned.length === 0 && !json) process.stdout.write("No orphan worktrees to clean.\n");
+  return worktrees.found;
 }
 
 /** Print malformed presence directories reaped by orchd. */
@@ -108,11 +80,11 @@ export async function cmdClean(services: Services, args: string[]): Promise<void
   if (invocation.positional.length > 0) throw usageError(invocation);
   const json = flags.has("--json");
   const all = flags.has("--all");
-  const swept = await writeRpc(services, "clean", { all });
+  const swept = await writeRpc(services, "clean", { all, worktreesIn: flags.has("--worktrees") ? process.cwd() : null });
   const malformed = removeMalformedAgentDirs(json, swept.malformed);
   const closed = closeDeadAgentWrites(json, swept.closed);
   const removed = all ? removeDeadAgentDirs(json, swept) : [];
-  const worktrees = flags.has("--worktrees") ? cleanWorktrees(services.settings.current().worktrees, swept.liveWorktrees, services.logger, all, json) : 0;
+  const worktrees = swept.worktrees === null ? 0 : reportWorktrees(swept.worktrees, json);
   if (json) process.stdout.write(JSON.stringify({ malformed, closed, removed, worktrees }) + "\n");
 }
 

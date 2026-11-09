@@ -3,11 +3,10 @@ import type { PackAbortError, PackSendError } from "./domain.ts";
 import type { DaemonLink } from "orch/core/types/agent.ts";
 import type { OrchDir } from "orch/core/types/core.ts";
 import type { NotifyEvent } from "orch/core/types/notify.ts";
+import type { SessionLookup } from "orch/core/types/agent-read.ts";
 
 /** Presence-store facts that events do not carry, refreshed on read. */
 export interface PackEnrichment {
-  readonly sessionPath?: string;
-  readonly presenceDir?: string;
   readonly cwd?: string;
   readonly thinking?: string;
   readonly usage?: { readonly tokens?: number; readonly contextWindow?: number; readonly percent?: number };
@@ -57,6 +56,14 @@ export interface PackReadView {
   requestAbort(key: string): void;
   /** Refresh one agent's presence facts now (takeover open). */
   refresh(key: string): void;
+  /** One agent's session, read by orchd wherever the agent runs. Undefined when orchd did not answer. */
+  readSession(key: string): Promise<SessionRead | undefined>;
+}
+
+/** An agent's session as orchd read it, and the host it was read on (null: this host). */
+export interface SessionRead {
+  readonly host: string | null;
+  readonly lookup: SessionLookup;
 }
 
 export interface PackManagerShape {
@@ -79,8 +86,10 @@ export interface PackSourceShape {
   enrich(key: string): Promise<PackEnrichment>;
   /** Steer or continue one agent through its daemon link. */
   send(key: string, text: string): Effect.Effect<string, PackSendError>;
-  /** Cancel one agent's current turn via the CLI dispatcher. */
+  /** Cancel one agent's current turn through orchd's control dispatcher. */
   abort(key: string): Effect.Effect<void, PackAbortError>;
+  /** One agent's session, read by orchd wherever the agent runs. */
+  readSession(key: string): Promise<SessionRead | undefined>;
 }
 
 export interface PackSourceConfig {
@@ -90,8 +99,14 @@ export interface PackSourceConfig {
 }
 
 export interface TranscriptCache {
-  path?: string;
-  lines: string[];
+  /** The last session read: undefined before the first answer, null when orchd did not answer. */
+  read?: SessionRead | null;
+  /** When the last read was started. */
   readAt: number;
+  /** Whether a read is in flight. */
+  reading: boolean;
+  /** The read and width `lines` were rendered from. */
+  rendered?: SessionRead | null;
   width: number;
+  lines: string[];
 }

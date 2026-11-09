@@ -1,36 +1,14 @@
-// Load backend-owned providers before building the setup choices. The registry
-// import is intentionally side-effect-only: notify.ts stays harness-neutral.
-import "../backends/registry.ts";
-import { createBuiltinNotifiers } from "../notify/sinks.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
-import { HERDR_SINK_ID } from "../backends/backend.ts";
-import { notifierRemediation } from "../notify/remediation.ts";
-import type { Notifier, NotifierChoice } from "../types/notify.ts";
-import type { NotifyEntry, NotifyState, OrchSettings } from "../types/settings.ts";
+import { HERDR_SINK_ID } from "../types/backend.ts";
+import type { NotifierConfigField } from "../types/notify.ts";
+import type { NotifyEntry, NotifyState } from "../types/settings.ts";
 
-const notifiers = createBuiltinNotifiers();
-
-function findNotifier(id: string): Notifier | undefined {
-  return notifiers.find((notifier) => notifier.id === id);
-}
-
-/** Probe each built-in integration; rejected probes are reported as unavailable. */
-export async function probeNotifiers(settings: OrchSettings | null): Promise<NotifierChoice[]> {
-  return Promise.all(notifiers.map(async (notifier) => {
-    let available = false;
-    try {
-      available = await notifier.available(settings);
-    } catch {
-      available = false;
-    }
-    return {
-      id: notifier.id,
-      label: notifier.label,
-      available,
-      remediation: notifierRemediation(notifier.id, {}, notifier.remediation),
-      requiredFields: notifier.metadata.requiredConfig,
-    };
-  }));
+/** One notifier picked for settings.json: the fields it declares, as orchd's probe reported
+ *  them, and the values collected for them. */
+export interface NotifierSelection {
+  readonly id: string;
+  readonly requiredFields: readonly NotifierConfigField[];
+  readonly config: Record<string, unknown>;
 }
 
 function validFieldValue(name: string, value: unknown): boolean {
@@ -52,15 +30,12 @@ function validFieldValue(name: string, value: unknown): boolean {
 
 /** Keep only declared fields and validate their adapter-specific value shapes. */
 export function collectRequiredConfig(
-  id: string,
+  requiredFields: readonly NotifierConfigField[],
   provided: Record<string, unknown>,
 ): { ok: true; config: Record<string, unknown> } | { ok: false; missing: string[] } {
-  const notifier = findNotifier(id);
-  if (!notifier) return { ok: false, missing: [`unknown notifier: ${id}`] };
-
   const config: Record<string, unknown> = {};
   const missing: string[] = [];
-  for (const field of notifier.metadata.requiredConfig) {
+  for (const field of requiredFields) {
     const value = provided[field.name];
     if (!validFieldValue(field.name, value)) missing.push(field.name);
     else config[field.name] = value;
@@ -109,17 +84,16 @@ export function renderNotifyEntry(id: string, config: Record<string, unknown>): 
   }
 }
 
-export async function buildSelectedNotifyEntries(
-  selections: { id: string; config: Record<string, unknown> }[],
-): Promise<{ entries: NotifyEntry[]; errors: { id: string; missing: string[] }[] }> {
+export function buildSelectedNotifyEntries(
+  selections: readonly NotifierSelection[],
+): { entries: NotifyEntry[]; errors: { id: string; missing: string[] }[] } {
   const entries: NotifyEntry[] = [];
   const errors: { id: string; missing: string[] }[] = [];
   for (const selection of selections) {
-    const result = collectRequiredConfig(selection.id, selection.config);
+    const result = collectRequiredConfig(selection.requiredFields, selection.config);
     if (!result.ok) errors.push({ id: selection.id, missing: result.missing });
     // `on` is entry-level routing rather than adapter config, so it skips the required-field filter.
     else entries.push(renderNotifyEntry(selection.id, { ...result.config, on: selection.config.on }));
   }
-  await Promise.resolve();
   return { entries, errors };
 }

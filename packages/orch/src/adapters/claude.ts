@@ -8,7 +8,7 @@ import { isRecord, packageRoot, reinstallCommand, textValue } from "../util.ts";
 import { CLAUDE_HOOK_EVENTS, CLAUDE_HOOK_MATCHERS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath } from "./claude-hooks.ts";
 import { agentStateFrom } from "../agent-state.ts";
 import { buildHeadlessArgv, buildInteractiveArgv, launchCompaction, shimRole, type AgentState } from "../shared/harness.ts";
-import { lastAssistantFromJsonl } from "./transcript.ts";
+import { lastAssistantFromJsonl } from "../shared/transcript.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import type { AdapterCommand, AgentAdapter, HarnessModel, HookReportRole, LifecycleVerb, ModelCatalogue, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";

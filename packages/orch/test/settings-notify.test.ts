@@ -10,14 +10,21 @@ import { registeredSetting, writeRegisteredSetting } from "../src/settings/regis
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { createServices } from "../src/services.ts";
+import { serveDaemon } from "./helpers/daemon-state.ts";
+import type { RpcServer } from "../src/types/daemon.ts";
+import type { Services } from "../src/types/services.ts";
 
 // `orch settings notify` is the writer for the settings.json `notify` array. Sink ids and the
 // fields each takes come from the notifier registry, so nothing here is hardcoded per sink.
 
 let root: OrchDir;
 let previousOrchDir: string | undefined;
+/** The command's services, reaching the real handler table served in-process on `root`: orchd
+ *  probes the notifiers and rewrites the harness files. */
+let services: Services;
+const servers: RpcServer[] = [];
 
-beforeEach(() => {
+beforeEach(async () => {
   root = tempOrchDir("orch-settings-notify-");
   previousOrchDir = process.env.ORCH_DIR;
   process.env.ORCH_DIR = root;
@@ -25,9 +32,12 @@ beforeEach(() => {
     enabled: { adapters: ["pi"], backends: ["headless"] },
     defaults: { adapter: "pi", backend: "headless" },
   });
+  services = createServices({ orchDir: root, settings: fileSettingsManager(root) });
+  servers.push(await serveDaemon(services));
 });
 
-afterEach(() => {
+afterEach(async () => {
+  while (servers.length) await servers.pop()!.close();
   if (previousOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = previousOrchDir;
   removeTempDir(root);
@@ -38,7 +48,7 @@ async function captureNotify(args: string[]): Promise<string> {
   // eslint-disable-next-line typescript/unbound-method
   const originalWrite = process.stdout.write;
   process.stdout.write = ((chunk: string | Uint8Array) => { output.push(String(chunk)); return true; });
-  try { await cmdSettings(createServices({ orchDir: root, settings: fileSettingsManager(root) }), ["notify", ...args]); } finally { process.stdout.write = originalWrite; }
+  try { await cmdSettings(services, ["notify", ...args]); } finally { process.stdout.write = originalWrite; }
   return output.join("");
 }
 

@@ -7,6 +7,9 @@ import { acquireLease, adoptLease, currentLease, leaseHistory } from "../src/sto
 import { sql } from "drizzle-orm";
 
 import { row } from "../test/helpers/rows.ts";
+import { seedOrch } from "../test/helpers/agent.ts";
+import { insertAgent } from "../src/store/agent-rows.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import type { OrchDir } from "../src/types/core.ts";
 const tempDirs: OrchDir[] = [];
 
@@ -21,10 +24,8 @@ afterEach(() => {
 });
 
 function seedPack(dir: OrchDir): void {
-  const db = orm(dir);
-  db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('orch','orch','pi','/tmp','orch',1,'session')`);
-  db.run(sql`INSERT INTO agents(id,spawned_by,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('worker','orch','orch','pi','/tmp','worker',1,'agent')`);
+  seedOrch(dir, "orch", "pi", 1);
+  insertAgent(dir, { host: hostIdentity(), id: "worker", spawnedBy: "orch", harnessId: "pi", cwd: "/tmp", name: "worker", createdAt: 1 });
 }
 
 describe("store hardening", () => {
@@ -66,7 +67,7 @@ describe("store hardening", () => {
   test("adoption closes the prior holding in the same step that opens the new one", () => {
     const dir = tempDir("orch-routing-adopt-");
     seedPack(dir);
-    orm(dir).run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES ('orch2','orch2','pi','/tmp','orch2',1,'session')`);
+    seedOrch(dir, "orch2", "pi", 1);
     acquireLease(dir, "worker", "orch", 1);
     adoptLease(dir, "worker", "orch2", 2);
     expect(currentLease(dir, "worker")?.orchId).toBe("orch2");

@@ -1,18 +1,15 @@
 import type { OrchDir } from "../src/types/core.ts";
-import { createServices } from "../src/services.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { allAdapters } from "../src/adapters/registry.ts";
-import { runSetup } from "../src/commands/setup.ts";
+import { wireBinaries } from "../src/daemon/server/setup.ts";
 import { parseSetupOptions } from "../src/setup/flags.ts";
 import { parseCommand } from "../src/commands/registry.ts";
-import { resolveActiveDefault, resolveProviderSet, resolveRuntime } from "../src/setup/composition.ts";
+import { recordComposition, resolveActiveDefault, resolveProviderSet, resolveRuntime, resolveSetupComposition, type SetupProbes } from "../src/setup/composition.ts";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SETTINGS_SCHEMA } from "../src/settings/schema.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import type { AgentAdapter } from "../src/types/adapter.ts";
 import { isRecord } from "../src/util.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
@@ -74,13 +71,27 @@ describe("commands/setup", () => {
     expect(await resolveProviderSet("adapter", "--harness", "pi,claude", ["pi", "claude"], false, () => Promise.resolve(null))).toEqual(["pi", "claude"]);
     expect(await resolveActiveDefault(["pi", "claude"], false, false, () => Promise.resolve(null))).toBe("pi");
   });
-  test("runs non-interactive setup against the requested ORCH_DIR and records the selected composition", async () => {
+  test("records the composition non-interactive setup resolves, asking orchd only through its probes", async () => {
     const orchDir = tempOrchDir("orch-setup-characterization-");
     tempDirs.push(orchDir);
-    process.env.ORCH_DIR = orchDir;
     writeSettingsFixture(orchDir, {});
-    // cmdSetup wires the bins for real, into $HOME/.local/bin or over whatever they already
-    // resolve to on PATH. Both must be a sandbox or this rewrites the developer's own shims.
+    const settings = fileSettingsManager(orchDir);
+    const probes: SetupProbes = {
+      offers: (harnesses) => Promise.resolve(harnesses.map((id) => ({ id, models: [], suggested: null, compaction: false, error: null }))),
+      availablePlexers: () => Promise.resolve(new Set<string>()),
+    };
+    const options = parseSetupOptions(parseCommand("setup", ["--yes", "--no-install", "--no-skills", "--harness=pi", "--plexer=headless", "--runtime=node"]).flags);
+    const composition = await resolveSetupComposition(settings.currentOrNull(), probes, options);
+    if (composition === null) throw new Error("non-interactive setup resolved no composition");
+    recordComposition(settings, composition.runtime, composition.adapters, composition.defaultAdapter, composition.backends, composition.defaultBackend, composition.models);
+
+    const recorded = parseSetupSettings(JSON.parse(readFileSync(join(orchDir, "settings.json"), "utf8")));
+    expect(recorded).toMatchObject({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", defaults: { adapter: "pi", backend: "headless" } });
+  });
+
+  test("orchd wires orch's bins into $HOME/.local/bin when none is on PATH", () => {
+    // wireBinaries writes real files: $HOME and PATH must be a sandbox or this rewrites the
+    // developer's own shims.
     const home = mkdtempSync(join(tmpdir(), "orch-setup-home-"));
     tempHomeDirs.push(home);
     const binDir = join(home, ".local", "bin");
@@ -94,40 +105,12 @@ describe("commands/setup", () => {
     writeFileSync(join(packageBinDir, "orch-ding.js"), "");
     process.env.HOME = home;
     process.env.PATH = binDir;
-    const adapter = allAdapters().find((candidate) => candidate.id === "pi");
-    if (adapter === undefined) throw new Error("pi adapter is not registered");
-    const original = { modelWarm: adapter.modelWarm, models: adapter.models, shim: adapter.shim };
-    const replacements = {
-      modelWarm: { warmModels: (): Promise<void> => Promise.resolve() },
-      models: { listModels: (): readonly { spec: string }[] => [] },
-      shim: {
-        installShim: (): void => undefined,
-        diagnoseShim: (): { id: string; label: string; status: "skip"; detail: string } => ({
-          id: "pi-extensions", label: "pi extensions", status: "skip", detail: "pi integration shim disabled",
-        }),
-      },
-    } satisfies Pick<AgentAdapter, "modelWarm" | "models" | "shim">;
-    Object.defineProperties(adapter, {
-      modelWarm: { value: replacements.modelWarm, configurable: true, enumerable: true, writable: true },
-      models: { value: replacements.models, configurable: true, enumerable: true, writable: true },
-      shim: { value: replacements.shim, configurable: true, enumerable: true, writable: true },
-    });
-    try {
-      const services = createServices({ orchDir, settings: fileSettingsManager(orchDir) });
-      await runSetup(services, ["--yes", "--no-install", "--no-skills", "--harness=pi", "--plexer=headless", "--runtime=node"], root);
-    } finally {
-      Object.defineProperties(adapter, {
-        modelWarm: { value: original.modelWarm, configurable: true, enumerable: true, writable: true },
-        models: { value: original.models, configurable: true, enumerable: true, writable: true },
-        shim: { value: original.shim, configurable: true, enumerable: true, writable: true },
-      });
-    }
-    const settings = parseSetupSettings(JSON.parse(readFileSync(join(orchDir, "settings.json"), "utf8")));
-
-    expect(settings).toMatchObject({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", defaults: { adapter: "pi", backend: "headless" } });
-    expect(readdirSync(binDir).sort()).toEqual(["orch", "orch-ding"]);
+    const lines: string[] = [];
+    wireBinaries(root, false, (line) => { lines.push(line); });
+    expect(lines[0]).toBe("bins:");
     // Where a symlink is refused this wires the bins by copy, which is real IO.
-  }, 30_000);
+    expect(readdirSync(binDir).sort()).toEqual(["orch", "orch-ding"]);
+  });
 
   test("resolves the runtime from the flag or the no-preference value, never from PATH", async () => {
     expect(await resolveRuntime("deno", false)).toBe("deno");

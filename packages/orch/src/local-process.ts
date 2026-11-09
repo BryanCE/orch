@@ -1,7 +1,7 @@
 // The one mint for a `LocalProcess`: a process the OS on this box answers for. Nothing else
 // in orch builds one, so a pid recorded for another host can never reach a local probe or
 // signal: `localProcessOf` hands back null for it, and the caller must go through its link.
-import { boxHostIds, hostIdentity } from "./host.ts";
+import { boxHostIds, hostIdentity } from "./hosts/identity.ts";
 import { processStartToken } from "./process-identity.ts";
 import type { HostedProcess, LocalProcess, ProcessInstance } from "./types/process.ts";
 
@@ -28,7 +28,13 @@ export function hostedHere(pid: number, startToken: string | null): HostedProces
   return { host: hostIdentity().id, pid, startToken };
 }
 
+/** A process on this host by its pid, as orchd records it: a caller on this machine names its
+ *  own pid, and orchd reads the rest from the OS. */
+export function hostedPid(pid: number): HostedProcess {
+  return hostedHere(pid, processStartToken(pid) ?? null);
+}
+
 /** This process, on this host, as orchd records it. */
 export function ownProcess(): HostedProcess {
-  return hostedHere(process.pid, processStartToken(process.pid) ?? null);
+  return hostedPid(process.pid);
 }

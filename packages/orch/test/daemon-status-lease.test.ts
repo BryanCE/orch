@@ -2,11 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { leasePayloadFrom } from "../src/daemon/server/fleet-rows.ts";
 import { storeLeaseFacts } from "../src/agent/drive-state.ts";
-import { orm, closeAllStores } from "../src/store/connection.ts";
+import { closeAllStores } from "../src/store/connection.ts";
+import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
+import { recordProcess } from "../src/store/interval-rows.ts";
+import { placeHere } from "../src/process-place.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { sql } from "drizzle-orm";
 import type { OrchDir } from "../src/types/core.ts";
 
 const dirs: OrchDir[] = [];
@@ -15,14 +18,12 @@ afterEach(() => { closeAllStores(); while (dirs.length) removeTempDir(dirs.pop()
 function fixture(): OrchDir {
   const dir = tempOrchDir("orch-daemon-status-lease-");
   dirs.push(dir);
-  const db = orm(dir);
-  db.run(sql`INSERT INTO harnesses(id,name) VALUES ('pi','Pi')`);
-  db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
-  for (const [id, name] of [[WORKER_ID, "Worker"], ["orch", "Lead"]]) {
-    db.run(sql`INSERT INTO agents(id,root_agent_id,harness_id,cwd,name,created_at,kind) VALUES (${id},${id},${"pi"},${"/tmp"},${name},${1},${"session"})`);
+  ensureHarness(dir, "pi", "Pi");
+  const members: readonly (readonly [string, string])[] = [[WORKER_ID, "Worker"], ["orch", "Lead"]];
+  for (const [id, name] of members) {
+    insertAgent(dir, { host: hostIdentity(), id, name, spawnedBy: null, harnessId: "pi", cwd: "/tmp", createdAt: 1 });
   }
-  const token = processStartToken(process.pid);
-  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"orch"},${1},${"host"},${process.pid},${token ?? null})`);
+  recordProcess(dir, placeHere(dir, "orch"), 1, { pid: process.pid, startToken: processStartToken(process.pid) ?? null });
   return dir;
 }
 

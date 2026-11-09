@@ -1,14 +1,13 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ensureHarness, ensureHost, insertAgent } from "../src/store/agent-rows.ts";
+import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease, currentLease } from "../src/store/lease-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { governWrite } from "../src/daemon/server/handlers/write.ts";
 import { presenceAgentDir } from "../src/presence/history.ts";
-import { processStartToken } from "../src/process-identity.ts";
 import { reapAgent, adoptAgent, detachAgent } from "../src/daemon/server/handlers/lease.ts";
 import { cmdReap } from "../src/commands/lease.ts";
 import { cmdAbort, cmdClose } from "../src/commands/lifecycle/close.ts";
@@ -18,7 +17,7 @@ import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedSpace } from "./helpers/space.ts";
-import { placeAgent, seedOperator } from "./helpers/agent.ts";
+import { placeAgent, seedOperator, seedProcessInstance } from "./helpers/agent.ts";
 import { readRpc, writeRpc } from "../src/commands/daemon.ts";
 import { sql } from "drizzle-orm";
 
@@ -28,7 +27,6 @@ import { testServices } from "./helpers/services.ts";
 import { idleDaemonState, servedServices } from "./helpers/daemon-state.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
-import { testHost } from "./helpers/host.ts";
 const dirs: OrchDir[] = [];
 const servers: RpcServer[] = [];
 const SETTINGS = { defaults: { adapter: "pi", backend: "headless" } };
@@ -51,7 +49,6 @@ function fixture(): OrchDir {
   const dir = tempOrchDir("orch-lease-command-");
   dirs.push(dir);
   ensureHarness(dir, "pi", "pi", 1);
-  ensureHost(dir, testHost("host", "host", "linux"), 1);
   return dir;
 }
 function agent(dir: OrchDir, id: string, name = id, spawnedBy: string | null = null): void {
@@ -60,9 +57,7 @@ function agent(dir: OrchDir, id: string, name = id, spawnedBy: string | null = n
 
 function liveHolder(dir: OrchDir, id = "foreign-orch"): void {
   agent(dir, id);
-  const token = processStartToken(process.pid);
-  if (!token) throw new Error("test process has no start token");
-  orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${id},${1},${"host"},${process.pid},${token})`);
+  seedProcessInstance(dir, id, 1);
 }
 
 // Command tests exercise the pure command operations so they do not need to boot a daemon.
@@ -124,7 +119,7 @@ describe("lease commands", () => {
   test("adopt refuses a holder with a live recorded process", () => {
     const dir = fixture();
     agent(dir, "new-orch"); agent(dir, "old-orch"); agent(dir, "worker", "worker", "old-orch");
-    orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"old-orch"},${1},${"host"},${process.pid},${processStartToken(process.pid)})`);
+    seedProcessInstance(dir, "old-orch", 1);
     acquireLease(dir, "worker", "old-orch", 2);
     expect(() => adoptAgent(dir, "worker", "new-orch", { now: 3 })).toThrow("worker is leased by live orch old-orch.");
   });
@@ -139,7 +134,7 @@ describe("lease commands", () => {
   test("reap refuses while the recorded process is alive", () => {
     const dir = fixture();
     agent(dir, "worker", "worker");
-    orm(dir).run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${"worker"},${2},${"host"},${process.pid},${processStartToken(process.pid)})`);
+    seedProcessInstance(dir, "worker", 2);
     expect(() => reapAgent(dir, "worker")).toThrow(/close first/);
   });
 

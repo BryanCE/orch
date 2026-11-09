@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { spawnOneIntoTab } from "../src/commands/spawn/placement.ts";
+import { spawnOneIntoTab } from "../src/daemon/server/spawn/placement.ts";
 import { mintAgentId, isAgentId } from "../src/shared/agent-id.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { normalizeControlTarget } from "../src/control/normalize-target.ts";
 import { spawnedRecords } from "../src/presence/store.ts";
 import { agentById, endAgent, ensureHarness } from "../src/store/agent-rows.ts";
@@ -87,7 +87,7 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsA");
     const { backend, envKey } = fakePaneBackend("%5");
 
-    const agent = await spawnOneIntoTab(await spawningServices(dir), {
+    const agent = spawnOneIntoTab(await spawningServices(dir), {
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -141,11 +141,12 @@ describe("one key per pane spawn (12.1)", () => {
 
     // The fake pane reports the runner's own pid, so the first agent is alive
     // until it ENDS; ending frees the name. Under name-as-identity this collided forever.
-    const first = await spawnAudit();
-    const collision = await spawnAudit().then(() => null, (error: unknown) => errorMessage(error));
+    const first = spawnAudit();
+    let collision: string | null = null;
+    try { spawnAudit(); } catch (error: unknown) { collision = errorMessage(error); }
     expect(collision).toMatch(/already live/);
     endAgent(dir, first.key, Date.now(), null);
-    const second = await spawnAudit();
+    const second = spawnAudit();
 
     expect(second.key).not.toBe(first.key);
     expect(agentById(dir, second.key)?.name).toBe("audit-1");
@@ -156,7 +157,7 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsB");
     const { backend } = fakePaneBackend("%7");
 
-    const agent = await spawnOneIntoTab(await spawningServices(dir), {
+    const agent = spawnOneIntoTab(await spawningServices(dir), {
       backend,
       adapter: piAdapter,
       adapterId: "pi",

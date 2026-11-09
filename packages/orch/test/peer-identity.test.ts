@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -131,7 +131,7 @@ describe("peer identity in messaging", () => {
       label: "worker", spawnedByLabel: "stale status name",
     });
 
-    const summary = (await peerSummaries(directory, daemonClientForPeers(directory, [peerKey]), "sender0001"))[0];
+    const summary = (await peerSummaries(daemonClientForPeers(directory, [peerKey]), "sender0001"))[0];
     expect(summary).toMatchObject({
       spawnedBy: spawnerKey,
       spawnedByLabel: "orchestrator",
@@ -148,7 +148,7 @@ describe("peer identity in messaging", () => {
     seedLiveProcess(directory, peerKey);
     seedStatus(directory, peerKey, { agent: "pi", pid: process.pid, state: "idle", label: "unplaced" });
 
-    const summary = (await peerSummaries(directory, daemonClientForPeers(directory, [peerKey]), ownKey))[0];
+    const summary = (await peerSummaries(daemonClientForPeers(directory, [peerKey]), ownKey))[0];
     expect(summary?.space).toBeNull();
     const output = JSON.stringify(summary);
     expect(output).not.toContain("local");
@@ -165,7 +165,7 @@ describe("peer identity in messaging", () => {
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
     const { daemon, calls } = recordingDaemon(orchDir, [ownKey, peerKey], { accepted: true, id: "mail-1", ack: "acknowledged" });
 
-    const result = await sendPeerMessage(orchDir, daemon, "sweep-2", "found it", ownKey);
+    const result = await sendPeerMessage(daemon, "sweep-2", "found it", ownKey);
     expect(result).toBe("sent to pi: sweep-2");
     expect(calls.find((call) => call.method === "message")?.params).toEqual({
       from: ownKey,
@@ -184,7 +184,7 @@ describe("peer identity in messaging", () => {
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
     const { daemon } = recordingDaemon(orchDir, [ownKey, peerKey], { accepted: true, id: "mail-2", ack: "unavailable" });
 
-    const result = await sendPeerMessage(orchDir, daemon, "sweep-2", "found it", ownKey);
+    const result = await sendPeerMessage(daemon, "sweep-2", "found it", ownKey);
     expect(result).toBe("sent to pi: sweep-2 (queued, not yet read)");
   });
 
@@ -198,7 +198,7 @@ describe("peer identity in messaging", () => {
     seedStatus(orchDir, peerKey, { agent: "pi", label: "sweep-2", pid: process.pid, state: "idle" });
     const { daemon } = recordingDaemon(orchDir, [ownKey, peerKey], undefined);
 
-    const result = await sendPeerMessage(orchDir, daemon, "sweep-2", "found it", ownKey);
+    const result = await sendPeerMessage(daemon, "sweep-2", "found it", ownKey);
     expect(result).toBe("error: daemon unreachable; message not sent");
   });
 
@@ -215,12 +215,12 @@ describe("peer identity in messaging", () => {
     }
     const daemon = daemonClientForPeers(orchDir, [firstKey, secondKey, thirdKey]);
 
-    const ambiguous = await resolvePeer(orchDir, daemon, "same-name", ownKey);
+    const ambiguous = await resolvePeer(daemon, "same-name", ownKey);
     expect(ambiguous).toEqual({
       error: `error: ambiguous target. Candidates: same-name (${firstKey}), same-name (${secondKey})`,
     });
 
-    const missing = await resolvePeer(orchDir, daemon, "missing", ownKey);
+    const missing = await resolvePeer(daemon, "missing", ownKey);
     expect(missing).toEqual({
       error: `error: target not found. Candidates: same-name (${firstKey}), same-name (${secondKey}), other-name`,
     });
@@ -234,7 +234,7 @@ describe("peer identity in messaging", () => {
     seedLiveProcess(orchDir, peerKey);
     seedStatus(orchDir, peerKey, { agent: "pi", label: "recon-3", pid: process.pid, state: "idle" });
 
-    const resolved = await resolvePeer(orchDir, daemonClientForPeers(orchDir, [peerKey]), "recon-3", ownKey);
+    const resolved = await resolvePeer(daemonClientForPeers(orchDir, [peerKey]), "recon-3", ownKey);
     expect("peer" in resolved && resolved.peer.key).toBe(peerKey);
   });
 
@@ -258,10 +258,10 @@ describe("peer identity in messaging", () => {
       }),
       message: () => ({ accepted: true, id: "mail-3", ack: "acknowledged" }),
     });
-    const sent = await sendPeerMessage(orchDir, daemon, "spawner", "done with the sweep", ownKey);
+    const sent = await sendPeerMessage(daemon, "spawner", "done with the sweep", ownKey);
     expect(sent).toStartWith("sent to ");
 
-    const summaries = await peerSummaries(orchDir, daemon, ownKey);
+    const summaries = await peerSummaries(daemon, ownKey);
     expect(summaries.find((peer) => peer.key === "session777")?.isSpawner).toBe(true);
   });
 
@@ -271,7 +271,7 @@ describe("peer identity in messaging", () => {
     seedLiveProcess(orchDir, "operator01");
     seedStatus(orchDir, "operator01", { agent: "pi", pid: process.pid, state: "idle" });
 
-    const resolved = await resolvePeer(orchDir, daemonWithSpawner(orchDir, "operator01", "claude session"), "claude session", "worker0005");
+    const resolved = await resolvePeer(daemonWithSpawner(orchDir, "operator01", "claude session"), "claude session", "worker0005");
     expect("peer" in resolved && resolved.peer.key).toBe("operator01");
   });
 
@@ -279,7 +279,7 @@ describe("peer identity in messaging", () => {
     const orchDir = tempOrchDir();
     seedAgent("operator01", { adapter: "pi", name: "claude session" }, orchDir);
 
-    const resolved = await resolvePeer(orchDir, daemonWithSpawner(orchDir, "operator01", "claude session"), "spawner", "worker0005");
+    const resolved = await resolvePeer(daemonWithSpawner(orchDir, "operator01", "claude session"), "spawner", "worker0005");
     expect(resolved).toEqual({
       error: "error: spawner claude session has no live status record to reply to. Write your result and end the turn; it is collected from your result file.",
     });

@@ -1,3 +1,4 @@
+import { placeHere } from "../src/process-place.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverControl } from "../src/control/dispatch.ts";
@@ -14,7 +15,7 @@ import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
 import { recordQuestion } from "../src/store/question-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { testServices } from "./helpers/services.ts";
+import { testDaemonServices } from "./helpers/services.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: OrchDir[] = [];
@@ -55,7 +56,7 @@ function attach(directory: OrchDir, key: string): BridgeDelivery[] {
  * it is no longer what an answer correlates against.
  */
 function settingsFor(directory: OrchDir) {
-  return testServices({ orchDir: directory, settings: {} }).settings.current();
+  return testDaemonServices({ orchDir: directory, settings: {} }).settings.current();
 }
 
 function answerStatus(directory: OrchDir, key: string, asking?: { readonly id: string }): void {
@@ -85,7 +86,7 @@ describe("answer over the bridge", () => {
     answerStatus(directory, key, { id: "question-1" });
     const deliveries = attach(directory, key);
 
-    expect(await deliverControl(directory, settingsFor(directory), testServices({ orchDir: directory }).models, key, { kind: "answer", text: "yes", id: "answer-1" }))
+    expect(await deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-1" }))
       .toEqual({ outcome: "invoke", ack: "expected" });
     expect(deliveries).toEqual([{
       id: "answer-1",
@@ -100,7 +101,7 @@ describe("answer over the bridge", () => {
     answerStatus(directory, key);
     const deliveries = attach(directory, key);
 
-    expect(await deliverControl(directory, settingsFor(directory), testServices({ orchDir: directory }).models, key, { kind: "answer", text: "yes", id: "answer-2" }))
+    expect(await deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-2" }))
       .toEqual({ outcome: "answer", reason: "not-asking", text: `${key} is not asking a question` });
     expect(deliveries).toHaveLength(0);
   });
@@ -110,7 +111,7 @@ describe("answer over the bridge", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     answerStatus(directory, key, { id: "question-3" });
-    expect(await rejection(deliverControl(directory, settingsFor(directory), testServices({ orchDir: directory }).models, key, { kind: "answer", text: "yes", id: "answer-3" })))
+    expect(await rejection(deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-3" })))
       .toBeInstanceOf(BridgeDetachedError);
   });
 
@@ -125,7 +126,7 @@ describe("answer over the bridge", () => {
     });
     attach(directory, key);
 
-    expect(await rejection(deliverControl(directory, settingsFor(directory), testServices({ orchDir: directory }).models, key, { kind: "answer", text: "yes", id: "answer-4" })))
+    expect(await rejection(deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-4" })))
       .toBeInstanceOf(AgentGoneError);
   });
 
@@ -133,14 +134,16 @@ describe("answer over the bridge", () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
     const key = target();
-    seedAgent(key, { adapter: "claude" }, directory);
+    // codex has no bridge that takes answers and does not report prompts, so nothing can carry one.
+    // claude reports prompts: its question ends its turn and the answer is typed as the next prompt.
+    seedAgent(key, { adapter: "codex" }, directory);
     seedLiveProcess(directory, key);
-    seedStatus(directory, key, { agent: "claude" });
+    seedStatus(directory, key, { agent: "codex" });
 
-    expect(await deliverControl(directory, settingsFor(directory), testServices({ orchDir: directory }).models, key, { kind: "answer", text: "yes", id: "answer-5" })).toEqual({
+    expect(await deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-5" })).toEqual({
       outcome: "answer",
       reason: "no-environment-role",
-      text: `cannot answer ${key}: adapter claude takes no answers`,
+      text: `cannot answer ${key}: adapter codex takes no answers`,
     });
   });
 });

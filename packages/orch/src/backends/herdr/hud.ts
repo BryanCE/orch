@@ -10,7 +10,7 @@
 import { execFile } from "node:child_process";
 import { PLEXER_TIMEOUTS } from "../../config.ts";
 import { isHudPaneActive, resolveHudPane, type PaneHudProvider } from "../shared-hud.ts";
-import { requestJsonLine } from "../../presence/socket-client.ts";
+import { requestJsonLine } from "../../daemon/client/socket.ts";
 import type { HerdrCli } from "./cli.ts";
 import { herdrBackend } from "./index.ts";
 import { herdrEnvironmentPresent } from "./detect.ts";

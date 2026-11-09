@@ -48,7 +48,7 @@ function storedLines(stored: Stored): string[] {
 function sentLines(caller: CallerCredential): string[] {
   const session = caller.session;
   return [
-    `sent process ${caller.process.pid}${caller.process.startToken === null ? " (start time unknown)" : ""}`,
+    `sent process ${caller.pid}`,
     session === null
       ? "sent no harness marker"
       : `sent harness marker ${session.harnessId}, session id ${session.sessionId ?? "none"}, session pid ${session.pid ?? "none"}`,
@@ -62,7 +62,7 @@ function mismatchLines(view: AgentView, stored: Stored, caller: CallerCredential
   const storedPid = stored.process?.pid;
   return [
     ...(view.harnessId === sentHarness ? [] : [`warning: the row's harness is ${view.harnessId}, but this caller is ${sentHarness}`]),
-    ...(storedPid === undefined || storedPid === caller.process.pid ? [] : [`warning: the stored process ${storedPid} is not this caller's process ${caller.process.pid}`]),
+    ...(storedPid === undefined || storedPid === caller.pid ? [] : [`warning: the stored process ${storedPid} is not this caller's process ${caller.pid}`]),
   ];
 }
 

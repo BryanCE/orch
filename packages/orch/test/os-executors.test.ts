@@ -2,13 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  acquireDaemonRegistration,
-  executorFor,
-  onOsSide,
-  releaseDaemonRegistration,
-} from "../src/daemon/client/process.ts";
-import { checkOsExecutors } from "../src/doctor/daemon.ts";
+import { executorFor, onOsSide } from "../src/daemon/client/process.ts";
+import { acquireDaemonRegistration, releaseDaemonRegistration } from "../src/daemon/server/ownership.ts";
+import { checkOsExecutors } from "../src/daemon/server/doctor/daemon.ts";
 import { processStartToken } from "../src/process-identity.ts";
 import { hostOs } from "../src/host.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";

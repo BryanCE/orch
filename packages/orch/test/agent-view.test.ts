@@ -1,6 +1,7 @@
 import { placeHere } from "../src/process-place.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import type { OrchDir } from "../src/types/core.ts";
+import type { AgentLocationAxes } from "../src/types/store.ts";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { closeAllStores, orm } from "../src/store/connection.ts";
@@ -166,11 +167,13 @@ describe("the agent composer", () => {
     expect(alsoEnumerated).not.toEqual(ENVIRONMENT_AXES.map((axis) => axis.key));
   });
 
-  test("the composed shape is exactly the axis list, with nothing extra and nothing missing", () => {
+  test("the composed shape is exactly the axis list and the location, with nothing extra and nothing missing", () => {
+    // The location is every agent's open host row: the host it runs on and its directory there.
+    const locationKeys = ["host", "cwd"] as const satisfies readonly (keyof AgentLocationAxes)[];
     withStore((directory) => {
       insertAgent(directory, { host: hostIdentity(), id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "solo", createdAt: 10 });
       expect(Object.keys(environmentOf(directory, "a1")).sort())
-        .toEqual(ENVIRONMENT_AXES.map((axis) => axis.key).sort());
+        .toEqual([...ENVIRONMENT_AXES.map((axis) => axis.key), ...locationKeys].sort());
     });
   });
 

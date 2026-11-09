@@ -1,4 +1,4 @@
-import { hostIdentity } from "../../src/host.ts";
+import { hostIdentity } from "../../src/hosts/identity.ts";
 import type { EventIdentity, NotifyEvent } from "../../src/types/notify.ts";
 
 export const eventBase: EventIdentity = { host: hostIdentity(),

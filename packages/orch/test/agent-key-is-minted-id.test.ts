@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -8,21 +8,20 @@ import { createAgentPresence } from "../src/agent/presence.ts";
 import type { DaemonLink, HarnessContext } from "../src/types/agent.ts";
 import { stubDaemonLink } from "./helpers/daemon-client.ts";
 import { deriveDriveState } from "../src/agent/drive-state.ts";
-import { checkMalformedPresenceRecords } from "../src/doctor/presence.ts";
+import { checkMalformedPresenceRecords } from "../src/daemon/server/doctor/presence.ts";
 import { peerView } from "../src/daemon/server/peer-view.ts";
-import { selfIdentity } from "../src/identity/self.ts";
+import { selfIdentityOf } from "../src/identity/self.ts";
+import { callerCredential } from "../src/identity/credential.ts";
 import { isAgentId, mintAgentId } from "../src/shared/agent-id.ts";
 import { PRESENCE_SCHEMA } from "../src/presence/schema.ts";
 import { ensurePresenceAgentDir } from "../src/presence/history.ts";
-import { closeAllStores, orm } from "../src/store/connection.ts";
+import { closeAllStores } from "../src/store/connection.ts";
 import { claimAgent, ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { processStartToken } from "../src/process-identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir as mintTempOrchDir } from "./helpers/tempdir.ts";
-import { DEAD_PID, seedAgent } from "./helpers/agent.ts";
+import { DEAD_PID, seedAgent, seedProcessInstance } from "./helpers/agent.ts";
 import type { HarnessApi, HarnessEventHandler } from "../src/types/agent.ts";
-import { sql } from "drizzle-orm";
 
 /**
  * A1 ripple — the agent-side readers of an identity key.
@@ -161,7 +160,7 @@ describe("this process's own identity is the id and nothing else", () => {
     tempOrchDir();
     const id = mintAgentId();
     process.env[LAUNCH_ENV] = id;
-    expect(selfIdentity(orchDirAt(process.env.ORCH_DIR!))).toEqual({ id });
+    expect(selfIdentityOf(orchDirAt(process.env.ORCH_DIR!), callerCredential())).toEqual({ id });
   });
 
 });
@@ -205,14 +204,10 @@ describe("who drives an agent is looked up by its id", () => {
   function leased(): OrchDir {
     const directory = tempOrchDir();
     ensureHarness(directory, "pi", "Pi", 1);
-    const database = orm(directory);
-    database.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
     for (const id of [HOLDER, HELD]) {
       insertAgent(directory, { host: hostIdentity(), id, harnessId: "pi", cwd: "/tmp", name: id, createdAt: 1 });
     }
-    const token = processStartToken(process.pid);
-    if (!token) throw new Error("test process has no start token");
-    database.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${HOLDER},${1},${"host"},${process.pid},${token})`);
+    seedProcessInstance(directory, HOLDER, 1);
     acquireLease(directory, HELD, HOLDER, 2);
     return directory;
   }

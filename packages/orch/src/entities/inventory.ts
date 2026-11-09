@@ -7,7 +7,7 @@ import type { AgentView } from "../types/store.ts";
 import type { PresenceEntry } from "../types/presence.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import { viewForKey, addressOf, indexPresenceById } from "../shared/lookup.ts";
-import { hostIdentity } from "../host.ts";
+import { hostIdentity } from "../hosts/identity.ts";
 import type { HostIdentity } from "../types/host.ts";
 
 /** The fleet as one read: every agent by id, the presence that names it, and
@@ -66,14 +66,32 @@ function entityFromBackendTarget(
     // here is exactly how `wF` got shown as a name the user had chosen. orch's
     // space is read from orch's own record or it is absent.
     space: view?.environment.space ?? null,
-    host: entityHost(view),
+    host: entityHost(view === undefined ? { kind: "pane" } : { kind: "agent", view }),
   };
 }
 
-/** Where an entity runs: its agent's host; a pane with no agent row was listed by this
- *  machine's own plexer, so it is on this host. */
-function entityHost(view: AgentView | undefined): HostIdentity {
-  return view?.environment.host ?? hostIdentity();
+/** What an inventory entity stands for: an agent the store holds, a pane this machine's own
+ *  plexer listed, or a status report this orchd took for a key the store holds no agent for.
+ *  A pane and a report are not agents. */
+type EntitySubject =
+  | { readonly kind: "agent"; readonly view: AgentView }
+  | { readonly kind: "pane" }
+  | { readonly kind: "report" };
+
+/** Where an entity runs: an agent on its recorded host. A pane is on the machine whose plexer
+ *  listed it, this one; a report reached this orchd's own socket, from a bridge on this host. */
+function entityHost(subject: EntitySubject): HostIdentity {
+  switch (subject.kind) {
+    case "agent":
+      return subject.view.environment.host;
+    case "pane":
+    case "report":
+      return hostIdentity();
+    default: {
+      const exhaustive: never = subject;
+      throw new Error(`unknown entity subject ${String(exhaustive)}`);
+    }
+  }
 }
 
 function entitiesFromBackend(backend: Backend, fleet: Fleet, usedPresence: Set<string>): Entity[] {
@@ -112,7 +130,7 @@ function presenceOnlyEntity(entry: PresenceEntry, fleet: Fleet): Entity {
     presence: entry,
     presenceOnly: true,
     space: view?.environment.space ?? null,
-    host: entityHost(view),
+    host: entityHost(view === undefined ? { kind: "report" } : { kind: "agent", view }),
   };
 }
 

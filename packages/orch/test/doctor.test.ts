@@ -1,4 +1,3 @@
-import { recordingLogger } from "./helpers/logger.ts";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -6,22 +5,19 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { computeCodeHash } from "../src/daemon/client/process.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { startRpcServer } from "../src/daemon/server/rpc.ts";
-import { applyFixes, applyFixesUntilSettled } from "../src/doctor/runner.ts";
+import { applyFixes, applyFixesUntilSettled } from "../src/daemon/server/doctor/runner.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
-import { checkStore } from "../src/doctor/store.ts";
-import { checkExtensionStaleness } from "../src/doctor/extensions.ts";
-import { isDrvFsPath } from "../src/doctor/settings-file.ts";
+import { checkStore } from "../src/daemon/server/doctor/store.ts";
+import { checkExtensionStaleness } from "../src/daemon/server/doctor/extensions.ts";
+import { isDrvFsPath } from "../src/daemon/server/doctor/settings-file.ts";
+import { checkDaemonSocket } from "../src/daemon/server/doctor/daemon.ts";
 import { runTestDoctor } from "./helpers/doctor.ts";
-import { daemonStatusFixture, stubRpcHandlers } from "./helpers/rpc-handlers.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import type { RpcServer } from "../src/types/daemon.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const directories: OrchDir[] = [];
-const servers: RpcServer[] = [];
 
 // The machine registration is a per-machine rendezvous outside any orchDir. Left
 // at its real path, a doctor test sees whatever orchd the USER has running and
@@ -45,8 +41,7 @@ function check(results: Awaited<ReturnType<typeof runTestDoctor>>, id: string) {
   return result;
 }
 
-afterEach(async () => {
-  while (servers.length) await servers.pop()!.close();
+afterEach(() => {
   while (directories.length) removeTempDir(directories.pop()!);
 });
 
@@ -139,10 +134,8 @@ describe("runDoctor", () => {
     expect(fs.existsSync(lockFile)).toBe(false);
   }, FULL_DOCTOR_TIMEOUT_MS);
 
-  test("accepts a live daemon and an answerable socket", async () => {
+  test("accepts a live daemon and the socket it serves", async () => {
     const directory = tempDir();
-    const server = await startRpcServer(directory, stubRpcHandlers({ "daemon-status": () => daemonStatusFixture() }), { logger: recordingLogger().logger });
-    servers.push(server);
     const entrypoint = path.join(import.meta.dir, "../src/daemon/server/orchd.ts");
     fs.writeFileSync(path.join(directory, "orchd.lock"), JSON.stringify({
       pid: process.pid,
@@ -151,7 +144,9 @@ describe("runDoctor", () => {
     }));
 
     expect(check(await runTestDoctor(directory), "orchd")).toMatchObject({ status: "ok" });
-    expect(check(await runTestDoctor(directory), "orchd-socket")).toMatchObject({ status: "ok" });
+    const socketResult = checkDaemonSocket("orchd.sock");
+    expect(socketResult.status).toBe("ok");
+    expect(socketResult.detail).toContain("orchd.sock");
   }, FULL_DOCTOR_TIMEOUT_MS);
 
   test("warns when the live daemon code hash is stale", async () => {
@@ -167,7 +162,7 @@ describe("runDoctor", () => {
     expect(result.detail).toContain("orch daemon reload");
   }, FULL_DOCTOR_TIMEOUT_MS);
 
-  test("fails on an invalid lock and an unanswerable live socket", async () => {
+  test("fails on an invalid lock and an orchd with no socket bound", async () => {
     const invalid = tempDir();
     const invalidLock = path.join(invalid, "orchd.lock");
     fs.writeFileSync(invalidLock, "not json");
@@ -178,13 +173,7 @@ describe("runDoctor", () => {
     expect(applyFixes([invalidResult]).applied[0]).toContain(invalidLock);
     expect(fs.existsSync(invalidLock)).toBe(false);
 
-    const unanswerable = tempDir();
-    fs.writeFileSync(path.join(unanswerable, "orchd.lock"), JSON.stringify({
-      pid: process.pid,
-      codeHash: "oldagent01",
-      startedAt: new Date().toISOString(),
-    }));
-    const socketResult = check(await runTestDoctor(unanswerable), "orchd-socket");
+    const socketResult = checkDaemonSocket(null);
     expect(socketResult.status).toBe("fail");
     expect(socketResult.detail).toContain("orch daemon start");
   }, FULL_DOCTOR_TIMEOUT_MS);

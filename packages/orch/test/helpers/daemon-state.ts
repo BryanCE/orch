@@ -9,12 +9,14 @@ import { rpcHandlers } from "../../src/daemon/server/handlers/table.ts";
 import { startRpcServer } from "../../src/daemon/server/rpc.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 import type { RpcServer } from "../../src/types/daemon.ts";
-import type { Services } from "../../src/types/services.ts";
+import type { DaemonServices, Services } from "../../src/types/services.ts";
+import { createModelCatalogue } from "../../src/adapters/model-catalogue.ts";
 import { testServices, type TestServicesOptions } from "./services.ts";
+import { createServices } from "../../src/services.ts";
 
 /** The real handler table on this dir's socket, in-process, so a command under
  *  test reaches orchd the way it does in use. No loop, no timers; close it after. */
-async function serveDaemon(services: Services): Promise<RpcServer> {
+export async function serveDaemon(services: Services | DaemonServices): Promise<RpcServer> {
   const state = idleDaemonState(services, services.orchDir);
   const server = await startRpcServer(services.orchDir, rpcHandlers(state), { logger: services.logger });
   state.server = server;
@@ -25,15 +27,24 @@ async function serveDaemon(services: Services): Promise<RpcServer> {
  *  in `servers` for the test's afterEach to close. */
 export async function servedServices(options: TestServicesOptions, servers: RpcServer[]): Promise<Services> {
   const services = testServices(options);
-  servers.push(await serveDaemon(services));
+  // orchd answers from the model listing a test hands in; the CLI holds none.
+  servers.push(await serveDaemon(options.models === undefined ? services : { ...services, models: options.models }));
   return services;
+}
+
+/** The real handler table on this dir's socket, reading settings.json from disk as orchd does,
+ *  for a command under test that writes the file and expects orchd to act on it. */
+export async function serveFileDaemon(orchDir: OrchDir, servers: RpcServer[]): Promise<void> {
+  servers.push(await serveDaemon(createServices({ orchDir })));
 }
 
 /** A daemon that has booted nothing: no server, no loop, no timers. Its held PTYs come
  *  from `pty`, a fake unless the test hands in its own. */
-export function idleDaemonState(services: Services, directory: OrchDir, pty: PtyProvider = new FakePtyProvider()): DaemonState {
+export function idleDaemonState(services: Services | DaemonServices, directory: OrchDir, pty: PtyProvider = new FakePtyProvider()): DaemonState {
+  // A client's services gain the catalogue orchd builds at its root; a test's own listing stays.
+  const daemon: DaemonServices = "models" in services ? services : { ...services, models: createModelCatalogue(services.orchDir, services.logger) };
   const state: DaemonState = {
-    services,
+    services: daemon,
     directory,
     workController: new AbortController(),
     wake: createWakeSignal(),

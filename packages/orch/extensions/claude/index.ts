@@ -15,11 +15,10 @@
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { readJsonStdin } from "orch/core/presence/history.ts";
-import { presenceSession } from "orch/core/presence/session.ts";
-import { reportOnce, reportUntilAccepted } from "orch/core/presence/socket-client.ts";
+import { presenceSession } from "orch/core/daemon/client/report-session.ts";
+import { reportOnce, reportUntilAccepted } from "orch/core/daemon/client/socket.ts";
 import { isRecord, projectRoot, textValue, truncate, truncateOptional } from "orch/core/util.ts";
-import { lastAssistantFromJsonl, trailingQuestion } from "orch/core/adapters/transcript.ts";
+import { lastAssistantFromJsonl, trailingQuestion } from "orch/core/shared/transcript.ts";
 import { gatedPatterns, lockedCommandLine } from "orch/core/policy/command-gate.ts";
 import type { JsonRecord } from "orch/core/types/core.ts";
 import type { StatusPatch } from "orch/core/types/presence.ts";
@@ -42,6 +41,16 @@ function readTranscript(transcriptPath: string | undefined): string | undefined 
     return readFileSync(transcriptPath, "utf8");
   } catch {
     return undefined;
+  }
+}
+
+/** Claude sends the hook payload as JSON on stdin. */
+function readJsonStdin(): JsonRecord {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(0, "utf8"));
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
   }
 }
 

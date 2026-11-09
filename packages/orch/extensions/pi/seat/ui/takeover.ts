@@ -297,7 +297,7 @@ class AgentView implements Component, Focusable {
   private input = new Input();
   /** Scroll offset in lines from the bottom of the transcript. 0 = pinned to bottom. */
   private scrollOffset = 0;
-  private cache: TranscriptCache = { lines: [], readAt: 0, width: 0 };
+  private cache: TranscriptCache = { lines: [], readAt: 0, reading: false, width: 0 };
   private unsubscribe: () => void;
   private renderTimer?: ReturnType<typeof setTimeout>;
   private ticker: ReturnType<typeof setInterval>;
@@ -327,7 +327,7 @@ class AgentView implements Component, Focusable {
     this.view = view;
     this.done = done;
     this.unsubscribe = view.subscribeTo(key, () => this.scheduleRender());
-    // The transcript file grows without transitions; poll-render at 1Hz.
+    // The session grows without transitions; poll-render at 1Hz.
     this.ticker = setInterval(() => this.tui.requestRender(), 1000);
     this.input.onSubmit = (value: string) => {
       const text = value.trim();
@@ -445,7 +445,7 @@ class AgentView implements Component, Focusable {
 
     // Transcript viewport, pinned to the bottom unless scrolled.
     const viewport = this.viewportHeight();
-    const transcript = transcriptLines(this.cache, snapshot.info.sessionPath, width, theme);
+    const transcript = transcriptLines(this.cache, () => this.view.readSession(this.key), () => this.scheduleRender(), width, theme);
     const maxOffset = Math.max(0, transcript.length - viewport);
     if (this.scrollOffset > maxOffset) this.scrollOffset = maxOffset;
     const end = transcript.length - this.scrollOffset;

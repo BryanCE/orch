@@ -2,7 +2,7 @@
 // to each. `serve` is the far end of that link; orchd starts it over ssh and nobody
 // types it.
 import { confirm, isCancel } from "@clack/prompts";
-import { readRpc } from "./daemon.ts";
+import { askDaemon, readRpc } from "./daemon.ts";
 import { parseCommand } from "./registry.ts";
 import { whoAmI } from "./self.ts";
 import { die } from "./target.ts";
@@ -10,18 +10,21 @@ import { usageError } from "../cli/usage.ts";
 import { requiredWord, writeEmptyOrJson } from "./panes.ts";
 import { renderTable } from "../table.ts";
 import { formatAge } from "../format.ts";
-import { serveHostLink } from "../hosts/serve.ts";
+import { serveHostLink } from "../daemon/client/serve.ts";
 import { buildCommit } from "../build-stamp.ts";
-import { spawnSync } from "node:child_process";
-import { orchPublicKey, scanHostKeys, trustHostKeys, type HostScan } from "../hosts/keys.ts";
-import { announcesWindows, authorizeArgv, authorizeStep, reportedOrch } from "../hosts/authorize.ts";
+import { randomUUID } from "node:crypto";
+import { authorizedIn, reportedOrch } from "../shared/host-authorize.ts";
+import { callerCredential } from "../identity/credential.ts";
+import { detachByte } from "../cli/detach-key.ts";
+import { dialScreen, viewScreen } from "./attach.ts";
 import { promptSelect } from "../setup/io.ts";
 import { writeSettingsValue } from "../settings/write.ts";
 import { errorMessage, packageManifest } from "../util.ts";
 import { HOST_SHELLS, type HostGreeting, type HostId, type HostLinkView, type HostShell } from "../types/host.ts";
 import { isHostId } from "../host.ts";
 import type { Invocation } from "../cli/spec.ts";
-import type { HostSettings, OrchSettings } from "../types/settings.ts";
+import type { ResultOf } from "../daemon/client/protocol.ts";
+import type { HostSettings } from "../types/settings.ts";
 import type { Services } from "../types/services.ts";
 
 /** A host name is one settings key: no dots, nothing a shell or a table would mangle. */
@@ -104,8 +107,7 @@ function hostFromFlags(invocation: Invocation, saved: HostSettings | undefined):
 }
 
 /** The line to put in authorized_keys on a host, and where it goes. */
-function authorizeInstructions(name: string, host: HostSettings, publicKey: string): string {
-  const step = authorizeStep(host, publicKey);
+function authorizeInstructions(name: string, step: ResultOf<"host-key">): string {
   return [
     `On ${name}, in ${step.where}, paste:`,
     "",
@@ -118,25 +120,34 @@ function authorizeInstructions(name: string, host: HostSettings, publicKey: stri
   ].join("\n");
 }
 
-/** What a host presents, or a refusal that says why no key came back. */
-function presentedKeys(host: HostSettings, links: OrchSettings["links"]): HostScan {
+/** What a host presents, as orchd fetched it, or a refusal that says why no key came back. */
+async function presentedKeys(services: Services, host: HostSettings): Promise<ResultOf<"host-scan">> {
+  let scan: ResultOf<"host-scan">;
   try {
-    const scan = scanHostKeys(host, links);
-    if (scan.keys.length > 0) return scan;
+    scan = await askDaemon(services, "host-scan", { caller: callerCredential(), host }, hostCallTimeoutMs(services));
   } catch (error: unknown) {
     die(`could not fetch ${host.dest}'s host key: ${errorMessage(error)}`);
   }
-  die(`${host.dest} presented no host key`);
+  if (scan.keys.length === 0) die(`${host.dest} presented no host key`);
+  return scan;
 }
 
-/** Log in once as the person and put orch's key in place there. What the host printed,
- *  shown as it arrives; null when the login failed. */
-function installKey(services: Services, host: HostSettings, publicKey: string): string | null {
-  const links = services.settings.current().links;
-  // ssh asks for a password on the terminal itself, so only stdout is taken.
-  const login = spawnSync(links.ssh_command, authorizeArgv(services.orchDir, host, links, publicKey), { stdio: ["inherit", "pipe", "inherit"], encoding: "utf8" });
-  process.stdout.write(login.stdout);
-  return login.status === 0 ? login.stdout : null;
+/** Log in once as the person and put orch's key in place there. orchd runs the login in a
+ *  terminal it holds; this one shows it and types into it, the password included. What the
+ *  host printed; null when the login did not put the key in place. */
+async function installKey(services: Services, host: HostSettings): Promise<string | null> {
+  const socket = await dialScreen(services);
+  const key = `host-login-${randomUUID()}`;
+  let output = "";
+  const end = await viewScreen(services, socket, detachByte(services.settings.current().attach.detach_key), {
+    key,
+    replace: false,
+    open: (send, size) => { send("host-authorize", { caller: callerCredential(), host, key, ...size }); },
+    opened: () => undefined,
+    output: (data) => { output += data; },
+  });
+  if (end.kind === "refused") die(end.message);
+  return authorizedIn(output) ? output : null;
 }
 
 /** Where orch runs on a Windows host. The person says; WSL first, the way orch is usually run there. */
@@ -176,20 +187,19 @@ async function addHost(services: Services, invocation: Invocation): Promise<void
   const name = requiredWord(invocation, 0);
   if (!HOST_NAME.test(name)) die(`host name ${name} must be letters, digits, - and _`);
   const stated = hostFromFlags(invocation, services.settings.current().hosts[name]);
-  const links = services.settings.current().links;
-  const scan = presentedKeys(stated, links);
+  const scan = await presentedKeys(services, stated);
   process.stdout.write(`\n${stated.dest} presents:\n\n${scan.keys.map((key) => `  ${key.fingerprint}`).join("\n")}\n\n`);
   const answer = await confirm({ message: `Trust these keys for ${name}?`, initialValue: false });
   if (isCancel(answer) || answer !== true) die(`${name} was not added.`);
-  const shell = stated.shell ?? (announcesWindows(scan.banner) ? await askWindowsShell(name) : "posix");
+  const shell = stated.shell ?? (scan.windows ? await askWindowsShell(name) : "posix");
   const host: HostSettings = { ...stated, ...(shell === "posix" ? {} : { shell }) };
-  trustHostKeys(services.orchDir, host, links, scan.keys);
-  const publicKey = orchPublicKey(services.orchDir, links);
+  await readRpc(services, "host-trust", { caller: callerCredential(), host, keys: scan.keys });
   writeSettingsValue(services.settings, `hosts.${name}`, host);
   process.stdout.write(`\nLogging in to ${name} once, as ${host.dest}, to install orch's key. Type that account's password if ssh asks.\n\n`);
-  const output = installKey(services, host, publicKey);
+  const output = await installKey(services, host);
   if (output === null) {
-    process.stdout.write(`\nThat login did not install it. Do it by hand instead:\n\n${authorizeInstructions(name, host, publicKey)}`);
+    const step = await readRpc(services, "host-key", { host });
+    process.stdout.write(`\nThat login did not install it. Do it by hand instead:\n\n${authorizeInstructions(name, step)}`);
     return;
   }
   const orch = reportedOrch(output);
@@ -200,11 +210,10 @@ async function addHost(services: Services, invocation: Invocation): Promise<void
 }
 
 /** Print the authorized_keys line for a configured host again. */
-function printHostKey(services: Services, name: string): void {
-  const settings = services.settings.current();
-  const host = settings.hosts[name];
+async function printHostKey(services: Services, name: string): Promise<void> {
+  const host = services.settings.current().hosts[name];
   if (host === undefined) die(`no host named ${name} in settings.hosts; add it with orch host add ${name} --dest user@host`);
-  process.stdout.write(authorizeInstructions(name, host, orchPublicKey(services.orchDir, settings.links)));
+  process.stdout.write(authorizeInstructions(name, await readRpc(services, "host-key", { host })));
 }
 
 /** The origin `orch host serve` speaks for, which only the forced command can name. */

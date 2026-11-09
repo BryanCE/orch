@@ -4,7 +4,8 @@ import { enclosingAgent } from "../../identity/ancestry.ts";
 import { OPERATOR_HARNESS_ID } from "../../identity/operator.ts";
 import { orphanAgents } from "../../policy/orphan.ts";
 import { freshStartToken } from "../../process-identity.ts";
-import { placeProcess, processIsLiveNow } from "../../process-place.ts";
+import { placeProcess } from "../../process-place.ts";
+import { detectPlexer } from "../../backends/detect.ts";
 import { versionInRange } from "../../shared/versions.ts";
 import { getBackend } from "../../backends/registry.ts";
 import type { HostIdentity } from "../../types/host.ts";
@@ -13,31 +14,28 @@ import type { Logger } from "../../types/core.ts";
 import type { ClaimIdentityResponse, RegisterSessionResponse } from "../../types/daemon.ts";
 import type { ParamsOf, SessionClaim } from "../client/protocol.ts";
 import { RpcError } from "../client/wire.ts";
+import { hostIdentity } from "../../hosts/identity.ts";
 
 /** A caller's process, proven where it runs, with its start token. */
 interface VerifiedProcess {
   readonly process: HostedProcess & { readonly startToken: string };
 }
 
-/** The caller's process, verified where it runs: by the OS here, or for a caller on a linked
- *  host, by asking that host over its link. A caller on a host orch has no link to is refused:
- *  nothing here can say whether its pid names anything. */
-async function verifiedSessionProcess(orchDir: OrchDir, claim: SessionClaim): Promise<VerifiedProcess> {
-  const place: ProcessPlace = placeProcess(orchDir, { host: claim.host.id, pid: claim.pid, startToken: claim.startToken });
+/** The caller's process, verified by the OS here. A CLI only dials its own host's orchd, and the
+ *  other OS side of a box runs its own, so the caller's host is orchd's host. */
+function verifiedSessionProcess(orchDir: OrchDir, claim: SessionClaim): VerifiedProcess {
+  const here = hostIdentity();
+  const place: ProcessPlace = placeProcess(orchDir, { host: here.id, pid: claim.pid, startToken: null });
   switch (place.kind) {
     case "local": {
       const startToken = freshStartToken(place.process.pid);
       if (!startToken) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration could not verify the caller's session process");
-      return { process: { host: claim.host.id, pid: place.process.pid, startToken } };
+      return { process: { host: here.id, pid: place.process.pid, startToken } };
     }
-    case "linked": {
-      const startToken = place.process.startToken;
-      if (startToken === null) throw new RpcError("IDENTITY_UNAVAILABLE", `a caller on host ${place.host.name} must state its process's start token`);
-      if (!await processIsLiveNow(place)) throw new RpcError("IDENTITY_UNAVAILABLE", `host ${place.host.name} did not confirm the caller's process ${place.process.pid}`);
-      return { process: { ...place.process, startToken } };
-    }
+    case "linked":
+      throw new RpcError("IDENTITY_UNAVAILABLE", `a session on host ${place.host.name} registers with the orchd on that host, not this one`);
     case "unreachable":
-      throw new RpcError("IDENTITY_UNAVAILABLE", `host ${claim.host.name} is neither this machine nor a linked host, so its process ${claim.pid} cannot be verified`);
+      throw new RpcError("IDENTITY_UNAVAILABLE", `host ${here.name} is not this machine, so its process ${claim.pid} cannot be verified`);
     default: {
       const exhaustive: never = place;
       throw new Error(`unknown process place ${String(exhaustive)}`);
@@ -45,15 +43,18 @@ async function verifiedSessionProcess(orchDir: OrchDir, claim: SessionClaim): Pr
   }
 }
 
+/** The caller's environment: what it stated, orchd's own host, and the plexer orchd detects from
+ *  its raw markers. */
 function claimedEnvironment(claim: SessionClaim): { sessionToken: string | null; label: string; host: HostIdentity; plexerId: string | null; plexerVersion: string | null; handle: string | null; space: string | null } {
-  const hostName = claim.host.name.trim();
+  const plexer = detectPlexer(claim.plexerEnv);
+  const handle = plexer?.handle?.trim();
   return {
     sessionToken: claim.sessionToken && claim.sessionToken.length > 0 ? claim.sessionToken : null,
     label: claim.label?.trim() ?? "",
-    host: { ...claim.host, name: hostName.length > 0 ? hostName : claim.host.id },
-    plexerId: claim.plexer?.trim() ?? null,
-    plexerVersion: claim.plexerVersion?.trim() ?? null,
-    handle: claim.handle && claim.handle.trim().length > 0 ? claim.handle.trim() : null,
+    host: hostIdentity(),
+    plexerId: plexer?.plexer ?? null,
+    plexerVersion: plexer?.plexerVersion?.trim() ?? null,
+    handle: handle && handle.length > 0 ? handle : null,
     space: claim.space && claim.space.trim().length > 0 ? claim.space.trim() : null,
   };
 }
@@ -67,12 +68,12 @@ function plexerRegistrationWarning(plexerId: string | null, plexerVersion: strin
 
 
 interface CallerFacts<C extends SessionClaim> { readonly claim: C; readonly verified: VerifiedProcess; readonly harness: string; readonly cwd: string; readonly environment: ReturnType<typeof claimedEnvironment>; }
-async function callerFacts<C extends SessionClaim>(orchDir: OrchDir, claim: C, daemonToken: string): Promise<CallerFacts<C>> {
+function callerFacts<C extends SessionClaim>(orchDir: OrchDir, claim: C, daemonToken: string): CallerFacts<C> {
   if (claim.token !== daemonToken) throw new RpcError("IDENTITY_REQUIRED", "identity RPC requires the daemon token");
   const harness = claim.harness.trim();
   const cwd = claim.cwd.trim();
   if (!harness || !cwd) throw new RpcError("IDENTITY_UNAVAILABLE", "session registration requires the caller's harness and cwd");
-  const verified = await verifiedSessionProcess(orchDir, claim);
+  const verified = verifiedSessionProcess(orchDir, claim);
   return { claim, verified, harness, cwd, environment: claimedEnvironment(claim) };
 }
 
@@ -83,8 +84,8 @@ function enclosingIdentity(orchDir: OrchDir, id: string): RegisterSessionRespons
   return { id, label: row.label ?? row.name, kind: "session", unleased: [] };
 }
 
-export async function registerSession(orchDir: OrchDir, params: ParamsOf<"register-session">, daemonToken: string, logger?: Logger): Promise<RegisterSessionResponse> {
-  const facts = await callerFacts(orchDir, params, daemonToken);
+export function registerSession(orchDir: OrchDir, params: ParamsOf<"register-session">, daemonToken: string, logger?: Logger): RegisterSessionResponse {
+  const facts = callerFacts(orchDir, params, daemonToken);
   const { process } = facts.verified;
   const alreadyRegistered = agentIdByProcess(orchDir, process) !== null;
   // The live agent this process was started inside: the terminal a harness was typed into.
@@ -104,8 +105,8 @@ export async function registerSession(orchDir: OrchDir, params: ParamsOf<"regist
   return { id: identity.id, label: identity.label, kind: identity.kind, ...(registrationWarning ? { registrationWarning } : {}), unleased: alreadyRegistered ? [] : orphanAgents(orchDir) };
 }
 
-export async function claimIdentity(orchDir: OrchDir, params: ParamsOf<"claim-identity">, daemonToken: string): Promise<ClaimIdentityResponse> {
-  const facts = await callerFacts(orchDir, params, daemonToken);
+export function claimIdentity(orchDir: OrchDir, params: ParamsOf<"claim-identity">, daemonToken: string): ClaimIdentityResponse {
+  const facts = callerFacts(orchDir, params, daemonToken);
   const id = facts.claim.id;
   if (!id) throw new RpcError("IDENTITY_REQUIRED", "claim-identity requires an agent id");
   const token = facts.environment.sessionToken;

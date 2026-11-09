@@ -1,4 +1,4 @@
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
@@ -7,14 +7,12 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { formatPeerLines, peerSummaries } from "../src/agent/peers.ts";
 import { peerView } from "../src/daemon/server/peer-view.ts";
 import { daemonClientForPeerView } from "./helpers/daemon-client.ts";
-import { closeAllStores, orm } from "../src/store/connection.ts";
+import { closeAllStores } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { acquireLease } from "../src/store/lease-rows.ts";
-import { processStartToken } from "../src/process-identity.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { sql } from "drizzle-orm";
-import { seedLiveProcess } from "./helpers/agent.ts";
+import { seedLiveProcess, seedProcessInstance } from "./helpers/agent.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const originalAgentKey = process.env[LAUNCH_ENV];
@@ -47,15 +45,11 @@ function fixture(): OrchDir {
   delete process.env[LAUNCH_ENV];
 
   ensureHarness(directory, "pi", "Pi", 1);
-  const db = orm(directory);
-  db.run(sql`INSERT INTO hosts(id,name,os,created_at) VALUES ('host','host','linux',1)`);
   for (const id of [CALLER, HELD, LOOSE, ORPHAN, DEAD_ORCH]) {
     const name = id === HELD ? "held-1" : id === LOOSE ? "loose-1" : id === ORPHAN ? "orphan-1" : id;
     insertAgent(directory, { host: hostIdentity(), id, harnessId: "pi", cwd: "/tmp", name, createdAt: 1 });
   }
-  const token = processStartToken(process.pid);
-  if (!token) throw new Error("test process has no start token");
-  db.run(sql`INSERT INTO agent_processes(agent_id,since,host_id,pid,start_token) VALUES (${CALLER},${1},${"host"},${process.pid},${token})`);
+  seedProcessInstance(directory, CALLER, 1);
   seedLiveProcess(directory, HELD);
   seedLiveProcess(directory, LOOSE);
   seedLiveProcess(directory, ORPHAN);
@@ -70,7 +64,7 @@ function fixture(): OrchDir {
 
 async function summaries(directory: OrchDir) {
   const view = peerView(directory, CALLER, [HELD, LOOSE, ORPHAN], false);
-  return peerSummaries(directory, daemonClientForPeerView(view), CALLER);
+  return peerSummaries(daemonClientForPeerView(view), CALLER);
 }
 
 // F6 + G9: the compact listing is what agents actually read. Without the lease

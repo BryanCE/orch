@@ -1,5 +1,5 @@
 import { placeHere } from "../src/process-place.ts";
-import { hostIdentity } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";

@@ -6,6 +6,7 @@ import { insertOutboxMessage } from "../../store/outbox-rows.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { resolveTargetRoute } from "../../control/dispatch.ts";
 import type { MailDelivery, OrchSettings } from "../../types/settings.ts";
+import type { HereAgent } from "../../types/agent-place.ts";
 
 function requiredMailString(value: string, name: string): string {
   if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${name} is required`);
@@ -16,14 +17,14 @@ function requiredMailString(value: string, name: string): string {
  *  `to_spawner`; every other sender and recipient pair follows `to_worker`.
  *  `prompt-unless-focused` resolves here: the stream while the human is in the
  *  recipient's pane, because keys typed there go out with whatever the human types. */
-export function mailDelivery(directory: OrchDir, mail: OrchSettings["mail"], from: string, target: string): Exclude<MailDelivery, "prompt-unless-focused"> {
-  const direction = agentView(directory, from)?.spawnedBy === target ? mail.to_spawner : mail.to_worker;
+export function mailDelivery(directory: OrchDir, mail: OrchSettings["mail"], from: string, target: HereAgent): Exclude<MailDelivery, "prompt-unless-focused"> {
+  const direction = agentView(directory, from)?.spawnedBy === target.id ? mail.to_spawner : mail.to_worker;
   if (direction !== "prompt-unless-focused") return direction;
   return targetPaneFocused(directory, target) ? "events" : "prompt";
 }
 
 /** Whether the human is in the target's pane now, as the plexer reports it. */
-function targetPaneFocused(directory: OrchDir, target: string): boolean {
+function targetPaneFocused(directory: OrchDir, target: HereAgent): boolean {
   const route = resolveTargetRoute(directory, target);
   const inventory = route?.backend.placementInventory;
   if (route === undefined || !inventory) return false;

@@ -127,7 +127,8 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
         model: plan.model,
         thinking: plan.thinking,
         preferredModels: [...plan.preferredModels],
-        prompt: workerPrompt(plan.prompt ?? "", false, adapter, { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null, ...workerRules(settingsFile) }),
+        // An agent on a linked host spawned with no work idles there until its first dispatch.
+        prompt: plan.prompt?.trim() ? workerPrompt(plan.prompt, false, adapter, { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null, ...workerRules(settingsFile) }) : null,
         tools: settings.tools,
         workers: settings.workers,
         env: compactionEnv(adapter, plan.model, settings.workers),

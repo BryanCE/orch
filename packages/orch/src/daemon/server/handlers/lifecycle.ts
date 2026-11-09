@@ -69,6 +69,9 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     if (peer !== undefined) throw new Error(`cannot spawn ${key}: a host's orchd asks only for a spawn here, never on a third host`);
     return spawnOnHost(state, params.host, { ...params, model });
   }
+  const prompt = params.prompt;
+  // A headless agent here runs its prompt and exits; with none it would die before any dispatch.
+  if (peer === undefined && prompt === null) throw new Error(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
   const opts: BackendSpawnOpts = {
     key,
     name: params.name,
@@ -76,7 +79,7 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     env: params.env,
     orchDir: directory,
     cwd: params.cwd,
-    prompt: params.prompt,
+    ...(prompt === null ? {} : { prompt }),
     model,
     thinking,
     // The quicklist the harness's own picker gets. It is NOT a second gate: the launch model
@@ -85,7 +88,7 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     tools: params.tools,
     workers: params.workers,
   };
-  if (peer !== undefined) return spawnHeldForPeer(state, adapter, { ...opts, key, prompt: params.prompt, spawner: null, origin: { askedBy: peer, spawner: params.spawner } });
+  if (peer !== undefined) return spawnHeldForPeer(state, adapter, { ...opts, key, firstPrompt: prompt, spawner: null, origin: { askedBy: peer, spawner: params.spawner } });
   const handle = headlessBackend.spawn(adapter, { ...opts, spawner: params.spawner });
   const running = headlessBackend.process.running(handle);
   return { key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
@@ -96,13 +99,16 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
  * orchd holds: its work, rows and logs stay on this host, and any host can attach to its
  * screen. A peer's spawner is an agent on its own host, never one here, so it is the origin.
  *
- * The first prompt goes where every launch prompt goes: into the outbox, which pushes it to
- * the agent's bridge once the bridge attaches.
+ * The first prompt, when the spawn has one, goes where every launch prompt goes: into the
+ * outbox, which pushes it to the agent's bridge once the bridge attaches.
  */
-async function spawnHeldForPeer(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts & { readonly key: string; readonly prompt: string }): Promise<ResultOf<"spawn-headless">> {
+async function spawnHeldForPeer(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts & { readonly key: string; readonly firstPrompt: string | null }): Promise<ResultOf<"spawn-headless">> {
   const launched = await startHeldAgent(state.held, adapter, opts);
-  insertOutboxMessage(state.directory, { id: randomUUID(), target: opts.key, payload: { action: "dispatch", text: opts.prompt } });
-  state.wake.wake();
+  // A spawn with no work idles until its first dispatch.
+  if (opts.firstPrompt !== null) {
+    insertOutboxMessage(state.directory, { id: randomUUID(), target: opts.key, payload: { action: "dispatch", text: opts.firstPrompt } });
+    state.wake.wake();
+  }
   return { key: opts.key, backend: heldBackend.id, ...launched };
 }
 

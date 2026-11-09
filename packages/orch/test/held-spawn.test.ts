@@ -1,3 +1,4 @@
+import { errorMessage } from "../src/util.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { placeHere } from "../src/process-place.ts";
 import { spawnHeadless } from "../src/daemon/server/handlers/lifecycle.ts";
@@ -78,6 +79,31 @@ describe("a spawn another host asks for", () => {
 
     const queued = selectOpenOutboxForTarget(orchDir, key);
     expect(queued.map((row) => row.payload)).toEqual([{ action: "dispatch", text: "do the work" }]);
+  });
+
+  test("a spawn with no work starts the agent and queues nothing: it idles for its first dispatch", async () => {
+    const orchDir = tempOrchDir("orch-held-no-prompt-");
+    dirs.push(orchDir);
+    const state = idleDaemonState(servicesAt(orchDir), orchDir, new FakePtyProvider());
+    const key = mintAgentId();
+    await spawnHeadless(state, {
+      key, name: "far-idle", spawner: "spawner-on-the-other-host", adapter: "pi",
+      model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
+    }, hostIdFrom("the-other-host"));
+    expect(state.held.has({ kind: "agent", agent: placeHere(orchDir, key) })).toBe(true);
+    expect(selectOpenOutboxForTarget(orchDir, key)).toEqual([]);
+  });
+
+  test("a headless spawn here with no prompt is refused: it would exit before any dispatch", async () => {
+    const orchDir = tempOrchDir("orch-headless-no-prompt-");
+    dirs.push(orchDir);
+    const state = idleDaemonState(servicesAt(orchDir), orchDir, new FakePtyProvider());
+    const key = mintAgentId();
+    const refused = await spawnHeadless(state, {
+      key, name: "here-idle", spawner: null, adapter: "pi",
+      model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
+    }).then(() => null, (error: unknown) => errorMessage(error));
+    expect(refused).toBe(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
   });
 
   test("its queued first prompt waits for its bridge and reaches it once the bridge attaches", async () => {

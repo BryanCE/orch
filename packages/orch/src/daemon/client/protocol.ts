@@ -657,7 +657,8 @@ export const RPC_PARAMS = {
     adapter: nonBlank,
     model: nonBlank,
     thinking: z.custom<ThinkingLevel>(isThinkingLevel),
-    prompt: nonBlank,
+    /** The first prompt. Null only for a spawn on a linked host, whose agent idles there for a dispatch. */
+    prompt: nonBlank.nullable(),
     cwd: optionalText,
     env: z.record(z.string(), z.string()).optional(),
     preferredModels: z.array(nonBlank).optional(),

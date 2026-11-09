@@ -72,9 +72,9 @@ describe("the commit a build was made from", () => {
     const file = join(directory, "orch.js");
     writeFileSync(file, `const a = "${BUILD_COMMIT_SLOT}";\nconst b = "${BUILD_COMMIT_SLOT}";\n`);
 
-    stampBuildCommit(file, "fa3f71f-dirty");
+    stampBuildCommit(file, "fa3f71f");
 
-    expect(readFileSync(file, "utf8")).toBe(`const a = "fa3f71f-dirty";\nconst b = "fa3f71f-dirty";\n`);
+    expect(readFileSync(file, "utf8")).toBe(`const a = "fa3f71f";\nconst b = "fa3f71f";\n`);
   });
 
   test("refuses a bundle that lost its slot, rather than ship unstamped", () => {

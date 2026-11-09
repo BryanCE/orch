@@ -11,7 +11,7 @@ import { requiredWord, writeEmptyOrJson } from "./panes.ts";
 import { renderTable } from "../table.ts";
 import { formatAge } from "../format.ts";
 import { serveHostLink } from "../hosts/serve.ts";
-import { buildCommit, DIRTY_SUFFIX } from "../build-stamp.ts";
+import { buildCommit } from "../build-stamp.ts";
 import { spawnSync } from "node:child_process";
 import { orchPublicKey, scanHostKeys, trustHostKeys, type HostScan } from "../hosts/keys.ts";
 import { announcesWindows, authorizeArgv, authorizeStep, reportedOrch } from "../hosts/authorize.ts";
@@ -40,16 +40,14 @@ function commitCell(commit: string | null): string {
   return commit ?? "source";
 }
 
-/** What to say when the far side's orch may not be this one's. A release is its version:
- *  every install of one carries the commit its package was built from. Past the version, a
- *  build from a checkout is its commit, and two builds of one commit over uncommitted
- *  changes may still differ. Null when they match, or when either runs from source. */
+/** What to say when the far side's orch is not this one's. A release is its version: every
+ *  install of one carries the commit its package was built from. Past the version, a build
+ *  from a checkout is its commit. Null when they match, or when either runs from source. */
 function skewWarning(name: string, greeting: HostGreeting, local: { version: string; commit: string | null }): string | null {
   if (greeting.version !== local.version) return `warning: ${name} runs orch ${greeting.version}; this machine runs ${local.version}.`;
   const remote = greeting.commit;
   if (remote === null || local.commit === null) return null;
   if (remote !== local.commit) return `warning: ${name} runs orch built from ${remote}; this machine runs ${local.commit}.`;
-  if (remote.endsWith(DIRTY_SUFFIX)) return `warning: both sides were built from ${remote}, with uncommitted changes that may differ.`;
   return null;
 }
 

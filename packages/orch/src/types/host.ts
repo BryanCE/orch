@@ -21,8 +21,7 @@ export interface HostIdentity { readonly id: string; readonly name: string; read
  *  answers there. */
 export interface HostGreeting {
   readonly host: HostIdentity;
-  /** The commit the far side's orch was built from, `-dirty` when built over uncommitted
-   *  changes; null when it runs from source. */
+  /** The commit the far side's orch was built from; null when it runs from source. */
   readonly commit: string | null;
   readonly version: string;
 }

@@ -39,8 +39,8 @@ import { appendOutcome } from "../../../presence/history.ts";
 import { settleControlOutcome } from "../../../control/outcome.ts";
 import { acknowledgeDelivery } from "../../../control/ack.ts";
 import type { ControlOutcomeReport } from "../../../types/agent.ts";
-import type { RpcHandlers } from "../../../types/daemon.ts";
-import type { ParamsOf } from "../../client/protocol.ts";
+import type { RpcHandlers, RpcRequestContext } from "../../../types/daemon.ts";
+import { RPC_RESULTS, type ParamsOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
 import { selectOpenOutboxForTarget, selectOutboxMessage, markOutboxDelivered } from "../../../store/outbox-rows.ts";
 import { activePaneHud } from "../../../backends/hud.ts";
@@ -60,6 +60,11 @@ function waking<P, R>(state: DaemonState, handler: (params: P) => R): (params: P
     state.wake.wake();
     return result;
   };
+}
+
+/** The id a peer's request is remembered under: one host's ids never meet another's. */
+function receiptId(context: RpcRequestContext): string | null {
+  return context.peer === undefined || context.once === undefined ? null : `${context.peer}:${context.once}`;
 }
 
 export function rpcHandlers(state: DaemonState): RpcHandlers {
@@ -161,7 +166,12 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "end-streams": () => endStreams(state),
     reviews: () => reviewsOf(state),
     "agent-worktree": governed(state, (params) => agentWorktree(state, params)),
-    "peer-worktree": peerWorktreeHandler(state),
+    "peer-worktree": async (params, emit, context) => {
+      const act = peerWorktreeHandler(state);
+      const id = receiptId(context);
+      if (id === null) return await act(params, emit, context);
+      return RPC_RESULTS["peer-worktree"].parse(await state.receipts.once(id, async () => await act(params, emit, context)));
+    },
     "settings-reload": () => {
       state.settingsWatch?.reload();
       return { ok: true };
@@ -173,7 +183,11 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     ...machineHandlers(state),
     ...screenHandlers(state, () => state.held),
     ...peerHandlers(hostIdentity, agentReaderOf(state)),
-    "peer-drive": (params, _emit, context) => peerDrive(state, params, context),
+    "peer-drive": async (params, _emit, context) => {
+      const id = receiptId(context);
+      if (id === null) return await peerDrive(state, params, context);
+      return RPC_RESULTS["peer-drive"].parse(await state.receipts.once(id, () => peerDrive(state, params, context)));
+    },
     grant: governed(state, (params) => decideGrant(directory, params)),
     "queue-list": (params) => listQueued(directory, params),
     "queue-cancel": governed(state, (params) => cancelQueued(directory, params)),

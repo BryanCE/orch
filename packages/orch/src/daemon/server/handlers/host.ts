@@ -84,7 +84,7 @@ function driveWaitMs(timeouts: OrchSettings["timeouts"], request: PeerDrive): nu
 /** Ask a linked host's orchd to do a drive or kill verb on its agent, and read its answer as
  *  the one that verb gives. This orchd has ruled on the verb already. */
 export async function driveOnHost<A extends PeerDrive["action"]>(state: DaemonState, link: HostLink, request: Extract<PeerDrive, { action: A }>): Promise<Extract<PeerDriveResult, { action: A }>> {
-  const answer = await link.call("peer-drive", request, driveWaitMs(state.services.settings.current().timeouts, request));
+  const answer = await link.deliver("peer-drive", request, driveWaitMs(state.services.settings.current().timeouts, request));
   if (!answeredFor(answer, request.action)) throw new Error(`${link.name} answered ${answer.action} to ${request.action}`);
   return answer;
 }

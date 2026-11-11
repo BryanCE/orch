@@ -132,7 +132,7 @@ function dispatchRequest(
 ): void {
   const startedAt = Date.now();
   Promise.resolve()
-    .then(() => invoke(handlers, request.method, request.params, emit, { transport, identity: state.identity, peer: state.peer, screens: state.screens }))
+    .then(() => invoke(handlers, request.method, request.params, emit, { transport, identity: state.identity, peer: state.peer, screens: state.screens, ...(request.once === undefined ? {} : { once: request.once }) }))
     .then((result) => {
       lineResponse(socket, { kind: "reply", id: request.id, result });
       logRpc(logger, request, transport, startedAt);
@@ -277,6 +277,11 @@ function boundTcpPort(server: Server): number {
   return address.port;
 }
 
+/** Whether a subscriber has fallen further behind than orchd queues for one. */
+export function subscriberBehind(queuedBytes: number, limitBytes: number | undefined): boolean {
+  return limitBytes !== undefined && queuedBytes > limitBytes;
+}
+
 /** Start the local RPC endpoint, preferring a unix socket and falling back to loopback TCP. */
 export async function startRpcServer(
   orchDir: OrchDir,
@@ -296,6 +301,7 @@ export async function startRpcServer(
   const unsubscribeBus = bus.on((event) => {
     const buffered = replayBuffer.push(event);
     const encoded = encodeLine({ kind: "event", ...buffered });
+    const limitBytes = options.subscriberQueueBytes?.();
     // Looked up once per event, and only when a peer subscribes.
     let origin: HostId | null | undefined;
     for (const socket of subscriptions) {
@@ -303,6 +309,13 @@ export async function startRpcServer(
       if (peer !== undefined) {
         origin ??= originOf(orchDir, event.key)?.askedBy ?? null;
         if (origin !== peer) continue;
+      }
+      if (subscriberBehind(socket.writableLength, limitBytes)) {
+        // It resumes from the last event it took when it connects again; orchd keeps no backlog for it.
+        logger.warn("rpc.subscriber-dropped", { queuedBytes: socket.writableLength, limitBytes: limitBytes ?? null, peer: peer ?? null });
+        subscriptions.delete(socket);
+        socket.destroy();
+        continue;
       }
       writeEncodedLine(socket, encoded);
     }

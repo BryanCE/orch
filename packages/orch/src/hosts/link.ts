@@ -5,6 +5,7 @@
 // Whether the LINK is up is this module's answer. What an agent on that host is doing is that
 // host's orchd's answer, carried by the events it sends; with the link down it is unknown,
 // never dead.
+import { randomUUID } from "node:crypto";
 import type { Readable, Writable } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { encodeRequest, framedLineReader, parseRpcLine, responseError, type RpcLine } from "../daemon/client/wire.ts";
@@ -136,6 +137,10 @@ function failureReason(name: string, code: number | null, stderr: readonly strin
   return code === null ? "ssh was stopped by a signal" : `ssh exited with code ${code}`;
 }
 
+/** A request the far orchd may or may not have taken: the link was not up, dropped under it,
+ *  or it got no answer in time. Its outcome is not known here. */
+export class LinkUnanswered extends Error {}
+
 class HostLink {
   private state: HostLinkState = { kind: "idle" };
   private process: LinkProcess | null = null;
@@ -249,25 +254,53 @@ class HostLink {
     return daemonResult(method, RPC_RESULTS[method].parse(await this.request(method, params, waitMs)));
   }
 
+  /** Ask the host's orchd to do something once. A request the link dropped under, or that got
+   *  no answer in time, may or may not have been taken, so it is sent again under the same id
+   *  once the link is back: the far orchd answers a request it already took with what it
+   *  answered then. Gives up `links.deliver_timeout_ms` after the first send. */
+  async deliver<M extends RpcMethod>(method: M, params: ParamsOf<M>, waitMs = 0): Promise<ResultOf<M>> {
+    const once = randomUUID();
+    const links = this.deps.settings().links;
+    const deadline = this.now() + links.deliver_timeout_ms + waitMs;
+    let sent = false;
+    for (;;) {
+      try {
+        await this.connect();
+      } catch (error: unknown) {
+        // Nothing was sent: the host is simply offline.
+        if (!sent) throw error;
+        if (this.now() >= deadline) throw new Error(`${this.name} went offline before it answered ${method}, so whether it was done is not known: ${errorMessage(error)}`);
+        await new Promise((resolve) => { setTimeout(resolve, links.retry_floor_ms).unref?.(); });
+        continue;
+      }
+      sent = true;
+      try {
+        return daemonResult(method, RPC_RESULTS[method].parse(await this.request(method, params, waitMs, once)));
+      } catch (error: unknown) {
+        if (!(error instanceof LinkUnanswered) || this.now() >= deadline) throw error;
+      }
+    }
+  }
+
   private async ask<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M>> {
     return daemonResult(method, RPC_RESULTS[method].parse(await this.request(method, params, 0)));
   }
 
-  private request<M extends RpcMethod>(method: M, params: ParamsOf<M>, waitMs: number): Promise<unknown> {
+  private request<M extends RpcMethod>(method: M, params: ParamsOf<M>, waitMs: number, once?: string): Promise<unknown> {
     const process = this.process;
     if (process === null || process.stdin.writableEnded) {
-      return Promise.reject(new Error(`${this.name} is not linked, so orch cannot ask it`));
+      return Promise.reject(new LinkUnanswered(`${this.name} is not linked, so orch cannot ask it`));
     }
     const id = this.nextId++;
     const timeoutMs = this.deps.settings().links.request_timeout_ms + waitMs;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`${this.name} did not answer ${method} within ${timeoutMs}ms`));
+        reject(new LinkUnanswered(`${this.name} did not answer ${method} within ${timeoutMs}ms`));
       }, timeoutMs);
       timer.unref?.();
       this.pending.set(id, { resolve, reject, timer });
-      process.stdin.write(encodeRequest(id, method, params));
+      process.stdin.write(encodeRequest(id, method, params, once));
     });
   }
 
@@ -604,7 +637,7 @@ class HostLink {
     for (const [id, pending] of this.pending) {
       this.pending.delete(id);
       clearTimeout(pending.timer);
-      pending.reject(new Error(`${this.name} went offline: ${reason}`));
+      pending.reject(new LinkUnanswered(`${this.name} went offline: ${reason}`));
     }
     if (!this.wanted) {
       // A blocked link keeps saying why; any other is simply down.

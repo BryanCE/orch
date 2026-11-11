@@ -44,4 +44,6 @@ While a host's link is up, agents run there for this machine: `orch spawn <name>
 
 This machine keeps only a reference to such an agent: its id, who spawned it, and the host it runs on. Its state comes from the events that host's orchd sends over the link, and it ends here when that host says it closed or exited. When the link is down, orch cannot ask, so the agent keeps the state its host last reported, marked with `?`, beside the note that the host is offline and when it was last seen. It never shows as exited: nothing is reaped, closed or handed to another agent until the host answers again. When the link comes back, orch resumes that host's events from where it left off, or reloads the state of its agents there when it cannot.
 
+A verb that changes an agent on a host, such as `dispatch`, `steer`, `answer` or a worktree land, is done there once. If the link drops before the answer arrives, orch sends the same request again when the link is back, for up to `links.deliver_timeout_ms`, and the host answers with what it did the first time.
+
 An agent's own `ssh`, `scp`, `sftp` and `rsync` wait for your `orch grant` by default.

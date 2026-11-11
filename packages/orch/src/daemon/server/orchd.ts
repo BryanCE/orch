@@ -14,6 +14,7 @@ import { rpcHandlers } from "./handlers/table.ts";
 import { daemonStartRefusal } from "../client/process.ts";
 import { acquireDaemonLock, acquireDaemonRegistration, releaseDaemonLock, releaseDaemonRegistration } from "./ownership.ts";
 import { startRpcServer } from "./rpc.ts";
+import { Receipts } from "./receipts.ts";
 import { absentSettingsMessage, logLevelFor } from "../../settings/read.ts";
 import { createServices } from "../../services.ts";
 import { createModelCatalogue } from "../../adapters/model-catalogue.ts";
@@ -94,6 +95,7 @@ export async function startDaemon(): Promise<DaemonState> {
     livenessTick: undefined,
     loopWatchdog: undefined,
     settingsWatch: undefined,
+    receipts: new Receipts(() => services.settings.current().links.receipt_ttl_ms),
     hosts: new HostLinks({
       orchDir: directory,
       settings: () => services.settings.current(),
@@ -146,6 +148,7 @@ export async function startDaemon(): Promise<DaemonState> {
     state.server = await startRpcServer(directory, rpcHandlers(state), {
       holdsDaemonLock: true,
       logger: services.logger,
+      subscriberQueueBytes: () => services.settings.current().daemon.subscriber_queue_bytes,
       tcpPort,
       onTcpError: (error, port) => state.services.logger.error("daemon.tcp-listener-failed", { port, error: errorMessage(error) }),
       onBridgeAttached: (key) => {

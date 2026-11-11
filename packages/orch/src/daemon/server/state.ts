@@ -14,6 +14,7 @@ import type { WakeSignal } from "./wake.ts";
 import { phaseClock } from "./phase-clock.ts";
 import type { LoopWatchdog } from "./loop-watchdog.ts";
 import type { HostLinks } from "../../hosts/link.ts";
+import type { Receipts } from "./receipts.ts";
 import { recordedProcessIsLive } from "../../process-place.ts";
 
 /** The one spelling of "is this lease's holder still running". A start token
@@ -41,6 +42,8 @@ export interface DaemonState {
   settingsWatch: SettingsWatch | undefined;
   /** The SSH links to every host settings names. */
   readonly hosts: HostLinks;
+  /** What this orchd answered to requests linked hosts sent to be done once. */
+  readonly receipts: Receipts;
   /** The PTY of every agent this orchd runs as an interactive session. */
   readonly held: PtyHolder & HeldPtysByPid;
   fatalLogged: boolean;

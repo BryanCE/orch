@@ -233,6 +233,7 @@ const settingsValueExtractors = {
     bridge_reconnect_ms: root.daemon?.bridge_reconnect_ms ?? SETTINGS_DEFAULTS.daemon.bridge_reconnect_ms,
     outbox_max_attempts: root.daemon?.outbox_max_attempts ?? SETTINGS_DEFAULTS.daemon.outbox_max_attempts,
     report_timeout_ms: root.daemon?.report_timeout_ms ?? SETTINGS_DEFAULTS.daemon.report_timeout_ms,
+    subscriber_queue_bytes: root.daemon?.subscriber_queue_bytes ?? SETTINGS_DEFAULTS.daemon.subscriber_queue_bytes,
   }),
   pty: (root: Partial<SettingsFile>) => ({
     ...SETTINGS_DEFAULTS.pty,

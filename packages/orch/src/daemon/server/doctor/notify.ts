@@ -8,6 +8,7 @@ import { binaryOnPath, countOf, errorMessage } from "../../../util.ts";
 import { notifierRemediation } from "../../../notify/remediation.ts";
 import type { BinaryStatus, CheckResult } from "../../../types/doctor.ts";
 import type { NotifyEntry, OrchSettings } from "../../../types/settings.ts";
+import type { Notifier } from "../../../types/notify.ts";
 
 export function checkNotifications(_bins: BinaryStatus): CheckResult {
   if (allBackends().some((backend) => backend.isAvailable() && backend.isInsideSession())) {
@@ -18,8 +19,10 @@ export function checkNotifications(_bins: BinaryStatus): CheckResult {
   return { id: "notifications", label: "Desktop notifications", status: "warn", detail: "no desktop notification tier is available" };
 }
 
-/** Validate configured notifier entries and probe each adapter in isolation. */
-export async function checkNotifiers(orchDir: OrchDir, settings: OrchSettings | null, logger?: Logger): Promise<CheckResult> {
+/** Validate configured notifier entries and probe each adapter in isolation. One that is set
+ *  up and whose program is not running now is a warning: the same settings are right on a
+ *  machine used at its desk and reached over ssh. `notifiers` replaces the built-in ones. */
+export async function checkNotifiers(orchDir: OrchDir, settings: OrchSettings | null, logger?: Logger, notifiers?: readonly Notifier[]): Promise<CheckResult> {
   const id = "notifiers";
   const label = "Notifiers";
   let configured: NotifyEntry[];
@@ -32,7 +35,7 @@ export async function checkNotifiers(orchDir: OrchDir, settings: OrchSettings | 
   }
   if (!configured.length) return { id, label, status: "ok", detail: "no notifiers configured" };
 
-  const registry = createNotifierRegistry(orchDir, settings, undefined, { logger });
+  const registry = createNotifierRegistry(orchDir, settings, notifiers, { logger });
   const failures: string[] = [];
   const warnings: string[] = [];
   for (const [index, entry] of configured.entries()) {
@@ -51,6 +54,10 @@ export async function checkNotifiers(orchDir: OrchDir, settings: OrchSettings | 
       continue;
     }
     const result = await registry.reachable(entry);
+    if (result.dormant !== undefined) {
+      warnings.push(`${adapter}: ${result.dormant}`);
+      continue;
+    }
     if (!result.available) {
       const remediation = notifierRemediation(adapter, entry, registry.notifierFor(entry)?.remediation);
       failures.push(`${adapter || `notifier #${number}`}: ${result.reason ?? result.error ?? "unavailable"}; ${remediation}`);

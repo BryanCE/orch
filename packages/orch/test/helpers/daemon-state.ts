@@ -7,6 +7,7 @@ import { HostLinks } from "../../src/hosts/link.ts";
 import { applyHostEvent, reconcileHostAgents } from "../../src/daemon/server/host-events.ts";
 import { rpcHandlers } from "../../src/daemon/server/handlers/table.ts";
 import { startRpcServer } from "../../src/daemon/server/rpc.ts";
+import { Receipts } from "../../src/daemon/server/receipts.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 import type { RpcServer } from "../../src/types/daemon.ts";
 import type { DaemonServices, Services } from "../../src/types/services.ts";
@@ -54,6 +55,7 @@ export function idleDaemonState(services: Services | DaemonServices, directory: 
     outboxDrain: undefined,
     loopWatchdog: undefined,
     settingsWatch: undefined,
+    receipts: new Receipts(() => services.settings.current().links.receipt_ttl_ms),
     hosts: new HostLinks({
       orchDir: directory,
       settings: () => services.settings.current(),

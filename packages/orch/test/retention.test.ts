@@ -65,7 +65,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     links: SETTINGS_DEFAULTS.links,
     attach: SETTINGS_DEFAULTS.attach,
     spaces: {},
-    daemon: { tcp_port: 3716, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120 },
+    daemon: { tcp_port: 3716, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120, subscriber_queue_bytes: 8_388_608 },
     doctor: { unclaimed_after_ms: 120_000 },
     pty: SETTINGS_DEFAULTS.pty,
     tiling: { first_split: "rows" },

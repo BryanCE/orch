@@ -210,7 +210,7 @@ function settled(done: () => boolean): Promise<void> {
 }
 
 // A request with no params, as a ping is, carries no params key.
-const REQUEST = z.object({ id: z.number(), method: z.string(), params: z.unknown().optional() });
+const REQUEST = z.object({ id: z.number(), method: z.string(), params: z.unknown().optional(), once: z.string().optional() });
 type FarRequest = z.infer<typeof REQUEST>;
 
 /** A far side this test speaks for, line by line. Each dial greets as `id`; `answer` then gets
@@ -362,8 +362,9 @@ describe("events over a link", () => {
   });
 });
 
+const FAST = { ping_interval_ms: 10, retry_after_loss_ms: 1, retry_floor_ms: 1, retry_cap_ms: 5 };
+
 describe("a link's stages, heartbeat and redials", () => {
-  const FAST = { ping_interval_ms: 10, retry_after_loss_ms: 1, retry_floor_ms: 1, retry_cap_ms: 5 };
 
   /** The wait of the redial a link in backoff is on, once it has failed `attempt` dials in a row. */
   async function redialWait(link: ReturnType<HostLinks["link"]>, attempt: number): Promise<number> {
@@ -421,14 +422,14 @@ describe("a link's stages, heartbeat and redials", () => {
   test("a far side that sends nothing for links.silence_timeout_ms is dropped, then redialed", async () => {
     let muted = false;
     const far = scriptedFar("far-sc", (request, far) => { if (!muted) plainAnswer(request, far); });
-    const hosts = hostLinks(far.spawn, undefined, undefined, { ...FAST, silence_timeout_ms: 40, retry_after_loss_ms: 200 });
+    const hosts = hostLinks(far.spawn, undefined, undefined, { ...FAST, silence_timeout_ms: 250, retry_after_loss_ms: 300 });
     const link = hosts.link("box");
     await link.connect();
     muted = true;
     await settled(() => link.current().kind === "backoff");
     const view = hosts.views()[0];
     expect(view).toMatchObject({ state: "backoff", attempt: 1, greeting: null });
-    expect(view?.reason).toMatch(/^box sent nothing for \d+ms, past the 40ms links\.silence_timeout_ms allows$/);
+    expect(view?.reason).toMatch(/^box sent nothing for \d+ms, past the 250ms links\.silence_timeout_ms allows$/);
     expect(view?.retryAt).toBeGreaterThan(Date.now() - 1);
     expect(latestHostLink(dirs[0]!, hostIdFrom("far-sc"))?.until).not.toBeNull();
     muted = false;
@@ -623,5 +624,63 @@ describe("driving an agent wherever it runs", () => {
     const near = await nearDriving(far, key);
     // Nothing is pending in the far store, so the far orchd refuses, and the refusal names the host.
     expect(await refusal(answerQuestion(near.state, { target: key, text: "main" }))).toBe(`box: ${key} is not asking a question`);
+  });
+});
+
+describe("a request a host must do once", () => {
+  test("is sent again under the same id when the link drops before the answer, and is answered once the link is back", async () => {
+    const settings = { ...FAST };
+    const far = scriptedFar("far-oa", (request, far) => {
+      if (request.method !== "peer-alive") plainAnswer(request, far);
+      else if (far.requests.filter((request) => request.method === "peer-alive").length === 1) far.drop();
+      else far.send({ id: request.id, result: { alive: [] } });
+    });
+    const link = hostLinks(far.spawn, undefined, undefined, settings).link("box");
+    const asked = () => far.requests.filter((request) => request.method === "peer-alive");
+    expect(await link.deliver("peer-alive", { processes: [] })).toEqual({ alive: [] });
+    expect(asked()).toHaveLength(2);
+    const ids = asked().map((request) => request.once);
+    expect(ids[0]).toBeString();
+    expect(ids[0]).not.toBe("");
+    expect(ids[1]).toBe(ids[0]);
+    expect(far.dials()).toBe(2);
+  });
+
+  test("a refusal from the host is its answer, and is not sent again", async () => {
+    const settings = { ...FAST };
+    const far = scriptedFar("far-ob", (request, far) => {
+      if (request.method !== "peer-alive") plainAnswer(request, far);
+      else far.send({ id: request.id, error: { code: "HANDLER_ERROR", message: "no" } });
+    });
+    const link = hostLinks(far.spawn, undefined, undefined, settings).link("box");
+    const asked = () => far.requests.filter((request) => request.method === "peer-alive");
+    expect(await refusal(link.deliver("peer-alive", { processes: [] }))).toBe("box: no");
+    expect(asked()).toHaveLength(1);
+  });
+
+  test("a host that never answers is given up on after links.deliver_timeout_ms", async () => {
+    const settings = { ...FAST, request_timeout_ms: 40, deliver_timeout_ms: 100 };
+    const far = scriptedFar("far-oc", (request, far) => {
+      if (request.method !== "peer-alive") plainAnswer(request, far);
+    });
+    const link = hostLinks(far.spawn, undefined, undefined, settings).link("box");
+    const asked = () => far.requests.filter((request) => request.method === "peer-alive");
+    expect(await refusal(link.deliver("peer-alive", { processes: [] }))).toMatch(/did not answer peer-alive within 40ms/);
+    expect(asked().length).toBeGreaterThanOrEqual(2);
+    const ids = asked().map((request) => request.once);
+    expect(ids[0]).toBeString();
+    expect(ids[0]).not.toBe("");
+    expect(ids.every((id) => id === ids[0])).toBe(true);
+  });
+
+  test("a host that is offline before anything was sent is refused at once", async () => {
+    const settings = { ...FAST };
+    const far = scriptedFar("far-od", plainAnswer);
+    const link = hostLinks(far.spawn, undefined, undefined, settings).link("box");
+    const asked = () => far.requests.filter((request) => request.method === "peer-alive");
+    far.refuse = true;
+    expect(await refusal(link.deliver("peer-alive", { processes: [] }))).not.toBeNull();
+    expect(asked()).toHaveLength(0);
+    link.close();
   });
 });

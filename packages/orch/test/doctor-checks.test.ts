@@ -16,6 +16,7 @@ import { seedAgent } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import type { CheckResult } from "../src/types/doctor.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
+import type { Notifier } from "../src/types/notify.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const directories: OrchDir[] = [];
@@ -217,5 +218,28 @@ describe("doctor notification-sink checks", () => {
     const result = await checkNotifiers(directory, settingsOf(directory));
     expect(result.status).toBe("fail");
     expect(result.detail).toContain(`fix: install ${missingCommand}`);
+  });
+
+  /** The herdr notifier as a stand-in that cannot deliver now: `dormant` says its program is
+   *  set up and stopped, null that it is not usable at all. */
+  function stoppedNotifier(dormant: string | null): Notifier {
+    return { id: "herdr", label: "Herdr", metadata: { requiredConfig: [] }, available: () => false, dormant: () => dormant, deliver: () => Promise.resolve(false) };
+  }
+
+  test("warns for a notifier that is set up and whose program is not running now", async () => {
+    const directory = tempDir();
+    writeSettings(directory, { notify: [{ id: "herdr" }] });
+
+    const result = await checkNotifiers(directory, settingsOf(directory), undefined, [stoppedNotifier("herdr is installed and enabled, and is not running now")]);
+    expect(result).toMatchObject({ status: "warn", detail: "herdr: herdr is installed and enabled, and is not running now" });
+  });
+
+  test("fails a notifier that cannot deliver and is not merely stopped", async () => {
+    const directory = tempDir();
+    writeSettings(directory, { notify: [{ id: "herdr" }] });
+
+    const result = await checkNotifiers(directory, settingsOf(directory), undefined, [stoppedNotifier(null)]);
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("herdr: host integration unavailable");
   });
 });

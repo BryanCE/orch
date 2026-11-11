@@ -23,6 +23,11 @@ export function createHerdrNotifier(cli: HerdrCli): Notifier {
     metadata: { description: "Herdr native notifications", requiredConfig: [] },
     remediation: "fix: enable the herdr plexer in orch setup, and start herdr so its control socket answers",
     available: (settings) => herdrRunsAgents(settings) && cli.reachable(),
+    // Installed and enabled, with no server answering: a host reached over ssh, or one where
+    // herdr is simply closed. Nothing is wrong with the setup.
+    dormant: (settings) => herdrRunsAgents(settings) && cli.version() !== null && !cli.reachable()
+      ? "herdr is installed and enabled, and is not running now; its notifications resume when it starts"
+      : null,
     deliver: (event, _config, settings) => {
       const { position, title_chars: titleChars } = (settings ?? SETTINGS_DEFAULTS).notification;
       return Promise.resolve(deliverHerdrNotification(notificationText(event, { summaryChars: titleChars }), position, io));

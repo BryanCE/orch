@@ -156,10 +156,10 @@ export function responseError(line: Extract<RpcLine, { kind: "error" }>): RpcErr
   return new RpcError(line.error.code, line.error.message, line.error.data);
 }
 
-export type RpcRequest = { [M in RpcMethod]: { id: number | null; method: M; params: ParamsOf<M> } }[RpcMethod];
+export type RpcRequest = { [M in RpcMethod]: { id: number | null; method: M; params: ParamsOf<M>; once?: string } }[RpcMethod];
 
-export function encodeRequest<M extends RpcMethod>(id: number, method: M, params: ParamsOf<M>): string {
-  return `${JSON.stringify({ id, method, params })}\n`;
+export function encodeRequest<M extends RpcMethod>(id: number, method: M, params: ParamsOf<M>, once?: string): string {
+  return `${JSON.stringify(once === undefined ? { id, method, params } : { id, method, params, once })}\n`;
 }
 
 export function parseRequest(line: string): RpcRequest | Extract<RpcLine, { kind: "error" }> {
@@ -179,7 +179,11 @@ export function parseRequest(line: string): RpcRequest | Extract<RpcLine, { kind
   }
   const requestId = id ?? null;
   if (!isRpcMethod(parsed.method)) return errorResponse(requestId, "METHOD_NOT_FOUND", `Unknown method: ${parsed.method}`);
-  return parseTypedRequest(parsed.method, requestId, parsed.params);
+  const once = parsed.once;
+  if (once !== undefined && typeof once !== "string") return errorResponse(requestId, "INVALID_REQUEST", "Request once must be a string");
+  const typed = parseTypedRequest(parsed.method, requestId, parsed.params);
+  if (once === undefined || "kind" in typed) return typed;
+  return { ...typed, once };
 }
 
 function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown): RpcRequest | Extract<RpcLine, { kind: "error" }> {

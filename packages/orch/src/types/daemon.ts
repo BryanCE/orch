@@ -29,6 +29,8 @@ export interface RpcRequestContext {
   readonly identity?: SessionAgentIdentity;
   /** The host whose orchd holds this connection over a link; absent for every local caller. */
   readonly peer?: HostId;
+  /** The id a linked host sent this request under, to have it done once; absent otherwise. */
+  readonly once?: string;
   /** The agent screens this connection is attached to. */
   readonly screens: ScreenConnection;
 }
@@ -58,6 +60,8 @@ export interface EndpointPaths {
 }
 
 export interface RpcServerOptions {
+  /** How many bytes of events may wait for one subscriber; absent and nothing bounds it. */
+  readonly subscriberQueueBytes?: () => number;
   /** Allow one stale unix endpoint to be removed during daemon boot. */
   holdsDaemonLock?: boolean;
   /** TCP port to bind on loopback alongside the unix socket. */

@@ -68,6 +68,10 @@ export interface Notifier {
   metadata: NotifierMetadata;
   /** A rejected availability probe is treated as unavailable by the registry. */
   available(settings: OrchSettings | null): boolean | Promise<boolean>;
+  /** Why it cannot deliver right now though it is set up to: what it delivers through is
+   *  installed and enabled here, and is not running. Null when that is not the reason. Absent
+   *  for a notifier that has no such state. */
+  dormant?(settings: OrchSettings | null): string | null;
   deliver(event: NotifyEvent, config: Record<string, unknown>, settings: OrchSettings | null): Promise<boolean>;
 };
 

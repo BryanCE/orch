@@ -67,9 +67,9 @@ export interface OrchSettings {
   denied_commands: { commands: string[]; applies_to: readonly Role[] };
   settings_file: { typo_max_edits: number };
   hosts: Record<string, HostSettings>;
-  links: { ssh_command: string; ssh_keygen_command: string; ssh_keyscan_command: string; connect_timeout_s: number; keepalive_interval_s: number; keepalive_count: number; request_timeout_ms: number; ping_interval_ms: number; silence_timeout_ms: number; retry_after_loss_ms: number; retry_reset_after_ms: number; retry_floor_ms: number; retry_cap_ms: number; resume_max_age_ms: number };
+  links: { ssh_command: string; ssh_keygen_command: string; ssh_keyscan_command: string; connect_timeout_s: number; keepalive_interval_s: number; keepalive_count: number; request_timeout_ms: number; deliver_timeout_ms: number; receipt_ttl_ms: number; ping_interval_ms: number; silence_timeout_ms: number; retry_after_loss_ms: number; retry_reset_after_ms: number; retry_floor_ms: number; retry_cap_ms: number; resume_max_age_ms: number };
   spaces: Record<string, string>;
-  daemon: { tcp_port: number; outbox_drain_ms: number; work_tick_ms: number; liveness_poll_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number; report_timeout_ms: number };
+  daemon: { tcp_port: number; outbox_drain_ms: number; work_tick_ms: number; liveness_poll_ms: number; bridge_reconnect_ms: number; outbox_max_attempts: number; report_timeout_ms: number; subscriber_queue_bytes: number };
   pty: { scrollback_lines: number; cols: number; rows: number; term: string };
   attach: { queue_bytes: number; detach_key: string };
   doctor: { unclaimed_after_ms: number };

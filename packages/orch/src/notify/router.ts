@@ -71,7 +71,9 @@ class NotifierRegistry {
 
   notifierFor(entry: NotifyEntry): Notifier | undefined { return this.notifiers.get(entry.id); }
 
-  async reachable(entry: NotifyEntry): Promise<{ available: boolean; reason?: string; error?: string }> {
+  /** Whether a configured notifier can deliver now. `dormant` says it is set up and what it
+   *  delivers through is not running, which is no fault of the configuration. */
+  async reachable(entry: NotifyEntry): Promise<{ available: boolean; reason?: string; error?: string; dormant?: string }> {
     const errors = this.validate(entry);
     if (errors.length) return { available: false, reason: errors.join("; ") };
     const notifier = this.notifiers.get(entry.id);
@@ -79,7 +81,9 @@ class NotifierRegistry {
     const config = configFor(entry);
     try {
       if (entry.id === "command" && !commandAvailable(config)) return { available: false, reason: "configured command is not on PATH" };
-      return await notifier.available(this.settings) ? { available: true } : { available: false, reason: "host integration unavailable" };
+      if (await notifier.available(this.settings)) return { available: true };
+      const dormant = notifier.dormant?.(this.settings) ?? null;
+      return dormant === null ? { available: false, reason: "host integration unavailable" } : { available: false, dormant };
     } catch (error: unknown) { return { available: false, error: oneLine(error) }; }
   }
 

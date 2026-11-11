@@ -58,7 +58,7 @@ async function actOnWorktree(state: DaemonState, key: string, action: WorktreeAc
   const config = state.services.settings.current().worktrees;
   return await atAgentHost<WorktreeActedOn>(state, key, {
     here: (agent) => ({ host: null, acted: actOnWorktreeHere(state.directory, config, agent, action) }),
-    there: async (link, host) => ({ host: host.name, acted: await link.call("peer-worktree", { key, action }, config.timeout_ms) }),
+    there: async (link, host) => ({ host: host.name, acted: await link.deliver("peer-worktree", { key, action }, config.timeout_ms) }),
   });
 }
 

@@ -1,6 +1,7 @@
 // The links orchd holds to the hosts `settings.hosts` names: one ssh process per host
 // running `orch host serve` there, which pipes the link into that host's orchd. Over it
 // this orchd speaks the daemon RPC to the other orchd, one owner of each link's retries.
+// A link is up only once this orchd has caught up on the host's agents, and synchronizing until then.
 // Whether the LINK is up is this module's answer. What an agent on that host is doing is that
 // host's orchd's answer, carried by the events it sends; with the link down it is unknown,
 // never dead.
@@ -12,7 +13,7 @@ import { hostsRunningLiveAgents } from "../store/agent-rows.ts";
 import { hostIdentity } from "./identity.ts";
 import { formatAge } from "../format.ts";
 import { errorMessage } from "../util.ts";
-import { bindHostName, closeHostLink, hostEventCursor, hostIdOfName, latestHostLink, openHostLink, setHostEventCursor, touchHostLink } from "../store/host-rows.ts";
+import { bindHostName, closeHostLink, forgetHostEventCursor, hostEventCursor, hostIdOfName, latestHostLink, openHostLink, setHostEventCursor, touchHostLink, type HostEventCursor } from "../store/host-rows.ts";
 import { spawnRemoteOrch } from "./ssh.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { HostGreeting, HostLinkView } from "../types/host.ts";
@@ -20,6 +21,7 @@ import type { HostSettings, OrchSettings } from "../types/settings.ts";
 import type { HostId } from "../types/host.ts";
 import type { HostedProcess, LinkedHost } from "../types/process.ts";
 import type { NotifyEvent } from "../types/notify.ts";
+import type { StatusRow } from "../types/command.ts";
 import type { ScreenChunk, ScreenSource } from "../types/screen.ts";
 
 /** One line from the far orchd, or null for one that is not daemon RPC. */
@@ -76,18 +78,28 @@ const COMMAND_NOT_FOUND = 127;
 
 type HostLinkState =
   | { readonly kind: "idle" }
-  | { readonly kind: "connecting" }
+  | { readonly kind: "connecting"; readonly attempt: number }
+  | { readonly kind: "synchronizing"; readonly greeting: HostGreeting; readonly attempt: number }
   | { readonly kind: "up"; readonly greeting: HostGreeting; readonly since: number }
-  | { readonly kind: "down"; readonly reason: string; readonly at: number };
+  | { readonly kind: "backoff"; readonly reason: string; readonly at: number; readonly retryAt: number; readonly attempt: number }
+  | { readonly kind: "down"; readonly reason: string; readonly at: number }
+  | { readonly kind: "blocked"; readonly reason: string; readonly at: number };
 
 /** Where an event a linked host's orchd sent about one of this host's agents lands. */
 export type HostEventSink = (host: LinkedHost, event: NotifyEvent) => void;
+
+/** Where a linked host's own rows for the agents this host asked it to run land, read as its
+ *  link came up. `askedAt` is when they were asked for: an agent made here since is not in them. */
+export type HostAgentsSink = (host: LinkedHost, rows: readonly StatusRow[], askedAt: number) => void;
 
 export interface HostLinkDeps {
   readonly orchDir: OrchDir;
   readonly settings: () => OrchSettings;
   readonly logger: Logger;
   readonly events: HostEventSink;
+  readonly agents: HostAgentsSink;
+  /** Called after the store records that a host's link opened or closed, so what orchd holds of its agents is re-read. */
+  readonly changed: (host: string) => void;
   readonly spawn?: LinkSpawner;
   readonly now?: () => number;
 }
@@ -134,8 +146,16 @@ class HostLink {
   private wanted = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
-  /** The far orchd's sequence number of the last event taken over this link. */
-  private lastSeq: number | null = null;
+  /** When the far side last sent a line, of any kind. */
+  private lastHeard = 0;
+  /** The host that answered this link's greeting; null while no process is greeted. */
+  private far: HostGreeting | null = null;
+  /** Events the far orchd sent while this orchd held no place in its log, in order. They are
+   *  taken once the reloaded state gives the place: the ones after it apply, the rest are in it. */
+  private heldEvents: { readonly event: NotifyEvent; readonly seq: number | undefined }[] = [];
+  /** This orchd's place in the far orchd's event log. Null while it holds none: the state of
+   *  its agents there is being reloaded, and gives one. */
+  private place: HostEventCursor | null = null;
   /** The agent screens viewers here follow on this host, by agent. Each streams over the link
    *  once, tagged with its agent, and fans out here. */
   private readonly screens = new Map<string, LinkedScreen>();
@@ -173,7 +193,7 @@ class HostLink {
 
   /** Proves the far orchd answers. */
   ping(): Promise<ResultOf<"daemon-status">> {
-    return this.call("daemon-status", undefined);
+    return this.ask("daemon-status", undefined);
   }
 
   /** Whether each process is alive on this host, in order: a caller on this host proving
@@ -191,6 +211,7 @@ class HostLink {
     if (this.retryTimer !== null) clearTimeout(this.retryTimer);
     this.retryTimer = null;
     if (this.process !== null) this.process.kill();
+    if (this.process === null && this.state.kind === "backoff") this.state = { kind: "down", reason: this.state.reason, at: this.state.at };
   }
 
   view(): HostLinkView {
@@ -201,8 +222,10 @@ class HostLink {
       state: state.kind,
       hostId: hostIdOfName(this.deps.orchDir, this.name),
       greeting: state.kind === "up" ? state.greeting : null,
-      reason: state.kind === "down" ? state.reason : null,
+      reason: state.kind === "backoff" || state.kind === "down" || state.kind === "blocked" ? state.reason : null,
       lastSeen: this.lastSeen(),
+      retryAt: state.kind === "backoff" ? state.retryAt : null,
+      attempt: state.kind === "connecting" || state.kind === "synchronizing" || state.kind === "backoff" ? state.attempt : null,
     };
   }
 
@@ -222,13 +245,17 @@ class HostLink {
    *  `waitMs` is how long the far orchd may take on top of the link's own request time: a verb
    *  that waits on its agent there, as a session clear does, answers only once that wait ends. */
   async call<M extends RpcMethod>(method: M, params: ParamsOf<M>, waitMs = 0): Promise<ResultOf<M>> {
-    const value = await this.send(method, params, waitMs);
-    return daemonResult(method, RPC_RESULTS[method].parse(value));
+    if (this.state.kind !== "up") throw new Error(`${this.name} is not linked, so orch cannot ask it`);
+    return daemonResult(method, RPC_RESULTS[method].parse(await this.request(method, params, waitMs)));
   }
 
-  private send<M extends RpcMethod>(method: M, params: ParamsOf<M>, waitMs: number): Promise<unknown> {
+  private async ask<M extends RpcMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M>> {
+    return daemonResult(method, RPC_RESULTS[method].parse(await this.request(method, params, 0)));
+  }
+
+  private request<M extends RpcMethod>(method: M, params: ParamsOf<M>, waitMs: number): Promise<unknown> {
     const process = this.process;
-    if (this.state.kind !== "up" || process === null || process.stdin.writableEnded) {
+    if (process === null || process.stdin.writableEnded) {
       return Promise.reject(new Error(`${this.name} is not linked, so orch cannot ask it`));
     }
     const id = this.nextId++;
@@ -331,8 +358,11 @@ class HostLink {
       case "event":
         this.take(line.event, line.seq);
         return;
+      // A place that does not continue is answered with snapshot-required, never a gap.
       case "gap":
-        this.deps.logger.warn("host.events-lost", { host: this.name, after: this.lastSeq, oldestSeq: line.oldestSeq });
+        return;
+      case "snapshot-required":
+        this.dropPlace();
         return;
       // No bridge attaches over a link.
       case "delivery":
@@ -347,30 +377,67 @@ class HostLink {
     }
   }
 
-  /** Follow the far orchd's events about the agents this host asked it to run, from just
-   *  after the last one taken, so nothing a dropped link missed is lost or taken twice. */
-  private subscribe(hostId: HostId): void {
-    this.lastSeq = hostEventCursor(this.deps.orchDir, hostId);
-    // Before any event was taken, every one the far orchd still keeps is new here.
-    this.call("subscribe-events", { since: this.lastSeq ?? 0 })
-      .catch((error: unknown) => { this.deps.logger.warn("host.subscribe-failed", { host: this.name, error: errorMessage(error) }); });
+  /** Follow the far orchd's events about the agents this host asked it to run. A place held in
+   *  its log resumes right after the last event taken, so nothing a dropped link missed is
+   *  lost or taken twice, while the far orchd last answered within `links.resume_max_age_ms`
+   *  and still writes that log. Otherwise the place is dropped: this orchd reloads what the far
+   *  orchd holds of those agents now, and follows from the place that state was read at.
+   *  The link is up only once this settles. */
+  private async subscribe(hostId: HostId, lastSeen: number | null): Promise<void> {
+    const held = hostEventCursor(this.deps.orchDir, hostId);
+    const fresh = lastSeen !== null && this.now() - lastSeen <= this.deps.settings().links.resume_max_age_ms;
+    this.place = fresh ? held : null;
+    if (held !== null && !fresh) forgetHostEventCursor(this.deps.orchDir, hostId);
+    this.heldEvents = [];
+    const askedAt = this.now();
+    await this.ask("subscribe-events", this.place === null ? {} : { since: this.place.seq, log: this.place.log });
+    // By now the far orchd has replayed what was missed, or said the place does not continue.
+    if (this.place === null) await this.reload(hostId, askedAt);
   }
 
-  /** One event from the far orchd: handed to this orchd, then the cursor moves past it. */
+  /** Read what the far orchd holds now of the agents this host asked it to run, hand it on, and
+   *  hold the place in its log that state was read at. `askedAt` is when the state was asked
+   *  for: an agent this host asked for since is not in it. */
+  private async reload(hostId: HostId, askedAt: number): Promise<void> {
+    const status = await this.ask("peer-status", {});
+    if (this.far?.host.id !== hostId) return;
+    this.deps.agents({ id: hostId, name: this.name }, status.rows, askedAt);
+    this.place = { seq: status.seq, log: status.log };
+    setHostEventCursor(this.deps.orchDir, hostId, this.place);
+    const held = this.heldEvents;
+    this.heldEvents = [];
+    for (const { event, seq } of held) this.take(event, seq);
+  }
+
+  /** This orchd's place does not continue in the far orchd's log: drop it. The state reloaded
+   *  next gives the place to follow from. */
+  private dropPlace(): void {
+    if (this.far === null) return;
+    this.place = null;
+    forgetHostEventCursor(this.deps.orchDir, this.far.host.id);
+  }
+
+  /** One event from the far orchd. With no place held it waits for the state being reloaded,
+   *  which gives one. An event at or below the place is already in the state this orchd
+   *  holds, so it is dropped. Any other is handed on, and the place moves to it. */
   private take(event: NotifyEvent, seq: number | undefined): void {
-    if (this.state.kind !== "up") return;
-    if (seq !== undefined && this.lastSeq !== null && seq <= this.lastSeq) return;
-    const host = this.state.greeting.host;
-    this.deps.events({ id: host.id, name: this.name }, event);
+    const far = this.far;
+    if (far === null) return;
+    if (this.place === null) {
+      this.heldEvents.push({ event, seq });
+      return;
+    }
+    if (seq !== undefined && seq <= this.place.seq) return;
+    this.deps.events({ id: far.host.id, name: this.name }, event);
     if (seq === undefined) return;
-    this.lastSeq = seq;
-    setHostEventCursor(this.deps.orchDir, host.id, seq);
+    this.place = { seq, log: this.place.log };
+    setHostEventCursor(this.deps.orchDir, far.host.id, this.place);
   }
 
   private attempt(): Promise<HostGreeting> {
     if (this.retryTimer !== null) clearTimeout(this.retryTimer);
     this.retryTimer = null;
-    this.state = { kind: "connecting" };
+    this.state = { kind: "connecting", attempt: this.failures + 1 };
     const links = this.deps.settings().links;
     const child = (this.deps.spawn ?? sshSpawner)(this.deps.orchDir, this.host, links, SERVE_ARGS);
     this.process = child;
@@ -401,6 +468,7 @@ class HostLink {
       greetingTimer.unref?.();
 
       framedLineReader(child.stdout, (raw) => {
+        this.lastHeard = this.now();
         const line = parseLine(raw);
         if (line === null) return;
         const answer = greetingOf(line);
@@ -418,17 +486,33 @@ class HostLink {
         }
         {
           stderr = [];
-          const refusal = this.linkUp(answer.greeting);
-          if (refusal === null) settle({ greeting: answer.greeting });
-          else {
-            // Another machine answered on this route. Redialing reaches it again, so
-            // the link stays down until someone looks.
+          // It said which host it is: from here the heartbeat watches the link, and each
+          // request it is asked while this orchd catches up has its own deadline.
+          clearTimeout(greetingTimer);
+          const greeted = this.greeted(answer.greeting, (reason) => { endedBecause = reason; child.kill(); });
+          if (greeted.kind === "refused") {
+            // Another machine answered on this route. Redialing reaches it again, so the link
+            // waits for a person.
             this.wanted = false;
-            this.state = { kind: "down", reason: refusal, at: this.now() };
-            endedBecause = refusal;
-            settle({ reason: refusal });
+            this.state = { kind: "blocked", reason: greeted.reason, at: this.now() };
+            endedBecause = greeted.reason;
+            settle({ reason: greeted.reason });
             child.kill();
+            return;
           }
+          greeted.synchronized.then(
+            () => {
+              if (this.process !== child) return;
+              this.linkUp(answer.greeting);
+              settle({ greeting: answer.greeting });
+            },
+            (error: unknown) => {
+              if (this.process !== child) return;
+              endedBecause = `${this.name} did not send the state of its agents: ${errorMessage(error)}`;
+              settle({ reason: endedBecause });
+              child.kill();
+            },
+          );
         }
       });
 
@@ -440,30 +524,46 @@ class HostLink {
     });
   }
 
-  /** The far side said which host it is: bind the name to it, or refuse a different machine. */
-  private linkUp(greeting: HostGreeting): string | null {
+  /** The far side said which host it is: bind the name to it, or refuse a different machine.
+   *  A bound host's link is recorded open, its heartbeat starts, and this orchd catches up on
+   *  its agents there. `drop` ends the link's process for a reason. */
+  private greeted(greeting: HostGreeting, drop: (reason: string) => void): { kind: "refused"; reason: string } | { kind: "bound"; synchronized: Promise<void> } {
     const now = this.now();
     const binding = bindHostName(this.deps.orchDir, this.name, greeting.host, now);
     if (binding.kind === "mismatch") {
-      return `${this.dest()} answered as host ${greeting.host.name}, id ${greeting.host.id}, but ${this.name} is bound to host id ${binding.boundId}. A different machine answered; run 'orch host forget ${this.name}' if it replaced the old one`;
+      return { kind: "refused", reason: `${this.dest()} answered as host ${greeting.host.name}, id ${greeting.host.id}, but ${this.name} is bound to host id ${binding.boundId}. A different machine answered; run 'orch host forget ${this.name}' if it replaced the old one` };
     }
+    // When this host last answered, read before this link's own row says "now".
+    const lastSeen = latestHostLink(this.deps.orchDir, greeting.host.id)?.lastSeen ?? null;
     openHostLink(this.deps.orchDir, greeting.host.id, now);
-    this.state = { kind: "up", greeting, since: now };
-    this.failures = 0;
-    this.startPinging(greeting.host.id);
-    this.subscribe(greeting.host.id);
+    this.far = greeting;
+    this.state = { kind: "synchronizing", greeting, attempt: this.failures + 1 };
+    this.deps.changed(this.name);
+    this.startPinging(greeting.host.id, drop);
+    return { kind: "bound", synchronized: this.subscribe(greeting.host.id, lastSeen) };
+  }
+
+  /** This orchd is in step with the far one: the link is up. */
+  private linkUp(greeting: HostGreeting): void {
+    this.state = { kind: "up", greeting, since: this.now() };
     this.reattachScreens();
     this.deps.logger.info("host.link-up", { host: this.name, hostId: greeting.host.id, version: greeting.version, commit: greeting.commit });
-    return null;
   }
 
   private dest(): string {
     return this.host.dest;
   }
 
-  /** Each tick proves the link answers. */
-  private startPinging(hostId: HostId): void {
+  /** Each tick proves the link carries traffic: a far side that sent nothing for
+   *  `links.silence_timeout_ms` is dropped, and otherwise it is asked to answer. */
+  private startPinging(hostId: HostId, drop: (reason: string) => void): void {
     const tick = (): void => {
+      const silentMs = this.now() - this.lastHeard;
+      const limitMs = this.deps.settings().links.silence_timeout_ms;
+      if (silentMs > limitMs) {
+        drop(`${this.name} sent nothing for ${silentMs}ms, past the ${limitMs}ms links.silence_timeout_ms allows`);
+        return;
+      }
       this.ping()
         .then(() => { touchHostLink(this.deps.orchDir, hostId, this.now()); })
         .catch((error: unknown) => { this.deps.logger.warn("host.ping-failed", { host: this.name, error: errorMessage(error) }); });
@@ -491,41 +591,48 @@ class HostLink {
     this.pingTimer = null;
     const now = this.now();
     const was = this.state;
-    const wasUp = was.kind === "up";
-    if (was.kind === "up") {
+    const established = was.kind === "up";
+    this.far = null;
+    this.place = null;
+    this.heldEvents = [];
+    if (was.kind === "up" || was.kind === "synchronizing") {
       closeHostLink(this.deps.orchDir, was.greeting.host.id, now);
+      this.deps.changed(this.name);
       this.deps.logger.warn("host.link-down", { host: this.name, reason });
     }
-    this.state = { kind: "down", reason, at: now };
+    if (was.kind === "up" && now - was.since >= this.deps.settings().links.retry_reset_after_ms) this.failures = 0;
     for (const [id, pending] of this.pending) {
       this.pending.delete(id);
       clearTimeout(pending.timer);
       pending.reject(new Error(`${this.name} went offline: ${reason}`));
     }
-    // A link still wanted redials, and its screens stream again once it is back
-    // (`reattachScreens`); one closed on purpose ends every viewer of its screens here.
-    if (this.wanted) {
-      // Each viewer says so on its screen, once, as the link drops; the snapshot it gets back
-      // on reattach clears the notice.
-      if (wasUp) for (const key of this.screens.keys()) this.takeScreen(key, { kind: "data", data: `\r\n[orch] ${this.name} went offline: ${reason}. Reconnecting.\r\n` });
-      this.scheduleRetry();
+    if (!this.wanted) {
+      // A blocked link keeps saying why; any other is simply down.
+      if (this.state.kind !== "blocked") this.state = { kind: "down", reason, at: now };
+      for (const key of [...this.screens.keys()]) this.takeScreen(key, { kind: "end", reason: `${this.name} went offline` });
       return;
     }
-    const screens = [...this.screens.keys()];
-    for (const key of screens) this.takeScreen(key, { kind: "end", reason: `${this.name} went offline` });
+    if (established) for (const key of this.screens.keys()) this.takeScreen(key, { kind: "data", data: `\r\n[orch] ${this.name} went offline: ${reason}. Reconnecting.\r\n` });
+    this.scheduleRetry(reason, now, established);
   }
 
-  /** Full jitter over a doubling wait, capped: hosts that drop together never redial together. */
-  private scheduleRetry(): void {
+  /** A wait that doubles with each failed dial, capped, each one a random time between half
+   *  of it and all of it: hosts that drop together never redial together. A working link that
+   *  just dropped redials after the short `links.retry_after_loss_ms` first. */
+  private scheduleRetry(reason: string, now: number, established: boolean): void {
     const links = this.deps.settings().links;
-    const ceiling = Math.min(links.retry_cap_ms, links.retry_floor_ms * 2 ** this.failures);
+    const ceiling = established && this.failures === 0
+      ? links.retry_after_loss_ms
+      : Math.min(links.retry_cap_ms, links.retry_floor_ms * 2 ** this.failures);
+    const waitMs = Math.ceil(ceiling * (0.5 + Math.random() / 2));
     this.failures += 1;
+    this.state = { kind: "backoff", reason, at: now, retryAt: now + waitMs, attempt: this.failures };
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      if (!this.wanted || this.state.kind !== "down") return;
+      if (!this.wanted || this.state.kind !== "backoff") return;
       // A failed redial lands in linkDown, which schedules the next one.
       this.connect().catch((error: unknown) => { this.deps.logger.debug("host.redial-failed", { host: this.name, error: errorMessage(error) }); });
-    }, Math.random() * ceiling);
+    }, waitMs);
     this.retryTimer.unref?.();
   }
 }

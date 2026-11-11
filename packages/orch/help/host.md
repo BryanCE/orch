@@ -18,8 +18,19 @@ The line starts orch through that account's own shell, the way a terminal there 
 orch it runs is the one you get by typing `orch` there. `add` says which orch that is, and
 stops if there is none, or if inside WSL the only one is Windows' install.
 
-`orch host` lists each host: whether its link is up, which machine answered, and when it was
-last seen. `orch host check work` brings the link up now, or says why the host is offline.
+`orch host` lists each host: its link, which machine answered, when it was last seen, and
+why a link is not up. `orch host check work` brings the link up now, or says why the host is offline.
+
+A link reads `connecting` while orch dials, `synchronizing` once the host answered and orch
+is catching up on its agents there, and `up` when the two are in step. A link that dropped
+or could not be dialed reads `reconnecting`, with the reason and when the next dial is due:
+orch redials on its own, sooner after a working link drops and later each time a dial
+fails. `blocked` means a redial cannot fix it and it waits for you. A link that is up on
+another orch build says so in the same column.
+
+orch asks every linked host to answer each `links.ping_interval_ms`, and drops and redials
+a link whose host sent nothing for `links.silence_timeout_ms`.
+
 `orch host key work` prints the setup script to paste there by hand, for when the login cannot run it.
 
 The first machine that answers on a name keeps it. If a different machine answers later, orch
@@ -31,6 +42,6 @@ starts that host's orchd if it is down and pipes the link into it.
 
 While a host's link is up, agents run there for this machine: `orch spawn <name> --host work --dir <path there> --prompt "<task>"`. That host's orchd starts the agent headless, runs it and keeps its records and logs; the agent reports to that orchd. It shows in `orch status` here, and you close it from here.
 
-This machine keeps only a reference to such an agent: its id, who spawned it, and the host it runs on. Its state comes from the events that host's orchd sends over the link, and it ends here when that host says it closed or exited. When the link is down, orch does not know, so the agent shows as `unknown`, never as exited: nothing is reaped, closed or handed to another agent until the host answers again.
+This machine keeps only a reference to such an agent: its id, who spawned it, and the host it runs on. Its state comes from the events that host's orchd sends over the link, and it ends here when that host says it closed or exited. When the link is down, orch cannot ask, so the agent keeps the state its host last reported, marked with `?`, beside the note that the host is offline and when it was last seen. It never shows as exited: nothing is reaped, closed or handed to another agent until the host answers again. When the link comes back, orch resumes that host's events from where it left off, or reloads the state of its agents there when it cannot.
 
 An agent's own `ssh`, `scp`, `sftp` and `rsync` wait for your `orch grant` by default.

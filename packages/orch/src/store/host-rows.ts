@@ -40,16 +40,28 @@ export function unbindHostName(orchDir: OrchDir, name: string): void {
   orm(orchDir).delete(hostNames).where(eq(hostNames.name, name)).run();
 }
 
-/** The far orchd's sequence number of the last event taken from a host; null before the first. */
-export function hostEventCursor(orchDir: OrchDir, hostId: HostId): number | null {
-  return orm(orchDir).select({ seq: hostEventCursors.seq }).from(hostEventCursors).where(eq(hostEventCursors.hostId, hostId)).get()?.seq ?? null;
+/** A place in a host's event log: the sequence number of the last event taken, and the log
+ *  it was read from. */
+export interface HostEventCursor {
+  readonly seq: number;
+  readonly log: string;
 }
 
-/** Record that every event from a host up to `seq` has been taken. */
-export function setHostEventCursor(orchDir: OrchDir, hostId: HostId, seq: number): void {
-  orm(orchDir).insert(hostEventCursors).values({ hostId, seq })
-    .onConflictDoUpdate({ target: hostEventCursors.hostId, set: { seq } })
+/** This orchd's place in a host's event log; null when it holds none. */
+export function hostEventCursor(orchDir: OrchDir, hostId: HostId): HostEventCursor | null {
+  return orm(orchDir).select({ seq: hostEventCursors.seq, log: hostEventCursors.log }).from(hostEventCursors).where(eq(hostEventCursors.hostId, hostId)).get() ?? null;
+}
+
+/** Record that every event in a host's log up to the cursor has been taken. */
+export function setHostEventCursor(orchDir: OrchDir, hostId: HostId, cursor: HostEventCursor): void {
+  orm(orchDir).insert(hostEventCursors).values({ hostId, seq: cursor.seq, log: cursor.log })
+    .onConflictDoUpdate({ target: hostEventCursors.hostId, set: { seq: cursor.seq, log: cursor.log } })
     .run();
+}
+
+/** Drop this orchd's place in a host's event log: it no longer continues there. */
+export function forgetHostEventCursor(orchDir: OrchDir, hostId: HostId): void {
+  orm(orchDir).delete(hostEventCursors).where(eq(hostEventCursors.hostId, hostId)).run();
 }
 
 /** Close a host's open link row. `until > since` forbids closing a row at its own start,

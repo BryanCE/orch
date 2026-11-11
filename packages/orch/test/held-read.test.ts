@@ -227,7 +227,7 @@ describe("attaching to an agent held on another host, from this host's orchd", (
     // The far orchd lets go of the agent while this host cannot hear it.
     await held.drop();
     held.far.state.held.kill(held.key);
-    expect(held.near.hosts.link("box").current().kind).toBe("down");
+    expect(held.near.hosts.link("box").current().kind).toBe("backoff");
     await until("the end", () => view.screens().some((chunk) => chunk.kind === "end"));
     const last = view.screens().at(-1);
     expect(last?.kind === "end" ? last.reason : null).toStartWith(`box no longer streams ${held.key}`);
@@ -288,14 +288,16 @@ describe("the status row of an agent held on another host", () => {
     expect(linesOf(farTable, held.key).under).toBe(`  spawned agent | asked for by host ${hostIdentity().name}, no spawner recorded | ${hostIdentity().name}:${held.far.orchDir} | created 0s ago`);
   });
 
-  test("reads unknown only while the link is down, and then says the host is offline and since when", async () => {
+  test("keeps the state its host last reported while the link is down, and says the host is offline and since when", async () => {
     const held = await heldFar("status-offline");
+    // A first report is no transition, so no event carries it; the change to working does.
     farReports(held, { state: "idle" });
-    expect((await nearStatus(held)).row.state).toBe("idle");
+    farReports(held, { state: "working", task: "build the far thing" });
+    expect((await nearStatus(held)).row.state).toBe("working");
     held.near.hosts.link("box").close();
     await until("the link down", () => held.near.hosts.link("box").current().kind === "down");
     const { row, table } = await nearStatus(held);
-    expect(row.state).toBe("unknown");
+    expect(row.state).toBe("working");
     expect(row.hostOffline?.lastSeen).toBeGreaterThan(0);
     const { line, under } = linesOf(table, held.key);
     expect(line).toMatch(new RegExp(`${held.key}\\s+held\\s`));

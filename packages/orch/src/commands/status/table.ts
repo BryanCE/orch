@@ -120,7 +120,8 @@ function localNameCell(row: StatusRow, names: FleetNames, flags: TableFlags, cal
 function tableStateCell(row: StatusRow, includeFallback: boolean, callerId: string | null): string {
   const state = displayStatusState(row);
   if (row.key === callerId && row.stateFallback && state === "unknown") return "-";
-  return state + (includeFallback && row.stateFallback ? "?" : "");
+  // A host that is offline cannot confirm the state it last reported.
+  return state + (includeFallback && (row.stateFallback || row.hostOffline !== undefined) ? "?" : "");
 }
 
 function tableCostCell(row: StatusRow): string {

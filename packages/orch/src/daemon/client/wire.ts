@@ -57,6 +57,9 @@ export type RpcLine =
   | { kind: "event"; seq?: number; event: NotifyEvent }
   | { kind: "delivery"; delivery: BridgeDelivery }
   | { kind: "gap"; oldestSeq: number }
+  /** To a linked host's orchd: the place it asked to resume from does not continue in this
+   *  log, so it must reload the state of its agents here and follow from there. */
+  | { kind: "snapshot-required" }
   /** A piece of an attached agent's screen, tagged with the agent so one connection, or one
    *  link, carries several screens at once. */
   | { kind: "screen"; key: string; chunk: ScreenChunk };
@@ -72,6 +75,7 @@ const errorSchema = z.object({
 }).strict();
 const eventSchema = z.object({ event: notifyEventSchema, seq: z.number().int().optional() }).strict();
 const gapSchema = z.object({ gap: z.literal(true), oldestSeq: z.number().int() }).strict();
+const snapshotRequiredSchema = z.object({ snapshotRequired: z.literal(true) }).strict();
 const screenSchema = z.object({
   screen: z.discriminatedUnion("kind", [
     z.object({ key: z.string(), kind: z.literal("snapshot"), data: z.string() }).strict(),
@@ -98,6 +102,7 @@ export function parseRpcLine(value: unknown): RpcLine | null {
   if (isRecord(value) && isBridgeDelivery(value.delivery)) return { kind: "delivery", delivery: value.delivery };
   const gap = gapSchema.safeParse(value);
   if (gap.success) return { kind: "gap", oldestSeq: gap.data.oldestSeq };
+  if (snapshotRequiredSchema.safeParse(value).success) return { kind: "snapshot-required" };
   const screen = screenSchema.safeParse(value);
   if (screen.success) return { kind: "screen", key: screen.data.screen.key, chunk: screenChunkOf(screen.data.screen) };
   return null;
@@ -115,6 +120,8 @@ export function encodeLine(line: RpcLine): string {
       return `${JSON.stringify({ delivery: line.delivery })}\n`;
     case "gap":
       return `${JSON.stringify({ gap: true, oldestSeq: line.oldestSeq })}\n`;
+    case "snapshot-required":
+      return `${JSON.stringify({ snapshotRequired: true })}\n`;
     case "screen":
       return `${JSON.stringify({ screen: { key: line.key, ...line.chunk } })}\n`;
     default: {

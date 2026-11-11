@@ -1,7 +1,9 @@
 import { hostIdentity } from "../src/hosts/identity.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendEvent, deleteEventsBefore } from "../src/store/event-rows.ts";
-import { REPLAY_WINDOW, ReplayBuffer } from "../src/daemon/server/replay.ts";
+import { REPLAY_WINDOW, ReplayBuffer, eventLogId } from "../src/daemon/server/replay.ts";
+import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
+import { hostIdFrom } from "../src/host.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
@@ -91,6 +93,40 @@ describe("orchd RPC replay buffer", () => {
       gap: true,
       oldestSeq: 2,
     });
+  });
+
+  test("a linked host resumes from a place in this log, and only with events about its own agents", () => {
+    const dir = fixture();
+    const buffer = new ReplayBuffer(dir);
+    const asker = hostIdFrom("asker-host");
+    const key = mintAgentId();
+    registerSpawnedAgent(dir, { key, harnessId: "pi", placed: false, cwd: "/tmp", name: "mine", model: "", spawner: null, process: { host: hostIdentity().id, pid: 1, startToken: null }, origin: { askedBy: asker, spawner: null } });
+    const mine = transitionEvent({ key });
+    buffer.push(transitionEvent({ key: "someone-else" }));
+    buffer.push(mine);
+    const log = eventLogId(dir);
+
+    expect(buffer.resume({ seq: 0, log }, asker)).toEqual([{ event: mine, seq: 2 }]);
+    expect(buffer.resume({ seq: 2, log }, asker)).toEqual([]);
+  });
+
+  test("a place that does not continue in this log is refused: another log, a sequence never issued, pruned events", () => {
+    const dir = fixture();
+    const buffer = new ReplayBuffer(dir);
+    const asker = hostIdFrom("asker-host");
+    const log = eventLogId(dir);
+    appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), transitionEvent({ key: "one" }));
+    appendEvent(dir, Date.parse("2024-01-02T00:00:00.000Z"), transitionEvent({ key: "two" }));
+    appendEvent(dir, Date.parse("2024-01-03T00:00:00.000Z"), transitionEvent({ key: "three" }));
+
+    // Read from the store this one replaced: the numbers overlap, the log does not.
+    expect(buffer.resume({ seq: 1, log: "another-store@another-build" }, asker)).toBeNull();
+    // This log never issued 10.
+    expect(buffer.resume({ seq: 10, log }, asker)).toBeNull();
+    deleteEventsBefore(dir, Date.parse("2024-01-03T00:00:00.000Z"));
+    // Event 2 was pruned after place 1 was held, and nothing says whose it was.
+    expect(buffer.resume({ seq: 1, log }, asker)).toBeNull();
+    expect(buffer.resume({ seq: 2, log }, asker)).toEqual([]);
   });
 
   test("empty history has no gap or oldest sequence", () => {

@@ -155,6 +155,7 @@ export function viewScreen(services: Services, socket: Socket, detach: number, s
         case "event":
         case "delivery":
         case "gap":
+        case "snapshot-required":
           return;
         default: {
           const exhaustive: never = line;

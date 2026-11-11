@@ -144,12 +144,23 @@ export const hostLinks = sqliteTable("host_links", {
   check("host_links_seen", sql`${table.lastSeen} >= ${table.since}`),
 ]);
 
-/** The last event this orchd took from each linked host's orchd: the far orchd's own
- *  sequence number, so a dropped link resumes right after it. A cell, moved forward as
- *  events arrive. No row: nothing taken from that host yet. */
+/** This orchd's place in each linked host's event log: the far orchd's own sequence number of
+ *  the last event taken, and the log it was read from. A dropped link resumes right after it
+ *  only while the far orchd still writes that same log; against any other, the position means
+ *  nothing and is dropped. A cell, moved as events arrive. No row: no place held in that
+ *  host's log, so this orchd reloads the state of its agents there before it follows again. */
 export const hostEventCursors = sqliteTable("host_event_cursors", {
   hostId: text("host_id").$type<HostId>().notNull().primaryKey().references(() => hosts.id, { onDelete: "cascade" }),
   seq: integer("seq").notNull(),
+  log: text("log").notNull(),
+});
+
+/** This store's own identity: one row, minted the first time it is asked for. A store rebuilt
+ *  from nothing mints another, so a place another host holds in the old store's event log is
+ *  known not to continue in this one, even when the sequence numbers overlap. */
+export const storeIdentity = sqliteTable("store_identity", {
+  id: text("id").notNull().primaryKey(),
+  createdAt: integer("created_at").notNull(),
 });
 
 export const spaces = sqliteTable("spaces", {

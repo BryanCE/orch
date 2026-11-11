@@ -184,10 +184,15 @@ function handleLine(
     return;
   }
   if (request.method === "subscribe-events") {
-    const since = request.params.since;
-    if (since !== undefined) {
-      // A peer follows only the agents its host asked this one to run.
-      const replay = shared.replayBuffer.since(since, state.peer);
+    const { since, log } = request.params;
+    if (since !== undefined && state.peer !== undefined) {
+      // A linked host's orchd follows only the agents its host asked this one to run. It
+      // resumes from the place it holds in this log, or is told that place does not continue.
+      const missed = log === undefined ? null : shared.replayBuffer.resume({ seq: since, log }, state.peer);
+      if (missed === null) lineResponse(socket, { kind: "snapshot-required" });
+      else for (const buffered of missed) lineResponse(socket, { kind: "event", ...buffered });
+    } else if (since !== undefined) {
+      const replay = shared.replayBuffer.since(since);
       if (replay.gap && replay.oldestSeq !== undefined) lineResponse(socket, { kind: "gap", oldestSeq: replay.oldestSeq });
       for (const buffered of replay.events) lineResponse(socket, { kind: "event", ...buffered });
     }

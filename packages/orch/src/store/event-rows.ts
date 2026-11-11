@@ -19,15 +19,17 @@ function eventPayload(event: unknown): string {
   return payload;
 }
 
-function nextEventSeq(orchDir: OrchDir): number {
+/** The newest sequence this store's log holds, 0 when it holds none. A cursor past it was
+ *  read from another log: a store that this one replaced. */
+export function newestEventSeq(orchDir: OrchDir): number {
   const known = eventSeqs.get(orchDir);
-  if (known !== undefined) {
-    const next = known + 1;
-    eventSeqs.set(orchDir, next);
-    return next;
-  }
+  if (known !== undefined) return known;
   const row = orm(orchDir).select({ seq: max(events.seq) }).from(events).get();
-  const next = Number(row?.seq ?? 0) + 1;
+  return Number(row?.seq ?? 0);
+}
+
+function nextEventSeq(orchDir: OrchDir): number {
+  const next = newestEventSeq(orchDir) + 1;
   eventSeqs.set(orchDir, next);
   return next;
 }

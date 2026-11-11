@@ -47,9 +47,12 @@ export interface HostGreeting {
 export const SIGNAL_OUTCOMES = ["signalled", "gone"] as const;
 export type SignalOutcome = (typeof SIGNAL_OUTCOMES)[number];
 
-/** The kinds of state a host link is in: no attempt yet this orchd run, dialing,
- *  up, or down after an attempt failed. */
-export const HOST_LINK_STATES = ["idle", "connecting", "up", "down"] as const;
+/** The kinds of state a host link is in. `idle`: no dial yet this orchd run. `connecting`:
+ *  dialing. `synchronizing`: the host answered, and this orchd is catching up on its agents
+ *  there. `up`: in step. `backoff`: the last dial failed or the link dropped, and a redial
+ *  is due. `down`: ended and not wanted. `blocked`: refused in a way a redial cannot fix,
+ *  so it waits for a person. */
+export const HOST_LINK_STATES = ["idle", "connecting", "synchronizing", "up", "backoff", "down", "blocked"] as const;
 export type HostLinkStateKind = (typeof HOST_LINK_STATES)[number];
 
 /** A host whose link is down, as a status row reports it: when it last answered, null when
@@ -69,4 +72,9 @@ export interface HostLinkView {
   readonly reason: string | null;
   /** When the far side last answered, over any link this or an earlier orchd held. */
   readonly lastSeen: number | null;
+  /** When the next dial is due, while the link is in backoff; null otherwise. */
+  readonly retryAt: number | null;
+  /** Which dial since the link was last up this is, from 1, while it dials, synchronizes or
+   *  waits to redial; null otherwise. */
+  readonly attempt: number | null;
 }

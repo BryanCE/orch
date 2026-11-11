@@ -105,6 +105,20 @@ test("a far agent whose link dropped reads unknown with when its host was last s
   expect(lastCell(row!)).toContain("far offline, last seen 4m ago");
 });
 
+test("a far agent whose link dropped keeps the state its host last reported, marked unconfirmed", () => {
+  const orchDir = fleetWithFarAgent();
+  openHostLink(orchDir, FAR.id, Date.now() - 60_000);
+  farReportsWorking(orchDir);
+  closeHostLink(orchDir, FAR.id, Date.now());
+  const row = farRow(orchDir);
+  expect(row?.state).toBe("working");
+  expect(row?.alive).toBe(true);
+  expect(row?.hostOffline).toBeDefined();
+  const table = formatStatusTable({ names: { agents: {}, spaces: {} }, rows: [row!] }, { all: true, host: false, columns: NO_STATUS_HIDE.columns });
+  expect(table).toMatch(/\sworking\?\s/);
+  expect(table).toContain("far offline, last seen");
+});
+
 test("the liveness tick never marks a far agent on a downed link exited, nor reaps it", async () => {
   const orchDir = fleetWithFarAgent();
   linkDropped(orchDir, Date.now() - 2_000, Date.now() - 1_000);
@@ -121,5 +135,5 @@ test("the liveness tick never marks a far agent on a downed link exited, nor rea
   expect(events).toHaveLength(0);
   expect(selectAgentStatus(orchDir, FAR_AGENT)?.state).toBe("working");
   expect(agentView(orchDir, FAR_AGENT)).not.toBeNull();
-  expect(farRow(orchDir)?.state).toBe("unknown");
+  expect(farRow(orchDir)?.state).toBe("working");
 });

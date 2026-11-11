@@ -56,11 +56,32 @@ function skewWarning(name: string, greeting: HostGreeting, local: { version: str
   return null;
 }
 
+/** The LINK cell: the link's state, a link waiting to redial said as what it is doing. */
+function linkCell(view: HostLinkView): string {
+  return view.state === "backoff" ? "reconnecting" : view.state;
+}
+
+/** The REASON cell: why the link is not up and when the next dial is due, or, for a link
+ *  that is up, that the far side runs another orch build. */
+function reasonCell(view: HostLinkView, local: { version: string; commit: string | null }, now: number): string {
+  if (view.greeting !== null) return skewWarning(view.name, view.greeting, local) ?? "";
+  const reason = view.reason ?? "";
+  if (view.retryAt === null) return reason;
+  const seconds = Math.max(0, Math.ceil((view.retryAt - now) / 1_000));
+  return `${reason}. Dial ${(view.attempt ?? 0) + 1} in ${seconds}s`;
+}
+
+/** The table `orch hosts` prints: one row per configured host. `now` is the instant a wait
+ *  until the next dial is counted from. */
+export function formatHostsTable(hosts: readonly HostLinkView[], local: { version: string; commit: string | null }, now: number): string {
+  const rows = hosts.map((view) => [view.name, view.dest, linkCell(view), view.greeting?.host.name ?? "-", lastSeenCell(view), reasonCell(view, local, now)]);
+  return renderTable(["NAME", "DEST", "LINK", "HOST", "LAST SEEN", "REASON"], rows, [16, 32, 14, 24, 12, 80]);
+}
+
 async function listHosts(services: Services, json: boolean): Promise<void> {
   const { hosts } = await readRpc(services, "hosts", undefined);
   if (writeEmptyOrJson(hosts, json, "No hosts configured. Add one under hosts in settings.json.")) return;
-  const rows = hosts.map((view) => [view.name, view.dest, view.state, view.greeting?.host.name ?? "-", lastSeenCell(view), view.reason ?? ""]);
-  process.stdout.write(renderTable(["NAME", "DEST", "LINK", "HOST", "LAST SEEN", "REASON"], rows, [16, 32, 10, 24, 12, 80]) + "\n");
+  process.stdout.write(formatHostsTable(hosts, { version: packageManifest().version, commit: buildCommit() }, Date.now()) + "\n");
 }
 
 async function checkHost(services: Services, name: string, json: boolean): Promise<void> {
@@ -75,7 +96,8 @@ async function checkHost(services: Services, name: string, json: boolean): Promi
     return;
   }
   process.stdout.write(`${view.name}: up. Host ${greeting.host.name}, ${greeting.host.os}, id ${greeting.host.id}. orch ${greeting.version}, built from ${commitCell(greeting.commit)}.\n`);
-  const warning = skewWarning(view.name, greeting, { version: packageManifest().version, commit: buildCommit() });
+  const local = { version: packageManifest().version, commit: buildCommit() };
+  const warning = skewWarning(view.name, greeting, local);
   if (warning !== null) process.stdout.write(`${warning}\n`);
 }
 

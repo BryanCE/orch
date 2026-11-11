@@ -231,7 +231,7 @@ describe("attaching to a screen on a linked host", () => {
     fars.push(far);
     const orchDir = nearDir();
     const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 1_000 } } });
-    const hosts = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn: far.spawner(), events: () => undefined });
+    const hosts = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn: far.spawner(), events: () => undefined, agents: () => undefined, changed: () => undefined });
     links.push(hosts);
     await hosts.link("box").connect();
     const key = mintAgentId();
@@ -268,7 +268,7 @@ describe("attaching to a screen on a linked host", () => {
     fars.push(far);
     const orchDir = nearDir();
     const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 1_000 } } });
-    const hosts = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn: far.spawner(), events: () => undefined });
+    const hosts = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn: far.spawner(), events: () => undefined, agents: () => undefined, changed: () => undefined });
     links.push(hosts);
     const link = hosts.link("box");
     await link.connect();

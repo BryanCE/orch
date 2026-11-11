@@ -219,7 +219,9 @@ export function subscribeEvents(
               break;
             case "event":
               if (line.seq !== undefined) {
-                last = Math.max(last, line.seq);
+                // Events arrive in order, so the newest is the cursor, even when the log's
+                // numbering started over under a replaced store.
+                last = line.seq;
                 try {
                   onEvent(line.event, line.seq);
                 } catch (error: unknown) {
@@ -229,6 +231,8 @@ export function subscribeEvents(
               break;
             case "reply":
             case "error":
+            // Only a linked host's orchd is asked to reload state; a stream here replays or reports a gap.
+            case "snapshot-required":
               break;
           }
         });

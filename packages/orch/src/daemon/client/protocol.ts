@@ -20,7 +20,7 @@ import type { NotifierChoice } from "../../types/notify.ts";
 import { ORCH_RUNTIMES } from "../../runtimes.ts";
 import { ADAPTER_IDS, type HarnessModel, type SessionView, type SessionViewEntry } from "../../types/adapter.ts";
 import { RESULT_SOURCES, type AgentRead, type AgentReading } from "../../types/agent-read.ts";
-import type { FleetStatus, PeerView, PendingQuestionView } from "../../types/daemon.ts";
+import type { FleetStatus, PeerFleetStatus, PeerView, PendingQuestionView } from "../../types/daemon.ts";
 import type { BridgeNotification } from "../../types/agent.ts";
 import { LIVENESS, type ResultReport, type StatusPatch } from "../../types/presence.ts";
 import { GRANT_KINDS, type GrantRequest, type SpaceListing, type SpaceRow, type SpawnRegistration } from "../../types/store.ts";
@@ -67,6 +67,8 @@ const HOST_LINK_VIEW = z.object({
   greeting: HOST_GREETING.nullable(),
   reason: z.string().nullable(),
   lastSeen: z.number().nullable(),
+  retryAt: z.number().nullable(),
+  attempt: z.number().int().nullable(),
 }) satisfies z.ZodType<HostLinkView>;
 
 /** What orchd stored when it registered the caller's row: the process it keys
@@ -587,11 +589,14 @@ const fleetStatus = z.object({
   rows: z.array(statusRow),
 }) satisfies z.ZodType<FleetStatus>;
 
+const peerFleetStatus = fleetStatus.extend({ seq: z.number().int(), log: z.string() }) satisfies z.ZodType<PeerFleetStatus>;
+
 export const RPC_PARAMS = {
   "daemon-status": z.undefined(),
   /** `stream` is the pid, on this machine, of a CLI stream (`orch events`, `orch monitor`) that
    *  `orch close --stream` ends; a subscriber that is not one leaves it out. */
-  "subscribe-events": z.object({ since: z.number().int().optional(), stream: z.number().int().positive().optional() }),
+  // `log` is the event log `since` was read from: a linked host's orchd sends both to resume.
+  "subscribe-events": z.object({ since: z.number().int().optional(), log: z.string().optional(), stream: z.number().int().positive().optional() }),
   "environment-labels": z.object({ id: nonBlank }),
   "peer-view": z.object({
     ownKey: nonBlank,
@@ -931,7 +936,7 @@ export const RPC_RESULTS = {
   "peer-drive": PEER_DRIVE_RESULT,
   "peer-read": AGENT_READING,
   "peer-questions": z.object({ questions: z.array(z.custom<PendingQuestionView>(isPendingQuestionView)) }),
-  "peer-status": fleetStatus,
+  "peer-status": peerFleetStatus,
   /** `host` names the linked host the agent runs on; null when it runs here. */
   "agent-read": z.object({ host: z.string().nullable(), reading: AGENT_READING }),
   "agent-pane": PANE_OUTCOME,

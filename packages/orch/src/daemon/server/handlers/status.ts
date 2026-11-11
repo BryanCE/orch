@@ -10,7 +10,9 @@ import { requirePeer } from "./peer.ts";
 import { errorMessage } from "../../../util.ts";
 import { registerMemoReset } from "../../../store/connection.ts";
 import type { StatusRow } from "../../../types/command.ts";
-import type { FleetStatus } from "../../../types/daemon.ts";
+import type { PeerFleetStatus } from "../../../types/daemon.ts";
+import { newestEventSeq } from "../../../store/event-rows.ts";
+import { eventLogId } from "../replay.ts";
 import type { HostId } from "../../../types/host.ts";
 import type { RpcRequestContext } from "../../../types/daemon.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
@@ -69,9 +71,16 @@ export async function statusAnywhere(state: DaemonState, params: ParamsOf<"statu
   };
 }
 
-/** For a linked host's orchd: the rows of the agents it asked this host to run. */
-export function peerStatus(state: DaemonState, context: RpcRequestContext): FleetStatus {
+/** For a linked host's orchd: the rows of the agents it asked this host to run, and the place
+ *  in this orchd's event log they were read at. Read in one turn, so every event after that
+ *  place is newer than the rows. */
+export function peerStatus(state: DaemonState, context: RpcRequestContext): PeerFleetStatus {
   const peer = requirePeer(context);
   const fleet = fleetStatus(state, null);
-  return { names: fleet.names, rows: fleet.rows.filter((row) => originOf(state.directory, row.key)?.askedBy === peer) };
+  return {
+    names: fleet.names,
+    rows: fleet.rows.filter((row) => originOf(state.directory, row.key)?.askedBy === peer),
+    seq: newestEventSeq(state.directory),
+    log: eventLogId(state.directory),
+  };
 }

@@ -77,6 +77,12 @@ export interface BufferedEvent {
   event: NotifyEvent;
 }
 
+/** A place in one orchd's event log: a sequence number it issued, and the log it issued it in. */
+export interface EventLogPlace {
+  readonly seq: number;
+  readonly log: string;
+}
+
 export interface ReplayResult {
   events: BufferedEvent[];
   gap: boolean;
@@ -168,6 +174,14 @@ export interface FleetNames {
 export interface FleetStatus {
   readonly names: FleetNames;
   readonly rows: StatusRow[];
+}
+
+/** What an orchd answers a linked host's orchd about the agents that host asked it to run:
+ *  their rows as they stand, and the place in its event log they were read at, so the asker
+ *  holds that place and follows the log from exactly there. */
+export interface PeerFleetStatus extends FleetStatus {
+  readonly seq: number;
+  readonly log: string;
 }
 
 export type PeerStatus = Pick<AgentStatusRow, "state" | "task" | "lastText" | "modelId" | "thinking" | "contextPercent" | "sessionPath" | "project">;

@@ -21,9 +21,10 @@ import type { DaemonServices } from "../../types/services.ts";
 import { watchSettings } from "../../settings/watch.ts";
 import { runWorkLoop } from "./work-loop.ts";
 import { publishFromOrchd } from "./events.ts";
-import { applyHostEvent } from "./host-events.ts";
+import { applyHostEvent, reconcileHostAgents } from "./host-events.ts";
 import { startLivenessTick } from "./status-report.ts";
 import { forgetCapacity } from "./capacity.ts";
+import { probeAllProcesses } from "../../presence/store.ts";
 import { errorMessage, errorTrace } from "../../util.ts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -97,7 +98,9 @@ export async function startDaemon(): Promise<DaemonState> {
       orchDir: directory,
       settings: () => services.settings.current(),
       logger: services.logger,
+      changed: () => { if (probeAllProcesses(directory)) forgetCapacity(directory); },
       events: (host, event) => { applyHostEvent(state, host, event); },
+      agents: (host, rows, askedAt) => { reconcileHostAgents(state, host, rows, askedAt); },
     }),
     held,
     fatalLogged: false,

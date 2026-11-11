@@ -115,6 +115,7 @@ export function createDaemonLink(orchDir: OrchDir, settings: SettingsManager): D
         return;
       case "event":
       case "gap":
+      case "snapshot-required":
         return;
     }
   }

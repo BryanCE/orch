@@ -4,7 +4,7 @@ import { PtyHold } from "../../src/daemon/server/held.ts";
 import type { PtyProvider } from "../../src/types/pty.ts";
 import { FakePtyProvider } from "./fake-pty.ts";
 import { HostLinks } from "../../src/hosts/link.ts";
-import { applyHostEvent } from "../../src/daemon/server/host-events.ts";
+import { applyHostEvent, reconcileHostAgents } from "../../src/daemon/server/host-events.ts";
 import { rpcHandlers } from "../../src/daemon/server/handlers/table.ts";
 import { startRpcServer } from "../../src/daemon/server/rpc.ts";
 import type { OrchDir } from "../../src/types/core.ts";
@@ -58,7 +58,9 @@ export function idleDaemonState(services: Services | DaemonServices, directory: 
       orchDir: directory,
       settings: () => services.settings.current(),
       logger: services.logger,
+      changed: () => undefined,
       events: (host, event) => { applyHostEvent(state, host, event); },
+      agents: (host, rows, askedAt) => { reconcileHostAgents(state, host, rows, askedAt); },
     }),
     held: new PtyHold(pty, () => services.settings.current().pty),
     fatalLogged: false,

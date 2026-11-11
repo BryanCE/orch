@@ -9,12 +9,13 @@ import { recordingLogger } from "./logger.ts";
 import { removeTempDir, tempOrchDir } from "./tempdir.ts";
 import { spawnHeadless } from "../../src/daemon/server/handlers/lifecycle.ts";
 import { registerHostedAgent } from "../../src/store/spawn-registration.ts";
+import { probeAllProcesses } from "../../src/presence/store.ts";
 import { HostLinks, type LinkProcess, type LinkSpawner } from "../../src/hosts/link.ts";
 import { hostIdentity } from "../../src/hosts/identity.ts";
 import { mintAgentId } from "../../src/shared/agent-id.ts";
 import { rpcCall } from "../../src/daemon/client/rpc.ts";
 import { splitThinkingSuffix } from "../../src/policy/thinking.ts";
-import { applyHostEvent } from "../../src/daemon/server/host-events.ts";
+import { applyHostEvent, reconcileHostAgents } from "../../src/daemon/server/host-events.ts";
 import { rpcHandlers } from "../../src/daemon/server/handlers/table.ts";
 import { startRpcServer } from "../../src/daemon/server/rpc.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../../src/control/bridge-links.ts";
@@ -186,7 +187,9 @@ export async function nearOrchd(far: FarOrchd, key: string, options: NearOrchdOp
   const follow = options.followEvents ?? false;
   const hosts = new HostLinks({
     orchDir, settings: () => services.settings.current(), logger: services.logger, spawn,
+    changed: () => { probeAllProcesses(orchDir); },
     events: (host, event) => { if (follow) applyHostEvent(state, host, event); },
+    agents: (host, rows, askedAt) => { if (follow) reconcileHostAgents(state, host, rows, askedAt); },
   });
   const state: DaemonState = { ...idleDaemonState(services, orchDir), hosts };
   if (options.serve ?? false) state.server = await startRpcServer(orchDir, rpcHandlers(state), { logger: recordingLogger().logger });

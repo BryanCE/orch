@@ -61,12 +61,14 @@ function deriveModelString(pres: PresenceEntry | null, sview: SessionView | null
   return adapterDefault ? `${adapterDefault} (default)` : "-";
 }
 
-function deriveState(pres: PresenceEntry | null, ent: Entity, sview: SessionView | null): { state: string; stateFallback: boolean; exited: boolean } {
+function deriveState(pres: PresenceEntry | null, ent: Entity, sview: SessionView | null, hostOffline: boolean): { state: string; stateFallback: boolean; exited: boolean } {
   if (!pres?.status) {
     return { state: ent.backendStatus ?? sview?.state ?? (sview ? "idle" : "unknown"), stateFallback: true, exited: false };
   }
   if (pres.liveness === "dead") return { state: "exited", stateFallback: false, exited: true };
-  if (pres.liveness === "unknown") return { state: "unknown", stateFallback: false, exited: false };
+  // Its host cannot be asked now: what that host last reported stands, and the row says the
+  // host is offline. Any other unknown, as while its program is swapped, reads unknown.
+  if (pres.liveness === "unknown") return { state: hostOffline ? pres.status.state ?? "unknown" : "unknown", stateFallback: false, exited: false };
   return { state: pres.status.state === "asking" ? "asking" : pres.status.state ?? "unknown", stateFallback: false, exited: false };
 }
 
@@ -176,6 +178,7 @@ export function statusRowFromEntity(
 ): StatusRow {
   const agentView = viewForKey(views, entity.key);
   const agent = views.get(entity.key);
+  const process = processOf(entity.key);
   return {
     key: entity.key,
     agentId: entity.key,
@@ -183,7 +186,7 @@ export function statusRowFromEntity(
     paneId: entity.paneId,
     managed: entity.managed,
     owned: caller === null ? entity.managed : ownsAgent(orchDir, caller, entity.key),
-    ...storedFacts(agent, processOf(entity.key)),
+    ...storedFacts(agent, process),
     host: entity.host,
     name: agent?.name ?? (entity.managed === false ? null : entity.name),
     tab: entity.tabLabel,
@@ -191,7 +194,7 @@ export function statusRowFromEntity(
     ...leasePayloadFrom(entity.key, leaseFacts),
     ...viewProvenance(agentView),
     focused: entity.focused,
-    ...liveFacts(entity, agentView, questionOf),
+    ...liveFacts(entity, agentView, questionOf, process?.offline != null),
     backendStatus: entity.backendStatus,
     backend: entity.backend,
     bridgeAttached: null,
@@ -214,11 +217,11 @@ function usageFacts(pres: PresenceEntry | null, sview: SessionView | null): Usag
 }
 
 /** What the agent's presence says now, or its session when it has reported nothing. */
-function liveFacts(entity: Entity, agentView: AgentView | undefined, questionOf: (agentId: string) => string | undefined): LiveFacts {
+function liveFacts(entity: Entity, agentView: AgentView | undefined, questionOf: (agentId: string) => string | undefined, hostOffline: boolean): LiveFacts {
   const pres = entity.presence;
   const adapter = getAdapter(agentView?.harnessId ?? entity.agent ?? "");
   const sview = pres?.status ? null : sessionViewFor(entity, adapter);
-  const { state, stateFallback, exited } = deriveState(pres, entity, sview);
+  const { state, stateFallback, exited } = deriveState(pres, entity, sview, hostOffline);
   const alive = notDead(pres);
   return {
     model: deriveModelString(pres, sview, adapter, agentView?.tuning),

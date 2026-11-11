@@ -1,9 +1,12 @@
 import { registerHostedAgent } from "../src/store/spawn-registration.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import { HostLinks, type HostEventSink, type LinkSpawner } from "../src/hosts/link.ts";
+import { z } from "zod";
+import { framedLineReader } from "../src/daemon/client/wire.ts";
+import { HostLinks, type HostAgentsSink, type HostEventSink, type LinkSpawner } from "../src/hosts/link.ts";
+import { eventLogId } from "../src/daemon/server/replay.ts";
 import { startFarOrchd, type FarOrchd } from "./helpers/far-orchd.ts";
-import { hostEventCursor, latestHostLink } from "../src/store/host-rows.ts";
+import { hostEventCursor, latestHostLink, setHostEventCursor } from "../src/store/host-rows.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { closeAllStores } from "../src/store/connection.ts";
@@ -90,11 +93,11 @@ function refusal(promise: Promise<unknown>): Promise<string | null> {
   return promise.then(() => null, (error: unknown) => errorMessage(error));
 }
 
-function hostLinks(spawn: LinkSpawner, events: HostEventSink = () => undefined): HostLinks {
+function hostLinks(spawn: LinkSpawner, events: HostEventSink = () => undefined, agents: HostAgentsSink = () => undefined, linkSettings: Readonly<Record<string, number>> = {}, changed: (host: string) => void = () => undefined): HostLinks {
   const orchDir = tempOrchDir("orch-host-link-");
   dirs.push(orchDir);
-  const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 500 } } });
-  const made = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn, events });
+  const services = testServices({ orchDir, settings: { hosts: { box: { dest: "box" } }, links: { request_timeout_ms: 500, ...linkSettings } } });
+  const made = new HostLinks({ orchDir, settings: () => services.settings.current(), logger: services.logger, spawn, events, agents, changed });
   links.push(made);
   return made;
 }
@@ -131,7 +134,7 @@ describe("a link to another host", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     answerAs = "far-b";
     expect(await refusal(link.connect())).toMatch(/answered as host machine-far-b.*bound to host id far-a/);
-    expect(link.current().kind).toBe("down");
+    expect(link.current().kind).toBe("blocked");
   });
 
   test("says orch is missing there when the far shell cannot find it", async () => {
@@ -186,38 +189,313 @@ function received(events: { host: LinkedHost; event: NotifyEvent }[], count: num
   });
 }
 
+/** What a link hands on as it follows a far orchd: each event, and each reload of the state of
+ *  this host's agents there, by the agents it named. */
+interface Followed {
+  readonly events: { host: LinkedHost; event: NotifyEvent }[];
+  readonly reloads: string[][];
+}
+
+function follow(far: FarOrchd, settings: Readonly<Record<string, number>> = {}): { followed: Followed; link: ReturnType<HostLinks["link"]> } {
+  const followed: Followed = { events: [], reloads: [] };
+  const hosts = hostLinks(far.spawner(), (host, event) => { followed.events.push({ host, event }); }, (_host, rows) => { followed.reloads.push(rows.map((row) => row.key)); }, settings);
+  return { followed, link: hosts.link("box") };
+}
+
+function settled(done: () => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    const poll = (): void => { if (done()) resolve(); else setTimeout(poll, 5); };
+    poll();
+  });
+}
+
+// A request with no params, as a ping is, carries no params key.
+const REQUEST = z.object({ id: z.number(), method: z.string(), params: z.unknown().optional() });
+type FarRequest = z.infer<typeof REQUEST>;
+
+/** A far side this test speaks for, line by line. Each dial greets as `id`; `answer` then gets
+ *  every request the link sends. */
+interface ScriptedFar {
+  readonly spawn: LinkSpawner;
+  /** Every request taken, over every dial, in order. */
+  readonly requests: FarRequest[];
+  /** Write one line to the link now open. */
+  send(line: unknown): void;
+  /** End the process now open, as a dropped connection does. */
+  drop(): void;
+  dials(): number;
+  /** While true a dial fails at once, as a host that refuses the connection. */
+  refuse: boolean;
+}
+
+function scriptedFar(id: string, answer: (request: FarRequest, far: ScriptedFar) => void): ScriptedFar {
+  let dials = 0;
+  let stdout = new PassThrough();
+  let drop = (): void => undefined;
+  const far: ScriptedFar = {
+    requests: [],
+    refuse: false,
+    dials: () => dials,
+    send: (line) => { stdout.write(`${JSON.stringify(line)}\n`); },
+    drop: () => { drop(); },
+    spawn: () => {
+      dials += 1;
+      const stdin = new PassThrough();
+      stdout = new PassThrough();
+      const output = stdout;
+      const stderr = new PassThrough();
+      if (far.refuse) {
+        stderr.end("ssh: connect to host box port 22: Connection refused\n");
+        return { stdin, stdout: output, stderr, exited: Promise.resolve(255), kill: () => undefined };
+      }
+      const exited = new Promise<number>((resolve) => {
+        drop = () => { output.end(); resolve(255); };
+      });
+      const kill = drop;
+      output.write(`${JSON.stringify({ id: 0, result: greeting(id) })}\n`);
+      framedLineReader(stdin, (line) => {
+        if (!line.trim()) return;
+        const request = REQUEST.parse(JSON.parse(line));
+        far.requests.push(request);
+        queueMicrotask(() => { if (!output.writableEnded) answer(request, far); });
+      });
+      return { stdin, stdout: output, stderr, exited, kill };
+    },
+  };
+  return far;
+}
+
+/** What a far orchd with no agents answers: it refuses the ping, which still counts as a line. */
+function plainAnswer(request: FarRequest, far: ScriptedFar, place: { seq: number; log: string } = { seq: 0, log: "log-a" }): void {
+  if (request.method === "daemon-status") far.send({ id: request.id, error: { code: "HANDLER_ERROR", message: "a scripted far side" } });
+  else if (request.method === "subscribe-events") far.send({ id: request.id, result: { subscribed: true } });
+  else if (request.method === "peer-status") far.send({ id: request.id, result: { names: { agents: {}, spaces: {} }, rows: [], ...place } });
+}
+
 describe("events over a link", () => {
-  test("this host follows the far orchd's events about agents it asked for there, and only those, resuming after a drop", async () => {
+  test("a first link reloads the state of this host's agents there, then follows their events, and only theirs", async () => {
     const far = await startFarOrchd(greeting("far-5"));
     fars.push(far);
     const mine = farAgent(far, { askedBy: hostIdentity().id, spawner: null });
     const another = farAgent(far, { askedBy: hostIdFrom("another-origin"), spawner: null });
     const theirs = farAgent(far, null);
-    const events: { host: LinkedHost; event: NotifyEvent }[] = [];
-    const hosts = hostLinks(far.spawner(), (host, event) => { events.push({ host, event }); });
-    const link = hosts.link("box");
+    const { followed, link } = follow(far);
 
-    // Published before the link came up: the subscription replays it.
+    // Published before this host held a place in the far log: the state carries it, no replay does.
     far.emit(transition(mine, "idle", "working"));
+    await link.connect();
+    await settled(() => followed.reloads.length === 1);
+    expect(followed.reloads).toEqual([[mine]]);
+    expect(followed.events).toEqual([]);
+    expect(hostEventCursor(dirs[0]!, hostIdFrom("far-5"))).toEqual({ seq: 1, log: eventLogId(far.orchDir) });
+
+    far.emit(transition(mine, "working", "idle"));
     far.emit(transition(another, "idle", "working"));
     far.emit(transition(theirs, "idle", "working"));
-    await link.connect();
-    await received(events, 1);
-    far.emit(transition(mine, "working", "idle"));
-    await received(events, 2);
-    expect(events.map(({ host, event }) => [host.name, event.key, event.newState])).toEqual([["box", mine, "working"], ["box", mine, "idle"]]);
-    const cursor = hostEventCursor(dirs[0]!, hostIdFrom("far-5"));
-    expect(cursor).not.toBeNull();
+    await received(followed.events, 1);
+    expect(followed.events.map(({ host, event }) => [host.name, event.key, event.newState])).toEqual([["box", mine, "idle"]]);
+    expect(hostEventCursor(dirs[0]!, hostIdFrom("far-5"))?.seq).toBe(2);
+  });
 
-    // Missed while down, taken once on the redial, and nothing already taken comes again.
+  test("a dropped link resumes right after the last event taken: what it missed comes once, and nothing is reloaded", async () => {
+    const far = await startFarOrchd(greeting("far-6"));
+    fars.push(far);
+    const mine = farAgent(far, { askedBy: hostIdentity().id, spawner: null });
+    const { followed, link } = follow(far);
+    await link.connect();
+    await settled(() => followed.reloads.length === 1);
+    far.emit(transition(mine, "idle", "working"));
+    await received(followed.events, 1);
+
     link.close();
     await new Promise((resolve) => setTimeout(resolve, 20));
-    far.emit(transition(mine, "idle", "done"));
+    far.emit(transition(mine, "working", "done"));
     await link.connect();
-    await received(events, 3);
+    await received(followed.events, 2);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(events.map(({ event }) => event.newState)).toEqual(["working", "idle", "done"]);
-    expect(hostEventCursor(dirs[0]!, hostIdFrom("far-5"))).toBeGreaterThan(cursor ?? 0);
+    expect(followed.events.map(({ event }) => event.newState)).toEqual(["working", "done"]);
+    expect(followed.reloads).toHaveLength(1);
+    expect(hostEventCursor(dirs[0]!, hostIdFrom("far-6"))).toEqual({ seq: 2, log: eventLogId(far.orchDir) });
+  });
+
+  test("a place read from a store the far host has since replaced is dropped: the far orchd demands a reload, and the place moves back", async () => {
+    const far = await startFarOrchd(greeting("far-7"));
+    fars.push(far);
+    const mine = farAgent(far, { askedBy: hostIdentity().id, spawner: null });
+    const { followed, link } = follow(far);
+    await link.connect();
+    await settled(() => followed.reloads.length === 1);
+    link.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // What this host kept from the store the far host had before: ten events taken from that log.
+    setHostEventCursor(dirs[0]!, hostIdFrom("far-7"), { seq: 10, log: "the-store-before@the-same-build" });
+
+    far.emit(transition(mine, "idle", "working"));
+    await link.connect();
+    await settled(() => followed.reloads.length === 2);
+    expect(followed.reloads[1]).toEqual([mine]);
+    // The state carries what happened while the place meant nothing; it is not replayed as well.
+    expect(followed.events).toEqual([]);
+    expect(hostEventCursor(dirs[0]!, hostIdFrom("far-7"))).toEqual({ seq: 1, log: eventLogId(far.orchDir) });
+
+    // Numbered below the place this host held before, and still taken.
+    far.emit(transition(mine, "working", "done"));
+    await received(followed.events, 1);
+    expect(followed.events.map(({ event }) => event.newState)).toEqual(["done"]);
+  });
+
+  test("a place older than links.resume_max_age_ms is not resumed from: the state is reloaded", async () => {
+    const far = await startFarOrchd(greeting("far-8"));
+    fars.push(far);
+    const mine = farAgent(far, { askedBy: hostIdentity().id, spawner: null });
+    const { followed, link } = follow(far, { resume_max_age_ms: 1 });
+    await link.connect();
+    await settled(() => followed.reloads.length === 1);
+    link.close();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    far.emit(transition(mine, "idle", "working"));
+    await link.connect();
+    await settled(() => followed.reloads.length === 2);
+    expect(followed.events).toEqual([]);
+    expect(hostEventCursor(dirs[0]!, hostIdFrom("far-8"))).toEqual({ seq: 1, log: eventLogId(far.orchDir) });
+  });
+});
+
+describe("a link's stages, heartbeat and redials", () => {
+  const FAST = { ping_interval_ms: 10, retry_after_loss_ms: 1, retry_floor_ms: 1, retry_cap_ms: 5 };
+
+  /** The wait of the redial a link in backoff is on, once it has failed `attempt` dials in a row. */
+  async function redialWait(link: ReturnType<HostLinks["link"]>, attempt: number): Promise<number> {
+    let wait = -1;
+    await settled(() => {
+      const state = link.current();
+      if (state.kind !== "backoff" || state.attempt !== attempt) return false;
+      wait = state.retryAt - state.at;
+      return true;
+    });
+    return wait;
+  }
+
+  test("a link synchronizes before it is up: connect settles only once the state of this host's agents there is reloaded", async () => {
+    const far = scriptedFar("far-sa", (request, far) => {
+      if (request.method !== "peer-status") plainAnswer(request, far);
+    });
+    const hosts = hostLinks(far.spawn, undefined, undefined, FAST);
+    const link = hosts.link("box");
+    const connecting = link.connect();
+    await settled(() => far.requests.some((request) => request.method === "peer-status"));
+    expect(link.current().kind).toBe("synchronizing");
+    expect(hosts.views()[0]).toMatchObject({ state: "synchronizing", greeting: null, attempt: 1, retryAt: null });
+    expect(await refusal(link.alive([]))).toBe("box is not linked, so orch cannot ask it");
+    const held = far.requests.find((request) => request.method === "peer-status");
+    if (held === undefined) throw new Error("no peer-status request was held");
+    far.send({ id: held.id, result: { names: { agents: {}, spaces: {} }, rows: [], seq: 5, log: "log-a" } });
+    await connecting;
+    expect(link.current().kind).toBe("up");
+    expect(hosts.views()[0]).toMatchObject({ state: "up", attempt: null, retryAt: null });
+    expect(hostEventCursor(dirs[0]!, hostIdFrom("far-sa"))).toEqual({ seq: 5, log: "log-a" });
+  });
+
+  test("events sent while the state reloads wait for it: what it already holds is dropped, the rest follow it in order", async () => {
+    const order: string[] = [];
+    const far = scriptedFar("far-sb", (request, far) => {
+      if (request.method === "peer-status") {
+        far.send({ event: transition("far-agent", "idle", "working"), seq: 5 });
+        far.send({ event: transition("far-agent", "working", "done"), seq: 6 });
+        plainAnswer(request, far, { seq: 5, log: "log-a" });
+      } else plainAnswer(request, far);
+    });
+    const hosts = hostLinks(far.spawn, (_host, event) => { order.push(`event:${event.newState}`); }, () => { order.push("reload"); }, FAST);
+    const link = hosts.link("box");
+    await link.connect();
+    expect(order).toEqual(["reload", "event:done"]);
+    expect(hostEventCursor(dirs[0]!, hostIdFrom("far-sb"))).toEqual({ seq: 6, log: "log-a" });
+    far.send({ event: transition("far-agent", "done", "idle"), seq: 6 });
+    far.send({ event: transition("far-agent", "idle", "working"), seq: 7 });
+    await settled(() => order.length === 3);
+    expect(order[2]).toBe("event:working");
+    expect(hostEventCursor(dirs[0]!, hostIdFrom("far-sb"))?.seq).toBe(7);
+  });
+
+  test("a far side that sends nothing for links.silence_timeout_ms is dropped, then redialed", async () => {
+    let muted = false;
+    const far = scriptedFar("far-sc", (request, far) => { if (!muted) plainAnswer(request, far); });
+    const hosts = hostLinks(far.spawn, undefined, undefined, { ...FAST, silence_timeout_ms: 40, retry_after_loss_ms: 200 });
+    const link = hosts.link("box");
+    await link.connect();
+    muted = true;
+    await settled(() => link.current().kind === "backoff");
+    const view = hosts.views()[0];
+    expect(view).toMatchObject({ state: "backoff", attempt: 1, greeting: null });
+    expect(view?.reason).toMatch(/^box sent nothing for \d+ms, past the 40ms links\.silence_timeout_ms allows$/);
+    expect(view?.retryAt).toBeGreaterThan(Date.now() - 1);
+    expect(latestHostLink(dirs[0]!, hostIdFrom("far-sc"))?.until).not.toBeNull();
+    muted = false;
+    await settled(() => far.dials() === 2 && link.current().kind === "up");
+  });
+
+  test("a working link that drops redials soon, and a host that stays unreachable waits longer each time", async () => {
+    const far = scriptedFar("far-sd", plainAnswer);
+    const hosts = hostLinks(far.spawn, undefined, undefined, { ...FAST, retry_after_loss_ms: 80, retry_floor_ms: 100, retry_cap_ms: 400, retry_reset_after_ms: 60_000 });
+    const link = hosts.link("box");
+    await link.connect();
+    far.refuse = true;
+    far.drop();
+    const first = await redialWait(link, 1);
+    expect(first).toBeGreaterThanOrEqual(40);
+    expect(first).toBeLessThanOrEqual(80);
+    const second = await redialWait(link, 2);
+    expect(second).toBeGreaterThanOrEqual(100);
+    expect(second).toBeLessThanOrEqual(200);
+    const third = await redialWait(link, 3);
+    expect(third).toBeGreaterThanOrEqual(200);
+    expect(third).toBeLessThanOrEqual(400);
+    link.close();
+  });
+
+  test("a link that stayed up for links.retry_reset_after_ms starts its waits over; one that dropped sooner keeps climbing", async () => {
+    const far = scriptedFar("far-se", plainAnswer);
+    const hosts = hostLinks(far.spawn, undefined, undefined, { ...FAST, retry_after_loss_ms: 80, retry_floor_ms: 100, retry_cap_ms: 400, retry_reset_after_ms: 300 });
+    const link = hosts.link("box");
+    await link.connect();
+    far.drop();
+    expect(await redialWait(link, 1)).toBeLessThanOrEqual(80);
+    await settled(() => far.dials() === 2 && link.current().kind === "up");
+    far.drop();
+    const climbed = await redialWait(link, 2);
+    expect(climbed).toBeGreaterThanOrEqual(100);
+    expect(climbed).toBeLessThanOrEqual(200);
+    await settled(() => far.dials() === 3 && link.current().kind === "up");
+    await new Promise((resolve) => setTimeout(resolve, 320));
+    far.drop();
+    expect(await redialWait(link, 1)).toBeLessThanOrEqual(80);
+    link.close();
+  });
+
+  test("closing a link that waits to redial ends the wait: it is down and never dials again", async () => {
+    const far = scriptedFar("far-sf", plainAnswer);
+    const hosts = hostLinks(far.spawn, undefined, undefined, { ...FAST, retry_floor_ms: 200, retry_cap_ms: 400 });
+    const link = hosts.link("box");
+    far.refuse = true;
+    expect(await refusal(link.connect())).not.toBeNull();
+    await settled(() => link.current().kind === "backoff");
+    link.close();
+    expect(link.current().kind).toBe("down");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(far.dials()).toBe(1);
+  });
+
+  test("tells orchd when a host's link opens and when it closes", async () => {
+    const changedHosts: string[] = [];
+    const far = scriptedFar("far-sg", plainAnswer);
+    const hosts = hostLinks(far.spawn, undefined, undefined, FAST, (host) => { changedHosts.push(host); });
+    const link = hosts.link("box");
+    await link.connect();
+    expect(changedHosts).toEqual(["box"]);
+    link.close();
+    await settled(() => link.current().kind === "down");
+    expect(changedHosts).toEqual(["box", "box"]);
   });
 });
 

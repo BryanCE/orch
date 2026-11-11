@@ -2,6 +2,7 @@ import { spaceName } from "../shared/space.ts";
 import type { AgentView } from "../types/store.ts";
 import { type PresenceEntry, notDead } from "../types/presence.ts";
 import type { OrchSettings } from "../types/settings.ts";
+import type { HostIdentity } from "../types/host.ts";
 
 export interface CapacityRoot {
   readonly id: string;
@@ -22,10 +23,12 @@ export interface CapacitySpace {
 }
 
 export interface FleetCapacity {
-  /** The packs in scope: one when a root or space was selected, every root on the machine otherwise. */
+  /** The packs in scope: one when a root or space was selected, every root in the fleet otherwise. */
   readonly packs: readonly CapacityPack[];
   readonly spaces: readonly CapacitySpace[];
-  readonly total: { readonly used: number; readonly cap: number | null };
+  /** One host's limit: the live agents that run on `host`, against that host's own
+   *  `fleet.max_agents_total`. An agent this fleet runs on another host counts there. */
+  readonly total: { readonly host: string; readonly used: number; readonly cap: number | null };
 }
 
 /** The whole fleet's capacity plus each pack's live members by space (null = no space). */
@@ -77,11 +80,13 @@ function rootAgent(view: AgentView, views: ReadonlyMap<string, AgentView>): Capa
   return { id: view.rootAgentId, name: current.id === view.id ? view.name : current.name };
 }
 
-/** Every pack on the machine, from views and presence, without process or filesystem reads. */
+/** Every pack in the fleet and `host`'s own total, from views and presence, without process or
+ *  filesystem reads. A pack and a space span hosts; the total counts only what runs on `host`. */
 export function fleetCapacity(
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
   settings: CapacitySettings,
+  host: HostIdentity,
 ): HeldCapacity {
   const live = presenceAliveViews(views, presence);
   const cap = settings.fleet.max_agents_per_pack;
@@ -103,7 +108,8 @@ export function fleetCapacity(
       cap: settings.fleet.max_agents_per_space[id] ?? null,
     }));
   const packs = [...packsByRoot.values()].sort((left, right) => left.root.id.localeCompare(right.root.id));
-  return { packs, spaces, total: { used: live.length, cap: settings.fleet.max_agents_total ?? null }, membersBySpace };
+  const onHost = live.filter((view) => view.environment.host.id === host.id).length;
+  return { packs, spaces, total: { host: host.name, used: onHost, cap: settings.fleet.max_agents_total ?? null }, membersBySpace };
 }
 
 export interface CapacityScope {
@@ -130,12 +136,14 @@ export function computeFleetCapacity(
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
   settings: CapacitySettings,
+  host: HostIdentity,
   options: CapacityScope = {},
 ): FleetCapacity {
-  return scopeCapacity(fleetCapacity(views, presence, settings), options);
+  return scopeCapacity(fleetCapacity(views, presence, settings, host), options);
 }
 
-/** Render the compact capacity summary used by command output: one entry per pack, the caller's first. */
+/** Render the compact capacity summary used by command output: one entry per pack, the caller's first,
+ *  then each space, then the host's total under the host's own name. */
 export function formatCapacityLine(capacity: FleetCapacity, selfId: string | undefined): string {
   const packs = capacity.packs.filter((pack) => pack.root.id === selfId || pack.used > 1);
   packs.sort((left, right) => {
@@ -146,6 +154,6 @@ export function formatCapacityLine(capacity: FleetCapacity, selfId: string | und
   });
   const packLines = packs.map((pack) => `pack ${pack.root.id === selfId ? "you" : pack.root.name} ${pack.used}/${pack.cap}`);
   const spaces = capacity.spaces.map((entry) => `space ${entry.name} ${entry.used}/${entry.cap ?? "unlimited"}`);
-  const total = `machine ${capacity.total.used}/${capacity.total.cap ?? "unlimited"}`;
+  const total = `host ${capacity.total.host} ${capacity.total.used}/${capacity.total.cap ?? "unlimited"}`;
   return [...packLines, ...spaces, total].join(" - ");
 }

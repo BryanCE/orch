@@ -252,7 +252,7 @@ describe("daemon RPC", () => {
 
   test("capacity answers the scoped fleet capacity", async () => {
     const dir = tempOrchDir("orch-rpc-capacity-");
-    const answer = { packs: [], spaces: [], total: { used: 0, cap: null } };
+    const answer = { packs: [], spaces: [], total: { host: "laptop", used: 0, cap: null } };
     const server = await start(dir, stubRpcHandlers({ capacity: () => answer }));
     try {
       expect(await rpcCall(dir, "capacity", {}, 1_000)).toEqual(answer);

@@ -17,7 +17,8 @@ import { deleteGrantsOf } from "../store/grant-rows.ts";
 import { agentLocations, currentProcess, currentProcesses, type StoredProcess } from "../store/interval-rows.ts";
 import { placeAgentIfAny, placeLocation, placedLiveness } from "../process-place.ts";
 import { linkedHosts } from "../store/host-rows.ts";
-import { originOf } from "../store/agent-rows.ts";
+import { endAgent, originOf } from "../store/agent-rows.ts";
+import { sweeps } from "../policy/close-authority.ts";
 import { agents } from "../db/schema.ts";
 import { mergeAgentStatus, selectAgentStatuses, type AgentStatusRow } from "../store/status-rows.ts";
 import { latestResultTexts, onRunUpserted, settledDispatchIds } from "../store/run-rows.ts";
@@ -112,6 +113,24 @@ function spawnerIds(root: OrchDir): Set<string> {
 function reapedHere(root: OrchDir, agentId: string): boolean {
   if (originOf(root, agentId) !== null) return false;
   return placeAgentIfAny(root, agentId)?.kind === "here";
+}
+
+/** End every agent whose process is gone and that owns no agent still running: nothing it
+ *  spawned at any depth, nothing it holds. The ending is what says it is gone, because its
+ *  rows can outlast it for as long as another row points at them. One that still owns a
+ *  running agent stays open, so the same session coming back finds its fleet. Only an agent
+ *  here is ever dead without an ending. Answers with the ids ended. */
+export function endDeadAgents(root: OrchDir, now: number): string[] {
+  const presence = [...loadPresence(root).values()];
+  const running = presence.filter((entry) => entry.liveness !== "dead").map((entry) => entry.key);
+  const ended: string[] = [];
+  for (const entry of presence) {
+    if (entry.liveness !== "dead" || agentView(root, entry.key)?.endedAt !== null) continue;
+    if (running.some((id) => sweeps(root, entry.key, id))) continue;
+    endAgent(root, entry.key, now, null);
+    ended.push(entry.key);
+  }
+  return ended;
 }
 
 /** Delete the rows of every agent whose process is gone, children before

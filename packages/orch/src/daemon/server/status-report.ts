@@ -10,7 +10,7 @@ import { agentView } from "../../store/agent-view.ts";
 import { selectAgentStatus, type AgentStatusRow } from "../../store/status-rows.ts";
 import { upsertRun } from "../../store/run-rows.ts";
 import { appendStatusHistory, writeResult } from "../../presence/history.ts";
-import { loadPresence, probeAllProcesses, reapDeadAgentRecords, recordAgentState, recordAgentStatus, runIsSettled } from "../../presence/store.ts";
+import { endDeadAgents, loadPresence, probeAllProcesses, reapDeadAgentRecords, recordAgentState, recordAgentStatus, runIsSettled } from "../../presence/store.ts";
 import { placeHere } from "../../process-place.ts";
 import { askingEventFromRow, transitionEventFromRow } from "./status-events.ts";
 import { forgetCapacity } from "./capacity.ts";
@@ -167,8 +167,9 @@ export function startLivenessTick(
   logger: Logger,
 ): { stop(): void } {
   // An agent is alive while its harness process runs. Once it is gone its
-  // exit is announced and its rows leave the store; the JSONL history keeps
-  // what it did.
+  // exit is announced, it is ended unless it still owns a running agent, and
+  // its rows leave the store when nothing points at them; the JSONL history
+  // keeps what it did.
   const tick = (): void => {
     const startedAt = Date.now();
     if (storeReplaced(orchDir)) reopenReplacedStore(orchDir, logger);
@@ -184,9 +185,11 @@ export function startLivenessTick(
       exited += 1;
       publish(transitionEventFromRow(orchDir, updated, row.state, "exited", new Date(now)));
     }
+    const ended = endDeadAgents(orchDir, Date.now());
+    if (ended.length > 0) logger.info("agents.ended", { agents: ended.join(",") });
     const reaped = reapDeadAgentRecords(orchDir);
     if (reaped.length > 0) logger.info("agents.reaped", { agents: reaped.join(",") });
-    logger.trace("tick.liveness", { exited, reaped: reaped.length, elapsedMs: Date.now() - startedAt });
+    logger.trace("tick.liveness", { exited, ended: ended.length, reaped: reaped.length, elapsedMs: Date.now() - startedAt });
   };
   const timer = setInterval(tick, intervalMs);
   timer.unref?.();

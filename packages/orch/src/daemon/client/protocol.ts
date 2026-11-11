@@ -958,7 +958,7 @@ export const RPC_RESULTS = {
   capacity: z.object({
     packs: z.array(z.object({ root: z.object({ id: z.string(), name: z.string() }), used: z.number(), cap: z.number() })).readonly(),
     spaces: z.array(z.object({ name: z.string(), used: z.number(), cap: z.number().nullable() })).readonly(),
-    total: z.object({ used: z.number(), cap: z.number().nullable() }),
+    total: z.object({ host: z.string(), used: z.number(), cap: z.number().nullable() }),
   }) satisfies z.ZodType<FleetCapacity>,
   runs: z.object({ runs: z.array(RUN_RECORD) }),
   run: z.object({ run: RUN_RECORD.nullable() }),

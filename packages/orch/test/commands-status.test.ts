@@ -290,20 +290,21 @@ describe("commands/status", () => {
     expect(row).toMatchObject({ kind: "session", createdAt: 42, pid: 4242, host });
   });
   test("capacity footer uses configured caps and shows one pack per root", () => {
-    const root = agentViewFixture("root", { name: "root", rootAgentId: "root", environment: { space: "main" } });
-    const child = agentViewFixture("child", { name: "child", rootAgentId: "root", spawnedBy: "root", environment: { space: "main" } });
-    const other = agentViewFixture("other", { name: "other", rootAgentId: "other", environment: { space: "main" } });
+    const laptop = testHost("laptop-id", "laptop");
+    const root = agentViewFixture("root", { name: "root", rootAgentId: "root", environment: { space: "main", host: laptop } });
+    const child = agentViewFixture("child", { name: "child", rootAgentId: "root", spawnedBy: "root", environment: { space: "main", host: laptop } });
+    const other = agentViewFixture("other", { name: "other", rootAgentId: "other", environment: { space: "main", host: laptop } });
     const views = new Map([root, child, other].map((view) => [view.id, view]));
     const presence = new Map([root, child, other].map((view) => [view.id, presenceEntryFixture({ key: view.id, liveness: "alive" })]));
     const capacity = computeFleetCapacity(views, presence, {
       fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 3, max_agents_per_space: { main: 6 }, max_agents_total: 10, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false },
       spaces: { main: "main" },
-    });
+    }, laptop);
     expect(capacity.packs).toEqual([
       { root: { id: "other", name: "other" }, used: 1, cap: 10 },
       { root: { id: "root", name: "root" }, used: 2, cap: 10 },
     ]);
-    expect(formatCapacityLine(capacity, "root")).toBe("pack you 2/10 - space main 3/6 - machine 3/10");
+    expect(formatCapacityLine(capacity, "root")).toBe("pack you 2/10 - space main 3/6 - host laptop 3/10");
   });
 
   test("formats workspace labels", () => {

@@ -16,7 +16,7 @@ import { spawnHeadless } from "../handlers/lifecycle.ts";
 import { resolveTabFor } from "../tabs.ts";
 import { adapterCommand, admitLaunchModel, offeredModels, resolveAdapterOrDie } from "./models.ts";
 import { planSpawn, selectBackend, worktreeIntent, type SpawnAgentPlan, type SpawnSettings } from "./plan.ts";
-import { admitSpawn, assertNewSpaceGranted, assertSpawnCapacity, assertSpawnPolicy, assertTabCapacity, claimSpawnNames, liveFleet, type CallerSelf } from "./admission.ts";
+import { admitSpawn, assertNewSpaceGranted, assertSpaceCapacity, assertSpawnCapacity, assertSpawnPolicy, assertTabCapacity, claimSpawnNames, liveFleet, type CallerSelf } from "./admission.ts";
 import { discardUnusedWorkspace, findGroupInSpace, growFleetIntoGroup, openFleetHome, prepareWorkspace, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab, type SpawnNotes } from "./placement.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
 import { openViewers, planViewers } from "./viewers.ts";
@@ -101,7 +101,9 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
   const space = settings.space ?? null;
   const { views, presence } = liveFleet(state.directory);
   assertSpawnPolicy(settingsFile, space, settings.agents.length, views, presence, self.id);
-  assertSpawnCapacity(settingsFile, space, settings.agents.length, views, presence);
+  // A host's total is its own: agents bound for a linked host are counted and ruled on there.
+  if (settings.host === null) assertSpawnCapacity(settingsFile, space, settings.agents.length, views, presence);
+  else assertSpaceCapacity(settingsFile, space, settings.agents.length, views, presence);
   const maySpawn = self.depth + 1 < settingsFile.fleet.max_depth;
   const viewers = settings.host === null ? null : planViewers({ services, settings, environment, actor: self.id });
   const created: CreatedAgent[] = [];

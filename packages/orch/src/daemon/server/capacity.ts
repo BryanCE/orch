@@ -1,5 +1,6 @@
 import { fleetCapacity, type HeldCapacity } from "../../policy/capacity.ts";
 import { loadPresence } from "../../presence/store.ts";
+import { hostIdentity } from "../../hosts/identity.ts";
 import { agentViewIndex, onAgentRefreshed } from "../../store/agent-view.ts";
 import { registerMemoReset } from "../../store/connection.ts";
 import type { OrchDir } from "../../types/core.ts";
@@ -15,7 +16,7 @@ onAgentRefreshed((orchDir) => forgetCapacity(orchDir));
 export function heldCapacity(orchDir: OrchDir, settings: OrchSettings): HeldCapacity {
   const current = held.get(orchDir);
   if (current?.settings === settings) return current.capacity;
-  const capacity = fleetCapacity(agentViewIndex(orchDir), loadPresence(orchDir), settings);
+  const capacity = fleetCapacity(agentViewIndex(orchDir), loadPresence(orchDir), settings, hostIdentity());
   held.set(orchDir, { settings, capacity });
   return capacity;
 }

@@ -5,6 +5,7 @@ import { spawnHeadless } from "../src/daemon/server/handlers/lifecycle.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { heldBackend } from "../src/backends/registry.ts";
 import { hostIdFrom, hostShell } from "../src/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { selectOpenOutboxForTarget } from "../src/store/outbox-rows.ts";
 import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
@@ -39,8 +40,8 @@ function attachFakeBridge(directory: OrchDir, key: string): BridgeDelivery[] {
 const PI_MODELS = "provider model context max-out thinking images\nopenai gpt-5.6-luna 400K 128K yes yes\n";
 
 /** Services whose model catalogue answers from memory, so admitting a model runs no harness. */
-function servicesAt(orchDir: OrchDir): DaemonServices {
-  const services = testDaemonServices({ orchDir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] } } });
+function servicesAt(orchDir: OrchDir, fleet: Record<string, unknown> = {}): DaemonServices {
+  const services = testDaemonServices({ orchDir, settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, fleet } });
   const models: ModelCatalogue = { ...services.models, read: () => PI_MODELS };
   return { ...services, models };
 }
@@ -92,6 +93,22 @@ describe("a spawn another host asks for", () => {
     }, hostIdFrom("the-other-host"));
     expect(state.held.has({ kind: "agent", agent: placeHere(orchDir, key) })).toBe(true);
     expect(selectOpenOutboxForTarget(orchDir, key)).toEqual([]);
+  });
+
+  test("is refused once this host is at its own fleet.max_agents_total, naming the host, and starts no PTY", async () => {
+    const orchDir = tempOrchDir("orch-held-host-cap-");
+    dirs.push(orchDir);
+    // Every fake PTY is this test process, so the first agent reads as running here.
+    const provider = new FakePtyProvider(() => process.pid);
+    const state = idleDaemonState(servicesAt(orchDir, { max_agents_total: 1 }), orchDir, provider);
+    const ask = (name: string): Promise<string | null> => spawnHeadless(state, {
+      key: mintAgentId(), name, spawner: "spawner-on-the-other-host", adapter: "pi",
+      model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
+    }, hostIdFrom("the-other-host")).then(() => null, (error: unknown) => errorMessage(error));
+
+    expect(await ask("far-first")).toBeNull();
+    expect(await ask("far-second")).toBe(`spawn refused: would put host ${hostIdentity().name} at 2/1 agents (1 live + 1 requested; fleet.max_agents_total)`);
+    expect(provider.spawned).toHaveLength(1);
   });
 
   test("a headless spawn here with no prompt is refused: it would exit before any dispatch", async () => {

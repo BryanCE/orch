@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { applyFixes } from "../src/daemon/server/doctor/runner.ts";
 import { checkSpawnLimits } from "../src/daemon/server/doctor/settings-file.ts";
-import { assertSpawnCapacity, spawnPolicyError } from "../src/daemon/server/spawn/admission.ts";
+import { assertHostCapacity, assertSpaceCapacity, assertSpawnCapacity, spawnPolicyError } from "../src/daemon/server/spawn/admission.ts";
 import { liveSpawnCounts } from "../src/policy/capacity.ts";
 import { SpawnRefusalError } from "../src/refusal.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { seedStatus, statusRow } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { agentViewFixture } from "./helpers/views.ts";
+import { testHost } from "./helpers/host.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import type { AgentView } from "../src/types/store.ts";
 import type { PresenceEntry } from "../src/types/presence.ts";
 
@@ -106,7 +108,7 @@ describe("spawn limits", () => {
     writeSettingsFixture(dir, { fleet: { max_agents_total: 6 } });
     const settings = fileSettingsManager(dir).current();
     expect(settings.fleet.max_agents_total).toBe(6);
-    expect(capacityRefusal(settings, "wA", 2, data)).toBe("spawn refused: would put all spaces at 7/6 agents (5 live + 2 requested; fleet.max_agents_total)");
+    expect(capacityRefusal(settings, "wA", 2, data)).toBe(`spawn refused: would put host ${hostIdentity().name} at 7/6 agents (5 live + 2 requested; fleet.max_agents_total)`);
   });
 
   test("one workspace may use the full global allotment", () => {
@@ -132,7 +134,27 @@ describe("spawn limits", () => {
     const settings = fileSettingsManager(dir).current();
     const data = records([["a", "wD"], ["b", "wX"]]);
     expect(() => assertSpawnCapacity(settings, "wX", 4, data.views, data.presence)).not.toThrow();
-    expect(capacityRefusal(settings, "wX", 5, data)).toBe("spawn refused: would put all spaces at 7/6 agents (2 live + 5 requested; fleet.max_agents_total)");
+    expect(capacityRefusal(settings, "wX", 5, data)).toBe(`spawn refused: would put host ${hostIdentity().name} at 7/6 agents (2 live + 5 requested; fleet.max_agents_total)`);
+  });
+
+  test("the total is this host's: agents the fleet runs on another host leave its headroom whole", () => {
+    const dir = storeDir();
+    writeSettingsFixture(dir, { fleet: { max_agents_total: 3 } });
+    const settings = fileSettingsManager(dir).current();
+    const data = records([["a", "wD"], ["b", "wD"], ["far-1", "wD"], ["far-2", "wD"]]);
+    const far = testHost("far-id", "far");
+    for (const id of ["far-1", "far-2"]) data.views.set(id, agentViewFixture(id, { environment: { space: "wD", host: far } }));
+    expect(() => assertHostCapacity(settings, 1, data.views, data.presence)).not.toThrow();
+    expect(capacityRefusal(settings, "wD", 2, data)).toBe(`spawn refused: would put host ${hostIdentity().name} at 4/3 agents (2 live + 2 requested; fleet.max_agents_total)`);
+  });
+
+  test("a space cap counts the space's agents on every host", () => {
+    const dir = storeDir();
+    writeSettingsFixture(dir, { fleet: { max_agents_per_space: { wD: 2 } } });
+    const settings = fileSettingsManager(dir).current();
+    const data = records([["a", "wD"], ["far-1", "wD"]]);
+    data.views.set("far-1", agentViewFixture("far-1", { environment: { space: "wD", host: testHost("far-id", "far") } }));
+    expect(() => assertSpaceCapacity(settings, "wD", 1, data.views, data.presence)).toThrow("spawn refused: would put wD at 3/2 agents (2 live + 1 requested; fleet.max_agents_per_space.wD)");
   });
 
   test("foreign pack members do not consume the caller's pack cap", () => {

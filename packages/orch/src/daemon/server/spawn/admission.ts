@@ -20,6 +20,7 @@ import { admitHome } from "../handlers/grant.ts";
 import { withLaunchPoints } from "../../../policy/compaction.ts";
 import { computeFleetCapacity, liveSpawnCounts, packsUsed } from "../../../policy/capacity.ts";
 import { availableMemoryMb, memoryRefusal } from "../../../policy/memory.ts";
+import { hostIdentity } from "../../../hosts/identity.ts";
 
 /** Who asked for the spawn, as orchd resolved its credential. */
 export type CallerSelf = ResultOf<"self">;
@@ -53,7 +54,7 @@ function livePackMembers(
   packRoot: string | null,
 ): number {
   if (packRoot === null && space === null) return 1;
-  const capacity = computeFleetCapacity(views, presence, { fleet: settings.fleet }, {
+  const capacity = computeFleetCapacity(views, presence, { fleet: settings.fleet }, hostIdentity(), {
     packRootId: packRoot,
     packSpace: packRoot === null ? space : undefined,
   });
@@ -110,6 +111,45 @@ export function assertTabCapacity(settings: Pick<OrchSettings, "fleet">, tab: st
   throw new SpawnRefusalError(`spawn refused: would put tab ${tab} at ${occupied + requested}/${cap} agents (${occupied} placed + ${requested} requested; fleet.max_agents_per_tab). Open another tab: orch spawn <name>... --tab <tab>.`);
 }
 
+/** Refuse a spawn that would put its space past `fleet.max_agents_per_space`. A space spans
+ *  hosts, so the orchd that was asked rules on it wherever the agents will run. */
+export function assertSpaceCapacity(
+  settings: Pick<OrchSettings, "fleet">,
+  space: string | null,
+  requested: number,
+  views: ReadonlyMap<string, AgentView>,
+  presence: ReadonlyMap<string, PresenceEntry>,
+): void {
+  if (space === null) return;
+  const spaceLive = liveSpawnCounts(views, presence).get(space) ?? 0;
+  const spaceCap = settings.fleet.max_agents_per_space[space];
+  if (spaceCap !== undefined && spaceLive + requested > spaceCap) {
+    throw new SpawnRefusalError(`spawn refused: would put ${space} at ${spaceLive + requested}/${spaceCap} agents (${spaceLive} live + ${requested} requested; fleet.max_agents_per_space.${space})`);
+  }
+}
+
+/** Refuse a spawn that would put this host past `fleet.max_agents_total`. The limit is this
+ *  host's own: it counts the agents that run here, and only this host's orchd rules on it. */
+export function assertHostCapacity(
+  settings: Pick<OrchSettings, "fleet">,
+  requested: number,
+  views: ReadonlyMap<string, AgentView>,
+  presence: ReadonlyMap<string, PresenceEntry>,
+): void {
+  const { host, used, cap } = computeFleetCapacity(views, presence, settings, hostIdentity()).total;
+  if (cap !== null && used + requested > cap) {
+    throw new SpawnRefusalError(`spawn refused: would put host ${host} at ${used + requested}/${cap} agents (${used} live + ${requested} requested; fleet.max_agents_total)`);
+  }
+}
+
+/** Refuse a spawn while this host is under `fleet.min_free_memory_mb`. The memory is this
+ *  host's, so the refusal names it: the asker may be another host's orchd. */
+function assertHostMemory(settings: Pick<OrchSettings, "fleet">): void {
+  const lowMemory = memoryRefusal(settings, availableMemoryMb());
+  if (lowMemory) throw new SpawnRefusalError(`spawn refused on host ${hostIdentity().name}: ${lowMemory}`);
+}
+
+/** The space cap and this host's total, for agents that will run here. */
 export function assertSpawnCapacity(
   settings: Pick<OrchSettings, "fleet">,
   space: string | null,
@@ -117,18 +157,17 @@ export function assertSpawnCapacity(
   views: ReadonlyMap<string, AgentView>,
   presence: ReadonlyMap<string, PresenceEntry>,
 ): void {
-  const counts = liveSpawnCounts(views, presence);
-  const capacity = computeFleetCapacity(views, presence, settings);
-  const live = capacity.total.used;
-  const spaceLive = space === null ? 0 : counts.get(space) ?? 0;
-  const spaceCap = space === null ? undefined : settings.fleet.max_agents_per_space[space];
-  if (spaceCap !== undefined && spaceLive + requested > spaceCap) {
-    throw new SpawnRefusalError(`spawn refused: would put ${space} at ${spaceLive + requested}/${spaceCap} agents (${spaceLive} live + ${requested} requested; fleet.max_agents_per_space.${space})`);
-  }
-  const globalCap = settings.fleet.max_agents_total;
-  if (globalCap !== undefined && live + requested > globalCap) {
-    throw new SpawnRefusalError(`spawn refused: would put all spaces at ${live + requested}/${globalCap} agents (${live} live + ${requested} requested; fleet.max_agents_total)`);
-  }
+  assertSpaceCapacity(settings, space, requested, views, presence);
+  assertHostCapacity(settings, requested, views, presence);
+}
+
+/** This host's own limits, for agents another host's orchd asked it to run: its memory floor
+ *  and its agent total. The asking orchd ruled on depth, pack and space; it cannot rule on
+ *  these, because they are this host's settings and this host's agents. */
+export function assertHostAdmits(directory: OrchDir, settings: Pick<OrchSettings, "fleet">, requested: number): void {
+  assertHostMemory(settings);
+  const { views, presence } = liveFleet(directory);
+  assertHostCapacity(settings, requested, views, presence);
 }
 
 /** Exactly what opening a space for this fleet would do. Every field the
@@ -169,8 +208,8 @@ export async function admitSpawn(
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.
   assertSpawnPolicy(settings, settings.space ?? self.space, settings.agents.length, views, presence, self.id);
-  const lowMemory = memoryRefusal(settings, availableMemoryMb());
-  if (lowMemory) throw new SpawnRefusalError(`spawn refused: ${lowMemory}`);
+  // Memory is the limit of the host the agents run on; a linked host's orchd checks its own.
+  if (settings.host === null) assertHostMemory(settings);
   const agents = settings.agents.map((agent) => ({ ...agent, model: admitLaunchModel(settingsFile, agent.adapter, catalogue, agent.model) }));
   // Shim refresh is a launch side effect, so it happens only after policy
   // accepts, and only for the harnesses actually being launched.

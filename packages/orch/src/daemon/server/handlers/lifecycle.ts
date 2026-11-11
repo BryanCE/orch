@@ -26,6 +26,7 @@ import { presenceEntry } from "../../../presence/store.ts";
 import { isAgentState } from "../../../agent-state.ts";
 import { pendingQuestions, recordQuestion, type QuestionRow } from "../../../store/question-rows.ts";
 import { governWrite } from "./write.ts";
+import { assertHostAdmits } from "../spawn/admission.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
 import type { LifecycleVerb } from "../../../types/adapter.ts";
 import type { DaemonState } from "../state.ts";
@@ -88,7 +89,10 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     tools: params.tools,
     workers: params.workers,
   };
-  if (peer !== undefined) return spawnHeldForPeer(state, adapter, { ...opts, key, firstPrompt: prompt, spawner: null, origin: { askedBy: peer, spawner: params.spawner } });
+  if (peer !== undefined) {
+    assertHostAdmits(directory, state.services.settings.current(), 1);
+    return spawnHeldForPeer(state, adapter, { ...opts, key, firstPrompt: prompt, spawner: null, origin: { askedBy: peer, spawner: params.spawner } });
+  }
   const handle = headlessBackend.spawn(adapter, { ...opts, spawner: params.spawner });
   const running = headlessBackend.process.running(handle);
   return { key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
